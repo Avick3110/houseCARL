@@ -10,41 +10,13 @@ using Noggog;
 
 namespace HousecarlCore;
 
-/// <summary>
-/// The reflection-driven write engine: overlay → <c>GetOrAddAsOverride</c> → reflect the property → coerce →
-/// set → write with masters, for <b>any</b> record group and along <b>nested</b> paths (substruct, dict-by-key,
-/// list element, polymorphic arm). It is blind to which record it edits, which is what makes coverage a property
-/// of Mutagen's model rather than of a hand-written per-type map. A path it cannot navigate or a value it cannot
-/// coerce is refused by name, never skipped.
-///
-/// <para><b>Corpus-rulebook validation is the CALLER's, not this layer's</b> — <see cref="ApplyVerb"/> is public and
-/// runs no rulebook check. It refuses most of what pre-flight would, with a CLR/structural message rather than a
-/// corpus-derived one. What only the rulebook catches: record IDENTITY (<c>FormKey</c> is settable on every concrete
-/// Mutagen record, so nothing here stops a caller rewriting it), and legality the corpus declares that no CLR type
-/// expresses. A direct or CLI caller skipping pre-flight mutates that unvalidated.</para>
-///
-/// <para>Also here, and still console entry points in a library: the <c>patch</c> / <c>show</c> /
-/// <c>condition-patch</c> dev harnesses, and the <c>coerce-audit</c> / <c>coerce-selftest</c> CI probes.</para>
-/// </summary>
+/// <summary>The reflection-driven write engine: overlay → override → reflect → coerce → set → write with masters, for
+/// ANY record group along NESTED paths. Contracts in docs/architecture/write-path.md; pre-flight is the caller's.</summary>
 public static class WriteEngine
 {
-    // ======================================================================
-    //  Generic real-patch dev harness (concrete edits -> a real .esp): take a request
-    //  (source plugin, record type, record id, one-or-more field edits), drive each through
-    //  the same pre-flight (CorpusRulebook) + engine (GetOrAddAsOverride/ApplyVerb) +
-    //  write-with-masters path, emit ONE reviewable .esp carrying all the edits, leave the
-    //  source byte-for-byte untouched. Cross-master serialization fails LOUD here — the cross-master write path is
-    //  open work, #3.
-    //
-    //  Single edit (flags):
-    //    patch --source "<plugin>" --type Armor --editorid ArmorIronCuirass \
-    //          --path ArmorRating --verb Set --value 30 [--key <dictKey/listIdx>]
-    //  Multiple edits into one patch (repeatable --op "Verb|path|key|value", key/value optional):
-    //    patch --source "<plugin>" --type Weapon --formkey 0F1AC1:Skyrim.esm \
-    //          --op "Set|BasicStats.Damage||20" --op "SetAtIndex|Keywords|0|01E71F:Skyrim.esm"
-    //  Locate with EITHER --editorid OR --formkey (012E46:Skyrim.esm). [--name <patch>] [--out <path>]
-    //  Sibling `show` resolves a record + prints its fields/keywords (read-to-plan).
-    // ======================================================================
+    // Dev harness `patch`: drive one-or-more edits through pre-flight + engine into ONE reviewable .esp, source untouched.
+    //   patch --source "<plugin>" --type Armor (--editorid X | --formkey 012E46:Skyrim.esm)
+    //        [--path P --verb Set --value V [--key K] | --op "Verb|path|key|value" …] [--name <patch>] [--out <path>]
     public static int RunPatch(string[] args)
     {
         var f = ParseFlags(args);
@@ -61,8 +33,7 @@ public static class WriteEngine
         static string Label(WriteRequest r) =>
             $"{r.Verb} {string.Join('.', r.Path)}{(r.Key is not null ? "[" + r.Key + "]" : "")}{(r.Value is not null ? " = " + r.Value : "")}";
 
-        // Collect the edit(s): one-or-more repeatable --op "Verb|path|key|value" (key/value optional),
-        // else the single-edit --path/--verb/--value/--key form. All edits target the same record below.
+        // Collect the edit(s): repeatable --op "Verb|path|key|value", else the single --path/--verb/--value/--key form.
         var reqs = new List<WriteRequest>();
         var opStrings = new List<string>();
         for (int i = 0; i < args.Length - 1; i++)
@@ -168,8 +139,6 @@ public static class WriteEngine
         Console.WriteLine($"Pre-flight:    ACCEPT (all {reqs.Count})");
 
         // ENGINE: one override of the record, then apply every edit to it.
-        // Nested-group targets (Cell/Placed*/INFO/Navmesh/Landscape) reconstruct their parent chain from the
-        // source's link cache; flat-group targets ignore it. One resolution path serves both.
         var sourceCache = sourceMod.ToImmutableLinkCache();
         var patchMod = new SkyrimMod(new ModKey(name, ModType.Plugin), SkyrimRelease.SkyrimSE);
         IMajorRecord patchRecord;
@@ -272,16 +241,8 @@ public static class WriteEngine
         catch (Exception ex) { return $"(unreadable: {ex.Message})"; }
     }
 
-    // ----------------------------------------------------------------------
-    //  Read-to-plan: resolve a record and print what's needed to author a
-    //  correct write — its FormKey/EditorID, requested --path values, and its
-    //  Keywords resolved to editorids (so material keywords + their list index
-    //  are visible). Not the read PRODUCT; the minimum read to ground a write.
-    //  Reuses the same resolve path as `patch`.
-    //    dotnet run --project src/housecarl-generator show \
-    //      --source "<plugin>" [--type Weapon] --formkey 0F1AC1:Skyrim.esm \
-    //      [--path BasicStats.Damage] [--path BasicStats.Value]
-    // ----------------------------------------------------------------------
+    // `show` — read-to-plan: print a record's FormKey/EditorID, the requested --path values, and its Keywords as
+    //   editorids.  show --source "<plugin>" [--type Weapon] --formkey 0F1AC1:Skyrim.esm [--path BasicStats.Damage]
     public static int RunShow(string[] args)
     {
         var f = ParseFlags(args);
@@ -327,14 +288,8 @@ public static class WriteEngine
         return 0;
     }
 
-    // ======================================================================
-    //  Condition-target write demonstration (condition-patch): locate a real FORM-mode condition target in a source
-    //  plugin, RE-TARGET it to a different real form THROUGH THE ENGINE (pre-flight rooted at the arm + ApplyVerb ->
-    //  SetFloi), and emit ONE reviewable single-master .esp; the original stays byte-for-byte untouched. The write is
-    //  ARM-ROOTED — the same engine entry BuildStruct's nested Sets use.
-    //    dotnet run --project src/housecarl-generator condition-patch \
-    //        --source "<plugin>" [--target XXXXXX:Plugin.esp] [--out <path>] [--name <patch>]
-    // ======================================================================
+    // `condition-patch` — re-target a real FORM-mode condition THROUGH the engine into one reviewable single-master
+    //   .esp.  condition-patch --source "<plugin>" [--target XXXXXX:Plugin.esp] [--out <path>] [--name <patch>]
     public static int RunConditionPatch(string[] args)
     {
         var f = ParseFlags(args);
@@ -347,8 +302,7 @@ public static class WriteEngine
         var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(source));
         var cache = sourceMod.ToImmutableLinkCache();
 
-        // Scan for the first FORM-mode condition target (UseAliases=UsePackageData=false, a populated FormKey) —
-        // form mode reads cleanest in xEdit (a real object). Record its owner + condition field + index + arm + prop.
+        // Scan for the first FORM-mode condition target (no aliases, no package data, a populated FormKey).
         IMajorRecordGetter? owner = null;
         string condField = ""; int condIndex = -1; string armCatalog = "", floiProp = "";
         FormKey oldTarget = default; Type? linkedT = null;
@@ -375,8 +329,7 @@ public static class WriteEngine
         }
         if (owner is null) { Console.Error.WriteLine($"error: no populated form-mode condition target found in {Path.GetFileName(source)}."); return 1; }
 
-        // New target: --target, else the first real record of the linked type that differs from the current one (so
-        // xEdit resolves it to a sensible same-type name), else the Player ref as a last resort.
+        // New target: --target, else the first differing record of the linked type, else the Player ref.
         var newTarget = f.GetValueOrDefault("target") ?? PickSameTypeTarget(sourceMod, linkedT, oldTarget) ?? "000014:Skyrim.esm";
 
         var name = f.GetValueOrDefault("name") ?? "houseCARL_ConditionPatch";
@@ -450,8 +403,7 @@ public static class WriteEngine
         return ok ? 0 : 1;
     }
 
-    /// <summary>Yield (condition, owning-field-name, index) for every condition on a record — conditions live in a
-    /// list property whose element is IConditionGetter.</summary>
+    /// <summary>Yield (condition, owning-field-name, index) for every condition on a record.</summary>
     internal static IEnumerable<(IConditionGetter cond, string field, int index)> ConditionsOf(IMajorRecordGetter rec)
     {
         foreach (var p in rec.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
@@ -464,8 +416,7 @@ public static class WriteEngine
         }
     }
 
-    /// <summary>Read the form-mode FormKey off a live FormLinkOrIndex via its <c>.Link</c> (an IFormLinkGetter);
-    /// null when unset or in index mode.</summary>
+    /// <summary>The form-mode FormKey off a live FormLinkOrIndex; null when unset or in index mode.</summary>
     internal static FormKey? ReadFloiFormKey(object? floi)
     {
         if (floi is null) return null;
@@ -473,9 +424,7 @@ public static class WriteEngine
         return link is IFormLinkGetter fl && !fl.FormKey.IsNull ? fl.FormKey : (FormKey?)null;
     }
 
-    /// <summary>Navigate a mutable override to the mutable ConditionData arm at <paramref name="field"/>[<paramref name="index"/>].Data.
-    /// Enumerates to the index (Mutagen's ExtendedList is not reliably non-generic IList); the yielded element is the
-    /// in-list reference, so mutating its arm mutates the override.</summary>
+    /// <summary>Navigate a mutable override to the mutable ConditionData arm at field[index].Data — the in-list reference.</summary>
     internal static object NavigateToConditionArm(IMajorRecord ov, string field, int index)
     {
         var list = ResolveProperty(ov.GetType(), field)?.GetValue(ov)
@@ -487,8 +436,7 @@ public static class WriteEngine
             ?? throw new InvalidOperationException($"Condition #{index} has no Data arm.");
     }
 
-    /// <summary>Pick a real record of the FLOI's linked type (so xEdit resolves the new target to a sensible same-type
-    /// name) whose FormKey differs from the current target; null if the type can't be sampled here.</summary>
+    /// <summary>A record of the FLOI's linked type differing from the current target; null if it cannot be sampled.</summary>
     static string? PickSameTypeTarget(ISkyrimModGetter mod, Type? linkedGetter, FormKey current)
     {
         if (linkedGetter is null) return null;
@@ -498,16 +446,9 @@ public static class WriteEngine
         return null;
     }
 
-    // ======================================================================
-    //  GENERIC PATCH-MOD LIFECYCLE
-    // ======================================================================
+    // ---- GENERIC PATCH-MOD LIFECYCLE ----
 
-    /// <summary>True iff <paramref name="source"/> lives in a NESTED group (no flat <c>SkyrimGroup&lt;T&gt;</c>) and so
-    /// needs the source link cache to reconstruct its parent chain when overridden (Cell / the Placed* family / INFO /
-    /// Navmesh / Landscape). Lets the write cleave build the COSTLY per-overlay link cache ONLY for nested records and
-    /// never for the flat common case (<see cref="LoadOrderResolver.LinkCacheFor"/> is seconds + GBs). Mirrors
-    /// <see cref="TryResolveGroup"/>'s flat test off the SAME <see cref="EnumerateFlatGroups"/> enumeration (no drift),
-    /// without needing a patch mod in hand.</summary>
+    /// <summary>True iff <paramref name="source"/> is in a NESTED group and so needs the source link cache; the same test as every flat-vs-nested decision.</summary>
     public static bool RecordNeedsSourceCache(IMajorRecordGetter source)
     {
         foreach (var (_, getterIface) in FlatGroupTypes)
@@ -515,54 +456,27 @@ public static class WriteEngine
         return true;
     }
 
-    // ======================================================================
-    //  CHILD-GROUP PRESERVATION ACROSS A DROP-THEN-COPY
-    // ======================================================================
+    // ---- CHILD-GROUP PRESERVATION ACROSS A DROP-THEN-COPY ----
 
-    /// <summary>
-    /// The child records a record OWNS, lifted off it so a drop-then-copy can put them back.
-    /// <para/>
-    /// <b>Why this exists.</b> Both <c>forward</c> lanes replace a FormKey the destination already carries by
-    /// <c>Remove</c>-ing the whole record and then copying the source body in — a collision must not silently SKIP the
-    /// copy. The drop takes the record's child GROUP with it, and <see cref="GenericGetOrAddAsOverride"/> carries none
-    /// back in, so without this every child under the replaced record is destroyed while the call reports success:
-    /// INFOs under a DIAL, placed refs under a CELL.
-    /// <para/>
-    /// <b>There is nothing to reconcile.</b> The copy brings no children in, so this is re-attach-what-was-there, not
-    /// a merge — and the forward semantic is unchanged by it (a forwarded parent asserts the source's FIELDS; the
-    /// source's own children stay in the source's plugin, which is what lets a DIAL override not fight other mods'
-    /// added lines). <see cref="RestoreChildGroup"/> nonetheless REFUSES rather than overwrites if the copy ever does
-    /// arrive carrying children — that assumption is Mutagen's, not ours, and a bump that changed it would otherwise
-    /// turn this preservation into a silent discard.
-    /// </summary>
+    /// <summary>The child records a record OWNS, lifted off so a drop-then-copy can put them back; contract in docs/architecture/write-path.md.</summary>
     public readonly record struct ChildGroupCarry(
         IReadOnlyList<(PropertyInfo Prop, object? Value)> Held, int Count, IReadOnlyList<string> Names, bool Captured)
     {
-        /// <summary>Nothing was held — the record owns no children (the overwhelmingly common case: every record type
-        /// but Cell / DialogTopic / Worldspace), so there is nothing to re-attach. NOT a licence to skip the arrival
-        /// tripwire in <see cref="RestoreChildGroup"/>: see the comment there.</summary>
+        /// <summary>Nothing was held — the record owns no children. NOT a licence to skip the arrival tripwire.</summary>
         public bool IsEmpty => Count == 0;
     }
 
-    /// <summary>Lift <paramref name="record"/>'s owned child records off it, BEFORE the drop. The values are the
-    /// live collections — the record is on its way out of the mod and nothing else references it, so re-attaching them
-    /// by reference is lossless and needs no deep copy.</summary>
+    /// <summary>Lift the record's owned child records off it, BEFORE the drop — the live collections, by reference.</summary>
     public static ChildGroupCarry CaptureChildGroup(IMajorRecord record)
     {
         var held = new List<(PropertyInfo, object?)>();
         foreach (var p in ChildBearingProperties(record.GetType()))
             held.Add((p, p.GetValue(record)));
-        // Captured: true is written HERE and nowhere else — it is the fact "a drop-then-copy is happening to this
-        // record", and RestoreChildGroup keys off it rather than inferring it from the carry's shape or the record's
-        // type. Neither inference works: emptiness cannot tell a childless replace from no replace at all, and a type
-        // test fires on records the call itself just created.
+        // Captured: written HERE and nowhere else; neither the carry's shape nor the record's type can stand in for it.
         return new ChildGroupCarry(held, ChildCountOf(record), ChildNamesOf(record, 10), Captured: true);
     }
 
-    /// <summary>The capture, with a throw turned into a refusal naming the RIGHT operation. The lanes run this inside
-    /// the try whose catch reports "the override-copy threw" — true of the copy, false of a fault reading the
-    /// destination's own existing record, which would send a caller debugging the wrong file. Returns null on success,
-    /// or the refusal.</summary>
+    /// <summary>The capture, with a throw turned into a refusal naming the destination read rather than the copy.</summary>
     public static string? TryCaptureChildGroup(IMajorRecord record, string untouchedClause, out ChildGroupCarry carry)
     {
         carry = default;
@@ -575,27 +489,17 @@ public static class WriteEngine
         }
     }
 
-    /// <summary>Re-attach a <see cref="CaptureChildGroup"/> carry onto the freshly copied record, AFTER the copy.
-    /// Returns null on success, or a refusal naming the cause — the caller fails the whole call with nothing
-    /// serialized, never a partial write. <paramref name="untouchedClause"/> is the lane's own statement of what was
-    /// left alone, SUBSTITUTED into each message rather than appended by the caller, so the reassurance lands before
-    /// "please report it" instead of after it.</summary>
+    /// <summary>Re-attach a carry onto the freshly copied record, AFTER the copy; null on success, else a refusal that
+    /// fails the whole call. <paramref name="untouchedClause"/> is the lane's own statement, substituted in.</summary>
     public static string? RestoreChildGroup(IMajorRecord fresh, ChildGroupCarry carry, string untouchedClause)
     {
-        // THE ONE GATE: did a capture happen — i.e. is this record being replaced by a drop-then-copy? Nothing else.
-        // The lane knows that as a fact and CaptureChildGroup writes it; this method must not re-derive it. Deriving
-        // it from the carry being EMPTY skips the arrival check where an arriving set would be an INJECTION of the
-        // source's children into a destination that deliberately holds none. Deriving it from the record's TYPE fires
-        // on records the call just created itself (forwarding an INFO and its DIAL in one call), and short-circuits
-        // the count check for any type whose containers the walk cannot see — the silent loss this exists to prevent.
+        // THE ONE GATE: did a capture happen. Deriving it from the carry being empty or the record's type both fail.
         if (!carry.Captured) return null;
 
-        // The walks are INSIDE the try with the re-attach: a fault in Mutagen's containment enumeration is not the
-        // override-copy throwing, and the lane's catch would call it that.
+        // The walks are INSIDE the try: a fault in Mutagen's containment enumeration is not the override-copy throwing.
         try
         {
-            // The copy is expected to arrive EMPTY (see the type doc). If it ever does not, surface it instead of
-            // silently resolving it either way. A Mutagen bump that starts carrying children in trips this loudly.
+            // The copy is expected to arrive EMPTY; if it ever does not, surface it rather than resolve it either way.
             var arrived = ChildCountOf(fresh);
             if (arrived > 0)
             {
@@ -613,11 +517,8 @@ public static class WriteEngine
             foreach (var (prop, value) in carry.Held)
                 prop.SetValue(fresh, value);
 
-            // By-construction verification, off Mutagen's OWN containment enumeration rather than the reflected
-            // property set that did the re-attach: if a containment path exists that ChildBearingProperties cannot
-            // see, the counts disagree and the call refuses. This runs even when the carry held NOTHING to re-attach,
-            // because the two readings are independent — a carry can count children off Mutagen's walk while the
-            // reflected set that would restore them is empty, and that disagreement is exactly the silent loss.
+            // By-construction verification off Mutagen's OWN containment enumeration, not the reflected set that did
+            // the re-attach — two independent readings, and it runs even when the carry held nothing to restore.
             var after = ChildCountOf(fresh);
             if (after != carry.Count)
                 return $"cannot forward {FormIdToken.Of(fresh.FormKey)}: it carries {carry.Count} child record(s) " +
@@ -634,10 +535,7 @@ public static class WriteEngine
         }
     }
 
-    /// <summary>How many major records are contained UNDER <paramref name="record"/>, by Mutagen's own containment
-    /// walk — the independent yardstick <see cref="RestoreChildGroup"/> checks the reflected re-attach against. Count
-    /// only: the names cost a string per descendant, which on a worldspace is six figures, so they are materialized
-    /// by <see cref="ChildNamesOf"/> on the refusal paths and on capture (ten, for the message) alone.</summary>
+    /// <summary>How many major records are contained UNDER the record, by Mutagen's own containment walk — the yardstick the re-attach is checked against.</summary>
     internal static int ChildCountOf(IMajorRecordGetter record) =>
         record is IMajorRecordGetterEnumerable e ? e.EnumerateMajorRecords().Count() : 0;
 
@@ -647,17 +545,7 @@ public static class WriteEngine
             ? e.EnumerateMajorRecords().Take(max).Select(r => r.EditorID ?? FormIdToken.Of(r.FormKey)).ToList()
             : new List<string>();
 
-    /// <summary>The settable properties of <paramref name="t"/> that can REACH an owned major record, MEMOIZED per type
-    /// (pure reflection metadata, constant for the process lifetime, and this runs per replaced record).
-    /// <para/>
-    /// Reachability is RECURSIVE and that is load-bearing, not defensive: <c>Worldspace.SubCells</c> reaches its cells
-    /// through two non-record container types (<c>WorldspaceBlock</c> → <c>WorldspaceSubBlock</c> → <c>Cell</c>), so a
-    /// one-level "is this property a major record" test sees <c>Cell</c>/<c>DialogTopic</c> and misses every exterior
-    /// cell in the game. <c>IFormLink</c>s are excluded — a link REFERENCES a record, it does not own one, and walking
-    /// them would sweep in most of the schema. Against Mutagen 0.53.1 this answers: Cell (Landscape, NavigationMeshes,
-    /// Persistent, Temporary), DialogTopic (Responses), Worldspace (TopCell, SubCells) — and nothing else. That answer
-    /// is pinned over every concrete record type Mutagen models, not a sample, so a bump that adds a container shows
-    /// up as a test failure rather than as a refusal in a caller's face.</summary>
+    /// <summary>The settable properties of <paramref name="t"/> that REACH an owned major record, MEMOIZED; contract in docs/architecture/write-path.md.</summary>
     internal static IReadOnlyList<PropertyInfo> ChildBearingProperties(Type t) => _childProps.GetOrAdd(t, static ty =>
         ty.GetProperties(BindingFlags.Public | BindingFlags.Instance)
           .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0
@@ -665,33 +553,17 @@ public static class WriteEngine
           .ToList());
     static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, IReadOnlyList<PropertyInfo>> _childProps = new();
 
-    /// <summary>Can a value of <paramref name="t"/> hold an owned major record? See <see cref="ChildBearingProperties"/>
-    /// for why this recurses and why links are cut. The depth bound and the visited set close the cycles Mutagen's
-    /// object graph has (a Cell reaches a Cell through a Worldspace). The bound is a CONSTANT with one level of slack,
-    /// not a by-construction limit: the deepest real path is Worldspace.SubCells at 5 (ExtendedList → WorldspaceBlock
-    /// → Items → WorldspaceSubBlock → Items → Cell). A Mutagen bump that nests deeper than 6 degrades fail-closed —
-    /// the property drops out of the set and the count check in <see cref="RestoreChildGroup"/> refuses — so the
-    /// constant is a tripwire, not a correctness assumption.</summary>
+    /// <summary>Can a value of <paramref name="t"/> hold an owned major record? The recursion and the depth bound are in docs/architecture/write-path.md.</summary>
     static bool ReachesOwnedRecord(Type t, HashSet<Type> seen, int depth)
         => OwnedRecordTypeOf(t, seen, depth, throughInterfaces: false) is not null;
 
-    /// <summary>The record type <paramref name="t"/> reaches, or null when it reaches none — the same walk
-    /// <see cref="ReachesOwnedRecord"/> is, answering WHICH record rather than whether. The read side needs the
-    /// type to ask Mutagen's containment enumeration for a field's OWN children: enumerating a worldspace block
-    /// untyped yields its cells AND every placed reference inside them, which is a different field's content.
-    /// <para>It steps through INTERFACES as well as classes, which the write-side walk does not: a read is handed
-    /// an overlay body, whose containers are getter interfaces all the way down
-    /// (<c>IWorldspaceBlockGetter</c> → <c>IWorldspaceSubBlockGetter</c> → <c>ICellGetter</c>). The write walk's
-    /// answer — the child-bearing property SET, pinned over every record type — is left exactly as it was.</para></summary>
+    /// <summary>The record type <paramref name="t"/> reaches, or null — the same walk, for the read side, stepping through INTERFACES too.</summary>
     internal static Type? OwnedRecordTypeOf(Type t) => OwnedRecordTypeOf(t, new HashSet<Type>(), 0, throughInterfaces: true);
 
     static Type? OwnedRecordTypeOf(Type t, HashSet<Type> seen, int depth, bool throughInterfaces)
     {
         if (depth > 6 || !seen.Add(t)) return null;
-        // `seen` is a PATH set, not a memo: the entry comes back out on the way up. Left in, a type first reached at
-        // the depth bound would be recorded as unreachable and then skipped when a shallower branch reaches it, which
-        // memoizes a depth-truncated answer as a depth-independent one. Cycles are still closed — a type on the
-        // CURRENT path is what the set holds (a Cell reaches a Cell through a Worldspace).
+        // `seen` is a PATH set, not a memo, so a type first reached at the depth bound is never recorded unreachable.
         try
         {
             if (typeof(IFormLinkGetter).IsAssignableFrom(t)) return null;    // a reference, not a child
@@ -706,8 +578,7 @@ public static class WriteEngine
         finally { seen.Remove(t); }
     }
 
-    /// <summary>The element type <paramref name="t"/> enumerates, or null if it is not a collection. <c>string</c> is
-    /// excluded explicitly — it enumerates chars and would otherwise recurse pointlessly on every text field.</summary>
+    /// <summary>The element type <paramref name="t"/> enumerates, or null; <c>string</c> is excluded explicitly.</summary>
     internal static Type? ElementTypeOf(Type t)
     {
         if (t.IsArray) return t.GetElementType();
@@ -718,13 +589,7 @@ public static class WriteEngine
         return null;
     }
 
-    /// <summary>The Type to hand Mutagen's typed <c>Remove(FormKey, Type, throwIfUnknown)</c> for
-    /// <paramref name="record"/>: the record's FLAT GROUP's <c>T</c> when one matches, else the runtime type
-    /// (nested-group records — Cell/Placed*/INFO/Navmesh/Landscape). The flat-group answer matters for the
-    /// abstract-base groups (Global, GameSetting): passing a concrete SUBCLASS of the group's T (a <c>GlobalShort</c>
-    /// under <c>SkyrimGroup&lt;Global&gt;</c>) makes Mutagen's remove routing silently NO-OP —
-    /// <c>throwIfUnknown:true</c> notwithstanding — while the group's own T removes correctly. Same
-    /// <see cref="EnumerateFlatGroups"/> enumeration as every other flat-vs-nested decision (no drift).</summary>
+    /// <summary>The Type for Mutagen's typed <c>Remove</c>: the flat GROUP's <c>T</c> when one matches, else the runtime type — a subclass of an abstract T no-ops.</summary>
     public static Type RemovalTypeFor(IMajorRecordGetter record)
     {
         foreach (var (tMajor, getterIface) in FlatGroupTypes)
@@ -732,12 +597,7 @@ public static class WriteEngine
         return record.GetType();
     }
 
-    /// <summary>The Type to hand Mutagen's typed ENUMERATION when seeking a body of <paramref name="record"/>'s type:
-    /// the record's FLAT GROUP's getter interface when one matches, else the record's own primary getter. The
-    /// flat-group answer is here for the same reason <see cref="RemovalTypeFor"/> has it — an abstract-base group
-    /// (<c>SkyrimGroup&lt;Global&gt;</c>, <c>SkyrimGroup&lt;GameSetting&gt;</c>) holds concrete subclasses whose own
-    /// getter interface (<c>IGlobalShortGetter</c>) is not a type Mutagen's containment switch routes, so a typed walk
-    /// on it yields nothing and the caller pays an empty pass before falling back to the flat scan.</summary>
+    /// <summary>The Type for Mutagen's typed ENUMERATION: the flat group's getter interface when one matches, else the record's own primary getter.</summary>
     public static Type SeekTypeFor(IMajorRecordGetter record)
     {
         foreach (var (_, getterIface) in FlatGroupTypes)
@@ -745,26 +605,12 @@ public static class WriteEngine
         return PrimaryGetter(record.GetType()) ?? record.GetType();
     }
 
-    /// <summary>The flat groups' (T, getter-interface) pairs for <see cref="SkyrimMod"/>, MEMOIZED: pure reflection
-    /// metadata, constant for the process lifetime — <see cref="RemovalTypeFor"/> runs per record when the remove
-    /// lanes index a whole plugin, so a per-call property walk would be O(records × properties). Derived from the SAME
-    /// <see cref="EnumerateFlatGroups"/> enumeration (no drift).</summary>
+    /// <summary>The flat groups' (T, getter-interface) pairs for <see cref="SkyrimMod"/>, MEMOIZED reflection metadata.</summary>
     static IReadOnlyList<(Type tMajor, Type getterIface)> FlatGroupTypes => _flatGroupTypes.Value;
     static readonly Lazy<IReadOnlyList<(Type tMajor, Type getterIface)>> _flatGroupTypes =
         new(() => EnumerateFlatGroups(typeof(SkyrimMod)).Select(g => (g.tMajor, g.getterIface)).ToList());
 
-    /// <summary>
-    /// Generic <c>GetOrAddAsOverride</c>. Flat-group records (the common case) resolve by matching the
-    /// <c>SkyrimGroup&lt;T&gt;</c> whose <c>T</c> carries the record's getter interface, then invoking the
-    /// <c>GetOrAddAsOverrideMixIns</c> extension reflectively. Records in a NESTED group (Cell / the Placed*
-    /// family / NavigationMesh / Landscape / DialogResponses-INFO — no flat <c>SkyrimGroup&lt;T&gt;</c>) fall
-    /// through to <see cref="NestedGetOrAddAsOverride"/>, which resolves the record's context by FormKey from
-    /// <paramref name="sourceLinkCache"/> and reconstructs its parent chain in the patch. The flat-vs-nested
-    /// decision is ONE point — does a flat group match? — by construction; everything downstream of resolution
-    /// (<see cref="ApplyVerb"/>, coercion, absent-materialization) is the SAME settable-record path for both.
-    /// <paramref name="sourceLinkCache"/> is optional and unused for flat records, so existing flat-only callers are
-    /// unaffected; a nested record without it fails loud.
-    /// </summary>
+    /// <summary>Generic <c>GetOrAddAsOverride</c>: a flat-group record through its <c>SkyrimGroup&lt;T&gt;</c>, anything else through the nested path.</summary>
     public static IMajorRecord GenericGetOrAddAsOverride(
         SkyrimMod patchMod, IMajorRecordGetter source, ILinkCache? sourceLinkCache = null)
     {
@@ -778,9 +624,7 @@ public static class WriteEngine
         return NestedGetOrAddAsOverride(patchMod, source, sourceLinkCache);
     }
 
-    /// <summary>Find the mod's <c>SkyrimGroup&lt;T&gt;</c> property whose T carries the record's getter interface.
-    /// Returns false (rather than throwing) when none matches — that IS the by-construction nested-group test, so
-    /// <see cref="GenericGetOrAddAsOverride"/> can then take the nested path. The single flat-vs-nested decision.</summary>
+    /// <summary>Find the <c>SkyrimGroup&lt;T&gt;</c> whose T carries the record's getter interface; false IS the nested test.</summary>
     static bool TryResolveGroup(SkyrimMod mod, IMajorRecordGetter source,
         out object? group, out Type? tMajor, out Type? tMajorGetter)
     {
@@ -794,18 +638,7 @@ public static class WriteEngine
         return false;
     }
 
-    /// <summary>
-    /// Resolve an override for a record stored in a NESTED group — records with no top-level
-    /// <c>SkyrimGroup&lt;T&gt;</c>, so <see cref="TryResolveGroup"/> can't reach them. Resolves the record's
-    /// CONTEXT by FormKey from the source link cache (the context knows the parent chain), then
-    /// <c>GetOrAddAsOverride</c> reconstructs that chain in the patch mod and returns a settable override root —
-    /// fed straight into the SAME <see cref="ApplyVerb"/> path as a flat record.
-    ///
-    /// By FormKey, NOT typed <c>EnumerateMajorRecordContexts&lt;T,TG&gt;</c>: the latter throws
-    /// InvalidCastException on the sparse placed subtypes (a sibling cast to the wrong <c>IPlaced*Getter</c>);
-    /// by-FormKey <c>ResolveContext</c> is unaffected. The MethodInfo is re-resolved off the LIVE (closed-generic)
-    /// cache — an open-generic definition can't be invoked on the closed instance.
-    /// </summary>
+    /// <summary>Resolve an override for a NESTED-group record: its CONTEXT by FormKey off the source cache, which rebuilds the parent chain in the patch.</summary>
     static IMajorRecord NestedGetOrAddAsOverride(SkyrimMod patchMod, IMajorRecordGetter source, ILinkCache? sourceLinkCache)
     {
         if (sourceLinkCache is null)
@@ -820,17 +653,14 @@ public static class WriteEngine
         var setterIface = getterIface.Assembly.GetType((getterIface.Namespace ?? "Mutagen.Bethesda.Skyrim") + "." + setterName)
             ?? throw new InvalidOperationException($"No setter interface {setterName} for nested record {getterIface.Name}.");
 
-        // ResolveContext<TSetter,TGetter>(FormKey, [ResolveTarget]) off the live cache. A trailing ResolveTarget
-        // (Winner/Origin) is immaterial on a single-mod cache; BuildResolveArgs supplies its default.
+        // ResolveContext<TSetter,TGetter>(FormKey, [ResolveTarget]) off the live cache; the trailing arg is immaterial.
         var resolveCtx = sourceLinkCache.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .FirstOrDefault(m => m.Name == "ResolveContext" && m.IsGenericMethodDefinition
                 && m.GetGenericArguments().Length == 2 && m.GetParameters().Length >= 1
                 && m.GetParameters()[0].ParameterType == typeof(FormKey))
             ?? throw new InvalidOperationException("No ResolveContext<TSetter,TGetter>(FormKey,...) on the source link cache.");
 
-        // Mutagen's non-Try ResolveContext THROWS on a miss, so MethodInfo.Invoke wraps it in a
-        // TargetInvocationException — catch and rethrow a clear, FormKey-named fail-closed message. The null-guard
-        // below remains in case some resolve path returns null instead of throwing.
+        // Mutagen's non-Try ResolveContext THROWS on a miss, so unwrap into a FormKey-named fail-closed message.
         object? ctx;
         try
         {
@@ -855,8 +685,7 @@ public static class WriteEngine
         return (IMajorRecord)goao.Invoke(ctx, new object[] { patchMod })!;
     }
 
-    /// <summary>Args for <c>ResolveContext&lt;T,TG&gt;(FormKey, [ResolveTarget])</c>: the FormKey, then any trailing
-    /// parameter (the ResolveTarget enum — immaterial single-master) by its declared default or a zero value.</summary>
+    /// <summary>Args for <c>ResolveContext&lt;T,TG&gt;</c>: the FormKey, then any trailing parameter by its default.</summary>
     static object?[] BuildResolveArgs(MethodInfo m, FormKey fk)
     {
         var ps = m.GetParameters();
@@ -868,15 +697,7 @@ public static class WriteEngine
         return argv;
     }
 
-    /// <summary>
-    /// The single source of truth for "which records live in a flat <c>SkyrimGroup&lt;T&gt;</c> on the mod" —
-    /// the records the generic lifecycle can <c>GetOrAddAsOverride</c>. <see cref="ResolveGroup"/> (the engine's
-    /// per-write record resolution) and the write census (reachability classification) both derive from this one
-    /// enumeration, so they can never disagree about what is group-reachable. The Loqui convention gives each
-    /// concrete <c>Npc</c> the getter interface <c>INpcGetter</c>; records stored in NESTED groups (Cell under a
-    /// cell-block, placed refs under a cell, INFO under a topic) have no top-level <c>SkyrimGroup&lt;T&gt;</c> and
-    /// are therefore absent here — a real, surfaced reachability gap, never silently treated as covered.
-    /// </summary>
+    /// <summary>The single source of truth for which records live in a flat <c>SkyrimGroup&lt;T&gt;</c>; a nested-group record is a surfaced gap.</summary>
     internal static IEnumerable<(PropertyInfo prop, Type tMajor, Type getterIface)> EnumerateFlatGroups(Type modType)
     {
         foreach (var p in modType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
@@ -889,36 +710,11 @@ public static class WriteEngine
         }
     }
 
-    // ======================================================================
-    //  CREATE front-end. The sibling of GenericGetOrAddAsOverride: where that
-    //  OVERRIDES an existing record into the patch, this ALLOCATES a brand-new one.
-    //  Both resolve their group from the SAME EnumerateFlatGroups enumeration, so the
-    //  create surface IS the flat-group surface by construction — every concrete flat
-    //  record type is createable, nothing else is silently treated as covered.
-    //
-    //  A small minority of flat groups are typed by an ABSTRACT base — two today
-    //  (SkyrimGroup<Global>, SkyrimGroup<GameSetting>); a Global is stored as a
-    //  GlobalFloat / GlobalInt / GlobalShort, never a bare Global. Mutagen's AddNew<T>
-    //  cannot be closed with an abstract T (it throws), so abstract-group create takes
-    //  a distinct branch keyed off the runtime hierarchy
-    //  (T.IsAssignableFrom(concrete) && !concrete.IsAbstract): the caller names the
-    //  CONCRETE arm ('GlobalFloat'), which is constructed via the same
-    //  ConstructRecord/AllocateNextFormKey helpers the nested create uses and added
-    //  through the group's own instance Add(T) (a SkyrimGroup<T> is NOT an IList).
-    //  Naming the bare abstract base ('Global') is a loud refusal listing the arms,
-    //  never a guessed default. The arm set is discovered, not hand-listed.
-    // ======================================================================
+    // ---- CREATE front-end ----
+    //  The sibling of GenericGetOrAddAsOverride, allocating a brand-new record off the SAME EnumerateFlatGroups
+    //  enumeration; an ABSTRACT-typed group takes its own arm branch. Contracts in docs/architecture/write-path.md.
 
-    /// <summary>Every flat group whose T is ABSTRACT, paired with its concrete-arm record Types — discovered by walking
-    /// the SAME <see cref="EnumerateFlatGroups"/> enumeration that defines the create surface, testing <c>T.IsAbstract</c>,
-    /// then collecting every non-abstract record class the base is assignable from (the runtime hierarchy, exactly as
-    /// <see cref="GenericAddNew"/> keys off it). By construction: the abstract-group set IS Mutagen's (two today —
-    /// Global, GameSetting), and each base's arm set IS its concrete subtype set — neither is hand-listed.
-    ///
-    /// MEMOIZED: the result is pure reflection METADATA (<c>PropertyInfo</c> + <c>Type</c>s), constant for the process
-    /// lifetime and PATCH-INDEPENDENT, so the ~10k-type <c>GetTypes()</c> walk runs once.
-    /// <see cref="CanCreateType"/> calls this ≥2× on EVERY create. The per-patch group INSTANCE is NOT cached —
-    /// callers resolve it live via <c>prop.GetValue(patchMod)</c> against the tuple's <c>PropertyInfo</c>.</summary>
+    /// <summary>Every flat group whose T is ABSTRACT, with its concrete-arm Types, discovered off the same enumeration and the runtime hierarchy. MEMOIZED.</summary>
     static readonly Lazy<IReadOnlyList<(PropertyInfo prop, Type baseType, IReadOnlyList<Type> arms)>> _abstractGroups =
         new(() =>
         {
@@ -939,11 +735,7 @@ public static class WriteEngine
     internal static IReadOnlyList<(PropertyInfo prop, Type baseType, IReadOnlyList<Type> arms)> EnumerateAbstractGroups()
         => _abstractGroups.Value;
 
-    /// <summary>If <paramref name="typeName"/> is the CONCRETE arm of an abstract record group (e.g. "GlobalFloat" under
-    /// SkyrimGroup&lt;Global&gt;), resolve the live group + the arm's Type; else false. The single point both the
-    /// pre-flight (<see cref="CanCreateType"/>) and the allocation (<see cref="GenericAddNew"/> / <see cref="GenericUpsertNew"/>)
-    /// key off, so they can't drift. <paramref name="patchMod"/> null ⇒ the group instance isn't resolved (pre-flight,
-    /// no patch yet) — only the arm Type is returned.</summary>
+    /// <summary>If <paramref name="typeName"/> is the CONCRETE arm of an abstract group, resolve the live group + the arm's Type; null patch ⇒ the Type alone.</summary>
     static bool TryResolveAbstractGroupArm(SkyrimMod? patchMod, string typeName, out object? group, out Type? arm)
     {
         group = null; arm = null;
@@ -958,25 +750,16 @@ public static class WriteEngine
         return false;
     }
 
-    /// <summary>Can a brand-new record of <paramref name="typeName"/> (a catalog name, e.g. "Keyword") be created by the
-    /// generic create dispatch? True iff a flat <c>SkyrimGroup&lt;T&gt;</c> models it with a CONCRETE T, OR
-    /// <paramref name="typeName"/> is a concrete ARM of an abstract group (e.g. "GlobalFloat" under SkyrimGroup&lt;Global&gt;).
-    /// The two false cases are named loud-fail boundaries, never a silent wrong create: NO flat group ⇒ a
-    /// nested/placed record (Cell/Placed*/INFO/Navmesh/Landscape) that needs parent context; the bare ABSTRACT base
-    /// ('Global'/'GameSetting') ⇒ name a concrete arm (the message lists the DISCOVERED arms — never a guessed default).
-    /// <paramref name="reason"/> carries the user-facing explanation when false. Mod-instance-free (walks
-    /// <c>typeof(SkyrimMod)</c>), so it serves the pre-flight before any patch exists.</summary>
+    /// <summary>Can a brand-new record of <paramref name="typeName"/> be created? True for a concrete flat T or a concrete ARM; each false names a boundary.</summary>
     public static bool CanCreateType(string typeName, out string? reason)
     {
-        // A concrete arm of an abstract group ('GlobalFloat', 'GameSettingFloat', …) — createable via the abstract-group
-        // branch in GenericAddNew. Checked FIRST so a concrete arm always wins over the abstract-base refusal below.
+        // A concrete arm is checked FIRST, so it always wins over the abstract-base refusal below.
         if (TryResolveAbstractGroupArm(null, typeName, out _, out _)) { reason = null; return true; }
 
         foreach (var (_, tm, _) in EnumerateAbstractGroups())
             if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase))
             {
-                // The bare abstract base ('Global'/'GameSetting'). The record is always stored as one of its concrete
-                // arms — name which; no guessed default. Arms are DISCOVERED, not hand-listed (the cornerstone).
+                // The bare abstract base: name which concrete arm, discovered rather than hand-listed.
                 var arms = EnumerateAbstractGroups().First(g => g.baseType == tm).arms.Select(a => a.Name);
                 reason = $"'{typeName}' is an abstract record group — a {typeName} is always stored as one of its concrete " +
                          $"subtypes ({string.Join(" / ", arms)}). Name the concrete subtype to create (e.g. {tm.Name}Float).";
@@ -1002,24 +785,14 @@ public static class WriteEngine
         return false;
     }
 
-    /// <summary>The CREATE front-end: allocate a brand-new record of <paramref name="typeName"/> in <paramref name="patchMod"/>,
-    /// returning a settable root fed into the SAME <see cref="ApplyVerb"/> path as an override. For a concrete flat type the
-    /// flat group's <c>AddNew</c> allocates a fresh LOCAL FormID (the new plugin's own 0x800+ ESP range, incrementing, with
-    /// the floor guaranteed by <see cref="EnsureFormIdFloor"/>); for a concrete ARM of an abstract group
-    /// ('GlobalFloat' / 'GameSettingFloat'), the arm is constructed via <see cref="ConstructRecord"/> + <see cref="AllocateNextFormKey"/>
-    /// (the same allocator the nested create draws from, so the floor + counter are shared) and added through the group's own
-    /// instance <c>Add(T)</c> — a <c>SkyrimGroup&lt;T&gt;</c> is NOT an IList, and Mutagen's generic AddNew&lt;T&gt; can't be
-    /// closed with the abstract base. The new record's master is the patch itself. <paramref name="editorId"/> sets the EditorID
-    /// (null uses the engine-assigned one). Throws loud on the boundaries via <see cref="CanCreateType"/> — callers
-    /// pre-flight with that, so a throw here means the surface changed under us.</summary>
+    /// <summary>The CREATE front-end: allocate a brand-new record of <paramref name="typeName"/>, fed into the SAME <see cref="ApplyVerb"/> path.</summary>
     public static IMajorRecord GenericAddNew(SkyrimMod patchMod, string typeName, string? editorId)
     {
         if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
         EnsureFormIdFloor(patchMod);   // a counter rehydrated below 0x800 would hand AddNew engine-reserved IDs
         EnsureAllocatable(patchMod);   // …and a counter past the 24-bit object-ID ceiling can't allocate — fail loud
 
-        // Abstract-group arm (GlobalFloat / GameSettingFloat / …): construct the concrete arm + Add(T) it (the abstract T
-        // can't go through InvokeAddNew). CanCreateType admitted the arm, so resolution here can't fail benignly.
+        // Abstract-group arm: construct the concrete arm and Add(T) it — the abstract T cannot close InvokeAddNew.
         if (TryResolveAbstractGroupArm(patchMod, typeName, out var armGroup, out var armType))
             return AddConcreteArmToGroup(armGroup!, armType!, AllocateNextFormKey(patchMod), editorId);
 
@@ -1029,11 +802,7 @@ public static class WriteEngine
         return InvokeAddNew(group!, tMajor!, editorId);   // CanCreateType guaranteed a concrete flat group exists
     }
 
-    /// <summary>Construct a concrete abstract-group arm (<paramref name="armType"/>, e.g. <c>GlobalFloat</c>) at
-    /// <paramref name="formKey"/> and add it to its group via the group's own instance <c>Add(T)</c> method (reflected —
-    /// a <c>SkyrimGroup&lt;T&gt;</c> is NOT an IList, so the nested-create IList.Add path would crash). The same
-    /// <see cref="ConstructRecord"/> idiom the nested create uses. Throws loud if the expected <c>Add(T)</c> shape
-    /// is absent — never a silent no-op.</summary>
+    /// <summary>Construct a concrete abstract-group arm and add it through the group's own <c>Add(T)</c> — not an IList.</summary>
     static IMajorRecord AddConcreteArmToGroup(object group, Type armType, FormKey formKey, string? editorId)
     {
         var rec = ConstructRecord(armType, formKey);
@@ -1046,23 +815,7 @@ public static class WriteEngine
         return rec;
     }
 
-    /// <summary>UPSERT front-end for the extend path: like <see cref="GenericAddNew"/>, but if the patch already
-    /// carries a record IT ITSELF DEFINES with the same EditorID (a re-run of the same create against the same
-    /// <c>into=</c> target), the stale copy is REPLACED — removed from its group and re-created FRESH at the SAME
-    /// FormKey — instead of a duplicate being appended. This makes create calls IDEMPOTENT: re-running neither
-    /// appends a second copy nor accumulates list items inside a reused record (re-applying
-    /// edits to a live record would re-Add keyword/effect list entries), and the stable FormKey keeps cross-record
-    /// links and external references (script properties, SKSE framework configs) valid across re-runs.
-    ///
-    /// Three collisions are refused LOUD, never absorbed into a replace:
-    ///   - an OVERRIDE the patch carries (another plugin's record, matched by its carried EditorID): replacing it
-    ///     would serialize a blank override that GUTS the original plugin's record — the opposite of
-    ///     originals-untouched. Overrides are edited with housecarl_apply, never re-created.
-    ///   - DUPLICATES already in the patch (2+ records sharing an EditorID): which FormKey survives is the caller's
-    ///     call — external references may point at either copy. Named, not guessed.
-    ///   - a cross-TYPE EditorID collision: a real authoring error, surfaced not swallowed.
-    /// Returns the record plus whether an existing one was replaced — the caller MUST surface a replace to the user
-    /// (a replace discards the prior record state, including any set_field edits made since the original create).</summary>
+    /// <summary>UPSERT front-end for the extend path: a record the patch ITSELF defines is REPLACED at the same FormKey, three collisions refused. See the note.</summary>
     public static (IMajorRecord Record, bool Replaced) GenericUpsertNew(SkyrimMod patchMod, string typeName, string? editorId)
     {
         if (editorId is not null)
@@ -1072,9 +825,7 @@ public static class WriteEngine
                 .ToList();
             if (matches.Count > 0)
             {
-                // Replace-eligibility guard: ONLY a record this patch itself defines (its own ModKey) may be
-                // replaced. A match on a carried OVERRIDE keeps the foreign FormKey — re-creating "at the same
-                // FormKey" there would emit a field-wiping override of the ORIGINAL plugin's record.
+                // Replace-eligibility: ONLY a record this patch itself defines; a carried override keeps a foreign master.
                 var foreign = matches.FirstOrDefault(r => r.FormKey.ModKey != patchMod.ModKey);
                 if (foreign is not null)
                     throw new InvalidOperationException(
@@ -1089,17 +840,12 @@ public static class WriteEngine
                 var existing = matches[0];
                 if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
                 var formKey = existing.FormKey;
-                // The destination group is resolved FIRST, because UpsertWouldReplace answers false for a group that
-                // does not resolve as well as for a type that does not match, and reporting the first as the second
-                // sends the caller to their editorid over an engine fault. CanCreateType above walks the same two
-                // enumerations, so this cannot fire while they agree.
+                // The group is resolved FIRST, so a group that does not resolve is not reported as a type mismatch.
                 var isArm = TryResolveAbstractGroupArm(patchMod, typeName, out var armGroup, out var armType);
                 object? group = null; Type? tMajor = null;
                 if (!isArm && !TryResolveFlatGroup(patchMod, typeName, out group, out tMajor))
                     throw new InvalidOperationException($"upsert: no flat group found for type '{typeName}'.");
-                // The cross-type guard compares the existing record's CONCRETE type to the one being created — for an
-                // abstract-group ARM too (re-running a GlobalFloat create over a stored GlobalInt of the same editorid
-                // IS a cross-type collision — different concrete records).
+                // The cross-type guard compares CONCRETE types, for an abstract-group ARM too.
                 if (!UpsertWouldReplace(patchMod, typeName, matches))
                     throw new InvalidOperationException(
                         $"upsert refused: existing record '{editorId}' ({FormIdToken.Of(formKey)}) is a {existing.GetType().Name}, not a {typeName} — " +
@@ -1122,14 +868,7 @@ public static class WriteEngine
         return (GenericAddNew(patchMod, typeName, editorId), false);
     }
 
-    /// <summary>Would <see cref="GenericUpsertNew"/> REPLACE the records <paramref name="matches"/> holds under one
-    /// EditorID with a fresh <paramref name="typeName"/>, or refuse the collision? False for each of the three it
-    /// refuses instead — a carried OVERRIDE, duplicate residue, a cross-TYPE name — none of which any overwrite can
-    /// resolve. The in-place create pre-flight asks this before it offers to overwrite, so what it offers and what the
-    /// upsert does cannot drift.
-    /// <para>It is also false when NO group resolves for <paramref name="typeName"/> at all, which is not a collision
-    /// and has its own message: both callers settle that question first — the upsert by resolving the group before it
-    /// asks, the pre-flight by running <see cref="CanCreateType"/> before it asks.</para></summary>
+    /// <summary>Would <see cref="GenericUpsertNew"/> REPLACE what <paramref name="matches"/> holds, or refuse? False for each refusal, and for no group at all.</summary>
     public static bool UpsertWouldReplace(SkyrimMod patchMod, string typeName, IReadOnlyList<IMajorRecord> matches)
         => matches.Count == 1
            && matches[0].FormKey.ModKey == patchMod.ModKey
@@ -1146,9 +885,7 @@ public static class WriteEngine
         group = null; tMajor = null; return false;
     }
 
-    /// <summary>Remove a record from a flat group by FormKey. Tries the group's own instance <c>Remove(FormKey)</c>
-    /// first, then falls back to the same Mutagen static-extension scan <see cref="InvokeAddNew"/> uses; fails loud
-    /// if neither shape exists, never a silent no-op.</summary>
+    /// <summary>Remove a record from a flat group by FormKey — instance method, else the extension scan; fails loud.</summary>
     static void InvokeRemove(object group, FormKey formKey)
     {
         var instance = group.GetType().GetMethod("Remove", new[] { typeof(FormKey) });
@@ -1182,9 +919,7 @@ public static class WriteEngine
         throw new InvalidOperationException($"Could not locate a Remove(FormKey) accepting {group.GetType().Name}.");
     }
 
-    /// <summary>The FormKey-preserving sibling of <see cref="InvokeAddNew"/>: Mutagen's <c>AddNew(IGroup&lt;T&gt;, FormKey)</c>
-    /// extension, located by the same candidate scan. Used by upsert so a replaced record keeps its FormID
-    /// (the allocator is untouched — no new ID is consumed by a replace).</summary>
+    /// <summary>The FormKey-preserving sibling of <see cref="InvokeAddNew"/>, so a replace consumes no new id.</summary>
     static IMajorRecord InvokeAddNewWithFormKey(object group, Type tMajor, FormKey formKey)
     {
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies().Where(a => (a.GetName().Name ?? "").StartsWith("Mutagen")))
@@ -1202,21 +937,7 @@ public static class WriteEngine
         throw new InvalidOperationException($"Could not locate an AddNew(FormKey) extension accepting {group.GetType().Name}.");
     }
 
-    /// <summary>
-    /// Raise the patch's FormID allocator counter (<c>HEDR.NextObjectID</c>, in memory <c>ModHeader.Stats.NextFormID</c>)
-    /// to its safe floor: at least 0x800 (object IDs below 0x800 are engine-reserved — and 0x000000 is the NULL-reference
-    /// bit pattern; the CK, ESL compaction, and xEdit checks all assume the 0x800+ floor) AND past every record the patch
-    /// ITSELF already defines (so a tampered/legacy counter can never re-allocate a live ID). Never lowers the counter.
-    ///
-    /// Why this exists: Mutagen's serializer keeps the header counter in sync by ITERATION
-    /// (<c>NextFormIDOption.Iterate</c> = max originating FormID present) — an override-only patch (the
-    /// bulk_apply/set_field shape) therefore persists <c>NextObjectID = 0</c>, and a later extend (<c>into=</c>)
-    /// rehydrates that 0 straight into the allocator: under header 1.71 Mutagen itself accepts the lower range
-    /// (<c>GetDefaultInitialNextFormID(null)</c> == 0), so AddNew would allocate 000000.
-    /// Called at BOTH chokepoints: <see cref="GenericAddNew"/> (every allocation ≥ 0x800 by construction, healing
-    /// patches already on disk with a zeroed counter) and <see cref="WritePatch(SkyrimMod,IReadOnlyList{ISkyrimModGetter},string)"/>
-    /// (every written patch PERSISTS a floored counter — see the NoNextFormIDProcessing note there).
-    /// </summary>
+    /// <summary>Raise the patch's allocator counter to its floor — 0x800, and past every record it defines, never lower. Floor contract in the note.</summary>
     public static void EnsureFormIdFloor(SkyrimMod patchMod)
     {
         uint floor = FormIdRange.EngineReservedFloor;
@@ -1227,12 +948,7 @@ public static class WriteEngine
             patchMod.ModHeader.Stats.NextFormID = floor;
     }
 
-    /// <summary>Guard that the patch can still allocate: its NextObjectID counter must be within the 24-bit object-ID
-    /// space (≤ <see cref="FormIdRange.ObjectIdMax"/>). Past it (a tampered header, or a truly full plugin) no
-    /// allocation is possible — fail LOUD here, at the allocation boundary, NOT in <see cref="EnsureFormIdFloor"/>:
-    /// a full-but-valid patch must still SERIALIZE (WritePatch floors the same counter), it just can't grow. The four
-    /// create entry points (flat / nested / exterior-cell / interior-cell) share this one check so the ceiling and its
-    /// message live in ONE place rather than four identical copies.</summary>
+    /// <summary>Guard that the patch can still allocate: the counter must be inside the 24-bit object-ID space. LOUD at the allocation boundary, not at the floor.</summary>
     static void EnsureAllocatable(SkyrimMod patchMod)
     {
         if (FormIdRange.ObjectIdSpaceExhausted(patchMod.ModHeader.Stats.NextFormID))
@@ -1241,12 +957,7 @@ public static class WriteEngine
                 $"past the 24-bit object-ID ceiling (0x{FormIdRange.ObjectIdMax:X}). The plugin is full or its header counter is corrupt.");
     }
 
-    /// <summary>Invoke Mutagen's <c>AddNew</c> on a flat group instance. <c>AddNew</c> is NOT a plain instance method on
-    /// <c>SkyrimGroup&lt;T&gt;</c> — a direct GetMethod misses it: like <c>GetOrAddAsOverride</c> it's a GENERIC
-    /// EXTENSION (IGroupMixIns) in a Mutagen static class, so it's located the same way <see cref="OverrideMethod"/>
-    /// finds its method, closed with the group's T, and the receiver is verified to accept the live group before
-    /// invoke. Iterates candidates (no commit-to-first cache) so a wrong-shaped AddNew overload can't shadow the right
-    /// one.</summary>
+    /// <summary>Invoke Mutagen's <c>AddNew</c> on a flat group: a GENERIC EXTENSION, located like <see cref="OverrideMethod"/>, closed with the group's T.</summary>
     static IMajorRecord InvokeAddNew(object group, Type tMajor, string? editorId)
     {
         bool withEdid = editorId is not null;
@@ -1266,36 +977,19 @@ public static class WriteEngine
             $"Could not locate an AddNew({(withEdid ? "string" : "")}) extension accepting {group.GetType().Name} in the Mutagen assemblies.");
     }
 
-    // ======================================================================
-    //  NESTED CREATE front-end. The sibling of NestedGetOrAddAsOverride: where that
-    //  OVERRIDES an existing nested record into the patch, this ALLOCATES a brand-new
-    //  child INTO a parent's modeled child-collection, for the FormKey-parented
-    //  families (an INFO under a DialogTopic; a Placed* into a Cell). The add-target
-    //  collection is found REFLECTIVELY — the child type alone picks it, or the caller
-    //  names one of the parent's child-collections — never a hand-coded per-family
-    //  selector. The parent must already be settable IN the patch (the caller overrides
-    //  or creates it first). Coordinate-keyed parents (an exterior Cell under the
-    //  FormKey-LESS WorldspaceBlock/SubBlock structs) are not reachable here —
-    //  TryFindChildSlot fails loud for them; see the coordinate-keyed create below.
-    // ======================================================================
+    // ---- NESTED CREATE front-end ----
+    //  Allocate a brand-new child INTO a parent's modeled child-collection, the add-target found REFLECTIVELY. The
+    //  parent must already be settable in the patch; coordinate-keyed parents belong to the next section.
 
-    /// <summary>Resolve a catalog/record-type name to its concrete Mutagen record <see cref="Type"/>. The namespace
-    /// is <c>Mutagen.Bethesda.Skyrim</c> by construction (the Loqui convention). Null ⇒ absent from the modeled set,
-    /// a real coverage gap to surface, never a value to guess.</summary>
+    /// <summary>Resolve a catalog name to its concrete Mutagen record <see cref="Type"/>; null ⇒ a coverage gap.</summary>
     public static Type? ResolveConcreteRecordType(string catalogName)
         => typeof(IArmorGetter).Assembly.GetType("Mutagen.Bethesda.Skyrim." + catalogName);
 
-    /// <summary>Can a brand-new <paramref name="childCatalogName"/> record be created as a nested child of a parent of
-    /// <paramref name="parentType"/>, into <paramref name="collectionName"/> (null = the unique collection that accepts
-    /// the child)? The parent's settable child-collections are found reflectively, so "createable-under" is defined by
-    /// the model, not a hand-coded per-family list. Every false (no such containment, an ambiguous unnamed target, an
-    /// unknown collection name) names what it checked.</summary>
+    /// <summary>Can a new <paramref name="childCatalogName"/> be created under <paramref name="parentType"/>, into <paramref name="collectionName"/> (null = the unique fitting slot)?</summary>
     public static bool CanCreateNested(string childCatalogName, Type parentType, string? collectionName, out string? reason)
         => TryResolveChildSlot(childCatalogName, parentType, collectionName, out _, out _, out reason);
 
-    /// <summary>The same question <see cref="CanCreateNested"/> asks, answering with WHICH slot resolved and what
-    /// SHAPE it has. Pre-flight needs both: a singular slot holds exactly one child, so whether the parent's real
-    /// body already fills it is knowable before anything is allocated.</summary>
+    /// <summary>The same question, answering WHICH slot resolved and what SHAPE it has — pre-flight needs both.</summary>
     public static bool TryResolveChildSlot(string childCatalogName, Type parentType, string? collectionName,
         out string? slotName, out OwnedChildShape shape, out string? reason)
     {
@@ -1311,21 +1005,7 @@ public static class WriteEngine
         return true;
     }
 
-    /// <summary>Find the parent's SETTABLE child slot to put a new <paramref name="childType"/> into — the generic
-    /// add-target resolver, over BOTH shapes the model has. A COLLECTION slot is a list property whose element type
-    /// the child satisfies (a cell's Persistent, a topic's Responses); a SINGULAR slot is a property that IS one
-    /// child record (a cell's Landscape, a worldspace's TopCell). Both are slots a caller names with
-    /// <c>collection=</c>; the shape only decides how the child is attached, which is
-    /// <see cref="NestedAddNew"/>'s job, not the caller's.
-    ///
-    /// <para>The singular half is why a parent that carries no child could not be given one: the old resolver
-    /// filtered to <c>IList</c>-shaped properties before it ever asked about the child type, so a slot holding
-    /// exactly one record was invisible to create while being perfectly visible to every other part of the engine.
-    /// Both halves are found by REFLECTION over the concrete parent class, so "what can nest under what" stays
-    /// defined by Mutagen's model and no record type is named here.</para>
-    ///
-    /// <para>Outcomes are unchanged: exactly one match ⇒ derivable, returned; several ⇒ the caller must NAME one;
-    /// zero ⇒ a real containment boundary. <paramref name="shape"/> reports which half matched.</para></summary>
+    /// <summary>Find the parent's SETTABLE child slot for a new <paramref name="childType"/>, over both shapes — a fitting COLLECTION, or a SINGULAR slot.</summary>
     static bool TryFindChildSlot(Type parentType, Type childType, string? collectionName,
         out PropertyInfo? prop, out OwnedChildShape shape, out List<string> matches, out string? error)
     {
@@ -1343,9 +1023,7 @@ public static class WriteEngine
                 hits.Add((p, OwnedChildShape.Collection)); matches.Add(p.Name);
                 continue;
             }
-            // The SINGULAR half: a settable property that holds one owned child record of a type the child
-            // satisfies. Settability is required for the same reason the list half requires addability — an
-            // unsettable slot cannot receive the record — and it is what keeps a read-only getter off the list.
+            // The SINGULAR half: a SETTABLE property holding one owned child record the child type satisfies.
             if (!p.CanWrite || p.GetIndexParameters().Length != 0) continue;
             if (!typeof(IMajorRecordGetter).IsAssignableFrom(p.PropertyType)) continue;
             if (!p.PropertyType.IsAssignableFrom(childType)) continue;
@@ -1353,10 +1031,7 @@ public static class WriteEngine
         }
         var parentName = parentType.Name;   // concrete class name, already clean (never an I…Getter here)
         var childName = childType.Name;
-        // A parent may ALSO file this child by COORDINATE, in a block tree no slot name reaches — the route
-        // AddExteriorCell serves. Derived by asking whether any child-bearing property reaches the child type
-        // through containers rather than holding it, so no record type is named and a Mutagen bump that nests
-        // another child that way is covered without an edit.
+        // A parent may ALSO file this child by COORDINATE, in a block tree no slot name reaches — derived from the child-bearing set.
         bool coordinateRoute = ReachesChildThroughContainers(parentType, childType);
         if (hits.Count == 0)
         {
@@ -1380,10 +1055,8 @@ public static class WriteEngine
             }
             (prop, shape) = named[0]; return true;
         }
-        // More than one route and no discriminator: name them all and refuse. The coordinate route counts as a
-        // route even when exactly one slot matches — a worldspace's TopCell is one record and its exterior cells
-        // are a grid-keyed block tree, so resolving the single slot silently would build the wrong thing for the
-        // far commoner request (an exterior cell whose grid= was forgotten). Q3, never a silent default.
+        // More than one route and no discriminator: name them all and refuse. The coordinate route counts as a route
+        // even when one slot matches, so a forgotten grid= never silently builds the wrong thing.
         if (hits.Count > 1 || coordinateRoute)
         {
             var routes = matches.Select(m => $"collection={m}").ToList();
@@ -1395,19 +1068,14 @@ public static class WriteEngine
         (prop, shape) = hits[0]; return true;
     }
 
-    /// <summary>Does this parent reach <paramref name="childType"/> through CONTAINERS rather than in a slot a
-    /// caller can name — the coordinate-keyed block tree <see cref="AddExteriorCell"/> serves? Asked of the same
-    /// reflected child-bearing set as everything else, so it is a question about the model and names no record
-    /// type. The walk stops at any record type: a child under a child belongs to that child, not to this parent.</summary>
+    /// <summary>Does this parent reach <paramref name="childType"/> through CONTAINERS rather than a nameable slot? The walk stops at any record type.</summary>
     static bool ReachesChildThroughContainers(Type parentType, Type childType) =>
         ChildBearingProperties(parentType).Any(p =>
             !typeof(IMajorRecordGetter).IsAssignableFrom(p.PropertyType)      // a singular slot, not a container route
             && ReachesRecordType(p.PropertyType, childType, new HashSet<Type>(), 0)
             && !(ListElementType(p.PropertyType) is { } e && e.IsAssignableFrom(childType)));   // a nameable list slot
 
-    /// <summary>Can a value of <paramref name="t"/> hold a <paramref name="childType"/> record? The same walk and
-    /// bound as <see cref="ReachesOwnedRecord"/>, asked of ONE target type: links are cut, and a record type that
-    /// is not the target ends the branch rather than being descended into.</summary>
+    /// <summary>Can a value of <paramref name="t"/> hold a <paramref name="childType"/> record? The same walk, asked of ONE target type.</summary>
     static bool ReachesRecordType(Type t, Type childType, HashSet<Type> seen, int depth)
     {
         if (depth > 6 || !seen.Add(t)) return false;
@@ -1424,8 +1092,7 @@ public static class WriteEngine
         finally { seen.Remove(t); }
     }
 
-    /// <summary>The element type of an <c>IList&lt;T&gt;</c>/<c>ExtendedList&lt;T&gt;</c>-shaped property, else null
-    /// (a scalar, a string, a read-only sequence). Used to match a parent's child-collections to a child type.</summary>
+    /// <summary>The element type of an <c>IList&lt;T&gt;</c>-shaped property, else null.</summary>
     static Type? ListElementType(Type t)
     {
         if (t == typeof(string) || !typeof(System.Collections.IEnumerable).IsAssignableFrom(t)) return null;
@@ -1434,8 +1101,7 @@ public static class WriteEngine
                 ?.GetGenericArguments()[0];
     }
 
-    /// <summary>Construct a concrete Mutagen record via its <c>(FormKey, &lt;release enum&gt;)</c> constructor — the
-    /// net-new nested child. The ctor shape is discovered reflectively; throws loud if absent.</summary>
+    /// <summary>Construct a concrete record via its discovered <c>(FormKey, release)</c> ctor; loud if absent.</summary>
     static IMajorRecord ConstructRecord(Type concrete, FormKey fk)
     {
         var ctor = concrete.GetConstructors()
@@ -1447,9 +1113,7 @@ public static class WriteEngine
         return (IMajorRecord)ctor.Invoke(new object[] { fk, release });
     }
 
-    /// <summary>Allocate the next LOCAL FormKey from the patch's own allocator (<c>GetNextFormKey</c>), discovered
-    /// reflectively. The caller floors the counter first (<see cref="EnsureFormIdFloor"/>), so the returned id is in
-    /// the 0x800+ ESP-local range and shares the SAME incrementing counter flat <c>AddNew</c> draws from.</summary>
+    /// <summary>The next LOCAL FormKey off the patch's own allocator; the caller floors the counter first.</summary>
     static FormKey AllocateNextFormKey(SkyrimMod patchMod)
     {
         var m = patchMod.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
@@ -1458,13 +1122,7 @@ public static class WriteEngine
         return (FormKey)m.Invoke(patchMod, null)!;
     }
 
-    /// <summary>The CREATE front-end for a NESTED record: allocate a brand-new <paramref name="childCatalogName"/> child
-    /// into <paramref name="parentInPatch"/>'s modeled child-collection (named, or the unique one), returning a settable
-    /// root fed into the SAME <see cref="ApplyVerb"/> path as a flat create or an override. The new record gets a fresh
-    /// local 0x800+ FormKey from the SAME floor/counter as flat <see cref="GenericAddNew"/>. The parent MUST already be
-    /// settable in the patch (overridden or created by the caller). Throws loud via
-    /// <see cref="TryFindChildSlot"/> on a containment/ambiguity the pre-flight
-    /// (<see cref="CanCreateNested"/>) should have caught — a throw here means the surface changed under us.</summary>
+    /// <summary>The CREATE front-end for a NESTED record: a new child into the parent's modeled collection, the parent already settable in the patch.</summary>
     public static IMajorRecord NestedAddNew(SkyrimMod patchMod, IMajorRecord parentInPatch,
         string childCatalogName, string? collectionName, string? editorId)
     {
@@ -1474,12 +1132,8 @@ public static class WriteEngine
             throw new InvalidOperationException(error);
         var parentName = parentInPatch.GetType().Name;
 
-        // A SINGULAR slot holds exactly one child, so an occupied one is not something create can resolve: appending
-        // is not available and overwriting would drop the record already there — with its own FormKey, and
-        // everything under it — as a side effect of a call that said "create". Refuse and name both real moves.
-        // Checked BEFORE anything is allocated, so a refusal costs no FormKey. This is the BACKSTOP: the pre-flight
-        // asks the same question of the parent's real body (WritePatchBuilder), which is the copy the caller is
-        // looking at; this one asks the copy about to be written, and catches a difference between the two.
+        // A SINGULAR slot holds exactly one child, so an occupied one is refused BEFORE anything is allocated. The
+        // BACKSTOP: pre-flight asks the same question of the parent's real body, this one of the copy being written.
         if (shape == OwnedChildShape.Singular && prop!.GetValue(parentInPatch) is IMajorRecordGetter occupant)
             throw new InvalidOperationException(
                 $"nested create: '{parentName}.{prop.Name}' already holds a {childType.Name} ({FormIdToken.Of(occupant.FormKey)}" +
@@ -1487,10 +1141,7 @@ public static class WriteEngine
                 "room to create another. Edit the one that is there by its own FormID, or remove it first with " +
                 ToolNames.Remove + " and create again.");
 
-        // A SINGULAR slot does not upsert either, and the record it holds can also be reachable by another route
-        // into the same patch — a worldspace's TopCell is a Cell, the identity the coordinate routes build — so the
-        // slot route runs their dedup rather than letting a second record at the same editorid in behind it. The
-        // COLLECTION route keeps its documented append: those children carry no stable editorid handle.
+        // A SINGULAR slot does not upsert and its child is reachable by another route, so it runs the same dedup.
         if (shape == OwnedChildShape.Singular) EnsureNoDuplicateEditorId(patchMod, childType, editorId);
 
         EnsureFormIdFloor(patchMod);   // a rehydrated (into=) counter below 0x800 would hand out engine-reserved IDs
@@ -1504,31 +1155,14 @@ public static class WriteEngine
         return child;
     }
 
-    // ======================================================================
-    //  COORDINATE-KEYED CREATE — cells, the one family whose structural parents are
-    //  FormKey-LESS block structs the FormKey locator (NestedAddNew) cannot address:
-    //  exterior cells under WorldspaceBlock/WorldspaceSubBlock, interior cells under
-    //  CellBlock/CellSubBlock. Placed by DERIVED block arithmetic, not a parent FormKey:
-    //  exterior block=floor(grid/32) subblock=floor(grid/8); interior block=id%10
-    //  subblock=(id/10)%10. A Worldspace override stays thin (a 1-cell delta, not all of
-    //  Tamriel). ONE generic algorithm per cell-kind — never a per-type shim. Mutagen
-    //  DROPS the OFST seek-cache on write; the game engine rebuilds it from the block
-    //  tree at load. A created cell is a STRUCTURAL SHELL — lighting/land/navmesh stay
-    //  the author's; the caller's report surfaces that, the engine stays policy-free.
-    // ======================================================================
+    // ---- COORDINATE-KEYED CREATE ----
+    //  Cells, whose structural parents are FormKey-LESS block structs: exterior block=floor(grid/32)
+    //  subblock=floor(grid/8), interior block=id%10 subblock=(id/10)%10. A created cell is a structural shell.
 
-    /// <summary>Signed integer floor division (toward -∞) — the exterior block/subblock index from a (possibly
-    /// negative) cell grid coordinate. C# truncates toward zero (<c>-1/8 == 0</c>), but the cell at grid -1 sits in
-    /// subblock -1; this floors so negative coordinates key correctly.</summary>
+    /// <summary>Signed integer floor division — the block index from a possibly negative grid coordinate.</summary>
     internal static int FloorDiv(int a, int b) => (int)Math.Floor((double)a / b);
 
-    /// <summary>CREATE an EXTERIOR cell at grid (<paramref name="gridX"/>,<paramref name="gridY"/>) under
-    /// <paramref name="worldspaceInPatch"/> (already settable in the patch — the caller overrides it in, thin). Computes
-    /// the block (floor(grid/32)) + subblock (floor(grid/8)) indices, FINDS-OR-CONSTRUCTS the FormKey-less
-    /// <see cref="WorldspaceBlock"/> + <see cref="WorldspaceSubBlock"/> structs (the add-target is the model's block tree,
-    /// not a FormKey lookup), constructs the <see cref="Cell"/> with its Grid set and <c>IsInteriorCell</c> OFF, allocates
-    /// a fresh local 0x800+ FormKey from the SAME floored counter as flat/nested create, and adds it. Returns the new cell
-    /// (settable, fed into the same <see cref="ApplyVerb"/> path).</summary>
+    /// <summary>CREATE an EXTERIOR cell at (gridX,gridY): find-or-construct the block + subblock structs, set the Grid, allocate off the same counter.</summary>
     public static Cell AddExteriorCell(SkyrimMod patchMod, Worldspace worldspaceInPatch, int gridX, int gridY, string? editorId)
     {
         // Floor + dedup BEFORE mutating the block tree — nothing is mutated before validation.
@@ -1554,11 +1188,7 @@ public static class WriteEngine
         return cell;
     }
 
-    /// <summary>CREATE an INTERIOR cell — files into the patch's top-level <see cref="SkyrimMod.Cells"/> group by the
-    /// cell's OWN FormID digits (block = id%10, subblock = (id/10)%10). The FormKey is
-    /// allocated FIRST (the digits key off it), then the <see cref="CellBlock"/>/<see cref="CellSubBlock"/> are
-    /// found-or-constructed. <c>IsInteriorCell</c> ON. Returns the new cell (settable, fed into the same
-    /// <see cref="ApplyVerb"/> path).</summary>
+    /// <summary>CREATE an INTERIOR cell — filed by the cell's OWN FormID digits, so the FormKey is allocated FIRST. <c>IsInteriorCell</c> ON.</summary>
     public static Cell AddInteriorCell(SkyrimMod patchMod, string? editorId)
     {
         EnsureNoDuplicateEditorId(patchMod, typeof(Cell), editorId);   // no silent duplicate on an into= re-run (cells have a stable EditorID)
@@ -1578,13 +1208,7 @@ public static class WriteEngine
         return cell;
     }
 
-    /// <summary>Refuse loud if <paramref name="patchMod"/> ALREADY carries a <paramref name="recordType"/> record with
-    /// <paramref name="editorId"/>. Coordinate-keyed and singular-slot create do NOT upsert (unlike flat
-    /// <see cref="GenericUpsertNew"/>), so an into= re-run would otherwise silently carry a second record at the same
-    /// identity — and a cell reached through a worldspace's TopCell slot is the same identity the coordinate routes
-    /// build, so the two routes have to ask the same question. A no-op on a fresh patch. Within a single bulk_create,
-    /// same-editorid specs are already caught by the pre-flight's per-call editorid set; this closes the cross-call
-    /// into= gap.</summary>
+    /// <summary>Refuse loud if the patch already carries that <paramref name="recordType"/> at <paramref name="editorId"/>: neither of these routes upserts.</summary>
     static void EnsureNoDuplicateEditorId(SkyrimMod patchMod, Type recordType, string? editorId)
     {
         if (string.IsNullOrEmpty(editorId)) return;
@@ -1617,22 +1241,12 @@ public static class WriteEngine
         throw new InvalidOperationException("Could not locate GetOrAddAsOverride extension in Mutagen assemblies.");
     }
 
-    /// <summary>Ties output filename to ModKey. The single-known-master case (the standalone harness opens ONE source
-    /// plugin); delegates to the multi-master overload with a one-element set, so both paths share one BeginWrite call
-    /// and filename check.</summary>
+    /// <summary>Ties output filename to ModKey; the single-known-master case, delegating to the overload below.</summary>
     internal static void WritePatch(SkyrimMod patchMod, ISkyrimModGetter sourceMod, string outputPath)
         => WritePatch(patchMod, new[] { sourceMod }, outputPath);
 
-    /// <summary>
-    /// Multi-master WritePatch. Hands the serializer the FULL set of known masters (the whole load order's overlays,
-    /// via the resolver), so a patch record that references forms across SEVERAL plugins serializes with every needed
-    /// master in its header. Mutagen syncs the header master list to what the records ACTUALLY reference, so offering
-    /// the whole order is correct AND lean — only the referenced masters land. A referenced master absent from
-    /// <paramref name="knownMasters"/> still fails loud — never a silent wrong patch. This is what makes a
-    /// cross-master merge patch (e.g. a leveled list pulling entries from several mods) writable; the single-master
-    /// overload above is the degenerate one-master case.
-    /// </summary>
-    /// <remarks>Every written plugin force-includes <see cref="BaselineMasters"/> (Skyrim.esm + Update.esm) — see the chain below.</remarks>
+    /// <summary>Multi-master WritePatch: the FULL known-master set goes to the serializer so cross-plugin references
+    /// resolve, while Mutagen keeps the header list lean; a referenced master absent from it still fails loud.</summary>
     internal static void WritePatch(SkyrimMod patchMod, IReadOnlyList<ISkyrimModGetter> knownMasters, string outputPath)
     {
         var expected = patchMod.ModKey.FileName.String;
@@ -1641,12 +1255,8 @@ public static class WriteEngine
             throw new InvalidOperationException(
                 $"Output filename '{actual}' must match patch ModKey filename '{expected}'.");
 
-        // A LOCALIZED output, which the extend lane reaches by adding to an existing localized plugin. Mutagen writes
-        // a localized mod's text into .STRINGS tables beside the plugin, through its own strings writer — which the
-        // embedded encodings below do not reach, so the strict encoder never sees those values and a name it cannot
-        // spell lands as '?' with nothing to say so. The staged temp also holds the tables while the atomic swap moves
-        // only the plugin, so they would be left behind anyway. Refused here, before the staging directory exists, the
-        // same way the in-place lane refuses every localized target.
+        // A LOCALIZED output, which the extend lane reaches through an existing localized plugin: refused here,
+        // before the staging directory exists, the way the in-place lane refuses every localized target.
         if (patchMod.UsingLocalization)
             throw LocalizedTargetUnsupportedException.FromSentence(
                 $"houseCARL did not write '{expected}' — the file is unchanged and nothing was staged. It is flagged "
@@ -1655,83 +1265,31 @@ public static class WriteEngine
                 + "the plugin.");
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        // Hand Mutagen the FULL load order (every overlay, priority order) so it can resolve + ORDER every referenced
-        // master. WithLoadOrderFromHeaderMasters() can't serve a freshly-built cross-master patch: the header doesn't
-        // yet list the masters the new references need, so its master-sort throws MissingModException. WithLoadOrder
-        // gives the real order to sort against; the master LIST stays lean — Mutagen derives it from the records'
-        // actual FormLinks (only-referenced), the load order only resolves + orders them. A referenced master absent
-        // from the set still fails loud.
-        //
-        // BASELINE MASTERS: every Skyrim plugin must carry Skyrim.esm + Update.esm, exactly what the Creation Kit
-        // stamps on every plugin. A masterless plugin (e.g. a self-contained CREATED record references nothing, so the
-        // derived set is empty) is malformed by convention. WithExtraIncludedMasters force-includes them ON TOP of the
-        // derived set: idempotent for any already referenced (no duplicate, bytes unchanged), and the fix when absent.
-        // FILTERED to baselines actually IN the load order — both ship with SE so in any real order both are forced;
-        // the filter only keeps a degenerate order (or a minimal single-master test harness) from throwing on an
-        // unresolvable extra master. The master LIST stays otherwise lean.
+        // Hand Mutagen the FULL load order so it can resolve + ORDER every referenced master; the header LIST stays
+        // lean, derived from the records' own links. BASELINE MASTERS are force-included on top, idempotently, and
+        // FILTERED to the ones the order carries, so a degenerate order cannot throw on an unresolvable extra.
         var ordered = knownMasters as ISkyrimModGetter[] ?? knownMasters.ToArray();
         var baseline = BaselineMasters.Where(bm => ordered.Any(km => km.ModKey == bm)).ToArray();
-        // FORMID FLOOR: Mutagen's default NextFormID handling re-derives the persisted HEDR.NextObjectID by ITERATING
-        // originating records (max + 1, or 0 when there are none), so an override-only patch lands on disk with a 0
-        // counter that a later extend rehydrates straight into the allocator. NoNextFormIDProcessing makes the
-        // serializer persist OUR in-memory counter verbatim,
-        // and EnsureFormIdFloor guarantees that counter is ≥ 0x800 AND past every record the patch defines — the same
-        // invariant Iterate maintained, plus the floor, minus the regression (a remove no longer shrinks the counter,
-        // so a freed ID is never re-allocated). Every product write funnels through here, so every houseCARL-written
-        // plugin carries a conventional counter regardless of which tool created it.
+        // FORMID FLOOR: NoNextFormIDProcessing persists our in-memory counter verbatim instead of re-deriving it by
+        // iteration, and EnsureFormIdFloor is what makes that counter conventional. Every product write comes here.
         EnsureFormIdFloor(patchMod);
-        // ATOMIC WRITE: stage + commit. Serializing IN PLACE has two failure shapes once a patch lives in an
-        // MO2 mods folder: a crash mid-serialize leaves a truncated .esp (a torn original), and an external folder
-        // watcher (MO2 refreshing its plugin list) can open a half-written file. Staging into a sibling temp dir and
-        // committing via AtomicFile.Commit (File.Replace over an existing target — the Win32 atomic-replace primitive —
-        // or a rename onto a fresh one) means the target path only ever holds the OLD complete file or the NEW complete
-        // file, never a missing or partial one: true crash-ATOMIC replacement, not merely crash-TEAR safety. It does
-        // NOT relax the self-lock discipline (ReleaseOverlay + AllMastersExcept before the serialize): a swap onto a
-        // still-mapped target fails exactly like an in-place write would, so callers must still release every handle
-        // they hold on the target first.
-        // SERIALIZE-BOUNDARY NULL-ARM CATCH: Mutagen's binary writer dereferences a record's modeled sub-fields as it
-        // writes; a COMPOSED record that left a REQUIRED polymorphic sub-field unset (canonically a Condition composed
-        // without its Data arm) is null at that deref → a bare NullReferenceException carrying NO field name.
-        // Pre-flight can't reject it: the corpus carries faithful polymorphic nullability, but that flag is NOT a
-        // "required arm at serialize" signal — Condition.Data reads Nullable=false and throws when null, yet
-        // NpcConfiguration.Level ALSO reads Nullable=false and serializes fine when null. A pre-flight gate on the flag
-        // would over-reject a legitimately-absent field like Level, or need a hand-curated required-arm list (the
-        // cornerstone forbids that) — so there is no by-construction required/optional signal to gate on, and the
-        // serialize boundary is the honest place to fail it. WritePatchStaged already discards its temp on any throw,
-        // so nothing is on disk; re-stamp ONLY a null-arm NRE — whether BARE (the synchronous case) OR wrapped in the
-        // parallel writer's nested AggregateException (a null required sub-field can take either serialize path) — as
-        // a NAMED refusal via RootNullArm; other serialize errors keep their own type/message.
+        // ATOMIC WRITE: stage into a sibling temp and commit, so the target only ever holds the OLD or the NEW
+        // complete file; it does not relax the handle discipline before the serialize.
+        // SERIALIZE-BOUNDARY NULL-ARM CATCH: a composed record missing a REQUIRED sub-arm is a bare, field-nameless
+        // NRE in Mutagen's writer that pre-flight has no by-construction signal to gate on, so only that is named.
         string staged;
         try { staged = WritePatchStaged(patchMod, ordered, baseline, outputPath); }
         catch (Exception ex) when (RootNullArm(ex) is { } nre) { throw new NullArmSerializeException(nre); }
         CommitStagedPatch(staged, outputPath);
     }
 
-    /// <summary>Render an exception as <c>Type: message</c>, APPENDING its inner exception's type+message when present.
-    /// A re-stamped wrapper (e.g. <see cref="NullArmSerializeException"/> over the raw writer NRE) otherwise hides the
-    /// discriminating inner signal at the user surface — so the serialize-failure render sites use this to keep the
-    /// loud NAMED outer message AND the inner that distinguishes a genuine engine NRE from a composed-null-arm one.
-    /// No opaque, signal-stripping error.</summary>
+    /// <summary>Render an exception as <c>Type: message</c>, appending the inner's, so a re-stamp keeps its signal.</summary>
     internal static string Describe(Exception ex)
         => ex.InnerException is { } inner
             ? $"{ex.GetType().Name}: {ex.Message} [inner: {inner.GetType().Name}: {inner.Message}]"
             : $"{ex.GetType().Name}: {ex.Message}";
 
-    /// <summary>Unwrap a serialize-boundary throw to the root <see cref="NullReferenceException"/> that signals a
-    /// composed-null-arm failure — or null when the failure is NOT purely a null-arm one. A null required modeled
-    /// sub-field (canonically a COMPOSED record missing a required polymorphic arm — a Condition without its Data arm)
-    /// is dereferenced by Mutagen's writer as a bare NRE. But that writer runs record writes through a PARALLEL path,
-    /// so the SAME NRE can surface WRAPPED — one or more nested <see cref="AggregateException"/>s around a Mutagen
-    /// <c>SubrecordException</c> (a doubly-nested one has been seen). A bare-<see cref="NullReferenceException"/>
-    /// catch misses the wrapped shape and lets the opaque AggregateException render raw instead of as the loud NAMED
-    /// refusal — so, regardless of which serialize path a record takes, this normalizes both. It flattens the aggregate
-    /// nesting (<see cref="AggregateException.Flatten"/>) and, for each leaf, walks its
-    /// <see cref="Exception.InnerException"/> chain to the ROOT cause — re-stamping ONLY when EVERY leaf's root is a
-    /// <see cref="NullReferenceException"/> (the whole failure IS the null-arm case), returning the first such NRE as the
-    /// preserved inner. Any leaf whose root is NOT an NRE returns null, so that genuine other error keeps its own type +
-    /// message; never mask an unrelated throw. (A single-gender GenderedItem formlink half is prevented at the root by
-    /// <see cref="EmptyFormLinkOf"/>; this stays as the general net for a composition null-arm that can still
-    /// occur.)</summary>
+    /// <summary>Unwrap a serialize throw to the root NRE a composed null arm makes, or null unless EVERY flattened leaf's root is one.</summary>
     internal static NullReferenceException? RootNullArm(Exception ex)
     {
         static NullReferenceException? Root(Exception e)
@@ -1754,10 +1312,7 @@ public static class WriteEngine
         return Root(ex);
     }
 
-    /// <summary>Stage 1 of the atomic write: serialize the patch into a temp SUBDIRECTORY beside the target —
-    /// same filename (Mutagen's writer ties filename to ModKey), same parent directory (guarantees same NTFS
-    /// volume so the stage-2 rename is atomic). Does not open the target file itself. Cleans its temp on serialize
-    /// failure, so a failed stage leaves nothing behind.</summary>
+    /// <summary>Stage 1 of the atomic write: serialize into a temp SUBDIRECTORY beside the target, so the stage-2 rename is atomic; temp cleaned on failure.</summary>
     static string WritePatchStaged(SkyrimMod patchMod, ISkyrimModGetter[] ordered, ModKey[] baseline, string outputPath)
     {
         var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
@@ -1778,8 +1333,7 @@ public static class WriteEngine
             if (PluginTextEncoding.NewFileIsUtf8(patchMod)) Serialize(PluginTextEncoding.Utf8Bundle);
             else
                 // The strict encoder is the CHECK: a value the language default cannot spell stops the write rather
-                // than landing as '?'. A new file has no bytes to preserve, so the answer is simply to write the whole
-                // thing again as UTF-8 — never half of it, and never a substituted character.
+                // than landing as '?'. A new file has no bytes to preserve, so the whole thing goes out as UTF-8.
                 try { Serialize(PluginTextEncoding.LegacyBundle); }
                 catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is not null)
                 {
@@ -1796,10 +1350,7 @@ public static class WriteEngine
         }
     }
 
-    /// <summary>Stage 2 of the atomic write: swap the staged temp over the target via AtomicFile.Commit — crash-atomic
-    /// File.Replace when the target exists, a rename when it does not (stage 1 guaranteed same-volume placement).
-    /// Requires the handle discipline to already hold (no handle of ours on the target). Temp is removed
-    /// afterward; a cleanup failure never masks the result.</summary>
+    /// <summary>Stage 2 of the atomic write: swap the staged temp over the target — File.Replace when it exists, a rename when it does not.</summary>
     static void CommitStagedPatch(string tmpPath, string outputPath)
     {
         try { AtomicFile.Commit(tmpPath, outputPath); }
@@ -1818,18 +1369,9 @@ public static class WriteEngine
         catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
-    /// <summary>Serialize a plugin edited IN PLACE back over ITSELF (the in-place write lane,
-    /// <c>WritePatchBuilder.ApplyInPlace</c>). DELIBERATELY NOT <see cref="WritePatch"/>: in-place re-emits an EXISTING
-    /// authored plugin, so it must NOT apply WritePatch's NEW-patch conventions — no Skyrim.esm/Update.esm baseline
-    /// force-include (<c>WithExtraIncludedMasters</c> would ADD masters the author never declared, reindexing the file)
-    /// and no <see cref="EnsureFormIdFloor"/> (<c>NoNextFormIDProcessing</c> persists the author's
-    /// <c>HEDR.NextObjectID</c> verbatim). The write is <c>.WithLoadOrder(&lt;own declared
-    /// masters&gt;).NoNextFormIDProcessing().Write()</c> and nothing else — the surface a faithful round-trip re-emit
-    /// needs (benign field reorder only, no record drops), so in-place must not route through WritePatch.
-    /// <paramref name="ownMasters"/> is the target's OWN declared masters, resolved to overlays in load order (Mutagen
-    /// orders + lean-derives the list). Stage + crash-atomic swap (<see cref="AtomicFile.Commit"/>) is shared with the
-    /// patch lane, so the original only ever holds the OLD or the NEW complete file. The caller MUST already have
-    /// released every overlay it holds on the target — here a FOREIGN target.</summary>
+    /// <summary>Serialize a plugin edited IN PLACE back over ITSELF. DELIBERATELY NOT <see cref="WritePatch"/>: no
+    /// baseline force-include and no floor, because this re-emits an EXISTING authored plugin. The caller MUST have
+    /// released every overlay it holds on the target; see docs/architecture/write-path.md.</summary>
     public static void WriteInPlace(SkyrimMod targetMod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath,
                                     string? dataDir)
     {
@@ -1839,57 +1381,30 @@ public static class WriteEngine
             throw new InvalidOperationException(
                 $"In-place output filename '{actual}' must match the target's ModKey filename '{expected}'.");
 
-        // The localized-target choke point — the backstop for every caller of this method. It runs BEFORE the staging
-        // directory exists and before the serialize, so a refused write leaves nothing at all behind.
-        //
-        // THE OUTCOME IS DECIDED OFF targetMod.UsingLocalization AND NOTHING ELSE. That is a fact about the mod this
-        // call already holds in memory: it cannot fail to be read, so this refusal cannot fail to fire. Deciding it by
-        // re-reading the destination file instead would answer "not localized" on a read fault — and a destination
-        // held by another process for that instant (an AV scan, MO2 refreshing, xEdit, the game) would let the write
-        // through and replace the user's plugin with one reading every value empty. The re-read below supplies only
-        // the SENTENCE, never the decision.
-        //
-        // EVERY localized shape is refused, the complete-loose-set one included: houseCARL cannot swap a plugin and
-        // its .STRINGS tables as one operation, so there is no shape it can rewrite in place safely.
+        // The localized-target choke point, the backstop for every caller: it runs BEFORE the staging directory
+        // exists, and THE OUTCOME IS DECIDED OFF targetMod.UsingLocalization AND NOTHING ELSE, so it cannot fail to
+        // fire where a destination re-read could. The re-read below supplies only the SENTENCE. Every shape refuses.
         if (targetMod.UsingLocalization)
             throw LocalizedTargetUnsupportedException.FromSentence(
                 LocalizedTargetUnsupportedException.Shaped(expected, LocalizedStrings.Assess(outputPath, dataDir)));
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         var ordered = ownMasters as ISkyrimModGetter[] ?? ownMasters.ToArray();
-        // Same composed-null-arm serialize guard as WritePatch (an in-place edit can compose a record too): a required
-        // sub-field left null surfaces as a bare NRE at the writer deref, OR — from the parallel writer — as an
-        // AggregateException-wrapped one; RootNullArm unwraps both and re-stamps ONLY that as a NAMED refusal; the staged
-        // temp is already discarded on any throw (nothing on disk), original byte-intact.
+        // Same composed-null-arm serialize guard as WritePatch — an in-place edit can compose a record too.
         string staged;
         try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath); }
-        // A value this file's own encoding has no spelling for. In place there is no second pass — rewriting the file
-        // as UTF-8 would convert every other string in it — so this is a refusal, with the original byte-intact.
+        // A value this file's own encoding cannot spell: in place there is no second pass, so this is a refusal.
         catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is { } bad)
         {
             throw new UnspellableTextException(
                 PluginTextEncoding.UnspellableRefusal(bad, Path.GetFileName(outputPath)), bad);
         }
         catch (Exception ex) when (RootNullArm(ex) is { } nre) { throw new NullArmSerializeException(nre); }
-        // A localized target never reaches here (refused above), so the serialize emitted no tables and this is the
-        // single-file atomic swap it has always been.
+        // A localized target never reaches here, so the serialize emitted no tables and this is a single-file swap.
         CommitStagedPatch(staged, outputPath);
     }
 
-    /// <summary>Is the plugin at <paramref name="path"/> flagged LOCALIZED — read it, and say which of THREE things
-    /// happened. The pre-flight read behind <see cref="LocalizedStrings.Assess"/>, and through it every lane that has
-    /// to answer BEFORE reaching the write: a dry run (whose job is to give the same answer the real call would), and
-    /// any lane whose refusal carries a remedy clause of its own.
-    ///
-    /// <para>Reads the header only, and deliberately WITHOUT the resolver's game-Data strings redirect: the localized
-    /// FLAG is in the header, so unlike reading the strings themselves this needs no fallback and cannot be wrong
-    /// about the flag because a strings source is missing. It still opens under the ordinary read parameters, so the
-    /// encoding is the one every other read uses.</para>
-    ///
-    /// <para><b>It returns three answers rather than a bool, and that is the point.</b> A bool would have to answer
-    /// <c>false</c> on a read fault, which classifies a locked destination as not-localized and lets the write
-    /// proceed. Callers must handle <see cref="LocalizedFlagRead.Unreadable"/> as unknown; the compiler makes
-    /// them.</para></summary>
+    /// <summary>Is the plugin at <paramref name="path"/> flagged LOCALIZED — three answers, not a bool, which would answer false on a read fault.</summary>
     public static LocalizedFlagRead PluginIsLocalized(string path)
     {
         ISkyrimModGetter? ov = null;
@@ -1904,10 +1419,7 @@ public static class WriteEngine
         finally { if (ov is IDisposable d) { try { d.Dispose(); } catch { } } }
     }
 
-    /// <summary>Stage 1 of the in-place write: own declared masters as the load order, the counter persisted verbatim
-    /// (<c>NoNextFormIDProcessing</c>, NO floor), NO baseline force-include. Stages into the <c>.housecarl-tmp</c>
-    /// sibling of the target (same parent ⇒ same NTFS volume ⇒ the stage-2 swap is atomic), and cleans its temp on a
-    /// serialize failure, leaving nothing behind and the original untouched.</summary>
+    /// <summary>Stage 1 of the in-place write: own declared masters, the counter verbatim with NO floor, no baseline, staged in the sibling temp.</summary>
     static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath)
     {
         var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
@@ -1930,24 +1442,12 @@ public static class WriteEngine
         }
     }
 
-    /// <summary>The base-game masters EVERY Skyrim plugin must carry — Skyrim.esm + Update.esm, exactly what the Creation
-    /// Kit stamps on every plugin. Force-included on every
-    /// <see cref="WritePatch(SkyrimMod, IReadOnlyList{ISkyrimModGetter},string)"/> via WithExtraIncludedMasters so even a
-    /// self-contained created record yields a valid, conventionally-mastered plugin. Both ship with SE → always present in
-    /// the order, so this never fails; the load order sorts them (Skyrim.esm before Update.esm).</summary>
+    /// <summary>The base-game masters every Skyrim plugin must carry, force-included on every patch write.</summary>
     internal static readonly ModKey[] BaselineMasters = { new("Skyrim", ModType.Master), new("Update", ModType.Master) };   // internal: the dry-run master preview mirrors the force-include
 
-    // ======================================================================
-    //  PATH NAVIGATION + VERBS
-    // ======================================================================
+    // ---- PATH NAVIGATION + VERBS ----
 
-    /// <summary>
-    /// Parse one path segment into (field name, optional collection key/index). <c>Effects[0]</c> →
-    /// ("Effects","0"); <c>Foo</c> → ("Foo", null). Brackets carry MID-PATH collection navigation only — this is
-    /// the boundary parse from the textual path to the engine's typed per-hop form. Fails LOUD on a malformed
-    /// bracket: a silent misparse could retarget a write. The leaf uses <see cref="WriteRequest.Key"/>, never a
-    /// bracket; both <see cref="ApplyVerb"/> and the rulebook reject a bracketed LEAF segment.
-    /// </summary>
+    /// <summary>Parse one path segment into (field name, optional key/index). Brackets are MID-PATH only, and a malformed one fails LOUD.</summary>
     internal static (string name, string? key) ParseSegment(string segment)
     {
         var open = segment.IndexOf('[');
@@ -1968,21 +1468,11 @@ public static class WriteEngine
         return (name, key);
     }
 
-    /// <summary>
-    /// Walk <c>req.Path</c> from the record root, then apply <c>req.Verb</c> at the leaf. A plain hop descends a
-    /// substruct (materializing an absent one); a bracketed hop (<c>Effects[0]</c>) steps INTO a collection
-    /// element. Dispatch at the leaf is on its <i>runtime</i> shape (dict / list /
-    /// scalar), so execution stays corpus-independent: the corpus drives pre-flight (<see cref="CorpusRulebook"/>),
-    /// reflection drives the write.
-    /// <para><paramref name="pathSlot"/> is what the caller's own input slot for <c>req.Path</c> is called at THIS
-    /// root — <c>field_path</c> on a record, <c>path</c> when a compose's nested <c>sets</c> are replayed here
-    /// against the freshly-built struct. Only the leaf-bracket throw reads it, and only to name a path the caller
-    /// can actually re-send; it mirrors the same parameter on <c>CorpusRulebook.ValidateFromType</c>.</para>
-    /// </summary>
-    /// <returns>An apply-time note about what the write DID that the written file cannot express afterwards — today
-    /// only the list Add's membership answer (it appended an element the list already carried; the file shows a
-    /// longer list either way). Null when the check found nothing, which is the common case. Callers that render an
-    /// op line carry it there; the rest ignore it.</returns>
+    /// <summary>Walk <c>req.Path</c> from the record root, then apply <c>req.Verb</c> at the leaf — a plain hop
+    /// descends a substruct, a bracketed one steps into an element, and leaf dispatch is on the RUNTIME shape.
+    /// <paramref name="pathSlot"/> names the caller's own input slot, read only by the leaf-bracket throw.</summary>
+    /// <returns>An apply-time note about what the write DID that the file cannot express — today only the list Add's
+    /// membership answer; null when there is nothing to say.</returns>
     public static string? ApplyVerb(object record, WriteRequest req, string pathSlot = "field_path")
     {
         object current = record;
@@ -1991,10 +1481,7 @@ public static class WriteEngine
             var (segName, segKey) = ParseSegment(req.Path[i]);
             var p = ResolveProperty(current.GetType(), segName)
                 ?? throw new InvalidOperationException($"No property '{segName}' on {current.GetType().Name}");
-            // No bracket → descend a substruct. An ABSENT intermediate optional substruct (null) is materialized so a
-            // field inside it can be set — "set a field in a data block the record lacks" must work, not throw.
-            // Multi-level absent chains materialize one hop at a time. A bracket (Effects[0]) → step INTO that
-            // collection element and keep descending.
+            // No bracket → descend a substruct, materializing an absent optional one; a bracket steps INTO an element.
             current = segKey is null
                 ? (p.GetValue(current) ?? MaterializeSubstruct(current, p, segName))
                 : StepIntoElement(current, p, segName, segKey, materialize: true);   // write path may materialize a gendered arm on demand
@@ -2002,31 +1489,17 @@ public static class WriteEngine
         var (leafName, leafKey) = ParseSegment(req.Path[^1]);
         if (leafKey is not null)
         {
-            // A gendered field at the LEAF (Set Priority[0]) renders as [0]/[1] but is NOT a list/dict — redirect to the
-            // named halves, not the list-verb message. Runtime twin of CorpusRulebook's "GenderedItem<" leaf recogniser;
-            // the two must agree. Pre-flight normally gates this first; the engine keeps the message honest for any
-            // direct / CLI --op call that bypasses pre-flight.
+            // A gendered LEAF renders as [0]/[1] but is not a list — redirect to the named halves. Twin of the corpus recogniser.
             var bracketProp = ResolveProperty(current.GetType(), leafName);
             if (bracketProp is { } gp && GenderedInterface(gp.PropertyType) is not null)
                 throw new InvalidOperationException(
                     $"Gendered field '{leafName}' on {current.GetType().Name} renders as [0]/[1] but is not a list — set " +
                     $"its halves by name: '{leafName}.Male' (=[0]) / '{leafName}.Female' (=[1]).");
-            // The gate's twin — its corpus-side recogniser is CorpusRulebook's leaf-bracket refusal, and the two must
-            // agree: same facts, same order, same slot. Pre-flight normally refuses first, so this fires only on a
-            // path that bypasses it (a direct / CLI --op call, or a compose's nested Sets replayed here), which is
-            // exactly why it has to say the same thing rather than a shorter version of it.
-            // Derived, not recited: the corpus is not in scope — the engine is schema-blind by design — so the shape
-            // comes off the live property type; WriteVerbs.OfRuntimeType and its schema-side sibling must give the
-            // same answer on every collection field in the corpus. The container path is joined by CorpusRulebook's
-            // own PathTo rather than a second copy of it, so the two messages cannot drift on the path either.
-            // A property that resolves to no collection at all still gets the rule, with no verb named.
+            // The gate's twin, for a path that bypassed pre-flight, so it must say the same thing rather than less.
+            // Derived from the live property type — the engine is schema-blind — and the path comes from PathTo.
             var head = $"Path segment '{req.Path[^1]}' brackets a collection element at the LEAF. Brackets navigate "
                        + "mid-path only; ";
-            // …including the KEY gate. The gate side checks the key's shape (CorpusRulebook.KeyShapeError) before
-            // promoting it into a call to make; the engine cannot read that corpus check, but it owns the same two
-            // runtime recognisers apply itself keys on, so it applies those instead. A key that fails them falls
-            // back to the keyless form — echoing it would name a call that throws at apply, which is the dead end
-            // this message exists to close.
+            // …including the KEY gate: a key that fails the two runtime recognisers falls back to the keyless form.
             if (bracketProp is not null && WriteVerbs.OfRuntimeType(bracketProp.PropertyType) is { } bshape)
                 throw new InvalidOperationException(head
                     + (KeyShapeUsable(bracketProp.PropertyType, leafKey)
@@ -2041,8 +1514,7 @@ public static class WriteEngine
         var leaf = ResolveProperty(current.GetType(), leafName)
             ?? throw new InvalidOperationException($"No property '{leafName}' on {current.GetType().Name}");
 
-        // Whole-value-coercible leaves (Color, MemorySlice blobs, AssetLink paths, …) are Set wholesale even when
-        // the runtime type also implements IList/IDict — coercion owns them, not the collection verbs.
+        // Whole-value-coercible leaves are Set wholesale even where the runtime type also implements IList/IDict.
         if (CanCoerce(leaf.PropertyType)) { ApplyScalarVerb(current, leaf, req); return null; }
 
         var dictIface = ClosedInterface(leaf.PropertyType, typeof(IDictionary<,>));
@@ -2055,21 +1527,11 @@ public static class WriteEngine
         return null;
     }
 
-    // ======================================================================
-    //  CopyFrom: transplant a FIELD's value from another plugin's version of a record into the patch's copy.
-    //  The reflection-generic form of the hand-typed NpcAppearanceCopy.CopyAppearanceFields: every transplantable
-    //  field KIND is covered by the shape of the target property + source value, not a per-type list. Owned-child
-    //  record collections are refused at PRE-FLIGHT (CorpusRulebook.CopyFromLegality) — this only ever runs on a
-    //  transplantable leaf.
-    // ======================================================================
+    // ---- CopyFrom ----
+    //  Transplant a FIELD's value from another plugin's version of a record into the patch's copy; every
+    //  transplantable KIND is covered by shape, not a per-type list. Owned-child collections refuse at pre-flight.
 
-    /// <summary>Deep-copy the value at <paramref name="path"/> from <paramref name="source"/>'s version of a record into
-    /// the patch's settable copy <paramref name="target"/>. An ABSENT/null source value is refused (nothing to copy) —
-    /// never a silent destructive clear; use Remove to clear. Throws an <see cref="ExpectedApplyRejectionException"/>
-    /// for a clean live-state refusal (absent source), else a plain throw for a genuine engine inconsistency (surfaced,
-    /// all-or-nothing at the cleave). The source overlay must stay OPEN through the patch serialize (the cleave holds its
-    /// session; an off-order source overlay is held by the service) — reference-shared immutables (strings, formlink
-    /// getters) are only valid while it is.</summary>
+    /// <summary>Deep-copy the value at <paramref name="path"/> from the source's version into the patch's copy; an ABSENT source value is refused.</summary>
     public static void CopyField(IMajorRecordGetter source, IMajorRecord target, string[] path)
     {
         // --- navigate the SOURCE (read-only, never materialize) to the leaf's value ---
@@ -2113,18 +1575,11 @@ public static class WriteEngine
         TransplantValue(tgtCur, tgtLeaf, srcVal);
     }
 
-    /// <summary>Assign a getter-side <paramref name="srcVal"/> into leaf <paramref name="prop"/> on
-    /// <paramref name="parent"/>, deep-copying so the patch owns its own instances. Three property shapes cover every
-    /// transplantable kind: a SETTABLE property (a value assigned directly; a Loqui getter DeepCopy'd; a modeled/formlink
-    /// list rebuilt from copied elements); a GET-ONLY FormLink (SetTo the source FormKey); a GET-ONLY collection (its
-    /// contents replaced with copied elements). A shape it can't place is a loud throw — never a silent partial copy;
-    /// pre-flight already excluded owned-child records.</summary>
+    /// <summary>Assign a getter-side value into leaf <paramref name="prop"/>, deep-copying; three shapes cover every kind, else a loud throw.</summary>
     static void TransplantValue(object parent, PropertyInfo prop, object srcVal)
     {
         var pt = prop.PropertyType;
-        // Array-backed collections (a fixed-size game structure, e.g. Weather clouds) implement IList<T> but can't be
-        // Activator-instantiated without a length — the write verbs already refuse them; CopyFrom does too, CLEANLY (a
-        // clean apply-time refusal, not the "pre-flight accepted but apply threw" inconsistency wrapper). Tracked gap.
+        // Array-backed collections cannot be instantiated without a length, so CopyFrom refuses them cleanly. Tracked.
         if (pt.IsArray)
             throw new ExpectedApplyRejectionException(
                 $"CopyFrom does not transplant the array-backed collection '{prop.Name}' ({Pretty(pt)}) — a fixed-size game structure; a tracked gap, mirroring the write verbs.");
@@ -2163,23 +1618,14 @@ public static class WriteEngine
             $"CopyFrom cannot transplant get-only '{prop.Name}' ({Pretty(pt)}) — not a formlink or collection (a field kind CopyFrom doesn't transplant yet; a clean refusal, not a silent skip).");
     }
 
-    // Cache of the DeepCopy method (instance or Mutagen extension) per getter runtime type — the reflection search below
-    // is done ONCE per type. A null entry means "no DeepCopy" (a plain scalar/value) — memoised too.
+    // The DeepCopy method per getter runtime type, resolved once; a null entry means "no DeepCopy", memoised too.
     static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, (MethodInfo? m, bool isExtension)> _deepCopyOf = new();
 
-    /// <summary>A DETACHED deep copy of a whole record, or null if Mutagen models no DeepCopy for its type (the
-    /// caller then REFUSES — falling back to the live record is the bug this exists to prevent). Used by the
-    /// in-place lane to snapshot a copy source that lives in the file being rewritten: the source must not be the
-    /// live mutable record, or (a) later ops in the same call would be visible to it, and (b) the element-level
-    /// share in <see cref="CopyElement"/> — safe when a source is a read-only overlay, since an overlay element is
-    /// never the settable concrete type — would alias the two records' collection elements.</summary>
+    /// <summary>A DETACHED deep copy of a whole record, or null when Mutagen models no DeepCopy — the caller then REFUSES rather than use the live one.</summary>
     internal static IMajorRecordGetter? TryDeepCopyRecord(IMajorRecordGetter record)
         => TryDeepCopy(record) as IMajorRecordGetter;
 
-    /// <summary>DeepCopy a Loqui getter to its settable concrete. Mutagen generates DeepCopy as an EXTENSION method
-    /// (<c>SomethingMixIn.DeepCopy(this ISomethingGetter, TranslationMask? = null)</c>), not a parameterless instance
-    /// method, so this finds and invokes it (or a same-shape instance overload where one exists). Returns null when the
-    /// value has no DeepCopy (a plain scalar/value/string — the caller then assigns it directly). Per-type memoised.</summary>
+    /// <summary>DeepCopy a Loqui getter to its settable concrete through Mutagen's generated EXTENSION; null when it has none. Per-type memoised.</summary>
     static object? TryDeepCopy(object val)
     {
         var t = val.GetType();
@@ -2193,9 +1639,7 @@ public static class WriteEngine
         return m.Invoke(isExtension ? null : val, args);
     }
 
-    /// <summary>Locate a DeepCopy for <paramref name="getterType"/>: first a same-shape INSTANCE overload (all args
-    /// optional), else the Mutagen static EXTENSION (<c>DeepCopy(this &lt;getter&gt;, optional…)</c>) — the most-derived
-    /// first-parameter among matches (so a specific arm's extension is preferred over a base one). Non-void, non-generic.</summary>
+    /// <summary>Locate a DeepCopy: a same-shape INSTANCE overload, else the static EXTENSION with the most-derived receiver.</summary>
     static (MethodInfo? m, bool isExtension) FindDeepCopy(Type getterType)
     {
         var inst = getterType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
@@ -2222,9 +1666,7 @@ public static class WriteEngine
         return (best, true);
     }
 
-    /// <summary>Copy ONE collection element to a target element of <paramref name="elemType"/>: a formlink/value element
-    /// the target already accepts passes through (immutable while the source overlay lives); a Loqui element is
-    /// DeepCopy'd. Loud on an unhandled element kind.</summary>
+    /// <summary>Copy ONE element to <paramref name="elemType"/>: an accepted element passes through, a Loqui one is DeepCopy'd.</summary>
     static object CopyElement(Type elemType, object elem)
     {
         if (elemType.IsInstanceOfType(elem)) return elem;                                   // formlink getter / value — share is safe
@@ -2232,8 +1674,7 @@ public static class WriteEngine
         throw new InvalidOperationException($"CopyFrom: cannot copy a {Pretty(elem.GetType())} element into a {Pretty(elemType)} list.");
     }
 
-    /// <summary>Build a fresh settable collection of <paramref name="collType"/> (ExtendedList&lt;T&gt;) holding copies of
-    /// every element of <paramref name="src"/> — the settable-collection transplant.</summary>
+    /// <summary>Build a fresh settable collection holding copies of every element of <paramref name="src"/>.</summary>
     static object BuildCopiedList(Type collType, Type elemType, System.Collections.IEnumerable src)
     {
         var list = System.Activator.CreateInstance(collType)
@@ -2244,8 +1685,7 @@ public static class WriteEngine
         return list;
     }
 
-    /// <summary>Replace a live get-only collection's contents with copies of every element of <paramref name="src"/>
-    /// (Clear then Add) — the get-only-collection transplant.</summary>
+    /// <summary>Replace a live get-only collection's contents with copies of every element of <paramref name="src"/>.</summary>
     static void ReplaceListInPlace(object live, Type elemType, System.Collections.IEnumerable src)
     {
         var lt = live.GetType();
@@ -2255,8 +1695,7 @@ public static class WriteEngine
         foreach (var e in src) if (e is not null) add.Invoke(live, new[] { CopyElement(elemType, e) });
     }
 
-    /// <summary>Reflectively call <c>SetTo(FormKey)</c> on a live get-only FormLink (IFormLink&lt;T&gt; /
-    /// IFormLinkNullable&lt;T&gt;) — the same mutation NpcAppearanceCopy does typed.</summary>
+    /// <summary>Reflectively call <c>SetTo(FormKey)</c> on a live get-only FormLink.</summary>
     static void InvokeSetTo(object link, FormKey fk)
     {
         var m = link.GetType().GetMethod("SetTo", new[] { typeof(FormKey) });
@@ -2271,19 +1710,11 @@ public static class WriteEngine
         if (!prop.CanWrite) throw new InvalidOperationException($"Property '{prop.Name}' is not writable");
         if (req.Verb == "Set" && req.Struct is not null) { prop.SetValue(parent, BuildStruct(req.Struct)); return; }
 
-        // Parent-aware FormLinkOrIndex (condition-data targets): the concrete ctor needs the owning ARM (parent) as
-        // its discriminator-flag source, so an FLOI cannot go through the parentless Coerce path. The engine
-        // auto-infers form-vs-index from the value and sets the arm's flag to match. Recognised by the generic
-        // definition (IsFormLinkOrIndex) — no per-record-type wiring.
+        // Parent-aware FormLinkOrIndex: the ctor needs the owning ARM as its flag source, so Coerce cannot serve it.
         if (req.Verb == "Set" && IsFormLinkOrIndex(prop.PropertyType)) { SetFloi(parent, prop, req.Value!); return; }
 
-        // Add / valued-Remove on a [Flags] enum are BIT operations, NOT whole-value Set/clear: Add ORs the operand's
-        // bit(s) into the current value, Remove ANDs them out — so a single flag flips without the caller re-listing
-        // every OTHER bit, which a literal Set would silently drop. Gated to [Flags] enums. A VALUELESS Remove is NOT
-        // a bit op — it means the whole-field clear of a nullable scalar (the case below), so it falls through here;
-        // that is the only path to make a nullable flags field absent (pre-flight admits it only when nullable). Add
-        // on a non-flags scalar still hits the default reject. Pre-flight validated the operand, but we fail LOUD here
-        // for a pre-flight-bypassing caller.
+        // Add / valued-Remove on a [Flags] enum are BIT operations, so one flag flips without re-listing the others;
+        // a VALUELESS Remove is the whole-field clear below. This fails LOUD for a caller that bypassed pre-flight.
         if (req.Verb == "Add" || (req.Verb == "Remove" && req.Value is not null))
         {
             var ut = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
@@ -2296,16 +1727,8 @@ public static class WriteEngine
                 prop.SetValue(parent, Coerce(req.Value!, prop.PropertyType));
                 break;
             case "Remove": // clear a nullable scalar / substruct / formlink / polymorphic
-                // A FormLink field is a struct-backed slot whose setter REJECTS a null reference, so SetValue(null)
-                // throws TargetInvocationException at apply even where pre-flight accepted the Remove. Route the clear
-                // through EmptyFormLinkOf: a FormLink-family type → its empty link (FormKey.Null), every other
-                // nullable scalar / substruct / polymorphic → null (EmptyFormLinkOf returns null for non-FormLink
-                // types). This makes Remove on a nullable FormLink identical to Set = "0", a null-synonym clear.
-                //
-                // EmptyFormLinkOf would also produce a non-null empty link for a REQUIRED FormLink, silently blanking
-                // a required target. Pre-flight (CorpusRulebook) already refuses Remove on a non-nullable link, but
-                // ApplyVerb does no validation, so a direct/CLI caller bypassing pre-flight must still fail LOUD
-                // rather than write an empty required link — as with the gendered-leaf throw above.
+                // A FormLink setter REJECTS a null reference, so the clear routes through EmptyFormLinkOf — which
+                // would also blank a REQUIRED link, hence the loud refusal here for a pre-flight-bypassing caller.
                 if (IsRequiredFormLink(prop.PropertyType))
                     throw new InvalidOperationException(
                         $"Remove is not valid on the required (non-nullable) FormLink '{prop.Name}' — a required link " +
@@ -2317,14 +1740,7 @@ public static class WriteEngine
         }
     }
 
-    /// <summary>Flags-enum bit op: OR (<c>Add</c>) or AND-NOT (<c>Remove</c>) the operand's bit(s)
-    /// into the leaf's CURRENT value, so one flag flips while every other bit is preserved — a literal
-    /// <see cref="Coerce"/> Set would drop every unlisted bit. The operand is resolved
-    /// through the SAME enum coercion a Set uses (<see cref="Coerce"/> → <c>Enum.Parse</c>: a flag NAME, a
-    /// case-insensitive comma-combo, or a decimal literal) so pre-flight (CheckValue → TryCoerce) and apply can't
-    /// disagree on a legal operand; its bits and the current value's bits are read through
-    /// <see cref="ReadEngine.TryEnumBits"/> (robust across every underlying integer type). The combined pattern is
-    /// re-boxed to the enum type via <c>Enum.ToObject</c>. Called only for a confirmed <c>[Flags]</c> leaf.</summary>
+    /// <summary>Flags-enum bit op: OR (<c>Add</c>) or AND-NOT (<c>Remove</c>) the operand into the leaf's CURRENT value, through the enum coercion a Set uses.</summary>
     static void ApplyFlagsBitVerb(object parent, PropertyInfo prop, Type enumType, WriteRequest req)
     {
         if (!prop.CanWrite) throw new InvalidOperationException($"Property '{prop.Name}' is not writable");
@@ -2344,79 +1760,40 @@ public static class WriteEngine
         prop.SetValue(parent, Enum.ToObject(enumType, combined));
     }
 
-    /// <summary>
-    /// Build a modeled struct FROM PARTS — the ONE composition primitive.
-    /// Resolve the concrete type, instantiate it (parameterless, or via positional <see cref="StructSpec.CtorArgs"/>
-    /// for discriminator-/composition-ctor types), apply the flat <see cref="StructSpec.Fields"/> (a coerced Set-leaf
-    /// each), then apply the general nested <see cref="StructSpec.Sets"/> THROUGH <see cref="ApplyVerb"/> itself — so
-    /// nested sub-structs, struct-element Adds, and lists are handled by that same path, and a built struct can
-    /// never miss a field kind the engine already handles. Used for: a polymorphic-arm Set, and a struct-element Add.
-    /// </summary>
+    /// <summary>Build a modeled struct FROM PARTS — the ONE composition primitive; its nested <c>sets</c> replay THROUGH <see cref="ApplyVerb"/> itself.</summary>
     static object BuildStruct(StructSpec spec)
     {
         var type = ResolveStructType(spec.Type);
-        // A type whose every constructor takes arguments is built FROM the compose's own fields when no explicit
-        // ctor_args were given — the caller names the discriminator as a field, which is the natural spelling and the
-        // one the discriminator refusal already sends them to.
+        // A type whose every ctor takes arguments is built FROM the compose's own fields when no ctor_args were given.
         var fromFields = spec.CtorArgs is null ? CtorArgsFromFields(type, spec.Fields) : null;
-        // The constructor CtorArgsFromFields chose is the one invoked — not one re-derived from the arg count, which
-        // would pick a different overload of the same arity than the gate validated.
+        // The constructor CtorArgsFromFields chose is the one invoked, not one re-derived from the arg count.
         var instance = fromFields is { } ff ? Instantiate(ff.Ctor, ff.Args) : Instantiate(type, spec.CtorArgs);
         foreach (var (name, val) in spec.Fields ?? new())
         {
-            // A field the constructor already carried is not re-set: it is written, and on an arm whose discriminator
-            // is read-only re-setting it would throw.
+            // A field the ctor already carried is not re-set; a read-only discriminator would throw.
             if (fromFields?.Consumed.Contains(name) == true) continue;
             var p = ResolveProperty(type, name)
                 ?? throw new InvalidOperationException($"No field '{name}' on '{spec.Type}'");
             if (!p.CanWrite) throw new InvalidOperationException($"Field '{name}' on '{spec.Type}' is not writable");
-            // A condition FormLinkOrIndex field (GetEquipped.ItemOrList, GetGlobalValue.Global, …) needs the parent-aware
-            // SetFloi: the just-built `instance` IS the flag-bearing arm, so its UseAliases/UsePackageData mode is set to
-            // match the value. The parentless Coerce rejects FLOI (it has no arm). Mirrors ApplyScalarVerb's FLOI gate so
-            // the flat-field and nested-Sets compose paths produce the IDENTICAL write. (Pre-flight already validated val.)
+            // A FormLinkOrIndex field needs SetFloi, the just-built instance being the flag-bearing arm — as in ApplyScalarVerb.
             if (IsFormLinkOrIndex(p.PropertyType)) SetFloi(instance, p, val);
             else p.SetValue(instance, Coerce(val, p.PropertyType));
         }
         foreach (var req in spec.Sets ?? new())
-            // general nested writes — reuse the verb engine; recurses on struct-element Adds. These paths are rooted
-            // at the built struct and the caller typed them in the nested 'path' slot, so a refusal names that slot.
+            // General nested writes reuse the verb engine, rooted at the built struct, so a refusal names that slot.
             ApplyVerb(instance, req, "path");
         if (EmptyComposeRefusal(spec, type, instance) is { } why) throw new ExpectedApplyRejectionException(why);
         return instance;
     }
 
-    /// <summary>Refuse a compose the caller gave NOTHING to, whose built object carries nothing to serialize — e.g.
-    /// <c>Add Ranks compose={"type":"Rank"}</c>. Mutagen builds the Rank, the list holds it, and the writer emits ZERO
-    /// bytes for it: the plugin does not grow, every later read shows the list still empty, and without this the write
-    /// reports it as landed. A write that cannot land must be refused, not reported.
-    ///
-    /// <para>Deliberately NARROW, because "would this serialize?" is Mutagen's question and not one this engine can
-    /// answer in general. It fires only when the caller supplied literally nothing — no <c>fields</c>, no nested
-    /// <c>sets</c>, no <c>ctor_args</c> — AND every SETTABLE property of the built object is null. A type with a
-    /// non-nullable member (an enum, a number, a struct) never trips it, because that member has a value and
-    /// serializes; a ctor-arg or discriminator compose never trips it, because the caller supplied the discriminator;
-    /// and read-only reflection surface (Loqui's <c>StaticRegistration</c>) is excluded, because a compose cannot set
-    /// it and it is not content. The TYPE itself is NOT an exemption: a polymorphic arm survives because Mutagen's arm
-    /// types carry a non-nullable member, not because naming the arm counts as content — so an arm whose whole
-    /// settable surface is nullable references would be refused here, with advice to name a field, when the type was
-    /// the content. No such arm is known, but that is not derived, so treat it as a bound rather than a fact. The
-    /// general case — a struct that serializes to less than the caller believes — is caught from the other end:
-    /// <c>WritePatchBuilder.VerifyLandedAgainstFile</c> reports content that is GONE (a count that moved, a leaf that
-    /// now holds nothing), but NOT an element that lands with fewer fields than supplied, which cannot be told from
-    /// the format representing a value its own way.</para>
-    ///
-    /// <para>Names what to set from the TYPE itself (settable properties, reflection-derived), never a hand-kept list
-    /// per struct.</para></summary>
+    /// <summary>Refuse a compose given NOTHING, whose built object serializes to ZERO bytes while the call reports it
+    /// as landed. Deliberately NARROW — nothing supplied AND every settable property null — and it names what to set
+    /// from the TYPE itself. Contract in docs/architecture/write-path.md.</summary>
     static string? EmptyComposeRefusal(StructSpec spec, Type type, object instance)
     {
-        // `Length: > 0` on ctor_args: an EMPTY array is "the 0-arg ctor", not a supplied discriminator, so reading it
-        // as one would let the empty compose through this check.
+        // `Length: > 0` on ctor_args: an EMPTY array is the 0-arg ctor, not a supplied discriminator.
         if (spec.CtorArgs is { Length: > 0 } || spec.Fields is { Count: > 0 } || spec.Sets is { Count: > 0 }) return null;
-        // Instance, non-indexed properties ONLY, in a STABLE order: the default flags include public STATICS — one
-        // with a value would suppress the refusal entirely while being listed as something a compose could set — an
-        // INDEXER throws TargetParameterCountException in GetValue below, whose catch would bail the whole check out,
-        // and GetProperties' order is unspecified by the CLR, so the worked example could name a different field
-        // between runtimes.
+        // Instance, non-indexed properties ONLY, in a STABLE order: a static, an indexer, or CLR order would break it.
         var settable = type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
                            .Where(p => p is { CanRead: true, CanWrite: true } && p.GetIndexParameters().Length == 0)
                            .OrderBy(p => p.Name, StringComparer.Ordinal).ToList();
@@ -2427,8 +1804,7 @@ public static class WriteEngine
             try { v = p.GetValue(instance); } catch { return null; }   // unreadable ⇒ can't claim emptiness
             if (v is not null) return null;                        // it carries something — let the write proceed
         }
-        // The worked example is the line a caller COPIES, so it names a field they can actually pass as a string —
-        // a scalar, never plumbing. The full list below still names every settable field.
+        // The worked example is the line a caller COPIES, so it names a scalar they can actually pass as a string.
         static bool IsSimple(Type t)
         {
             var u = Nullable.GetUnderlyingType(t) ?? t;
@@ -2448,14 +1824,7 @@ public static class WriteEngine
                "it. Compose it WITH its fields instead; one op, and it cannot half-land.)";
     }
 
-    /// <summary>Resolve a struct catalog name to its concrete settable type. Most modeled structs live in
-    /// <c>Mutagen.Bethesda.Skyrim</c>, but some (e.g. <c>MasterReference</c>, a header sub-element) live in the core
-    /// <c>Mutagen.Bethesda.Plugins</c> assembly — so fall back to a by-simple-name search across ALL Mutagen
-    /// assemblies (the same cross-assembly resolution <see cref="ConcreteOf"/> uses for generic interfaces). Recognised
-    /// by name, not a hand-listed set of types; fails LOUD if Mutagen models no such concrete class. The by-name
-    /// fallback intentionally omits an assignability filter (unlike <see cref="ConcreteOf"/>'s interface branch): the
-    /// input is a generator-emitted CATALOG name, not a runtime interface, so there is no target type to constrain
-    /// against — a wrong/colliding type is caught loud downstream by Instantiate + the per-field ResolveProperty.</summary>
+    /// <summary>Resolve a struct catalog name to its concrete settable type, across every Mutagen assembly; loud if none resolves.</summary>
     static Type ResolveStructType(string name) =>
         typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim." + name)
         ?? AppDomain.CurrentDomain.GetAssemblies().Where(a => (a.GetName().Name ?? "").StartsWith("Mutagen"))
@@ -2464,15 +1833,7 @@ public static class WriteEngine
             $"Unknown struct type '{name}' — no concrete class in Mutagen.Bethesda.Skyrim nor any Mutagen assembly. " +
             "If Mutagen models it under another name, surface that; never guess.");
 
-    /// <summary>True iff <see cref="BuildStruct"/> can instantiate this catalog TYPE from a PARAMETERLESS compose (no
-    /// ctor_args, no composition): the name resolves via <see cref="ResolveStructType"/> to a concrete Mutagen type with
-    /// a public parameterless ctor. The gate-side twin of what <see cref="Instantiate"/> does with no ctor_args — it
-    /// EXCLUDES the composition-residuals <c>GenderedItem&lt;T&gt;</c> / <c>Array2d&lt;T&gt;</c> (no parameterless ctor,
-    /// so Instantiate routes to <see cref="InstantiateComposition"/>, which builds only gendered halves and throws for the
-    /// rest) and any name ResolveStructType can't resolve. Used by the substruct-leaf compose gate so it accepts EXACTLY
-    /// what apply can build (gate==apply, by construction; no per-type list). A ctor-arg-only type is excluded here
-    /// because this question is asked of the SCHEMA alone, with no spec in hand; whether a given compose satisfies
-    /// such a type's constructor is <see cref="TryRecognizeInstantiable"/>'s question, asked per call.</summary>
+    /// <summary>True iff <see cref="BuildStruct"/> can instantiate this TYPE from a PARAMETERLESS compose — the gate-side twin of <see cref="Instantiate"/>.</summary>
     internal static bool IsPlainComposableStruct(string? typeName)
     {
         if (typeName is null) return false;
@@ -2482,9 +1843,7 @@ public static class WriteEngine
         return t.GetConstructor(Type.EmptyTypes) is not null;
     }
 
-    /// <summary>Instantiate a concrete type for build-from-parts. Order: explicit positional ctor args (discriminator
-    /// arm like <c>MagicEffectArchetype(TypeEnum)</c>, or composition parts) → parameterless ctor (the common case) →
-    /// composition build (no parameterless ctor + no explicit args).</summary>
+    /// <summary>Instantiate for build-from-parts: explicit positional ctor args → parameterless ctor → composition.</summary>
     static object Instantiate(Type t, string[]? ctorArgs)
     {
         if (ctorArgs is not null)
@@ -2499,23 +1858,15 @@ public static class WriteEngine
         return InstantiateComposition(t);
     }
 
-    /// <summary>Invoke ONE already-chosen constructor with positional string args, each coerced to its parameter
-    /// type. Taking the <see cref="ConstructorInfo"/> rather than re-selecting it by arity is what makes the
-    /// fields-lane gate and apply the same choice: two overloads of the same arity are two different builds, and
-    /// arity alone cannot tell them apart.</summary>
+    /// <summary>Invoke ONE already-chosen constructor with positional string args; taking the ctor rather than re-selecting by arity is what makes one choice.</summary>
     static object Instantiate(ConstructorInfo ctor, string[] args) =>
         ctor.Invoke(ctor.GetParameters().Select((p, i) => Coerce(args[i], p.ParameterType)).ToArray());
 
-    /// <summary>Build a type from the constructor its own compose fields satisfy, or null when none does — the seam
-    /// <see cref="BuildStruct"/>'s no-<c>ctor_args</c> lane is made of (choose a constructor, invoke THAT one).</summary>
+    /// <summary>Build a type from the constructor its own compose fields satisfy, or null when none does.</summary>
     internal static object? BuildFromFieldConstructor(Type t, IReadOnlyDictionary<string, string>? fields) =>
         CtorArgsFromFields(t, fields) is { } ff ? Instantiate(ff.Ctor, ff.Args) : null;
 
-    /// <summary>The compose FIELDS a constructor carries, for a compose with no <c>ctor_args</c> — the names
-    /// <see cref="BuildStruct"/> passes to the constructor and then skips in its field pass. The pre-flight gate asks
-    /// this so it skips the same ones: a constructor-carried field is written by the constructor, so it is legal even
-    /// where the property itself has no setter. Empty for every other compose, which is exactly when BuildStruct
-    /// skips nothing.</summary>
+    /// <summary>The compose FIELDS a constructor carries, for a compose with no <c>ctor_args</c> — the names both apply and the gate then skip.</summary>
     internal static IReadOnlySet<string> CtorConsumedFields(string structTypeName, IReadOnlyDictionary<string, string>? fields)
     {
         try
@@ -2527,17 +1878,7 @@ public static class WriteEngine
 
     static readonly HashSet<string> NoConsumedFields = new(StringComparer.Ordinal);
 
-    /// <summary>Recognition-only mirror of <see cref="Instantiate"/>'s ctor-args path — the write pre-flight gate's twin
-    /// of the apply-time ctor build. Does this struct type have a constructor of the supplied arity, and does each
-    /// supplied arg COERCE to its parameter type? Resolves the type the SAME way <see cref="BuildStruct"/> feeds
-    /// Instantiate (<see cref="ResolveStructType"/>), selects the ctor the SAME way Instantiate does
-    /// (<c>GetConstructors().FirstOrDefault(len==N)</c>), and checks each arg with <see cref="TryCoerce"/> — the
-    /// non-throwing twin of the very same <c>Coerce</c> Instantiate calls per arg — so the gate and apply cannot drift on
-    /// arity OR value-shape. Returns null = legal; else a fail-loud message: the arity mismatch (mirroring Instantiate's
-    /// own throw text, incl. <see cref="CtorList"/>) or the first arg that won't coerce, NAMED. The corpus models no
-    /// ctor signatures (it is schema-driven; apply is reflection-driven), so this recognizer has no corpus twin — it
-    /// composes from existing engine primitives instead, needing no generator change. Called only when
-    /// <c>spec.CtorArgs</c> is non-null; an empty array means "the 0-arg ctor" and is checked like any other arity.</summary>
+    /// <summary>Recognition-only mirror of <see cref="Instantiate"/>'s ctor-args path, resolving and checking the SAME way. Null = legal, else the mismatch.</summary>
     internal static string? TryRecognizeCtorArgs(string structTypeName, string[] ctorArgs)
     {
         Type t;
@@ -2554,16 +1895,7 @@ public static class WriteEngine
         return null;
     }
 
-    /// <summary>Positional constructor args drawn from a compose's OWN fields, for a type whose every constructor
-    /// takes arguments — a polymorphic arm carrying its discriminator in the constructor
-    /// (<c>MagicEffectArchetype(TypeEnum)</c>). Recognised by the missing parameterless ctor, never by type name.
-    /// Picks the SMALLEST public constructor whose every parameter is named by a supplied field (matched
-    /// case-insensitively, so the parameter <c>type</c> is satisfied by the field <c>Type</c>) and whose value
-    /// coerces; returns THAT constructor with its args in positional order and the field names it consumed, or null
-    /// when no constructor is satisfied. The chosen <see cref="ConstructorInfo"/> travels with the args because the
-    /// args alone do not identify it — two overloads of the same arity would let the apply invoke one the gate never
-    /// validated. Reads nothing and builds nothing, so the pre-flight gate calls the same method the apply does and
-    /// the two cannot drift.</summary>
+    /// <summary>Positional ctor args from a compose's OWN fields: the SMALLEST ctor every parameter of which a field names and coerces, returned WITH that ctor.</summary>
     static (ConstructorInfo Ctor, string[] Args, HashSet<string> Consumed)? CtorArgsFromFields(Type t, IReadOnlyDictionary<string, string>? fields)
     {
         if (t.GetConstructor(Type.EmptyTypes) is not null || fields is not { Count: > 0 }) return null;
@@ -2586,15 +1918,7 @@ public static class WriteEngine
         return null;
     }
 
-    /// <summary>The pre-flight twin of <see cref="BuildStruct"/>'s no-ctor_args instantiate: can this compose type be
-    /// built at all from the fields supplied? Null = yes (it has a parameterless ctor, or its constructor is
-    /// satisfied by the fields — the <see cref="CtorArgsFromFields"/> path, called here so gate and apply agree by
-    /// construction); else the loud message naming the constructor parameter the compose is missing. Without it a
-    /// compose of a constructor-argument arm is ACCEPTED and then throws mid-apply (#563). A type with no
-    /// argument-taking constructor at all is left alone: that is Mutagen's composition family
-    /// (<c>GenderedItem&lt;T&gt;</c>, <c>Array2d&lt;T&gt;</c>), whose gap
-    /// <see cref="InstantiateComposition"/> names in its own words. Called only when <c>spec.CtorArgs</c> is null;
-    /// supplied ctor_args are checked by <see cref="TryRecognizeCtorArgs"/> instead.</summary>
+    /// <summary>The pre-flight twin of the no-ctor_args instantiate: buildable from the fields supplied? Else the missing ctor parameter, NAMED.</summary>
     internal static string? TryRecognizeInstantiable(string structTypeName, IReadOnlyDictionary<string, string>? fields)
     {
         Type t;
@@ -2615,29 +1939,13 @@ public static class WriteEngine
                $"Constructors on {structTypeName}: {CtorList(t)}.";
     }
 
-    /// <summary>The FIELD name a constructor parameter is named by — the type's own property matching the parameter
-    /// case-insensitively (Mutagen's <c>type</c> parameter is the <c>Type</c> property), so the advice names what a
-    /// caller can actually pass rather than a capitalisation guess. Falls back to the parameter's own name.</summary>
+    /// <summary>The FIELD name a ctor parameter is named by — the type's own matching property, else the parameter.</summary>
     static string FieldNameFor(Type t, ParameterInfo p) =>
         t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .FirstOrDefault(x => string.Equals(x.Name, p.Name, StringComparison.OrdinalIgnoreCase))?.Name
         ?? p.Name ?? "arg";
 
-    /// <summary>A composition type has NO parameterless ctor — it is built only from its parts. Recognised by its
-    /// generic definition (the engine's normal type-recognition, like IList&lt;&gt;/FormLink&lt;&gt; — NOT a hand-listed
-    /// set of record types, which the cornerstone forbids):
-    /// <list type="bullet">
-    /// <item><c>GenderedItem&lt;T&gt;</c> — a male/female pair whose BOTH halves are mutable (corpus: Male/Female
-    /// writable). Materialize each part per its kind: a FORMLINK half as a NON-NULL empty link
-    /// (<see cref="EmptyFormLinkOf"/> — Mutagen's writer dereferences a null formlink half); a MODEL / ref half as
-    /// <c>null</c> (the writer tolerates it and it materializes on demand if navigated into); a value half as
-    /// <c>default</c> (0). An un-set half then matches what the binary READER produces for an absent half, so a
-    /// single-gender item (e.g. a skin ArmorAddon's <c>SkinTexture</c>) serializes to a valid record.</item>
-    /// <item><c>Array2d&lt;T&gt;</c> — a terrain grid (on Cell/Landscape: VertexHeightMap/VertexNormals/VertexColors,
-    /// CellMaxHeightData). Its cells are reached through a 2D indexer (<c>grid[x,y]</c>), NOT named members, so they sit
-    /// BELOW the reflectable-member granularity houseCARL's surface is built from. Materialize-from-absent has no public
-    /// ctor and needs grid dimensions: a NAMED gap (loud throw), never a wrong 0×0 shell.</item>
-    /// </list></summary>
+    /// <summary>A composition type has NO parameterless ctor: a <c>GenderedItem&lt;T&gt;</c> materializes each half, an <c>Array2d&lt;T&gt;</c> is a NAMED gap.</summary>
     static object InstantiateComposition(Type t)
     {
         var concrete = ConcreteOf(t) ?? t;     // the declared type is usually the getter interface (IGenderedItem<T>) — map to the concrete class
@@ -2647,11 +1955,8 @@ public static class WriteEngine
             // GenderedItem<T>(T male, T female): pick the smallest positional ctor, then build each part per its kind (below).
             var ctor = concrete.GetConstructors().Where(c => c.GetParameters().Length > 0)
                 .OrderBy(c => c.GetParameters().Length).First();
-            // A FORMLINK half must be a NON-NULL empty link, not null: Mutagen's writer dereferences a null formlink
-            // half (e.g. ArmorAddon.SkinTexture), while an empty link serializes to an absent/00000000 slot — exactly
-            // what the binary READER produces for an un-set gender half, so a single-gender skin AA authored fresh
-            // writes instead of throwing. A Model / ref half stays null (the writer tolerates it, and it materializes
-            // on demand if navigated into — WorldModel); a value half stays default(0).
+            // A FORMLINK half must be a NON-NULL empty link — the writer dereferences a null one, while an empty link
+            // serializes to the absent slot the READER produces. A Model/ref half stays null, a value half default.
             var args = ctor.GetParameters().Select(p => EmptyFormLinkOf(p.ParameterType) ?? DefaultOf(p.ParameterType)).ToArray();
             return ctor.Invoke(args);
         }
@@ -2660,21 +1965,10 @@ public static class WriteEngine
 
     static object? DefaultOf(Type t) => t.IsValueType ? System.Activator.CreateInstance(t) : null;
 
-    /// <summary>If <paramref name="t"/> is a FormLink-family type (nullable or not, mutable/getter interface or the
-    /// concrete struct), return a NON-NULL EMPTY link — a Null-FormKey instance of the matching concrete struct; else
-    /// null. Recognised by generic definition via <see cref="TryFormLink"/> (a null-synonym value), the same
-    /// by-construction predicate the engine already uses to coerce a formlink value — never a per-record-type
-    /// hand-list. Used to materialize a GenderedItem's formlink half: an un-set half must be an empty link the writer
-    /// serializes as an absent/00000000 slot, NOT a null the parallel writer dereferences into an
-    /// AggregateException-wrapped NRE.</summary>
+    /// <summary>A NON-NULL EMPTY link for a FormLink-family type, else null; materializes a GenderedItem half a null would NRE the writer on.</summary>
     static object? EmptyFormLinkOf(Type t) => TryFormLink("0", t, out var link) ? link : null;
 
-    /// <summary>True iff <paramref name="t"/> is a REQUIRED (non-nullable) FormLink-family type — the mutable
-    /// <c>IFormLink&lt;T&gt;</c>, the getter <c>IFormLinkGetter&lt;T&gt;</c>, or the concrete <c>FormLink&lt;T&gt;</c>,
-    /// but NOT the <c>IFormLinkNullable&lt;T&gt;</c> / <c>FormLinkNullable&lt;T&gt;</c> variant. Recognised by generic
-    /// definition — the SAME required-arm branch <see cref="TryFormLink"/> keys off, so the two can't drift — never a
-    /// per-record-type hand-list. Used by the Remove case to fail LOUD on a required-link clear rather than let
-    /// <see cref="EmptyFormLinkOf"/> silently blank it.</summary>
+    /// <summary>True iff <paramref name="t"/> is a REQUIRED (non-nullable) FormLink-family type — the branch <see cref="TryFormLink"/> keys off too.</summary>
     static bool IsRequiredFormLink(Type t)
     {
         if (!t.IsGenericType) return false;
@@ -2682,11 +1976,7 @@ public static class WriteEngine
         return def == typeof(FormLink<>) || def == typeof(IFormLink<>) || def == typeof(IFormLinkGetter<>);
     }
 
-    /// <summary>Map a (possibly getter/interface) type to the concrete settable class the engine can instantiate: a
-    /// generic interface <c>IFoo&lt;T&gt;</c> → concrete <c>Foo&lt;T&gt;</c> (GenderedItem/Array2d live in
-    /// Mutagen.Bethesda.Plugins, across assemblies); a simple interface <c>IFoo</c> → <c>Foo</c>; an already-concrete
-    /// class passes through. Returns null when no concrete class resolves. Shared by composition materialization and
-    /// the substruct diagnostic so they can never disagree about interface→concrete.</summary>
+    /// <summary>Map a getter/interface type to the concrete settable class the engine can instantiate, else null; one answer for every caller.</summary>
     internal static Type? ConcreteOf(Type t)
     {
         if (t is { IsInterface: true, IsGenericType: true })
@@ -2710,26 +2000,14 @@ public static class WriteEngine
         return null;
     }
 
-    /// <summary>True iff a collection's ELEMENT type is WHOLE-COERCIBLE — set as one value (a path string), not built
-    /// from parts: an <c>AssetLink&lt;T&gt;</c> texture/model/sound path, etc. Tries the coercion recogniser on the
-    /// resolved element type (mapping a getter interface to its concrete), AND recognises the AssetLink family by its
-    /// catalog name as a fallback — the cross-assembly nested-generic getter AQ (IAssetLinkGetter&lt;T&gt;) does
-    /// not resolve via <c>Type.GetType</c>, so the name check is what actually fires for AssetLink elements. Shared so
-    /// that "is this a build-from-parts struct element" is decided identically everywhere.</summary>
+    /// <summary>True iff a collection's ELEMENT type is WHOLE-COERCIBLE — set as one value, the AssetLink family by catalog name when its AQ will not resolve.</summary>
     internal static bool IsWholeCoercibleElement(string? elementRef, string? elementAq)
     {
         if (elementAq is not null && ResolveType(elementAq) is { } rt && CanCoerce(ConcreteOf(rt) ?? rt)) return true;
         return elementRef is not null && elementRef.StartsWith("AssetLink", StringComparison.Ordinal);
     }
 
-    /// <summary>True iff <paramref name="t"/> is a Mutagen <c>AssetLink&lt;T&gt;</c> family type — the mutable
-    /// concrete <c>AssetLink&lt;T&gt;</c>, its getter overlay <c>AssetLinkGetter&lt;T&gt;</c>, or the
-    /// <c>IAssetLink(Getter)&lt;T&gt;</c> interfaces a collection element exposes. Recognised by generic-definition
-    /// NAME (the same shape the FLOI family uses, and the cross-assembly nested-generic getter interface does not
-    /// always resolve by AQ), so the recogniser is robust to which interface arm a list/dict element happens to
-    /// surface. SHARED by the read path (<see cref="ReadEngine"/> emits the stored path) and the write coercion
-    /// (<see cref="TryValueType"/> builds a new AssetLink from a path) so the two can't drift on what an asset link
-    /// is — the same one-recogniser discipline the FormLink family uses.</summary>
+    /// <summary>True iff <paramref name="t"/> is a Mutagen <c>AssetLink&lt;T&gt;</c> family type, by generic-definition NAME; shared with the read path.</summary>
     internal static bool IsAssetLinkFamily(Type t)
     {
         if (!t.IsGenericType) return false;
@@ -2739,9 +2017,7 @@ public static class WriteEngine
 
     static void ApplyDictVerb(object parent, PropertyInfo prop, Type dictIface, WriteRequest req)
     {
-        // An ABSENT optional dict (null) is materialized so a first entry can be set. Remove on an absent dict
-        // SURFACES "nothing to remove" rather than silently succeeding — thrown as the EXPECTED kind BEFORE
-        // materializing, so it must not create an empty dict on the way out.
+        // An ABSENT optional dict is materialized so a first entry can be set; Remove on one refuses BEFORE that happens.
         var dict = prop.GetValue(parent);
         if (dict is null)
         {
@@ -2755,10 +2031,7 @@ public static class WriteEngine
         var dt = dict.GetType();
         var setItem = Indexer(dt).GetSetMethod()!;
         void Set(string k, string v) => setItem.Invoke(dict, new[] { Coerce(k, kType), Coerce(v, vType) });
-        // The entry VALUE for Set/Add: a struct/arm-VALUED dict (Package.Data — the only one Mutagen models) builds the
-        // value FROM PARTS, mirroring ApplyListVerb's Add; a coercible-VALUE dict (Class.SkillWeights, Race.Regen, …)
-        // coerces the plain value. The gate (CorpusRulebook) accepts a dict Set/Add carrying a StructSpec ONLY for a
-        // composable element, so a spec on a coercible dict can't reach here.
+        // The entry VALUE for Set/Add: a struct-VALUED dict builds FROM PARTS as a list Add does, a coercible-VALUE dict coerces.
         object? BuildValue() => req.Struct is not null ? BuildStruct(req.Struct) : Coerce(req.Value!, vType);
 
         switch (req.Verb)
@@ -2771,17 +2044,14 @@ public static class WriteEngine
                 var addKey = Coerce(req.Key!, kType);
                 var contains = dt.GetMethod("ContainsKey", new[] { kType });
                 if (contains is not null && contains.Invoke(dict, new[] { addKey }) is true)
-                    // EXPECTED apply rejection (live occupancy — pre-flight is schema-only, can't see it): thrown as the
-                    // distinct kind so WritePatchBuilder renders this guidance cleanly, NOT under the "real inconsistency"
-                    // wrapper reserved for genuine gate/apply drift.
+                    // EXPECTED apply rejection — live occupancy, so it renders as guidance, not under the wrapper.
                     throw new ExpectedApplyRejectionException(
                         $"Key '{req.Key}' already present in '{prop.Name}' — use Set to overwrite that entry, or choose a free key/index.");
                 dt.GetMethod("Add", new[] { kType, vType })!.Invoke(dict, new[] { addKey, BuildValue() });
                 break;
             }
             case "Remove":
-                // SURFACE a no-op Remove: the runtime Remove returns false when the key is not present — refuse it
-                // as the EXPECTED kind (the symmetric twin of Add's duplicate-key refusal), clean, not a silent success.
+                // SURFACE a no-op Remove: the runtime Remove returns false for an absent key — refuse it, cleanly.
                 if (dt.GetMethod("Remove", new[] { kType })!.Invoke(dict, new[] { Coerce(req.Key!, kType) }) is false)
                     throw new ExpectedApplyRejectionException(
                         $"Key '{req.Key}' is not present in '{prop.Name}' — nothing to remove.");
@@ -2798,35 +2068,21 @@ public static class WriteEngine
         }
     }
 
-    /// <returns>The apply-time note <see cref="ApplyVerb"/> hands back — non-null only for an Add whose membership
-    /// test found the element already there, or whose composed batch repeats an element of its own.</returns>
+    /// <returns>The apply-time note — non-null only for an Add that duplicated, before this write or within its batch.</returns>
     static string? ApplyListVerb(object parent, PropertyInfo prop, Type listIface, WriteRequest req)
     {
-        // ARRAY-backed collection (a C# T[], e.g. Weather.CloudTextures / Weather.Clouds — fixed-size game
-        // structures Mutagen models as a plain array, not a growable ExtendedList). The list verbs assume
-        // ExtendedList semantics (Clear / Add / RemoveAt); an array has none, so without this check Add / ReplaceAll /
-        // Remove NRE at apply on the missing method, and even materialize of an absent array throws (arrays need a
-        // length) — an unnamed accept-then-throw, since the schema-only gate accepts the verb. Refuse LOUD and NAMED:
-        // array-collection mutation is a distinct write mechanism not yet built (some, like Weather clouds, are a
-        // fixed 29-layer format, so an arbitrary-length write may not even serialize validly). SetAtIndex is refused
-        // too: the array may be absent (can't index a null) and a set-only surface would surprise. InsertAtIndex is
-        // refused because a fixed-size array cannot grow at all — T[]'s IList<T>.Insert throws
-        // NotSupportedException — so it is refused HERE, by name, rather than reaching the arm. Element COERCION is
-        // unaffected — this is the collection-shape gap, not the value gap (an asset-link element coerces fine; see
-        // IsAssetLinkFamily). Array-ness is schema-visible, so the gate could pre-check it later — tracked.
+        // ARRAY-backed collection: the list verbs assume ExtendedList semantics, an array has none, and even
+        // materializing an absent one throws. Refuse LOUD and NAMED — array-collection mutation is a distinct write
+        // mechanism not yet built. Element COERCION is unaffected; this is the collection-shape gap. Tracked.
         if (prop.PropertyType.IsArray)
-            // The refused SET is derived, not listed: a hand-typed enumeration of the collection verbs here goes stale
-            // as verbs are added, and a verb missing from it would read as supported. The cardinality is settled by
-            // the control flow that reached this method (ApplyVerb matched IList<T>), so no fallback arm is needed.
+            // The refused SET is derived, not listed, so a verb added later cannot read as supported here.
             throw new ExpectedApplyRejectionException(
                 $"'{prop.Name}' is an array-backed collection ({Pretty(prop.PropertyType)}); "
                 + WriteVerbs.CollectionVerbNames(WriteVerbs.OfElement(CollectionKind.List, listIface.GetGenericArguments()[0]))
                 + " are not yet supported on arrays (some, like Weather clouds, are fixed-size game structures). "
                 + "Tracked gap — array-collection mutation is a distinct write mechanism not yet built.");
 
-        // An ABSENT optional list (null) is materialized so a first element can be added — "add a keyword to a record
-        // that has none" must work, not throw. Remove on an absent list SURFACES "nothing to remove" rather than
-        // silently succeeding — thrown as the EXPECTED kind BEFORE materializing, so it must not create an empty list.
+        // An ABSENT optional list is materialized so a first element can be added; Remove on one refuses BEFORE that happens.
         var list = prop.GetValue(parent);
         if (list is null)
         {
@@ -2840,26 +2096,17 @@ public static class WriteEngine
         switch (req.Verb)
         {
             case "Add":
-                // struct-element list (modeled-struct elements) → build the new element FROM PARTS; coercible-element
-                // list → coerce the plain value. composes= appends MANY built elements in ONE op (each pre-flighted
-                // by ComposesLegality).
-                // EVERY Add form reports whether the list ALREADY carried what it appended. Add still appends — the
-                // verb's meaning is unchanged and no verb is added — but a duplicating add and a clean one otherwise
-                // render identically (both print a longer list), so the caller cannot tell one from the other and
-                // repeats it across a bulk run. Composed elements are checked too: Mutagen's Loqui element classes
-                // (ContainerEntry, LeveledItemEntry, Condition, Effect, …) override Equals structurally, so Contains
-                // finds a freshly built identical element.
+                // A struct-element list builds FROM PARTS, a coercible one coerces, and composes= appends many in ONE
+                // op. EVERY Add form reports whether the list ALREADY carried what it appended, because a duplicating
+                // add and a clean one otherwise render identically. Composed elements compare structurally.
                 if (req.Structs is { } addSpecs)
                 {
                     var addM = AddMethod(lt, elem);
-                    // BUILD every element and ask the membership question BEFORE appending any of them. Asked mid-loop,
-                    // the check sees what this same op has already added, so a repeat WITHIN the batch is reported as
-                    // something the FILE already carried — false about the list's before-state, and its remedy points
-                    // at undoing the caller's own deliberate weighting. The two facts are counted apart and said apart.
+                    // BUILD every element and ask the membership question BEFORE appending any: asked mid-loop the
+                    // check would report this op's own repeat as something the FILE carried. Counted and said apart.
                     var builtAll = addSpecs.Select(BuildStruct).ToList();
                     int dup = builtAll.Count(b => ListCarries(elem, list, b));
-                    // A repeat is compared with the element type's own Equals — the same structural override
-                    // ICollection<T>.Contains reaches for the before-state half.
+                    // A repeat is compared with the element type's own Equals — the structural override Contains uses.
                     int repeat = 0;
                     for (int i = 1; i < builtAll.Count; i++)
                         for (int j = 0; j < i; j++)
@@ -2877,52 +2124,33 @@ public static class WriteEngine
                 var addValue = Coerce(req.Value!, elem);
                 var already = ListCarries(elem, list, addValue);
                 AddMethod(lt, elem).Invoke(list, new[] { addValue });
-                // CONDITIONAL voice, and no count: the same string renders under the dry-run header, where nothing was
-                // written and "Remove it" would delete the record's only copy, and Contains answers presence, not
-                // multiplicity — a list that already held two now holds three.
+                // CONDITIONAL voice and no count: this renders on a dry run too, and Contains answers presence.
                 return already
                     ? $"duplicate: '{req.Value}' is already in '{prop.Name}', and Add appends rather than replacing "
                       + "— once this write lands the list carries another copy, so Remove it by value if it should hold one."
                     : null;
             case "SetAtIndex":
             {
-                // EXPECTED apply rejection (live length): pre-flight gates the index SHAPE (parseable non-negative int)
-                // but leaves the in-range bound to apply — it has no live collection to know the length. Pre-check it
-                // so an out-of-range index surfaces as clean guidance, not a reflection-wrapped
-                // ArgumentOutOfRangeException under the "real inconsistency" wrapper.
+                // EXPECTED apply rejection — live length: the in-range bound is apply's, pre-checked so it reads as guidance.
                 int idx = int.Parse(req.Key!, CultureInfo.InvariantCulture);
                 int count = CollectionCount(list);
                 if (idx < 0 || idx >= count)
                     throw new ExpectedApplyRejectionException(IndexRangeMessage(prop.Name, idx, count, IndexOpKind.Overwrite));
-                // Build the replacement the SAME way Add does — a composable (struct/arm) element FROM PARTS
-                // (req.Struct → BuildStruct), a coercible element by coercing req.Value — then OVERWRITE in place,
-                // preserving the element's list position. Position matters: Remove+Add would move the row to the list
-                // END, harmless for an AND condition row but breaking an OR-group. The gate (CorpusRulebook's
-                // composable block) admits a SetAtIndex compose ONLY for a Struct/Arm element, through the SAME
-                // StructElementLegality Add passes, so req.Struct is pre-validated here.
+                // Built the SAME way Add builds it, then OVERWRITTEN in place, because Remove+Add would move the row to the END.
                 Indexer(lt).GetSetMethod()!.Invoke(list,
                     new[] { (object)idx, req.Struct is not null ? BuildStruct(req.Struct) : Coerce(req.Value!, elem) });
                 break;
             }
             case "InsertAtIndex":
             {
-                // The sibling neither Add nor SetAtIndex is. Add appends — it moves nothing, but only ever lands at
-                // the END; SetAtIndex holds a position — but only over an element that is already there. Insert puts a
-                // NEW element AT a position and shifts the rest right, the only way to grow a POSITION-CONTIGUOUS run
-                // in place: a CTDA OR-group chains each row to the row after it, so a new arm must sit ADJACENT to the
-                // group; an appended one AND-groups instead, restricting the gate rather than relaxing it.
+                // The sibling neither Add nor SetAtIndex is: Insert puts a NEW element AT a position and shifts the
+                // rest right, the only way to grow a POSITION-CONTIGUOUS run such as a CTDA OR-group in place.
                 int idx = int.Parse(req.Key!, CultureInfo.InvariantCulture);
                 int count = CollectionCount(list);
-                // APPEND-INCLUSIVE bound — `> count`, not `>= count`. Inserting AT count means "after the last
-                // element", which is legal and is exactly what Add does; refusing it would make the one index a
-                // caller computes from the live length (insert after the group's last row) the one index that fails.
+                // APPEND-INCLUSIVE bound: inserting AT count is legal and is what Add does, so it must not refuse.
                 if (idx < 0 || idx > count)
                     throw new ExpectedApplyRejectionException(IndexRangeMessage(prop.Name, idx, count, IndexOpKind.Insert));
-                // Built EXACTLY as Add and SetAtIndex build it — a composable (struct/arm) element FROM PARTS
-                // (req.Struct → BuildStruct), a coercible element by coercing req.Value. Same construction, same
-                // pre-flight (CorpusRulebook admits an InsertAtIndex compose through the SAME StructElementLegality),
-                // so a composed condition row INSERTS as the identical element it would APPEND as — the only
-                // difference between the two verbs is where it lands and what moves.
+                // Built EXACTLY as Add and SetAtIndex build it, so only where it lands and what moves differ.
                 InsertMethod(listIface, elem).Invoke(list,
                     new[] { (object)idx, req.Struct is not null ? BuildStruct(req.Struct) : Coerce(req.Value!, elem) });
                 break;
@@ -2939,8 +2167,7 @@ public static class WriteEngine
                 }
                 else
                 {
-                    // SURFACE a no-op Remove-by-value: List<T>.Remove returns false when the value is not present —
-                    // refuse it as the EXPECTED kind (Remove-by-INDEX is range-checked above), clean, not a silent success.
+                    // SURFACE a no-op Remove-by-value: Remove returns false for an absent value — refuse it, cleanly.
                     if (lt.GetMethod("Remove", new[] { elem })!.Invoke(list, new[] { Coerce(req.Value!, elem) }) is false)
                         throw new ExpectedApplyRejectionException(
                             $"Value '{req.Value}' is not present in '{prop.Name}' — nothing to remove.");
@@ -2949,8 +2176,7 @@ public static class WriteEngine
             case "ReplaceAll":
                 lt.GetMethod("Clear")!.Invoke(list, null);
                 var add = AddMethod(lt, elem);
-                // composes= ReplaceAll = clear then append each BUILT element; a coercible-element list ReplaceAlls
-                // plain req.Values.
+                // composes= ReplaceAll clears then appends each BUILT element; a coercible-element list uses Values.
                 if (req.Structs is { } replSpecs)
                     foreach (var s in replSpecs) add.Invoke(list, new[] { BuildStruct(s) });
                 else
@@ -2962,9 +2188,7 @@ public static class WriteEngine
         return null;
     }
 
-    /// <summary>Does the list already carry this element? Asked through <c>ICollection&lt;T&gt;.Contains</c> on the
-    /// CLOSED INTERFACE, so an explicit implementation still answers — never a reason to fail the write, which has
-    /// to land either way.</summary>
+    /// <summary>Does the list already carry this element? Asked through <c>Contains</c> on the CLOSED INTERFACE, and never a reason to fail the write.</summary>
     static bool ListCarries(Type elem, object list, object? value)
     {
         try
@@ -2976,18 +2200,10 @@ public static class WriteEngine
         catch { return false; }
     }
 
-    /// <summary>The closed <c>ICollection&lt;T&gt;.Contains</c> per element type, resolved once. Add now asks it on
-    /// every element — including once per element inside a <c>composes=</c> batch and once per op across a bulk run —
-    /// and the lookup costs more than the answer.</summary>
+    /// <summary>The closed <c>ICollection&lt;T&gt;.Contains</c> per element type, resolved once — Add asks it per element.</summary>
     static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, MethodInfo?> ContainsMethods = new();
 
-    /// <summary>The note a COMPOSED Add owes the caller. Counts, because <c>composes=</c> appends many built elements
-    /// in one op; the remedy is by INDEX, since Remove-by-value takes a plain value and a composed element has none.
-    /// Conditional voice for the same reason the plain-value note has it — this renders on a dry run too. A repeated
-    /// element is legitimate weighting in a leveled list, so this states what was found, not that it was a mistake.
-    /// <para>The two ways a composed Add duplicates are DIFFERENT facts and get different clauses: the list already
-    /// carried the element before this write, or the batch repeats an element of its own. Folding the second into the
-    /// first would claim a before-state the file never had.</para></summary>
+    /// <summary>The note a COMPOSED Add owes the caller: counts, a remedy by INDEX, and separate clauses for the two ways it duplicates.</summary>
     static string? ComposedAddNote(string prop, int total, int dup, int repeat)
     {
         if (dup == 0 && repeat == 0) return null;
@@ -3004,11 +2220,7 @@ public static class WriteEngine
             : $"{n} of the {total} composed elements are";
     }
 
-    /// <summary>Element count of a (possibly Mutagen <c>ExtendedList&lt;T&gt;</c>) collection WITHOUT assuming the
-    /// non-generic <c>ICollection</c> — enumerate, mirroring <see cref="StepIntoElement"/>'s index walk. Used to
-    /// pre-check a list index against live length so an out-of-range SetAtIndex/Remove-by-index surfaces as an
-    /// <see cref="ExpectedApplyRejectionException"/> (clean, live-state user error) rather than a reflection-wrapped
-    /// <c>ArgumentOutOfRangeException</c> under the gate/apply-inconsistency wrapper.</summary>
+    /// <summary>Element count WITHOUT assuming the non-generic <c>ICollection</c> — enumerate, so an out-of-range index reads as an expected rejection.</summary>
     static int CollectionCount(object coll)
     {
         int n = 0;
@@ -3016,21 +2228,13 @@ public static class WriteEngine
         return n;
     }
 
-    /// <summary>Which list index op is being refused. The three do NOT share a bound: <c>SetAtIndex</c> and
-    /// <c>Remove</c>-by-index address an element that must already exist (<c>0..count-1</c>), while
-    /// <c>InsertAtIndex</c> addresses a GAP between elements, of which there is one more than there are elements
-    /// (<c>0..count</c> — inserting at <c>count</c> is a legal append). An enum rather than a bool because the three
-    /// differ in BOUND, not only in whether the message may offer Add.</summary>
+    /// <summary>Which list index op is being refused. An enum, not a bool, because insert addresses a GAP and so has its own bound.</summary>
     enum IndexOpKind { Overwrite, RemoveAt, Insert }
 
-    /// <summary>The clean out-of-range message for a list index op — the bound it states is the bound
-    /// <see cref="ApplyListVerb"/> actually enforces for that verb, and the empty-list case names the right next step
-    /// for each.</summary>
+    /// <summary>The clean out-of-range message — the bound it states is the one <see cref="ApplyListVerb"/> enforces.</summary>
     static string IndexRangeMessage(string field, int idx, int count, IndexOpKind kind)
     {
-        // Insert's own sentence, because its legal range INCLUDES count and the shared one below cannot say that
-        // without lying to the other two. Naming what index `count` means matters more here than elsewhere: a caller
-        // extending a mid-list run computes its index from the live length, so the append slot is the likely target.
+        // Insert's own sentence, because its legal range INCLUDES count and the shared one cannot say that.
         if (kind == IndexOpKind.Insert)
             return count == 0
                 ? $"Index {idx} out of range for '{field}' — the list is empty; insert at index 0 (or Add, which is the same thing here)."
@@ -3044,10 +2248,7 @@ public static class WriteEngine
               + (append ? ", or Add to append a new element." : ".");
     }
 
-    /// <summary>Materialize an absent (null) optional collection so a first element/entry can be added. Instantiates
-    /// the property's declared concrete collection type (Mutagen's settable ExtendedList&lt;T&gt; / dictionary) and
-    /// assigns it. Fails LOUD if the property is not settable or the type has no usable constructor — never a silent
-    /// skip.</summary>
+    /// <summary>Materialize an absent optional collection so a first element or entry can be added; loud if unsettable.</summary>
     static object MaterializeCollection(object parent, PropertyInfo prop)
     {
         if (!prop.CanWrite)
@@ -3058,22 +2259,12 @@ public static class WriteEngine
         return made;
     }
 
-    /// <summary>Materialize an absent (null) intermediate optional substruct so a field inside it can be set —
-    /// paralleling <see cref="MaterializeCollection"/>. Delegates to <see cref="Instantiate"/>: a parameterless ctor
-    /// for the common case, OR composition build-from-parts for a no-parameterless-ctor type —
-    /// <c>GenderedItem&lt;T&gt;</c> materializes with default(T) parts (both halves mutable, so navigation then
-    /// populates them). A still-unbuildable composition (<c>Array2d&lt;T&gt;</c> terrain grids, reached only through a
-    /// 2D indexer; or any unknown) FAILS LOUD (<see cref="CompositionRequiredException"/>, re-stamped with the path
-    /// segment): a real write into it surfaces as an explicit, named gap, never a silent wrong result. Composition is
-    /// recognised BY TYPE, derived from Mutagen's model — never a hand-listed set of record types.</summary>
+    /// <summary>Materialize an absent intermediate substruct so a field inside it can be set; an unbuildable composition fails LOUD with the segment named.</summary>
     static object MaterializeSubstruct(object parent, PropertyInfo prop, string segment)
     {
         if (!prop.CanWrite)
             throw new InvalidOperationException($"Absent substruct '{segment}' ({Pretty(prop.PropertyType)}) is not settable — cannot materialize.");
-        // An absent OWNED CHILD RECORD (Cell.Landscape, Worldspace.TopCell). A record has no parameterless ctor
-        // because it is identified by a FormKey, NOT because it is one of Mutagen's composition types, so falling
-        // through would name the wrong gap ("buildable only from its parts"). Say what is true instead: houseCARL does
-        // not invent records as sub-objects.
+        // An absent OWNED CHILD RECORD lacks a parameterless ctor because it has a FormKey, not because it composes.
         if (typeof(IMajorRecordGetter).IsAssignableFrom(prop.PropertyType))
             throw new ExpectedApplyRejectionException(
                 $"'{segment}' holds an owned child RECORD ({Pretty(prop.PropertyType)}) and the record being written " +
@@ -3090,28 +2281,16 @@ public static class WriteEngine
         return made;
     }
 
-    /// <summary>
-    /// Step INTO a list/dict element mid-path so a sub-field can be edited (e.g. <c>Effects[0].Data.Magnitude</c>).
-    /// List → index by int (Mutagen's ExtendedList&lt;T&gt; is IList&lt;T&gt; but not the non-generic IList —
-    /// enumerate to the index); dict → coerce the key to its key type and look it up. The element is a navigable
-    /// STRUCT. Fails LOUD on an absent collection (add an element first), a bad/out-of-bounds index, or a missing
-    /// key — never a silent wrong target.
-    /// </summary>
+    /// <summary>Step INTO a list/dict element mid-path: a list by int index (enumerated), a dict by coerced key. Loud on absent, bad or missing.</summary>
     internal static object StepIntoElement(object parent, PropertyInfo prop, string name, string key, bool materialize = false)
     {
-        // A '*' key is a quantifier token that reached a walk which indexes ONE concrete element — say that, whatever
-        // the field's shape, rather than reporting it as a malformed index or a missing dict key.
+        // A '*' key is a quantifier token that reached a walk which indexes ONE concrete element — say that.
         if (key.Length > 0 && key[0] == '*')
             throw new InvalidOperationException(
                 $"'{name}[{key}]' cannot be indexed here — [*any], [*all] and [*none] fold a list into a boolean in " +
                 $"where=, and [*] and [*count] are project/walk path steps; index a concrete element ('{name}[0]') instead.");
 
-        // Gendered field ([0]=male / [1]=female): a fixed two-slot pair (IGenderedItem<T>), NOT a list/dict, so it
-        // never reaches the IList/IDictionary branches below. Its named arms (.Male/.Female) already navigate as
-        // plain hops; [0]/[1] is the render-matching navigable alias. Handled by the same materialize-and-write-back
-        // primitive the named plain hop uses, so a freshly-built arm can't become a silently-dropped orphan.
-        // Recognised by the runtime IGenderedItem<> — the engine twin of the corpus "GenderedItem<" recogniser
-        // CorpusRulebook pre-flight keys off; the two must agree.
+        // Gendered field ([0]=male / [1]=female): a fixed pair, not a list, through the named hop's own materialize-and-write-back.
         if (GenderedInterface(prop.PropertyType) is not null)
             return StepIntoGenderedArm(parent, prop, name, key, materialize);
 
@@ -3120,8 +2299,7 @@ public static class WriteEngine
                 $"Cannot navigate into '{name}[{key}]': the collection is absent (null). Add an element first " +
                 "(element composition — wave 1 half B), then navigate into it.");
 
-        // Recognise BOTH the mutable and read-only collection interfaces: the write path navigates the concrete
-        // mutable list/dict, but a read (show / before-display) navigates a getter overlay exposing IReadOnly*.
+        // Recognise BOTH the mutable and read-only collection interfaces — a read navigates a getter overlay.
         var dictIface = ClosedInterface(prop.PropertyType, typeof(IDictionary<,>))
                      ?? ClosedInterface(prop.PropertyType, typeof(IReadOnlyDictionary<,>));
         if (dictIface is not null)
@@ -3157,13 +2335,7 @@ public static class WriteEngine
         throw new InvalidOperationException($"'{name}' is not a navigable collection (no [read-only] IList/IDictionary).");
     }
 
-    /// <summary>The gendered-arm twin of <see cref="StepIntoElement"/>'s list/dict branches: map a bracketed index
-    /// (<c>[0]</c>=male, <c>[1]</c>=female — see <see cref="GenderedArmNames"/>) to the pair's named arm and return it.
-    /// On a WRITE (<paramref name="materialize"/>=true) an absent pair OR an absent ref arm is materialized AND written
-    /// back through the SAME <see cref="MaterializeSubstruct"/> setter the named plain hop uses — so the bracket alias
-    /// and the named path produce identical results, and a freshly-built arm is never an orphan a later sub-field write
-    /// silently lands on and loses. On a READ (<paramref name="materialize"/>=false) an absent pair/arm
-    /// fails LOUD — a read never mutates a record, exactly as stepping into an absent list element does.</summary>
+    /// <summary>The gendered-arm twin of <see cref="StepIntoElement"/>'s branches: a WRITE materializes and writes back, a READ fails LOUD.</summary>
     static object StepIntoGenderedArm(object parent, PropertyInfo prop, string name, string key, bool materialize)
     {
         int idx = key switch { "0" => 0, "1" => 1, _ => -1 };
@@ -3193,16 +2365,10 @@ public static class WriteEngine
         return arm;
     }
 
-    /// <summary>The canonical gendered index→arm mapping, the ONE place navigation (<see cref="StepIntoGenderedArm"/>)
-    /// and the depth-render (<c>ReadEngine.Expand</c>) both read — so the <c>[0]/[1]</c> a read SHOWS is exactly the
-    /// <c>[0]/[1]</c> a write/read ACCEPTS, with no enumeration-order drift between the two surfaces.</summary>
+    /// <summary>The canonical gendered index→arm mapping, the ONE place navigation and the depth render both read.</summary>
     internal static readonly string[] GenderedArmNames = { "Male", "Female" };
 
-    /// <summary>The closed gendered interface a type carries (<c>IGenderedItem&lt;T&gt;</c> / <c>IGenderedItemGetter&lt;T&gt;</c>,
-    /// or the concrete <c>GenderedItem&lt;T&gt;</c>), else null. Recognised by the generic definition's NAME — the same
-    /// recognition the engine uses for IList&lt;&gt;/FormLink&lt;&gt;, never a hand-listed set of arm-bearing record
-    /// types (the cornerstone forbids that). The corpus-side twin is the <c>"GenderedItem&lt;"</c> TypeRef check in
-    /// <c>CorpusRulebook</c>; the two recognisers must agree.</summary>
+    /// <summary>The closed gendered interface a type carries, else null, by generic-definition NAME; the corpus-side twin must agree.</summary>
     internal static Type? GenderedInterface(Type t)
     {
         static bool IsGen(Type x)
@@ -3211,8 +2377,7 @@ public static class WriteEngine
             var n = x.GetGenericTypeDefinition().Name;   // e.g. "GenderedItem`1" / "IGenderedItem`1" / "IGenderedItemGetter`1"
             var tick = n.IndexOf('`');
             if (tick > 0) n = n[..tick];
-            // ANCHORED to the exact gendered family (not a StartsWith) so the runtime recogniser can't drift broader
-            // than the corpus-side "GenderedItem<" TypeRef check — a hypothetical "GenderedItemList<T>" must NOT match.
+            // ANCHORED to the exact gendered family, so this cannot drift broader than the corpus-side check.
             return n is "GenderedItem" or "IGenderedItem" or "IGenderedItemGetter";
         }
         if (IsGen(t)) return t;
@@ -3224,13 +2389,7 @@ public static class WriteEngine
             .FirstOrDefault(p => p.GetIndexParameters().Length == 1 && p.CanWrite)
         ?? throw new InvalidOperationException($"No writable single-arg indexer on {t.Name}");
 
-    /// <summary>The <c>IList&lt;T&gt;.Insert(int, T)</c> the <c>InsertAtIndex</c> arm drives. Taken off the CLOSED
-    /// INTERFACE rather than the concrete list type (unlike <see cref="AddMethod"/>, which needs the concrete type's
-    /// own overload set): a list reaches <see cref="ApplyListVerb"/> BECAUSE it implements <c>IList&lt;T&gt;</c>
-    /// (ApplyVerb's dispatch resolves that interface to get here), so the method is present by construction even where
-    /// a concrete type implements it explicitly, and a reflection invoke dispatches to the implementation. The
-    /// one IList&lt;T&gt; whose Insert throws — a <c>T[]</c> — never reaches here: the array-backed branch at the top
-    /// of ApplyListVerb refuses every list verb on it by name first.</summary>
+    /// <summary>The <c>IList&lt;T&gt;.Insert(int, T)</c> the <c>InsertAtIndex</c> arm drives, off the CLOSED INTERFACE; a <c>T[]</c> is refused before here.</summary>
     static MethodInfo InsertMethod(Type listIface, Type elem) =>
         listIface.GetMethod("Insert", new[] { typeof(int), elem })!;
 
@@ -3246,20 +2405,9 @@ public static class WriteEngine
         return type.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == openGeneric);
     }
 
-    // ======================================================================
-    //  COERCION  (string -> typed value)
-    //
-    //  Recognition is SHARED between Coerce (convert) and CanCoerce (recognise-only,
-    //  used by pre-flight and the coerce-audit) through the Try* family methods:
-    //  each returns true iff `u` is in its family, and — when `text` is non-null — also
-    //  emits the coerced value. Passing text=null makes them pure recognisers, so the
-    //  two surfaces CANNOT drift on which types are coercible.
-    //
-    //  TryValueType is the corpus-derived value-type surface (Color, Percent, P3*, …):
-    //  coerce-audit enumerates every writable scalar/enum/value/formlink leaf (+ list/
-    //  dict elements) in corpus.json and asserts each resolves to a coercible type, so
-    //  coverage is complete by construction, not by a hand-kept list.
-    // ======================================================================
+    // ---- COERCION (string -> typed value) ----
+    //  Recognition is SHARED between Coerce and CanCoerce through the Try* family: each returns true iff `u` is in
+    //  its family and emits the value only when `text` is non-null, so the two surfaces cannot drift.
 
     /// <summary>Turn a string into a value of <paramref name="targetType"/>, or throw fail-loud.</summary>
     static object? Coerce(string text, Type targetType)
@@ -3273,8 +2421,7 @@ public static class WriteEngine
             "value type, it is a real coercion gap to add (extend TryValueType) — surface it via coerce-audit, never guess.");
     }
 
-    /// <summary>Recognition-only mirror of <see cref="Coerce"/>: does a coercion rule exist for this type?
-    /// Shares the Try* recognisers, so it can never disagree with Coerce about what is coercible.</summary>
+    /// <summary>Recognition-only mirror of <see cref="Coerce"/>, sharing the Try* recognisers so they cannot disagree.</summary>
     internal static bool CanCoerce(Type targetType)
     {
         var u = Nullable.GetUnderlyingType(targetType) ?? targetType;
@@ -3315,18 +2462,11 @@ public static class WriteEngine
         return true;
     }
 
-    // ---- FormLink null-clear ------------------------------------------------------------------------------------
-    //  A Set that CLEARS a FormLink (points it at no target) is expressed by a null-synonym value. The set is fixed:
-    //  "0", "00000000", "Null", "000000:Null" — trimmed, case-insensitive, FULL-STRING, so a real FormID
-    //  ("012345:Skyrim.esm") is never mistaken for a clear. A synonym routes to FormKey.Null; anything else parses
-    //  through FormKey.Factory, which throws fail-loud on a malformed id — that throw is caught at the gate by the
-    //  pre-flight value-shape check, never reached as an accept-then-throw. This ONE recognizer is shared by the apply
-    //  path (ToFormKey, via TryFormLink) and pre-flight (CorpusRulebook -> IsValidFormLinkValue) so the two can't
-    //  drift on what counts as a clear — the same shared-predicate shape used for IsFormLinkOrIndex.
+    // ---- FormLink null-clear: a Set that CLEARS a link is a null-synonym value, a fixed set matched trimmed,
+    //  case-insensitively and FULL-STRING, so a real FormID is never a clear. Apply and pre-flight share it.
     static readonly string[] FormKeyNullSynonyms = { "0", "00000000", "Null", "000000:Null" };
 
-    /// <summary>True iff <paramref name="text"/> is a canonical FormKey null-clear synonym (trimmed, case-insensitive,
-    /// full-string). Shared by apply (<see cref="ToFormKey"/>) and pre-flight (<see cref="IsValidFormLinkValue"/>).</summary>
+    /// <summary>True iff <paramref name="text"/> is a canonical FormKey null-clear synonym.</summary>
     internal static bool IsFormKeyNullSynonym(string? text)
     {
         var v = (text ?? "").Trim();
@@ -3335,34 +2475,17 @@ public static class WriteEngine
         return false;
     }
 
-    /// <summary>A null-synonym clears to <see cref="FormKey.Null"/>; anything else parses via FormKey.Factory
-    /// (fail-loud on a malformed id — pre-flight's value-shape check rejects that string before apply is reached).</summary>
+    /// <summary>A null-synonym clears to <see cref="FormKey.Null"/>; anything else parses via FormKey.Factory.</summary>
     static FormKey ToFormKey(string text) => IsFormKeyNullSynonym(text) ? FormKey.Null : FormKey.Factory(text);
 
-    /// <summary>Pre-flight value-shape check for a NORMAL FormLink Set: a null-clear synonym, or a value that parses
-    /// as a FormKey. A type-only check never inspects the value, so "00000000"/"0" would be accepted and then throw at
-    /// FormKey.Factory on apply; this closes that at the gate. Shares the synonym recognizer with the apply path so
-    /// the gate and the engine agree on a legal value. Null-tolerant for symmetry with the FLOI sibling
-    /// (<see cref="TryClassifyFloiValue"/>): all current callers guard non-null, but a future caller can't trip an NRE
-    /// in FormKey.TryFactory.</summary>
+    /// <summary>Pre-flight value-shape check for a FormLink Set: a null-clear synonym, or a value that parses as a FormKey, which a type-only check would miss.</summary>
     internal static bool IsValidFormLinkValue(string? text) => IsFormKeyNullSynonym(text) || (text is not null && FormKey.TryFactory(text, out _));
 
-    // ---- List INDEX value-shape (write pre-flight: key/index value-shape gate) ---------------------------------
-    //  A list SetAtIndex / InsertAtIndex / Remove(with a key) parses req.Key as the index at apply (ApplyListVerb:
-    //  int.Parse(req.Key!, CultureInfo.InvariantCulture)). Without this gate a non-integer throws FormatException and
-    //  a NEGATIVE value parses and then throws ArgumentOutOfRangeException at the indexer — both unnamed
-    //  accept-then-throws. This recognizer mirrors that parse EXACTLY (int32, NumberStyles.Integer, InvariantCulture —
-    //  int.Parse(s, provider)'s own default style) so the gate and apply can't drift on what counts as a legal index,
-    //  plus the non-negative pre-check the indexer would otherwise enforce by throwing. The UPPER bound (index < the
-    //  live element count) is NOT checked here — pre-flight has no live collection; an in-range-shaped but too-large
-    //  index is left to apply, where it fails named. Same shared-recognizer discipline as IsValidFormLinkValue.
-    /// <summary>True iff <paramref name="text"/> is a legal list INDEX SHAPE: a non-negative int32 under the same
-    /// parse the apply path uses (<see cref="ApplyListVerb"/>). Shape only — the in-range check is apply's.</summary>
+    // ---- List INDEX value-shape: the recognizer mirrors apply's own int.Parse exactly (int32,
+    //  NumberStyles.Integer, InvariantCulture) plus the non-negative pre-check. The UPPER bound is apply's.
+
     /// <summary>Can this collection actually be indexed by <paramref name="key"/>? The runtime twin of
-    /// <c>CorpusRulebook.KeyShapeError</c>, built from the SAME two things apply keys on — a dict entry is reached
-    /// by <c>Coerce(key, keyType)</c>, a list element by a non-negative int32 — so a key this accepts is one
-    /// StepIntoElement can use, and the in-range bound stays apply's job. Only the leaf-bracket throw asks, and
-    /// only to decide whether the key is safe to hand back as part of a call to make.</summary>
+    /// <c>CorpusRulebook.KeyShapeError</c>, built from the same two things apply keys on. Only the leaf throw asks.</summary>
     static bool KeyShapeUsable(Type collectionType, string key)
     {
         if (ClosedInterface(collectionType, typeof(IDictionary<,>)) is { } di)
@@ -3372,26 +2495,16 @@ public static class WriteEngine
         return true;
     }
 
+    /// <summary>True iff <paramref name="text"/> is a legal list INDEX SHAPE — a non-negative int32; range is apply's.</summary>
     internal static bool IsValidListIndexValue(string? text) =>
         text is not null && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i) && i >= 0;
 
-    // ---- Same-call sibling reference ---------------------------------------------------------------------------
-    //  A create's field VALUE can forward-reference a record created EARLIER in the SAME create call, by its
-    //  editorid, written "@<editorid>". The referenced record's local 0x800+ FormKey is not allocated until the
-    //  apply phase, so the caller cannot write a literal FormID — this is how the INFO PNAM order-chain
-    //  (PreviousDialog -> the prior line) and the Topic back-link (-> the same-call DialogTopic) are authored in
-    //  ONE housecarl_bulk_create. WritePatchBuilder.CreateRecords substitutes the token with the sibling's real
-    //  FormKey AFTER allocation (single-pass: the prior sibling is already allocated, in spec order). CREATE-CONTEXT
-    //  ONLY — the override/set_field (Apply) path has no siblings, so pre-flight there (CorpusRulebook called with a
-    //  null sibling set) rejects the token LOUD rather than letting it through to a substitute-nothing apply. The
-    //  recognizer is SHARED by pre-flight (CorpusRulebook) and the apply-side substitution (CreateRecords) so the
-    //  gate and the engine cannot drift on the token shape.
+    // ---- Same-call sibling reference: a create's field VALUE can forward-reference a record created EARLIER in the
+    //  same call, "@<editorid>", substituted after allocation. CREATE-CONTEXT ONLY, and the recognizer is shared by
+    //  pre-flight and the substitution. Where it is legal: docs/architecture/corpus-rulebook.md.
     internal const char SiblingRefSigil = '@';
 
-    /// <summary>True iff <paramref name="text"/> is a same-call sibling reference (<c>@editorid</c>, trimmed); emits
-    /// the referenced editorid (also trimmed). The sigil '@' begins neither a Skyrim EditorID nor a FormID, so the
-    /// token can't collide with a real FormLink value. Shared by pre-flight (<see cref="CorpusRulebook"/>) and the
-    /// create-time substitution (<see cref="WritePatchBuilder.CreateRecords"/>).</summary>
+    /// <summary>True iff <paramref name="text"/> is a same-call sibling reference (<c>@editorid</c>); the sigil cannot collide with a real value.</summary>
     internal static bool IsSameCallSiblingRef(string? text, out string editorId)
     {
         editorId = "";
@@ -3401,10 +2514,7 @@ public static class WriteEngine
         return editorId.Length > 0;
     }
 
-    /// <summary>FormLink families — build the matching concrete (nullable vs not) from a "FORMID:ModName.esp" key.
-    /// Mutagen distinguishes IFormLink&lt;T&gt; (required) from IFormLinkNullable&lt;T&gt; (optional); the wrong
-    /// concrete won't assign to the property, so the target type decides which we construct. A null-synonym value
-    /// clears the link to <see cref="FormKey.Null"/> (see <see cref="ToFormKey"/>) rather than throwing.</summary>
+    /// <summary>FormLink families — build the matching concrete from a "FORMID:ModName.esp" key, the target type deciding nullable or not.</summary>
     static bool TryFormLink(string? text, Type u, out object? result)
     {
         result = null;
@@ -3423,25 +2533,15 @@ public static class WriteEngine
                 result = System.Activator.CreateInstance(typeof(FormLink<>).MakeGenericType(targetGetter), ToFormKey(text));
             return true;
         }
-        // IFormLinkOrIndex<T> (condition-data targets) is NOT coercible here: its ctor needs the owning arm as a
-        // discriminator-flag source, which the parentless Coerce path lacks. It is handled by the parent-aware
-        // SetFloi branch in ApplyScalarVerb, recognised via IsFormLinkOrIndex.
+        // IFormLinkOrIndex<T> is NOT coercible here — its ctor needs the owning arm, which Coerce has no access to.
         return false;
     }
 
-    // ======================================================================
-    //  FORMLINKORINDEX — condition-data targets. A FormLinkOrIndex<T> holds EITHER a real FormID (form mode) OR a
-    //  numeric quest-alias / package-data index (index mode); the owning *ConditionData arm's
-    //  UseAliases/UsePackageData bools decide which serialises. The concrete ctor takes the arm as that flag source,
-    //  so this lives OUTSIDE Coerce (which has no parent) — a parent-aware branch in ApplyScalarVerb.
-    //  IsFormLinkOrIndex is the ONE predicate the engine write, the pre-flight (CorpusRulebook), and coerce-audit all
-    //  share, so they cannot drift on which leaves are FLOI.
-    // ======================================================================
+    // ---- FORMLINKORINDEX — a condition target holds EITHER a FormID or a numeric alias / package-data index, and
+    //  the owning arm's bools decide which serialises, so the ctor needs the arm and this lives OUTSIDE Coerce.
+    //  IsFormLinkOrIndex is the ONE predicate the engine write, pre-flight and coerce-audit share.
 
-    /// <summary>True iff <paramref name="t"/> (nullable-unwrapped) is a Mutagen <c>FormLinkOrIndex&lt;T&gt;</c>
-    /// family type (the mutable, getter, or concrete form). Recognised by its generic definition — like the engine
-    /// already recognises IFormLink&lt;&gt;/IList&lt;&gt;/GenderedItem&lt;&gt; — so coverage is by construction, never
-    /// a per-record-type hand-list.</summary>
+    /// <summary>True iff <paramref name="t"/> is a Mutagen <c>FormLinkOrIndex&lt;T&gt;</c> family type, by generic definition.</summary>
     internal static bool IsFormLinkOrIndex(Type t)
     {
         var u = Nullable.GetUnderlyingType(t) ?? t;
@@ -3451,14 +2551,10 @@ public static class WriteEngine
             || n.StartsWith("FormLinkOrIndex", StringComparison.Ordinal);
     }
 
-    /// <summary>How a condition target serialises: a real FormID, or a numeric index read as a quest alias or a
-    /// package-data index. The arm's UseAliases/UsePackageData bools carry this on disk.</summary>
+    /// <summary>How a condition target serialises: a FormID, or an index read as a quest alias or package data.</summary>
     internal enum FloiMode { Form, IndexAlias, IndexPackData }
 
-    /// <summary>Classify a condition-target VALUE into its mode + payload, auto-inferred from the value alone:
-    /// a <c>FORMID:Plugin.esp</c> is form mode; explicit <c>alias N</c> / <c>packdata N</c> is the named index mode;
-    /// a bare integer is index mode defaulting to alias (the common index case). Throws fail-loud on anything else —
-    /// never a guessed four bytes.</summary>
+    /// <summary>Classify a condition-target VALUE from the value alone: <c>FORMID:Plugin.esp</c> is form mode, <c>alias N</c>/<c>packdata N</c> and a bare integer index.</summary>
     static (FloiMode mode, FormKey key, uint index) ClassifyFloiValue(string value)
     {
         var v = (value ?? "").Trim();
@@ -3477,18 +2573,14 @@ public static class WriteEngine
         return true;
     }
 
-    /// <summary>Non-throwing mirror of <see cref="ClassifyFloiValue"/> for pre-flight — does this value name a legal
-    /// condition target? — so the rulebook and the engine agree on what a valid FLOI value is.</summary>
+    /// <summary>Non-throwing mirror of <see cref="ClassifyFloiValue"/> for pre-flight, so the two agree.</summary>
     internal static bool TryClassifyFloiValue(string value)
     {
         try { ClassifyFloiValue(value); return true; }
         catch { return false; }
     }
 
-    /// <summary>Set a condition-data <c>FormLinkOrIndex&lt;T&gt;</c> target from a value, auto-inferring the mode and
-    /// setting the owning arm's discriminator to match. The concrete ctor takes the arm as the flag source:
-    /// <c>(arm, FormKey)</c> [form] or <c>(arm, uint)</c> [index]. Fail-loud if the parent is not a flag-bearing arm,
-    /// the value is unclassifiable, or the ctor is absent.</summary>
+    /// <summary>Set a condition-data FormLinkOrIndex target, inferring the mode and setting the owning arm's discriminator to match. Fail-loud otherwise.</summary>
     static void SetFloi(object arm, PropertyInfo prop, string value)
     {
         if (arm is not IFormLinkOrIndexFlagGetter)
@@ -3498,8 +2590,7 @@ public static class WriteEngine
 
         var (mode, key, index) = ClassifyFloiValue(value);   // throws fail-loud on an unclassifiable value
 
-        // The concrete closed FormLinkOrIndex<T>: prefer the live instance's runtime type, else map the declared
-        // interface to its concrete (IFormLinkOrIndex<T> -> FormLinkOrIndex<T>) via the shared ConcreteOf.
+        // The concrete closed FormLinkOrIndex<T>: the live instance's type, else the declared interface mapped.
         var concrete = prop.GetValue(arm)?.GetType()
             ?? ConcreteOf(Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType)
             ?? throw new InvalidOperationException($"No concrete FormLinkOrIndex type for {Pretty(prop.PropertyType)}.");
@@ -3520,8 +2611,7 @@ public static class WriteEngine
         prop.SetValue(arm, ctor.Invoke(new[] { arm, arg }));
     }
 
-    /// <summary>Set one of the arm's discriminator bools (UseAliases / UsePackageData) through the engine's writable-
-    /// property resolution. Fail-loud if absent or get-only — a real condition arm always carries both.</summary>
+    /// <summary>Set one of the arm's discriminator bools through the engine's writable-property resolution.</summary>
     static void SetArmFlag(object arm, string flagName, bool value)
     {
         var p = ResolveProperty(arm.GetType(), flagName)
@@ -3530,11 +2620,7 @@ public static class WriteEngine
         p.SetValue(arm, value);
     }
 
-    /// <summary>The corpus-derived value-type family (coerce-audit enumerates exactly these): Color, Percent,
-    /// Noggog point structs (P2*/P3*), MemorySlice&lt;byte&gt; blobs, AssetLink paths, ModKey/FormKey, and the
-    /// PEX-metadata leftovers (DateTime/Char/String[]). Construction is reflection-robust (ctor / static factory /
-    /// implicit op) so it targets whatever surface Mutagen/Noggog expose. Extend HERE when the audit surfaces a
-    /// new writable value type; the audit keeps this complete by construction.</summary>
+    /// <summary>The corpus-derived value-type family coerce-audit enumerates; extend HERE when the audit surfaces a new writable value type.</summary>
     static bool TryValueType(string? text, Type u, out object? result)
     {
         result = null;
@@ -3554,9 +2640,7 @@ public static class WriteEngine
         if (u == typeof(ModKey)) { if (text != null) result = ConstructFromString(u, text); return true; }
         if (u == typeof(RecordType)) { if (text != null) result = ConstructFromString(u, text); return true; }
 
-        // Mutagen TranslatedString — set the whole localized string from a plain string (the common "set a name /
-        // description" case), via the SAME implicit conversion `record.Name = "x"` uses, so it serialises identically.
-        // (Modeled as a substruct in the corpus; recognising it here also makes ApplyVerb Set it wholesale.)
+        // Mutagen TranslatedString — set the whole localized string from a plain string, through the same implicit conversion, so it serialises identically.
         if (u.FullName == "Mutagen.Bethesda.Strings.TranslatedString")
         {
             if (text != null) result = ImplicitFromString(u, text);
@@ -3582,15 +2666,8 @@ public static class WriteEngine
             return true;
         }
 
-        // Mutagen AssetLink<T> family — a path string (texture / model / sound / …). Recognises the mutable concrete
-        // AssetLink<T>, its getter overlay AssetLinkGetter<T>, AND the IAssetLink(Getter)<T> INTERFACES — because a
-        // COLLECTION element's runtime type is the interface, not the concrete (List<IAssetLinkGetter<T>> /
-        // ExtendedList<IAssetLink<T>>), so a concrete-only check misses every asset-link LIST element (e.g.
-        // SoundDescriptor.SoundFiles). Every arm maps to the MUTABLE AssetLink<T> we construct — the same
-        // getter-interface→concrete map TryFormLink does for IFormLinkGetter<T>→FormLink<T> — and AssetLink<T>
-        // implements both interfaces, so the built element assigns into either list. Recognised by the SAME by-name
-        // family predicate the read path uses (IsAssetLinkFamily), so the two surfaces can't drift on what an asset
-        // link is.
+        // Mutagen AssetLink<T> family — a path string. The INTERFACES are recognised too, because a collection
+        // element's runtime type is the interface; every arm maps to the mutable AssetLink<T>. Shared by-name predicate.
         if (u.IsGenericType && IsAssetLinkFamily(u))
         {
             if (text != null)
@@ -3651,8 +2728,7 @@ public static class WriteEngine
     static string CtorList(Type t) =>
         string.Join(" | ", t.GetConstructors().Select(c => $"({string.Join(", ", c.GetParameters().Select(p => Pretty(p.ParameterType)))})"));
 
-    /// <summary>Build <paramref name="t"/> from a string via its implicit string operator (preferred, so the result
-    /// matches `field = "x"` byte-for-byte), falling back to a ctor / factory.</summary>
+    /// <summary>Build <paramref name="t"/> from a string via its implicit string operator, else a ctor / factory.</summary>
     static object ImplicitFromString(Type t, string s)
     {
         var op = t.GetMethods(BindingFlags.Public | BindingFlags.Static).FirstOrDefault(m =>
@@ -3675,9 +2751,7 @@ public static class WriteEngine
         catch { return null; }
     }
 
-    // ======================================================================
-    //  SHARED REFLECTION HELPERS
-    // ======================================================================
+    // ---- SHARED REFLECTION HELPERS ----
     internal static PropertyInfo? ResolveProperty(Type type, string name)
     {
         var candidates = new List<PropertyInfo>();
@@ -3695,11 +2769,7 @@ public static class WriteEngine
         return candidates.OrderByDescending(p => p.CanWrite).FirstOrDefault();
     }
 
-    /// <summary>Set a member to null through the SAME settability resolution the engine writes through
-    /// (<see cref="ResolveProperty"/> — prefers the writable declaration across the type's interfaces). Returns
-    /// false when the member resolves only to a get-only property (a Mutagen always-present collection/substruct
-    /// that is never absent), so a caller clearing state can skip it cleanly. Shared so callers clear through the
-    /// engine's own settability definition rather than a divergent GetProperty().</summary>
+    /// <summary>Set a member to null through the SAME settability resolution the engine writes through; false for a get-only property, which a caller can skip.</summary>
     internal static bool TrySetMemberToNull(object parent, string member)
     {
         var prop = ResolveProperty(parent.GetType(), member);
@@ -3721,15 +2791,9 @@ public static class WriteEngine
         return Convert.ToHexString(sha.ComputeHash(stream));
     }
 
-    // ======================================================================
-    //  COERCE-AUDIT — completeness check for the value-type surface.
-    //
-    //  Walks every WRITABLE leaf in corpus.json, resolves the CLR type a Set/Add must
-    //  coerce to (scalar/enum/value/formlink field types; scalar list/dict element types),
-    //  and asserts CanCoerce holds for each. Any uncoercible type is the exact,
-    //  deduplicated gap to add to TryValueType — derived from Mutagen's own model, never
-    //  guessed. Also flags AQ names that fail to resolve. Reports, never silently skips.
-    // ======================================================================
+    // ---- COERCE-AUDIT ----
+    //  Walks every WRITABLE leaf in corpus.json, resolves the CLR type a Set/Add must coerce to, and asserts
+    //  CanCoerce holds. Any uncoercible type is the exact gap to add to TryValueType. Reports, never skips.
     [CiProbe("coerce-audit")]
     public static int RunCoerceAudit(string[] args)
     {
@@ -3771,20 +2835,9 @@ public static class WriteEngine
                     break;
                 case "list":
                 case "dict":
-                    // scalar/enum/formlink elements are coercion targets; modeled-struct/arm/record elements
-                    // (ElementTypeRef) are build-cases — EXCEPT a WHOLE-COERCIBLE element (an AssetLink path), which
-                    // carries an ElementTypeRef yet is SET as one coerced value, not built from parts. A bare
-                    // `ElementTypeRef is null` test would skip those (SoundDescriptor.SoundFiles,
-                    // Weather.CloudTextures) into navOrBuild, hiding them from the audit denominator. Route a
-                    // whole-coercible element to the SAME resolve+CanCoerce path the scalar elements take, recognised
-                    // by the SAME predicate the rulebook/classifier use (no drift on what a whole-coercible element
-                    // is); its getter-interface AQ resolves at runtime, so it lands on CanCoerce, not `unresolved`.
-                    // COUPLING NOTE: this routes the getter AQ through the shared ResolveType, so the audit here is
-                    // STRICTER than IsWholeCoercibleElement itself — that predicate carries a by-NAME fallback for when
-                    // the cross-assembly nested-generic getter AQ does NOT resolve via Type.GetType, which this branch
-                    // does not. Today every asset-link element's AQ resolves; if a future Mutagen shape stops resolving,
-                    // it lands in `unresolved` and the audit goes red — loud, never a silent skip — which is the cue to
-                    // mirror the name-fallback here.
+                    // Scalar/enum/formlink elements are coercion targets and struct/arm/record elements are
+                    // build-cases — EXCEPT a WHOLE-COERCIBLE element, routed to the same CanCoerce path by the same
+                    // predicate the rulebook uses, through ResolveType, so a shape that stops resolving goes red.
                     if (f.ElementTypeRef is null && f.ElementTypeAssemblyQualified is { } eaq) aq = eaq;
                     else if (IsWholeCoercibleElement(f.ElementTypeRef, f.ElementTypeAssemblyQualified)
                              && f.ElementTypeAssemblyQualified is { } weaq) aq = weaq;
@@ -3807,15 +2860,13 @@ public static class WriteEngine
             hardTargets++;
             var rt = ResolveType(aq);
             if (rt is null) { Bump(unresolved, aq, site); continue; }
-            // FormLinkOrIndex condition targets are writable via the parent-aware SetFloi branch — they pass the gate
-            // like any coercible leaf, and are counted separately below.
+            // FormLinkOrIndex condition targets are writable through the parent-aware SetFloi branch; counted below.
             if (IsFormLinkOrIndex(rt)) { floiHandled++; continue; }
             if (!CanCoerce(rt))
             {
                 var u = Nullable.GetUnderlyingType(rt) ?? rt;
                 var ex = $"{site} [{f.Cardinality}]";
-                // Partition by principle, not a hand-list. Each deferred bucket names its own trigger in the report
-                // below, so a future stage picks it up at the right time instead of forgetting it.
+                // Partition by principle, not a hand-list; each deferred bucket names its own trigger in the report.
                 if (u == typeof(object)) Bump(typeErased, u.FullName ?? u.Name, ex);
                 else if (corpus.Types.TryGetValue(u.Name, out var ut) && ut.Kind == "record") Bump(ownedRecord, u.FullName ?? u.Name, ex);
                 else Bump(uncoercible, u.FullName ?? u.Name, ex);
@@ -3849,8 +2900,7 @@ public static class WriteEngine
             Dump("UNCOERCIBLE value types (REAL GAPS — extend TryValueType)", uncoercible);
         Console.WriteLine();
 
-        // Expected non-coercible-from-string (honest loud reject, NOT a gap). Each names the trigger that would make
-        // it wireable. Surfaced here every run; never silently skipped.
+        // Expected non-coercible-from-string — an honest loud reject, not a gap. Each names its wire-when trigger.
         Dump("DEFERRED — type-erased `object` condition params. WIRE-WHEN: a typed-value wire format exists (the value " +
              "carries its own type), i.e. the step-8 MCP API", typeErased);
         Console.WriteLine();
@@ -3873,11 +2923,8 @@ public static class WriteEngine
         return pass ? 0 : 1;
     }
 
-    // ======================================================================
-    //  COERCE-SELFTEST — checks that the value-type CONSTRUCTIONS actually build a valid,
-    //  assignable instance from a sample string; coerce-audit covers only RECOGNITION.
-    //  Diagnoses on failure by dumping the type's ctor surface.
-    // ======================================================================
+    // ---- COERCE-SELFTEST: do the value-type CONSTRUCTIONS actually build a valid, assignable instance from a
+    //  sample string? coerce-audit covers only RECOGNITION. Diagnoses on failure by dumping the ctor surface.
     [CiProbe("coerce-selftest")]
     public static int RunCoerceSelftest(string[] args)
     {
@@ -3902,12 +2949,7 @@ public static class WriteEngine
         };
         if (texAsset is not null)
             samples.Add(("AssetLink<Texture>", typeof(Mutagen.Bethesda.Plugins.Assets.AssetLink<>).MakeGenericType(texAsset), @"textures\hc\test.dds"));
-        // AssetLink INTERFACE forms — the runtime type a COLLECTION element exposes, NOT the concrete: a
-        // List<IAssetLinkGetter<T>> / ExtendedList<IAssetLink<T>> element coerces to the getter/setter INTERFACE,
-        // which a concrete-only rule misses (e.g. SoundDescriptor.SoundFiles). Each must build the mutable
-        // AssetLink<T> and be assignable to its interface, which is what list .Add demands. Both asset TYPES (sound +
-        // texture) and both interface arms (setter + getter) are covered, so the coverage is family-wide rather than
-        // sound-special.
+        // AssetLink INTERFACE forms — the runtime type a collection element exposes, which a concrete-only rule misses.
         var sndAsset = typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim.Assets.SkyrimSoundAssetType");
         if (sndAsset is not null)
         {
@@ -3961,11 +3003,7 @@ public static class WriteEngine
     }
 }
 
-/// <summary>Thrown when a write needs to MATERIALIZE an absent substruct whose concrete type has no parameterless
-/// constructor — Mutagen's composition types (GenderedItem&lt;T&gt; male/female pairs, Array2d&lt;T&gt; grids) that
-/// can only be built from their parts. A real, named gap, never a silent skip. It is an
-/// <see cref="InvalidOperationException"/> so existing fail-loud handlers still catch it, while a caller can catch it
-/// SPECIFICALLY to tally the gap by construction, with no hand-listing of the composition types.</summary>
+/// <summary>Thrown when a write must MATERIALIZE an absent substruct whose type has no parameterless ctor — Mutagen's composition types. A named gap.</summary>
 public sealed class CompositionRequiredException : InvalidOperationException
 {
     public string Segment { get; }
@@ -3980,18 +3018,7 @@ public sealed class CompositionRequiredException : InvalidOperationException
     }
 }
 
-/// <summary>A serialize-boundary <see cref="NullReferenceException"/> re-stamped as a loud, NAMED refusal.
-/// Mutagen's binary writer throws a bare NRE — no field name — when it dereferences a record's REQUIRED modeled
-/// sub-field that was left null; the dominant cause is a COMPOSED record missing a required polymorphic sub-arm (a
-/// Condition without its Data arm, an element missing a required part). The null may surface bare OR wrapped in the
-/// parallel writer's AggregateException (see <see cref="WriteEngine.RootNullArm"/>). The corpus carries faithful
-/// polymorphic nullability, but that flag is NOT a "required arm at serialize" signal — NpcConfiguration.Level reads
-/// <c>Nullable=false</c> yet serializes fine when null, while Condition.Data (also <c>Nullable=false</c>) throws — so
-/// a pre-flight gate on the flag would over-reject or need a hand-curated list, which the cornerstone forbids; this
-/// stays caught at the serialize boundary instead. The staged temp is already discarded by the time this throws
-/// (nothing on disk; the target is untouched), and the caller's serialize catch renders it as an all-or-nothing
-/// <c>Fail</c>. The original NRE is preserved as <see cref="Exception.InnerException"/> — no silent failure, no opaque
-/// message.</summary>
+/// <summary>A serialize-boundary <see cref="NullReferenceException"/> re-stamped as a loud, NAMED refusal; nothing is on disk by the time it throws.</summary>
 public sealed class NullArmSerializeException : InvalidOperationException
 {
     public NullArmSerializeException(Exception inner)
@@ -4005,35 +3032,12 @@ public sealed class NullArmSerializeException : InvalidOperationException
     }
 }
 
-/// <summary>The in-place write's refusal to re-serialize a plugin flagged LOCALIZED — thrown by
-/// <see cref="WriteEngine.WriteInPlace"/> before the staging directory is created, so nothing is written, staged, or
-/// cleaned up.
-///
-/// <para>WHY: a localized plugin keeps its text in sibling <c>.STRINGS</c>/<c>.DLSTRINGS</c>/<c>.ILSTRINGS</c> files
-/// and carries only integer indices into them. <see cref="WriteEngine.WriteInPlace"/> stages the serialize, which
-/// emits a freshly numbered set of those files beside the staged plugin, and then commits THE PLUGIN ALONE — the
-/// emitted tables are discarded with the staging directory. The committed plugin's new indices are then read against
-/// the plugin's old, untouched strings file, and values land on records they do not belong to (a weapon reading a
-/// book's name). This needs no strings-resolution problem of any kind: a plugin whose strings sit correctly beside it
-/// is corrupted just the same.</para>
-///
-/// <para>So this is NOT the read-side blanking of a localized plugin whose strings resolve elsewhere; that is a
-/// separate defect on the way IN. This is the round-trip's write half, and it is why resolving the strings correctly
-/// on the way in does not on its own make the rewrite faithful. houseCARL does not rewrite a localized plugin in
-/// place, whatever arrangement its tables are in.</para>
-///
-/// <para><b>One sentence, one home.</b> The only way to build this exception is <see cref="FromSentence"/>, off
-/// <see cref="Shaped"/> — a second constructor building its own refusal text would drift out of step with the live
-/// sentence.</para></summary>
+/// <summary>The in-place write's refusal to re-serialize a plugin flagged LOCALIZED, thrown before the staging
+/// directory exists. Why a localized rewrite corrupts the plugin whatever arrangement its tables are in is in
+/// docs/architecture/write-path.md; <see cref="FromSentence"/> is the only way to build it, so the text has one home.</summary>
 public sealed class LocalizedTargetUnsupportedException : InvalidOperationException
 {
-    /// <summary>The refusal for a localized plugin whose strings houseCARL cannot rewrite as a set — one sentence per
-    /// SHAPE, because the shapes fail for different reasons and a single sentence covering all of them can only be
-    /// true of the one it was written for.
-    ///
-    /// <para>A remedy named here must be one that has actually been walked on a fixture. Where a shape has no such
-    /// remedy of its own, this says so and falls back to <paramref name="laneClause"/> rather than inventing
-    /// one.</para></summary>
+    /// <summary>The refusal for a localized plugin — one sentence per SHAPE, and a remedy only where one was walked on a fixture.</summary>
     public static string Shaped(string pluginFileName, LocalizedAssessment a, string? laneClause = null)
     {
         var head = $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. ";
@@ -4041,22 +3045,10 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
         return head + ShapeBody(a) + (remedy is null ? "" : " " + remedy);
     }
 
-    /// <summary>The shape half of <see cref="Shaped"/> on its own — no "houseCARL did not write X" head. For a lane
-    /// refusing over a plugin the caller did not name (a compaction blocked by one of its referencers): the caller
-    /// needs that plugin's reason and remedy, but nesting a whole second refusal sentence inside the first reads as
-    /// two refusals rather than one explained one.
-    ///
-    /// <para><b>THE RENDER SEAM.</b> Every shape gets an arm here, and no sentence is rendered off a collapsed
-    /// boolean. The DECISION may collapse — "anything that is not NotLocalized refuses" is right, and fail-closed —
-    /// but the WORDS may not, because that collapse makes <see cref="LocalizedShape.Unreadable"/> inherit a localized
-    /// plugin's sentences: "is flagged LOCALIZED", "its text lives in separate .STRINGS files", asserted about a file
-    /// houseCARL explicitly could not open. The service pre-flights fail CLOSED on an unreadable target, so that arm
-    /// is reachable and must claim nothing about localization.</para></summary>
+    /// <summary>The shape half of <see cref="Shaped"/> alone, for a lane refusing over a plugin the caller did not name. THE RENDER SEAM.</summary>
     public static string ShapeBody(LocalizedAssessment a) => a.Shape switch
     {
-        // NOT AN ARRANGEMENT, so not composed from the arrangement halves at all. The file was never opened: nothing
-        // is claimed about localization, and the close is the unclassifiable one rather than Settled — which is a
-        // sentence about localized plugins.
+        // NOT AN ARRANGEMENT: the file was never opened, so nothing is claimed about localization.
         LocalizedShape.Unreadable => UnreadableText + SettledUnreadable,
 
         LocalizedShape.NotLocalized
@@ -4065,72 +3057,45 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             or LocalizedShape.ModFolderUnreadable or LocalizedShape.Nowhere
             => WhereTheTextIs(a) + " " + WhyNotInPlace(a),
 
-        // Enumerated above one by one, so a shape added later lands HERE and says nothing rather than inheriting
-        // another shape's words. Deliberately claims no localization state.
+        // Enumerated above one by one, so a shape added later lands HERE and says nothing rather than inheriting.
         _ => "houseCARL has no wording for the arrangement this plugin classified into, so it will not describe it — "
              + "and it does not write in place against a destination it cannot describe.",
     };
 
-    /// <summary>Which remedy a refusal ends on — per shape, for the same reason the body is.
-    ///
-    /// <para>A lane's clause answers "this plugin is localized, so what should I do instead": drop <c>in_place=</c>,
-    /// or (the remove lane) there is no new-plugin form at all. Appended to an UNREADABLE destination it answers a
-    /// question nobody established the answer to, and the remove lane's spelling would turn a momentary file lock into
-    /// a permanent dead end. So the unreadable destination gets the remedy that matches what actually happened, and
-    /// the lane's clause is not appended at all.</para></summary>
+    /// <summary>Which remedy a refusal ends on — per shape, and an UNREADABLE destination gets the one that matches what actually happened.</summary>
     static string? RemedyFor(LocalizedAssessment a, string? laneClause) => a.Shape switch
     {
         LocalizedShape.Unreadable => RemedyUnreadable,
         _ => laneClause,
     };
 
-    /// <summary>The closing sentence every LOCALIZED shape's refusal ends on. Shared verbatim because it is the one
-    /// part that IS the same for all of them: the outcome. Deliberately NOT shared with
-    /// <see cref="LocalizedShape.Unreadable"/> — see <see cref="SettledUnreadable"/>.</summary>
+    /// <summary>The closing sentence every LOCALIZED shape ends on. NOT shared with <see cref="SettledUnreadable"/>.</summary>
     const string Settled = " It does not edit a localized plugin in place.";
 
-    /// <summary>The close for a destination houseCARL could not open. <see cref="Settled"/>'s counterpart, and a
-    /// separate constant on purpose: "it does not edit a localized plugin in place" states that the file IS one.</summary>
+    /// <summary>The close for a destination houseCARL could not open — <see cref="Settled"/> would claim it IS localized.</summary>
     const string SettledUnreadable =
         " houseCARL does not write to a destination it cannot classify. Nothing here says the file is or is not "
         + "localized — it was never opened, so neither was established.";
 
-    /// <summary>What houseCARL can say about a file it could not open, and the only thing it can say. One home,
-    /// because <see cref="WhereTheTextIs"/> and <see cref="ShapeBody"/> both render it.</summary>
+    /// <summary>What houseCARL can say about a file it could not open, and the only thing it can say; one home.</summary>
     const string UnreadableText = "houseCARL could not read the file at that path to see where its text lives.";
 
-    /// <summary>The remedy for an unreadable destination — measured against what actually failed (the open), not
-    /// against a localization state nobody established. Names no lane, because every lane's next step reads the same
-    /// file and meets the same failure.</summary>
+    /// <summary>The remedy for an unreadable destination, measured against the open that failed. Names no lane.</summary>
     public const string RemedyUnreadable =
         "Check whether something else has the file open — Mod Organizer refreshing, an antivirus scan, xEdit, the "
         + "running game — or whether that path names a file that exists at all, and retry once it is free.";
 
-    /// <summary>Why this ARRANGEMENT cannot be rewritten in place — per shape, because the hazard genuinely differs
-    /// and one sentence covering all of them can only be true of the one it was written for.
-    ///
-    /// <para>An interruption leaving records reading other records' text is exact for a plugin with a live table set
-    /// beside it, which a write would have to replace — and false for the shapes where a write would replace NO
-    /// existing table: with the text in game-Data or inside an archive, a plugin write cannot reach the files the
-    /// indices point at at all, so what it would actually do is leave a competing set beside the plugin, shadowing the
-    /// real one and leaving it stale. Naming a mid-write scramble there describes a hazard that cannot happen and
-    /// hides the one that can.</para>
-    ///
-    /// <para>Deliberately says nothing about how to reach an arrangement houseCARL WOULD rewrite ("add the missing
-    /// file, then retry"): no arrangement is rewritten in place, so any such advice dead-ends in a second refusal.
-    /// The remedy that ships is the calling lane's.</para></summary>
+    /// <summary>Why this ARRANGEMENT cannot be rewritten in place — per shape, because a live set beside the plugin and a set elsewhere fail differently.</summary>
     public static string WhyNotInPlace(LocalizedAssessment a) => a.Shape switch
     {
-        // A live set sits beside the plugin. A rewrite renumbers the indices and would have to replace those exact
-        // files in the same breath — the swap houseCARL cannot make atomic.
+        // A live set sits beside the plugin; a rewrite would have to replace those exact files in the same breath.
         LocalizedShape.LooseComplete or LocalizedShape.LoosePartial or LocalizedShape.LooseWithGameDataDuplicate =>
             "A localized plugin's text is not in the plugin, so rewriting the plugin renumbers the indices its text is "
             + "looked up by and those .STRINGS files beside it would have to be replaced in the same breath — and "
             + "houseCARL cannot swap a plugin and its tables as one operation, so an interruption would leave records "
             + "reading text that belongs to other records." + Settled,
 
-        // The files the indices point at are somewhere a plugin write cannot reach. Nothing would be replaced; a new
-        // set would land beside the plugin and SHADOW the real one, which stays on disk and goes stale.
+        // The files the indices point at are out of a plugin write's reach, so a new set beside it only shadows them.
         LocalizedShape.BsaEmbedded when a.BsaUnreadable =>
             "A localized plugin's text is not in the plugin, and until that archive can be read houseCARL cannot tell "
             + "what rewriting the plugin would leave its text resolving against — nor whether a set written beside the "
@@ -4148,43 +3113,37 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             + "put matching files is beside the plugin — where they would SHADOW the set in Data\\Strings rather than "
             + "replace it, leaving that set on disk describing a plugin that has changed underneath it." + Settled,
 
-        // The folder is there and could not be listed, so the ONE thing this shape cannot say is what is in it. Both
-        // hazards are live and houseCARL cannot tell which — which is the sentence.
+        // The folder is there and could not be listed, so the ONE thing this shape cannot say is what is in it.
         LocalizedShape.StringsFolderUnreadable =>
             "A localized plugin's text is not in the plugin, and houseCARL could not read the Strings folder beside it "
             + "to see what is in there. Rewriting the plugin renumbers the indices its text is looked up by, and "
             + "houseCARL cannot tell whether the files written beside it would replace a set that is already there or "
             + "land next to one it never saw." + Settled,
 
-        // The same as the arm above, one level up: the folder holding the plugin would not list, so what is beside it
-        // — a loose set, an archive carrying its tables — was never established.
+        // The same, one level up: the folder holding the plugin would not list, so nothing beside it was established.
         LocalizedShape.ModFolderUnreadable =>
             "A localized plugin's text is not in the plugin, and houseCARL could not read the folder the plugin sits "
             + "in to see what is beside it. Rewriting the plugin renumbers the indices its text is looked up by, and "
             + "houseCARL cannot tell whether the files written beside it would replace a set that is already there, "
             + "shadow one it never saw, or sit next to an archive it could not look in." + Settled,
 
-        // houseCARL cannot see the source, so it cannot name a hazard it has verified. Saying which one it cannot
-        // rule out is the honest form.
+        // houseCARL cannot see the source, so it names the hazard it cannot rule out rather than one it verified.
         LocalizedShape.Nowhere =>
             "A localized plugin's text is not in the plugin, and houseCARL cannot see the files its indices point at. "
             + "Rewriting the plugin renumbers those indices, and houseCARL cannot tell whether a set written beside it "
             + "would replace what the game reads or shadow it, nor what would be left stale either way." + Settled,
 
-        // The mod being written IS localized (this arm is only reached from the write's choke point, which decides off
-        // the mod in memory), and the file already at that path is not. Nothing about an arrangement is claimed.
+        // The mod being written IS localized and the file already at that path is not; no arrangement is claimed.
         LocalizedShape.NotLocalized =>
             "A localized plugin's text is not in the plugin, and houseCARL could not establish where this one's is, so "
             + "it cannot tell what rewriting the plugin would do to that text." + Settled,
 
-        // The file itself could not be opened. ShapeBody does not route here — it has its own arm — but this one
-        // exists so a DIRECT caller cannot get a localized plugin's reasoning for a file nobody read either.
+        // ShapeBody has its own arm; this one exists so a DIRECT caller gets no localized reasoning for an unread file.
         LocalizedShape.Unreadable =>
             "houseCARL could not open the file at that path, so it cannot tell what rewriting it would do to any text "
             + "it carries." + SettledUnreadable,
 
-        // Enumerated above; a shape added later fails LOUD and generic rather than inheriting another's reason, and
-        // claims no localization state of its own — the render seam's rule applies to this arm too.
+        // Enumerated above; a shape added later fails LOUD and generic, claiming no localization state of its own.
         _ => "houseCARL has no account of this plugin's arrangement, so it cannot say what rewriting it in place "
              + "would do to its text.",
     };
@@ -4192,28 +3151,21 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
     /// <summary>Where the archive naming this plugin's tables was found — beside the plugin, or in the game folder.</summary>
     static string BsaWhere(LocalizedAssessment a) => a.BsaInGameData ? "in your game's Data folder" : "beside the plugin";
 
-    /// <summary>The SECOND location, when the archive shape is carrying one. An archive decides the shape whatever
-    /// else is on disk, but a loose set beside the plugin (or a set in game-Data) is still there and still what a
-    /// modder would find if they went looking — so the sentence names both rather than the one that won the
-    /// classification.</summary>
-    /// <summary>What the <c>Strings\</c> folder beside the plugin actually holds, for a plugin nothing in it matched.
-    /// Names the files when there are some, so the modder is not told "nothing is there" while looking at a folder
-    /// with files in it — and asserts an absence only where the absence was checked.</summary>
+    /// <summary>What the <c>Strings\</c> folder beside the plugin holds, for a plugin nothing in it matched; it asserts no unchecked absence.</summary>
     static string NothingMatched(LocalizedAssessment a)
     {
         var u = a.UnmatchedTables;
-        // A CHECKED absence: a folder that could not be listed classifies as StringsFolderUnreadable and never
-        // arrives here, so "there are none" is a claim about a folder houseCARL actually read or found absent.
+        // A CHECKED absence: an unlistable folder classifies as StringsFolderUnreadable and never arrives here.
         if (u.Total == 0)
             return "no .STRINGS files beside it";
-        // The COUNT is the folder's; the NAMES are only what fits. Rendering the capped list's length as the count
-        // would understate what is on the modder's disk.
+        // The COUNT is the folder's and the NAMES are only what fits, so what is on disk is never understated.
         return "the Strings folder beside it holds " + u.Total + " .STRINGS file(s) — "
              + string.Join(", ", u.Names)
              + (u.Unnamed > 0 ? ", and " + u.Unnamed + " more" : "")
              + " — but houseCARL matched none of them to this plugin in a language it recognises";
     }
 
+    /// <summary>The SECOND location, when the archive shape carries one — naming one while two are on disk misleads.</summary>
     static string AlsoLoose(LocalizedAssessment a)
     {
         var also = new List<string>();
@@ -4224,9 +3176,7 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
         return also.Count == 0 ? "" : " — and there is also " + string.Join(", and ", also);
     }
 
-    /// <summary>Where THIS plugin's text actually lives, in the caller's terms — the half of the refusal that is worth
-    /// reading, because it tells a modder something about their install they cannot easily see. Every arm states only
-    /// what was checked and found.</summary>
+    /// <summary>Where THIS plugin's text actually lives. Every arm states only what was checked and found.</summary>
     public static string WhereTheTextIs(LocalizedAssessment a)
     {
         return a.Shape switch
@@ -4245,10 +3195,7 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
                 + "plugin, and a set for this same plugin in your game's Data\\Strings folder ("
                 + string.Join(", ", a.GameDataLanguages) + ").",
 
-            // WHERE the archive is, not merely its name: the vanilla masters' tables live in a game archive, so
-            // "the archive beside it" is false for that whole class. AlsoLoose names the OTHER location when one
-            // exists — the archive decides the shape, but a loose set may still sit beside the plugin, and naming one
-            // location while two are on disk sends the modder to look in the wrong place.
+            // WHERE the archive is, not merely its name; AlsoLoose names the OTHER location when one exists.
             LocalizedShape.BsaEmbedded when a.BsaUnreadable =>
                 "It is flagged LOCALIZED and the archive " + Path.GetFileName(a.BsaPath) + " " + BsaWhere(a)
                 + " could not be read, so houseCARL cannot tell whether this plugin's text is inside it"
@@ -4262,24 +3209,18 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
                 "It is flagged LOCALIZED and its text is not beside it — it resolves from your game's Data\\Strings "
                 + "folder (" + string.Join(", ", a.GameDataLanguages) + ").",
 
-            // The folder is THERE. Nothing is claimed about its contents, because nothing could be read — the arm that
-            // exists so an unlistable folder cannot arrive at Nowhere's sentence and be described as an empty one.
+            // The folder is THERE, and nothing is claimed about its contents, so it is not described as empty.
             LocalizedShape.StringsFolderUnreadable =>
                 "It is flagged LOCALIZED and there is a Strings folder beside it that houseCARL could not read, so "
                 + "whether its text is in there — and in which languages — is unknown" + AlsoLoose(a) + ".",
 
-            // The MOD folder is the one that would not list, so nothing beside the plugin was established — not a
-            // loose set, and not an archive there. It asserts no absence, which is the whole reason it is not Nowhere:
-            // that sentence says there is "no archive beside it", about a folder nothing could read.
+            // The MOD folder is the one that would not list, so it asserts no absence — the reason it is not Nowhere.
             LocalizedShape.ModFolderUnreadable =>
                 "It is flagged LOCALIZED and houseCARL could not read the folder the plugin sits in, so whether its "
                 + "text is beside it — loose, or inside an archive there — is unknown" + AlsoLoose(a) + ".",
 
-            // Says what was SEARCHED and what was FOUND, never what exists. It asserts no absence: a Strings folder
-            // beside the plugin may hold a neighbour's tables, or this plugin's in a language Mutagen does not model
-            // (ptbr), and neither is "nothing is there". NothingMatched describes the folder as it is, and the only
-            // claim made is the one houseCARL can stand behind — nothing in it matched this plugin in a language it
-            // recognises.
+            // Says what was SEARCHED and what was FOUND, never what exists: a Strings folder may hold a neighbour's
+            // tables, or this plugin's in a language Mutagen does not model, and neither is "nothing is there".
             LocalizedShape.Nowhere =>
                 "It is flagged LOCALIZED and houseCARL cannot find its text: " + NothingMatched(a)
                 + ", and no archive beside it"
@@ -4290,43 +3231,30 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
                 + "mod folder than the plugin — houseCARL reads the folders as they sit on disk and does not see that "
                 + "merge.",
 
-            // The plugin could not be read at all, so nothing is said about an arrangement nobody looked at. This is
-            // the answer a locked, absent or unparseable destination gets — and it REFUSES rather than proceeding,
-            // which is the whole reason the read behind it reports three answers instead of two.
+            // The plugin could not be read at all, so nothing is claimed — and it REFUSES rather than proceed.
             LocalizedShape.Unreadable => UnreadableText,
 
-            // The mod being written is flagged LOCALIZED, but the file already at that path does not read as one. The
-            // write refuses on the mod in hand — this arm is only reached from there, never from a pre-flight, which
-            // takes a clear flag as its answer and proceeds.
+            // The mod being written is flagged LOCALIZED and the file already at that path does not read as one.
             LocalizedShape.NotLocalized =>
                 "It is flagged LOCALIZED, but the file already at that path does not read as a localized plugin, so "
                 + "houseCARL could not establish where the text being written would resolve from.",
 
-            // Every shape is enumerated above; this arm exists so a shape added later fails LOUD and generic rather
-            // than silently inheriting another shape's sentence. It asserts NO localization state — the render seam's
-            // rule, one level down.
+            // Enumerated above; a shape added later fails LOUD and generic, asserting NO localization state.
             _ => "houseCARL has no account of where this plugin's text lives.",
         };
     }
 
-    /// <summary>What the three lanes that HAVE a new-plugin equivalent append. Deliberately "a NEW plugin" and not
-    /// "a new override plugin" — <c>create</c> shares this clause and authors new records rather than
-    /// overrides.</summary>
+    /// <summary>What the three lanes with a new-plugin equivalent append; "a NEW plugin", because create shares it.</summary>
     public const string RemedyDefaultLane =
         "This is the in-place lane only: drop in_place= and houseCARL writes the same change into a NEW plugin instead, " +
         "leaving this file untouched.";
 
-    /// <summary>Remove's clause. It names NO remedy, because there is none to name: a new plugin can override a record
-    /// but cannot un-define one, so "do it in a patch instead" would be false here in a way it is not for the other
-    /// three. Stating the asymmetry is what this lane owes the caller.</summary>
+    /// <summary>Remove's clause. It names NO remedy, because a new plugin cannot un-define a record.</summary>
     public const string RemoveNoEquivalent =
         "This lane has no new-plugin form: a separate plugin can override a record but cannot un-define one, so there is " +
         "no way to remove this record without rewriting the plugin that defines it.";
 
-    /// <summary>Where this plugin's strings actually are, as a clause a lane can drop into its own sentence — for the
-    /// lanes that refuse for their OWN reason (compact rebuilds rather than re-serializes) but still owe the caller an
-    /// accurate account of the shape, rather than the generic "it is flagged LOCALIZED" that was true of every shape
-    /// and specific to none.</summary>
+    /// <summary>Where this plugin's strings are, as a clause a lane refusing for its OWN reason can drop in.</summary>
     public static string ShapeClause(LocalizedAssessment a) => a.Shape switch
     {
         LocalizedShape.LooseComplete =>
@@ -4347,8 +3275,7 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
         LocalizedShape.GameDataOnly =>
             "It is flagged LOCALIZED and its text lives in separate .STRINGS files in your game's Data\\Strings folder, "
             + "not beside the plugin.",
-        // The same absence discipline as WhereTheTextIs's arm: houseCARL says it could not FIND them, and where a
-        // Strings folder is sitting there with files in it, it says that too rather than claiming the folder is bare.
+        // The same absence discipline as WhereTheTextIs's arm: it says it could not FIND them, never that none exist.
         LocalizedShape.Nowhere =>
             "It is flagged LOCALIZED and houseCARL cannot find its .STRINGS files: " + NothingMatched(a) + ".",
         LocalizedShape.StringsFolderUnreadable =>
@@ -4364,55 +3291,23 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             "houseCARL has no account of where its text lives.",
     };
 
-    /// <summary>Throw a sentence that is already whole — <see cref="Shaped"/>'s. The ONLY way to build this
-    /// exception, deliberately: a constructor that built its own refusal text would drift out of step with the live
-    /// sentence. One behaviour, one sentence, one home.</summary>
+    /// <summary>Throw a sentence that is already whole — <see cref="Shaped"/>'s. The ONLY way to build this exception.</summary>
     public static LocalizedTargetUnsupportedException FromSentence(string message) => new(message);
 
     LocalizedTargetUnsupportedException(string message) : base(message) { }
 }
 
-/// <summary>A refusal whose cause is LIVE COLLECTION/RECORD STATE the schema-only pre-flight provably CANNOT see —
-/// distinct from a gate/apply <i>inconsistency</i>. This is the whole class of "expected, user-fixable apply rejections":
-/// <list type="bullet">
-///   <item>a dict <c>Add</c> of an ALREADY-PRESENT key (occupancy);</item>
-///   <item>a list <c>SetAtIndex</c> / <c>InsertAtIndex</c> / <c>Remove</c>-by-index at an OUT-OF-RANGE index (length —
-///         pre-flight gates the index shape but leaves the in-range bound to apply, having no live collection; the
-///         bound itself is the verb's, and Insert's includes the append slot);</item>
-///   <item>a <c>Remove</c> that removes NOTHING — a dict <c>Remove</c> of a key not present, a list
-///         <c>Remove</c>-by-value of a value not present, or a <c>Remove</c> on an absent (null) collection: the
-///         symmetric twin of the duplicate-key <c>Add</c> refusal, so a Remove that removed nothing surfaces instead
-///         of silently succeeding;</item>
-///   <item>a mid-path navigation into an ABSENT collection, an ABSENT dict key, or an OUT-OF-BOUNDS list index
-///         (<see cref="WriteEngine.StepIntoElement"/>).</item>
-/// </list>
-/// Each is caught at the boundary it manifests, with a clear, actionable message. The all-or-nothing catch in
-/// <see cref="WritePatchBuilder"/> renders this kind's message VERBATIM — still refusing the whole call with no file
-/// written — WITHOUT the generic "pre-flight ACCEPTED it but the apply threw — a real inconsistency" wrapper, which
-/// would mislabel an expected, fixable user error as an internal bug. Genuinely-unexpected throws (a real gate/apply
-/// drift) keep that wrapper. <see cref="WriteEngine.StepIntoElement"/> is shared with the READ path; a read has no
-/// inconsistency wrapper and simply renders this message. Use this ONLY where the throw is a known, live-state user
-/// error with self-explanatory guidance — never to quiet a throw whose cause is unclear, which would re-introduce the
-/// silent failure this project exists to avoid. A bad-SHAPE index throw deliberately stays un-reclassified for that
-/// reason; a present-but-null element/entry is its own <see cref="MalformedTargetDataException"/>, a distinct THIRD
-/// category. It is an <see cref="InvalidOperationException"/> so any plain fail-loud handler still catches it.</summary>
+/// <summary>A refusal whose cause is LIVE collection/record STATE the schema-only pre-flight cannot see — occupancy,
+/// length, a Remove that removes nothing, a navigation into an absent collection, key or index — so it renders without
+/// the gate/apply-inconsistency wrapper. A bad-SHAPE index and a present-but-null element are the other two.</summary>
 public sealed class ExpectedApplyRejectionException : InvalidOperationException
 {
     public ExpectedApplyRejectionException(string message) : base(message) { }
 }
 
-/// <summary>A refusal whose cause is the TARGET record's own data being malformed/unexpected — a present-but-null
-/// collection element or dict entry that <see cref="WriteEngine.StepIntoElement"/> cannot navigate into. This is the
-/// THIRD apply-rejection category, deliberately distinct from both siblings: it is NOT an
-/// <see cref="ExpectedApplyRejectionException"/> (the user did nothing wrong — there's no input to fix; a null element is
-/// a data anomaly, not a routine occupancy/length/presence rejection), and it is NOT a gate/apply <i>inconsistency</i>
-/// (the schema-only pre-flight provably cannot see live data, so it is not a "pre-flight ACCEPTED it but apply threw"
-/// engine bug). The honest middle: surfaced LOUD and accurately as malformed SOURCE data — houseCARL reads it but never
-/// wrote it, so the present-but-null state arises only from pre-existing malformed plugins, never from houseCARL's own
-/// write path (the null gates forbid writing one). The all-or-nothing catch in <see cref="WritePatchBuilder"/> renders
-/// this kind's message cleanly (no inconsistency wrapper), still refusing the whole call with no file written.
-/// <see cref="WriteEngine.StepIntoElement"/> is shared with the READ path, which has no wrapper and simply renders this
-/// message. It is an <see cref="InvalidOperationException"/> so any plain fail-loud handler still catches it.</summary>
+/// <summary>A refusal whose cause is the TARGET record's own malformed data — a present-but-null element or entry.
+/// The THIRD apply-rejection category: no input for the user to fix, and not an engine bug either, so it renders
+/// cleanly without the wrapper. houseCARL never writes that state, so it comes from pre-existing plugins.</summary>
 public sealed class MalformedTargetDataException : InvalidOperationException
 {
     public MalformedTargetDataException(string message) : base(message) { }
