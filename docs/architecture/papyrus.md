@@ -73,10 +73,14 @@ are [`mo2-instance.md`](mo2-instance.md), and the declaration side of a native P
   sibling `.pex` files that were not all read (`SiblingPexMissing`), all rendered by
   `DecompileTools.HierarchySentence` — one clause per thin source, then what the hierarchy IS instead,
   then the one cost sentence. `PapyrusClassParents.AddFromPexFolder` counts an unreadable sibling
-  rather than swallowing it, the decompile lane turns the count into the reason (the service cannot
-  know it, so it sets the member after its own sibling walk), and the input `.pex` is always read, so
-  the "is" half is never empty. Pinned by
-  `DecompileOutPathTests.AnUnreadableSiblingPexIsNamedAndTheHierarchySaysWhatItIsInstead`.
+  rather than swallowing it, and reports an absent folder and a listing that threw part-way as separate
+  facts so a partial listing keeps its counts; the decompile lane turns the scan into the reason (the
+  service cannot know it, so it sets the member after its own sibling walk). The sibling trigger is
+  "not all read", so the "is" half credits the siblings that WERE read — a partial failure never
+  disowns the edges it added — and the input `.pex` is always read, so that half is never empty. Its
+  count excludes the input `.pex`, which the clause has already excluded by saying "beside this one".
+  Pinned by `DecompileOutPathTests.AnUnreadableSiblingPexIsNamedAndTheHierarchySaysWhatItIsInstead`
+  and `.OneUnreadableSiblingDoesNotDisownTheSiblingsThatWereRead`.
 
 ### The decompiler
 - The codegen patterns it reads, each confirmed against compiler output: jump offsets are relative to

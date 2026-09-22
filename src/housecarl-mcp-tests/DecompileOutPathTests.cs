@@ -228,11 +228,37 @@ public sealed class DecompileOutPathTests
 
             Assert.True(File.Exists(Path.Combine(dest, "HcSiblingHost.psc")), r);
             Assert.Contains("the .pex files beside this one were not all read", r);
-            Assert.Contains("1 of 2 .pex file(s)", r);
+            // The input .pex is not one of the siblings counted, so the only sibling is the broken one.
+            Assert.Contains("1 of 1 sibling .pex file(s)", r);
             Assert.Contains(src, r);
-            // The "is" half drops the siblings and keeps this .pex, so the note never claims edges it does not have.
+            // The "is" half claims only the siblings that were read, so the note never overclaims either way.
             Assert.Contains("the class hierarchy is", r);
-            Assert.Contains("what this .pex declares", r);
+            Assert.Contains("the sibling .pex files that could be read", r);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
+    }
+
+    [Fact]
+    public void OneUnreadableSiblingDoesNotDisownTheSiblingsThatWereRead()
+    {
+        // The partial case: the readable sibling's edge IS in the hierarchy, so the note counts the one file it lost
+        // and still credits what it read, rather than claiming the input .pex alone.
+        var dir = FreshDir();
+        var src = Path.Combine(dir, "src");
+        var dest = Path.Combine(dir, "psc");
+        Directory.CreateDirectory(src);
+        var pex = Path.Combine(src, "HcPartialHost.pex");
+        PexWriter.WritePex(pex, "HcPartialHost", parent: null);
+        PexWriter.WritePex(Path.Combine(src, "HcPartialChild.pex"), "HcPartialChild", parent: "HcPartialHost");
+        File.WriteAllBytes(Path.Combine(src, "HcPartialBroken.pex"), new byte[] { 0x01, 0x02, 0x03, 0x04 });
+        try
+        {
+            var r = DecompileTools.DecompileScript(W.Svc, pex, out_path: dest);
+
+            Assert.True(File.Exists(Path.Combine(dest, "HcPartialHost.psc")), r);
+            Assert.Contains("1 of 2 sibling .pex file(s)", r);
+            Assert.Contains("the sibling .pex files that could be read", r);
+            Assert.DoesNotContain("what this .pex declares,", r);
         }
         finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
     }
