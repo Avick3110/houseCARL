@@ -44,8 +44,8 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 | Note | What it covers |
 |---|---|
 | [`architecture/mo2-instance.md`](architecture/mo2-instance.md) | houseCARL reads a live MO2 portable instance off disk, never through the USVFS, so the instance ini and the three profile files are the only standalone source of truth. |
-| [`architecture/load-order-resolver.md`](architecture/load-order-resolver.md) | The held structural index over the active order: zero handles at rest, one immutable snapshot per build, exclusion, the epoch, freshness, and the two gates. |
-| [`architecture/load-order-service.md`](architecture/load-order-service.md) | The service that owns the resolver's lifecycle: the lazy build, the profile refresh and the two lanes' split on a held profile, the asset build, and the three configuration modes. |
+| [`architecture/load-order-resolver.md`](architecture/load-order-resolver.md) | The held structural index over the active order: zero handles at rest, one immutable snapshot per build, exclusion, the epoch, and freshness. |
+| [`architecture/load-order-service.md`](architecture/load-order-service.md) | The service that owns the resolver's lifecycle: the two gates, the lazy build, the profile refresh and the two lanes' split on a held profile, the asset build, and the three configuration modes. |
 
 ### Assets, SKSE, NIF, SkyPatcher
 

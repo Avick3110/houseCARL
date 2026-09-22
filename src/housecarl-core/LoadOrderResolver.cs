@@ -77,7 +77,7 @@ public sealed class LoadOrderResolver : IDisposable
     internal string? DataDir => _dataDir;
 
     /// <summary>Optional: why a plugin filename this index does NOT contain isn't in the active order, or null. Injected, because the resolver knows nothing of MO2;
-    /// contract in docs/architecture/load-order-service.md.</summary>
+    /// contract in docs/architecture/load-order-resolver.md.</summary>
     readonly Func<string, string?>? _explainAbsence;
 
     /// <summary>One index build's ENTIRE output, swapped in as a SINGLE reference write so no reader sees a torn view; contract in docs/architecture/load-order-resolver.md.</summary>
@@ -307,7 +307,7 @@ public sealed class LoadOrderResolver : IDisposable
     internal static string? ComputeDataDir(Dictionary<string, int> nameToIdx, string[] paths)
         => nameToIdx.TryGetValue("Skyrim.esm", out var i) ? Path.GetDirectoryName(paths[i]) : null;
 
-    /// <summary>Open one plugin as a lazy binary overlay — THE single overlay-open choke point, wiring localized-string resolution; contract in docs/architecture/load-order-service.md.
+    /// <summary>Open one plugin as a lazy binary overlay — THE single overlay-open choke point, wiring localized-string resolution; contract in docs/architecture/load-order-resolver.md.
     /// Public because the off-order and donor read lanes reuse it as a pure (path, dataDir) factory that touches no resolver index.</summary>
     public static ISkyrimModGetter OpenOverlay(string path, string? dataDir)
     {
