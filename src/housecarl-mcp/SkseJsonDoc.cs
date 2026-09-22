@@ -88,11 +88,13 @@ static class SkseJsonDoc
 
     /// <summary>The chars held back from max_chars for the tail every family document closes on — the json twin of
     /// <see cref="TransportAccounting.Reserve"/>, measured by composing the widest tail so no rendering outgrows it.</summary>
-    /// <param name="rowArrays">the family's row lists, by name. Their framing is written past the last row the budget
-    /// admitted, so it is reserved here; composed empty, which is wider than the close it has to cover.</param>
+    /// <param name="rowArrays">the family's row lists, by name — required, so a family cannot forget one and
+    /// under-reserve. What is written past the last row the budget admitted is each array's CLOSE; composing the array
+    /// empty here charges that close plus the open's own width, which the open already paid for in the document, so the
+    /// reserve is a floor of tens of chars rather than an exact figure — measured off the writer, never hand-written.</param>
     internal static int TailReserve(bool readIncomplete, IReadOnlyList<string> warnings, IReadOnlyList<string> bsaFailures,
                                     IReadOnlyList<string> rootFailures, int share, TransportCounts widest,
-                                    Action<Utf8JsonWriter>? conditional = null, params string[] rowArrays)
+                                    IReadOnlyList<string> rowArrays, Action<Utf8JsonWriter>? conditional = null)
     {
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, JsonWire.WriterOptions))

@@ -872,8 +872,8 @@ static class SkseInventoryWire
         int rootShare = cap / BatchRender.RootFailureShare;
         cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare,
             TransportAccounting.Widest(total, windowed, window, notes),
-            tw => { tw.WriteString("peek_note", PeekNoDllNote); tw.WriteNumber("config_folders_truncated", folderCount); },
-            "dlls", "configs", "config_folders"));
+            new[] { "dlls", "configs", "config_folders" },
+            tw => { tw.WriteString("peek_note", PeekNoDllNote); tw.WriteNumber("config_folders_truncated", folderCount); }));
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Inventory, filter, d.ProfileName, callerCap, (w, ms) =>
         {
@@ -1324,7 +1324,7 @@ static class SkseConfigAuditWire
         // lanes bound the same list the same way; the reserve composes the bounded block, not the whole list.
         int rootShare = cap / BatchRender.RootFailureShare;
         cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare,
-            TransportAccounting.Widest(allFiles.Count, files.Count, window, notes), conditional: null, "files"));
+            TransportAccounting.Widest(allFiles.Count, files.Count, window, notes), new[] { "files" }));
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Config, filter, d.ProfileName, callerCap, (w, ms) =>
         {
@@ -1821,7 +1821,8 @@ static class NativePairingWire
         int rootShare = cap / BatchRender.RootFailureShare;
         cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare,
             TransportAccounting.Widest(allClasses.Count, classes.Count, window, notes),
-            tw => tw.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count), "classes", "unreadable_pex"));
+            new[] { "classes", "unreadable_pex" },
+            tw => tw.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count)));
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Pairing, filter, d.ProfileName, callerCap, (w, ms) =>
         {

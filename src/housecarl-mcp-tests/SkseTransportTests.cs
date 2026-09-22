@@ -802,8 +802,9 @@ public sealed class SkseTransportTests
     {
         string json = NativePairingWire.RenderJson(Pairing(300, unreadable: 50), null, 2_680);
 
+        using var doc = JsonDocument.Parse(json);
         Assert.True(json.Length <= 2_680, $"returned {json.Length} chars at max_chars=2680");
-        Assert.NotEmpty(JsonDocument.Parse(json).RootElement.GetProperty("unreadable_pex").EnumerateArray());
+        Assert.NotEmpty(doc.RootElement.GetProperty("unreadable_pex").EnumerateArray());
     }
 
 
