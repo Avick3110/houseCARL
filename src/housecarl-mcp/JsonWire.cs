@@ -2408,6 +2408,11 @@ static class JsonWire
                 w.WriteNumber("parent_absent_formids_total", absentParents.Count);
             }
 
+            // WHICH loose roots the coverage checks could not read — once at the document root, because both read
+            // ONE asset build, and cut by the same rule the text lane's lines are. ABOVE the rows, like verify_ran:
+            // written after them it is the one member nothing charges, and the rows are what should pay for it.
+            WriteRootFailuresCut(w, WriteTools.CreateRootFailures(o), cap);
+
             w.WriteNumber("total_created", o.Created.Count);
             w.WriteStartArray("created");
             int rendered = 0;
@@ -2464,9 +2469,6 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteNumber("rendered_created", rendered);
 
-            // WHICH loose roots the coverage checks could not read — once at the document root, because both read
-            // ONE asset build, and cut by the same rule the text lane's lines are.
-            WriteRootFailuresCut(w, WriteTools.CreateRootFailures(o), cap);
             // The three post-write reports are INSIDE the budget, like the text twin's.
             WriteVoiceReport(w, o.Voice, ms, cap, ref truncated);
             WriteScriptBindingReport(w, o.ScriptBinding, ms, cap, ref truncated);

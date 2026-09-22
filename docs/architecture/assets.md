@@ -39,16 +39,18 @@ resolver reads no profile.
   `ReadIncomplete`, which is the caveat an `Exists=false` depends on.
 - **A loose root that will not read is named the same way.** A walk or a subtree listing that throws lands in
   `RootFailures` and sets `ReadIncomplete` too, so a root neither lane could read is said rather than silently
-  omitted. **A response that hedges on `ReadIncomplete` names the roots**, because a hedge that does not name the
-  folder leaves the modder nothing to act on: `asset_status`, the three `skse` families, the SkyPatcher layer and the
-  NIF batch render them beside their archive failures; the check sweep and the create lane render them at the
-  response root, above their sections, and the compact and merge carry notes under the first pass that hedged.
-  **Once per response, in both transports**: every lane in one call reads ONE asset build, so two blocks would be two
-  copies of one list, and `BatchRender.RootFailureCut` — the one cut rule, with no transport and no caller's indent
-  priced into it — keeps the text lines and the json `root_read_failures` array naming the same roots. A block inside
-  a capped document is charged before that document's rows, never appended once its budget is spent. The one
-  exception to all of it is `ScriptPropertyCheck`'s per-property ".pex not on disk" reason, which has no block to
-  point at and so names the first root and counts the rest inside the sentence. A directory that will not even stat counts:
+  omitted. **These lanes name the roots**, because a hedge that does not name the folder leaves the modder nothing to
+  act on: `asset_status`, the three `skse` families, the SkyPatcher layer and the NIF batch, beside their archive
+  failures; the check sweep, at the response root above its family sections; the create lane, under the coverage
+  reports whose hedges depend on them; and the compact and merge carry notes, under the first pass that hedged.
+  Whichever place, it is **once per response and in both transports**: every lane in one call reads ONE asset build,
+  so two blocks would be two copies of one list, and `BatchRender.RootFailureCut` — the one cut rule, with no
+  transport and no caller's indent priced into it — keeps the text lines and the json `root_read_failures` array
+  naming the same roots. A block inside a capped document is charged before that document's rows, never appended once
+  its budget is spent. Two exceptions, both named as such rather than papered over: `ScriptPropertyCheck`'s
+  per-property ".pex not on disk" reason has no block to point at, so it names the first root and counts the rest
+  inside the sentence; and the dialogue family's hedge and the `place` lane's source-scan hedge still name nothing at
+  all — the same defect in two lanes #850 did not enumerate, tracked in #863. A directory that will not even stat counts:
   `Directory.Exists` answers "not there" for one this account cannot reach, so an absence is trusted only where a
   readable ancestor lists the name as missing; the ancestor stats and their listings are memoized for the build — for
   THIS verdict only, never as a freshness baseline (see the watch below).
