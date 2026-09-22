@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-21
+updated: 2026-09-22
 covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/housecarl-mcp/SweepEmission.cs, src/housecarl-mcp/SweepDemand.cs, src/housecarl-mcp/BodyAllocation.cs, src/housecarl-mcp/BatchRender.cs, src/housecarl-mcp/TransportAccounting.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-core/CharCountedStream.cs, src/housecarl-core/JsonTextEncoder.cs]
 ---
 # The render budget: what `max_chars` counts, and who gets to spend it
@@ -174,9 +174,11 @@ json answers cannot disagree. Its rules:
   at the depth the object actually lands at, because the document is indented and the two encodings differ.
 
 The two transports need different slack over that worst case. The text lane composes each unit and tests
-`length + cost` before appending, so it needs only the newlines its blocks are wrapped in; a `Utf8JsonWriter` cannot
-measure an object without writing it, so the json lane's per-entry test is taken before the write, the last entry
-lands over, and its slack has to cover one whole entry plus `BoundedBody`'s post-check.
+`length + cost` before appending, so it needs only the newlines its blocks are wrapped in; the merged check's json
+entries are tested before the write rather than measured, so the last entry lands over and its slack has to cover one
+whole entry plus `BoundedBody`'s post-check. That slack is this lane's own arrangement, not a licence to overshoot: a
+`Utf8JsonWriter` cannot be asked what an object would cost, but it can be made to write one into a throwaway document,
+which is what `JsonWire.MeasureUnit` does and what the `housecarl_skse` family documents admit their rows on (#859).
 
 **The overrun notice** names which of the two overruns happened — a `max_chars` too small to hold the response's
 fixed part, or a body unit that ran past what the budget had left after that fixed part fit. One sentence cannot

@@ -67,6 +67,8 @@ made the change.
   cap that fits it; `housecarl_check`'s text notice is reworded to match.** Run any json call at `max_chars=100`.
 - **Asset calls no longer get slower with each folder asked about.** Ask about twenty distinct asset paths in one
   session: the twentieth answers about as fast as the second.
+- **A `housecarl_skse` `format="json"` answer now comes back inside the `max_chars` it was given, instead of about one
+  row over it.** Run any family at `max_chars=8000` and check the length.
 
 ## 2.0.2 — 2026-09-15
 

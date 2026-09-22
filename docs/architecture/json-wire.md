@@ -113,7 +113,11 @@ has a cap it can miss outright: the `counts_only=` census renderers (`RenderCoun
 now. `RenderError` is the one renderer without a cap and stays so — a refusal is not bounded by `max_chars`.
 
 The `housecarl_skse` family documents are written by `SkseJsonDoc.Write` rather than by a `JsonWire` renderer, and
-they get the member there, from the CALLER's `max_chars` rather than the budget left after their tail reserve.
+they get the member there, from the CALLER's `max_chars` rather than the budget left after their tail reserve. Their
+row loops admit a row through `SkseJsonDoc.Fits`, on a cost measured by `JsonWire.MeasureUnit` before the row is
+written, so the member says the FIXED part did not fit and never that a row crossed the ceiling (#859). A config file
+row holds its own close back the same way, because its references are cut inside the row and a cut row still has to
+close inside the cap.
 `SkseTools.Dispatch` must not run `RenderCap.Settle` over a json body: the text notice would land past the root close
 and the document would stop being json. `AssetTools`'s manifest-only lane guards the same seam the same way.
 
@@ -121,7 +125,9 @@ and the document would stop being json. `AssetTools`'s manifest-only lane guards
 also holds the shared `JsonOverrun` assertion), `SkseTransportTests.AnOverCapJsonFamilyDocumentStaysJsonAndSaysItOverran`
 for the skse families and `PlaceJsonRenderTests.AnOverCapWriteOutcomeSaysItOverranAndNamesTheCapThatClearsIt` for a
 write outcome — each asserting the three numbers and that the member's own length is counted; and
-`CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` for the merged check's own twin.
+`CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` for the merged check's own twin. The other
+side of the skse arm is `SkseTransportTests.EachFamilysJsonDocumentFilledPastItsCapAnswersInsideIt` — a document filled
+past its cap comes back inside it and carries no member at all.
 
 ## Envelope keys must stay disjoint
 
