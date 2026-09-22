@@ -306,10 +306,11 @@ public sealed class AssetLooseFreshnessTests : IDisposable
     }
 
     /// <summary>Warming a subtree a root does not have settles that absence with two stats on the missing name — not
-    /// a directory, not a file — rather than a fresh listing of the ancestor per root per warm (#861). The absence is
-    /// still watched: the name appearing afterwards is seen on the next call.</summary>
+    /// a directory, not a file — rather than a fresh listing of the ancestor per root per warm (#861). The absence
+    /// memo still lists an ancestor the first time it is asked; what must not happen is an uncached ancestor listing
+    /// per warm. The absence is still watched: the name appearing afterwards is seen on the next call.</summary>
     [Fact]
-    public void WarmingAnAbsentSubtreeTakesNoListingAndStillSeesItAppear()
+    public void WarmingAnAbsentSubtreeTakesNoFreshAncestorListingAndStillSeesItAppear()
     {
         using var r = Build();
         Assert.Equal(Provider, Winner(r, Provided));
@@ -345,8 +346,40 @@ public sealed class AssetLooseFreshnessTests : IDisposable
             Assert.Contains(r.RootFailures, f => f.StartsWith("BlockedMod"));   // named, not proved absent
 
             Assert.False(r.RefreshIfStale(), "a root that will not list was watched as if it were absent");
+            Assert.Equal(Provider, Winner(r, Provided));      // a call re-warms, so the next check reads a new watch
             Assert.False(r.RefreshIfStale(), "…and again: that watch would rebuild the build on every call");
         }
         finally { DenyAce.Undeny(blocked); }
+    }
+
+    /// <summary>The fallback for an absence the memo could not prove: a folder the build found unlistable and that has
+    /// since been given back. The memo still says "would not list", so a new subtree under it is not proved absent;
+    /// the warm lists the ancestor fresh instead, finds the name missing and watches it — so the subtree appearing
+    /// there later is seen, rather than hidden behind a failure the build named when the folder was still denied.</summary>
+    [Fact]
+    public void AnAbsenceUnderAFolderGivenBackAfterItWouldNotListIsStillWatched()
+    {
+        var blocked = Path.Combine(_mods, "BlockedMod");
+        Directory.CreateDirectory(Path.Combine(blocked, "meshes"));
+        Assert.True(DenyAce.TryDeny(blocked), UnreadableRootWorld.NotStaged);
+        AssetResolver r;
+        try
+        {
+            r = AssetResolver.Build(overwriteDir: "", _mods, dataDir: "",
+                new[] { "BlockedMod", Newcomer, Provider }, Array.Empty<ActiveArchive>());
+            Assert.Equal(Provider, Winner(r, Provided));
+            Assert.Contains(r.RootFailures, f => f.StartsWith("BlockedMod"));   // the memo now holds it as unlistable
+        }
+        finally { DenyAce.Undeny(blocked); }
+
+        using (r)
+        {
+            Assert.Null(Winner(r, @"meshes\hclater\y.nif"));  // not provable off the memo; the fresh walk stops at meshes
+            Directory.CreateDirectory(Path.Combine(blocked, "meshes", "hclater"));
+            File.WriteAllText(Path.Combine(blocked, "meshes", "hclater", "y.nif"), "y");
+
+            Assert.True(r.RefreshIfStale(), "a subtree appearing under the folder given back was not noticed");
+            Assert.Equal("BlockedMod", Winner(r, @"meshes\hclater\y.nif"));
+        }
     }
 }
