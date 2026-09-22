@@ -67,10 +67,12 @@ resolver reads no profile.
   the mod set or profile changes. Granting permission moves no mtime, so it clears nothing on its own: the modder
   toggles something in MO2, or restarts the server, and the next call reads the folder again.
 - **A freshness baseline is read at the warm, never off a memo.** Every directory a warmed subtree puts under watch is
-  baselined by the listing that warm itself takes — the whole listing for a root's own copy, the ancestor's listing for
-  a root that has nothing there. The build's `Dirs`/`Children` memos answer the absence VERDICT and nothing else,
-  because a memo can predate the warm by any number of calls, and a baseline older than the warm makes a file that goes
-  and comes back invisible for the life of the build.
+  baselined by what that warm itself reads — the whole listing for a root's own copy; for a root that has nothing
+  there, two stats on the missing name (no directory, no file), with the ancestor listed only where the absence could
+  not be proved, because a name that is listed yet will not stat looks absent to both stats. The build's
+  `Dirs`/`Children` memos answer the absence VERDICT and nothing else, because a memo can predate the warm by any
+  number of calls, and a baseline older than the warm makes a file that goes and comes back invisible for the life of
+  the build.
 - **A bad path fails loud.** `NormalizeQueryPath` refuses a drive-rooted or `..`-escaping path naming the input, and
   collapses `.` and empty segments so the loose walk and the archive-table match answer for one set of files.
   `ValidateRelPath` exposes that one validator to the place lane, whose destination is `Path.Combine(modRoot, rel)`.
