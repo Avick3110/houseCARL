@@ -177,45 +177,47 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
 
     /// <summary>The json twin of that charge. The array sits above the created rows, like <c>verify_ran</c>, so their
     /// own budget check pays for it: written under them it was the one member nothing charged, and the document grew by
-    /// the block's width at every cap. A blocked tree names many roots, so the case is 200 of them.</summary>
+    /// the block's width at every cap. Built outright, with a literal output path — the claim is the renderer's budget,
+    /// and a staged fixture's temp path would put its own host-dependent length into the document. A blocked tree names
+    /// many roots, so the case is 200 of them.</summary>
     [Fact]
     public void TheJsonCreateDocumentChargesTheRootsToItsRows()
     {
-        using var f = new BlockedReportFixture();
-        Assert.True(f.Blocked, BlockedSweepWorld.NotStaged);
-
         var many = Enumerable.Range(0, 200)
                              .Select(i => $"BlockedMod{i:D3}: could not read 'meshes' — Access to the path is denied.")
                              .ToList();
         // One line, so the report renders and its roots are the response's; the rows under test are the CREATED ones.
         var line = new[] { new VoiceLine(default, "HcRootTopic", 1, "line.fuz", false, null, false, "line.lip", false, true) };
-        var withRoots = WithCreated(f, 60) with
+        var withRoots = Created(60) with
             { Voice = new VoiceReport(line, Array.Empty<VoiceUndetermined>()) { RootFailures = many } };
         var without = withRoots with { Voice = new VoiceReport(line, Array.Empty<VoiceUndetermined>()) };
 
-        var rowsWithRoots = RenderedCreated(JsonWire.RenderCreateOutcome(withRoots, 1200, false, "patch"));
-        var rowsWithout = RenderedCreated(JsonWire.RenderCreateOutcome(without, 1200, false, "patch"));
+        int rowsWithRoots = RenderedCreated(JsonWire.RenderCreateOutcome(withRoots, 4000, false, "patch"));
+        int rowsWithout = RenderedCreated(JsonWire.RenderCreateOutcome(without, 4000, false, "patch"));
 
         Assert.True(rowsWithout > rowsWithRoots,
                     $"{rowsWithout} rows without the block, {rowsWithRoots} with it — the block was not charged");
         // And it cannot be cut away by the rows it now costs: one root is named whatever the budget.
-        Assert.NotEmpty(RootArrayOf(JsonWire.RenderCreateOutcome(withRoots, 1200, false, "patch")));
+        Assert.NotEmpty(RootArrayOf(JsonWire.RenderCreateOutcome(withRoots, 4000, false, "patch")));
     }
 
     static int RenderedCreated(string json)
         => JsonDocument.Parse(json).RootElement.GetProperty("rendered_created").GetInt32();
 
-    /// <summary>The staged outcome with many CREATED records, so the json lane's row loop has rows to give back.</summary>
-    static WritePatchBuilder.CreateOutcome WithCreated(BlockedReportFixture f, int count)
-        => f.Outcome with
-           {
-               Created = Enumerable.Range(0, count)
-                   .Select(i => new WritePatchBuilder.CreatedRecord(
-                       new FormKey(ModKey.FromFileName("HcRootReport.esp"), (uint)(0x800 + i)),
-                       "DialogResponses", $"HcRootInfo{i:D3}", Array.Empty<WritePatchBuilder.OpResult>()))
-                   .ToList(),
-               ScriptBinding = ScriptBindingReport.Empty,
-           };
+    /// <summary>A create of <paramref name="count"/> records, every byte of it fixed, so one host's temp paths cannot
+    /// move where a cap falls.</summary>
+    static WritePatchBuilder.CreateOutcome Created(int count)
+    {
+        var key = ModKey.FromFileName("HcRootJson.esp");
+        return new WritePatchBuilder.CreateOutcome(
+            true, null, @"C:\mods\HcRootJson\HcRootJson.esp", false,
+            Enumerable.Range(0, count)
+                      .Select(i => new WritePatchBuilder.CreatedRecord(
+                          new FormKey(key, (uint)(0x800 + i)), "DialogResponses", $"HcRootInfo{i:D3}",
+                          Array.Empty<WritePatchBuilder.OpResult>()))
+                      .ToList(),
+            Array.Empty<string>(), 512);
+    }
 
     /// <summary>The json twin of the create lane's block, at the document root and as an array element.</summary>
     [Fact]
