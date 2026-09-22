@@ -75,6 +75,8 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   the bare base is refused with the discovered arms listed, never a guessed default.
 - Create is idempotent through upsert: a record the patch ITSELF defines is replaced at the same FormKey, while a
   carried override, duplicate residue and a cross-type editorid collision are each refused rather than absorbed.
+- A replace is never silent: the upsert returns whether an existing record was replaced and the caller MUST surface
+  that, because a replace discards the prior record's state, including any field edits made since the original create.
 - An owned child is created into a parent's modeled slot, collection or singular, and an occupied singular slot is
   refused before any FormID is allocated; a cell is filed by coordinate instead, through derived block arithmetic.
 - Every allocation floors the patch's `HEDR.NextObjectID` at 0x800 and past every record the patch defines, and
@@ -128,7 +130,8 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   pins one resolver whose name table is never rebuilt, so the two captures cannot disagree about membership.
 - Off-order-ness is decided by `WritePatchBuilder.IsOffOrderCopySource`, the one predicate the engine consumes
   through.
-- The engine's own note is the master-grow re-sort warning, which is what the four in-place lanes join first.
+- The core note the four in-place lanes join first is the master-grow re-sort warning, emitted by
+  `WritePatchBuilder`, not by the engine or the service.
 - The in-place write's localized backstop names no lane, which is why each service lane pre-flights localization
   itself.
 - `RemapEngine.LocalizedAmong` fails closed on a referencer it could not open, which is what forces the two-class
@@ -162,8 +165,9 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
 - `atomic-commit-guard` arms A / B / C / C2 — the staged commit lands a fresh file, replaces an existing one
   byte-exact, and throws with the prior target intact when the source is missing or the target is held.
 - `localized-write-guard` — the in-place refusal over every arrangement, each named accurately, the plugin and its
-  tables byte-untouched, and a destination that cannot be classified refusing rather than reading as not-localized;
-  it is also the pin for the backstop naming no lane.
+  tables byte-untouched, and a destination that cannot be classified refusing rather than reading as not-localized.
+  It also pins what `RemedyFor` does with a lane clause passed IN, but not that the engine's own refusal carries
+  none, so the backstop naming no lane is unpinned.
 - `nullarm-guard` part B — a composed record missing a required arm surfaces as the named null-arm refusal, bare or
   aggregate-wrapped, with nothing on disk.
 - `gendered-nav-guard` — the `[0]` / `[1]` alias navigates and writes an absent pair or arm back through the
@@ -176,8 +180,8 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   one when pre-flight is bypassed.
 - `subclass-remove-guard` — `RemovalTypeFor` routes the typed remove through the flat group's `T`, so a record whose
   concrete class is a subclass of it is really removed rather than silently skipped.
-- `upsert-guard` arms RERUN / OVERRIDE / CROSS-TYPE / DUP — the replace at a stable FormKey, and the three
-  collisions refused loud with the file untouched.
+- `upsert-guard` arms RERUN / OVERRIDE / CROSS-TYPE / DUP — the replace at a stable FormKey, every replace surfaced
+  on the outcome rather than silently, and the three collisions refused loud with the file untouched.
 - `create-abstract-group-guard` arms G1 / G2 — a concrete arm of either abstract group creates, keyed off the
   runtime hierarchy rather than a per-type case.
 - `nested-create-guard` and `coord-cell-guard` arms EXTERIOR / INTERIOR / PLACED — the modeled-slot nested create,
@@ -187,8 +191,9 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
 - `apply-guard` — a compose given no fields is refused as having no serializable content.
 - `coerce-audit` — every writable scalar, enum, value, formlink and coercible-element leaf in the corpus resolves to
   a coercible type; `coerce-selftest` — each value-type rule builds an instance assignable to its target.
-- `compact-service-guard`'s REPOINT-MIXED arm — `LocalizedAmong` fails closed on a referencer it could not read, and
-  both refusals split on the shape it returns.
+- `compact-service-guard`'s REPOINT-MIXED arm — both refusals split on the shape `LocalizedAmong` returns, rendered
+  on the real renderers. It does not pin the fail-closed half: the arm's own note says a held referencer never
+  reaches the pre-flight, because the identify pass drops it first, so that half is unpinned.
 - `freshness-capture-guard` arm 4 — one call's patch carries ONE build's bodies. The two captures agreeing about
   membership is not separately pinned.
 
