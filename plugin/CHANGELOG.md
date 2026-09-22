@@ -74,6 +74,8 @@ made the change.
   `housecarl_compact_plugin`: each answer names that mod.
 - **The dialogue check, and a `housecarl_place` or `housecarl_nif_set` that finds no copy, name the mod folder they
   could not read.** Block a mod folder, then place a path nothing provides: the answer names that mod.
+- **`housecarl_skse` and `housecarl_skypatcher_layer` now cut a long list of warnings or unreadable archives inside
+  `max_chars` and count the rest, instead of letting it push the answer out.** Read the `showing N of M` line.
 
 ## 2.0.2 — 2026-09-15
 
