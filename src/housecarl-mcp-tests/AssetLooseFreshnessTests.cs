@@ -108,6 +108,50 @@ public sealed class AssetLooseFreshnessTests : IDisposable
         Assert.False(r.RefreshIfStale(), "an unrelated file in a mod folder threw the whole build away");
     }
 
+    /// <summary>A file that goes and comes BACK between calls. The build memoizes a directory's listing the first time
+    /// anything asks about it, and that memo can be many calls older than the warm that takes a baseline from it — so a
+    /// baseline must be a fresh listing. With the memo as the baseline the fresh listing equals it and the file stays
+    /// invisible for the life of the build.</summary>
+    [Fact]
+    public void AFileDeletedAndPutBackBetweenCallsIsSeen()
+    {
+        var file = Path.Combine(_mods, Provider, Provided);
+
+        using var r = Build();
+        Assert.Null(Winner(r, Subtree + @"\deep\y.nif"));      // memoizes the provider's listing of the subtree dir
+        Assert.False(r.RefreshIfStale());
+
+        File.Delete(file);                                     // not a forbidden name, so nothing is stale yet
+        Assert.False(r.RefreshIfStale());
+        Assert.Null(Winner(r, Provided));                      // correct at this instant: nothing provides it
+
+        File.WriteAllText(file, "back");
+
+        Assert.True(r.RefreshIfStale(), "the file that came back was measured against a baseline older than the warm");
+        Assert.Equal(Provider, Winner(r, Provided));
+    }
+
+    /// <summary>The same root cause one level up: a sweep memoizes an ancestor's listing, the subtree dir is deleted,
+    /// and a warm that trusts the memo sees a listed name that no longer stats — a real absence with nothing watched,
+    /// so the subtree coming back is never seen.</summary>
+    [Fact]
+    public void ASubtreeDeletedAfterASweepMemoizedItsParentIsSeenComingBack()
+    {
+        var subtreeDir = Path.Combine(_mods, Provider, Subtree);
+
+        using var r = Build();
+        r.EnumerateUnder(@"meshes\hcnothing");                 // memoizes the provider's meshes\ listing, watching nothing
+
+        Directory.Delete(subtreeDir, true);
+        Assert.Null(Winner(r, Provided));                      // the warm here must still put something under watch
+
+        Directory.CreateDirectory(subtreeDir);
+        File.WriteAllText(Path.Combine(_mods, Provider, Provided), "back");
+
+        Assert.True(r.RefreshIfStale(), "the subtree that came back was answered from a memoized parent listing");
+        Assert.Equal(Provider, Winner(r, Provided));
+    }
+
     /// <summary>A loose file's BYTES are never cached — the read goes to the resolved path — so a rewrite is seen with
     /// nothing to invalidate. The assert stands on the read the tools actually make.</summary>
     [Fact]
