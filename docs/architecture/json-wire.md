@@ -117,8 +117,10 @@ they get the member there, from the CALLER's `max_chars` rather than the budget 
 row loops admit a row through `SkseJsonDoc.Fits`, on a cost measured by `JsonWire.MeasureUnit` before the row is
 written, so the member says the FIXED part did not fit and never that a row crossed the ceiling (#859). A config file
 row holds its own close back the same way, because its references are cut inside the row and a cut row still has to
-close inside the cap. A family's row ARRAYS are named to `SkseJsonDoc.TailReserve` for the same reason: their framing
-is written past the last row the budget admitted, so it is reserved rather than charged to nobody.
+close inside the cap. A family's row ARRAYS are named to `SkseJsonDoc.TailReserve` for the same reason, and naming them
+is required rather than optional: an array's CLOSE is written past the last row the budget admitted, and the reserve
+covers it by composing the array empty, which also charges the open the document already paid for — a floor of tens of
+chars, in the safe direction, rather than an exact figure.
 `SkseTools.Dispatch` must not run `RenderCap.Settle` over a json body: the text notice would land past the root close
 and the document would stop being json. `AssetTools`'s manifest-only lane guards the same seam the same way.
 
