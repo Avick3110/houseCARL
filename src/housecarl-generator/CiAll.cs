@@ -9,10 +9,7 @@ namespace HousecarlGenerator;
 /// schema corpus is reflected once (CorpusGenerator memoizes) instead of once per probe.
 ///
 /// <para>The roster is DERIVED: every method carrying <see cref="CiProbeAttribute"/>, sorted by name. A guard
-/// enrols itself and deleting its file deletes its row — there is no table to keep. Standalone probes
-/// (<c>Standalone = true</c>) are dispatchable and counted but do not run here; each needs its own step in
-/// <c>ci.yml</c>, hand-maintained. Nothing enforces that, so flagging a probe standalone also owes that file
-/// an edit — otherwise the probe runs in neither harness.</para>
+/// enrols itself and deleting its file deletes its row — there is no table to keep.</para>
 ///
 /// <para>Failure model: every probe runs even if an earlier one fails, so one run surfaces EVERY failure, each
 /// as a GitHub <c>::error::</c> annotation naming the probe. The job still goes red if any probe fails.</para>
@@ -30,7 +27,7 @@ namespace HousecarlGenerator;
 public static class CiAll
 {
     /// <summary>One discovered guard: its verb, a direct delegate to its entry point, and its host type.</summary>
-    readonly record struct Entry(string Name, Func<string[], int> Run, Type Host, bool Standalone);
+    readonly record struct Entry(string Name, Func<string[], int> Run, Type Host);
 
     const BindingFlags Members = BindingFlags.Public | BindingFlags.NonPublic
                                | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
@@ -71,7 +68,7 @@ public static class CiAll
     }
 
     /// <summary>
-    /// Every attributed guard, roster and standalone alike, ordered by name.
+    /// Every attributed guard, ordered by name: the roster.
     ///
     /// <para>A cached method rather than a static field on purpose: <see cref="Discover"/> throws two refusals —
     /// a wrong entry-point signature, and two guards claiming one verb — and out of a static field initializer
@@ -114,8 +111,7 @@ public static class CiAll
                             "cannot dispatch: a guard entry point is `public static int <Name>(string[] args)`. " +
                             "Fix the signature or remove the attribute.");
 
-                    found.Add(new Entry(attr.Name, method.CreateDelegate<Func<string[], int>>(),
-                                        type, attr.Standalone));
+                    found.Add(new Entry(attr.Name, method.CreateDelegate<Func<string[], int>>(), type));
                 }
 
         var clashes = found.GroupBy(e => e.Name, StringComparer.Ordinal)
@@ -131,28 +127,19 @@ public static class CiAll
         return found.OrderBy(e => e.Name, StringComparer.Ordinal).ToArray();
     }
 
-    static Entry[] Roster => All().Where(e => !e.Standalone).ToArray();
-
     /// <summary>
-    /// The roster <paramref name="assemblies"/> would enrol: each verb, its host type, and whether CI runs it
-    /// as its own step. The fixture seam for the two refusals in <see cref="Discover(IReadOnlyList{Assembly})"/>,
+    /// The roster <paramref name="assemblies"/> would enrol: each verb and its host type. The fixture seam for the two refusals in <see cref="Discover(IReadOnlyList{Assembly})"/>,
     /// which a green repo never triggers by itself. The shipped population is never this — it is
     /// <see cref="GuardAssemblies"/>, and nothing here changes how that is derived.
     /// </summary>
-    public static IReadOnlyList<(string Name, Type Host, bool Standalone)> RosterIn(IReadOnlyList<Assembly> assemblies) =>
-        Discover(assemblies).Select(e => (e.Name, e.Host, e.Standalone)).ToArray();
+    public static IReadOnlyList<(string Name, Type Host)> RosterIn(IReadOnlyList<Assembly> assemblies) =>
+        Discover(assemblies).Select(e => (e.Name, e.Host)).ToArray();
 
     /// <summary>Each roster verb with the type hosting its entry point.</summary>
     public static IReadOnlyList<(string Name, Type Host)> ProbeHosts =>
-        _probeHosts ??= All().Where(e => !e.Standalone).Select(e => (e.Name, e.Host)).ToArray();
+        _probeHosts ??= All().Select(e => (e.Name, e.Host)).ToArray();
 
     static (string Name, Type Host)[]? _probeHosts;
-
-    /// <summary>The same for the guards CI runs as their own workflow step instead of inside <c>ci-all</c>.</summary>
-    public static IReadOnlyList<(string Name, Type Host)> StandaloneProbeHosts =>
-        _standaloneProbeHosts ??= All().Where(e => e.Standalone).Select(e => (e.Name, e.Host)).ToArray();
-
-    static (string Name, Type Host)[]? _standaloneProbeHosts;
 
     /// <summary>Every CI probe's name, for the unknown-mode refusal's list and did-you-mean (Program.cs).
     /// Sorted by name — the order <c>ci-all</c> runs them in.</summary>
@@ -160,14 +147,8 @@ public static class CiAll
 
     static string[]? _probeNames;
 
-    /// <summary>The guards CI runs as their own workflow step instead of inside <c>ci-all</c>.</summary>
-    public static IReadOnlyList<string> StandaloneProbeNames =>
-        _standaloneProbeNames ??= StandaloneProbeHosts.Select(p => p.Name).ToArray();
-
-    static string[]? _standaloneProbeNames;
-
     /// <summary>
-    /// Dispatch a single CI guard by name — roster or standalone. Program.cs routes local single-probe runs
+    /// Dispatch a single CI guard by name. Program.cs routes local single-probe runs
     /// here rather than keeping a parallel if-chain that could drift out of sync with what CI runs. Returns
     /// false if the name is not a guard verb; the caller then tries its own manual/exploratory dispatches.
     /// </summary>
@@ -202,7 +183,7 @@ public static class CiAll
 
     static int RunRoster(string[] args)
     {
-        var probes = Roster;
+        var probes = All();
 
         // Vacuity floor: an empty roster would print a green 0/0. The attribute scan silently finding nothing
         // is exactly the failure this runner must not pass over.
