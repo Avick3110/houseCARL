@@ -100,17 +100,27 @@ public static class DecompileTools
         var edges = new Dictionary<string, string>(hierarchy.Edges, StringComparer.OrdinalIgnoreCase);
         HousecarlCore.PapyrusClassParents.AddFromPex(edges, pexFile);
         var siblingDir = Path.GetDirectoryName(pex)!;
-        string? siblingMissing;
-        try
+        var pexScan = HousecarlCore.PapyrusClassParents.AddFromPexFolder(edges, siblingDir);
+        // The walk sees the input .pex too and it was read at step 4, so it is not one of the siblings counted here.
+        var siblingsSeen = Math.Max(pexScan.FilesSeen - 1, pexScan.FilesFailed);
+        // Both facts are kept: a count of unreadable files, and a listing that ended early, which can happen together.
+        var failedClause = pexScan.FilesFailed > 0
+            ? $"{pexScan.FilesFailed} of {siblingsSeen} sibling .pex file(s) in '{siblingDir}' could not be read"
+            : null;
+        var listingClause =
+            pexScan.FolderMissing ? $"the folder '{siblingDir}' is no longer there"
+            : pexScan.ListingFailed ? $"the folder '{siblingDir}' could not be listed to the end"
+            : null;
+        hierarchy = hierarchy with
         {
-            var pexScan = HousecarlCore.PapyrusClassParents.AddFromPexFolder(edges, siblingDir);
-            siblingMissing =
-                pexScan.FolderUnreadable ? $"the folder '{siblingDir}' could not be listed"
-                : pexScan.FilesFailed > 0 ? $"{pexScan.FilesFailed} of {pexScan.FilesSeen} .pex file(s) in '{siblingDir}' could not be read"
-                : null;
-        }
-        catch (Exception ex) { siblingMissing = $"the .pex files in '{siblingDir}' could not be read ({ex.GetType().Name})"; }
-        hierarchy = hierarchy with { SiblingPexMissing = siblingMissing };
+            SiblingPexMissing = (failedClause, listingClause) switch
+            {
+                (not null, not null) => $"{failedClause}, and {listingClause}",
+                (not null, null) => failedClause,
+                (null, not null) => listingClause,
+                _ => null,
+            },
+        };
 
         // A refused decompile leaves no orphan: an empty fresh folder is deleted, a partial one named, into= alone.
         string Refuse(string msg)
@@ -177,7 +187,8 @@ public static class DecompileTools
         if (h.SiblingPexMissing is not null)
         {
             thin.Add($"the .pex files beside this one were not all read ({h.SiblingPexMissing})");
-            kept.Add("what this .pex declares");
+            // True whether some siblings were read or none were, so a partial failure never disowns the edges it added.
+            kept.Add("what this .pex and the sibling .pex files that could be read declare");
         }
         else kept.Add("what this .pex and the .pex files beside it declare");
         return $"\nnote: {string.Join(", and ", thin)} — the class hierarchy is {string.Join(" plus ", kept)}{cost}";
