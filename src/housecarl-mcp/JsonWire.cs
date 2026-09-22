@@ -1098,8 +1098,10 @@ static class JsonWire
                 w.WriteEndArray();
                 w.WriteNumber("rendered", gRendered);
                 w.WriteBoolean("truncated", gTrunc);
-                // WHICH knob stopped the table, the histogram's own member; null where the table is whole.
-                if (HistogramCut.For(gCounted.Count, gRendered, gByBudget) is { } gCut) w.WriteString("cut_by", gCut.Knob);
+                // WHICH knob stopped the table, the histogram's own member; null where the table is whole, and null
+                // under to_file=, where no knob cut anything — the rows are the FILE.
+                if (!manifestOnly && HistogramCut.For(gCounted.Count, gRendered, gByBudget) is { } gCut)
+                    w.WriteString("cut_by", gCut.Knob);
                 else w.WriteNull("cut_by");
                 // Only the BUDGET cut triggers the caller's ceiling auto-spill; a limit cut is the caller's own ask.
                 truncated = gByBudget;
