@@ -61,6 +61,9 @@ made the change.
   mod.
 - **`housecarl_decompile_script` now names a `.pex` beside the input it could not read, so every thin part of the
   class hierarchy is stated.** Decompile a script whose folder holds a corrupt `.pex` and read the note.
+- **`offset=` against a count table is refused in the same sentence on every lane, and `housecarl_records` under
+  `counts_only=` now refuses it instead of accepting it and doing nothing.** Pass `counts_only=true` with `offset=1`
+  and read the refusal.
 
 ## 2.0.2 — 2026-09-15
 
