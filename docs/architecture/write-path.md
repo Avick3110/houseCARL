@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-22
 covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/WriteSentences.cs, src/housecarl-core/WriteEngine.cs]
 ---
 # The write path, service side
