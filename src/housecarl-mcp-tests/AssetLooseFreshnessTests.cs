@@ -125,13 +125,13 @@ public sealed class AssetLooseFreshnessTests : IDisposable
         Assert.Equal("second and longer", System.Text.Encoding.UTF8.GetString(bytes!));
     }
 
-    /// <summary>What the check costs grows with the DIRECTORIES that answer, not with roots times subtrees. For a
-    /// subtree no root provides — the shape a session spends most of its calls on — that is nothing at all: twenty
-    /// more add no watched directory, because every root answers from an ancestor the first subtree already watched.
-    /// A subtree a root DOES provide is the other half, and costs one watched directory per providing root; the
-    /// sibling test below pins that, so neither claim has to be read off this one.</summary>
+    /// <summary>What the check costs grows with the DIRECTORIES that answer, not with roots times subtrees, and this
+    /// is the best case of that: subtrees whose roots all answer from ONE shared ancestor — here each root's own mod
+    /// folder, because neither has a `meshes\` at all — add no watched directory however many are warmed. The two
+    /// sibling tests below stage the cases that do add one: roots whose answering ancestor differs per subtree, and
+    /// roots that provide the subtree. None of the three has to be read off another.</summary>
     [Fact]
-    public void WarmingMoreSubtreesNoRootProvidesAddsNoWatchedDirectory()
+    public void WarmingMoreSubtreesAnsweredByOneSharedAncestorAddsNoWatchedDirectory()
     {
         using var r = Build();
         Winner(r, Provided);
@@ -144,9 +144,33 @@ public sealed class AssetLooseFreshnessTests : IDisposable
         Assert.False(r.RefreshIfStale(), "nothing changed on disk, so the build must not have been called stale");
     }
 
-    /// <summary>The honest other half: a subtree a root PROVIDES is watched by that directory's own listing, so the
-    /// watch set grows by one per providing root per subtree. Linear in directories that answer, which is what the
-    /// note claims — not flat.</summary>
+    /// <summary>The case the shared-ancestor one does not cover: the subtree is absent in every root, but each root
+    /// answers from its OWN `meshes\g{i}` rather than from its mod folder, so twenty subtrees add one watched
+    /// directory per root per subtree. Growth with the directories that answer, in the shape that does not collapse.</summary>
+    [Fact]
+    public void WarmingSubtreesWithADifferentAnsweringAncestorEachAddsOnePerRoot()
+    {
+        for (int i = 0; i < 20; i++)
+            foreach (var mod in new[] { Newcomer, Provider })
+            {
+                // Each root HAS meshes\g{i} (with a file, so the dir is real) but not the deeper subtree asked for,
+                // which makes meshes\g{i} the deepest ancestor that answers — a different one per subtree.
+                Directory.CreateDirectory(Path.Combine(_mods, mod, "meshes", "g" + i));
+                File.WriteAllText(Path.Combine(_mods, mod, "meshes", "g" + i, "sibling.nif"), "x");
+            }
+
+        using var r = Build();
+        Winner(r, @"meshes\g0\deep\a.nif");
+        var afterFirst = r.WatchedDirectoryCount;
+
+        for (int i = 1; i < 20; i++) Winner(r, $@"meshes\g{i}\deep\a.nif");
+
+        Assert.Equal(afterFirst + 38, r.WatchedDirectoryCount);      // 19 further subtrees x 2 roots
+        Assert.False(r.RefreshIfStale(), "nothing changed on disk, so the build must not have been called stale");
+    }
+
+    /// <summary>The third shape: a subtree a root PROVIDES is watched by that directory's own listing, so the watch
+    /// set grows by one per providing root per subtree.</summary>
     [Fact]
     public void WarmingASubtreeARootProvidesAddsOneWatchedDirectoryPerProvidingRoot()
     {

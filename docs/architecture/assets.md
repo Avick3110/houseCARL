@@ -67,12 +67,14 @@ resolver reads no profile.
   last-write: that timestamp comes off a clock coarser than a write next to a delete, so two different listings inside
   one tick would read as no change. A root whose copy of the subtree IS on disk is watched by that directory's whole
   listing, so any file coming or going is seen. A root that has nothing there is answered by the deepest ancestor that
-  lists and does not hold the next name, and only THAT name appearing counts — so a root with nothing lands on its own
-  mod folder, which every subtree shares, and an unrelated file written beside it does not throw the build away. A
+  lists and does not hold the next name, and only THAT name appearing counts — so a root with nothing under `meshes\`
+  at all lands on its own mod folder, and an unrelated file written beside it does not throw the build away. A
   name a plain FILE holds is a real absence too, watched for the name becoming a directory. The cost is one listing per
-  watched DIRECTORY, so it grows with the directories that ANSWER and not with roots times subtrees: a subtree no root
-  provides adds nothing after the first, and a subtree several roots provide adds one watched directory per providing
-  root. Two paths are watched whole rather than by name — a subtree a root provides, and the Data-ROOT subtree, where
+  watched DIRECTORY: it grows with the directories that ANSWER — one per (root, answering directory) pair — and not
+  with roots times subtrees. Which directory answers is what decides how far that collapses: roots answering from one
+  shared ancestor, typically their own mod folder, add nothing for further subtrees, while roots whose deepest listing
+  ancestor differs per subtree (two subtrees under different `meshes\` subfolders) add one each, as does every root
+  that PROVIDES the subtree. Two paths are watched whole rather than by name — a subtree a root provides, and the Data-ROOT subtree, where
   the mod folder's own listing IS what resolution reads, so there a top-level file does discard the build. One thing
   this cannot see, by the same rule the failure lanes already state: a name that is listed, is no file, yet will not
   stat is a root failure named on the build, and giving the permission back moves no name, so only a rebuild clears
