@@ -147,9 +147,11 @@ static class BatchRender
     internal const int RootFailureShare = 4;
 
     /// <summary>The loose roots that would not read, as caveat LINES for the renders that close on a caveat block
-    /// rather than open on an alarm — bounded to <see cref="RootFailureShare"/> of max_chars and counted, because one
-    /// line per root per directory asked about is a long list on a blocked tree and a hedge that eats the answer is
-    /// its own failure. Shared, so the SKSE families and the SkyPatcher layer cut the same list the same way.</summary>
+    /// rather than open on an alarm — the NAMES bounded to <see cref="RootFailureShare"/> of max_chars and counted,
+    /// because one line per root per directory asked about is a long list on a blocked tree and a hedge that eats the
+    /// answer is its own failure. The cut prices the line, not a caller's <paramref name="indent"/>, which is added
+    /// after it, so the rendered block is the share plus that prefix per line; a caller who indents charges the
+    /// rendered length. Shared, so the SKSE families and the SkyPatcher layer cut the same list the same way.</summary>
     public static string RootFailureLines(IReadOnlyList<string> failures, int cap, string indent = "")
     {
         if (failures.Count == 0) return "";
