@@ -6,7 +6,7 @@ namespace HousecarlCore;
 
 /// <summary>PEX -> Papyrus source reconstruction over Mutagen's PexFile model, from codegen patterns each confirmed
 /// against compiler output; a function whose flow matches no verified pattern FAILS LOUD and is counted. The patterns
-/// and the contracts are in docs/architecture/papyrus.md.</summary>
+/// and the contracts are in docs/architecture/papyrus-decompile.md.</summary>
 public sealed class PapyrusDecompiler
 {
     public sealed class Result
@@ -17,7 +17,7 @@ public sealed class PapyrusDecompiler
         public List<string> Failures = new();
 
         /// <summary>Count of flow patterns the canonical CK compiler never emits; what a non-zero count means is in
-        /// docs/architecture/papyrus.md.</summary>
+        /// docs/architecture/papyrus-decompile.md.</summary>
         public int OptimizerHints;
     }
 
@@ -100,7 +100,7 @@ public sealed class PapyrusDecompiler
     readonly IReadOnlyDictionary<string, string>? _classParents;
 
     /// <summary>Index of the first parameter a `= None` default is emitted on, by function name; the evidence a .pex
-    /// carries for a default is in docs/architecture/papyrus.md.</summary>
+    /// carries for a default is in docs/architecture/papyrus-decompile.md.</summary>
     readonly Dictionary<string, int> _defaultedParams = new(StringComparer.OrdinalIgnoreCase);
 
     public PapyrusDecompiler(PexFile pex, PexObject obj, IReadOnlyDictionary<string, string>? classParents = null)
@@ -479,7 +479,7 @@ public sealed class PapyrusDecompiler
 
         /// <summary>Unconsumed values pending at a statement boundary: a temp read downstream is materialized as a
         /// named local, and the rest are discarded results emitted in evaluation order as bare statements (the
-        /// contract and its two exceptions are in docs/architecture/papyrus.md). `startBound` is the cut a statement
+        /// contract and its two exceptions are in docs/architecture/papyrus-decompile.md). `startBound` is the cut a statement
         /// carrying a pending value drains up to, int.MaxValue draining everything as at a region end.</summary>
         void FlushPending(List<string> stmts) => FlushPending(stmts, _cur + 1, _consumedStart);
 
@@ -578,7 +578,7 @@ public sealed class PapyrusDecompiler
                         $"{what} @{_cur} carries a value produced before pending {name}, which cannot be ordered either side of it");
         }
         /// <summary>Does writing this expression as a bare statement compile back to the instruction it came from?
-        /// The two kinds that do not are in docs/architecture/papyrus.md.</summary>
+        /// The two kinds that do not are in docs/architecture/papyrus-decompile.md.</summary>
         static bool EmitsAnInstruction(Expr e) => e is not EIdent && ReadsOrCalls(e);
 
         /// <summary>Does anything here have to be read or called at runtime, rather than folding to a literal?</summary>

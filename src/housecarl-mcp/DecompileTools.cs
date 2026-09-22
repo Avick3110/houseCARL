@@ -6,7 +6,7 @@ using Mutagen.Bethesda.Pex;
 
 namespace HousecarlMcp;
 
-/// <summary>housecarl_decompile_script — reconstructs Papyrus source from a .pex into a patch folder's Source\Scripts or the <c>out_path=</c> folder; contracts in docs/architecture/papyrus.md.</summary>
+/// <summary>housecarl_decompile_script — reconstructs Papyrus source from a .pex into a patch folder's Source\Scripts or the <c>out_path=</c> folder; contracts in docs/architecture/papyrus-decompile.md.</summary>
 [McpServerToolType]
 public static class DecompileTools
 {
