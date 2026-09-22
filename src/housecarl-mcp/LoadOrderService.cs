@@ -18,7 +18,7 @@ public sealed partial class LoadOrderService : IDisposable
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
     readonly int _maxPlugins;
     readonly object _gate = new();
-    // Serializes every plugin write's resolve, stage and commit; contract in docs/architecture/load-order-resolver.md.
+    // Serializes every plugin write's resolve, stage and commit; contract in docs/architecture/load-order-service.md.
     readonly object _writeGate = new();
     LoadOrderResolver? _resolver;
     CorpusRulebook? _rulebook;
@@ -118,7 +118,7 @@ public sealed partial class LoadOrderService : IDisposable
                 else if (Monitor.TryEnter(_writeGate))
                 {
                     // Lazy freshness each call, deferred while a write is in flight;
-                    // contract in docs/architecture/load-order-resolver.md.
+                    // contract in docs/architecture/load-order-service.md.
                     try
                     {
                         RefreshOnProfileChange();     // lazy profile-membership refresh on this call (cheap check first)

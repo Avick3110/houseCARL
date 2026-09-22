@@ -42,8 +42,13 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 ### Sessions and writes
 - A per-call `OverlaySession` opens each plugin the call touches AT MOST ONCE and disposes every one when the call returns; the write path takes its master set and its link cache from that same session.
 - A write never leaves a mapped handle on the file it is about to serialize: `AllMastersExcept` skips the target's INDEX rather than filtering the returned list, and `ReleaseOverlay` closes a target overlay a winner fetch opened.
-- `_writeGate` serializes the whole resolve, stage and commit of every plugin write; `SetInstance` takes it too, so an instance switch cannot tear a write in flight. Where both gates are held the order is `_writeGate` then `_gate`.
-- A read-path freshness refresh is DEFERRED while a write holds `_writeGate` — probed with `TryEnter`, never blocking — because a rebuild transiently maps every plugin including the one the write is serializing and dispose-swaps the resolver that write captured; a skipped refresh serves the last good snapshot and re-checks next call.
+
+### The service's answers
+- A body the index says exists but the plugin cannot yield is a NAMED inconsistency, never a silent null (`FetchRecord`); `GetRecord` answers null for a plugin absent from the order, excluded this build, or in the order but not defining the FormKey — a caller that must tell those apart asks `ContainsPlugin` too.
+- A refusal naming a plugin the order does not contain carries the INJECTED explanation of why when there is one, and the did-you-mean otherwise. The resolver is built from a bare ordered path list and knows nothing of MO2, so the explanation is injected by the service.
+- `OpenOverlay` is the single overlay-open choke point, and it redirects strings lookup to the real game-Data folder only when the plugin's OWN folder carries no strings source for that plugin.
+- Light and master-block are separate per-plugin facts read off the same open header: an esp-fe is light in the FormID space and a regular plugin in the order.
+- The first active plugin whose KIND could not be read is kept as a position, not a flag: a runtime FormID landing at or after it is refused, one landing before it answers normally.
 
 ## Pinned by
 - `atrest-probe` (generator, dispatched by name, not in the `ci-all` roster) — zero handles at rest: after a build, after a read through a session, and after a create, every plugin file is renamable and the created patch deletable.
@@ -53,8 +58,8 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 - `FreshnessKeyTests.AnEditThatLeavesTheMtimeAloneIsStillSeenAsStale`, `TheSharedStampSeparatesTwoFilesThatDifferOnlyInLength` and `AnUntouchedOrderIsNotReportedStale` — the last-write-plus-length stamp, and that an untouched order is not reported stale.
 - `pkcu-regression` (`ci-all`) — a plugin holding a record Mutagen cannot parse is excluded whole and every other plugin still resolves.
 - `excluded-master-guard` (`ci-all`) — one unopenable active plugin does not break every write in the order: it is skipped from the master set and named.
-- `write-mutex-guard` (`ci-all`) — concurrent same-default-name writes each allocate their own folder and commit their own bytes.
 - `RecordsOwnedChildTests.ABatchOpensEachPluginOnce_NotOncePerRecordItUnions` and `RecordsRenderCostTests.ADetailRenderOpensOneOverlayPerPluginNotPerRow` — one overlay open per plugin per call, counted through `SessionOverlayOpens`.
+- `RuntimeFormIdTests.ALightPluginsRecordReadsByItsRuntimeFormId`, `AFullPluginsRecordReadsByItsLoadIndex`, `ALightIndexNoActivePluginOccupiesIsRefused` and `ADynamicFormIdIsRefusedAsBelongingToNoPlugin` — the two runtime address tables and their refusals.
 - `DegradedOrderMarkerTests` — a build that lost plugins carries the marker on every lane, and a healthy one carries none.
 
 ## Where
