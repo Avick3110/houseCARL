@@ -5,9 +5,8 @@ covers: [src/housecarl-core/PapyrusDecompiler.cs, src/housecarl-mcp/DecompileToo
 # Papyrus: decompile
 
 ## What it is
-`housecarl_decompile_script` reconstructs source from a `.pex` over Mutagen's own model, with no
-external tool. The class hierarchy it reads, and the compile lane beside it, are
-[`papyrus.md`](papyrus.md).
+What `housecarl_decompile_script` is, the class hierarchy it reads, and the compile lane beside it
+are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
 
 ## Contracts
 
