@@ -65,9 +65,8 @@ made the change.
   refuses `offset=` against a table in one sentence.** Run an aggregate with `limit=1` and read the row it kept.
 - **A `format="json"` response over `max_chars` now closes with `max_chars_overrun`, naming its own length and the
   cap that fits it; `housecarl_check`'s text notice is reworded to match.** Run any json call at `max_chars=100`.
-- **Asset calls no longer get slower with each folder asked about: every call now costs about what a late one used
-  to, early ones included.** Ask about twenty asset paths in a row: the twentieth answers about as quickly as the
-  second, where it used to take several times as long.
+- **Asset calls no longer get slower with each folder asked about.** Ask about twenty distinct asset paths in one
+  session: the twentieth answers about as fast as the second.
 
 ## 2.0.2 — 2026-09-15
 
