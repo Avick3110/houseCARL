@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
-/// <summary>Owns the load-order resolver's lifecycle and is the one place the tools reach the core engines; contract in docs/architecture/load-order-resolver.md.</summary>
+/// <summary>Owns the load-order resolver's lifecycle and is the one place the tools reach the core engines; contract in docs/architecture/load-order-service.md.</summary>
 public sealed partial class LoadOrderService : IDisposable
 {
     string? _instanceDir;                          // INSTANCE-mode source of truth; null in explicit/unconfigured mode
@@ -33,7 +33,7 @@ public sealed partial class LoadOrderService : IDisposable
     FileStamp _iniStamp;                                                   // ModOrganizer.ini (instance-mode profile-switch baseline)
     IReadOnlyList<string> _resolvedPaths = Array.Empty<string>();   // ordered paths the current snapshot was built from (the cheap "did the order actually change?" check)
     // Set when a refresh found the profile changed but could not re-read it; the two lanes' split is in
-    // docs/architecture/load-order-resolver.md.
+    // docs/architecture/load-order-service.md.
     ProfileUnreadableException? _profileHeld;
 
     static readonly string[] ProfileFileNames = { "loadorder.txt", "modlist.txt", "plugins.txt" };
@@ -108,7 +108,7 @@ public sealed partial class LoadOrderService : IDisposable
                             $"ModsDir='{_modsDir}', DataDir='{_dataDir}'. {order.Warnings.Count} warning(s). Check " +
                             "HouseCarl config and that MO2 has written loadorder.txt/modlist.txt (a refresh/re-sort in MO2).");
                     // A kept asset build must not be stranded by advancing the baseline here;
-                    // contract in docs/architecture/load-order-resolver.md.
+                    // contract in docs/architecture/load-order-service.md.
                     bool assetBuildIsBehind = _profileHeld is not null || _resolvedPaths.Count == 0;
                     _resolver = LoadOrderResolver.Build(paths, ExplainPluginAbsence);
                     _resolvedPaths = paths;
@@ -486,7 +486,7 @@ public sealed partial class LoadOrderService : IDisposable
         var profileStamps = StatProfileFiles();                  // stat BEFORE the read: a write during the re-read is caught next call, not missed
         Mo2OrderResult order;
         // A refresh landing in MO2's profile-rewrite window keeps the built snapshot and does not advance the baseline;
-        // contract in docs/architecture/load-order-resolver.md.
+        // contract in docs/architecture/load-order-service.md.
         try { order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir); }
         catch (ProfileUnreadableException ex) { _profileHeld = ex; return; }
         _profileHeld = null;                                     // the re-read got through — nothing is pending any more
