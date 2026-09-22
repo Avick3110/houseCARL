@@ -499,6 +499,10 @@ public sealed record PlaceOutcome(
     /// <summary>True when the files landed in a mod folder this call CREATED, which MO2 registers at the highest priority; an into= folder's priority is already fixed and has to be sorted, so the two lanes owe different instructions.</summary>
     public bool FreshFolder { get; init; }
 
+    /// <summary>The loose roots the batch's asset build could not walk or list, each named with the reason, so a row's
+    /// "may merely be unscanned" hedge has a folder to point at; empty when every root read.</summary>
+    public IReadOnlyList<string> RootFailures { get; init; } = Array.Empty<string>();
+
     /// <summary>Whether the CALL was served at all, not whether every destination placed: a served call with failed rows is a success carrying per-row errors.</summary>
     public bool Success => Error is null;
 

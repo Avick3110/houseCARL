@@ -376,7 +376,8 @@ internal static class WriteSentences
 
     [MustState("may merely be unscanned")]
     internal const string PlaceSourceScanIncomplete =
-        "NOTE: a BSA or a loose mod folder failed to read this build, so it may merely be unscanned (see the warnings).";
+        "NOTE: a BSA or a loose mod folder failed to read this build, so it may merely be unscanned — a loose folder "
+      + "that failed is named among this response's root read failures.";
 
     [MustState("no MO2 mod folder of that name")]
     internal const string PlaceSourceNoSuchFolder =
