@@ -1348,7 +1348,8 @@ static class SkseConfigAuditWire
             foreach (var file in files)
             {
                 // The room the row's own close needs is held back before its references spend, so a row whose
-                // references the cap cut still closes inside that cap.
+                // references the cap cut still closes inside that cap. The head is measured closed on an empty
+                // references array, so the admission test carries that empty close — a few chars — as slack.
                 int rowTail = ConfigRowTailCost(file, depths.SkseRows);
                 if (!SkseJsonDoc.Fits(w, ms, cap - rowTail,
                         JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw => WriteConfigRowHead(mw, file, close: true)))) break;
@@ -1408,18 +1409,22 @@ static class SkseConfigAuditWire
         w.WriteEndObject();
     }
 
-    /// <summary>What closing a row whose references were CUT costs: the non-empty array's close, the cut member and the
-    /// object close. Composed rather than hand-written, because an indented close costs its own indent — the stand-in
-    /// element is there so the array closes in the shape a non-empty one does.</summary>
+    /// <summary>What closing a row whose references were CUT costs, and nothing else: the non-empty array's close, the
+    /// cut member and the object close. The row's brace, the array open and the stand-in element are written OUTSIDE the
+    /// measured span — they are in the document before the references spend — and the stand-in is there only so the
+    /// array closes in the shape a non-empty one does. Composed rather than hand-written, because an indented close
+    /// costs its own indent.</summary>
     static int ConfigRowTailCost(SkseConfigFileAudit file, int depth)
-        => JsonWire.MeasureUnit(depth, false, w =>
+        => JsonWire.MeasureUnit(depth, false, (w, size) =>
         {
             w.WriteStartObject();
             w.WriteStartArray("references");
             w.WriteNullValue();
+            int before = size();
             w.WriteEndArray();
             w.WriteNumber("references_truncated", file.Refs.Count);
             w.WriteEndObject();
+            return size() - before;
         });
 
     /// <summary>The verdict's wire spelling — the json twin of <see cref="Tag"/>, from the same enum.</summary>

@@ -498,7 +498,7 @@ public sealed class SkseTransportTests
 
         using var doc = JsonDocument.Parse(json);   // still a document, never a byte-budget cut
         int tail = warnings.Sum(x => x.Length);
-        Assert.True(json.Length < cap + OneRowSlack,
+        Assert.True(json.Length <= cap,
                     $"{family}: {json.Length} chars against max_chars={cap} — the ~{tail}-char tail was not reserved.");
     }
 
@@ -569,7 +569,7 @@ public sealed class SkseTransportTests
         Assert.InRange(named, 1, roots.Length - 1);
         Assert.Equal(roots.Length - named, caveats.GetProperty("root_read_failures_omitted").GetInt32());
         int tail = roots.Sum(x => x.Length);
-        Assert.True(json.Length < cap + OneRowSlack,
+        Assert.True(json.Length <= cap,
                     $"{family}: {json.Length} chars against max_chars={cap} — the ~{tail}-char root-failure block was not bounded.");
         // The two lanes bound the SAME list the same way, so they name the same number of folders for one call, give or
         // take the line's json quoting: the text lane charges the marker up front, the json lane stops on the budget. A
@@ -597,10 +597,6 @@ public sealed class SkseTransportTests
     /// <summary>What a bounded caveat tail may overrun by — one line plus its marker, far under the quarter of
     /// max_chars the block is held to, so an unbounded block cannot pass as a bounded one.</summary>
     const int ShareSlack = 600;
-
-    /// <summary>The one row the cap can overrun by. Every family's row is comfortably under this, and every family's
-    /// caveat tail in the test above is comfortably over it, so the bound tells the two apart.</summary>
-    const int OneRowSlack = 2_000;
 
     /// <summary>One config can declare tens of thousands of form tokens — a large SkyPatcher INI is exactly that — so
     /// max_chars bounds the reference array inside a file too, not only the file rows. The text render already bounds
@@ -788,9 +784,10 @@ public sealed class SkseTransportTests
         {
             var json = SkseTools.Dispatch(renders, family, filter: null, peek: false, max_chars: cap, json: true);
 
+            using var doc = JsonDocument.Parse(json);
             Assert.True(json.Length <= cap, $"{family} returned {json.Length} chars at max_chars={cap}");
             // The member fires only where the FIXED part does not fit, so a document that fits carries none of it.
-            Assert.False(JsonDocument.Parse(json).RootElement.TryGetProperty("max_chars_overrun", out _),
+            Assert.False(doc.RootElement.TryGetProperty("max_chars_overrun", out _),
                          $"{family} claims it overran max_chars={cap} in a {json.Length}-char document");
         }
     }
@@ -807,6 +804,28 @@ public sealed class SkseTransportTests
         Assert.NotEmpty(doc.RootElement.GetProperty("unreadable_pex").EnumerateArray());
     }
 
+
+    /// <summary>A config row is admitted as soon as it really fits, not a reserve later: the room its own close needs is
+    /// measured as the close alone, so the budget does not turn a row that fits into a rendered=0 answer telling the
+    /// caller to raise max_chars. Composing that reserve loosely — with the row's brace and the array open inside the
+    /// measured span — costs 44 more chars at the boundary and fails this.</summary>
+    [Fact]
+    public void AConfigRowIsAdmittedAtTheNarrowestCapThatReallyHoldsIt()
+    {
+        int narrowest = 0, length = 0;
+        for (int cap = 400; cap <= 6_000 && narrowest == 0; cap++)
+        {
+            string probe = SkseConfigAuditWire.RenderJson(ConfigAudit(1, refs: 400), null, cap);
+            using var d = JsonDocument.Parse(probe);
+            if (d.RootElement.GetProperty("files").GetArrayLength() == 1) (narrowest, length) = (cap, probe.Length);
+        }
+
+        Assert.True(narrowest > 0, "no cap under 6,000 admitted the row at all");
+        Assert.True(length <= narrowest, $"the row that was admitted overran: {length} chars at max_chars={narrowest}");
+        // What the cap held back and no row could use. One close, not a close plus the framing that precedes it.
+        Assert.True(narrowest - length <= 40,
+                    $"{narrowest - length} chars were reserved and never written at the boundary cap {narrowest}");
+    }
 
     /// <summary>The three families over one set of synthetic data, so Dispatch can be driven without a live
     /// instance.</summary>
