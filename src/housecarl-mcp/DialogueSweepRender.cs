@@ -5,7 +5,7 @@ using HousecarlCore;
 namespace HousecarlMcp;
 
 /// <summary>The dialogue family's section in both transports, through the same <see cref="CheckAccounting"/> and
-/// <see cref="BoundedBody"/> machinery the siblings use; contract in docs/architecture/dialogue.md.</summary>
+/// <see cref="BoundedBody"/> machinery the siblings use; contract in docs/architecture/dialogue-validation.md.</summary>
 internal static class DialogueSweepRender
 {
     // ---- the units, composed once so the demand pass and the write measure the same spelling ----------
