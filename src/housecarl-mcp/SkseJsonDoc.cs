@@ -65,14 +65,13 @@ static class SkseJsonDoc
         Strings(w, "archive_read_failures", bsaFailures);
         // The loose twin, beside the archives: a root that would not read is named, not just hedged — and BOUNDED,
         // because one entry per root per directory asked about is a list a blocked tree can make wider than the whole
-        // document. The array plus its sibling count is the shape json-wire.md states and asset_status keeps.
-        if (rootFailures.Count == 0) Strings(w, "root_read_failures", rootFailures);
-        else JsonWire.WriteCappedStringArray(w, ms, "root_read_failures", rootFailures, Chars(ms) + Math.Max(share, 0));
+        // document. Always through the capped writer, empty or not, so the array and its sibling count add up to the
+        // whole on every document, which is the shape json-wire.md states and asset_status keeps.
+        w.Flush();   // the baseline must count what is WRITTEN, not only what has reached the stream
+        JsonWire.WriteCappedStringArray(w, ms, "root_read_failures", rootFailures,
+                                        JsonWire.Chars(ms) + Math.Max(share, 0));
         w.WriteEndObject();
     }
-
-    /// <summary>The document's length in characters so far; the writer buffers, so it is flushed first.</summary>
-    static int Chars(CharCountedStream ms) => JsonWire.Chars(ms);
 
     /// <summary>Is the document already at its char ceiling? Characters, not bytes, and the writer is flushed first because it buffers.</summary>
     internal static bool Over(Utf8JsonWriter w, CharCountedStream ms, int cap)

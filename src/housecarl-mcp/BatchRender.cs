@@ -154,8 +154,8 @@ static class BatchRender
     {
         if (failures.Count == 0) return "";
         var sb = new StringBuilder();
-        // The marker's own room is charged before the first line, as AppendLines charges its cut.
-        int room = Math.Max(cap / RootFailureShare - Marker(0, failures.Count).Length, 0);
+        // The marker's own room is charged before the first line, at its WIDEST spelling, as AppendLines charges its cut.
+        int room = Math.Max(cap / RootFailureShare - Marker(failures.Count, failures.Count).Length, 0);
         int shown = 0;
         foreach (var f in failures)
         {
