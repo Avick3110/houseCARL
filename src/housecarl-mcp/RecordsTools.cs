@@ -620,7 +620,7 @@ public static class RecordsTools
                 {
                     // The census honors counts_only on every list form, this one included.
                     int okI = rows.Count(r => r.Error is null);
-                    return json ? JsonWire.RenderCounts(envelope, rows.Count, okI, rows.Count - okI, epoch)
+                    return json ? JsonWire.RenderCounts(envelope, rows.Count, okI, rows.Count - okI, epoch, max_chars)
                                 : Census($"{headerLine}\ncount={rows.Count} ok={okI} errors={rows.Count - okI}" + Wire.EpochLine(epoch));
                 }
                 var winRows = Windowed(rows);
@@ -724,7 +724,7 @@ public static class RecordsTools
             {
                 int ok = outcomes.Count(o => o.Error is null), err = outcomes.Count - outcomes.Count(o => o.Error is null);
                 return json
-                    ? JsonWire.RenderCounts(envelope, outcomes.Count, ok, err, epoch2)
+                    ? JsonWire.RenderCounts(envelope, outcomes.Count, ok, err, epoch2, max_chars)
                     : Census($"{headerLine}\ncount={outcomes.Count} ok={ok} errors={err}" + Wire.EpochLine(epoch2));
             }
 
@@ -917,7 +917,7 @@ public static class RecordsTools
                     headerLine += $"\n[!] {cappedSeeds} seed(s) hit the walk.max_nodes carrier bound ({walkMaxNodes}, per seed on this lane) — their rows are a prefix of carrier_total; raise walk.max_nodes.";
                 if (counts_only)
                     return json
-                        ? JsonWire.RenderNamedCounts(envelope, revCounts, epochR)
+                        ? JsonWire.RenderNamedCounts(envelope, revCounts, epochR, max_chars)
                         : Census($"{headerLine}\nseeds={results.Count} carrier_rows={carrierRows} carrier_total={carrierTotal} capped_seeds={cappedSeeds} errors={seedErrs2}" + Wire.EpochLine(epochR));
                 var winResults = Windowed(results);
                 SpillState? revSpill = null;
@@ -969,7 +969,7 @@ public static class RecordsTools
                 envelope.Add(new("walk", $"forward{(walk.follow is { } f2 ? $" follow={f2}" : " (closure)")} depth={walkDepth}"));
                 if (counts_only)
                     return json
-                        ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("seeds", rows.Count), KvI("reached", reached), KvI("errors", errs), KvI("cycles", cycles), KvI("truncated_seeds", cutSeeds) }, wEpoch)
+                        ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("seeds", rows.Count), KvI("reached", reached), KvI("errors", errs), KvI("cycles", cycles), KvI("truncated_seeds", cutSeeds) }, wEpoch, max_chars)
                         : Census($"{headerLine}\nseeds={rows.Count} reached={reached} errors={errs} cycles={cycles}" + Wire.EpochLine(wEpoch));
                 // Said only where the seeds ARE listed; a counts_only response's own cycles= is the whole answer.
                 if (cycles > 0)
@@ -1100,7 +1100,7 @@ public static class RecordsTools
             int errs = rows.Count(x => x.Error is not null);
             if (counts_only)
                 return json
-                    ? JsonWire.RenderNamedCounts(envelope, CmpCounts(KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs)), epoch)
+                    ? JsonWire.RenderNamedCounts(envelope, CmpCounts(KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs)), epoch, max_chars)
                     : Census($"{headerLine}\ncount={rows.Count} differing={differing} identical={identical} no_verdict={noVerdict} errors={errs}" + Wire.EpochLine(epoch));
             var winRows = Windowed(rows);
             SpillState? spill = null;
@@ -1140,7 +1140,7 @@ public static class RecordsTools
             int errs = rows.Count(x => x.Error is not null);
             if (counts_only)
                 return json
-                    ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch)
+                    ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch, max_chars)
                     : Census($"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + Wire.EpochLine(epoch));
             var winRows = Windowed(rows);
             SpillState? spill = null;
@@ -1195,7 +1195,7 @@ public static class RecordsTools
             int errs = rows.Count(x => x.Error is not null);
             if (counts_only)
                 return json
-                    ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch)
+                    ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch, max_chars)
                     : Census($"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + Wire.EpochLine(epoch));
             var winRows = Windowed(rows);
             SpillState? spill = null;

@@ -441,8 +441,12 @@ static class JsonWire
 
     /// <summary>records counts_only on the list lane: the census document, no rows. The resolved count is named
     /// <c>resolved</c>, never <c>ok</c> — that key is the refusal grammar's discriminant.</summary>
-    public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, OrderStamp? epoch)
+    /// <param name="maxChars">the caller's max_chars: this document has no rows to cut, so the cap can only be
+    /// missed outright, and it says so with the member every other capped document closes on (#809).</param>
+    public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, OrderStamp? epoch,
+                                      int maxChars = 0)
     {
+        int cap = Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -452,15 +456,19 @@ static class JsonWire
             w.WriteNumber("resolved", ok);
             w.WriteNumber("errors", errors);
             WriteEpoch(w, epoch);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
     }
 
     /// <summary>records counts_only for forms with named counters (delta, tree): the envelope and the counters, no rows.</summary>
+    /// <param name="maxChars">as <see cref="RenderCounts"/>: no rows to cut, so an over-cap census says so.</param>
     public static string RenderNamedCounts(IReadOnlyList<KeyValuePair<string, string>> envelope,
-                                           IReadOnlyList<KeyValuePair<string, int>> counts, OrderStamp? epoch)
+                                           IReadOnlyList<KeyValuePair<string, int>> counts, OrderStamp? epoch,
+                                           int maxChars = 0)
     {
+        int cap = Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -468,6 +476,7 @@ static class JsonWire
             WriteEnvelope(w, envelope);
             foreach (var c in counts) w.WriteNumber(c.Key, c.Value);
             WriteEpoch(w, epoch);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -1591,13 +1600,15 @@ static class JsonWire
     {
         int closed = Size(w, ms) + Framing.RootClose;
         if (closed <= cap) return;
+        // Settled to a fixed point, not to a round count: the notice grows by a fixed width plus whatever digits
+        // the length gains, so each round can only add digits and the loop terminates — and it must not write a
+        // notice it has not verified, which is the one place a stated number could be silently off.
         var notice = RenderCap.Overran(closed, cap);
-        for (int i = 0; i < 4; i++)
+        while (true)
         {
             var next = RenderCap.Overran(closed + OverrunNoticeCost(notice), cap);
-            bool same = next.Length == notice.Length;
+            if (next.Length == notice.Length) { notice = next; break; }
             notice = next;
-            if (same) break;
         }
         w.WriteString("max_chars_overrun", notice);
     }

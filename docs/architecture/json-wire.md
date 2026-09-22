@@ -96,11 +96,18 @@ one-step clearing, because its accounting adds the growth term for every place t
 and a body unit measured after it was written — and adds the cap-print-site growth term to its remedy. Those are
 facts the other documents do not have, so the sentence between the numbers differs; the three NUMBERS are worded
 identically (`response is N chars`, `over the max_chars=C it was given`, `raise max_chars to at least R`), so one
-parser reads the retry number off every document. Any new sentence under this member keeps that wording.
+parser reads the retry number off every document. Any new sentence under this member keeps that wording. The leading
+capital is per document — `check`'s notice opens mid-paragraph — so a reader of this member matches case-insensitively,
+which is what `JsonOverrun.Stated` does.
 
 `truncated`/`truncated_note` are a different fact and stay: they say content was CUT to stay inside the cap.
 `max_chars_overrun` says the cap was MISSED. A document can carry both. A refusal document is not capped and carries
 neither.
+
+**Every renderer that takes a cap writes it, and taking a cap is the test.** A document with no rows to cut still
+has a cap it can miss outright: the `counts_only=` census renderers (`RenderCounts`, `RenderNamedCounts`) took no
+`max_chars` at all, which left the json census over the ceiling in silence while its text twin settled. They take one
+now. `RenderError` is the one renderer without a cap and stays so — a refusal is not bounded by `max_chars`.
 
 The `housecarl_skse` family documents are written by `SkseJsonDoc.Write` rather than by a `JsonWire` renderer, and
 they get the member there, from the CALLER's `max_chars` rather than the budget left after their tail reserve.
@@ -109,8 +116,8 @@ and the document would stop being json. `AssetTools`'s manifest-only lane guards
 
 **Pinned by** `AssetStatusJsonOverrunTests` and `RecordsJsonOverrunTests` (both in `JsonCapOverrunTests.cs`, which
 also holds the shared `JsonOverrun` assertion), `SkseTransportTests.AnOverCapJsonFamilyDocumentStaysJsonAndSaysItOverran`
-for the skse families and `PlaceJsonServedLaneTests.AnOverCapWriteOutcomeSaysItOverranAndNamesTheCapThatClearsIt` for
-the write lane's own cap rule — each asserting the three numbers and that the member's own length is counted; and
+for the skse families and `PlaceJsonRenderTests.AnOverCapWriteOutcomeSaysItOverranAndNamesTheCapThatClearsIt` for a
+write outcome — each asserting the three numbers and that the member's own length is counted; and
 `CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` for the merged check's own twin.
 
 ## Envelope keys must stay disjoint

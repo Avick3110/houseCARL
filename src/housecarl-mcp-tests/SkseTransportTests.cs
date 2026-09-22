@@ -762,7 +762,7 @@ public sealed class SkseTransportTests
         {
             var f = family;
             string Render(int cap) => SkseTools.Dispatch(renders, f, filter: null, peek: false, max_chars: cap, json: true);
-            JsonOverrun.StatesTheThreeNumbers(Render(200), 200, Render);
+            JsonOverrun.StatesTheThreeNumbers(Render(200), 200);
         }
     }
 

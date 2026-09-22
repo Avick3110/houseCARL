@@ -13,15 +13,17 @@ static class JsonOverrun
 {
     const string Member = "max_chars_overrun";
 
+    /// <summary>Case-insensitive, so one assertion reaches the merged check's sentence too — it opens its notice
+    /// mid-paragraph and capitalises where <c>RenderCap.Overran</c> does not.</summary>
     static int Stated(string notice, string marker) =>
-        int.Parse(Regex.Match(notice, marker + @"(\d+)").Groups[1].Value);
+        int.Parse(Regex.Match(notice, marker + @"(\d+)", RegexOptions.IgnoreCase).Groups[1].Value);
 
     /// <summary>The three numbers, asked of the document the render really returned: the cap it was given, its own
     /// length — with the member counted, because the member is part of the length it states — and the cap it names,
     /// which is that same length, the cap THIS document would have fitted in. A wider cap renders a wider answer, so
     /// the number is not a promise about the next call; what is a promise is that the member is not a dead end, which
-    /// the last arm checks with a cap wide enough for the whole answer.</summary>
-    internal static void StatesTheThreeNumbers(string json, int cap, Func<int, string> again)
+    /// <see cref="ClearsAtAWideCap"/> checks with a cap wide enough for the whole answer.</summary>
+    internal static void StatesTheThreeNumbers(string json, int cap)
     {
         var root = JsonDocument.Parse(json).RootElement;
         Assert.True(json.Length > cap,
@@ -60,7 +62,7 @@ public sealed class AssetStatusJsonOverrunTests : IClassFixture<AssetSelectWorld
         string Render(int cap) =>
             AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0001.nif") }, format: "json", max_chars: cap);
 
-        JsonOverrun.StatesTheThreeNumbers(Render(100), 100, Render);
+        JsonOverrun.StatesTheThreeNumbers(Render(100), 100);
         JsonOverrun.ClearsAtAWideCap(Render, 80_000);
     }
 
@@ -71,7 +73,7 @@ public sealed class AssetStatusJsonOverrunTests : IClassFixture<AssetSelectWorld
             AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
                                    counts_only: true, format: "json", max_chars: cap);
 
-        JsonOverrun.StatesTheThreeNumbers(Render(100), 100, Render);
+        JsonOverrun.StatesTheThreeNumbers(Render(100), 100);
     }
 }
 
@@ -90,7 +92,7 @@ public sealed class RecordsJsonOverrunTests : BulkRecordsTestBase
             RecordsTools.Records(Svc, formids: new[] { Fid(W.W1) }, project: Form("identity"),
                                  format: "json", max_chars: cap);
 
-        JsonOverrun.StatesTheThreeNumbers(Render(60), 60, Render);
+        JsonOverrun.StatesTheThreeNumbers(Render(60), 60);
     }
 
     [Fact]
@@ -100,7 +102,7 @@ public sealed class RecordsJsonOverrunTests : BulkRecordsTestBase
             RecordsTools.Records(Svc, formids: new[] { Fid(W.W1) }, project: Fields("BasicStats.Damage"),
                                  format: "json", max_chars: cap);
 
-        JsonOverrun.StatesTheThreeNumbers(Render(60), 60, Render);
+        JsonOverrun.StatesTheThreeNumbers(Render(60), 60);
     }
 
     [Fact]
@@ -110,6 +112,32 @@ public sealed class RecordsJsonOverrunTests : BulkRecordsTestBase
             RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Aggregate("winner"),
                                  format: "json", max_chars: cap);
 
-        JsonOverrun.StatesTheThreeNumbers(Render(60), 60, Render);
+        JsonOverrun.StatesTheThreeNumbers(Render(60), 60);
+    }
+
+    /// <summary>The <c>counts_only=</c> census: a document with no rows to cut, so its cap can only be missed
+    /// outright. Its two renderers took no cap at all, which left the json census over the ceiling in silence while
+    /// the text twin settled — the asymmetry #809 opens with, on the one lane that had no rows to blame.</summary>
+    [Fact]
+    public void TheCensusDocumentSaysItOverranAndNamesTheCapThatClearsIt()
+    {
+        string Render(int cap) =>
+            RecordsTools.Records(Svc, formids: new[] { Fid(W.W1) }, counts_only: true,
+                                 format: "json", max_chars: cap);
+
+        JsonOverrun.StatesTheThreeNumbers(Render(40), 40);
+        JsonOverrun.ClearsAtAWideCap(Render, 80_000);
+    }
+
+    /// <summary>The NAMED-counter census the comparison forms render, the other renderer that took no cap.</summary>
+    [Fact]
+    public void TheNamedCounterCensusSaysItOverranAndNamesTheCapThatClearsIt()
+    {
+        string Render(int cap) =>
+            RecordsTools.Records(Svc, formids: new[] { Fid(W.W1) }, counts_only: true, format: "json",
+                                 max_chars: cap, project: Form("tree"));
+
+        JsonOverrun.StatesTheThreeNumbers(Render(40), 40);
+        JsonOverrun.ClearsAtAWideCap(Render, 80_000);
     }
 }
