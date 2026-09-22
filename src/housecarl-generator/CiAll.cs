@@ -128,9 +128,10 @@ public static class CiAll
     }
 
     /// <summary>
-    /// The roster <paramref name="assemblies"/> would enrol: each verb and its host type. The fixture seam for the two refusals in <see cref="Discover(IReadOnlyList{Assembly})"/>,
-    /// which a green repo never triggers by itself. The shipped population is never this — it is
-    /// <see cref="GuardAssemblies"/>, and nothing here changes how that is derived.
+    /// The roster <paramref name="assemblies"/> would enrol: each verb and its host type. The fixture seam for
+    /// the two refusals in <see cref="Discover(IReadOnlyList{Assembly})"/>, which a green repo never triggers by
+    /// itself. The shipped population is never this — it is <see cref="GuardAssemblies"/>, and nothing here
+    /// changes how that is derived.
     /// </summary>
     public static IReadOnlyList<(string Name, Type Host)> RosterIn(IReadOnlyList<Assembly> assemblies) =>
         Discover(assemblies).Select(e => (e.Name, e.Host)).ToArray();
