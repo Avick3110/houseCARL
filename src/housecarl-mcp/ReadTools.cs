@@ -785,6 +785,9 @@ static class Wire
         // A short order is a response-level fact, stated here once rather than left to whichever families ran.
         if (o.OrderExcluded.Count > 0)
             sb.Append(OrderDegraded.Sentence(o.OrderExcluded)).Append('\n');
+        // WHICH loose roots the asset build could not read, at the response root because ONE build feeds every
+        // family that hedges on it; bounded and counted by the shared renderer.
+        sb.Append(BatchRender.RootFailureLines(o.RootFailures, cap));
 
         // The excluded-plugin roster goes ABOVE the family sections, where each family's accounting can see its rows, and is a response-level participant in the allocation taking its share of the row budget.
         AppendExcludedPlugins(sb, body, o.ExcludedPlugins);
@@ -809,12 +812,12 @@ static class Wire
             }
             else if (f == SweepFamily.Scripts)
             {
-                AppendScriptsHead(sb, s.Scripts!, cap);
+                AppendScriptsHead(sb, s.Scripts!);
                 AppendScriptsSection(sb, s.Scripts!, body, histogramLimit);
             }
             else if (f == SweepFamily.Facegen)
             {
-                FaceGenSweepRender.AppendHead(sb, s.FaceGen!, cap);
+                FaceGenSweepRender.AppendHead(sb, s.FaceGen!);
                 FaceGenSweepRender.AppendSection(sb, s.FaceGen!, body, histogramLimit);
             }
             else
@@ -844,7 +847,7 @@ static class Wire
 
     // ---- the scripts family ----
     /// <summary>The scripts family's own head: what it swept and what it found, every count stating its own scope so no number reads as a wider claim than it is.</summary>
-    static void AppendScriptsHead(StringBuilder sb, ScriptCheckResult r, int cap)
+    static void AppendScriptsHead(StringBuilder sb, ScriptCheckResult r)
     {
         bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
         bool didScalar = r.Classes.HasFlag(ScriptFindingClass.UnboundScalar);
@@ -868,9 +871,6 @@ static class Wire
             sb.Append(string.Format(ReadSentences.SweepScriptUnverifiableCollapsed, r.UnverifiableCollapsed)).Append('\n');
         if (r.ReadIncomplete)
             sb.Append("note: a BSA or a loose mod folder failed to read this build — a '.pex not on disk' below may merely be unscanned, not truly absent (Q3).\n");
-        // WHICH folder would not read, so the hedge above names a source instead of only warning there was one;
-        // bounded and counted by the shared renderer, because a blocked tree names a root per folder asked about.
-        sb.Append(BatchRender.RootFailureLines(r.RootFailures ?? Array.Empty<string>(), cap));
     }
 
     /// <summary>The scripts family's body: everything a cap can refuse, and like the errors family's no roster, accounting or boundary.</summary>

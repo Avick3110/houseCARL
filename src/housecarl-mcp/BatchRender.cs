@@ -154,7 +154,7 @@ static class BatchRender
     {
         if (failures.Count == 0) return "";
         var sb = new StringBuilder();
-        var (shown, omitted) = RootFailureCut(failures, cap, indent);
+        var (shown, omitted) = RootFailureCut(failures, cap);
         foreach (var f in shown) sb.Append(indent).Append(RootFailureLead).Append(f).Append('\n');
         if (omitted > 0) sb.Append(indent).Append(Marker(shown.Count, failures.Count));
         return sb.ToString();
@@ -164,18 +164,18 @@ static class BatchRender
     internal const string RootFailureLead = "[!] loose root read failure: ";
 
     /// <summary>The cut itself: which roots a render may name at <paramref name="cap"/>, and how many it leaves out.
-    /// One rule, so the text lines and the json array of one build name the same roots.</summary>
-    public static (IReadOnlyList<string> Shown, int Omitted) RootFailureCut(IReadOnlyList<string> failures, int cap,
-                                                                           string indent = "")
+    /// One rule with NO transport in it — a caller's own indent is priced outside, because a cut that moved with it
+    /// would have the text and json renders of one build name different roots.</summary>
+    public static (IReadOnlyList<string> Shown, int Omitted) RootFailureCut(IReadOnlyList<string> failures, int cap)
     {
         if (failures.Count == 0) return (Array.Empty<string>(), 0);
         // The marker's own room is charged before the first line, at its WIDEST spelling, as AppendLines charges its cut.
-        int room = Math.Max(cap / RootFailureShare - Marker(failures.Count, failures.Count).Length - indent.Length, 0);
+        int room = Math.Max(cap / RootFailureShare - Marker(failures.Count, failures.Count).Length, 0);
         var shown = new List<string>();
         int used = 0;
         foreach (var f in failures)
         {
-            int width = indent.Length + RootFailureLead.Length + f.Length + 1;   // + the line's own newline
+            int width = RootFailureLead.Length + f.Length + 1;   // + the line's own newline
             // At least one root is NAMED whatever the budget: the count alone is the hedge this work removed.
             if (shown.Count > 0 && used + width > room) break;
             shown.Add(f);

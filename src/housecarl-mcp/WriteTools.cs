@@ -559,7 +559,8 @@ public static class WriteTools
         sb.Append(WriteSentences.CompactRuntimeConfigs);
 
         AppendFacegenCarry(sb, o.AssetRename, o.InPlace);
-        AppendVoiceCarry(sb, o.VoiceRename, o.InPlace);
+        // One asset build backs both passes, so the voice note names only a root the facegen note did not.
+        AppendVoiceCarry(sb, o.VoiceRename, o.InPlace, o.AssetRename?.RootFailures);
         AppendSeqRegen(sb, o.SeqRegen, o.InPlace);
 
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
@@ -636,7 +637,9 @@ public static class WriteTools
         AppendCarryRoots(sb, ar.RootFailures);
     }
 
-    static void AppendVoiceCarry(StringBuilder sb, VoiceCarryOutcome? outcome, bool inPlace)
+    /// <param name="namedAlready">roots the facegen note above already named, so one list is not printed twice.</param>
+    static void AppendVoiceCarry(StringBuilder sb, VoiceCarryOutcome? outcome, bool inPlace,
+                                 IReadOnlyList<string>? namedAlready = null)
     {
         if (outcome is not { } vr) return;
         if (vr.FilesCarried > 0)
@@ -650,7 +653,9 @@ public static class WriteTools
         if (vr.Failures.Count > 25) sb.Append("  voice WARN: … (+").Append(vr.Failures.Count - 25).Append(" more)\n");
         if (vr.ReadIncomplete)
             sb.Append("  note: a BSA or a loose mod folder failed to read this scan, so a 'no voice' result may be incomplete — verify voiced lines in-game.\n");
-        AppendCarryRoots(sb, vr.RootFailures);
+        AppendCarryRoots(sb, namedAlready is { Count: > 0 } named
+                             ? vr.RootFailures.Where(r => !named.Contains(r, StringComparer.OrdinalIgnoreCase)).ToList()
+                             : vr.RootFailures);
     }
 
     /// <summary>WHICH loose root the carry scan could not read, under the note that hedges on it — this render takes
@@ -790,7 +795,8 @@ public static class WriteTools
         sb.Append(WriteSentences.MergeRuntimeConfigs);
 
         AppendFacegenCarry(sb, o.AssetRename, inPlace: false);
-        AppendVoiceCarry(sb, o.VoiceRename, inPlace: false);
+        // One asset build backs both passes, so the voice note names only a root the facegen note did not.
+        AppendVoiceCarry(sb, o.VoiceRename, inPlace: false, namedAlready: o.AssetRename?.RootFailures);
         AppendSeqRegen(sb, o.SeqRegen, inPlace: false);
 
         // A donor's HEADER does not come along, and these notes are keyed on what the donors carried; contract in docs/architecture/write-path.md.
@@ -960,8 +966,12 @@ public static class WriteTools
             foreach (var op in c.Ops)
                 sb.Append("      ").Append(op.Label).Append(EditLineValue(op, opAbsent)).Append(ApplyNote(op)).Append('\n');
         }
-        AppendVoiceReport(sb, o.Voice, maxChars);
-        AppendScriptBindingReport(sb, o.ScriptBinding, maxChars);
+        // Both coverage checks read ONE asset build, so the folders it could not read are the RESPONSE's: named once
+        // under the reports that hedge on them, out of room held back from both rather than spent after them.
+        var roots = BatchRender.RootFailureLines(CreateRootFailures(o), WriteSentences.Cap(maxChars), indent: "  ");
+        AppendVoiceReport(sb, o.Voice, maxChars, roots.Length);
+        AppendScriptBindingReport(sb, o.ScriptBinding, maxChars, roots.Length);
+        sb.Append(roots);
         AppendCellShellReport(sb, o.CellShell, maxChars);
         // The same compact-by-default verify as the edit lane; the created records' set fields are listed above.
         if (o.ReadBack is { } rb)
@@ -1023,19 +1033,29 @@ public static class WriteTools
 
     /// <summary>Render the voice-coverage report for a dialogue-line create, so a byte-valid line is never silently a
     /// silent one; it reports on-disk state, naming where audio goes, and never generates any.</summary>
-    static void AppendVoiceReport(StringBuilder sb, VoiceReport? report, int maxChars)
+    /// <param name="reserve">room this render leaves for what its caller writes under it — the named roots.</param>
+    static void AppendVoiceReport(StringBuilder sb, VoiceReport? report, int maxChars, int reserve = 0)
     {
         if (report is null || report.IsEmpty) return;
-        // Budget-bounded like the full read-back, stopping with an explicit notice rather than a silent cut.
-        int cap = WriteSentences.Cap(maxChars);
+        // Budget-bounded like the full read-back, stopping with an explicit notice rather than a silent cut. The tail
+        // is composed BEFORE the rows and its room held back, and the loops BREAK rather than return, so a report the
+        // cap cut still carries its hedge and the roots under it — the cut case is the one that needs them.
+        int ceiling = WriteSentences.Cap(maxChars);
+        bool anyReadIncomplete = report.Lines.Any(l => l.ReadIncomplete);
+        var tail = (anyReadIncomplete ? WriteSentences.ScanIncomplete("an \"absent\"") : "")
+                 + (report.CheckError is null
+                        ? ""
+                        : WriteSentences.CheckCouldNotRun("voice", report.CheckError, "the records",
+                                                          "verify voice files manually."));
+        int cap = Math.Max(1, ceiling - reserve - tail.Length);
         int total = report.Lines.Count + report.Undetermined.Count, rendered = 0;
+        bool cut = false;
         sb.Append("voice coverage — created dialogue lines (").Append(WriteSentences.Twins.VoiceStake)
           .Append("; the audio is yours to provide):\n");
 
-        bool anyReadIncomplete = false;
         foreach (var l in report.Lines)
         {
-            if (sb.Length >= cap) { AppendVoiceTrunc(sb, rendered, total, cap); return; }
+            if (sb.Length >= cap) { cut = true; break; }
             var who = string.IsNullOrEmpty(l.TopicEditorId) ? FormIdToken.Of(l.Info) : $"{l.TopicEditorId} ({FormIdToken.Of(l.Info)})";
             if (l.FuzPresent)
             {
@@ -1052,21 +1072,17 @@ public static class WriteTools
                 if (!l.LipPresent) sb.Append("; .lip also absent (").Append(l.LipPath).Append(')');
                 sb.Append('\n');
             }
-            if (l.ReadIncomplete) anyReadIncomplete = true;
             rendered++;
         }
         foreach (var u in report.Undetermined)
         {
-            if (sb.Length >= cap) { AppendVoiceTrunc(sb, rendered, total, cap); return; }
+            if (cut || sb.Length >= cap) { cut = true; break; }
             var who = string.IsNullOrEmpty(u.TopicEditorId) ? FormIdToken.Of(u.Info) : $"{u.TopicEditorId} ({FormIdToken.Of(u.Info)})";
             sb.Append("  [?] ").Append(who).Append("  — ").Append(u.Reason).Append('\n');
             rendered++;
         }
-        if (anyReadIncomplete) sb.Append(WriteSentences.ScanIncomplete("an \"absent\""));
-        // WHICH folder would not read, under the hedge that depends on it; bounded by the shared renderer.
-        sb.Append(BatchRender.RootFailureLines(report.RootFailures, cap, indent: "  "));
-        if (report.CheckError is not null)
-            sb.Append(WriteSentences.CheckCouldNotRun("voice", report.CheckError, "the records", "verify voice files manually."));
+        if (cut) AppendVoiceTrunc(sb, rendered, total, ceiling);
+        sb.Append(tail);
     }
 
     /// <summary>The explicit voice-coverage truncation notice, closing on the
@@ -1111,22 +1127,26 @@ public static class WriteTools
 
     /// <summary>Render the result-script coverage report for a dialogue-line create, so a byte-valid script is never
     /// silently an inert one: "WILL NOT FIRE" with the missing path, "OK", or a NAMED reason.</summary>
-    static void AppendScriptBindingReport(StringBuilder sb, ScriptBindingReport? report, int maxChars)
+    /// <param name="reserve">room this render leaves for what its caller writes under it — the named roots.</param>
+    static void AppendScriptBindingReport(StringBuilder sb, ScriptBindingReport? report, int maxChars, int reserve = 0)
     {
         if (report is null || report.IsEmpty) return;
-        int cap = WriteSentences.Cap(maxChars);
+        // Its sibling's rule, for its sibling's reason: the tail is charged before the rows and the loop breaks, so a
+        // cut report still says a folder went unread and which.
+        int ceiling = WriteSentences.Cap(maxChars);
+        bool anyReadIncomplete = report.Findings.Any(f => f.ReadIncomplete);
+        var tail = (anyReadIncomplete ? WriteSentences.ScanIncomplete("a \"missing .pex\"") : "")
+                 + (report.CheckError is null
+                        ? ""
+                        : WriteSentences.CheckCouldNotRun("result-script", report.CheckError, "the records",
+                                                          "verify the script binding manually."));
+        int cap = Math.Max(1, ceiling - reserve - tail.Length);
         int total = report.Findings.Count, rendered = 0;
+        bool cut = false;
         sb.Append("result-script coverage — created dialogue lines (").Append(WriteSentences.Twins.ScriptStake).Append("):\n");
-
-        bool anyReadIncomplete = false;
         foreach (var f in report.Findings)
         {
-            if (sb.Length >= cap)
-            {
-                sb.Append("  ... [result-script coverage truncated: rendered ").Append(rendered).Append(" of ").Append(total)
-                  .Append(" line(s) at max_chars=").Append(cap).Append("; ").Append(WriteSentences.Twins.ReportBlockCut).Append("]\n");
-                return;
-            }
+            if (sb.Length >= cap) { cut = true; break; }
             var who = string.IsNullOrEmpty(f.TopicEditorId) ? FormIdToken.Of(f.Info) : $"{f.TopicEditorId} ({FormIdToken.Of(f.Info)})";
             switch (f.Status)
             {
@@ -1145,15 +1165,20 @@ public static class WriteTools
                     sb.Append("  [?] ").Append(who).Append("  — ").Append(f.Detail).Append('\n');
                     break;
             }
-            if (f.ReadIncomplete) anyReadIncomplete = true;
             rendered++;
         }
-        if (anyReadIncomplete) sb.Append(WriteSentences.ScanIncomplete("a \"missing .pex\""));
-        // WHICH folder would not read, under the hedge that depends on it; bounded by the shared renderer.
-        sb.Append(BatchRender.RootFailureLines(report.RootFailures, cap, indent: "  "));
-        if (report.CheckError is not null)
-            sb.Append(WriteSentences.CheckCouldNotRun("result-script", report.CheckError, "the records", "verify the script binding manually."));
+        if (cut)
+            sb.Append("  ... [result-script coverage truncated: rendered ").Append(rendered).Append(" of ").Append(total)
+              .Append(" line(s) at max_chars=").Append(ceiling).Append("; ").Append(WriteSentences.Twins.ReportBlockCut).Append("]\n");
+        sb.Append(tail);
     }
+
+    /// <summary>The loose roots a create's coverage checks could not read: both read ONE asset build, so the list is
+    /// the response's and is named once, under whichever of the two reports actually renders.</summary>
+    internal static IReadOnlyList<string> CreateRootFailures(WritePatchBuilder.CreateOutcome o)
+        => o.Voice is { IsEmpty: false, RootFailures.Count: > 0 } v ? v.RootFailures
+         : o.ScriptBinding is { IsEmpty: false } s ? s.RootFailures
+         : Array.Empty<string>();
 }
 
 // ---- the retired 1.x wire DTOs: parked in WireNamesProbe.NonInputWireTypes, reachable from no tool's input schema ----
