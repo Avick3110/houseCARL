@@ -142,6 +142,34 @@ static class BatchRender
         AppendLines(sb, warnings, "warning(s)", cap);
     }
 
+    /// <summary>How much of a response the named-roots caveat block may take: a quarter, so a blocked tree names
+    /// several folders and still leaves the answer the caller asked for. One line names at minimum, however tight.</summary>
+    const int RootFailureShare = 4;
+
+    /// <summary>The loose roots that would not read, as caveat LINES for the renders that close on a caveat block
+    /// rather than open on an alarm — bounded to <see cref="RootFailureShare"/> of max_chars and counted, because one
+    /// line per root per directory asked about is a long list on a blocked tree and a hedge that eats the answer is
+    /// its own failure. Shared, so the SKSE families and the SkyPatcher layer cut the same list the same way.</summary>
+    public static string RootFailureLines(IReadOnlyList<string> failures, int cap)
+    {
+        if (failures.Count == 0) return "";
+        var sb = new StringBuilder();
+        int room = Math.Max(cap / RootFailureShare, 0);
+        int shown = 0;
+        foreach (var f in failures)
+        {
+            var line = "[!] loose root read failure: " + f + "\n";
+            // At least one root is NAMED whatever the budget: the count alone is the hedge this work removed.
+            if (shown > 0 && sb.Length + line.Length > room) break;
+            sb.Append(line);
+            shown++;
+        }
+        if (shown < failures.Count)
+            sb.Append("... [showing ").Append(shown).Append(" of ").Append(failures.Count)
+              .Append(" loose root read failure(s); raise max_chars]\n");
+        return sb.ToString();
+    }
+
     /// <summary>A capped bullet list inside an alarm block, cut with the same named marker. Whole lines only, and
     /// the marker's own room is charged before the first line; the heading above it is unconditional.</summary>
     public static void AppendLines(StringBuilder sb, IReadOnlyList<string> lines, string itemNoun, RenderCap cap)

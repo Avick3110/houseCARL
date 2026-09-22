@@ -61,7 +61,7 @@ static class SkyPatcherWire
         filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();   // a blank filter is no filter, never a match-everything
         // A filter matching nothing must never fall through to the unfiltered overview — that reads as the whole layer.
         if (filter is { } zero && !folders.Any(f => f.Files.Any(x => Matches(zero, f, x))))
-            return ZeroMatch(d, zero, cap);
+            return ZeroMatch(d, zero, cap, caveats);   // the block is composed ONCE; charging it twice spends it twice
         int files = folders.Sum(f => f.Files.Count);
         int applied = folders.Sum(f => f.PatchingEnabled ? f.Files.Count(x => x.NotApplied is null) : 0);
         int lines = folders.Sum(f => f.Files.Sum(x => x.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch)));
@@ -242,10 +242,8 @@ static class SkyPatcherWire
     }
 
     /// <summary>What a filter matching no INI returns: the zero count, what the filter is matched against, and the folders that are there — never the unfiltered overview.</summary>
-    static string ZeroMatch(SkyPatcherLayerData d, string filter, int cap)
+    static string ZeroMatch(SkyPatcherLayerData d, string filter, int cap, string caveats)
     {
-        var caveats = Caveats(d, cap);          // charged before the notes, as in the render above
-        cap = Math.Max(1, cap - caveats.Length);
         var folders = d.Scan.Folders;
         int files = folders.Sum(f => f.Files.Count);
         var sb = new StringBuilder();
@@ -288,19 +286,9 @@ static class SkyPatcherWire
         if (readIncomplete)
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so an INI present only in it may be missing from this scan (Q3).\n");
         foreach (var w in assetWarnings) sb.Append("[!] ").Append(w).Append('\n');
-        // Which mod folder it was, so the hedge above names a source instead of only warning there was one. One line
-        // per root per folder asked about, each carrying an exception message, so it is cut and COUNTED like the notes
-        // above rather than appended past max_chars.
-        int shown = 0;
-        foreach (var f in rootFailures)
-        {
-            if (sb.Length >= cap) break;
-            sb.Append("[!] loose root read failure: ").Append(f).Append('\n');
-            shown++;
-        }
-        if (shown < rootFailures.Count)
-            sb.Append("... [showing ").Append(shown).Append(" of ").Append(rootFailures.Count)
-              .Append(" loose root read failure(s); raise max_chars]\n");
+        // Which mod folder it was, so the hedge above names a source instead of only warning there was one — bounded
+        // to a share of max_chars and counted by the shared renderer, so it never takes the layer's own room.
+        sb.Append(BatchRender.RootFailureLines(rootFailures, cap));
         return sb.ToString();
     }
 }
