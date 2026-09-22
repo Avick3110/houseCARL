@@ -277,18 +277,17 @@ static class SkyPatcherWire
     }
 
     /// <summary>The build-level caveats as one string, so the render can charge them before its body is laid. The
-    /// hedge sentence is written whatever the budget — it IS the alarm — and the named roots under it are cut and
-    /// counted like the note lists, since one line per root per folder asked about is long on a blocked tree.</summary>
+    /// hedge sentence is written whatever the budget — it IS the alarm — and the lists under it are cut and counted
+    /// like the note lists, since a lost archive drive or a blocked tree makes any of them long.</summary>
     static string Caveats(SkyPatcherLayerData d, int cap)
     {
         var sb = new StringBuilder();
-        var (readIncomplete, assetWarnings, rootFailures) = (d.ReadIncomplete, d.AssetWarnings, d.RootFailures);
-        if (readIncomplete)
+        if (d.ReadIncomplete)
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so an INI present only in it may be missing from this scan (Q3).\n");
-        foreach (var w in assetWarnings) sb.Append("[!] ").Append(w).Append('\n');
-        // Which mod folder it was, so the hedge above names a source instead of only warning there was one — bounded
-        // to a share of max_chars and counted by the shared renderer, so it never takes the layer's own room.
-        sb.Append(BatchRender.RootFailureLines(rootFailures, cap));
+        // The warnings, and which mod folder would not read so the hedge names a source — bounded to a share of
+        // max_chars and counted by the shared renderer, so they never take the layer's own room.
+        sb.Append(BatchRender.CaveatBlockLines(cap, BatchRender.WarningList(d.AssetWarnings),
+            BatchRender.RootFailureList(d.RootFailures)));
         return sb.ToString();
     }
 }

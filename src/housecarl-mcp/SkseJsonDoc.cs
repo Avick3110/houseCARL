@@ -64,15 +64,16 @@ static class SkseJsonDoc
     {
         w.WriteStartObject("caveats");
         w.WriteBoolean("read_incomplete", readIncomplete);
-        Strings(w, "warnings", warnings);
-        Strings(w, "archive_read_failures", bsaFailures);
-        // The loose twin, beside the archives: a root that would not read is named, not just hedged — and BOUNDED,
-        // because one entry per root per directory asked about is a list a blocked tree can make wider than the whole
-        // document. Through the SHARED writer, so this lane's json names the roots its own text lane names: bounding
-        // the array against the json stream instead priced an element differently and the two counts drifted apart.
-        // Written empty or not, so the array and its sibling count add up to the whole on every document, which is the
-        // shape json-wire.md states and asset_status keeps.
-        JsonWire.WriteRootFailuresCut(w, rootFailures, cap);
+        // Every list BOUNDED, because a blocked tree or a lost archive drive makes any of them wider than the whole
+        // document. Cut by the SHARED block rule, so this lane's json names the entries its own text lane names:
+        // bounding an array against the json stream instead priced an element differently and the counts drifted.
+        // Written empty or not, so each array and its sibling count add up to the whole on every document, which is
+        // the shape json-wire.md states and asset_status keeps.
+        var cuts = BatchRender.CaveatBlockCut(cap, BatchRender.WarningList(warnings),
+            BatchRender.ArchiveFailureList(bsaFailures), BatchRender.RootFailureList(rootFailures));
+        JsonWire.WriteCaveatCut(w, "warnings", cuts[0]);
+        JsonWire.WriteCaveatCut(w, "archive_read_failures", cuts[1]);
+        JsonWire.WriteCaveatCut(w, "root_read_failures", cuts[2]);
         w.WriteEndObject();
     }
 

@@ -217,11 +217,14 @@ static class JsonWire
 
     /// <summary>The loose roots a render names, as a bounded array plus its sibling count — the json twin of
     /// <see cref="BatchRender.RootFailureLines"/>, cut by that same rule so both transports name the same roots.</summary>
-    internal static void WriteRootFailuresCut(Utf8JsonWriter w, IReadOnlyList<string> failures, int cap)
+    internal static void WriteRootFailuresCut(Utf8JsonWriter w, IReadOnlyList<string> failures, int cap) =>
+        WriteCaveatCut(w, "root_read_failures", BatchRender.RootFailureCut(failures, cap));
+
+    /// <summary>A caveat list already cut by <see cref="BatchRender.CaveatCut"/>, as an array plus its sibling count.</summary>
+    internal static void WriteCaveatCut(Utf8JsonWriter w, string name, (IReadOnlyList<string> Shown, int Omitted) cut)
     {
-        var (shown, omitted) = BatchRender.RootFailureCut(failures, cap);
-        WriteStringArray(w, "root_read_failures", shown);
-        w.WriteNumber("root_read_failures_omitted", omitted);
+        WriteStringArray(w, name, cut.Shown);
+        w.WriteNumber(name + "_omitted", cut.Omitted);
     }
 
     static void WriteStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string> items)

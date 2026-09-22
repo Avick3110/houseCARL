@@ -154,12 +154,8 @@ static class BatchRender
     /// rendered length. Shared, so the SKSE families and the SkyPatcher layer cut the same list the same way.</summary>
     public static string RootFailureLines(IReadOnlyList<string> failures, int cap, string indent = "")
     {
-        if (failures.Count == 0) return "";
-        var sb = new StringBuilder();
-        var (shown, omitted) = RootFailureCut(failures, cap);
-        foreach (var f in shown) sb.Append(indent).Append(RootFailureLead).Append(f).Append('\n');
-        if (omitted > 0) sb.Append(indent).Append(Marker(shown.Count, failures.Count));
-        return sb.ToString();
+        var list = RootFailureList(failures);
+        return CaveatLines(list, CaveatCut(list, cap / RootFailureShare), indent);
     }
 
     /// <summary>What one named root's line opens with, so the cut prices the line it will write.</summary>
@@ -168,27 +164,81 @@ static class BatchRender
     /// <summary>The cut itself: which roots a render may name at <paramref name="cap"/>, and how many it leaves out.
     /// One rule with NO transport in it — a caller's own indent is priced outside, because a cut that moved with it
     /// would have the text and json renders of one build name different roots.</summary>
-    public static (IReadOnlyList<string> Shown, int Omitted) RootFailureCut(IReadOnlyList<string> failures, int cap)
+    public static (IReadOnlyList<string> Shown, int Omitted) RootFailureCut(IReadOnlyList<string> failures, int cap) =>
+        CaveatCut(RootFailureList(failures), cap / RootFailureShare);
+
+    /// <summary>One list in a caveat block: its entries, what each line opens with, and what its cut marker counts.</summary>
+    public readonly record struct CaveatList(IReadOnlyList<string> Items, string Lead, string Noun);
+
+    public static CaveatList WarningList(IReadOnlyList<string> warnings) => new(warnings, "[!] ", "warning(s)");
+
+    public static CaveatList ArchiveFailureList(IReadOnlyList<string> failures) =>
+        new(failures, "[!] archive read failure: ", "archive read failure(s)");
+
+    public static CaveatList RootFailureList(IReadOnlyList<string> failures) =>
+        new(failures, RootFailureLead, "loose root read failure(s)");
+
+    /// <summary>Which entries of one list fit <paramref name="share"/> chars, and how many are left out. The rule behind
+    /// every caveat list, with no transport in it, so the text lines and the json array of one build name the same entries.</summary>
+    public static (IReadOnlyList<string> Shown, int Omitted) CaveatCut(CaveatList list, int share)
     {
-        if (failures.Count == 0) return (Array.Empty<string>(), 0);
+        if (list.Items.Count == 0) return (Array.Empty<string>(), 0);
         // The marker's own room is charged before the first line, at its WIDEST spelling, as AppendLines charges its cut.
-        int room = Math.Max(cap / RootFailureShare - Marker(failures.Count, failures.Count).Length, 0);
+        int room = Math.Max(share - Marker(list.Items.Count, list.Items.Count, list.Noun).Length, 0);
         var shown = new List<string>();
         int used = 0;
-        foreach (var f in failures)
+        foreach (var item in list.Items)
         {
-            int width = RootFailureLead.Length + f.Length + 1;   // + the line's own newline
-            // At least one root is NAMED whatever the budget: the count alone is the hedge this work removed.
+            int width = LineWidth(list, item);
+            // At least one entry is NAMED whatever the budget: the count alone is the hedge this work removed.
             if (shown.Count > 0 && used + width > room) break;
-            shown.Add(f);
+            shown.Add(item);
             used += width;
         }
-        return (shown, failures.Count - shown.Count);
+        return (shown, list.Items.Count - shown.Count);
     }
 
-    /// <summary>What a cut root list closes with — the count is the difference between a trimmed list and a short one.</summary>
-    static string Marker(int shown, int total) =>
-        "... [showing " + shown + " of " + total + " loose root read failure(s); raise max_chars]\n";
+    /// <summary>A cut list as caveat lines, closed by its counted marker when anything was left out.</summary>
+    public static string CaveatLines(CaveatList list, (IReadOnlyList<string> Shown, int Omitted) cut, string indent)
+    {
+        var sb = new StringBuilder();
+        foreach (var item in cut.Shown) sb.Append(indent).Append(list.Lead).Append(item).Append('\n');
+        if (cut.Omitted > 0) sb.Append(indent).Append(Marker(cut.Shown.Count, list.Items.Count, list.Noun));
+        return sb.ToString();
+    }
+
+    /// <summary>Every list of one caveat block cut at once: together they take <see cref="RootFailureShare"/> of
+    /// <paramref name="cap"/>, split max-min fair, so a long list of one kind cannot crowd out the others or the answer.
+    /// A list that fits is whole. Both transports call this, so they cut every list of one build alike.</summary>
+    public static (IReadOnlyList<string> Shown, int Omitted)[] CaveatBlockCut(int cap, params CaveatList[] lists)
+    {
+        // A list's demand is what it writes whole plus its widest marker, so a list granted its demand is never cut.
+        var demand = lists.Select(l => l.Items.Count == 0 ? 0
+            : l.Items.Sum(i => LineWidth(l, i)) + Marker(l.Items.Count, l.Items.Count, l.Noun).Length).ToArray();
+        var share = new int[lists.Length];
+        int left = cap / RootFailureShare;
+        var open = Enumerable.Range(0, lists.Length).Where(i => demand[i] > 0).OrderBy(i => demand[i]).ToList();
+        for (int k = 0; k < open.Count; k++)
+        {
+            int i = open[k];
+            share[i] = Math.Min(demand[i], left / (open.Count - k));
+            left -= share[i];
+        }
+        return lists.Select((l, i) => CaveatCut(l, share[i])).ToArray();
+    }
+
+    /// <summary>The text of a whole caveat block, each list cut by <see cref="CaveatBlockCut"/>.</summary>
+    public static string CaveatBlockLines(int cap, params CaveatList[] lists)
+    {
+        var cuts = CaveatBlockCut(cap, lists);
+        return string.Concat(lists.Select((l, i) => CaveatLines(l, cuts[i], "")));
+    }
+
+    static int LineWidth(CaveatList list, string item) => list.Lead.Length + item.Length + 1;   // + the line's own newline
+
+    /// <summary>What a cut list closes with — the count is the difference between a trimmed list and a short one.</summary>
+    static string Marker(int shown, int total, string noun) =>
+        "... [showing " + shown + " of " + total + " " + noun + "; raise max_chars]\n";
 
     /// <summary>A capped bullet list inside an alarm block, cut with the same named marker. Whole lines only, and
     /// the marker's own room is charged before the first line; the heading above it is unconditional.</summary>
