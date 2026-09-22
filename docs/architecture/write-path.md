@@ -85,6 +85,9 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
 - Every write stages into a `.housecarl-tmp` sibling of the target and commits through `AtomicFile.Commit`, so the
   target only ever holds the old or the new complete file; the caller must release every handle it holds on the
   target first, and a failed stage leaves nothing behind.
+- A localized plugin carries only integer indices into sibling `.STRINGS` tables, and a write commits the PLUGIN
+  alone, so a rewrite's renumbered indices would be read against the old tables and values would land on records
+  they do not belong to — which is why no arrangement of those tables is rewritten in place.
 - Both write choke points refuse a localized target off the mod in memory and nothing else, before the staging
   directory exists; the re-read of the destination supplies the sentence, never the decision.
 - A serialize-boundary `NullReferenceException` — bare, or wrapped in the parallel writer's aggregate, and only when
