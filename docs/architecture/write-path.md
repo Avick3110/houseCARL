@@ -3,6 +3,7 @@ updated: 2026-09-22
 covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/WriteSentences.cs, src/housecarl-core/WriteEngine.cs,
   src/housecarl-core/WriteVerbs.cs, src/housecarl-core/RemapEngine.cs, src/housecarl-core/ClosureCopy.cs,
   src/housecarl-core/MergeInjection.cs, src/housecarl-core/MergeLoadPosition.cs,
+  src/housecarl-core/WritePatchBuilder.cs,
   src/housecarl-mcp/ApplyTools.cs, src/housecarl-mcp/CreateTools.cs, src/housecarl-mcp/ForwardTools.cs,
   src/housecarl-mcp/RemoveTools.cs, src/housecarl-mcp/SeqTools.cs, src/housecarl-mcp/WriteTools.cs]
 ---
@@ -15,6 +16,10 @@ take the `in_place=true` opt-in described below; closure copy, merge and create_
 and compact can overwrite its source, but under its own per-call confirm rather than the persistent handshake.
 Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write lands belongs to
 [`output-and-artifacts.md`](output-and-artifacts.md). Neither is repeated here.
+
+The core half of the same path is `WritePatchBuilder`: the one `(edits) → (patch)` surface every write tool goes
+through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes the service maps a call onto and of the
+`PatchOutcome` / `CreateOutcome` / `RemovalOutcome` / `ForwardOutcome` shapes it renders back.
 
 ## Contracts
 - `in_place=true` requires `target=`, is mutually exclusive with `into=` / `patch=`, and `target=` without
@@ -275,6 +280,27 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   than minting a second duplicate sharing its EditorID.
 - Every closure-copy refusal returns with nothing usable written, while a post-commit read-back failure is a WARNING
   on a success: the patch is on disk by then, and mislabelling it invites a duplicate re-run.
+- One complete `.esp` per call. A fresh patch by default; `extend:true` opens the existing patch and adds to it, so the
+  disk file IS the accumulating state and a multi-session build survives a server restart with no server-held state.
+- Originals untouched is structural on the patch lane: it only ever writes the output path the caller sandboxed, and
+  every original is opened read-only as a lazy overlay.
+- All-or-nothing on every lane: resolve and pre-flight collect EVERY problem, report them in the caller's edit order,
+  and refuse the whole call with no file written rather than emit a partial patch.
+- Phase 1 resolves every edit of one call against ONE captured view. A per-edit capture would let a freshness rebuild
+  landing mid-loop resolve two edits of one call against two builds' winners — a silently MIXED patch.
+- A target absent from the load order that the EXTENDED patch itself defines resolves to the patch's own settable copy.
+  That consults only the named output artifact of the current authoring session, never an arbitrary un-enabled plugin;
+  an override the patch merely CARRIES still resolves through the load order, so its definer must be enabled.
+- A dry run stops AT the point of no return: the same resolve, pre-flight and in-memory apply the real write uses have
+  already run, and the one Phase-4 hazard the halt skips — a reference to a plugin outside the serialize's resolution
+  context — is re-checked by the same membership test, so a dry run never says "would apply" about a write that would
+  fail. It is the real path halted, never a parallel validate-lite.
+- A nested create hosts its child in the parent's DEFINING plugin's version, not the load-order winner's: the child
+  lives in the parent's child group and survives the parent record losing, so the winner's fields would cost a master
+  the child never needed and freeze another mod's content. The winner stays a fallback for an injected or excluded
+  definer, and which copy was read is reported per record.
+- Only the LAST op touching a leaf is answerable by the written file: an earlier one's reading was taken mid-sequence,
+  so it is marked superseded rather than compared and reported as not landed.
 
 ## Pinned by
 - `inplace-guard` arms E / L / U — the `in_place`⇔`target=` contract and the `into=` / `patch=` exclusion, on the
@@ -398,6 +424,8 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   caller already put in the patch survives untouched, and the arm fails if the step is removed), nullability judged
   on the record model's interface, the required-link refusal checkable in both directions, a surviving bound link
   being a leak while a pre-existing dangling one is not, and the walk's arm attribution surviving into the report.
+- The seam that arm parks the write on is `WritePatchBuilder.InsidePhase1ResolveForGuard`, which is why the flip is
+  staged rather than timed and no runner can be too fast to land it inside the resolve loop. It has no product caller.
 
 ## Where
 - `src/housecarl-mcp/RecordWrites.cs` — the lanes: `ApplyEdits`, `CreateRecordsBatch` / `CommitCreate`,
@@ -435,3 +463,9 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
 - The tool fronts: `src/housecarl-mcp/ApplyTools.cs`, `CreateTools.cs`, `ForwardTools.cs`, `RemoveTools.cs`,
   `SeqTools.cs` and `WriteTools.cs` — argument reading, the lane and transport gates, and the render helpers every
   write tool calls.
+- `src/housecarl-core/WritePatchBuilder.cs` — the core half: `Apply` / `ApplyInPlace`, `CreateRecords` /
+  `CreateRecordsInPlace`, `RemoveRecords` / `RemoveRecordsInPlace`, `ForwardRecords` / `ForwardRecordsInPlace`,
+  `CreatePlugin`, `CompactBuild` and `MergeBuild`, each `…Core` body split so the one captured build's fingerprint
+  stamps every outcome from one place. Plus the shared seams: `LinkTypeLookup`, `ResolveForwardSources`,
+  `SyncEditedTopicMarkers`, `DryRunMastersPreview`, `MasterGrowNote`, `SerializeFailure`, `ReadBackInFull`,
+  `VerifyLandedAgainstFile` and `VerifyCreatedAgainstFile`.
