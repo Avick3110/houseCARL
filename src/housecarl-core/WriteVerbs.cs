@@ -15,10 +15,8 @@ public enum ElementPlacement
     OwnedRecord,
 }
 
-/// <summary>The two facts together: the whole input to <see cref="WriteVerbs.On"/>.</summary>
 public readonly record struct CollectionShape(CollectionKind Kind, ElementPlacement Element);
 
-/// <summary>The input slot a verb consumes on a given shape, carried as DATA so a check can replay a well-formed request for every verb a message names.</summary>
 public enum VerbInput
 {
     None,
@@ -32,16 +30,14 @@ public enum VerbInput
 /// <summary>One verb as it works on one shape: what it consumes, whether it needs a key, whether it PUTS an element in, and the phrase a remedy prints.</summary>
 public readonly record struct VerbUse(string Verb, VerbInput Input, bool NeedsKey, bool Places, string Does);
 
-/// <summary>The one home IN CODE for houseCARL's write-verb vocabulary, and the one derivation of which of those
-/// verbs work on a given collection shape; contracts in docs/architecture/write-path.md.</summary>
+/// <summary>The one home IN CODE for the write-verb vocabulary and for which verbs work on a collection shape; contracts in docs/architecture/write-path.md.</summary>
 public static class WriteVerbs
 {
     /// <summary>Every verb the write surface accepts, in the order the shipped tool descriptions list them — the home for the names as a collection code can ITERATE.</summary>
     public static readonly IReadOnlyList<string> All =
         new[] { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge", "CopyFrom" };
 
-    /// <summary>The same vocabulary as the CALLER-FACING recital a <c>[Description]</c> prints; its LAST token is
-    /// load-bearing, and a description must concatenate this rather than type the names out.</summary>
+    /// <summary>The same vocabulary as the CALLER-FACING recital a <c>[Description]</c> prints; its LAST token is load-bearing.</summary>
     public const string AllRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom";
 
     /// <summary>The verb that copies a field from another version of a record, named once so the surfaces that refuse it do not each spell it.</summary>
@@ -95,8 +91,7 @@ public static class WriteVerbs
         if (shape.Kind == CollectionKind.List)
             return new List<VerbUse>
             {
-                // Set is absent by construction: a list element is addressed by POSITION, so a whole-field Set has
-                // no element to mean.
+                // Set is absent by construction: a list element is addressed by POSITION, so it has no element to mean.
                 new("Add", one, false, true, "appends a new element at the END"),
                 new("SetAtIndex", one, true, true, "overwrites the element already at that index, in place"),
                 new("InsertAtIndex", one, true, true,
@@ -113,8 +108,7 @@ public static class WriteVerbs
             new("Add", one, true, true, "adds a NEW entry under that key"),
             Address(shape),
         };
-        // ReplaceAll and Merge carry their elements in entries=, which has no build-from-parts form, so a
-        // modeled-element dict does not have them at all.
+        // ReplaceAll and Merge carry their elements in entries=, which has no build-from-parts form.
         if (!composed)
         {
             dict.Add(new VerbUse("ReplaceAll", VerbInput.Entries, false, true, "clears the dict, then sets each entry"));
@@ -152,19 +146,16 @@ public static class WriteVerbs
               + "with parent= the parent's FormID in its records= element, not a write verb"
             : Sentence(On(shape).Where(u => u.Places));
 
-    /// <summary>"How do I put in ONE element" — <see cref="HowToPlace"/> minus the verbs that take a WHOLE collection.</summary>
     public static string HowToPlaceOne(CollectionShape shape) =>
         shape.Element == ElementPlacement.OwnedRecord
             ? HowToPlace(shape)
             : Sentence(On(shape).Where(u => u.Places && !IsBatch(u.Input)));
 
-    /// <summary>"How do I put in ONE element AT the key I already have" — <see cref="HowToPlaceOne"/> minus the verbs that take no key.</summary>
     public static string HowToPlaceOneAt(CollectionShape shape) =>
         shape.Element == ElementPlacement.OwnedRecord
             ? HowToPlace(shape)
             : Sentence(On(shape).Where(u => u.Places && u.NeedsKey && !IsBatch(u.Input)));
 
-    /// <summary>The keyed verbs, in table order — how to reach ONE element of this collection by index or key.</summary>
     public static string HowToAddress(CollectionShape shape) => Sentence(On(shape).Where(u => u.NeedsKey));
 
     static bool IsBatch(VerbInput input) =>
@@ -184,8 +175,7 @@ public static class WriteVerbs
         _ => throw new InvalidOperationException($"No slot name for {input}."),
     };
 
-    /// <summary>The SCHEMA route to a shape. Null when the leaf is not a collection, or when its element kind is one
-    /// this table declines to describe — the uncoercible and the unknown, neither with a settled legal-verb answer.</summary>
+    /// <summary>The SCHEMA route to a shape; null for a non-collection leaf and for the two element kinds this table declines to describe.</summary>
     public static CollectionShape? OfField(FieldSchema leaf, Corpus corpus)
     {
         var kind = leaf.Cardinality switch
@@ -207,8 +197,7 @@ public static class WriteVerbs
     /// <summary>The RUNTIME route, for the engine's own throws: the shape off the live property type, through the same interface tests and coercion recogniser the engine dispatches on.</summary>
     public static CollectionShape? OfRuntimeType(Type leafType)
     {
-        // Coercion owns a whole-coercible leaf even when its runtime type also implements IList/IDict — the same
-        // order ApplyVerb dispatches in.
+        // Coercion owns a whole-coercible leaf even when its runtime type also implements IList/IDict.
         if (WriteEngine.CanCoerce(leafType)) return null;
         Type elem;
         CollectionKind kind;
