@@ -114,7 +114,7 @@ public sealed class DecompileOutPathTests
             var r = DecompileTools.DecompileScript(broken, Pex, out_path: dest);
 
             Assert.True(File.Exists(Path.Combine(dest, ScriptsWorld.BaseScript + ".psc")), r);
-            Assert.Contains("the mods-tree sources were not read", r);
+            Assert.Contains("the mods-tree sources were not all read", r);
             Assert.Contains("does not resolve", r);
         }
         finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
@@ -239,10 +239,11 @@ public sealed class DecompileOutPathTests
     }
 
     [Fact]
-    public void OneUnreadableSiblingDoesNotDisownTheSiblingsThatWereRead()
+    public void APartialSiblingFailureCountsOnlyTheFileItLost()
     {
-        // The partial case: the readable sibling's edge IS in the hierarchy, so the note counts the one file it lost
-        // and still credits what it read, rather than claiming the input .pex alone.
+        // The count is the distinguishing claim here: one of the two siblings failed, so the note says "1 of 2" where
+        // the single-broken case says "1 of 1". That the readable sibling's EDGE survives is
+        // ClassHierarchyNoteTests.OneUnreadablePexDoesNotStopTheSiblingsAroundIt, which can see the edges.
         var dir = FreshDir();
         var src = Path.Combine(dir, "src");
         var dest = Path.Combine(dir, "psc");
@@ -258,7 +259,6 @@ public sealed class DecompileOutPathTests
             Assert.True(File.Exists(Path.Combine(dest, "HcPartialHost.psc")), r);
             Assert.Contains("1 of 2 sibling .pex file(s)", r);
             Assert.Contains("the sibling .pex files that could be read", r);
-            Assert.DoesNotContain("what this .pex declares,", r);
         }
         finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
     }

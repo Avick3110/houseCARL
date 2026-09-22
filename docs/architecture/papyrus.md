@@ -69,18 +69,24 @@ are [`mo2-instance.md`](mo2-instance.md), and the declaration side of a native P
   `ScriptName X extends Y` headers across the mods tree, and the input `.pex` plus its siblings.
   First edge per child wins.
 - ALL THREE degraded modes are named in the result, one member per source: a missing or unreadable
-  baseline (`ClassParents.BaselineNote`), a mods-tree scan that read nothing (`TopUpMissing`), and
+  baseline (`ClassParents.BaselineNote`), mods-tree sources that were not all read (`TopUpMissing` —
+  set both for a tree read NOTHING was read from and for a walk that lost some `.psc` files), and
   sibling `.pex` files that were not all read (`SiblingPexMissing`), all rendered by
   `DecompileTools.HierarchySentence` — one clause per thin source, then what the hierarchy IS instead,
   then the one cost sentence. `PapyrusClassParents.AddFromPexFolder` counts an unreadable sibling
   rather than swallowing it, and reports an absent folder and a listing that threw part-way as separate
   facts so a partial listing keeps its counts; the decompile lane turns the scan into the reason (the
-  service cannot know it, so it sets the member after its own sibling walk). The sibling trigger is
-  "not all read", so the "is" half credits the siblings that WERE read — a partial failure never
-  disowns the edges it added — and the input `.pex` is always read, so that half is never empty. Its
-  count excludes the input `.pex`, which the clause has already excluded by saying "beside this one".
-  Pinned by `DecompileOutPathTests.AnUnreadableSiblingPexIsNamedAndTheHierarchySaysWhatItIsInstead`
-  and `.OneUnreadableSiblingDoesNotDisownTheSiblingsThatWereRead`.
+  service cannot know it, so it sets the member after its own sibling walk).
+- A PARTIAL read of a source NEVER disowns the edges it did add: both walks keep going past a file
+  they cannot read, so the trigger is "not all read" and the "is" half credits the mods-tree sources
+  and the sibling `.pex` files THAT COULD BE READ. Uniform across the two top-up sources; the baseline
+  is all-or-nothing, since a corrupt one loads as an empty map. The input `.pex` is always read, so the
+  "is" half is never empty, and the sibling count excludes it, which the clause has already excluded by
+  saying "beside this one".
+- Pinned by `ClassHierarchyNoteTests` — the two walks keep the edges of the files around the one they
+  lost, and the sentence credits them — plus
+  `DecompileOutPathTests.AnUnreadableSiblingPexIsNamedAndTheHierarchySaysWhatItIsInstead` and
+  `.APartialSiblingFailureCountsOnlyTheFileItLost` for the rendered note.
 
 ### The decompiler
 - The codegen patterns it reads, each confirmed against compiler output: jump offsets are relative to

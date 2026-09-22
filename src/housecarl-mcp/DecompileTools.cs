@@ -182,7 +182,13 @@ public static class DecompileTools
         var kept = new List<string>();
         if (h.BaselineNote is not null) thin.Add(h.BaselineNote);
         else kept.Add("the shipped vanilla baseline");
-        if (h.TopUpMissing is not null) thin.Add($"the mods-tree sources were not read ({h.TopUpMissing})");
+        if (h.TopUpMissing is not null)
+        {
+            thin.Add($"the mods-tree sources were not all read ({h.TopUpMissing})");
+            // TopUpMissing covers a tree that was not read at all AND one whose walk lost some files, so the credit is
+            // worded for both: a partial .psc failure never disowns the edges the walk did add.
+            kept.Add("the MO2 mods-tree sources that could be read");
+        }
         else kept.Add("the MO2 mods-tree sources");
         if (h.SiblingPexMissing is not null)
         {
