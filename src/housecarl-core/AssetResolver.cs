@@ -504,7 +504,11 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>One directory's entry names, read fresh and uncached — the build's memo IS the baseline, so the
-    /// freshness check cannot be answered from it. Null when the directory is not there or will not list.</summary>
+    /// freshness check cannot be answered from it. Null when the directory is not there or will not list.
+    /// <para>This and <see cref="SafeListing"/> must list the SAME SET: one takes a watch baseline and the other
+    /// compares against it, so a directory either side skipped would compare unequal on every call and rebuild the
+    /// build every time. Both ride the no-argument overloads, which are <c>EnumerationOptions.Compatible</c> — nothing
+    /// skipped, hidden and system entries listed — so a change to either enumeration is a change to both.</para></summary>
     static HashSet<string>? FreshNames(string dir)
     {
         try
@@ -585,7 +589,9 @@ public sealed class AssetResolver : IDisposable
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             // One enumeration: on Windows the attributes ride the same find data as the name, so file-or-directory
-            // costs nothing beyond it, and the watch baseline and the resolvable filenames come off one pass.
+            // costs nothing beyond it, and the watch baseline and the resolvable filenames come off one pass. The
+            // baseline must list what FreshNames lists — see its note — and only FILES may resolve, because a
+            // directory reported as an asset is the silently-wrong answer the cornerstone forbids.
             foreach (var entry in new DirectoryInfo(dir).EnumerateFileSystemInfos())
             {
                 names.Add(entry.Name);

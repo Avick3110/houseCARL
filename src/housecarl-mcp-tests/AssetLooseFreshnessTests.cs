@@ -152,6 +152,38 @@ public sealed class AssetLooseFreshnessTests : IDisposable
         Assert.Equal(Provider, Winner(r, Provided));
     }
 
+    /// <summary>A DIRECTORY inside a warmed subtree is not an asset. The warm reads names and attributes off one pass
+    /// and keeps only the files; a subfolder reported as an existing loose path with providers would be the
+    /// silently-wrong answer, so the split is asserted rather than left to an expression.</summary>
+    [Fact]
+    public void ADirectoryInsideAWarmedSubtreeIsNotReportedAsAnAsset()
+    {
+        Directory.CreateDirectory(Path.Combine(_mods, Provider, Subtree, "subdir"));
+        File.WriteAllText(Path.Combine(_mods, Provider, Subtree, "subdir", "inner.nif"), "x");
+
+        using var r = Build();
+        Assert.Equal(Provider, Winner(r, Provided));           // the file beside it resolves
+        Assert.Null(Winner(r, Subtree + @"\subdir"));          // the folder does not
+        Assert.Equal(Provider, Winner(r, Subtree + @"\subdir\inner.nif"));   // and its own contents still do
+    }
+
+    /// <summary>The watch baseline and the check that compares against it are two enumerations, so they have to list
+    /// the same set: a hidden, system-flagged file — `desktop.ini` is the one a real order grows — is listed by both,
+    /// and a build that skipped it on one side would call itself stale on every call.</summary>
+    [Fact]
+    public void AHiddenSystemFileInAWarmedSubtreeDoesNotMakeEveryCallStale()
+    {
+        var hidden = Path.Combine(_mods, Provider, Subtree, "desktop.ini");
+        File.WriteAllText(hidden, "[.ShellClassInfo]\r\n");
+        File.SetAttributes(hidden, FileAttributes.Hidden | FileAttributes.System);
+
+        using var r = Build();
+        Assert.Equal(Provider, Winner(r, Provided));
+
+        Assert.False(r.RefreshIfStale(), "the baseline and the check disagreed about a hidden system entry");
+        Assert.False(r.RefreshIfStale(), "…and again: a disagreement rebuilds the build on every call");
+    }
+
     /// <summary>A loose file's BYTES are never cached — the read goes to the resolved path — so a rewrite is seen with
     /// nothing to invalidate. The assert stands on the read the tools actually make.</summary>
     [Fact]
