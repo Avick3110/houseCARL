@@ -2559,7 +2559,7 @@ public static class RecordsTools
         var empties = all.Where(g => g.Value == 0).Select(g => g.Key).ToList();
         var rows = empties.Count == 0 ? all : all.Where(g => g.Value > 0).ToList();
         if (json || dense)
-            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, envelope, cap, empties, rowLimit);
+            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, cap, envelope, empties, rowLimit);
         var sb = new StringBuilder();
         sb.Append(headerLine).Append("  group_by=").Append(gb).Append('\n');
         sb.Append(outcomes.Count).Append(" record(s)");

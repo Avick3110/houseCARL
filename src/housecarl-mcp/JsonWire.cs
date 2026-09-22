@@ -544,11 +544,14 @@ static class JsonWire
     }
 
     /// <summary>records form=aggregate on the list lane: the count table over resolved rows, per-item errors apart.</summary>
+    /// <param name="maxChars">the caller's max_chars. REQUIRED, with no default, for the reason every other capped
+    /// renderer's is: a call site that omitted it would compile and answer against the 80k default, and the document
+    /// would ship over the caller's ceiling with no <c>max_chars_overrun</c> to say so (#809).</param>
     public static string RenderListAggregate(string groupBy, IReadOnlyList<KeyValuePair<string, int>> rows,
                                              int count, int errors, OrderStamp? epoch,
-                                             (int RowsRead, long Millis) bodyCost,
+                                             (int RowsRead, long Millis) bodyCost, int maxChars,
                                              IReadOnlyList<KeyValuePair<string, string>>? envelope = null,
-                                             int maxChars = 0, IReadOnlyList<string>? emptyGroups = null,
+                                             IReadOnlyList<string>? emptyGroups = null,
                                              int rowLimit = 0)
     {
         int cap = Cap(maxChars);
