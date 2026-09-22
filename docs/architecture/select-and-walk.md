@@ -6,15 +6,15 @@ covers: [src/housecarl-core/FieldPredicate.cs, src/housecarl-core/ContainmentInd
 
 ## What it is
 
-The selection half of the tool surface: the `where=` value predicate, the two edge kinds it and the
-walk construct travel (the form link, and containment), the closure walk and its ordered source
-universe, and the whole-order reverse index behind an unbounded `references=`. Beside them sit the
-two things a selection's answer is rendered against: the deep field comparison behind the conflict
-tree, and the localized-strings classifier that decides what a refusal may say about a plugin's text.
+The selection half of the tool surface: the `where=` value predicate, and the two edge kinds it and the
+walk construct travel (the form link, and containment). The closure walk and its ordered source
+universe, and the whole-order reverse index behind an unbounded `references=`, are
+`docs/architecture/walk-and-reverse.md`. The deep field comparison behind the conflict tree is
+`docs/architecture/read-engine.md`, and the localized-strings classifier that decides what a refusal
+may say about a plugin's text is `docs/architecture/write-path.md`.
 
 Nothing here carries a record-type vocabulary. The predicate extracts through the read engine's own
-path walk, the walk expands through Mutagen's `EnumerateFormLinks`, containment comes off Mutagen's
-context walk, and the localized language set is Mutagen's `Language` enum.
+path walk, and containment comes off Mutagen's context walk.
 
 ## Contracts
 
