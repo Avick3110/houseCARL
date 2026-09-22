@@ -872,7 +872,8 @@ static class SkseInventoryWire
         int rootShare = cap / BatchRender.RootFailureShare;
         cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare,
             TransportAccounting.Widest(total, windowed, window, notes),
-            tw => { tw.WriteString("peek_note", PeekNoDllNote); tw.WriteNumber("config_folders_truncated", folderCount); }));
+            tw => { tw.WriteString("peek_note", PeekNoDllNote); tw.WriteNumber("config_folders_truncated", folderCount); },
+            "dlls", "configs", "config_folders"));
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Inventory, filter, d.ProfileName, callerCap, (w, ms) =>
         {
@@ -899,8 +900,7 @@ static class SkseInventoryWire
             int dllRows = 0;
             foreach (var e in dlls)
             {
-                var row = e;
-                if (!SkseJsonDoc.Fits(w, ms, cap, JsonWire.MeasureUnit(depths.SkseRows, dllRows > 0, mw => WriteDllJson(mw, row, d)))) break;
+                if (!SkseJsonDoc.Fits(w, ms, cap, JsonWire.MeasureUnit(depths.SkseRows, dllRows > 0, mw => WriteDllJson(mw, e, d)))) break;
                 WriteDllJson(w, e, d);
                 dllRows++;
                 rendered++;
@@ -911,8 +911,7 @@ static class SkseInventoryWire
             int cfgRows = 0;
             foreach (var e in cfgs)
             {
-                var row = e;
-                if (!SkseJsonDoc.Fits(w, ms, cap, JsonWire.MeasureUnit(depths.SkseRows, cfgRows > 0, mw => WriteConfigFileJson(mw, row)))) break;
+                if (!SkseJsonDoc.Fits(w, ms, cap, JsonWire.MeasureUnit(depths.SkseRows, cfgRows > 0, mw => WriteConfigFileJson(mw, e)))) break;
                 WriteConfigFileJson(w, e);
                 cfgRows++;
                 rendered++;
@@ -930,10 +929,9 @@ static class SkseInventoryWire
                                            Contested: g.Count(e => e.ProviderCount > 1)))
                              .OrderByDescending(g => g.Count).ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
                 {
-                    var row = g;
                     if (!SkseJsonDoc.Fits(w, ms, cap,
                             JsonWire.MeasureUnit(depths.SkseRows, folders > 0,
-                                                 mw => WriteConfigFolderJson(mw, row.Name, row.Count, row.Providers!, row.Contested)))) break;
+                                                 mw => WriteConfigFolderJson(mw, g.Name, g.Count, g.Providers!, g.Contested)))) break;
                     WriteConfigFolderJson(w, g.Name, g.Count, g.Providers!, g.Contested);
                     folders++;
                 }
@@ -1326,7 +1324,7 @@ static class SkseConfigAuditWire
         // lanes bound the same list the same way; the reserve composes the bounded block, not the whole list.
         int rootShare = cap / BatchRender.RootFailureShare;
         cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare,
-            TransportAccounting.Widest(allFiles.Count, files.Count, window, notes)));
+            TransportAccounting.Widest(allFiles.Count, files.Count, window, notes), conditional: null, "files"));
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Config, filter, d.ProfileName, callerCap, (w, ms) =>
         {
@@ -1349,21 +1347,19 @@ static class SkseConfigAuditWire
             w.WriteStartArray("files");
             foreach (var file in files)
             {
-                var row = file;
                 // The room the row's own close needs is held back before its references spend, so a row whose
                 // references the cap cut still closes inside that cap.
-                int rowTail = ConfigRowTailCost(row, depths.SkseRows);
+                int rowTail = ConfigRowTailCost(file, depths.SkseRows);
                 if (!SkseJsonDoc.Fits(w, ms, cap - rowTail,
-                        JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw => WriteConfigRowHead(mw, row, close: true)))) break;
+                        JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw => WriteConfigRowHead(mw, file, close: true)))) break;
                 WriteConfigRowHead(w, file, close: false);
                 w.WriteStartArray("references");
                 int refs = 0;
                 foreach (var r in file.Refs)
                 {
                     // One config can carry tens of thousands of form tokens, so the cap bounds the inner loop too.
-                    var one = r;
                     if (!SkseJsonDoc.Fits(w, ms, cap - rowTail,
-                            JsonWire.MeasureUnit(depths.SkseConfigRefs, refs > 0, mw => WriteConfigRefJson(mw, one)))) break;
+                            JsonWire.MeasureUnit(depths.SkseConfigRefs, refs > 0, mw => WriteConfigRefJson(mw, r)))) break;
                     WriteConfigRefJson(w, r);
                     refs++;
                 }
@@ -1825,7 +1821,7 @@ static class NativePairingWire
         int rootShare = cap / BatchRender.RootFailureShare;
         cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare,
             TransportAccounting.Widest(allClasses.Count, classes.Count, window, notes),
-            tw => tw.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count)));
+            tw => tw.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count), "classes", "unreadable_pex"));
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Pairing, filter, d.ProfileName, callerCap, (w, ms) =>
         {
@@ -1851,9 +1847,8 @@ static class NativePairingWire
             w.WriteStartArray("classes");
             foreach (var c in classes)
             {
-                var row = c;
                 if (!SkseJsonDoc.Fits(w, ms, cap,
-                        JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw => WritePairingClassJson(mw, row, d.InstalledRuntime)))) break;
+                        JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw => WritePairingClassJson(mw, c, d.InstalledRuntime)))) break;
                 WritePairingClassJson(w, c, d.InstalledRuntime);
                 rendered++;
             }
@@ -1863,9 +1858,8 @@ static class NativePairingWire
             int unreadable = 0;
             foreach (var u in d.Unreadable)
             {
-                var row = u;
                 if (!SkseJsonDoc.Fits(w, ms, cap,
-                        JsonWire.MeasureUnit(depths.SkseRows, unreadable > 0, mw => WriteUnreadablePexJson(mw, row)))) break;
+                        JsonWire.MeasureUnit(depths.SkseRows, unreadable > 0, mw => WriteUnreadablePexJson(mw, u)))) break;
                 WriteUnreadablePexJson(w, u);
                 unreadable++;
             }
