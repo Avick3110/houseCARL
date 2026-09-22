@@ -480,8 +480,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   navigation and the verbs (`ApplyVerb`, `ApplyScalarVerb`, `ApplyListVerb`, `ApplyDictVerb`, `BuildStruct`,
   `StepIntoElement`, `SetFloi`, `CopyField`), the coercion family (`Coerce` / `CanCoerce` and the `Try*` rules), the
   refusal types (`ExpectedApplyRejectionException`, `MalformedTargetDataException`, `NullArmSerializeException`,
-  `CompositionRequiredException`, `LocalizedTargetUnsupportedException`), the `patch` / `show` / `condition-patch`
-  dev harnesses, and the `coerce-audit` / `coerce-selftest` probes.
+  `CompositionRequiredException`, `LocalizedTargetUnsupportedException`), and the `patch` / `show` /
+  `condition-patch` dev harnesses.
 - Tools: `housecarl_apply`, `housecarl_create`, `housecarl_remove`, `housecarl_forward`, `housecarl_copy`,
   `housecarl_compact_plugin`, `housecarl_merge_plugins`, `housecarl_create_plugin`.
 - `src/housecarl-core/WriteVerbs.cs` — the write-verb vocabulary, `CollectionShape`, `WriteVerbs.On` and the purpose
