@@ -1,7 +1,7 @@
 namespace HousecarlCore;
 
 /// <summary>The sweep's exclusion axis (<c>exclude=</c>): plugins the caller does not want swept at all. Contracts in
-/// docs/architecture/check-family-tests.md.</summary>
+/// docs/architecture/check-families.md.</summary>
 public static class SweepExclusion
 {
     /// <summary>Mutagen's base masters — the five the game ships with.</summary>

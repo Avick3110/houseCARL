@@ -5,7 +5,7 @@ namespace HousecarlCore;
 
 /// <summary>The near-miss hint for a scan that asked for an exact EditorID and matched nothing: a record whose winner
 /// renames it is invisible to <c>editorid = &lt;the old name&gt;</c>. Gate and walk contracts in
-/// docs/architecture/check-family-tests.md.</summary>
+/// docs/architecture/check-scripts-and-dialogue-families.md.</summary>
 public static class EditorIdNearMiss
 {
     /// <summary>The record copies the look will read a header off before giving up — the backstop for an unusually

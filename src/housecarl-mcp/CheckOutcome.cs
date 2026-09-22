@@ -5,7 +5,7 @@ namespace HousecarlMcp;
 /// <summary>What this response actually did — composed once per response, read by every caller-facing sentence and
 /// every json field on the merged <c>check</c> surface. Selection is not outcome: a family can be selected and
 /// refuse. Which claims live here and which may stay literals at their own site is in
-/// docs/architecture/check-family-tests.md.</summary>
+/// docs/architecture/check-families.md.</summary>
 internal sealed class CheckOutcome
 {
     readonly CheckSweep _s;
@@ -31,7 +31,7 @@ internal sealed class CheckOutcome
 
         // A whole call refuses with one error exactly when the grounds are one; the shared-input and order-seam
         // grounds short-circuit that collapse rather than joining it. Rule in
-        // docs/architecture/check-family-tests.md.
+        // docs/architecture/check-families.md.
         var grounds = refused.Select(f => s.Ground(f)!).Distinct(StringComparer.Ordinal).ToArray();
         Error = s.SharedInputError ?? s.OrderSeamError
              ?? (ran.Count == 0 && refused.Count > 0 && grounds.Length == 1 ? grounds[0] : null);
@@ -235,7 +235,7 @@ internal sealed class CheckOutcome
 }
 
 /// <summary>The dialogue family's quantities in one vocabulary, each measured off the result that produced them. What
-/// named, reached, validated and unreachable mean is in docs/architecture/check-family-tests.md.</summary>
+/// named, reached, validated and unreachable mean is in docs/architecture/check-scripts-and-dialogue-families.md.</summary>
 /// <param name="Limit">the seed budget this call was given, echoed as the caller passed it.</param>
 /// <param name="ChecksRun">which checks the reached seeds actually ran, so the boundary asserts no other.</param>
 internal readonly record struct DialogueOutcome(int SeedsNamed, int SeedsReached, int SeedsValidated,

@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlCore;
 
 /// <summary>The record-level narrowing the sweep families (errors and scripts) share, reusing the read tools'
-/// vocabulary. Narrowing narrows the numbers; contracts in docs/architecture/check-family-tests.md.</summary>
+/// vocabulary. Narrowing narrows the numbers; contracts in docs/architecture/check-families.md.</summary>
 public sealed class SweepScope
 {
     /// <summary>The exact records to sweep, or null for "any".</summary>
@@ -216,7 +216,7 @@ public static class SweepFindings
 
     /// <summary>Join the applied-narrowing clauses into the ONE render line, optionally followed by
     /// <paramref name="claim"/>; null when nothing was narrowed at all. Which narrowings carry a claim is the caller's
-    /// call — contract in docs/architecture/check-family-tests.md.</summary>
+    /// call — contract in docs/architecture/check-families.md.</summary>
     public static string? FilterNote(string? claim, params string?[] clauses)
     {
         var kept = clauses.Where(c => !string.IsNullOrEmpty(c)).ToList();
