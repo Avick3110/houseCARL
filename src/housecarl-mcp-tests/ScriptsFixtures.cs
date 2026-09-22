@@ -39,11 +39,13 @@ internal static class ScriptsFixtures
         int totalUnboundObject = 0,
         int totalUnboundScalar = 0,
         string? propertyContains = null,
-        int limit = 0) =>
+        int limit = 0,
+        IReadOnlyList<string>? rootFailures = null) =>
         new(reports ?? Array.Empty<RecordScriptFindings>(), pluginsScanned, recordsWithScripts, totalUnbound,
             totalNullObject, totalUnverifiable, capped, readIncomplete,
             excludedPlugins ?? new Dictionary<string, string>(), null, filterNote, histogram, countsOnly, classes,
-            totalUnboundObject, totalUnboundScalar, propertyContains, Epoch, limit);
+            totalUnboundObject, totalUnboundScalar, propertyContains, Epoch, limit,
+            RootFailures: rootFailures);
 
     /// <summary>The text render of one scripts result — through the merged renderer a surviving tool calls, with its
     /// <see cref="CheckSweep"/> wrapper.</summary>

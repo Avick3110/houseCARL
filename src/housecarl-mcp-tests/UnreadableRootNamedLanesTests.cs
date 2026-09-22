@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using HousecarlCore;
 using HousecarlMcp;
@@ -113,7 +112,9 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
         using var f = new BlockedReportFixture();
         Assert.True(f.Blocked, BlockedSweepWorld.NotStaged);
 
-        Assert.NotEmpty(f.Voice.RootFailures);
+        // In production order the voice check runs first and its list is the shorter one — empty here, since a line
+        // with no speaker resolves no path. The response names the union, so the binding check's root still lands.
+        Assert.Empty(f.Voice.RootFailures);
         Assert.NotEmpty(f.ScriptBinding.RootFailures);
         var text = WriteTools.RenderCreate(f.Outcome, maxChars: 60000);
 
@@ -151,7 +152,8 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
             $"line_{i:D4}.lip", false, true)).ToList();
         return f.Outcome with
         {
-            Voice = new VoiceReport(lines, Array.Empty<VoiceUndetermined>()) { RootFailures = f.Voice.RootFailures },
+            Voice = new VoiceReport(lines, Array.Empty<VoiceUndetermined>())
+                    { RootFailures = WriteTools.CreateRootFailures(f.Outcome) },
             ScriptBinding = ScriptBindingReport.Empty,
         };
     }
@@ -231,32 +233,88 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
         Assert.Contains(RootArrayOf(json), r => r.StartsWith(BlockedReportFixture.BlockedMod, StringComparison.Ordinal));
     }
 
-    /// <summary>The cut is ONE rule with no transport in it: at every cap, the text lines and the json array of one
-    /// build name the same roots. Charging a text indent inside the rule made them disagree at 200 of 3,801 caps.</summary>
+    /// <summary>A merged sweep names the UNION of its families' roots. The service refreshes its asset resolver on
+    /// every access and each family takes it separately, so two families in one call can answer off two builds and the
+    /// second build's list starts empty: whichever family answered last is not a superset of the other. Staged as the
+    /// two results a mid-call rebuild produces — disjoint lists, one per family.</summary>
     [Fact]
-    public void TextAndJsonNameTheSameRootsAtEveryCap()
+    public void AMergedSweepNamesEveryFamilysRootsNotJustOneFamilys()
     {
-        var roots = Enumerable.Range(0, 6).Select(i => $"BlockedMod{i}: could not read '{i}'".PadRight(30, '.')).ToList();
+        var facegenRoot = "ModA: could not read 'facegeom' — Access to the path is denied.";
+        var scriptsRoot = "ModB: could not read 'Scripts' — Access to the path is denied.";
+        var sweep = new CheckSweep(
+            CheckErrorsFixtures.Sel("facegen", "scripts"),
+            Scripts: ScriptsFixtures.Result(rootFailures: new[] { scriptsRoot }),
+            FaceGen: FaceGenResult(new[] { facegenRoot }));
 
-        for (int cap = 200; cap <= 4000; cap++)
-        {
-            int text = CountOf(BatchRender.RootFailureLines(roots, cap, indent: "  "), BatchRender.RootFailureLead);
-            int json = JsonRootArray(roots, cap).Count;
-            Assert.Equal(text, json);
-        }
+        var text = Wire.RenderCheck(sweep, 60000);
+        var json = JsonWire.RenderCheck(sweep, 60000);
+
+        Assert.Contains(Named("ModA"), text, StringComparison.Ordinal);
+        Assert.Contains(Named("ModB"), text, StringComparison.Ordinal);
+        Assert.Equal(new[] { facegenRoot, scriptsRoot }, RootArrayOf(json));
     }
 
-    /// <summary>The json array the shared writer produces at one cap, read back as the caller sees it.</summary>
-    static IReadOnlyList<string> JsonRootArray(IReadOnlyList<string> roots, int cap)
+    /// <summary>A facegen result that found nothing but could not read one root — the shape a family hands the render
+    /// when its scan hit a blocked folder.</summary>
+    static FaceGenCheckResult FaceGenResult(IReadOnlyList<string> roots) =>
+        new(Array.Empty<FaceGenFinding>(), 0, 0, 0, 0, 0, null, null, false,
+            new Dictionary<string, string>(), null, null, null, FaceGenFindingClass.All, "deadbeefdeadbeef", 0, null,
+            ReadIncomplete: true, WholeOrder: true, NpcsNoFaceGenRace: 0, NpcsRaceUnresolved: 0, WithheldBenign: null,
+            RootFailures: roots);
+
+    /// <summary>The create lane names the UNION of its two checks' roots, in either order. They scan different
+    /// subtrees and each takes its list at its own return, so the one that ran first carries the shorter one: taking
+    /// either alone names the folder that hid a voice file and not the one that hid the .pex.</summary>
+    [Fact]
+    public void TheCreateLaneNamesBothChecksRootsWhicheverRanFirst()
     {
-        var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms))
-        {
-            w.WriteStartObject();
-            JsonWire.WriteRootFailuresCut(w, roots, cap);
-            w.WriteEndObject();
-        }
-        return RootArrayOf(Encoding.UTF8.GetString(ms.ToArray()));
+        var a = "ModA: could not read 'Sound' — Access to the path is denied.";
+        var b = "ModB: could not read 'Scripts' — Access to the path is denied.";
+        var line = new[] { new VoiceLine(default, "T", 1, "l.fuz", false, null, false, "l.lip", false, true) };
+        var finding = new[] { new ScriptBindingFinding(default, "T", ScriptBindingStatus.ScriptNotCompiled,
+                                                       new[] { "S" }, new[] { "S.pex" }, true, "no .pex") };
+
+        // The voice check ran first, so it holds the shorter list — production's order.
+        var voiceFirst = Created(1) with
+            {
+                Voice = new VoiceReport(line, Array.Empty<VoiceUndetermined>()) { RootFailures = new[] { a } },
+                ScriptBinding = new ScriptBindingReport(finding) { RootFailures = new[] { a, b } },
+            };
+        // And the reverse, so the answer cannot depend on which check happened to run first.
+        var bindingFirst = voiceFirst with
+            {
+                Voice = new VoiceReport(line, Array.Empty<VoiceUndetermined>()) { RootFailures = new[] { a, b } },
+                ScriptBinding = new ScriptBindingReport(finding) { RootFailures = new[] { a } },
+            };
+
+        Assert.Equal(new[] { a, b }, WriteTools.CreateRootFailures(voiceFirst));
+        Assert.Equal(new[] { a, b }, WriteTools.CreateRootFailures(bindingFirst));
+        // And both reach the render, not just the data.
+        var text = WriteTools.RenderCreate(voiceFirst, maxChars: 60000);
+        Assert.Contains(Named("ModA"), text, StringComparison.Ordinal);
+        Assert.Contains(Named("ModB"), text, StringComparison.Ordinal);
+    }
+
+    /// <summary>The cut is ONE rule with no transport in it, driven through the two REAL renders of one staged sweep:
+    /// comparing the two helpers would compare a function with itself, and a lane that stopped using the shared rule
+    /// would stay green. A handful of caps, because the rule is not cap-shaped.</summary>
+    [Theory]
+    [InlineData(1500)]
+    [InlineData(3000)]
+    [InlineData(8000)]
+    [InlineData(60000)]
+    public void TheTwoRendersOfOneSweepNameTheSameRoots(int cap)
+    {
+        Assert.True(_w.Blocked, BlockedSweepWorld.NotStaged);
+        var families = new[] { "facegen", "scripts" };
+
+        int text = CountOf(CheckTools.CheckTool(_w.Svc, findings: families, max_chars: cap),
+                           BatchRender.RootFailureLead);
+        var json = CheckTools.CheckTool(_w.Svc, findings: families, format: "json", max_chars: cap);
+
+        Assert.True(text > 0, $"the text render named no root at max_chars={cap}");
+        Assert.Equal(text, RootArrayOf(json).Count);
     }
 
     static IReadOnlyList<string> RootArrayOf(string json)
@@ -488,10 +546,11 @@ sealed class BlockedReportFixture : IDisposable
             using var resolver = LoadOrderResolver.Build(new[] { PatchPath });
             using var assets = AssetResolver.Build("", mods, dataDir, new[] { BlockedMod },
                                                    Array.Empty<ActiveArchive>());
-            // The binding check resolves a .pex, which is the read that finds the blocked root; the voice check reads
-            // the SAME asset build, whose failures are kept for its life, so it runs after it.
-            ScriptBinding = DialogueScriptCheck.Run(PatchPath, created, assets);
+            // PRODUCTION ORDER — voice then binding, as RecordWrites enriches the outcome. It matters: each check
+            // materialises the root list at its own return off a dictionary that fills lazily, so the first one carries
+            // the shorter list, and a render that took either alone would name the wrong folder.
             Voice = VoiceCheck.Run(PatchPath, created, resolver, assets);
+            ScriptBinding = DialogueScriptCheck.Run(PatchPath, created, assets);
             Outcome = new WritePatchBuilder.CreateOutcome(true, null, PatchPath, false, created,
                                                          Array.Empty<string>(), 512)
                       { Voice = Voice, ScriptBinding = ScriptBinding };

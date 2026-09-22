@@ -85,13 +85,17 @@ internal sealed class CheckOutcome
     /// root so every lane says it once.</summary>
     internal IReadOnlyList<string> OrderExcluded => _s.OrderExcluded;
 
-    /// <summary>The loose roots this response's asset build could not read. Every family that reads assets reads ONE
-    /// build, so the list is the response's, named once at its root rather than repeated under each family's hedge —
-    /// two copies of one list would take half the answer between them.</summary>
+    /// <summary>The loose roots this response's asset builds could not read, UNIONED over the families that read
+    /// assets — named once at the response root rather than repeated under each family's hedge, where two copies of
+    /// one list would take half the answer between them. A union rather than whichever family answered last: the
+    /// service refreshes its asset resolver on every access, so two families in one call can answer off two builds,
+    /// and the second build's list starts empty and refills only with what that family's own scan touched.</summary>
     internal IReadOnlyList<string> RootFailures =>
-        _s.FaceGen?.RootFailures is { Count: > 0 } facegen ? facegen
-        : _s.Scripts?.RootFailures is { Count: > 0 } scripts ? scripts
-        : Array.Empty<string>();
+        (_s.FaceGen?.RootFailures ?? Array.Empty<string>())
+        .Concat(_s.Scripts?.RootFailures ?? Array.Empty<string>())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
+        .ToList();
 
     /// <summary><c>findings=</c> was omitted, so <see cref="Ran"/> is the default rather than a caller's choice —
     /// the one selection fact a response still states.</summary>
