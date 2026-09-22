@@ -1181,9 +1181,10 @@ public static class CheckMergeProbe
             var acct = new CheckAccounting(errors, cap);
             var notice = acct.CapTooSmall(floorLen, floorLen, 0, sites);
             if (notice is null) { remedyInconsistent.Add($"cap={cap} floor={floorLen}: no notice on a response {floorLen - cap} chars over its cap"); continue; }
-            int at = notice.IndexOf("raise it to at least ", StringComparison.Ordinal);
+            const string marker = "raise max_chars to at least ";
+            int at = notice.IndexOf(marker, StringComparison.Ordinal);
             int end = at < 0 ? -1 : notice.IndexOf('.', at);
-            if (at < 0 || end < 0 || !int.TryParse(notice[(at + 21)..end], out var raiseTo))
+            if (at < 0 || end < 0 || !int.TryParse(notice[(at + marker.Length)..end], out var raiseTo))
             { remedyInconsistent.Add($"cap={cap} floor={floorLen}: the notice names no cap [{notice}]"); continue; }
             int owed = floorLen + sites * (raiseTo.ToString().Length - cap.ToString().Length);
             if (raiseTo < owed)
@@ -1819,7 +1820,7 @@ public static class CheckMergeProbe
         for (int cap = noisy; cap < ceiling; cap += 16)
         {
             var body = render(s, cap, 1000);
-            if (body.Contains("raise it to at least ", StringComparison.Ordinal)) continue;
+            if (body.Contains("raise max_chars to at least ", StringComparison.Ordinal)) continue;
             if (Count(body, unit) > 0) break;   // past the window: units are landing now
             return body.Length;
         }

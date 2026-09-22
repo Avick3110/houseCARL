@@ -17,8 +17,10 @@ static class JsonOverrun
         int.Parse(Regex.Match(notice, marker + @"(\d+)").Groups[1].Value);
 
     /// <summary>The three numbers, asked of the document the render really returned: the cap it was given, its own
-    /// length — with the member counted, because the member is part of the length it states — and a cap that clears
-    /// the notice in one step.</summary>
+    /// length — with the member counted, because the member is part of the length it states — and the cap it names,
+    /// which is that same length, the cap THIS document would have fitted in. A wider cap renders a wider answer, so
+    /// the number is not a promise about the next call; what is a promise is that the member is not a dead end, which
+    /// the last arm checks with a cap wide enough for the whole answer.</summary>
     internal static void StatesTheThreeNumbers(string json, int cap, Func<int, string> again)
     {
         var root = JsonDocument.Parse(json).RootElement;
@@ -30,12 +32,17 @@ static class JsonOverrun
 
         Assert.Equal(cap, Stated(notice, "over the max_chars="));
         Assert.Equal(json.Length, Stated(notice, "this response is "));
+        Assert.Equal(json.Length, Stated(notice, "raise max_chars to at least "));
+    }
 
-        int raiseTo = Stated(notice, "raise max_chars to at least ");
-        var cleared = again(raiseTo);
-        Assert.False(JsonDocument.Parse(cleared).RootElement.TryGetProperty(Member, out _),
-                     $"max_chars={cap} named {raiseTo}, which did not clear the notice");
-        Assert.True(cleared.Length <= raiseTo, $"the cap {raiseTo} it named still does not hold it");
+    /// <summary>The member is not a dead end: a cap wide enough for the whole answer clears it. Asked of one family
+    /// rather than of all, because on a lane whose render can overshoot its cap by a row the clearing cap depends on
+    /// that lane's own budget, which is not this contract.</summary>
+    internal static void ClearsAtAWideCap(Func<int, string> again, int wide)
+    {
+        var json = again(wide);
+        Assert.False(JsonDocument.Parse(json).RootElement.TryGetProperty(Member, out _),
+                     $"a {json.Length}-char document still carries {Member} at max_chars={wide}");
     }
 }
 
@@ -54,6 +61,7 @@ public sealed class AssetStatusJsonOverrunTests : IClassFixture<AssetSelectWorld
             AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0001.nif") }, format: "json", max_chars: cap);
 
         JsonOverrun.StatesTheThreeNumbers(Render(100), 100, Render);
+        JsonOverrun.ClearsAtAWideCap(Render, 80_000);
     }
 
     [Fact]

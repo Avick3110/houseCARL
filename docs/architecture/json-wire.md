@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-22
-covers: [src/housecarl-mcp/JsonWire.cs]
+covers: [src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/SkseJsonDoc.cs]
 ---
 # The json wire: the shape a machine-readable response is allowed to take
 
@@ -84,16 +84,34 @@ class — a document that lost only caveat entries still reports `truncated`.
 A json document that could not fit `max_chars` ships over the ceiling, as the text lane's does, and closes with
 `max_chars_overrun` — ONE member, written at every capped document's root close by `JsonWire.WriteCapOverrun`, whose
 sentence is `RenderCap.Overran`, the same sentence the text lane's `RenderCap.Settle` appends. It names three
-numbers: the document's own length, the `max_chars` it was given, and the cap that clears it in one step. The member
-is part of the length it states, so it is settled to a fixed point, the way the merged check's twin is.
+numbers: the document's own length, the `max_chars` it was given, and the cap THIS document would have fitted in. The
+member is part of the length it states, so it is settled to a fixed point.
+
+The third number is about **this** answer. A wider cap admits more rows, so the next call's document can overrun again
+on its own terms — that is a bigger answer, not a broken remedy. The merged `check` document is the one that promises
+one-step clearing, because its accounting adds the growth term for every place the response prints the cap back.
+
+**One member, one grammar for the numbers.** The merged `check` document writes the same member from its own
+`CheckAccounting.CapTooSmall`, because it tells the two overruns apart — a `max_chars` too small for the fixed part,
+and a body unit measured after it was written — and adds the cap-print-site growth term to its remedy. Those are
+facts the other documents do not have, so the sentence between the numbers differs; the three NUMBERS are worded
+identically (`response is N chars`, `over the max_chars=C it was given`, `raise max_chars to at least R`), so one
+parser reads the retry number off every document. Any new sentence under this member keeps that wording.
 
 `truncated`/`truncated_note` are a different fact and stay: they say content was CUT to stay inside the cap.
 `max_chars_overrun` says the cap was MISSED. A document can carry both. A refusal document is not capped and carries
 neither.
 
-**Pinned by** `JsonCapOverrunTests` — one arm per document family, each asserting the three numbers and that the
-member's own length is counted; and `CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` for the
-merged check's own twin.
+The `housecarl_skse` family documents are written by `SkseJsonDoc.Write` rather than by a `JsonWire` renderer, and
+they get the member there, from the CALLER's `max_chars` rather than the budget left after their tail reserve.
+`SkseTools.Dispatch` must not run `RenderCap.Settle` over a json body: the text notice would land past the root close
+and the document would stop being json. `AssetTools`'s manifest-only lane guards the same seam the same way.
+
+**Pinned by** `AssetStatusJsonOverrunTests` and `RecordsJsonOverrunTests` (both in `JsonCapOverrunTests.cs`, which
+also holds the shared `JsonOverrun` assertion), `SkseTransportTests.AnOverCapJsonFamilyDocumentStaysJsonAndSaysItOverran`
+for the skse families and `PlaceJsonServedLaneTests.AnOverCapWriteOutcomeSaysItOverranAndNamesTheCapThatClearsIt` for
+the write lane's own cap rule — each asserting the three numbers and that the member's own length is counted; and
+`CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` for the merged check's own twin.
 
 ## Envelope keys must stay disjoint
 

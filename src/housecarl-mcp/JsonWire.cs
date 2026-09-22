@@ -1587,7 +1587,7 @@ static class JsonWire
     /// the same sentence the text lane's <see cref="RenderCap.Settle"/> appends, naming the document's length, the cap
     /// it was given and the cap that clears it. Called just before the root close, and settled to a fixed point because
     /// the member is part of the length it states. Contract in docs/architecture/json-wire.md.</summary>
-    static void WriteCapOverrun(Utf8JsonWriter w, CharCountedStream ms, int cap)
+    internal static void WriteCapOverrun(Utf8JsonWriter w, CharCountedStream ms, int cap)
     {
         int closed = Size(w, ms) + Framing.RootClose;
         if (closed <= cap) return;
