@@ -1030,9 +1030,8 @@ static class SkseInventoryWire
         var sb = new StringBuilder();
         if (d.ReadIncomplete)
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a file present only in it may be missing from this inventory (Q3).\n");
-        foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
-        foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
-        sb.Append(BatchRender.RootFailureLines(d.RootFailures, cap));
+        sb.Append(BatchRender.CaveatBlockLines(cap, BatchRender.WarningList(d.Warnings),
+            BatchRender.ArchiveFailureList(d.BsaFailures), BatchRender.RootFailureList(d.RootFailures)));
         return sb.ToString();
     }
 }
@@ -1447,9 +1446,8 @@ static class SkseConfigAuditWire
     {
         if (d.ReadIncomplete)
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a config present only in it may be missing from this audit (Q3).\n");
-        foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
-        foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
-        sb.Append(BatchRender.RootFailureLines(d.RootFailures, cap));
+        sb.Append(BatchRender.CaveatBlockLines(cap, BatchRender.WarningList(d.Warnings),
+            BatchRender.ArchiveFailureList(d.BsaFailures), BatchRender.RootFailureList(d.RootFailures)));
     }
 }
 
@@ -1958,8 +1956,7 @@ static class NativePairingWire
     {
         if (d.ReadIncomplete)
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a script present only in it may be missing from this audit (Q3).\n");
-        foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
-        foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
-        sb.Append(BatchRender.RootFailureLines(d.RootFailures, cap));
+        sb.Append(BatchRender.CaveatBlockLines(cap, BatchRender.WarningList(d.Warnings),
+            BatchRender.ArchiveFailureList(d.BsaFailures), BatchRender.RootFailureList(d.RootFailures)));
     }
 }

@@ -41,6 +41,25 @@ public sealed class SkyPatcherLayerFilterTests
         Layer(new SkyPatcherDiscovery.FolderScan("npc", Catalog: null, PatchingEnabled: true,
                   Files: Enumerable.Range(1, inis).Select(i => Ini("npc", $"Mod{i:D3}.ini", $"Provider Number {i:D3}")).ToArray()));
 
+    /// <summary>A long warning list is cut and counted like the roots, so it takes a share of max_chars and not the
+    /// layer: before the bound, 200 warnings floored the body's budget at one char and the folder listing was gone.</summary>
+    [Fact]
+    public void ManyWarningsTakeAShareOfMaxCharsAndNotTheLayer()
+    {
+        var d = BigLayer(400) with
+        {
+            AssetWarnings = Enumerable.Range(1, 200).Select(i => $"warning {i}: " + new string('w', 180)).ToList(),
+        };
+        var text = SkyPatcherWire.RenderLayer(d, null, 8_000);
+
+        Assert.Contains("npc: 400 INI(s)", text);                            // the folder header survived
+        Assert.Contains("Mod001.ini", text);                                 // and so did the listing under it
+        Assert.Contains("warning 1: ", text);
+        Assert.Matches(@"showing \d+ of 200 warning\(s\)", text);
+        Assert.True(text.Length <= 8_000 + TrailerSlack,
+                    $"{text.Length} chars against max_chars=8000 — the warning list was not bounded.");
+    }
+
     /// <summary>The named roots are cut and COUNTED, never appended past max_chars: the count line is the difference
     /// between a list that was trimmed and a list that was short.</summary>
     [Fact]

@@ -35,10 +35,10 @@ public sealed class SkseTransportTests
     static string[] Warnings(int n) => Enumerable.Range(1, n).Select(i => $"warning {i}: " + new string('w', 180)).ToArray();
 
     static SkseInventoryData Inventory(int dlls, int configs = 0, int folders = 1, string[]? warnings = null,
-                                      string[]? rootFailures = null) =>
+                                      string[]? rootFailures = null, string[]? bsaFailures = null) =>
         new(Enumerable.Range(1, dlls).Select(Dll).ToList(),
             Enumerable.Range(1, configs).Select(i => Config(i, $"Group{i % folders}")).ToList(),
-            OtherFileCount: 0, InstalledRuntime: "1.6.1170.0", BsaFailures: Array.Empty<string>(),
+            OtherFileCount: 0, InstalledRuntime: "1.6.1170.0", BsaFailures: bsaFailures ?? Array.Empty<string>(),
             RootFailures: rootFailures ?? Array.Empty<string>(), ReadIncomplete: false,
             Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
 
@@ -77,12 +77,12 @@ public sealed class SkseTransportTests
             RootFailures: Array.Empty<string>(), ReadIncomplete: false, Warnings: Array.Empty<string>(), ProfileName: "Default");
 
     static NativePairingAuditData Pairing(int classes, int unreadable = 0, string[]? warnings = null,
-                                         string[]? rootFailures = null) =>
+                                         string[]? rootFailures = null, string[]? bsaFailures = null) =>
         new(Enumerable.Range(1, classes).Select(Cls).ToList(), PexScanned: classes,
             Unreadable: Enumerable.Range(1, unreadable)
                 .Select(i => new NativeUnreadablePex($"scripts/bad{i}.pex", $"Mod{i}", "not a valid .pex header")).ToList(),
             SkseLoaderSeen: true, InstalledRuntime: "1.6.1170.0",
-            BsaFailures: Array.Empty<string>(), RootFailures: rootFailures ?? Array.Empty<string>(),
+            BsaFailures: bsaFailures ?? Array.Empty<string>(), RootFailures: rootFailures ?? Array.Empty<string>(),
             ReadIncomplete: false, Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
 
     static SkseAuditedRef Ref(int i, int n) =>
@@ -95,9 +95,9 @@ public sealed class SkseTransportTests
             Enumerable.Range(1, refs).Select(n => Ref(i, n)).ToList(), ReadError: null);
 
     static SkseConfigAuditData ConfigAudit(int files, int refs = 1, string[]? warnings = null,
-                                          string[]? rootFailures = null) =>
+                                          string[]? rootFailures = null, string[]? bsaFailures = null) =>
         new(Enumerable.Range(1, files).Select(i => ConfigFile(i, refs)).ToList(), ConfigCount: files,
-            BsaFailures: Array.Empty<string>(), RootFailures: rootFailures ?? Array.Empty<string>(),
+            BsaFailures: bsaFailures ?? Array.Empty<string>(), RootFailures: rootFailures ?? Array.Empty<string>(),
             ReadIncomplete: false, Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
 
     static string Text(string family, int rows, RowWindow window = default, string? filter = null) => family switch
@@ -504,10 +504,8 @@ public sealed class SkseTransportTests
 
     /// <summary>The TEXT twin of the reserve: a blocked tree's named roots are charged AND bounded to a SHARE of
     /// max_chars, so the document stays inside it instead of shipping a tail wider than the whole budget. The slack
-    /// here is far under that share, so removing the share fails this too, not only the SkyPatcher test.
-    /// <para>What is NOT bounded: the `warnings` and `archive_read_failures` lines above it, which this PR leaves as
-    /// it found them. They are a smaller list — one per archive, not one per root per directory asked about — but
-    /// smaller is not bounded, and 200 of either still overruns max_chars. Tracked in #858, not safe today.</para></summary>
+    /// here is far under that share, so removing the share fails this too, not only the SkyPatcher test. The lists
+    /// above it are pinned by <see cref="EveryCaveatListIsBoundedInTheText"/>.</summary>
     [Theory]
     [InlineData("inventory")]
     [InlineData("pairing")]
@@ -581,6 +579,71 @@ public sealed class SkseTransportTests
     /// <summary>How many roots a text render actually named, off the lines themselves.</summary>
     static int NamedRootsInText(string text) =>
         System.Text.RegularExpressions.Regex.Matches(text, @"\[!\] loose root read failure: ").Count;
+
+    /// <summary>A build that lost the drive its archives are on: 200 warnings and 200 archive read failures, each ~195
+    /// chars — the #858 measurement, where the inventory rendered 40,337 chars of warnings alone at max_chars=8000.</summary>
+    static string[] ArchiveFailures(int n) =>
+        Enumerable.Range(1, n).Select(i => $"Archive{i:D3}.bsa: could not open — " + new string('a', 160)).ToArray();
+
+    /// <summary>The warnings and archive failures are cut and counted like the roots under them, so a long list of
+    /// either leaves the rows in the answer and the answer inside max_chars.</summary>
+    [Theory]
+    [InlineData("inventory")]
+    [InlineData("pairing")]
+    [InlineData("config")]
+    public void EveryCaveatListIsBoundedInTheText(string family)
+    {
+        const int cap = 8_000;
+        var (warnings, archives) = (Warnings(200), ArchiveFailures(200));
+        string text = family switch
+        {
+            "inventory" => SkseInventoryWire.Render(Inventory(40, warnings: warnings, bsaFailures: archives), null, cap),
+            "pairing" => NativePairingWire.Render(Pairing(40, warnings: warnings, bsaFailures: archives), null, cap),
+            _ => SkseConfigAuditWire.Render(ConfigAudit(40, warnings: warnings, bsaFailures: archives), null, cap),
+        };
+
+        Assert.Contains("warning 1: ", text);                                  // each list names at least one
+        Assert.Contains("Archive001.bsa", text);
+        Assert.Matches(@"showing \d+ of 200 warning\(s\)", text);              // and counts the rest
+        Assert.Matches(@"showing \d+ of 200 archive read failure\(s\)", text);
+        Assert.True(text.Length <= cap + ShareSlack,
+                    $"{family}: {text.Length} chars against max_chars={cap} — a caveat list was not bounded.");
+    }
+
+    /// <summary>The json twin: each list is an array plus its sibling count, inside max_chars, naming exactly the
+    /// entries the text render of the same build names.</summary>
+    [Theory]
+    [InlineData("inventory")]
+    [InlineData("pairing")]
+    [InlineData("config")]
+    public void EveryCaveatArrayIsBoundedInTheJson(string family)
+    {
+        const int cap = 8_000;
+        var (warnings, archives) = (Warnings(200), ArchiveFailures(200));
+        string json = family switch
+        {
+            "inventory" => SkseInventoryWire.RenderJson(Inventory(40, warnings: warnings, bsaFailures: archives), null, cap),
+            "pairing" => NativePairingWire.RenderJson(Pairing(40, warnings: warnings, bsaFailures: archives), null, cap),
+            _ => SkseConfigAuditWire.RenderJson(ConfigAudit(40, warnings: warnings, bsaFailures: archives), null, cap),
+        };
+        string text = family switch
+        {
+            "inventory" => SkseInventoryWire.Render(Inventory(40, warnings: warnings, bsaFailures: archives), null, cap),
+            "pairing" => NativePairingWire.Render(Pairing(40, warnings: warnings, bsaFailures: archives), null, cap),
+            _ => SkseConfigAuditWire.Render(ConfigAudit(40, warnings: warnings, bsaFailures: archives), null, cap),
+        };
+
+        Assert.True(json.Length <= cap, $"{family}: {json.Length} chars against max_chars={cap} — a caveat array was not bounded.");
+        using var doc = JsonDocument.Parse(json);
+        var caveats = doc.RootElement.GetProperty("caveats");
+        foreach (var (name, lead) in new[] { ("warnings", @"\[!\] warning \d+: "), ("archive_read_failures", @"\[!\] archive read failure: ") })
+        {
+            int named = caveats.GetProperty(name).GetArrayLength();
+            Assert.InRange(named, 1, 199);
+            Assert.Equal(200 - named, caveats.GetProperty(name + "_omitted").GetInt32());
+            Assert.Equal(System.Text.RegularExpressions.Regex.Matches(text, lead).Count, named);
+        }
+    }
 
     /// <summary>A healthy document carries the sibling too: a key that comes and goes cannot be checked against
     /// "the array and the omitted count add up to the whole", and asset_status always writes it.</summary>
