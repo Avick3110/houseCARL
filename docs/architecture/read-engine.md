@@ -8,10 +8,12 @@ covers: [src/housecarl-core/ReadEngine.cs, src/housecarl-core/BodyGather.cs, src
 The path from a `records` call to a rendered body. `ReadEngine` (core) reflects ONE plugin's
 record out to round-trippable tokens; `RecordReads` (mcp) resolves which body that is against a
 captured load-order build and folds the result into the shape the render consumes. How the records were
-SELECTED before a body is read — the `where=` predicate, the containment index, the closure walk, the
-reverse-reference index and `FieldsDiff` — is `docs/architecture/select-and-walk.md`; the owned-child
+SELECTED before a body is read — the `where=` predicate and the containment index — is
+`docs/architecture/select-and-walk.md`, and the closure walk and the reverse-reference index are
+`docs/architecture/walk-and-reverse.md`; `FieldsDiff` is in this note; the owned-child
 union stated beside a child-bearing field is `docs/architecture/records-owned-child-declarers.md`;
 what `max_chars` counts and what a cut response may claim is `docs/architecture/render-budget.md`.
+The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/architecture/records-tool-front.md`.
 
 ## Contracts
 - A value leaf's token is the faithful inverse of `WriteEngine.Coerce`: reading a value and writing that exact token back is a byte-level no-op.
@@ -61,7 +63,7 @@ what `max_chars` counts and what a cut response may claim is `docs/architecture/
 - `RecordsRemedyRepairTests.AScanComputesOneListHopRemedyForTheWholeScan` — the list-hop verdict is memoised per (element type, segment).
 - `RecordsFieldFoldTests` — `[*]` and `[*count]` columns, and the read's truncation note surviving the fold.
 - `BodyGatherEquivalenceTests.AGatheredBodyIsTheBodyTheSingleFetchReturns` and `AFaultedPluginIsNamedAndFallsBackToTheSingleFetch` — a gathered body equals the one-at-a-time body, and a faulted plugin's fallback raises the same exception type and message the direct fetch does.
-- `PresentNullLinkRenderTests.ACarriedHeadMarkerDeltasAgainstASideCarryingNothing` — the diff's
+- `PresentNullLinkDiffTests.ACarriedHeadMarkerDeltasAgainstASideCarryingNothing` — the diff's
   present-null-link split, and `TwoAbsentSidesStillCollapse` the two-absent case.
 
 ## Where
