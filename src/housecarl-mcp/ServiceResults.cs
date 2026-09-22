@@ -453,6 +453,10 @@ public sealed record NifSetResult(
     /// <summary>Whether <see cref="CurrentWinner"/> is a BSA or the game's Data folder, either of which loses to an enabled mod's loose copy at any priority, so no sort is owed.</summary>
     public bool WinnerLosesOnEnable { get; init; }
 
+    /// <summary>The loose roots the call's asset build could not walk or list, each named with the reason, so a refusal's
+    /// "may merely be unscanned" hedge has a folder to point at; empty when every root read.</summary>
+    public IReadOnlyList<string> RootFailures { get; init; } = Array.Empty<string>();
+
     public static NifSetResult OkNewFolder(string rel, NifProvider edited, IReadOnlyList<NifProvider> providers, bool ambiguous,
         HousecarlCore.NifSetReport report, string modFolder, bool freshFolder, string? winner, IReadOnlyList<string> warnings, string profileName)
         => new(rel, edited, providers, ambiguous, report, null, false, null, false, true, modFolder, null, winner, warnings, profileName)

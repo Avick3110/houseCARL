@@ -775,6 +775,8 @@ static class NifSetWire
         if (d.Report is null || d.Error is not null)
         {
             sb.Append('\n').Append(d.Error ?? "unknown error").Append('\n');
+            // This render takes no max_chars, so the roots are cut against the server default.
+            sb.Append(BatchRender.RootFailureLines(d.RootFailures, Wire.DefaultMaxChars));
             if (d.Providers.Count > 0) AppendProviders(sb, d.Providers);
             return sb.ToString().TrimEnd('\n');
         }
