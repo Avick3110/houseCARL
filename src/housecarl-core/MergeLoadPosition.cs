@@ -1,7 +1,6 @@
 namespace HousecarlCore;
 
-/// <summary>Where a merged plugin has to load: the donors' 1-based load-order positions, the last master's, and
-/// whether that master sits after the last donor; contract in docs/architecture/write-path.md.</summary>
+/// <summary>The donors' 1-based positions, the last master's, and whether that master sits after the last donor.</summary>
 public sealed record MergeSiting(
     string FirstDonor, int FirstPosition, string LastDonor, int LastPosition,
     string? LastMaster, int LastMasterPosition, bool MasterAfterLastDonor);
