@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-18
+updated: 2026-09-22
 covers: [src/housecarl-mcp/JsonWire.cs]
 ---
 # The json wire: the shape a machine-readable response is allowed to take
@@ -78,6 +78,22 @@ that row; do not replace it with a `fields_omitted` sibling.
 **Pinned by** `AssetStatusJsonLaneTests.TheCaveatBlocksAreCappedByMaxCharsToo` — the array and the omitted count add up
 to the whole, and no entry carries a prose marker; and `ADocumentWhoseCaveatsWereCutSaysItWasTruncated` in the same
 class — a document that lost only caveat entries still reports `truncated`.
+
+## A document that overran its cap says so, in one member
+
+A json document that could not fit `max_chars` ships over the ceiling, as the text lane's does, and closes with
+`max_chars_overrun` — ONE member, written at every capped document's root close by `JsonWire.WriteCapOverrun`, whose
+sentence is `RenderCap.Overran`, the same sentence the text lane's `RenderCap.Settle` appends. It names three
+numbers: the document's own length, the `max_chars` it was given, and the cap that clears it in one step. The member
+is part of the length it states, so it is settled to a fixed point, the way the merged check's twin is.
+
+`truncated`/`truncated_note` are a different fact and stay: they say content was CUT to stay inside the cap.
+`max_chars_overrun` says the cap was MISSED. A document can carry both. A refusal document is not capped and carries
+neither.
+
+**Pinned by** `JsonCapOverrunTests` — one arm per document family, each asserting the three numbers and that the
+member's own length is counted; and `CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` for the
+merged check's own twin.
 
 ## Envelope keys must stay disjoint
 

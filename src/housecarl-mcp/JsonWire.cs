@@ -110,6 +110,7 @@ static class JsonWire
             w.WriteBoolean("truncated", rowsTruncated);
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -430,6 +431,7 @@ static class JsonWire
             WriteOwnedChildNote(w, childFields);
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -516,6 +518,7 @@ static class JsonWire
             w.WriteBoolean("truncated", rowsTruncated);
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -574,6 +577,7 @@ static class JsonWire
             // WHICH knob stopped the table, the histogram's own member; null where the table is whole.
             if (HistogramCut.For(rows.Count, rendered, byBudget) is { } cut) w.WriteString("cut_by", cut.Knob);
             else w.WriteNull("cut_by");
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -653,6 +657,7 @@ static class JsonWire
             w.WriteBoolean("truncated", rowsTruncated);
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -772,6 +777,7 @@ static class JsonWire
             truncated = rowsTruncated;
             if (anyDeclarers && !leadOverCap) w.WriteString("child_declarers_note", ReadSentences.DeclarersLead);
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -883,6 +889,7 @@ static class JsonWire
             w.WriteBoolean("truncated", rowsTruncated);
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -943,6 +950,7 @@ static class JsonWire
             w.WriteBoolean("truncated", truncated);
             outTruncated = truncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -1040,6 +1048,7 @@ static class JsonWire
             w.WriteBoolean("truncated", rowsTruncated);
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -1157,6 +1166,7 @@ static class JsonWire
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -1363,6 +1373,7 @@ static class JsonWire
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -1570,6 +1581,25 @@ static class JsonWire
             w.WriteEndObject();
         }
         return Chars(ms) - (Framing.Open + Framing.RootClose) + Framing.Separator;
+    }
+
+    /// <summary>The closing fact a capped json document owes when it shipped over its ceiling: <c>max_chars_overrun</c>,
+    /// the same sentence the text lane's <see cref="RenderCap.Settle"/> appends, naming the document's length, the cap
+    /// it was given and the cap that clears it. Called just before the root close, and settled to a fixed point because
+    /// the member is part of the length it states. Contract in docs/architecture/json-wire.md.</summary>
+    static void WriteCapOverrun(Utf8JsonWriter w, CharCountedStream ms, int cap)
+    {
+        int closed = Size(w, ms) + Framing.RootClose;
+        if (closed <= cap) return;
+        var notice = RenderCap.Overran(closed, cap);
+        for (int i = 0; i < 4; i++)
+        {
+            var next = RenderCap.Overran(closed + OverrunNoticeCost(notice), cap);
+            bool same = next.Length == notice.Length;
+            notice = next;
+            if (same) break;
+        }
+        w.WriteString("max_chars_overrun", notice);
     }
 
     /// <summary>The document's size so far, in CHARACTERS. It FLUSHES first: no count can be taken of bytes the writer still holds.</summary>
@@ -2277,6 +2307,7 @@ static class JsonWire
                 w.WriteString("truncated_note",
                     $"{WriteSentences.JsonRowsCut(cap)}; {WriteSentences.RowsCutOperationIntact(o.DryRun, "applied", absent > 0)} — "
                     + WriteTools.ApplyAgainRemedy(o, Path.GetFileName(o.OutputPath)) + ".");
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -2414,6 +2445,7 @@ static class JsonWire
                     $"{WriteSentences.JsonRowsCut(cap)}; "
                     + WriteSentences.CreateRowsCutRemedy(WriteTools.ReadBackCall(o, Path.GetFileName(o.OutputPath)),
                                                         notLanded.Count > 0) + ".");
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -2491,6 +2523,7 @@ static class JsonWire
                 w.WriteString("truncated_note",
                     $"the render hit max_chars={cap} and dropped trailing quest rows — " + WriteSentences.Twins.SeqListCutRemedy + ".");
             w.WriteString("standing_limit", WriteSentences.Twins.SeqStandingLimit);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -2548,6 +2581,7 @@ static class JsonWire
                 w.WriteString("truncated_note",
                     $"{WriteSentences.JsonRowsCut(cap)}; {WriteSentences.RowsCutOperationIntact(false, "removed")} — "
                     + WriteTools.RemovedRowsRemedy + ".");
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -2629,6 +2663,7 @@ static class JsonWire
                 w.WriteString("truncated_note",
                     $"{WriteSentences.JsonRowsCut(cap)}; {WriteSentences.RowsCutOperationIntact(o.DryRun, "forwarded")} — "
                     + WriteTools.ForwardAgainRemedy(o, Path.GetFileName(o.OutputPath)) + ".");
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -2681,6 +2716,7 @@ static class JsonWire
             truncated = counts.Truncated > 0;
             WriteAssetAdvice(w, counts, cap, caveatsOmitted > 0);
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -2711,6 +2747,7 @@ static class JsonWire
             var body = new BoundedBody(acct: null, budget: budget, () => Size(w, ms));
             WriteHistogramAxes(w, body, AssetCensus.RowLimit(limit), AssetCensus.Axis(c));
             w.WriteBoolean("truncated", omitted > 0 || body.Stopped(SweepSubject.AssetWinnerRows));
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -2769,6 +2806,7 @@ static class JsonWire
             else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, cap);
             w.WriteBoolean("truncated", omitted > 0);
             Artifacts.WriteSpillJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -2942,6 +2980,7 @@ static class JsonWire
                 w.WriteString("leftover_folder_note", PlaceWire.LeftoverNote(o.LeftoverFolder));
             WriteNullable(w, "leftover_folder", o.LeftoverFolder);
             if (placed > 0) w.WriteString("next_step", PlaceWire.EnableAndSort(o, modFolder, rendered));
+            WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
