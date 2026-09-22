@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-21
+updated: 2026-09-23
 covers: [src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/OwnedChildContent.cs, src/housecarl-core/OwnedChildLifecycle.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RecordsTools.cs, src/housecarl-mcp/Artifacts.cs]
 ---
 # Owned-child content: the additive union, and one sentence source
@@ -197,5 +197,5 @@ lane's existing tolerance; invariant framing does not.
 A cut notice claims only what was cut. The text block's tail is reachable only when every declarer line was
 written, so it says nothing about the declarers: it ends the row, and the caller — which knows whether the
 row had a diff to lose — names the nodes it dropped, or stays silent on a sole-provider row that lost
-nothing. All five of the lane's cut notices compose through one `RecordsTools.AppendCutNotice`, so the
+nothing. All five of the lane's cut notices compose through one `RecordsTools.CutNotice`, so the
 grammar guard that harvests one rendered notice covers the wording of all of them.
