@@ -51,7 +51,7 @@ public sealed class AssetResolver : IDisposable
         public readonly ConcurrentDictionary<string, HashSet<string>?> Children;   // full dir path → its child names; null = would not list
         public readonly ConcurrentDictionary<string, LooseSubtree> LooseCache;
         public readonly ConcurrentDictionary<string, WatchedDir> DirWatch;   // watched dir → what must not change about it; the whole loose freshness check
-        public int FreshListings;                                            // fresh directory listings taken, warm and check alike
+        public int FreshListings;                                            // FreshNames calls: the check's listings and the watch fallback's
         public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, FileStamp> stamps, List<string> failures)
         {
             Tables = tables; Stamps = stamps; Failures = failures;
@@ -110,8 +110,9 @@ public sealed class AssetResolver : IDisposable
     /// answers for a subtree, which is not the same as one per root per subtree.</summary>
     internal int WatchedDirectoryCount => _snap.DirWatch.Count;
 
-    /// <summary>How many fresh directory listings this build has taken, warm and check alike — exposed so a test can
-    /// assert that warming a subtree a root does not have settles the absence with stats, not with a listing.</summary>
+    /// <summary>How many uncached <see cref="FreshNames"/> listings this build has taken — the check's, and the watch
+    /// fallback's for an absence that could not be proved. Not the warm's own-copy read or the absence memo's listings.
+    /// Exposed so a test can assert that warming a subtree a root does not have takes no fresh ancestor listing.</summary>
     internal int FreshListingCount => Volatile.Read(ref _snap.FreshListings);
 
     /// <summary>The unread loose roots as ONE short clause, for a per-item reason with no caveat block above it to
@@ -587,8 +588,10 @@ public sealed class AssetResolver : IDisposable
                 if (up.Length <= floor) break;                         // walked past the root with nothing there
                 continue;
             }
-            // The walk only climbs past a level Directory.Exists called missing, so `child` is no directory: one more
-            // stat says whether a FILE holds the name.
+            // The walk only climbs past a level Directory.Exists called missing, so `child` is no directory — except on
+            // the first step after SafeListing's enumeration THREW, where `dir` is one; that path passes provedAbsent
+            // false, so it lands on the fresh listing below, which holds the name and watches nothing. One more stat
+            // says whether a FILE holds the name.
             var name = Path.GetFileName(child);
             if (File.Exists(child))                                      // a FILE holds the name: a real absence, watched as one
                 snap.DirWatch.GetOrAdd(up, _ => new WatchedDir()).FileHeld[name] = 0;
