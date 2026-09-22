@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-21
-covers: [src/housecarl-core/FieldPredicate.cs, src/housecarl-core/ContainmentIndex.cs, src/housecarl-core/ClosureWalk.cs, src/housecarl-core/SourceChain.cs, src/housecarl-core/ReverseReferenceIndex.cs, src/housecarl-core/FieldsDiff.cs, src/housecarl-core/LocalizedStrings.cs]
+updated: 2026-09-23
+covers: [src/housecarl-core/FieldPredicate.cs, src/housecarl-core/ContainmentIndex.cs]
 ---
 # Select and walk
 
@@ -72,47 +72,6 @@ context walk, and the localized language set is Mutagen's `Language` enum.
   not shared with the hop — `types=` bounds the child population, not the parent one (#720).
 - Containment is captured at index build from Mutagen's context walk, merged per plugin in priority
   order with the last declaration standing, and a plugin that throws part-way merges nothing.
-- The closure walk's source universe is an ORDERED list of poles tried in order, first hit wins. It
-  is fallback, never merge, and never the set-valued SOURCE a comparison uses. An arm that HAS the
-  record but cannot parse it STOPS the chain rather than answering with a later arm's bytes; a miss
-  names every arm consulted, not the last one tried.
-- Walk provenance is per node: each reached node records which arm produced its body and the full
-  pull chain from a seed, which is what makes a cap refusal actionable.
-- A seed path's shape is decided off the DECLARED type before any value is read, so a null cannot be
-  mistaken for an absence of shape; null and empty are states of a shape, not shapes. An unknown or
-  unsupported seed path is a refusal, never zero seeds.
-- Cycles are found by a post-walk pass over the recorded edge set, not by the BFS parent map: a
-  mutual reference between two siblings is a real cycle no ancestry test can see. Any other repeat
-  is a re-convergence and is deduped. A refusal carries nothing usable rather than a partial copy.
-- The reverse index is lazy, partitioned per plugin and keyed on (path, mtime) beside the order-wide
-  epoch, generational so a read is never torn, and plugin-atomic so a half-read plugin leaves no
-  partial edges. Its measured build cost and held size are in
-  `dev/projects/tool-surface-2.0/SPEC.md` §3.2 and its 2026-09-05 amendment.
-- It answers in CANDIDATES; the scan that follows still judges the body the caller means. A plugin
-  the walk could not read makes the positive question SHORT and the orphan sweep OVER-inclusive, and
-  the accounting states whichever reading the asking lane needs.
-- A transitive reverse walk spends its node budget BEFORE a candidate is verified, so a spent budget
-  stops the body reads as well as the reach and a raised budget on a retry sees the same graph; the
-  hop the cut landed on is marked rather than reading as a hop that reached nothing.
-- The conflict-tree diff compares DEEP reads, not depth-1 rendered lines. Positional lists compare as
-  order-insensitive multisets of whole elements, with a pure reorder reported as its own delta; dict
-  brackets are semantic keys and compare by exact path. A CAP suppresses one-sided deltas and the
-  agreed count record-wide; an UNREADABLE leaf suppresses only that path and the list element
-  comparison it sits in. An empty delta list with `Complete` false must never render as identical.
-- The agreed count counts only exact-path VALUE leaves read on BOTH sides — never a container
-  summary, never a side's absent or null-link sentinel, because an absent field is not an agreement.
-  Per-field presence is reliable only for nullable fields, whose absence the read engine spells, so a
-  non-nullable scalar equalling the winner counts as agreement while the render never claims the
-  contributor CARRIES it as a distinct subrecord.
-- The localized classifier supplies WORDS, never the in-place outcome, which is the same for every
-  shape. Its shapes are `NotLocalized`, `Unreadable` (the header was never read), `LooseComplete`,
-  `LoosePartial` (a missing kind would be materialised holding empty values), `LooseWithGameDataDuplicate`,
-  `BsaEmbedded` (including an archive that would not parse), `GameDataOnly` (a write beside the plugin
-  would shadow, not replace), `StringsFolderUnreadable`, `ModFolderUnreadable` and `Nowhere`. The last
-  three claim what houseCARL could FIND, never that the plugin has no strings.
-- Every folder look has the same three answers the plugin header read has — absent, listed,
-  unlistable — because "enumerated it and found nothing" and "could not enumerate it" are different
-  facts, and collapsing them makes an absence claim nothing checked.
 
 ## Pinned by
 
@@ -136,24 +95,9 @@ context walk, and the localized language set is Mutagen's `Language` enum.
   rule. They assert the rendered sentence, so they pin that bullet and not `ExactEditorId` itself,
   which no test names.
 - `ValuePredicateProbe` (`src/housecarl-generator`) — the by-construction extraction over the corpus.
-- `ClosureWalkProbe` / `SourceChainProbe` — the walk's caps, cycles and refusals, and the chain's
-  first-hit-wins, fault-stops and miss-names-every-arm rules.
-- `RecordsWalkCycleTests` / `RecordsWalkCostTests` / `RecordsWalkUnscannableTests` — the walk lanes.
-- `RecordsReverseIndexTests` — the unbounded reverse selection, the orphan sweep and the index's
-  in-band accounting line.
-- `PresentNullLinkRenderTests.ACarriedHeadMarkerDeltasAgainstASideCarryingNothing` — the diff's
-  present-null-link split, and `TwoAbsentSidesStillCollapse` the two-absent case.
-- `LocalizedStringsSourceTests` / `LocalizedModFolderUnreadableTests` / `StatusLocalizedLookupTests`,
-  and `StringsResolveProbe` / `StringsDecisionProbe` / `LocalizedShapeSweep` — the shapes and the
-  three-answer folder reads.
 
 ## Where
 
 `src/housecarl-core/FieldPredicate.cs` (the `where=` grammar and its accounting),
-`ContainmentIndex.cs` (the child-to-parent map and the `*parent` grammar),
-`ClosureWalk.cs` and `SourceChain.cs` (the walk and its ordered source universe),
-`ReverseReferenceIndex.cs` (the reverse edge and the unbounded reverse selection),
-`FieldsDiff.cs` (the deep comparison behind `project={"form":"tree"}`),
-`LocalizedStrings.cs` (the strings-shape classifier).
-Entry points: `housecarl_records` (`where=`, `references=`, `walk=`), and the write lanes' pre-flights
-that call `LocalizedStrings.RefusalFor`.
+`ContainmentIndex.cs` (the child-to-parent map and the `*parent` grammar).
+Entry points: `housecarl_records` (`where=`).
