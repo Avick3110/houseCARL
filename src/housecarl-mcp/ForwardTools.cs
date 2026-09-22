@@ -58,14 +58,14 @@ public static class ForwardTools
         [Description("TRANSPORT: character ceiling on the WHOLE render — the forwarded-record rows (each naming its source and the winner it out-ranks) and then the read-back. Past it, trailing rows are dropped with an explicit notice (never silent); the WRITE is unaffected. 0 = a safe default kept under the host's per-response limit.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Forward, () =>
     {
-        // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
+        // format first, ahead of the unconfigured-MO2 prompt; contract in docs/architecture/write-path.md.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
         string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
-        // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named ---------------
+        // ---- LANE: mutually exclusive, and a dropped one is named; contract in docs/architecture/write-path.md ----
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
         bool hasPatch = patchName is not null;
         bool hasInto = !string.IsNullOrWhiteSpace(into);
@@ -95,7 +95,7 @@ public static class ForwardTools
             return Refuse("formids= expanded to an empty list — nothing to forward.");
 
         var outcome = svc.ForwardRecords(targets, source.Trim(), patchName, into, readback, in_place, hasInPlace, acknowledge, dry_run);
-        // The lane the CALL named — stated, not derived from the outcome's flags.
+        // The lane the CALL named; contract in docs/architecture/write-path.md.
         return json
             ? JsonWire.RenderForwardOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
             : WriteTools.RenderForward(outcome, max_chars);

@@ -41,14 +41,14 @@ public static class RemoveTools
         [Description("TRANSPORT: character ceiling on the render; past it trailing rows are dropped with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Remove, () =>
     {
-        // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
+        // format first, ahead of the unconfigured-MO2 prompt; contract in docs/architecture/write-path.md.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
         string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
-        // ---- LANE: exactly one destination, and a dropped one is named ---------------------------------
+        // ---- LANE: exactly one destination, named when dropped; contract in docs/architecture/write-path.md ----
         bool hasInto = !string.IsNullOrWhiteSpace(into);
         bool hasInPlace = !string.IsNullOrWhiteSpace(in_place);
         if (hasInto && hasInPlace)
@@ -72,7 +72,7 @@ public static class RemoveTools
             return Refuse("formids= expanded to an empty list — nothing to remove.");
 
         var outcome = svc.RemoveRecords(targets, hasInto ? into : null, in_place, hasInPlace, acknowledge);
-        // The lane the CALL named — stated, not derived from the outcome's flags.
+        // The lane the CALL named; contract in docs/architecture/write-path.md.
         return json
             ? JsonWire.RenderRemovalOutcome(outcome, max_chars, hasInPlace ? "in_place" : "into")
             : WriteTools.RenderRemoval(outcome, max_chars);

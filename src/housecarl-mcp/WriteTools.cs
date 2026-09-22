@@ -132,7 +132,7 @@ public static class WriteTools
         else
             sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         sb.Append(WriteSentences.Masters(o.Masters));
-        // Said ABOVE the ops and outside their budget, so a row cut cannot remove it.
+        // Said ABOVE the ops and outside their budget; contract in docs/architecture/write-path.md.
         int absent = o.Ops.Count(op => op.RecordAbsentFromFile);
         if (absent > 0)
             sb.Append("! ").Append(absent).Append(absent == 1 ? " edit did NOT land: " : " edits did NOT land: ")
@@ -162,7 +162,7 @@ public static class WriteTools
         if (o.Ops.Any(op => string.Equals(op.RecordType, VoiceCheck.InfoCatalogName, StringComparison.Ordinal)))
             sb.Append("note: this edit touched a dialogue line (INFO). Voice (.fuz) and result-script coverage are checked on CREATE, not on edits — ")
               .Append("run " + ToolNames.Check + " findings=[\"dialogue\"] with the topic (or its owning quest) in seeds= to audit voice + result-script coverage and the topic graph over the edited line and every other line in the topic.\n");
-        // The touched-record verify renders COMPACT by default and in full only on full_readback=true.
+        // The touched-record verify renders COMPACT by default; contract in docs/architecture/write-path.md.
         if (o.ReadBack is { } rb)
         {
             if (fullDump) AppendFullReadback(sb, rb, maxChars, freshPatch: !o.Extended && !o.InPlace);
@@ -188,7 +188,7 @@ public static class WriteTools
         $"{verb}, pass in_place=\"{file}\" again (no further confirmation needed for it).";
 
     /// <summary>The dry_run=true confirmation: the same pipeline ran and stopped at the point of no return, so this
-    /// reports what WOULD change with nothing on disk, and says so first. A refusal never reaches here.</summary>
+    /// reports what WOULD change with nothing on disk, and says so first. Contract in docs/architecture/write-path.md.</summary>
     static string RenderDryRun(WritePatchBuilder.PatchOutcome o, int maxChars, bool fullDump)
     {
         var file = Path.GetFileName(o.OutputPath);
@@ -301,9 +301,8 @@ public static class WriteTools
         }
     }
 
-    /// <summary>The clause that keeps "re-read clean" honest over an opaque blob, which Mutagen never parses: those
-    /// fields are named in the SAME sentence as re-read bytes only (#529), bounded by
-    /// <see cref="OpaqueFieldsNamed"/>, each with its OWN byte count rather than one sum.</summary>
+    /// <summary>The clause that keeps "re-read clean" honest over an opaque blob (#529), bounded by
+    /// <see cref="OpaqueFieldsNamed"/>; contract in docs/architecture/write-path.md.</summary>
     static string OpaqueBytesCaveat(RecordFields rec)
     {
         var opaque = rec.Fields.Where(f => f.Bytes is not null).ToList();
@@ -319,9 +318,7 @@ public static class WriteTools
     /// <summary>The op's apply-time note as a trailing clause: what the write DID that the file cannot say afterwards.</summary>
     static string ApplyNote(WritePatchBuilder.OpResult op) => op.ApplyNote is { } n ? "  [" + n + "]" : "";
 
-    /// <summary>The value clause on a per-edit line: what the WRITTEN FILE holds at that op's leaf, never the in-memory
-    /// reading (#683). Where the file cannot answer it says so and prints no value; a record the file does not CONTAIN
-    /// is an answer, said outright.</summary>
+    /// <summary>The value clause on a per-edit line: what the WRITTEN FILE holds at that op's leaf (#683); contract in docs/architecture/write-path.md.</summary>
     static string EditLineValue(WritePatchBuilder.OpResult op, string? absentClause = null) =>
         // A sentence about what the write did, not a field reading — nothing to re-read.
         op.AfterIsNote && op.After is not null ? "  -> " + op.After
@@ -541,8 +538,7 @@ public static class WriteTools
             if (o.ExternalPlugins.Count > 25) sb.Append("  - … (+").Append(o.ExternalPlugins.Count - 25).Append(" more)\n");
         }
 
-        // External OVERRIDERS orphan after the renumber and cannot be auto-repointed, an override being an identity
-        // rather than a link, so each is WARNED about by name instead of taking the referencer path.
+        // Each external OVERRIDER is WARNED about by name; contract in docs/architecture/write-path.md.
         if (o.ExternalOverriders is { Count: > 0 } overriders)
         {
             sb.Append("external OVERRIDERS (").Append(overriders.Count).Append("): these plugins OVERRIDE a renumbered record and will ")
@@ -698,8 +694,7 @@ public static class WriteTools
               .Append(o.Donors.Count).Append(" donors: ").Append(string.Join(", ", o.Donors)).Append('\n');
         sb.Append("mod folder: ").Append(modFolder).Append("  — review in xEdit, then enable it in MO2 (MO2 adds a newly activated plugin at the END of the load order).\n");
         AppendPlacement(sb, o);
-        // The swap is PLUGIN-level, not mod-level: the merged records still reference the donors' files BY PATH, and
-        // only the FormID-keyed facegen/voice/seq were carried, so compact's "disable the donor mods" would break it.
+        // The swap is PLUGIN-level, not mod-level; contract in docs/architecture/write-path.md.
         sb.Append("the swap: deactivate the donor PLUGINS (right pane) — their files are untouched — but KEEP the donor mod ")
           .Append("folders enabled (left pane): the merged records still load the donors' meshes/textures/scripts by path; ")
           .Append("only facegen/voice/seq were carried. If a donor ships a .bsa, it stops auto-loading once its plugin is ")
@@ -787,7 +782,7 @@ public static class WriteTools
         AppendVoiceCarry(sb, o.VoiceRename, inPlace: false);
         AppendSeqRegen(sb, o.SeqRegen, inPlace: false);
 
-        // The merged plugin is a bare mod, so a donor's HEADER does not come along; keyed on what the donors carried.
+        // A donor's HEADER does not come along, and these notes are keyed on what the donors carried; contract in docs/architecture/write-path.md.
         bool lightNoteShown = o.LightCarried || o.LightDonors is { Count: > 0 };
         if (o.LightCarried)
         {
@@ -833,8 +828,7 @@ public static class WriteTools
               .Append(" is NOT flagged as a master — it loads as a plain plugin, in the plugin block rather than the ")
               .Append("master block, so anything depending on that ordering will see it move.\n");
         }
-        // The merged plugin is never flagged localized, so a localized donor's values are written INTO it and its
-        // .STRINGS stop describing it. Keyed on donors houseCARL READ and found flagged.
+        // The merged plugin is never flagged localized, so a localized donor's values are written INTO it.
         if (o.LocalizedDonors is { Count: > 0 } localized)
         {
             sb.Append("NOTE — ").Append(string.Join(", ", localized.Take(10)));
@@ -883,15 +877,14 @@ public static class WriteTools
         else
             sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         sb.Append(WriteSentences.Masters(o.Masters));
-        // Said ABOVE the created rows and outside their budget; a nested child whose PARENT is missing counts too.
+        // Said ABOVE the created rows and outside their budget; contract in docs/architecture/write-path.md.
         var notLanded = o.Created.Where(c => c.AbsentFromFile || c.ParentAbsentFromFile).ToList();
         if (notLanded.Count > 0)
         {
             sb.Append("! ").Append(notLanded.Count)
               .Append(notLanded.Count == 1 ? " created record did NOT land: " : " created records did NOT land: ")
               .Append(WriteSentences.CreateRecordAbsentFromWrittenFile(ReadBackCall(o, file))).Append(". ");
-            // TWO lists, never one: a parent's FormID is not a FormID this call created, and each list selects on its
-            // OWN flag, a child inside a missing parent belonging in both — the child as missing, the parent as why.
+            // TWO lists, never one; contract in docs/architecture/write-path.md.
             var absentCreated = notLanded.Where(c => c.AbsentFromFile).Select(c => FormIdToken.Of(c.FormKey))
                                          .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var absentParents = notLanded.Where(c => c.ParentAbsentFromFile).Select(c => FormIdToken.Of(c.ParentKey!.Value))
@@ -983,19 +976,16 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    /// <summary>What a truncated REMOVE render tells the caller: removal is ALL-OR-NOTHING over the <c>formids=</c>
-    /// passed, so the two sets are the same set, and re-issuing to widen the render is refused.</summary>
+    /// <summary>What a truncated REMOVE render tells the caller; contract in docs/architecture/write-path.md.</summary>
     internal const string RemovedRowsRemedy =                       // internal: the json render says the same thing
         "removal is all-or-nothing, so these rows are exactly the formids= you passed — nothing here is unrecoverable. "
       + "Do NOT re-issue to widen this: the records are gone, so a repeat is refused as 'not carried by' the file";
 
-    /// <summary>What a truncated FORWARD render tells the caller to do, which depends on the LANE: safe to re-issue on
-    /// <c>into=</c> and on a dry run, a SECOND patch mod on the default lane, a read-back on <c>in_place=</c>.</summary>
+    /// <summary>What a truncated FORWARD render tells the caller to do, which depends on the LANE.</summary>
     internal static string ForwardAgainRemedy(WritePatchBuilder.ForwardOutcome o, string file)   // internal: the json render says the same thing
         => WriteAgainRemedy(o.DryRun, o.InPlace, o.Extended, file, "patch mod carrying the same overrides");
 
-    /// <summary>The lane rule generalized: whether re-issuing a write to widen a display is safe is a property of the
-    /// LANE, not of the verb.</summary>
+    /// <summary>The lane rule generalized; contract in docs/architecture/write-path.md.</summary>
     static string WriteAgainRemedy(bool dryRun, bool inPlace, bool extended, string file, string duplicateNoun)
         => dryRun || extended
             ? "raise max_chars to see the rest"

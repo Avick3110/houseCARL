@@ -66,18 +66,16 @@ public static class ApplyTools
             int max_chars = 0) => Guard.Tool(ToolNames.Apply, () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
-        // Ahead of the unconfigured-MO2 prompt, which is prose a json caller could not parse.
+        // Ahead of the unconfigured-MO2 prompt; contract in docs/architecture/write-path.md.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;   // the format value itself is unparsed — there is no known render to answer in
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
 
-        // EVERY refusal below answers in the requested format, with a null epoch: none has consulted a build yet.
         string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
         // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named ------------
-        // A parameter is honoured or refused BY NAME, never accepted-and-ignored, and emptiness is judged ONE way for a
-        // lane string, so the exclusivity checks and the write cannot disagree about whether a lane was named.
+        // A lane is honoured or refused BY NAME; contract in docs/architecture/write-path.md.
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
         bool hasPatch = patchName is not null;
         bool hasInto = !string.IsNullOrWhiteSpace(into);
@@ -132,7 +130,7 @@ public static class ApplyTools
         for (int i = 0; i < edits.Count; i++)
         {
             var e = edits[i];
-            // A refusal names the caller's OWN spelling — assignments[i] x bundle[j] for a zip, ops[i] inline.
+            // A refusal names the caller's OWN spelling; contract in docs/architecture/write-path.md.
             var where = e.Origin ?? $"ops[{i}]";
             if (e.From is not null && !string.Equals(e.Op ?? "Set", "CopyFrom", StringComparison.OrdinalIgnoreCase))
             {
@@ -159,7 +157,7 @@ public static class ApplyTools
                         + string.Join("\n  - ", problems));
 
         var outcome = svc.ApplyEdits(wire, patchName ?? "Patch", into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins);
-        // The lane the CALL named, not one derived from the outcome's flags, which default on a refusal.
+        // The lane the CALL named; contract in docs/architecture/write-path.md.
         return json
             ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
             : WriteTools.Render(outcome, max_chars, readback);
@@ -208,10 +206,8 @@ public static class ApplyTools
         return (clean, null);
     }
 
-    /// <summary>Expand the copy zip into ops: one CopyFrom op per assignment × bundle path, a ZIP and never a product,
-    /// so N targets × M paths is N*M ops over N sources. Only pair-level shape is checked here — FormID syntax, the
-    /// same-type gate and the per-path rulebook are the engine's pre-flight — and each op carries the caller's own
-    /// spelling as its <see cref="ApplyOp.Origin"/>.</summary>
+    /// <summary>Expand the copy zip into ops, one CopyFrom per assignment × bundle path; only pair-level shape is
+    /// checked here, the rest being the engine's pre-flight. Contract in docs/architecture/write-path.md.</summary>
     static (IReadOnlyList<ApplyOp>? Ops, string? Error) ExpandZip(IReadOnlyList<string> paths, JsonElement assignments)
     {
         var (pairs, err) = ReadAssignments(assignments);
