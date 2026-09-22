@@ -502,6 +502,31 @@ public sealed class SkseTransportTests
                     $"{family}: {json.Length} chars against max_chars={cap} — the ~{tail}-char tail was not reserved.");
     }
 
+    /// <summary>The TEXT twin of the reserve: a blocked tree's named roots are charged AND bounded, so the document
+    /// stays inside max_chars instead of shipping a tail wider than the whole budget. The archive-failure and warning
+    /// lines are left uncut on purpose — they predate this and are bounded by the archive count, not the mod count.</summary>
+    [Theory]
+    [InlineData("inventory")]
+    [InlineData("pairing")]
+    [InlineData("config")]
+    public void TheTextCaveatsAreBoundedSoABlockedTreeDoesNotOverrunMaxChars(string family)
+    {
+        const int cap = 8_000;
+        var roots = Enumerable.Range(1, 200)
+            .Select(i => $"BlockedMod{i:D3}: could not read 'SKSE\\Plugins' — " + new string('r', 180)).ToArray();
+        string text = family switch
+        {
+            "inventory" => SkseInventoryWire.Render(Inventory(40, rootFailures: roots), null, cap),
+            "pairing" => NativePairingWire.Render(Pairing(40, rootFailures: roots), null, cap),
+            _ => SkseConfigAuditWire.Render(ConfigAudit(40, rootFailures: roots), null, cap),
+        };
+
+        Assert.Contains("BlockedMod001", text);                        // at least one root is NAMED, whatever the budget
+        Assert.Contains("of 200 loose root read failure(s)", text);     // and the rest are counted
+        Assert.True(text.Length <= cap + OneRowSlack,
+                    $"{family}: {text.Length} chars against max_chars={cap} — the caveat tail was not bounded.");
+    }
+
     /// <summary>The loose-root failures are a caveat array like the warnings, so the reserve has to hold room for them
     /// too — a block added to a capped document without being counted is what broke the census cap in #825.</summary>
     [Theory]

@@ -305,7 +305,7 @@ static class SkseInventoryWire
         // The scope note, caveats and filter hint are written after the rows, so they are charged before them.
         var tail = "(scope: full depth of Data\\SKSE\\Plugins. DLLs are top-level = what SKSE loads; configs at any depth are " +
                    "grouped by folder above. Non-config content (animation/mesh/etc.) is counted in the 'other file(s)' total.)\n" +
-                   Caveats(d) +
+                   Caveats(d, cap) +
                    "\n→ filter='<plugin/mod/DLL name>' for a plugin's full detail, or filter='<folder>' (e.g. SkyPatcher, OStim) to list a config group.";
         // The two sections written whatever the rows cost carry their headings here, with the tail.
         string rosterHead = "\nplugins with metadata (" + Split(rows).Modern.Count + ") — name · version · compat · winning mod:\n";
@@ -468,7 +468,7 @@ static class SkseInventoryWire
         int reserve = TransportAccounting.Reserve(total, windowed, window, notes, MatchNoun);
         // The caveats close this view too, charged with the accounting rather than appended past the cap: a filtered
         // read that names no unreadable archive or mod folder reads as a complete answer.
-        var tail = "\n" + Caveats(d);
+        var tail = "\n" + Caveats(d, cap);
         // cap stays the caller's max_chars; budget is the room the blocks have once the tail is charged.
         int budget = Math.Max(1, cap - trailer - reserve - tail.Length);
         var tally = new RowTally();
@@ -1006,14 +1006,14 @@ static class SkseInventoryWire
     }
 
     /// <summary>The build-level caveats as one string, so a render can charge them before its rows are laid.</summary>
-    static string Caveats(SkseInventoryData d)
+    static string Caveats(SkseInventoryData d, int cap)
     {
         var sb = new StringBuilder();
         if (d.ReadIncomplete)
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a file present only in it may be missing from this inventory (Q3).\n");
         foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
         foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
-        foreach (var f in d.RootFailures) sb.Append("[!] loose root read failure: ").Append(f).Append('\n');
+        sb.Append(BatchRender.RootFailureLines(d.RootFailures, cap));
         return sb.ToString();
     }
 }
@@ -1044,7 +1044,7 @@ static class SkseConfigAuditWire
         var tail = "\n(scope: form-shaped references only — a hex FormID + plugin filename, or a plugin-named folder gate. Bare " +
                    "EditorID/name strings are not validated (Wave 2). Extraction is heuristic over token shapes: a token in a comment " +
                    "or disabled block still counts — 'references this file declares', not 'the DLL will use'. A folder that SHOULD carry " +
-                   "references but shows none may use a reference shape not yet recognized.)\n" + Caveats(d) +
+                   "references but shows none may use a reference shape not yet recognized.)\n" + Caveats(d, cap) +
                    "\n→ filter='<folder/mod/filename/plugin>' to audit one group and see every reference (OKs included).";
         var healthyFiles0 = d.Files.Where(f => f.ReadError is null && f.Refs.Count > 0 && f.Refs.All(r => r.Verdict == SkseRefVerdict.Ok)).ToList();
         var noRefFiles0 = d.Files.Where(f => f.ReadError is null && f.Refs.Count == 0).ToList();
@@ -1204,7 +1204,7 @@ static class SkseConfigAuditWire
         // cap stays the caller's max_chars; budget is the room the file blocks have once the tail is charged.
         string FilesCut(int shown) => "\n  ... [showing " + shown + " of " + hits.Count + " files; raise max_chars]\n";
         // The caveats close this view too, charged like the pairing family's, so a filtered audit hedges what it must.
-        var tail = "\n" + Caveats(d);
+        var tail = "\n" + Caveats(d, cap);
         int budget = Math.Max(1, cap - trailer - reserve - FilesCut(hits.Count).Length - tail.Length);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(
@@ -1371,23 +1371,21 @@ static class SkseConfigAuditWire
         _ => "unknown",
     };
 
-    static void AppendCaveats(StringBuilder sb, SkseConfigAuditData d) => sb.Append(Caveats(d));
-
     /// <summary>The build-level caveats as one string, so a render can charge them against max_chars up front.</summary>
-    static string Caveats(SkseConfigAuditData d)
+    static string Caveats(SkseConfigAuditData d, int cap)
     {
         var sb = new StringBuilder();
-        AppendCaveatsTo(sb, d);
+        AppendCaveatsTo(sb, d, cap);
         return sb.ToString();
     }
 
-    static void AppendCaveatsTo(StringBuilder sb, SkseConfigAuditData d)
+    static void AppendCaveatsTo(StringBuilder sb, SkseConfigAuditData d, int cap)
     {
         if (d.ReadIncomplete)
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a config present only in it may be missing from this audit (Q3).\n");
         foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
         foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
-        foreach (var f in d.RootFailures) sb.Append("[!] loose root read failure: ").Append(f).Append('\n');
+        sb.Append(BatchRender.RootFailureLines(d.RootFailures, cap));
     }
 }
 
@@ -1512,7 +1510,7 @@ static class NativePairingWire
         var tail = "\n(scope: what the winning compiled scripts DECLARE, statically paired to what their mods ship. 'Paired' means the " +
                    "co-shipment evidence is plausible and a candidate DLL loads — NEVER that the DLL registers exactly these functions " +
                    "(registration is runtime behavior, the honest ceiling). Which mods CALL an unpaired class is not scanned (a possible Wave 2).)\n" +
-                   Caveats(d) +
+                   Caveats(d, cap) +
                    "\n→ filter='<class/mod/DLL>' for full detail: native function names, pairing evidence, per-DLL manifests and load verdicts.";
         var tally = new RowTally();
 
@@ -1662,7 +1660,7 @@ static class NativePairingWire
         var hits = window.Apply(allHits);
         int reserve = TransportAccounting.Reserve(allHits.Count, hits.Count, window, notes, RowNoun);
         // The caveats close this view too, so they are charged with the accounting rather than appended past the cap.
-        var tail = "\n" + Caveats(d);
+        var tail = "\n" + Caveats(d, cap);
         // cap stays the caller's max_chars; budget is the room the class blocks have once the tail is charged.
         string ClassesCut(int shown) => "\n  ... [showing " + shown + " of " + hits.Count + " classes; raise max_chars]\n";
         int budget = Math.Max(1, cap - trailer - reserve - tail.Length - ClassesCut(hits.Count).Length);
@@ -1865,22 +1863,20 @@ static class NativePairingWire
         };
     }
 
-    static void AppendCaveats(StringBuilder sb, NativePairingAuditData d) => sb.Append(Caveats(d));
-
     /// <summary>The build-level caveats as one string, so a render can charge them against max_chars up front.</summary>
-    static string Caveats(NativePairingAuditData d)
+    static string Caveats(NativePairingAuditData d, int cap)
     {
         var sb = new StringBuilder();
-        AppendCaveatsTo(sb, d);
+        AppendCaveatsTo(sb, d, cap);
         return sb.ToString();
     }
 
-    static void AppendCaveatsTo(StringBuilder sb, NativePairingAuditData d)
+    static void AppendCaveatsTo(StringBuilder sb, NativePairingAuditData d, int cap)
     {
         if (d.ReadIncomplete)
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a script present only in it may be missing from this audit (Q3).\n");
         foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
         foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
-        foreach (var f in d.RootFailures) sb.Append("[!] loose root read failure: ").Append(f).Append('\n');
+        sb.Append(BatchRender.RootFailureLines(d.RootFailures, cap));
     }
 }

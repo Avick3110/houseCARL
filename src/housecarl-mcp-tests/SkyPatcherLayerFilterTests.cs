@@ -53,6 +53,45 @@ public sealed class SkyPatcherLayerFilterTests
         Assert.DoesNotContain("BlockedMod20", text);                         // and the rest are counted, not written
     }
 
+    /// <summary>The filtered no-match render is the one that most needs the hedge — "nothing matched" over a layer
+    /// that did not fully read — and it goes through its own path, which used to charge the block a second time and
+    /// name nothing. Same fixture, same cap, one filter that matches no INI.</summary>
+    [Fact]
+    public void AFilteredNoMatchNamesTheRootsToo()
+    {
+        var text = SkyPatcherWire.RenderLayer(WithRootFailures(OneNpcFolder(), 20), "nosuchthing", 2_000);
+
+        Assert.Contains("0 of 1 INI(s) match", text);                        // it IS the zero-match render
+        Assert.Contains("BlockedMod01", text);
+        Assert.Matches(@"showing \d+ of 20 loose root read failure\(s\)", text);
+        Assert.DoesNotContain("showing 0 of 20", text);
+        // The block is composed ONCE for both paths, so the filtered render names as many roots as the unfiltered one.
+        // Measured at a cap wide enough for several: charging it twice would spend a quarter of what is left after the
+        // first block, and name fewer folders for the same failures.
+        Assert.Equal(NamedRootCount(SkyPatcherWire.RenderLayer(WithRootFailures(OneNpcFolder(), 20), null, 8_000)),
+                     NamedRootCount(SkyPatcherWire.RenderLayer(WithRootFailures(OneNpcFolder(), 20), "nosuchthing", 8_000)));
+    }
+
+    /// <summary>How many roots a render actually named, off the lines themselves rather than the marker.</summary>
+    static int NamedRootCount(string text) =>
+        System.Text.RegularExpressions.Regex.Matches(text, @"\[!\] loose root read failure: ").Count;
+
+    /// <summary>Enough failed roots to outgrow their share: the block is bounded to a quarter of max_chars and counted,
+    /// so the LAYER — the thing a layer read is for — is still in the answer, and the answer is still inside the cap.
+    /// Before the bound, twenty roots erased the folder listing and pushed the render 767 chars over.</summary>
+    [Fact]
+    public void ManyFailedRootsTakeAShareOfMaxCharsAndNotTheLayer()
+    {
+        var text = SkyPatcherWire.RenderLayer(WithRootFailures(BigLayer(400), 20), null, 4_000);
+
+        Assert.Contains("npc: 400 INI(s)", text);                            // the folder header survived
+        Assert.Contains("Mod001.ini", text);                                 // and so did the listing under it
+        Assert.Contains("BlockedMod01", text);                               // with roots still named
+        Assert.Matches(@"showing \d+ of 20 loose root read failure\(s\)", text);
+        Assert.True(text.Length <= 4_000 + TrailerSlack,
+                    $"{text.Length} chars against max_chars=4000 — the caveat block was not bounded.");
+    }
+
     /// <summary>A short list is not marked as cut — a marker on a complete list would read as a missing name.</summary>
     [Fact]
     public void ARootFailureListThatFitsCarriesNoCutMarker()
