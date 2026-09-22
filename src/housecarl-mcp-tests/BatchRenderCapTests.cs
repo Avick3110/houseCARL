@@ -438,4 +438,34 @@ public class BatchRenderCapTests
         }
         Assert.True(named > 0, "no cap in the sweep named the oversize remedy");
     }
+
+    /// <summary>A caveat block's lists share ONE quarter of max_chars, max-min fair: a short list is shown whole with no
+    /// marker, and the two long lists split what is left instead of the first taking it all. A whole quarter per list
+    /// overruns the block's length; a greedy split leaves the second long list its one forced entry.</summary>
+    [Fact]
+    public void ACaveatBlockSharesOneQuarterFairlyAcrossItsLists()
+    {
+        const int cap = 20_000;
+        var warnings = BatchRender.WarningList(Enumerable.Range(1, 200).Select(i => $"warning {i:D3}: " + new string('w', 180)).ToList());
+        // Three lines of ~218 chars: 654 of them together, well inside any fair share.
+        var archives = BatchRender.ArchiveFailureList(Enumerable.Range(1, 3).Select(i => $"Archive{i}.bsa: " + new string('a', 175)).ToList());
+        var roots = BatchRender.RootFailureList(Enumerable.Range(1, 200).Select(i => $"BlockedMod{i:D3}: " + new string('r', 160)).ToList());
+
+        var cuts = BatchRender.CaveatBlockCut(cap, warnings, archives, roots);
+        string block = BatchRender.CaveatBlockLines(cap, warnings, archives, roots);
+
+        Assert.Equal(3, cuts[1].Shown.Count);                       // the short list, whole
+        Assert.Equal(0, cuts[1].Omitted);
+        Assert.DoesNotContain("archive read failure(s); raise max_chars", block);
+        Assert.InRange(cuts[0].Shown.Count, 8, 12);                 // ~2,170 chars each of the 4,346 left: ~10 warnings,
+        Assert.InRange(cuts[2].Shown.Count, 8, 12);                 // ~11 roots — not 20 and 1
+        // The block itself stays inside the quarter, give or take one line.
+        Assert.True(block.Length <= cap / 4 + 300, $"the caveat block is {block.Length} chars against a quarter of {cap}");
+
+        // At 8,000 the short list's fair share is 666 chars against its 648 of lines: they fit, so all three are shown —
+        // the marker's room is set aside only for a list that will not fit, never out of one that does.
+        var tight = BatchRender.CaveatBlockCut(8_000, warnings, archives, roots);
+        Assert.Equal(3, tight[1].Shown.Count);
+        Assert.Equal(0, tight[1].Omitted);
+    }
 }

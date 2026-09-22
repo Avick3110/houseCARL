@@ -183,7 +183,9 @@ static class BatchRender
     public static (IReadOnlyList<string> Shown, int Omitted) CaveatCut(CaveatList list, int share)
     {
         if (list.Items.Count == 0) return (Array.Empty<string>(), 0);
-        // The marker's own room is charged before the first line, at its WIDEST spelling, as AppendLines charges its cut.
+        // A list whose lines fit is shown whole, with no marker to make room for.
+        if (Demand(list) <= share) return (list.Items, 0);
+        // Otherwise the marker's room is charged before the first line, at its WIDEST spelling, as AppendLines does.
         int room = Math.Max(share - Marker(list.Items.Count, list.Items.Count, list.Noun).Length, 0);
         var shown = new List<string>();
         int used = 0;
@@ -212,9 +214,8 @@ static class BatchRender
     /// A list that fits is whole. Both transports call this, so they cut every list of one build alike.</summary>
     public static (IReadOnlyList<string> Shown, int Omitted)[] CaveatBlockCut(int cap, params CaveatList[] lists)
     {
-        // A list's demand is what it writes whole plus its widest marker, so a list granted its demand is never cut.
-        var demand = lists.Select(l => l.Items.Count == 0 ? 0
-            : l.Items.Sum(i => LineWidth(l, i)) + Marker(l.Items.Count, l.Items.Count, l.Noun).Length).ToArray();
+        // A list granted its demand — what it writes whole — is never cut.
+        var demand = lists.Select(Demand).ToArray();
         var share = new int[lists.Length];
         int left = cap / RootFailureShare;
         var open = Enumerable.Range(0, lists.Length).Where(i => demand[i] > 0).OrderBy(i => demand[i]).ToList();
@@ -235,6 +236,9 @@ static class BatchRender
     }
 
     static int LineWidth(CaveatList list, string item) => list.Lead.Length + item.Length + 1;   // + the line's own newline
+
+    /// <summary>What a list writes whole: its lines, with no marker.</summary>
+    static int Demand(CaveatList list) => list.Items.Sum(i => LineWidth(list, i));
 
     /// <summary>What a cut list closes with — the count is the difference between a trimmed list and a short one.</summary>
     static string Marker(int shown, int total, string noun) =>
