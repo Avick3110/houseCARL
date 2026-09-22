@@ -1,17 +1,18 @@
 ---
-updated: 2026-09-18
-covers: [src/housecarl-core/DialogueInfoOrder.cs, src/housecarl-core/DialogueFold.cs, src/housecarl-core/DialogueValidate.cs, src/housecarl-core/DialogueCkParity.cs, src/housecarl-core/DialogueSubtype.cs, src/housecarl-core/DialogueScriptCheck.cs, src/housecarl-core/DialogueCheck.cs, src/housecarl-mcp/DialogueSweep.cs, src/housecarl-mcp/DialogueSweepRender.cs, src/housecarl-mcp/DialogueTools.cs, src/housecarl-mcp/DialogueKindChecks.cs]
+updated: 2026-09-23
+covers: [src/housecarl-core/DialogueInfoOrder.cs, src/housecarl-core/DialogueFold.cs, src/housecarl-core/DialogueSubtype.cs, src/housecarl-mcp/DialogueTools.cs]
 ---
-# Dialogue: the merge, the fold, CK parity, and what a clean pass means
+# Dialogue: the merged INFO order, the fold, and the SNAM marker
 
-**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `DialogueInfoOrderProbe`, `DialogueCkParityGuardProbe`, `DialogueSubtypeMarkerGuardProbe` and
-`DialogueValidateGuardProbe` (`src/housecarl-generator`), and by `DialogueFamilyTests`, `CheckDialogueFoldTests` and
-`DialogBranchFlagsRefusalTests` (`src/housecarl-mcp-tests`).
-
+## What it is
 The modder-facing page is [`docs/dialogue.md`](../dialogue.md): what decides which line plays, and where a line
 lands. This note is the implementation side — the contracts the code cannot state about itself.
+What houseCARL checks before it lets dialogue out — CK parity, a clean pass, the check family — is
+[`dialogue-validation.md`](dialogue-validation.md).
 
-## The merged INFO order
+## Contracts
+
+### The merged INFO order
 
 A topic's lines are ordered and the game plays the FIRST INFO whose conditions pass, so a pure reorder changes
 behaviour with no field delta anywhere. No single record holds that order: each plugin's DIAL carries only its own
@@ -49,7 +50,7 @@ A view's negative claims are gated: `Complete` (every touching plugin's list rea
 `BaselineTrusted` gates every origin-derived claim including "added by a later plugin", and `MovesComputed` gates
 reading an empty `Moved` as "nothing moved".
 
-## The fold
+### The fold
 
 `DialogueFold` projects ONE off-order plugin into a dialogue read as if it were enabled. Where it lands is read off
 its header against one captured build, and the same `SlotIndex` answers both lanes:
@@ -80,47 +81,7 @@ artifact holds a column. Provenance rides beside the name, never inside it.
 The fold never sets the move baseline unless it DEFINES the topic: a master-block fold can land ahead of the definer,
 which would render the definer's own lines as "added by a later plugin" and half the topic as MOVED.
 
-## CK parity
-
-Mutagen omits a null/unset optional subrecord on write; the Creation Kit writes it unconditionally, nulls included.
-A record authored through houseCARL that sets only the fields the author cared about therefore differs STRUCTURALLY
-from a CK-authored one of the same content. `DialogueCkParity` closes that by default-populating the nullable fields
-the CK always emits, at create time, inside the Mutagen model.
-
-Three invariants hold for every default, and the DialogTopic SNAM marker follows the same pattern:
-
-1. NON-OVERRIDE — fill only where the author left the field null; never clobber an explicit value.
-2. NEVER SILENT — every fill returns a `CkParityFill` the create path surfaces as an `OpResult`.
-3. BY CONSTRUCTION — the values are what a CK-authored record of the same content carries, byte-verified against
-   vanilla reference plugins.
-
-Every fill path and its read-only counterpart share one presence predicate, so a create that FILLS a field and a
-validate that FLAGS its absence cannot disagree. `DialogueCkParityGuardProbe` pins the pairs.
-
-Three tiers:
-
-| tier | fields | consequence of omission |
-|---|---|---|
-| confirmed crash | INFO CNAM (FavorLevel), INFO ENAM (Flags); DLVW DNAM, ENAM | the Creation Kit crashes when the owning topic or the Dialogue Views editor is opened; the game tolerates it |
-| byte parity | DLBR TNAM (Category); DIAL PNAM (Priority); QUST ANAM, objective FNAM, alias FNAM, reference-alias VTCK | a byte mismatch against a CK-authored record, no confirmed crash |
-| in-game behaviour | DLBR DNAM (Flags) | an absent DNAM reads as `TopLevel`, so a branch the author never marked top-level is published to the player's menu |
-
-There is no honest default for DLBR `Flags`, so the create path REFUSES a branch whose `Flags` no op set; why
-neither value is honest, and what to pass, is on [`docs/dialogue.md`](../dialogue.md).
-
-Two exceptions to the is-null signal:
-
-- DIAL `Priority` is a non-nullable float, so "the author left it unset" cannot be read off the record. The create
-  path decides it from the author's OP LIST and passes it in; an explicit value, `0` included, always wins. That is
-  also why the validator never flags its absence — doing so would false-positive every legitimately priority-0 topic.
-- Alias VTCK is scoped to REFERENCE aliases; a Location alias resolves to a place, not an actor, and the same gate
-  guards the fill and the gap.
-
-A `0`-fill materialises the subrecord only, so every named flag inside it — `OrWithPrevious` on an objective, the
-alias flags, and the INFO `Flags` struct's `Goodbye`, which [`docs/dialogue.md`](../dialogue.md) covers — stays an
-explicit authoring choice.
-
-## The SNAM subtype marker
+### The SNAM subtype marker
 
 A DIAL carries its subtype twice: `DATA\Subtype`, a numeric enum, and SNAM, a 4-character text marker. The engine
 buckets topics by the MARKER, and Mutagen writes SNAM verbatim rather than deriving it — so a create that sets only
@@ -142,54 +103,26 @@ The create path fills a BLANK marker only; the edit path syncs a stale one, but 
 and did not set `SubtypeName` — gating on "this call set Subtype" is the caller's job, and it is what keeps the sync
 off the countless vanilla topics whose number is legitimately noisy.
 
-## What a clean pass means
+## Pinned by
+- `DialogueInfoOrderProbe` (`src/housecarl-generator`) — the merged INFO order, by the arms named beside its
+  sentences above.
+- `DialogueFamilyTests.FactD1_TheShippedRenderStatesTheMergeModel` — the `info_order` render states the merge
+  model and never says a line is dropped; `FactD3_UnreadWired` — a touching plugin that could not be read makes
+  the view INCOMPLETE and is named.
+- `CheckDialogueFoldTests.AMasterFoldDoesNotWinWhatARegularPluginOverrides` and
+  `AShadowedFoldTakesTheActiveSlotSoLowerPluginsStillWin` — the fold's placement and its one wins rule;
+  `TheFoldedProvenanceIsRenderedInTextAndCarriedInJson` — provenance rides beside the name.
+- `DialogueSubtypeMarkerGuardProbe` (`src/housecarl-generator`) arms TABLE-SHAPE / TABLE-ANCHOR — the marker
+  table; AUTOFILL / DEFAULT-CUST / EXPLICIT-WINS — the create path fills a blank marker and
+  never overrides an explicit one.
+- `DialogueFamilyTests.ATopicWhoseSubtypeContradictsItsMarkerSaysTheMarkerWins` and
+  `AMismatchWithoutTheRenumberingSignatureSaysTheSubtypeEditIsANoOp` — the disagreement is reported with the
+  marker as authoritative, and the advice turns on the renumbering signature.
 
-`DialogueValidate` runs on demand over a whole topic resolved against the LOAD-ORDER WINNERS. The per-INFO body
-checks walk the WINNING topic's child list, so an INFO another plugin contributes but this winner does not re-list is
-not body-checked: a clean pass means "every line this winner lists is sound", not "every line in this topic is". The
-effective ORDER view is the merge across all of them.
-
-PNAM ABSENCE is never flagged — vanilla leaves it empty and selects intra-topic by Conditions — and only a SET but
-unresolvable PNAM is reported. Deleted INFOs are skipped and tallied. Resolution scope is the active order;
-validating within {plugin + its masters} alone is a deliberately deferred capability. The whole run is wrapped, so a
-resolve or asset failure rides `CheckError` rather than being swallowed.
-
-Standing limits a render must state rather than let "checks passed" read as "this will play": CTDA conditions are
-semantic and only the game evaluates them, and lip-sync and audio content are outside the data layer.
-
-Two ownership gates keep the noisy findings off content the modder neither wrote nor can act on. The SNAM Problem
-escalation fires only where the winner IS the FormKey's defining master — a blank-SNAM override ships in working
-mods, so an override is a Warning. The subtype-disagreement and unmodeled-marker warnings fire only on a record a
-force-loaded plugin does not own, since a base master, a Creation Club plugin or `_ResourcePack.esl` carries
-Bethesda's stale number and is not something the modder can act on. The subtype-disagreement warning carries a
-second exemption the unmodeled-marker warning does not: an override that copies the base record's (Subtype, SNAM)
-pair forward verbatim changed neither field, so it stays quiet, while an override of an unmodeled marker still
-warns. The verdict rides the ungated `subtype_stale` and `subtype_from_marker` fields either way.
-
-The condition lints are the data-layer-decidable subset and every one is a structural true positive; all emit
-Warning. The load-bearing gate is the FLOI mode gate: a condition form parameter is a `FormLinkOrIndex`, a form only
-when `UseAliases` and `UsePackageData` are both false. On the binary overlay an index-mode FLOI's `.Link` is a bogus
-low FormKey synthesised from the index bytes rather than null, so reading it as a form would false-flag a well-formed
-alias-mode gate. The dangling-parameter sweep reflects over the Data arm's properties rather than listing functions,
-so it covers every function Mutagen models — the generated-coverage cornerstone.
-
-Deliberately not linted, as semantic rather than structural: Run On Subject-vs-Target intent, the faction-rank gate
-value, and intra-topic Info-variant ordering.
-
-## The check family
-
-The dialogue family on the merged `check` surface is SEEDED, not swept. Selection is by record — a quest expands into
-every topic it owns — so `plugins=` and `exclude=` do not scope it, and the response says so. An empty seed list is a
-REFUSAL, never a widening: resolving it to "the whole order" would run a whole-order dialogue sweep, which is refused
-on cost. A seed that does not resolve is carried as a named refusal, never dropped, because the scope IS the seed
-list and a discarded seed silently narrows it.
-
-The effective merged INFO order is deliberately absent from this family. It is an ordered sequence over the
-touching-plugin stack rather than a findings list, so it belongs to `records project=info_order`. Both surfaces share
-ONE render, `DialogueWire.AppendInfoOrderView`; the family gates it off.
-
-Which checks a seed's kind runs comes from one table, `DialogueKindChecks`, read both by the seed's own verdict line
-and by the family's boundary claim, so the two cannot disagree. An unrecognised kind claims nothing rather than
-defaulting to the widest set. The same table decides what the epoch stamp names: all three asset-substrate verdicts
-(`.fuz`, `.pex`, `.seq`) live behind the graph checks, so a call whose every seed was a DLVW or DLBR is record
-substrate throughout and the stamp caveats nothing.
+## Where
+- `src/housecarl-core/DialogueInfoOrder.cs` — the merge over `InfoLine` data, and the view with its gates.
+- `src/housecarl-core/DialogueFold.cs` — `DialogueFold`: `PlaceIn`, the `Read` and `Open` depths, `Label`.
+- `src/housecarl-core/DialogueSubtype.cs` — the SNAM marker table and `MarkerDisagreesWithSubtype`.
+- `src/housecarl-mcp/DialogueTools.cs` — `DialogueWire`, the composers a dialogue report is rendered from,
+  including `AppendInfoOrderView`.
+- Tool: `housecarl_records project=info_order`.
