@@ -2,7 +2,7 @@ using System.Text;
 
 namespace HousecarlCore;
 
-/// <summary>The winner-relative CONTENT comparison behind the conflict-tree diff, over DEEP reads rather than depth-1 rendered lines; contracts in docs/architecture/select-and-walk.md.</summary>
+/// <summary>The winner-relative CONTENT comparison behind the conflict-tree diff, over DEEP reads rather than depth-1 rendered lines; contracts in docs/architecture/read-engine.md.</summary>
 public static class FieldsDiff
 {
     /// <summary>Field-level deltas, preformatted for the conflict-tree render; <see cref="Complete"/> false means an empty <see cref="Deltas"/> must NOT be rendered as "identical to winner".</summary>
