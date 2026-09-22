@@ -21,7 +21,7 @@ public enum SweepFamily
 }
 
 /// <summary>The merged <c>findings=</c> vocabulary: which families a call runs, and which classes within each. Family
-/// tokens and class tokens are one vocabulary; contracts in docs/architecture/check-family-tests.md.</summary>
+/// tokens and class tokens are one vocabulary; contracts in docs/architecture/check-families.md.</summary>
 public sealed class SweepFamilySelection
 {
     /// <summary>Every family the merged surface knows, in the order a response renders them — the one place

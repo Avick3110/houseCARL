@@ -10,7 +10,7 @@ namespace HousecarlCore;
 /// VMAD it cross-checks the properties BOUND on the attachment against the properties the attached script's compiled
 /// <c>.pex</c> and its whole <c>extends</c> chain DECLARES, and reports those declared but left unbound. What counts
 /// as a finding, what the sweep does not claim, and how unverifiable attachments ride the filters are in
-/// docs/architecture/check-family-tests.md.</summary>
+/// docs/architecture/check-scripts-and-dialogue-families.md.</summary>
 public static class ScriptPropertyCheck
 {
     /// <summary>The script name an attachment with no class name is reported under; not a real class, so the
@@ -454,7 +454,7 @@ public sealed record RecordScriptFindings(
 /// <summary>The result of <see cref="ScriptPropertyCheck.Run"/>: the per-record findings (only records WITH findings),
 /// the sweep totals, whether the finding list was capped, whether a BSA or a loose mod folder failed to read this build, the plugins the
 /// index build excluded, and — on a scope error — a recoverable <see cref="Error"/> with no reports. Which counts each
-/// narrowing does and does not narrow is in docs/architecture/check-family-tests.md.</summary>
+/// narrowing does and does not narrow is in docs/architecture/check-families.md.</summary>
 public sealed record ScriptCheckResult(
     IReadOnlyList<RecordScriptFindings> Reports,
     int PluginsScanned,

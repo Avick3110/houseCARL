@@ -7,7 +7,7 @@ namespace HousecarlCore;
 /// <summary>The load-order integrity sweep (the errors family on housecarl_check): for each plugin in scope it walks
 /// every record's FormLinks and reports dangling references, missing masters, and parse failures per record and per
 /// plugin. What it claims and what it does not — the scope boundary, the exemptions, the budget phases and the
-/// baseline split — is in docs/architecture/check-family-tests.md.</summary>
+/// baseline split — is in docs/architecture/check-families.md.</summary>
 public static class ErrorCheck
 {
     /// <summary>The BASELINE plugin set — Mutagen's own <c>Implicits.BaseMasters</c> for Skyrim SE, in the library's
@@ -376,7 +376,7 @@ public static class ErrorCheck
     /// <summary>Every FormKey carried in an <see cref="IUntypedOwnerGetter.VariableData"/> slot in
     /// <paramref name="body"/>, as a multiset — the FormKeys the dangling sweep must NOT flag, because that second
     /// COED word is a RequiredRank int Mutagen exposes as a FormLink. Only that word is dropped; the owner form itself
-    /// is still checked. Contract in docs/architecture/check-family-tests.md.</summary>
+    /// is still checked. Contract in docs/architecture/check-families.md.</summary>
     static Dictionary<FormKey, int> UntypedOwnerVariableData(IMajorRecordGetter body)
     {
         var acc = new Dictionary<FormKey, int>();
@@ -420,7 +420,7 @@ public sealed record PluginErrors(
 /// totals, the plugins the index build excluded as unparseable, and — on a scope error — a recoverable
 /// <see cref="Error"/> with no reports. What each field may and may not be read as, including the null-means-not-
 /// computed rule on both histograms and the swept-baseline subset, is in
-/// docs/architecture/check-family-tests.md.</summary>
+/// docs/architecture/check-families.md.</summary>
 public sealed record ErrorCheckResult(
     IReadOnlyList<PluginErrors> Reports,
     int PluginsScanned,
