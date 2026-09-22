@@ -2263,7 +2263,7 @@ public sealed partial class LoadOrderService
         if (offset < 0)
             return CrossQueryOutcome.Fail($"offset={offset} — offset must be >= 0 (it skips that many matches before returning rows).");
         if (offset > 0 && groupBy is not null)
-            return CrossQueryOutcome.Fail("group_by= aggregates ALL matches into a count table (never capped by limit=), so offset= has nothing to page — drop offset=, or drop group_by= for per-match rows.");
+            return CrossQueryOutcome.Fail(ReadSentences.NoOffsetOnCountTable("group_by="));
 
         // where_source= chooses which body the body filters decide on: 'scoped' (default) is the body the scan
         // streams, 'winner' the live load-order winner.
@@ -2784,7 +2784,7 @@ public sealed partial class LoadOrderService
         if (offset < 0)
             return CrossQueryOutcome.Fail($"offset={offset} — offset must be >= 0.");
         if (offset > 0 && groupBy is not null)
-            return CrossQueryOutcome.Fail("group_by= aggregates ALL matches into a count table, so offset= has nothing to page — drop one.");
+            return CrossQueryOutcome.Fail(ReadSentences.NoOffsetOnCountTable("group_by="));
 
         FieldPredicateSet? predicate = null;
         if (where is { Count: > 0 })

@@ -174,6 +174,20 @@ internal static class ReadSentences
         : clauses == 1 ? Math.Max(UnionFraming.Length, NotReadFraming.Length) + ClauseFieldsMaxChars + ClauseGlue
         : UnionFraming.Length + NotReadFraming.Length + 2 * (ClauseFieldsMaxChars + ClauseGlue);
 
+    // ---- a count table does not page ----------------------------------------------------------------
+
+    /// <summary>The one sentence every lane refuses <c>offset=</c> against a count table with (Aaron 2026-09-22,
+    /// #810; SPEC §2.1). <c>{0}</c> is the knob that asked for the table, so the four lanes name their own without
+    /// spelling the rule four ways. It is a string.Format template: every literal brace would be doubled.</summary>
+    [MustState("count table", "COMPLETE selection", "caps with limit=", "does not page", "to_file=", "drop offset=")]
+    internal const string CountTableNoOffset =
+        "{0} answers as a count table over the COMPLETE selection: a count table caps with limit= and does not " +
+        "page, so offset= has nothing to move — drop offset=, or drop {0} and spill the complete result with " +
+        "to_file=.";
+
+    /// <summary>The sentence with the asking knob named.</summary>
+    internal static string NoOffsetOnCountTable(string knob) => string.Format(CountTableNoOffset, knob);
+
     // ---- the sweep response's omission accounting ---- The prose half of CheckAccounting; the arithmetic is there,
     // and every number below arrives already computed from what the render emitted.
 

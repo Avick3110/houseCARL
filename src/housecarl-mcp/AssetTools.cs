@@ -129,8 +129,7 @@ public static class AssetTools
         }
         // A census covers the whole selection, so there is no selection window for offset= to move.
         if (counts_only && offset > 0)
-            return Wire.Refuse(json, "error: counts_only= counts the COMPLETE selection, so offset= has nothing to " +
-                                     "page — drop offset=, and use limit= to page the census table's rows.");
+            return Wire.Refuse(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only="));
 
         // The @file convention on both list inputs, each taking the identity column its own tokens are made of.
         var (pathTokens, pathDemand, pathEcho, perr) =
