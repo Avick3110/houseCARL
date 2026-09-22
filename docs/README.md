@@ -36,14 +36,16 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 | Note | What it covers |
 |---|---|
 | [`architecture/nexus.md`](architecture/nexus.md) | Keyless read-only access to the Nexus Mods v2 GraphQL API: search, mod detail, file-level update checks, MD5 identify, and the raw-query backstop. |
-| [`architecture/papyrus.md`](architecture/papyrus.md) | The compile and decompile lanes: where the import path comes from and why its order is semantics, how success is decided, and the decompiler's fail-loud contracts. |
+| [`architecture/papyrus.md`](architecture/papyrus.md) | The compile lane: where the import path comes from and why its order is semantics, how success is decided, and the class hierarchy the decompiler reads. |
+| [`architecture/papyrus-decompile.md`](architecture/papyrus-decompile.md) | The decompile lane: the codegen patterns it reads and the decompiler's fail-loud contracts. |
 
 ### Instance, status, config
 
 | Note | What it covers |
 |---|---|
 | [`architecture/mo2-instance.md`](architecture/mo2-instance.md) | houseCARL reads a live MO2 portable instance off disk, never through the USVFS, so the instance ini and the three profile files are the only standalone source of truth. |
-| [`architecture/load-order-resolver.md`](architecture/load-order-resolver.md) | The held structural index over the active order and the service that owns its lifecycle: zero handles at rest, one immutable snapshot per build, exclusion, the epoch, freshness, and the two gates. |
+| [`architecture/load-order-resolver.md`](architecture/load-order-resolver.md) | The held structural index over the active order: zero handles at rest, one immutable snapshot per build, exclusion, the epoch, freshness, and the two gates. |
+| [`architecture/load-order-service.md`](architecture/load-order-service.md) | The service that owns the resolver's lifecycle: the lazy build, the profile refresh and the two lanes' split on a held profile, the asset build, and the three configuration modes. |
 
 ### Assets, SKSE, NIF, SkyPatcher
 
