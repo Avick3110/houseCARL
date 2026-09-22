@@ -11,7 +11,8 @@ namespace HousecarlMcpTests;
 /// <summary>The four lanes #827 did not reach, each of which hedged that "a BSA or a loose mod folder failed to read"
 /// and named no folder: the facegen sweep, the scripts sweep, the per-property ".pex not on disk" reason, and the
 /// write lane's carry and coverage notes. Each now names the mod folder it could not read (#850), in both transports
-/// where the lane has one, and ONCE per document — every lane in one response reads one asset build.</summary>
+/// where the lane has one, and ONCE per document — every lane in one response reads one asset build. The dialogue
+/// family and the place refusal, left out of both lists, do the same (#863).</summary>
 [Trait("tier", "integration")]
 public sealed class UnreadableRootNamedLanesTests : IDisposable
 {
@@ -46,6 +47,43 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
 
         Assert.Contains(".pex not on disk", text, StringComparison.Ordinal);
         Assert.Contains(Named(BlockedSweepWorld.BlockedMod), text, StringComparison.Ordinal);
+    }
+
+    /// <summary>The dialogue family hedges an "absent" voice file or .pex on the same build, so the response names the
+    /// root at its top in both transports (#863).</summary>
+    [Fact]
+    public void TheDialogueFamilyNamesTheRootItCouldNotRead()
+    {
+        Assert.True(_w.Blocked, BlockedSweepWorld.NotStaged);
+        var seeds = new[] { _w.TopicSeed };
+
+        var text = CheckTools.CheckTool(_w.Svc, findings: new[] { "dialogue" }, seeds: seeds, max_chars: 60000);
+        var json = CheckTools.CheckTool(_w.Svc, findings: new[] { "dialogue" }, seeds: seeds, format: "json",
+                                        max_chars: 60000);
+
+        Assert.Contains("may merely be unscanned", text, StringComparison.Ordinal);
+        Assert.Contains(Named(BlockedSweepWorld.BlockedMod), text, StringComparison.Ordinal);
+        Assert.Contains(RootArrayOf(json), r => r.StartsWith(BlockedSweepWorld.BlockedMod, StringComparison.Ordinal));
+    }
+
+    /// <summary>The place refusal for a path nothing provides hedges on the build, on both arms — no source, and a named
+    /// source nothing provides — so the response names the root above its rows in both transports (#863).</summary>
+    [Fact]
+    public void ThePlaceRefusalNamesTheRootItCouldNotRead()
+    {
+        Assert.True(_w.Blocked, BlockedSweepWorld.NotStaged);
+
+        var outcome = _w.Svc.PlaceAssets(new[]
+        {
+            new PlaceRequest(@"meshes\hcrootnowhere\absent.nif", null),
+            new PlaceRequest(@"meshes\hcrootnowhere\dest.nif", @"meshes\hcrootnowhere\src.nif"),
+        }, null, null);
+        var text = PlaceWire.Render(outcome, 60000);
+        var json = JsonWire.RenderPlaceOutcome(outcome, 60000);
+
+        Assert.All(outcome.Results, r => Assert.Contains(WriteSentences.PlaceSourceScanIncomplete, r.Error));
+        Assert.Contains(Named(BlockedSweepWorld.BlockedMod), text, StringComparison.Ordinal);
+        Assert.Contains(RootArrayOf(json), r => r.StartsWith(BlockedSweepWorld.BlockedMod, StringComparison.Ordinal));
     }
 
     /// <summary>One response, two families that hedge, one asset build: the list is the response's, so it is named at
@@ -341,8 +379,8 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
 }
 
 /// <summary>Its own instance, never a shared fixture: it denies the current account one whole mod folder. The order
-/// carries an NPC, so the facegen sweep scans, and a weapon bound to a script class no mod compiles, so the scripts
-/// sweep reaches the per-property ".pex not on disk" reason.</summary>
+/// carries an NPC, so the facegen sweep scans, a weapon bound to a script class no mod compiles, so the scripts
+/// sweep reaches the per-property ".pex not on disk" reason, and a topic for the dialogue family to seed.</summary>
 sealed class BlockedSweepWorld : IDisposable
 {
     public const string BlockedMod = "RootBlockedSweepMod";
@@ -351,6 +389,9 @@ sealed class BlockedSweepWorld : IDisposable
     public string Root { get; }
     public LoadOrderService Svc { get; }
     public bool Blocked { get; }
+
+    /// <summary>The staged topic, as a dialogue seed.</summary>
+    public string TopicSeed { get; }
 
     readonly string _blockedDir;
 
@@ -381,6 +422,16 @@ sealed class BlockedSweepWorld : IDisposable
         var vmad = new VirtualMachineAdapter();
         vmad.Scripts.Add(new ScriptEntry { Name = "HcRootSweepUncompiled" });
         weapon.VirtualMachineAdapter = vmad;
+        // A topic whose one line carries an uncompiled result script, so the dialogue family reads the Scripts subtree.
+        var topic = mod.DialogTopics.AddNew();
+        topic.EditorID = "HcRootSweepTopic";
+        var info = new DialogResponses(mod.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcRootSweepInfo" };
+        var infoVmad = new DialogResponsesAdapter();
+        infoVmad.Scripts.Add(new ScriptEntry { Name = "HcRootSweepLineUncompiled" });
+        info.VirtualMachineAdapter = infoVmad;
+        info.Responses.Add(new DialogResponse { ResponseNumber = 1 });
+        topic.Responses.Add(info);
+        TopicSeed = topic.FormKey.ToString();
         mod.BeginWrite.ToPath(Path.Combine(pluginMod, key.FileName.String))
            .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
