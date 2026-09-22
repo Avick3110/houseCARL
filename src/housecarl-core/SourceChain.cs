@@ -3,7 +3,7 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlCore;
 
-// SourceChain — the ordered source universe a walk resolves each link against, first hit wins, never a merge. Contracts in docs/architecture/select-and-walk.md.
+// SourceChain — the ordered source universe a walk resolves each link against, first hit wins, never a merge. Contracts in docs/architecture/walk-and-reverse.md.
 
 public static class SourcePoles
 {

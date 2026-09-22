@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlCore;
 
-// ClosureWalk — the generic link walk; expansion is Mutagen's own EnumerateFormLinks and everything domain-specific arrives as data. Contracts in docs/architecture/select-and-walk.md.
+// ClosureWalk — the generic link walk; expansion is Mutagen's own EnumerateFormLinks and everything domain-specific arrives as data. Contracts in docs/architecture/walk-and-reverse.md.
 
 /// <summary>How hard an exclusion bites when the walk reaches a matching record.</summary>
 public enum ExclusionSeverity

@@ -15,7 +15,7 @@ public enum LocalizedFlagRead
     Unreadable,
 }
 
-/// <summary>Which strings shape a plugin is in — the one classifier behind every localized-write decision; the shapes are listed in docs/architecture/select-and-walk.md.</summary>
+/// <summary>Which strings shape a plugin is in — the one classifier behind every localized-write decision; the shapes are listed in docs/architecture/write-path.md.</summary>
 public enum LocalizedShape
 {
     NotLocalized,
@@ -71,7 +71,7 @@ public sealed record LocalizedAssessment(
     public UnmatchedTableFiles UnmatchedTables { get; init; } = UnmatchedTables ?? UnmatchedTableFiles.None;
 }
 
-/// <summary>Classifies where a localized plugin's <c>.STRINGS</c> / <c>.DLSTRINGS</c> / <c>.ILSTRINGS</c> actually live; it supplies WORDS, not the in-place outcome (docs/architecture/select-and-walk.md).</summary>
+/// <summary>Classifies where a localized plugin's <c>.STRINGS</c> / <c>.DLSTRINGS</c> / <c>.ILSTRINGS</c> actually live; it supplies WORDS, not the in-place outcome (docs/architecture/write-path.md).</summary>
 public static class LocalizedStrings
 {
     /// <summary>The three table kinds a localized plugin's text is split across; a language is COMPLETE only with all three.</summary>

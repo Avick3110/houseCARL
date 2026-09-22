@@ -9,7 +9,7 @@ namespace HousecarlCore;
 
 // ClosureCopy — internalize a ClosureWalk's reached set into a patch under fresh keys, then make
 // the artifact honest about what it still points at.
-// Contracts in docs/architecture/write-path.md; the walk itself is docs/architecture/select-and-walk.md.
+// Contracts in docs/architecture/write-path.md; the walk itself is docs/architecture/walk-and-reverse.md.
 
 /// <summary>One record internalized: where it came from, where it landed, and which source arm produced its body.</summary>
 public sealed record CopiedRecord(
