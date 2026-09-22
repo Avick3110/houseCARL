@@ -283,24 +283,26 @@ internal static class ReadSentences
     internal const string SweepClose = "]";
 
     /// <summary>The lead both overrun sentences share, enumerating what a response carries whatever the budget
-    /// says.</summary>
-    [MustState("its header", "the accounting above", "cut short", "the boundary")]
+    /// says. Its three numbers are worded exactly as <see cref="RenderCap.Overran"/> words them — the merged sweep's
+    /// notice and every other json document's <c>max_chars_overrun</c> are one member, so they are read with one
+    /// parser; what differs is the clause BETWEEN the numbers, which names which of the two overruns happened.</summary>
+    [MustState("response is", "over the max_chars=", "its header", "the accounting above", "cut short", "the boundary")]
     internal const string SweepFixedPartLead =
-        " This response is {2} chars, longer than the max_chars={0} it was given: what it must carry whatever the " +
+        " This response is {2} chars, over the max_chars={0} it was given: what it must carry whatever the " +
         "budget — its header, the accounting above, the closing line for anything it cut short, the boundary — ";
 
     /// <summary>The one arm where the response may exceed max_chars, and it says so.</summary>
-    [MustState("max_chars=", "raise it to at least", "its header", "the accounting above",
+    [MustState("max_chars=", "raise max_chars to at least", "its header", "the accounting above",
                "the closing line for anything it cut short", "the boundary")]
     internal const string SweepCapTooSmall =
-        SweepFixedPartLead + "does not fit in that many chars, so raise it to at least {1}.";
+        SweepFixedPartLead + "does not fit in that many chars, so raise max_chars to at least {1}.";
 
     /// <summary>The other way a response ends up over its cap.</summary>
-    [MustState("max_chars=", "raise it to at least", "its header", "the accounting above",
+    [MustState("max_chars=", "raise max_chars to at least", "its header", "the accounting above",
                "the closing line for anything it cut short", "the boundary")]
     internal const string SweepCapOvershot =
         SweepFixedPartLead + "does fit, but one body unit was written before its size could be measured and ran " +
-        "past what was left, so raise it to at least {1}.";
+        "past what was left, so raise max_chars to at least {1}.";
 
     /// <summary>The sweep's honest scope boundary, stated to both transports from here so the two cannot
     /// drift.</summary>

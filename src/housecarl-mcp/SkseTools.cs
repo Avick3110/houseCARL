@@ -124,8 +124,10 @@ public static class SkseTools
             SkseFamily.Pairing => renders.Pairing(call),
             _ => renders.Config(call),
         };
-        // The one arm a bounded render may still exceed on is NAMED rather than left to be discovered.
-        return RenderCap.Settle(body + footer, max_chars > 0 ? max_chars : 80_000);
+        // The one arm a bounded render may still exceed on is NAMED rather than left to be discovered. The json
+        // documents name it INSIDE themselves (max_chars_overrun), so the text notice must not be glued on past
+        // their root close, which would stop them being json at all.
+        return json ? body : RenderCap.Settle(body + footer, cap);
     }
 
     /// <summary>The two families this call did not run, in the spelling that would — the json twin of <see cref="FamilyFooter"/>.</summary>
@@ -864,6 +866,7 @@ static class SkseInventoryWire
         int rendered = 0;
         int folderCount = d.Configs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         // The tail is paid for inside max_chars, exactly as the text render's own reserve does.
+        int callerCap = cap;   // the overrun member is measured against what the CALLER passed
         // The named-root array takes the same share of the CALLER's max_chars the text tail takes, so the two
         // lanes bound the same list the same way; the reserve composes the bounded block, not the whole list.
         int rootShare = cap / BatchRender.RootFailureShare;
@@ -871,7 +874,7 @@ static class SkseInventoryWire
             TransportAccounting.Widest(total, windowed, window, notes),
             tw => { tw.WriteString("peek_note", PeekNoDllNote); tw.WriteNumber("config_folders_truncated", folderCount); }));
 
-        return SkseJsonDoc.Write(SkseTools.SkseFamily.Inventory, filter, d.ProfileName, (w, ms) =>
+        return SkseJsonDoc.Write(SkseTools.SkseFamily.Inventory, filter, d.ProfileName, callerCap, (w, ms) =>
         {
             SkseJsonDoc.Nullable(w, "installed_runtime", d.InstalledRuntime);
             w.WriteStartObject("totals");
@@ -1302,13 +1305,14 @@ static class SkseConfigAuditWire
         int notes = NoteCount(d);
         int rendered = 0;
         // The caveats and accounting tail is paid for inside max_chars rather than appended past it.
+        int callerCap = cap;   // the overrun member is measured against what the CALLER passed
         // The named-root array takes the same share of the CALLER's max_chars the text tail takes, so the two
         // lanes bound the same list the same way; the reserve composes the bounded block, not the whole list.
         int rootShare = cap / BatchRender.RootFailureShare;
         cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare,
             TransportAccounting.Widest(allFiles.Count, files.Count, window, notes)));
 
-        return SkseJsonDoc.Write(SkseTools.SkseFamily.Config, filter, d.ProfileName, (w, ms) =>
+        return SkseJsonDoc.Write(SkseTools.SkseFamily.Config, filter, d.ProfileName, callerCap, (w, ms) =>
         {
             int Verdicts(SkseRefVerdict v) => flatAll.Count(r => r.Verdict == v);
             w.WriteStartObject("totals");
@@ -1760,6 +1764,7 @@ static class NativePairingWire
         int notes = NoteCount(d);
         int rendered = 0;
         // The tail — the unreadable-pex cut marker, caveats, accounting — is paid for inside max_chars.
+        int callerCap = cap;   // the overrun member is measured against what the CALLER passed
         // The named-root array takes the same share of the CALLER's max_chars the text tail takes, so the two
         // lanes bound the same list the same way; the reserve composes the bounded block, not the whole list.
         int rootShare = cap / BatchRender.RootFailureShare;
@@ -1767,7 +1772,7 @@ static class NativePairingWire
             TransportAccounting.Widest(allClasses.Count, classes.Count, window, notes),
             tw => tw.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count)));
 
-        return SkseJsonDoc.Write(SkseTools.SkseFamily.Pairing, filter, d.ProfileName, (w, ms) =>
+        return SkseJsonDoc.Write(SkseTools.SkseFamily.Pairing, filter, d.ProfileName, callerCap, (w, ms) =>
         {
             SkseJsonDoc.Nullable(w, "installed_runtime", d.InstalledRuntime);
             // Tri-state: null is "the check itself failed", never a checked-and-absent verdict.

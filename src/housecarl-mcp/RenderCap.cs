@@ -39,8 +39,10 @@ internal readonly record struct RenderCap(int Cap, int Budget)
     static string Say(int length, int cap) => "\n[!] " + Overran(length, cap);
 
     /// <summary>The one sentence either transport closes an over-cap response with, so text and json state one
-    /// answer: the response's length, the cap it was given, and the cap that clears it in one step. The json twin is
-    /// <c>max_chars_overrun</c>, written by <c>JsonWire.WriteCapOverrun</c>.</summary>
+    /// answer: the response's length, the cap it was given, and the cap THIS response would have fitted in. A wider
+    /// cap renders more rows, so that number is about this answer and not a promise about the next call; the merged
+    /// sweep's own twin adds the growth term for that. The json twin is <c>max_chars_overrun</c>, written by
+    /// <c>JsonWire.WriteCapOverrun</c>.</summary>
     internal static string Overran(int length, int cap) =>
         "this response is " + length + " chars, over the max_chars=" + cap + " it was given: what it must carry " +
         "whatever the budget — its header, the notices it owes, its accounting — does not fit in that many, so raise " +

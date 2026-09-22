@@ -440,8 +440,8 @@ public sealed class CheckErrorsFamilyTests
         {
             var text = Text(r, cap);
             Assert.True(text.Length > cap, $"expected an overrun at cap={cap}");
-            Assert.Contains("longer than the max_chars=" + cap + " it was given", text);
-            Assert.Contains("does not fit in that many chars, so raise it to at least ", text);
+            Assert.Contains("over the max_chars=" + cap + " it was given", text);
+            Assert.Contains("does not fit in that many chars, so raise max_chars to at least ", text);
         }
     }
 
@@ -454,16 +454,16 @@ public sealed class CheckErrorsFamilyTests
     {
         var r = Svc.CheckErrors(null, 1000, findings: null);
         var atOne = Text(r, 1);
-        const string marker = "raise it to at least ";
+        const string marker = "raise max_chars to at least ";
         int idx = atOne.IndexOf(marker, StringComparison.Ordinal);
         var digits = new string(atOne.Substring(idx + marker.Length).TakeWhile(char.IsDigit).ToArray());
         int raiseTo = int.Parse(digits);
 
         // Sufficient: the notice clears exactly at the named cap.
-        Assert.DoesNotContain("raise it to at least", Text(r, raiseTo));
+        Assert.DoesNotContain("raise max_chars to at least", Text(r, raiseTo));
         // Minimal within slack: two below the named cap the notice is still present, so the remedy is not
         // wildly larger than the true floor (which is one below the named cap on this world).
-        Assert.Contains("raise it to at least", Text(r, raiseTo - 2));
+        Assert.Contains("raise max_chars to at least", Text(r, raiseTo - 2));
     }
 
     // ---- fact 26 ------------------------------------------------------------------------------------------

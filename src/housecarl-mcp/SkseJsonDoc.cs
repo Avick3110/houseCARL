@@ -10,7 +10,9 @@ namespace HousecarlMcp;
 static class SkseJsonDoc
 {
     /// <summary>Write one family document; <paramref name="body"/> gets the writer and the stream, so a row loop can flush and measure.</summary>
-    internal static string Write(SkseTools.SkseFamily family, string? filter, string profile,
+    /// <param name="callerCap">the max_chars the CALLER passed, not the budget left after the tail reserve: a
+    /// document that shipped over it closes with <c>max_chars_overrun</c>, as every other json document does.</param>
+    internal static string Write(SkseTools.SkseFamily family, string? filter, string profile, int callerCap,
                                  Action<Utf8JsonWriter, CharCountedStream> body)
     {
         using var ms = new CharCountedStream();
@@ -22,6 +24,7 @@ static class SkseJsonDoc
             Nullable(w, "filter", string.IsNullOrWhiteSpace(filter) ? null : filter.Trim());
             w.WriteString("profile", profile);
             body(w, ms);
+            JsonWire.WriteCapOverrun(w, ms, callerCap);
             w.WriteEndObject();
         }
         return Encoding.UTF8.GetString(ms.ToArray());

@@ -75,7 +75,7 @@ public class CheckCapCharsTests
             var notice = n.GetString()!;
             Assert.Equal(json.Length, Stated(notice, "This response is "));
 
-            int raiseTo = Stated(notice, "raise it to at least ");
+            int raiseTo = Stated(notice, "raise max_chars to at least ");
             var cleared = Json(r, raiseTo);
             Assert.False(JsonDocument.Parse(cleared).RootElement.TryGetProperty("max_chars_overrun", out _),
                          $"max_chars={cap} named {raiseTo}, which did not clear the notice");

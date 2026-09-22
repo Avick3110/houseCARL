@@ -522,7 +522,7 @@ internal static class CheckShapeMatrix
     static int? StatedLength(string notice) => Number(notice, NoticeOpener, " chars");
 
     /// <summary>The cap the notice tells the caller to raise to.</summary>
-    static int? RaiseTo(string notice) => Number(notice, "raise it to at least ", ".");
+    static int? RaiseTo(string notice) => Number(notice, "raise max_chars to at least ", ".");
 
     static int? Number(string s, string after, string before)
     {

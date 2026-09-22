@@ -750,6 +750,22 @@ public sealed class SkseTransportTests
         Assert.Contains("raise max_chars to at least ", text);
     }
 
+    /// <summary>The json twin of the arm above (#809): an over-cap skse json document says so IN the document, as
+    /// every other json document does. It used to have the TEXT notice glued on past its root close by Dispatch's
+    /// shared `RenderCap.Settle`, which stopped it being json at all — the parse here is half the assertion.</summary>
+    [Fact]
+    public void AnOverCapJsonFamilyDocumentStaysJsonAndSaysItOverran()
+    {
+        var renders = new StubRenders(Inventory(300, configs: 300, folders: 60), Pairing(300), ConfigAudit(300, refs: 4));
+
+        foreach (var family in new[] { SkseTools.SkseFamily.Inventory, SkseTools.SkseFamily.Pairing, SkseTools.SkseFamily.Config })
+        {
+            var f = family;
+            string Render(int cap) => SkseTools.Dispatch(renders, f, filter: null, peek: false, max_chars: cap, json: true);
+            JsonOverrun.StatesTheThreeNumbers(Render(200), 200, Render);
+        }
+    }
+
     /// <summary>The three families over one set of synthetic data, so Dispatch can be driven without a live
     /// instance.</summary>
     sealed class StubRenders(SkseInventoryData inv, NativePairingAuditData pair, SkseConfigAuditData cfg) : SkseTools.IFamilyRenders
