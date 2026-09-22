@@ -50,7 +50,7 @@ public static class SeqTools
         if (svc.ConfigPromptOrNull() is { } cfgPrompt)
             return json ? JsonWire.RenderError(cfgPrompt, null) : cfgPrompt;
 
-        // Lane exclusivity: out_path= supersedes patch=/into= saying so, the pair refuses, and out_path= is first.
+        // Lane exclusivity, out_path= first; contract in docs/architecture/write-path.md.
         string? outputNote = null;
         if (!string.IsNullOrWhiteSpace(out_path))
         {
@@ -83,7 +83,7 @@ public static class SeqTools
 
         var sb = new StringBuilder();
         var seqName = Path.GetFileName(o.SeqPath);
-        // "already current" is its own headline: a skipped write reported as a write reads like a silent failure.
+        // "already current" is its own headline; contract in docs/architecture/write-path.md.
         sb.Append(o.Unchanged ? "unchanged — " : o.Replaced ? "replaced " : "wrote ").Append(seqName).Append(": ").Append(o.Quests.Count)
           .Append(o.Quests.Count == 1 ? " start-game-enabled quest" : " start-game-enabled quests")
           .Append(o.Unchanged
@@ -132,7 +132,7 @@ public static class SeqTools
         // Never a clean "done" for a .seq the engine will not read.
         if (o.DeployWarning is { Length: > 0 } dw) sb.Append('\n').Append(dw);
         if (outputNote is { Length: > 0 }) sb.Append('\n').Append(outputNote);
-        // The absent epoch is STATED, or the response reads like one that dropped the stamp.
+        // The absent epoch is STATED; contract in docs/architecture/write-path.md.
         sb.Append("\nno epoch on this call: ").Append(WriteSentences.Twins.SeqNoEpoch);
         sb.Append("\nnote: ").Append(WriteSentences.Twins.SeqStandingLimit);
         return sb.ToString();

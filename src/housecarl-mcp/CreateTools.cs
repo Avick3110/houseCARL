@@ -51,17 +51,16 @@ public static class CreateTools
             int max_chars = 0) => Guard.Tool(ToolNames.Create, () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
-        // Resolved BEFORE the unconfigured-MO2 prompt, which is prose a json caller could not parse.
+        // Resolved BEFORE the unconfigured-MO2 prompt; contract in docs/architecture/write-path.md.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;   // the format value itself is unparsed — there is no known render to answer in
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
 
-        // EVERY refusal below answers in the requested format, with a null epoch: none has consulted a build yet.
         string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
         // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named ------------
-        // A parameter is honoured or refused BY NAME, never accepted-and-ignored.
+        // A lane is honoured or refused BY NAME; contract in docs/architecture/write-path.md.
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
         bool hasPatch = patchName is not null;
         bool hasInto = !string.IsNullOrWhiteSpace(into);
@@ -115,7 +114,7 @@ public static class CreateTools
         }
 
         var outcome = svc.CreateRecordsBatch(wire, patchName, into, readback, in_place, hasInPlace, acknowledge, replace);
-        // The lane the CALL named — stated, not derived from the outcome's flags.
+        // The lane the CALL named; contract in docs/architecture/write-path.md.
         return json
             ? JsonWire.RenderCreateOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
             : WriteTools.RenderCreate(outcome, max_chars, readback);

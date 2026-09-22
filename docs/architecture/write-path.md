@@ -155,8 +155,9 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   it. A nested child whose PARENT is missing belongs in both lists, each selected on its own flag.
 - Whether re-issuing a write to widen a truncated display is safe is a property of the LANE, not of the verb: safe on
   `into=` and on a dry run, a SECOND patch mod on the default lane, a read-back on `in_place=`, and a READ rather
-  than a re-issue after a create, which would allocate the records again. The budget and cut-notice mechanics are
-  [`render-budget.md`](render-budget.md)'s.
+  than a re-issue after a create, which would allocate the records again. A removal is the one exception with no lane
+  to consult — it is all-or-nothing over the `formids=` passed, so those rows ARE that set and a re-issue is refused.
+  The budget and cut-notice mechanics are [`render-budget.md`](render-budget.md)'s.
 - The touched-record verify is forced on the in-place lane and renders compact by default, in full only on
   `full_readback=true`. A dry run's records come from the in-memory would-be content and the render says so first, so
   a dry run can never read like a write.
