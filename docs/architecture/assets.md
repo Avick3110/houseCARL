@@ -39,12 +39,13 @@ resolver reads no profile.
   `ReadIncomplete`, which is the caveat an `Exists=false` depends on.
 - **A loose root that will not read is named the same way.** A walk or a subtree listing that throws lands in
   `RootFailures` and sets `ReadIncomplete` too, so a root neither lane could read is said rather than silently
-  omitted. Every lane that builds from an asset view carries it — `asset_status`, the three `skse` families, the
-  SkyPatcher layer, the NIF batch — each rendering the root beside the archive failures, because a hedge that does not
-  name the folder leaves the modder nothing to act on. A directory that will not even stat counts:
-  `Directory.Exists` answers "not there" for one this account
-  cannot reach, so an absence is trusted only where a readable ancestor lists the name as missing; the ancestor stats
-  and their listings are memoized for the build. **A memo never makes a failure.** Before a root is called unreadable
+  omitted. `asset_status`, the three `skse` families, the SkyPatcher layer and the NIF batch each render the root
+  beside the archive failures, because a hedge that does not name the folder leaves the modder nothing to act on. The
+  facegen sweep, the script-read and facegen/voice-carry notes and `ScriptPropertyCheck` still hedge on
+  `ReadIncomplete` without naming a root — the same gap in lanes #827 did not enumerate, tracked in #850. A directory
+  that will not even stat counts: `Directory.Exists` answers "not there" for one this account cannot reach, so an
+  absence is trusted only where a readable ancestor lists the name as missing; the ancestor stats and their listings
+  are memoized for the build. **A memo never makes a failure.** Before a root is called unreadable
   the disk is asked again, uncached, so a name that has gone since the listing was cached, and a name that is a file
   rather than a directory, are absences like any other. It is filled lazily and kept for the life of the build, so a later
   call names a root an earlier one found unreadable — the flag is the build's, not the call's. **What clears it is a

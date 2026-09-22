@@ -53,6 +53,10 @@ static class SkyPatcherWire
     public static string RenderLayer(SkyPatcherLayerData d, string? filter, int cap)
     {
         var sb = new StringBuilder();
+        // The caveats are composed FIRST and their room held back, because they CLOSE the render: appended last
+        // against a cap the body has already spent, the one thing the reader has to know is the first thing cut.
+        var caveats = Caveats(d, cap);
+        cap = Math.Max(1, cap - caveats.Length);
         var folders = d.Scan.Folders;
         filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();   // a blank filter is no filter, never a match-everything
         // A filter matching nothing must never fall through to the unfiltered overview — that reads as the whole layer.
@@ -225,7 +229,7 @@ static class SkyPatcherWire
             if (sb.Length >= cap) break;
             sb.Append("[!] ").Append(note).Append('\n');
         }
-        AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings, d.RootFailures, cap);
+        sb.Append(caveats);
         sb.Append("\n→ " + ToolNames.Records + " formids=['<FormID>'] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' for just the type folders holding a match, each listed in full apply order with the matching files expanded to their lines.");
         return sb.ToString().TrimEnd('\n');
     }
@@ -240,6 +244,8 @@ static class SkyPatcherWire
     /// <summary>What a filter matching no INI returns: the zero count, what the filter is matched against, and the folders that are there — never the unfiltered overview.</summary>
     static string ZeroMatch(SkyPatcherLayerData d, string filter, int cap)
     {
+        var caveats = Caveats(d, cap);          // charged before the notes, as in the render above
+        cap = Math.Max(1, cap - caveats.Length);
         var folders = d.Scan.Folders;
         int files = folders.Sum(f => f.Files.Count);
         var sb = new StringBuilder();
@@ -268,13 +274,17 @@ static class SkyPatcherWire
         }
         if (shownNotes < notes)
             sb.Append("... [showing ").Append(shownNotes).Append(" of ").Append(notes).Append(" note(s); raise max_chars]\n");
-        AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings, d.RootFailures, cap);   // always rendered, as in the filtered and unfiltered renders
+        sb.Append(caveats);   // always rendered, as in the filtered and unfiltered renders
         return sb.ToString().TrimEnd('\n');
     }
 
-    static void AppendCaveats(StringBuilder sb, bool readIncomplete, IReadOnlyList<string> assetWarnings,
-                              IReadOnlyList<string> rootFailures, int cap)
+    /// <summary>The build-level caveats as one string, so the render can charge them before its body is laid. The
+    /// hedge sentence is written whatever the budget — it IS the alarm — and the named roots under it are cut and
+    /// counted like the note lists, since one line per root per folder asked about is long on a blocked tree.</summary>
+    static string Caveats(SkyPatcherLayerData d, int cap)
     {
+        var sb = new StringBuilder();
+        var (readIncomplete, assetWarnings, rootFailures) = (d.ReadIncomplete, d.AssetWarnings, d.RootFailures);
         if (readIncomplete)
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so an INI present only in it may be missing from this scan (Q3).\n");
         foreach (var w in assetWarnings) sb.Append("[!] ").Append(w).Append('\n');
@@ -291,5 +301,6 @@ static class SkyPatcherWire
         if (shown < rootFailures.Count)
             sb.Append("... [showing ").Append(shown).Append(" of ").Append(rootFailures.Count)
               .Append(" loose root read failure(s); raise max_chars]\n");
+        return sb.ToString();
     }
 }

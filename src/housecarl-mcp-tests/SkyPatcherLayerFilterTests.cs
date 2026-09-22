@@ -26,6 +26,63 @@ public sealed class SkyPatcherLayerFilterTests
             RootFailures: Array.Empty<string>(), ReadIncomplete: false, AssetWarnings: Array.Empty<string>(),
             ProfileName: "Default");
 
+    /// <summary>The same layer with loose roots that would not read — what the caveat block has to carry.</summary>
+    static SkyPatcherLayerData WithRootFailures(SkyPatcherLayerData d, int n) =>
+        d with
+        {
+            ReadIncomplete = true,
+            RootFailures = Enumerable.Range(1, n)
+                .Select(i => $"BlockedMod{i:D2}: could not read 'SKSE\\Plugins\\SkyPatcher\\npc' — " + new string('r', 160))
+                .ToList(),
+        };
+
+    /// <summary>A layer with enough INIs that its body alone would spend a small max_chars.</summary>
+    static SkyPatcherLayerData BigLayer(int inis) =>
+        Layer(new SkyPatcherDiscovery.FolderScan("npc", Catalog: null, PatchingEnabled: true,
+                  Files: Enumerable.Range(1, inis).Select(i => Ini("npc", $"Mod{i:D3}.ini", $"Provider Number {i:D3}")).ToArray()));
+
+    /// <summary>The named roots are cut and COUNTED, never appended past max_chars: the count line is the difference
+    /// between a list that was trimmed and a list that was short.</summary>
+    [Fact]
+    public void TheRootFailureListIsCutAndCountedAtMaxChars()
+    {
+        var text = SkyPatcherWire.RenderLayer(WithRootFailures(OneNpcFolder(), 20), null, 2_000);
+
+        Assert.Contains("BlockedMod01", text);                               // the ones that fit are named
+        Assert.Matches(@"showing \d+ of 20 loose root read failure\(s\)", text);
+        Assert.DoesNotContain("BlockedMod20", text);                         // and the rest are counted, not written
+    }
+
+    /// <summary>A short list is not marked as cut — a marker on a complete list would read as a missing name.</summary>
+    [Fact]
+    public void ARootFailureListThatFitsCarriesNoCutMarker()
+    {
+        var text = SkyPatcherWire.RenderLayer(WithRootFailures(OneNpcFolder(), 2), null, 80_000);
+
+        Assert.Contains("BlockedMod01", text);
+        Assert.Contains("BlockedMod02", text);
+        Assert.DoesNotContain("loose root read failure(s); raise max_chars", text);
+    }
+
+    /// <summary>The caveats close the render, so their room is held back BEFORE the body is laid: on a layer whose
+    /// INIs would spend the whole budget, the roots are still named rather than being the first thing dropped.</summary>
+    [Fact]
+    public void TheCaveatBlockIsPaidForInsideMaxCharsRatherThanCutByTheBody()
+    {
+        var text = SkyPatcherWire.RenderLayer(WithRootFailures(BigLayer(400), 3), null, 4_000);
+
+        Assert.Contains("max_chars", text);                                  // the body did have to cut
+        Assert.Contains("BlockedMod01", text);
+        Assert.Contains("BlockedMod03", text);
+        Assert.DoesNotContain("showing 0 of 3 loose root read failure(s)", text);
+        // Paid for INSIDE max_chars, not appended past it: the trailer the render always writes is the only overrun.
+        Assert.True(text.Length <= 4_000 + TrailerSlack,
+                    $"{text.Length} chars against max_chars=4000 — the caveat block was not reserved.");
+    }
+
+    /// <summary>The "→ housecarl_records …" hint every layer render closes with, the one thing written past the cap.</summary>
+    const int TrailerSlack = 400;
+
     static SkyPatcherLayerData OneNpcFolder() =>
         Layer(new SkyPatcherDiscovery.FolderScan("npc", Catalog: null, PatchingEnabled: true,
                   Files: new[] { Ini("npc", "Bandits.ini", "Bandit Overhaul") }));
