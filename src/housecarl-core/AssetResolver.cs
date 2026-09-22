@@ -104,8 +104,9 @@ public sealed class AssetResolver : IDisposable
 
     public bool ReadIncomplete => _snap.Failures.Count > 0 || !_snap.RootFailures.IsEmpty;
 
-    /// <summary>How many directories this build's loose freshness check reads — the cost <see cref="RefreshIfStale"/>
-    /// pays per call, exposed so a test can assert it does not grow with the subtrees a session has warmed.</summary>
+    /// <summary>How many directories this build's loose freshness check re-lists — the cost <see cref="RefreshIfStale"/>
+    /// pays per call, exposed so a test can assert what that cost grows WITH: one entry per root per directory that
+    /// answers for a subtree, which is not the same as one per root per subtree.</summary>
     internal int WatchedDirectoryCount => _snap.DirWatch.Count;
 
     /// <summary>The root failures in a stable order, so two renders of one build read the same.</summary>
