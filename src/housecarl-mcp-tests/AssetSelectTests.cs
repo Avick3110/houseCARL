@@ -558,8 +558,8 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
                                           counts_only: true, offset: 2);
 
-        Assert.Contains("counts_only= answers as a count table over the COMPLETE selection", text);
-        Assert.Contains("caps with limit= and does not page", text);
+        Assert.Contains("counts_only= answers over the COMPLETE selection, so offset= has nothing to page", text);
+        Assert.Contains("the count table it returns caps with limit= instead", text);
     }
 
     /// <summary>How many table rows a census rendered — a row is a count padded to six columns, which nothing else

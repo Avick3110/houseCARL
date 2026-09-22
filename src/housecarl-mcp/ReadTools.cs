@@ -270,7 +270,8 @@ static class Wire
     /// <summary>The artifact-aware render: <paramref name="spill"/> carries the call's artifact disposition, and <paramref name="truncated"/> hands the row-level cut back to the tool layer, which triggers the auto-spill.</summary>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars,
                                           bool resolveNames, bool winnerFields, int depth, SpillState? spill, out bool truncated,
-                                          LeverNames? levers = null, CancellationToken ct = default, string? header = null)
+                                          LeverNames? levers = null, CancellationToken ct = default, string? header = null,
+                                          int rowLimit = 0)
     {
         truncated = false;
         var lv = levers ?? LeverNames.Legacy;
@@ -278,7 +279,7 @@ static class Wire
         // A refusal made after the build was captured is stamped with the epoch; a pre-capture one renders bare.
         if (q.Error is not null) return head + "error: " + q.Error + Wire.EpochLine(q.Stamp);
         int cap = Cap(maxChars);
-        if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, spill, out truncated, head);   // group_by= → a count table, not per-match lines
+        if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, rowLimit, spill, out truncated, head);   // group_by= → a count table, not per-match lines
         bool detail = fields is { Count: > 0 };          // expand matches, vs. one-line summaries
         // One session, one link cache, one chunked body prefetch for every rendered match, and the row loop's cancellation check.
         using var reader = detail
@@ -378,7 +379,9 @@ static class Wire
     }
 
     /// <summary>Render a <c>group_by=</c> aggregation: a header naming the key, the true total and the group count, then one row per group, with the where= and unscannable notes surviving; only the rendering is capped, so the total stays exact.</summary>
-    static string RenderCrossQueryGroups(CrossQueryOutcome q, int cap, SpillState? spill, out bool truncated, string head = "")
+    /// <param name="rowLimit">the caller's limit= as the TABLE's row cap (0 = uncapped): a count table caps with
+    /// limit= and does not page (#810), and whichever knob stopped the rows is the one the closing marker names.</param>
+    static string RenderCrossQueryGroups(CrossQueryOutcome q, int cap, int rowLimit, SpillState? spill, out bool truncated, string head = "")
     {
         truncated = false;
         var all = q.Groups!;
@@ -398,11 +401,23 @@ static class Wire
         if (q.ReverseIndexNote is not null) sb.Append(q.ReverseIndexNote).Append('\n');
         string Notice(int r) => "... [truncated: rendered " + r + " of " + groups.Count +
                                 " groups before hitting max_chars=" + cap + "; raise max_chars — the total above is exact]\n";
+        string LimitNotice(int r) => "... [" + (groups.Count - r) + " more group(s) — raise limit= to see them; the " +
+                                     "total above is exact]\n";
         var spillText = SpillText(spill);
         var emptyLine = Wire.EmptyGroupsLine(empties, Math.Max(cap / 2, 120));
-        int budget = cap - spillText.Length - emptyLine.Length - Notice(groups.Count).Length;
+        // Either marker can close the table, so the room held back is the wider of the two.
+        int budget = cap - spillText.Length - emptyLine.Length
+                   - Math.Max(Notice(groups.Count).Length, LimitNotice(0).Length);
+        int shown = rowLimit > 0 ? Math.Min(rowLimit, groups.Count) : groups.Count;
         for (int i = 0; i < groups.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: rows live in the file
         {
+            // limit= caps the table's rows; the count above stays the whole tally. It does NOT set `truncated`,
+            // which is the ceiling auto-spill's trigger: a limit cut is the caller capping the table on purpose.
+            if (i >= shown)
+            {
+                sb.Append(LimitNotice(i));
+                break;
+            }
             var row = "  " + groups[i].Key + " = " + groups[i].Count + "\n";
             if (sb.Length + row.Length > budget)
             {

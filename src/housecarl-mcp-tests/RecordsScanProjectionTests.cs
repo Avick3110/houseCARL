@@ -35,14 +35,20 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
         Assert.False(doc.GetProperty("capped").GetBoolean());
     }
 
-    /// <summary>The aggregation is not limit-capped: `total` counts every match, not the rendered rows.</summary>
+    /// <summary>The aggregation COUNTS every match whatever limit= says — `total` and `groups_total` are exact — and
+    /// limit= caps the table's rendered rows (#810), naming itself as what cut them.</summary>
     [Fact]
     public void TheAggregateJsonNamesItsCountKeyAndTotalsEveryMatch()
     {
         var doc = Doc(RecordsTools.Records(Svc, types: Weap, format: "json", project: Aggregate("winner"), limit: 1));
         Assert.Equal("winner", doc.GetProperty("group_by").GetString());
         Assert.Equal(3, doc.GetProperty("total").GetInt32());
-        Assert.Equal(2, doc.GetProperty("groups").GetArrayLength());
+        Assert.Equal(2, doc.GetProperty("groups_total").GetInt32());
+        Assert.Equal(1, doc.GetProperty("groups").GetArrayLength());
+        Assert.Equal("limit", doc.GetProperty("cut_by").GetString());
+
+        var whole = Doc(RecordsTools.Records(Svc, types: Weap, format: "json", project: Aggregate("winner")));
+        Assert.Equal(2, whole.GetProperty("groups").GetArrayLength());
     }
 
     [Fact]

@@ -176,17 +176,24 @@ internal static class ReadSentences
 
     // ---- a count table does not page ----------------------------------------------------------------
 
-    /// <summary>The one sentence every lane refuses <c>offset=</c> against a count table with (Aaron 2026-09-22,
-    /// #810; SPEC §2.1). <c>{0}</c> is the knob that asked for the table, so the four lanes name their own without
-    /// spelling the rule four ways. It is a string.Format template: every literal brace would be doubled.</summary>
-    [MustState("count table", "COMPLETE selection", "caps with limit=", "does not page", "to_file=", "drop offset=")]
+    /// <summary>The one sentence every lane refuses <c>offset=</c> against a whole-selection answer with (Aaron
+    /// 2026-09-22, #810; SPEC §2.1). <c>{0}</c> is the knob that asked for it, so the lanes name their own without
+    /// spelling the rule four ways, and <c>{1}</c> is the table clause, present only where there IS a table. What
+    /// <c>to_file=</c> spills is the ROWS behind the answer, never the table, which every lane refuses it beside.
+    /// It is a string.Format template: every literal brace would be doubled.</summary>
+    [MustState("COMPLETE selection", "offset= has nothing to page", "drop offset=", "to_file=")]
     internal const string CountTableNoOffset =
-        "{0} answers as a count table over the COMPLETE selection: a count table caps with limit= and does not " +
-        "page, so offset= has nothing to move — drop offset=, or drop {0} and spill the complete result with " +
-        "to_file=.";
+        "{0} answers over the COMPLETE selection, so offset= has nothing to page{1} — drop offset=, or drop {0} " +
+        "and spill the rows behind it with to_file=.";
 
-    /// <summary>The sentence with the asking knob named.</summary>
-    internal static string NoOffsetOnCountTable(string knob) => string.Format(CountTableNoOffset, knob);
+    /// <summary>The clause for a lane whose answer IS a table: what caps it, instead of paging.</summary>
+    [MustState("count table", "caps with limit=")]
+    internal const string CountTableCapClause = " and the count table it returns caps with limit= instead";
+
+    /// <summary>The sentence with the asking knob named. <paramref name="hasTable"/> false on a lane whose census
+    /// renders no table at all, where the limit= clause would name a knob with nothing to cap.</summary>
+    internal static string NoOffsetOnCountTable(string knob, bool hasTable = true) =>
+        string.Format(CountTableNoOffset, knob, hasTable ? CountTableCapClause : "");
 
     // ---- the sweep response's omission accounting ---- The prose half of CheckAccounting; the arithmetic is there,
     // and every number below arrives already computed from what the render emitted.

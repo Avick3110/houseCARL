@@ -14,8 +14,9 @@ namespace HousecarlGenerator;
 ///     to 'records DEFINED in this plugin' (origin FormKey), the catalogue-scope semantics; refused loud without plugins=.
 ///   • P2 list-valued <c>references</c> — OR over many targets in ONE scan (was one scan per target), each match
 ///     recording WHICH target(s) it hit (MatchedTargets) so a multi-target reverse lookup can be un-merged.
-///   • P4 <c>groupBy</c> winner|type|defined_in — a count table over ALL matches (not limit-capped) instead of lines,
-///     with case-folded keys (#248) so two spellings of one plugin never split into two rows.
+///   • P4 <c>groupBy</c> winner|type|defined_in — a count table over ALL matches instead of lines, its rows capped by
+///     limit= and never paged by offset= (#810), with case-folded keys (#248) so two spellings of one plugin never
+///     split into two rows.
 ///   • #223 <c>offset</c> pagination — windows tile each collect path's enumeration exactly (no gap, no overlap,
 ///     same order), an offset past the end is an honest empty window, and negative / under-group_by refuse loud.
 ///   • #233 <c>whereSource=winner</c> — the body filters (where/references/editoridContains) decide the MATCH on

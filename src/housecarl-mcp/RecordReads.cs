@@ -2259,7 +2259,8 @@ public sealed partial class LoadOrderService
         }
 
         // offset= pages the match window, validated up front: negative is meaningless, and under group_by= there
-        // is no match window to page.
+        // is no match window to page. The tool door refuses that pair first (RecordsTools, on the aggregate form),
+        // so this arm is only reachable through the service API — kept, because the service is a caller too.
         if (offset < 0)
             return CrossQueryOutcome.Fail($"offset={offset} — offset must be >= 0 (it skips that many matches before returning rows).");
         if (offset > 0 && groupBy is not null)
@@ -2783,6 +2784,7 @@ public sealed partial class LoadOrderService
         }
         if (offset < 0)
             return CrossQueryOutcome.Fail($"offset={offset} — offset must be >= 0.");
+        // Same pair, same sentence, on the off-order scan: reachable through the service API only, as above.
         if (offset > 0 && groupBy is not null)
             return CrossQueryOutcome.Fail(ReadSentences.NoOffsetOnCountTable("group_by="));
 

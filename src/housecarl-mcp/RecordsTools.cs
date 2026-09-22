@@ -413,12 +413,10 @@ public static class RecordsTools
         if (offset < 0) return Wire.Refuse(json, $"error: offset={offset} — offset must be >= 0.");
         if (offset > 0 && form == "aggregate")
             return Wire.Refuse(json, "error: " + ReadSentences.NoOffsetOnCountTable("the aggregate form"));
-        // The census covers the whole selection on every lane that takes it, so offset= has nothing to move here
-        // either; it used to be accepted and windowed a render the census writes no rows into.
+        // The census covers the whole selection and renders no rows at all on this tool, so there is neither a
+        // window for offset= to move nor a table for limit= to cap — the sentence drops its limit= clause here.
         if (offset > 0 && counts_only)
-            return Wire.Refuse(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only="));
-        // The census covers the whole selection on every lane that takes it, so offset= has nothing to move here
-        // either; it used to be accepted and windowed a render the census writes no rows into.
+            return Wire.Refuse(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only=", hasTable: false));
         var toFile = to_file?.Trim();
         bool wantFile = !string.IsNullOrEmpty(toFile);
         if (wantFile)
@@ -716,7 +714,7 @@ public static class RecordsTools
 
             if (form == "aggregate")
                 return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2, headerLine, envelope, listCost,
-                                           max_chars, svc.TypeDisplayNames(types));
+                                           max_chars, svc.TypeDisplayNames(types), TableRowLimit(limit));
 
             if (counts_only)
             {
@@ -1617,8 +1615,8 @@ public static class RecordsTools
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
                 Wire.QueryFormat.Dense when groupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, readPaths, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, qLevers, foldPlan, ct),
-                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope, qLevers, ct),
-                _ => Wire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, qLevers, ct, headerLine),
+                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope, qLevers, ct, TableRowLimit(limit)),
+                _ => Wire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, qLevers, ct, headerLine, TableRowLimit(limit)),
             };
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
@@ -1842,8 +1840,8 @@ public static class RecordsTools
             var offQLevers = LeverNames.Records.WithNothingToDrop();
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
-                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, envelope, offQLevers),
-                _ => Wire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, offQLevers, header: headerLine),
+                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, envelope, offQLevers, rowLimit: TableRowLimit(limit)),
+                _ => Wire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, offQLevers, header: headerLine, rowLimit: TableRowLimit(limit)),
             };
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
@@ -2517,10 +2515,16 @@ public static class RecordsTools
 
     /// <summary>The list-lane aggregate render: the resolved rows counted by winner, type or defined_in — the batch twin of the scan lane's count table — with per-item errors in their own named bucket and the same response envelope every other form carries.</summary>
     /// <param name="requestedTypes">The display names of the types the call NAMED, or null when it named none; under group_by=type each one gets a row, so a requested type with no records reads as 0.</param>
+    /// <summary>The caller's limit= as a count TABLE's row cap, spelled as <c>AssetTools.AssetCensus.RowLimit</c>
+    /// spells it so the two tools cap their tables on one rule: 0 is uncapped (#810).</summary>
+    static int TableRowLimit(int limit) => limit > 0 ? limit : int.MaxValue;
+
+    /// <param name="rowLimit">the caller's limit= as the TABLE's row cap (0 = uncapped): a count table caps with
+    /// limit= and does not page (#810), and the counts above it stay the whole tally.</param>
     static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, bool dense, OrderStamp? epoch,
                                       string headerLine, List<KeyValuePair<string, string>> envelope,
                                       (int RowsRead, long Millis) bodyCost, int maxChars,
-                                      IReadOnlyList<string>? requestedTypes = null)
+                                      IReadOnlyList<string>? requestedTypes = null, int rowLimit = 0)
     {
         var gb = groupBy.Trim().ToLowerInvariant();
         if (gb is not ("winner" or "type" or "defined_in"))
@@ -2548,7 +2552,7 @@ public static class RecordsTools
         var empties = all.Where(g => g.Value == 0).Select(g => g.Key).ToList();
         var rows = empties.Count == 0 ? all : all.Where(g => g.Value > 0).ToList();
         if (json || dense)
-            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, envelope, cap, empties);
+            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, envelope, cap, empties, rowLimit);
         var sb = new StringBuilder();
         sb.Append(headerLine).Append("  group_by=").Append(gb).Append('\n');
         sb.Append(outcomes.Count).Append(" record(s)");
@@ -2559,11 +2563,21 @@ public static class RecordsTools
         // before the first group row; docs/architecture/render-budget.md.
         string Notice(int r) => "... [truncated: rendered " + r + " of " + rows.Count +
                                 " groups before hitting max_chars=" + cap + "; the counts above are exact — raise max_chars]\n";
+        string LimitNotice(int r) => "... [" + (rows.Count - r) + " more group(s) — raise limit= to see them; the " +
+                                     "counts above are exact]\n";
         var emptyLine = Wire.EmptyGroupsLine(empties, Math.Max(cap / 2, 120));
-        int budget = cap - Notice(rows.Count).Length - emptyLine.Length - RenderBudget.AccountingReserve;
+        // Either marker can close the table, so the room held back is the wider of the two.
+        int budget = cap - Math.Max(Notice(rows.Count).Length, LimitNotice(0).Length)
+                   - emptyLine.Length - RenderBudget.AccountingReserve;
+        int shown = rowLimit > 0 ? Math.Min(rowLimit, rows.Count) : rows.Count;
         int renderedGroups = 0;
         foreach (var (key, count) in rows.Select(r => (r.Key, r.Value)))
         {
+            if (renderedGroups >= shown)   // limit= caps the table's rows; the counts above stay the whole tally
+            {
+                sb.Append(LimitNotice(renderedGroups));
+                break;
+            }
             var row = "  " + count.ToString().PadLeft(6) + "  " + key + "\n";
             if (sb.Length + row.Length > budget)
             {

@@ -61,9 +61,8 @@ made the change.
   mod.
 - **`housecarl_decompile_script` now names a `.pex` beside the input it could not read, so every thin part of the
   class hierarchy is stated.** Decompile a script whose folder holds a corrupt `.pex` and read the note.
-- **`offset=` against a count table is refused in the same sentence on every lane, and `housecarl_records` under
-  `counts_only=` now refuses it instead of accepting it and doing nothing.** Pass `counts_only=true` with `offset=1`
-  and read the refusal.
+- **A count table caps with `limit=` and never pages: `project.form="aggregate"` now honours `limit=`, and every lane
+  refuses `offset=` against a table in one sentence.** Run an aggregate with `limit=1` and read the row it kept.
 
 ## 2.0.2 — 2026-09-15
 
