@@ -10,6 +10,10 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class RecordsTools
 {
+    /// <summary>The rows a lane renders when the caller names no limit=, spelled once so the row lanes and the
+    /// count TABLE read an unset limit the same way (#810).</summary>
+    internal const int DefaultLimit = 500;
+
     /// <summary>The plugins= SELECT scope: which records are considered, as against source=, which decides whose version is read.</summary>
     public sealed class RecordsScope
     {
@@ -128,7 +132,7 @@ public static class RecordsTools
         [Description("TRANSPORT: 'text' (default) | 'json' (machine-readable document; same accounting in-band) | 'dense' (scan lane: positional columnar cells 1:1 with the requested fields — the compact bulk-enumeration form; by that definition depth expansion and the 'everything' form are inexpressible in it). On 'json' a record's fields are an ORDERED LIST of {path, value} — a field that read NO value carries {path, note} instead, saying why — and the emission order is the answer's own, and a path REPEATS under a quantified step ('Effects[*].Data.Magnitude'), which a map keyed by path could not hold; 'dense' is the column table to join on. Every response carries the epoch stamp — the identity of the index build it was answered from — spelled epoch=<hex> on 'text' and 'dense', and as an 'epoch' member on 'json'.")]
             string? format = null,
         [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page a scan in exact windows with offset=. DECLARED COST: a delta or tree row reads every PROVIDER of its record, so on a scan limit= and offset= bound the WORK there and not just the render — only the windowed rows are read — and past a 250-row bound (about a minute) the call refuses up front with the count and the estimate instead of going quiet. A census or a to_file= artifact on those forms still covers the WHOLE selection and is held to the same bound, so what narrows those is the scan terms. The other derived-selection forms (chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them. RENDER COST: a row that READS a record's body is what costs, and a scan's accounting reports what that cost as render_ms; a render too big to finish REFUSES up front rather than going silent, naming the shapes that fit. The bound holds on every lane that reads bodies — a scan, an off-order source=, a formids= list — and is per form, because the row costs differ by orders of magnitude: 300,000 rows for a named-fields row (fields/rows, and the one cheap leaf summary/aggregate take), 15,000 for form='everything', whose row materialises the WHOLE record — name the fields you need and the same selection fits — and 40,000 for form='identity', whose row is an UNTYPED whole-plugin seek for the winner's body and is the dearest row here rather than a free one: form='summary' answers the same identity question off a gathered read. On a formids= read every one of those six forms reads a body and is bounded on the LIST's length, not this window's: the ids are read before limit= and offset= apply, so pass fewer ids rather than paging. delta and tree are bounded on the list's length the same way, at their own 250-row bound. The accounting beside it counts the bodies READ, which a source= pole holding no version of an id, or a malformed id, leaves short of the list.")]
-            int limit = 500,
+            int limit = DefaultLimit,
         [Description("TRANSPORT: skip the first N matches (exact windows: offset=0/500/1000…). Windows tile only WITHIN one epoch — if two pages' epochs differ the load order changed mid-pagination; re-run from offset=0, do not stitch the pages. offset= RE-SCANS the selection from the start rather than seeking into it, so every window pays the whole scan again and a deep window costs more than a shallow one — narrowing the scan terms beats paging far into one. Refused with to_file=, with the aggregate form and with counts_only=, none of which renders a selection window: a count table caps with limit= and does not page.")]
             int offset = 0,
         [Description("TRANSPORT: character CEILING on the RENDER, hard on every text render this tool has — the scan, batch, resolve, group_by and summary renders, the comparison forms (delta, tree), the walk lane's chain and effect-chain renders, info_order, and every form's counts_only census. The record block, node or delta line that would cross it is not written, and the truncation notice, the accounting line and the spilled: block are charged before the rows are laid — charged only where the whole render does not fit, so an answer that fits inside the max_chars you passed comes back complete, uncut and unspilled. The one answer that can still come back over it is a max_chars too small for what the response carries whatever the budget — its header, the notices it owes, its spilled: block — which says so and names the number that clears it. Never truncates the RESULT: an over-ceiling result SPILLS in full to a server-side JSONL artifact (line 1 = manifest with the query echo, the row schema, and the epoch) and the response names the file, so what the ceiling held back inline is in the file. 0 = the server default (~80k).")]
@@ -497,7 +501,7 @@ public static class RecordsTools
 
         // limit=/offset= window the list lane's RENDER only, and the window note rides the header and envelope;
         // docs/architecture/read-engine.md.
-        int lim = limit <= 0 ? 500 : limit;
+        int lim = limit <= 0 ? DefaultLimit : limit;
         // Set when a comparison form's KEYS were windowed before the rows were read (see ComparisonWindow); the
         // note rides along so the counts and any spilled artifact can say what they cover.
         bool cmpPrewindowed = false;
@@ -1348,7 +1352,7 @@ public static class RecordsTools
             var groupBy = form == "aggregate" && walk is null ? project!.group_by!.Trim().ToLowerInvariant() : null;
             // The derived-selection forms consume EVERY match, so the scan itself is uncapped for them and the
             // scan terms are the bound, as the tool description declares.
-            int effLimit = wantFile || derivedSelection ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? 500 : limit);
+            int effLimit = wantFile || derivedSelection ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? DefaultLimit : limit);
 
             var demandsList = new List<HousecarlCore.ArtifactDemand>();
             if (refDemand is not null) demandsList.Add(refDemand);
@@ -1698,7 +1702,7 @@ public static class RecordsTools
             }
             var offGroupBy = form == "aggregate" ? project!.group_by!.Trim().ToLowerInvariant() : null;
             bool offDerived = comparisonForm;
-            int offLimit = wantFile || offDerived ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? 500 : limit);
+            int offLimit = wantFile || offDerived ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? DefaultLimit : limit);
             var offDemands = new List<HousecarlCore.ArtifactDemand>();
             if (refDemand is not null) offDemands.Add(refDemand);
             if (fidDemand is not null) offDemands.Add(fidDemand);
@@ -2513,10 +2517,12 @@ public static class RecordsTools
         return RenderCap.Settle(sb.ToString(), cap);
     }
 
-    /// <summary>A caller's limit= turned into a count TABLE's row cap: a limit of 0, which means "no limit" on
-    /// every lane that takes one, becomes an unreachable cap. Spelled as <c>AssetTools.AssetCensus.RowLimit</c>
-    /// spells it, so the two tools cap their tables on one rule (#810).</summary>
-    static int TableRowLimit(int limit) => limit > 0 ? limit : int.MaxValue;
+    /// <summary>A caller's limit= turned into a count TABLE's row cap, reading an unset limit exactly as every ROW
+    /// lane on this tool reads it — <c>limit &lt;= 0</c> is the 500 default, which is what the parameter description
+    /// promises the table too. The asset tool's <c>RowLimit</c> maps the same input to "uncapped" because its own
+    /// limit= parameter defaults to 0; this one defaults to 500, so one rule per TOOL is the rule, not one
+    /// expression across both (#810, Aaron 2026-09-22).</summary>
+    internal static int TableRowLimit(int limit) => limit <= 0 ? DefaultLimit : limit;
 
     /// <summary>The list-lane aggregate render: the resolved rows counted by winner, type or defined_in — the batch twin of the scan lane's count table — with per-item errors in their own named bucket and the same response envelope every other form carries.</summary>
     /// <param name="requestedTypes">The display names of the types the call NAMED, or null when it named none; under group_by=type each one gets a row, so a requested type with no records reads as 0.</param>
