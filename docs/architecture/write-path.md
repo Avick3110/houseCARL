@@ -441,8 +441,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   caller already put in the patch survives untouched, and the arm fails if the step is removed), nullability judged
   on the record model's interface, the required-link refusal checkable in both directions, a surviving bound link
   being a leak while a pre-existing dangling one is not, and the walk's arm attribution surviving into the report.
-- The seam that arm parks the write on is `WritePatchBuilder.InsidePhase1ResolveForGuard`, which is why the flip is
-  staged rather than timed and no runner can be too fast to land it inside the resolve loop. It has no product caller.
+- The seam `freshness-capture-guard` arm 4 parks the write on is `WritePatchBuilder.InsidePhase1ResolveForGuard`,
+  which is why that flip is staged rather than timed and no runner can be too fast to land it inside the resolve loop.
+  The field has no product caller.
 - `excluded-master-guard` — the unopenable-reference threshold, pinned BOTH ways on BOTH lanes: a one-master header
   WRITES and a two-master header REFUSES naming the unopenable plugin and its remedy, on the patch lane and on the
   in-place lane, with the dry run predicting the real call's refusal verbatim and still predicting success for a write
