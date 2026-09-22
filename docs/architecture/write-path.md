@@ -506,5 +506,6 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   all. Plus the shared seams: `LinkTypeLookup`, `ResolveForwardSources`,
   `SyncEditedTopicMarkers`, `DryRunMastersPreview`, `MasterGrowNote`, `SerializeFailure`, `ReadBackInFull`,
   `VerifyLandedAgainstFile` and `VerifyCreatedAgainstFile`.
-- `src/housecarl-core/LocalizedStrings.cs` — the strings-shape classifier; the write lanes' pre-flights call
+- `src/housecarl-core/LocalizedStrings.cs` — the strings-shape classifier, whose localized language set is Mutagen's
+  `Language` enum; the write lanes' pre-flights call
   `LocalizedStrings.RefusalFor`.

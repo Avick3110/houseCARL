@@ -5,10 +5,11 @@ covers: [src/housecarl-mcp/RecordsTools.cs, src/housecarl-mcp/ReadTools.cs]
 # The records tool front
 
 ## What it is
-Above both sit the two tool-front files. `RecordsTools` is `housecarl_records` itself: it parses the
+Above the read engine (`docs/architecture/read-engine.md`) sit the two tool-front files. `RecordsTools` is `housecarl_records` itself: it parses the
 four axes, validates them against each other, decides which lane answers, and assembles the response
 envelope every render carries. `ReadTools` is the text render that lane and the check families share —
-`Wire`. Their own contracts are the argument grammar, the refusal shape and the lane routing below;
+`Wire`. Their own contracts are the form scoping, the refusal shape and the lane routing below, and the
+argument grammar's shared tokenizer is `docs/architecture/read-engine.md`'s;
 the json twin of the same responses is `docs/architecture/json-wire.md`.
 
 ## Contracts
