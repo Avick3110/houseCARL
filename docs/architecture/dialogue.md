@@ -113,8 +113,8 @@ off the countless vanilla topics whose number is legitimately noisy.
   `AShadowedFoldTakesTheActiveSlotSoLowerPluginsStillWin` — the fold's placement and its one wins rule;
   `TheFoldedProvenanceIsRenderedInTextAndCarriedInJson` — provenance rides beside the name.
 - `DialogueSubtypeMarkerGuardProbe` (`src/housecarl-generator`) arms TABLE-SHAPE / TABLE-ANCHOR — the marker
-  table; AUTOFILL / DEFAULT-CUST / EXPLICIT-WINS — the create path fills a blank marker and
-  never overrides an explicit one.
+  table; TABLE-NAMES — `Enum.Parse(Name) == index` for every named row; AUTOFILL / DEFAULT-CUST / EXPLICIT-WINS
+  — the create path fills a blank marker and never overrides an explicit one.
 - `DialogueFamilyTests.ATopicWhoseSubtypeContradictsItsMarkerSaysTheMarkerWins` and
   `AMismatchWithoutTheRenumberingSignatureSaysTheSubtypeEditIsANoOp` — the disagreement is reported with the
   marker as authoritative, and the advice turns on the renumbering signature.

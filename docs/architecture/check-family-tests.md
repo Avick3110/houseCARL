@@ -70,7 +70,12 @@ in the process. Each also calls `Svc.Stats()` once, unlocked, before taking the 
 own doc and issue #353 for the behaviour that makes this necessary.
 
 ## Pinned by
-Nothing pins this.
+- `CheckErrorsWorldTests.TheWorldSweepsThreePluginsAndFindsSixDanglingRefsOneMissingMasterAndOneUnparseablePlugin`
+  — *The fixture-known totals have their own test*: `CheckErrorsWorld`'s `TotalDangling` / `BaselineDangling` /
+  `ScannedPlugins` against a live sweep.
+- `ScriptsWorldTests.TheServiceSweepsTheInstanceAndExactlyTheVmadCarryingRecordsAreScriptBearing` — the same
+  arrangement for `ScriptsWorld`: its `RecordsWithScripts` against a live sweep.
+- Nothing pins the rest: the two lanes, the rule, the DTO lane's bans and the lock facts' own world.
 
 ## Where
 - `src/housecarl-mcp-tests/CheckErrorsFamilyTests.cs`, `ScriptsFamilyTests.cs`, `DialogueFamilyTests.cs` and
