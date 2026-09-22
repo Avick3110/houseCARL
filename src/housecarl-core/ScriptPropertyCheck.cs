@@ -297,7 +297,8 @@ public static class ScriptPropertyCheck
                                      totalNull, totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null,
                                      filterNote, histogram is null ? null : SweepFindings.Histogram(histogram), countsOnly,
                                      classes, totalUnboundObject, totalUnboundScalar, propFilter, view.Epoch, limit,
-                                     offOrderScanned, collapsedUnverifiable, recordScope?.TypeScopeLabel);
+                                     offOrderScanned, collapsedUnverifiable, recordScope?.TypeScopeLabel,
+                                     av.RootFailures);
     }
 
     /// <summary>One record's fault, appended to the plugin's running scan-error line — the same sentence on both
@@ -388,7 +389,9 @@ public static class ScriptPropertyCheck
         var res = av.ResolveForPlacement(rel);
         if (res.Sources.Count == 0)
         {
-            reason = $"'{rel}' is not on disk (the script is not compiled, or not in the load order){(av.ReadIncomplete ? " — and a BSA or a loose mod folder failed to read this build, so it may merely be unscanned" : "")}.";
+            // The hedge names the folder it could not read, so a modder has something to act on rather than a warning
+            // that one failed; bounded to the first root and a count, because this reason repeats per property.
+            reason = $"'{rel}' is not on disk (the script is not compiled, or not in the load order){(av.ReadIncomplete ? " — and a BSA or a loose mod folder failed to read this build, so it may merely be unscanned" + av.RootFailureBrief : "")}.";
             return false;
         }
         var src = res.Sources[0];   // winner first
@@ -474,7 +477,8 @@ public sealed record ScriptCheckResult(
     int Limit = 0,   // the finding budget this sweep was GIVEN, so the response names the knob to raise off the number actually used
     IReadOnlyList<string>? OffOrderScanned = null,   // the files swept OFF-ORDER: on disk, not in the active order — the pre-enable verify lane
     int UnverifiableCollapsed = 0,   // records whose unverifiable note repeated one already listed for the same script class; counted in TotalUnverifiable, not listed again
-    string? TypeScopeLabel = null)   // the scope's types, spelled with any expanded arms, when it covered MORE than one; null otherwise — the same rule the errors family carries, because both families fill one listing over one record stream
+    string? TypeScopeLabel = null,   // the scope's types, spelled with any expanded arms, when it covered MORE than one; null otherwise — the same rule the errors family carries, because both families fill one listing over one record stream
+    IReadOnlyList<string>? RootFailures = null)   // the loose roots this build could not walk or list, each named with the reason; null or empty when every root read
 {
     public bool Success => Error is null;
     public static ScriptCheckResult Fail(string error) =>

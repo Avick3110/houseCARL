@@ -15,8 +15,12 @@ public sealed record AssetRenameOutcome(
     int NpcCount, int FacegenNpcsCarried, int FacegenFilesCarried,
     IReadOnlyList<string> Failures, bool ReadIncomplete)
 {
-    public static AssetRenameOutcome None(bool readIncomplete = false) =>
-        new(0, 0, 0, Array.Empty<string>(), readIncomplete);
+    /// <summary>The loose roots the scan could not walk or list, each named with the reason, so the "may be
+    /// incomplete" note says WHICH folder; empty when every root read.</summary>
+    public IReadOnlyList<string> RootFailures { get; init; } = Array.Empty<string>();
+
+    public static AssetRenameOutcome None(bool readIncomplete = false, IReadOnlyList<string>? rootFailures = null) =>
+        new(0, 0, 0, Array.Empty<string>(), readIncomplete) { RootFailures = rootFailures ?? Array.Empty<string>() };
 }
 
 /// <summary>The accounting of the voice pass: files found under the plugin's voice prefix, those whose embedded
@@ -25,8 +29,12 @@ public sealed record VoiceCarryOutcome(
     int FilesScanned, int FilesCarried, int LinesCarried,
     IReadOnlyList<string> Failures, bool ReadIncomplete)
 {
-    public static VoiceCarryOutcome None(bool readIncomplete = false) =>
-        new(0, 0, 0, Array.Empty<string>(), readIncomplete);
+    /// <summary>The loose roots the scan could not walk or list, each named with the reason — the voice twin of
+    /// <see cref="AssetRenameOutcome.RootFailures"/>.</summary>
+    public IReadOnlyList<string> RootFailures { get; init; } = Array.Empty<string>();
+
+    public static VoiceCarryOutcome None(bool readIncomplete = false, IReadOnlyList<string>? rootFailures = null) =>
+        new(0, 0, 0, Array.Empty<string>(), readIncomplete) { RootFailures = rootFailures ?? Array.Empty<string>() };
 }
 
 /// <summary>The accounting of the SEQ pass. Not a map-rename — the <c>.seq</c> is REBUILT from the renumbered
@@ -62,10 +70,10 @@ public static class AssetRenameService
             // Can't read P′ back, so this is a degraded asset pass on a compact that SUCCEEDED: a named warning.
             return new AssetRenameOutcome(0, 0, 0,
                 new[] { $"could not read '{Path.GetFileName(pPrimePath)}' back to find its NPCs for facegen carry ({ex.Message}) — verify NPC faces in-game." },
-                assets.ReadIncomplete);
+                assets.ReadIncomplete) { RootFailures = assets.RootFailures };
         }
 
-        if (npcs.Count == 0) return AssetRenameOutcome.None(assets.ReadIncomplete);
+        if (npcs.Count == 0) return AssetRenameOutcome.None(assets.ReadIncomplete, assets.RootFailures);
 
         // Each renumbered NPC's mesh + tint, old path to new, through the shared two-phase carry.
         var items = new List<CarryItem>();
@@ -75,7 +83,8 @@ public static class AssetRenameService
 
         var failures = new List<string>();
         var (files, carried) = CarryItems(items, assets, outDir, failures);
-        return new AssetRenameOutcome(npcs.Count, carried.Count, files, failures, assets.ReadIncomplete);
+        return new AssetRenameOutcome(npcs.Count, carried.Count, files, failures, assets.ReadIncomplete)
+               { RootFailures = assets.RootFailures };
     }
 
     /// <summary>Carry the VOICE files of every RENUMBERED dialogue line to their new-FormID name under
@@ -94,7 +103,7 @@ public static class AssetRenameService
         foreach (var kv in map)
             if (string.Equals(kv.Key.ModKey.FileName.ToString(), sourceBasename, StringComparison.OrdinalIgnoreCase))
                 idMap[kv.Key.ID] = kv.Value.ID;
-        if (idMap.Count == 0) return VoiceCarryOutcome.None(assets.ReadIncomplete);
+        if (idMap.Count == 0) return VoiceCarryOutcome.None(assets.ReadIncomplete, assets.RootFailures);
 
         // The new FormKeys need a ModKey for the distinct-line accounting; a malformed name is surfaced, not zeroed.
         ModKey modKey;
@@ -103,7 +112,7 @@ public static class AssetRenameService
         {
             return new VoiceCarryOutcome(0, 0, 0,
                 new[] { $"'{targetBasename}' is not a valid plugin filename for voice carry ({ex.Message}) — verify voiced lines in-game." },
-                assets.ReadIncomplete);
+                assets.ReadIncomplete) { RootFailures = assets.RootFailures };
         }
 
         var srcPrefix = $@"Sound\Voice\{sourceBasename}";
@@ -114,9 +123,9 @@ public static class AssetRenameService
         {
             return new VoiceCarryOutcome(0, 0, 0,
                 new[] { $"could not scan '{srcPrefix}' for voice files ({ex.Message}) — verify voiced lines in-game." },
-                assets.ReadIncomplete);
+                assets.ReadIncomplete) { RootFailures = assets.RootFailures };
         }
-        if (files.Count == 0) return VoiceCarryOutcome.None(assets.ReadIncomplete);
+        if (files.Count == 0) return VoiceCarryOutcome.None(assets.ReadIncomplete, assets.RootFailures);
 
         // Each voice file whose embedded id was renumbered, to its new-id name. A file with no '_<8hex>_<num>.<ext>'
         // tail, or whose id was not renumbered, is left alone.
@@ -141,7 +150,8 @@ public static class AssetRenameService
 
         var failures = new List<string>();
         var (carriedFiles, carriedLines) = CarryItems(items, assets, outDir, failures);
-        return new VoiceCarryOutcome(files.Count, carriedFiles, carriedLines.Count, failures, assets.ReadIncomplete);
+        return new VoiceCarryOutcome(files.Count, carriedFiles, carriedLines.Count, failures, assets.ReadIncomplete)
+               { RootFailures = assets.RootFailures };
     }
 
     /// <summary>REFRESH the start-game-enabled-quest <c>.seq</c> of the renumbered plugin when the source SHIPPED

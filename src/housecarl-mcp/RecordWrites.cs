@@ -1613,7 +1613,9 @@ public sealed partial class LoadOrderService
                     .ToList();
                 voiceRename = new VoiceCarryOutcome(
                     voiceParts.Sum(v => v.FilesScanned), voiceParts.Sum(v => v.FilesCarried), voiceParts.Sum(v => v.LinesCarried),
-                    voiceParts.SelectMany(v => v.Failures).ToList(), voiceParts.Any(v => v.ReadIncomplete));
+                    voiceParts.SelectMany(v => v.Failures).ToList(), voiceParts.Any(v => v.ReadIncomplete))
+                    // The donors share one asset view, so the same root fails for each: named once, not per donor.
+                    { RootFailures = voiceParts.SelectMany(v => v.RootFailures).Distinct(StringComparer.OrdinalIgnoreCase).ToList() };
             }
             catch (Exception ex)
             {

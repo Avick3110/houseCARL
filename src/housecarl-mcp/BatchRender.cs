@@ -150,23 +150,38 @@ static class BatchRender
     /// rather than open on an alarm — bounded to <see cref="RootFailureShare"/> of max_chars and counted, because one
     /// line per root per directory asked about is a long list on a blocked tree and a hedge that eats the answer is
     /// its own failure. Shared, so the SKSE families and the SkyPatcher layer cut the same list the same way.</summary>
-    public static string RootFailureLines(IReadOnlyList<string> failures, int cap)
+    public static string RootFailureLines(IReadOnlyList<string> failures, int cap, string indent = "")
     {
         if (failures.Count == 0) return "";
         var sb = new StringBuilder();
+        var (shown, omitted) = RootFailureCut(failures, cap, indent);
+        foreach (var f in shown) sb.Append(indent).Append(RootFailureLead).Append(f).Append('\n');
+        if (omitted > 0) sb.Append(indent).Append(Marker(shown.Count, failures.Count));
+        return sb.ToString();
+    }
+
+    /// <summary>What one named root's line opens with, so the cut prices the line it will write.</summary>
+    internal const string RootFailureLead = "[!] loose root read failure: ";
+
+    /// <summary>The cut itself: which roots a render may name at <paramref name="cap"/>, and how many it leaves out.
+    /// One rule, so the text lines and the json array of one build name the same roots.</summary>
+    public static (IReadOnlyList<string> Shown, int Omitted) RootFailureCut(IReadOnlyList<string> failures, int cap,
+                                                                           string indent = "")
+    {
+        if (failures.Count == 0) return (Array.Empty<string>(), 0);
         // The marker's own room is charged before the first line, at its WIDEST spelling, as AppendLines charges its cut.
-        int room = Math.Max(cap / RootFailureShare - Marker(failures.Count, failures.Count).Length, 0);
-        int shown = 0;
+        int room = Math.Max(cap / RootFailureShare - Marker(failures.Count, failures.Count).Length - indent.Length, 0);
+        var shown = new List<string>();
+        int used = 0;
         foreach (var f in failures)
         {
-            var line = "[!] loose root read failure: " + f + "\n";
+            int width = indent.Length + RootFailureLead.Length + f.Length + 1;   // + the line's own newline
             // At least one root is NAMED whatever the budget: the count alone is the hedge this work removed.
-            if (shown > 0 && sb.Length + line.Length > room) break;
-            sb.Append(line);
-            shown++;
+            if (shown.Count > 0 && used + width > room) break;
+            shown.Add(f);
+            used += width;
         }
-        if (shown < failures.Count) sb.Append(Marker(shown, failures.Count));
-        return sb.ToString();
+        return (shown, failures.Count - shown.Count);
     }
 
     /// <summary>What a cut root list closes with — the count is the difference between a trimmed list and a short one.</summary>

@@ -633,6 +633,7 @@ public static class WriteTools
         if (ar.Failures.Count > 25) sb.Append("  facegen WARN: … (+").Append(ar.Failures.Count - 25).Append(" more)\n");
         if (ar.ReadIncomplete)
             sb.Append("  note: a BSA or a loose mod folder failed to read this scan, so a 'no facegen' result may be incomplete — verify NPC faces in-game.\n");
+        AppendCarryRoots(sb, ar.RootFailures);
     }
 
     static void AppendVoiceCarry(StringBuilder sb, VoiceCarryOutcome? outcome, bool inPlace)
@@ -649,6 +650,16 @@ public static class WriteTools
         if (vr.Failures.Count > 25) sb.Append("  voice WARN: … (+").Append(vr.Failures.Count - 25).Append(" more)\n");
         if (vr.ReadIncomplete)
             sb.Append("  note: a BSA or a loose mod folder failed to read this scan, so a 'no voice' result may be incomplete — verify voiced lines in-game.\n");
+        AppendCarryRoots(sb, vr.RootFailures);
+    }
+
+    /// <summary>WHICH loose root the carry scan could not read, under the note that hedges on it — this render takes
+    /// no max_chars, so it cuts at the same 25 the WARN lists above it do.</summary>
+    static void AppendCarryRoots(StringBuilder sb, IReadOnlyList<string> roots)
+    {
+        foreach (var r in roots.Take(25)) sb.Append("  ").Append(BatchRender.RootFailureLead).Append(r).Append('\n');
+        if (roots.Count > 25)
+            sb.Append("  … (+").Append(roots.Count - 25).Append(" more loose root read failure(s))\n");
     }
 
     static void AppendSeqRegen(StringBuilder sb, SeqRegenOutcome? outcome, bool inPlace)
@@ -1052,6 +1063,8 @@ public static class WriteTools
             rendered++;
         }
         if (anyReadIncomplete) sb.Append(WriteSentences.ScanIncomplete("an \"absent\""));
+        // WHICH folder would not read, under the hedge that depends on it; bounded by the shared renderer.
+        sb.Append(BatchRender.RootFailureLines(report.RootFailures, cap, indent: "  "));
         if (report.CheckError is not null)
             sb.Append(WriteSentences.CheckCouldNotRun("voice", report.CheckError, "the records", "verify voice files manually."));
     }
@@ -1136,6 +1149,8 @@ public static class WriteTools
             rendered++;
         }
         if (anyReadIncomplete) sb.Append(WriteSentences.ScanIncomplete("a \"missing .pex\""));
+        // WHICH folder would not read, under the hedge that depends on it; bounded by the shared renderer.
+        sb.Append(BatchRender.RootFailureLines(report.RootFailures, cap, indent: "  "));
         if (report.CheckError is not null)
             sb.Append(WriteSentences.CheckCouldNotRun("result-script", report.CheckError, "the records", "verify the script binding manually."));
     }
