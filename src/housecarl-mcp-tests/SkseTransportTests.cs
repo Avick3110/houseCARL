@@ -528,10 +528,17 @@ public sealed class SkseTransportTests
         Assert.Contains("of 200 loose root read failure(s)", text);     // and the rest are counted
         Assert.True(text.Length <= cap + ShareSlack,
                     $"{family}: {text.Length} chars against max_chars={cap} — the caveat tail took more than its share.");
+        // And it took THE share, not merely some bound. The numbers are absolute on purpose: a caveat line here is ~250
+        // chars, so a quarter of 8,000 holds 7 of them and a half would hold 15. Deriving the expectation from
+        // RootFailureShare would scale with the constant and pin nothing.
+        Assert.InRange(NamedRootsInText(text), 5, 10);
     }
 
     /// <summary>The loose-root failures are a caveat array like the warnings, so the reserve has to hold room for them
-    /// too — a block added to a capped document without being counted is what broke the census cap in #825.</summary>
+    /// too — a block added to a capped document without being counted is what broke the census cap in #825 — and the
+    /// array itself is BOUNDED to a share with its omitted sibling. The fixture carries warnings as well, because the
+    /// caveats written before the array are what a stale, unflushed baseline would charge the array for: the json lane
+    /// then named one root where the text lane named seven.</summary>
     [Theory]
     [InlineData("inventory")]
     [InlineData("pairing")]
@@ -541,11 +548,18 @@ public sealed class SkseTransportTests
         const int cap = 20_000;
         var roots = Enumerable.Range(1, 200)
             .Select(i => $"BlockedMod{i:D3}: could not read 'SKSE\\Plugins' — " + new string('r', 180)).ToArray();
+        var warnings = Warnings(40);
         string json = family switch
         {
-            "inventory" => SkseInventoryWire.RenderJson(Inventory(40, rootFailures: roots), null, cap),
-            "pairing" => NativePairingWire.RenderJson(Pairing(40, rootFailures: roots), null, cap),
-            _ => SkseConfigAuditWire.RenderJson(ConfigAudit(40, rootFailures: roots), null, cap),
+            "inventory" => SkseInventoryWire.RenderJson(Inventory(40, warnings: warnings, rootFailures: roots), null, cap),
+            "pairing" => NativePairingWire.RenderJson(Pairing(40, warnings: warnings, rootFailures: roots), null, cap),
+            _ => SkseConfigAuditWire.RenderJson(ConfigAudit(40, warnings: warnings, rootFailures: roots), null, cap),
+        };
+        string text = family switch
+        {
+            "inventory" => SkseInventoryWire.Render(Inventory(40, warnings: warnings, rootFailures: roots), null, cap),
+            "pairing" => NativePairingWire.Render(Pairing(40, warnings: warnings, rootFailures: roots), null, cap),
+            _ => SkseConfigAuditWire.Render(ConfigAudit(40, warnings: warnings, rootFailures: roots), null, cap),
         };
 
         using var doc = JsonDocument.Parse(json);
@@ -557,6 +571,27 @@ public sealed class SkseTransportTests
         int tail = roots.Sum(x => x.Length);
         Assert.True(json.Length < cap + OneRowSlack,
                     $"{family}: {json.Length} chars against max_chars={cap} — the ~{tail}-char root-failure block was not bounded.");
+        // The two lanes bound the SAME list the same way, so they name the same number of folders for one call, give or
+        // take the line's json quoting: the text lane charges the marker up front, the json lane stops on the budget. A
+        // baseline measured before the writer flushed charges the array for the warnings above it — 1 against 7 there.
+        int inText = NamedRootsInText(text);
+        Assert.InRange(named, inText - 2, inText + 2);
+    }
+
+    /// <summary>How many roots a text render actually named, off the lines themselves.</summary>
+    static int NamedRootsInText(string text) =>
+        System.Text.RegularExpressions.Regex.Matches(text, @"\[!\] loose root read failure: ").Count;
+
+    /// <summary>A healthy document carries the sibling too: a key that comes and goes cannot be checked against
+    /// "the array and the omitted count add up to the whole", and asset_status always writes it.</summary>
+    [Fact]
+    public void TheRootFailureOmittedCountIsWrittenEvenWhenNothingFailed()
+    {
+        using var doc = JsonDocument.Parse(SkseInventoryWire.RenderJson(Inventory(2), null, 20_000));
+        var caveats = doc.RootElement.GetProperty("caveats");
+
+        Assert.Empty(caveats.GetProperty("root_read_failures").EnumerateArray());
+        Assert.Equal(0, caveats.GetProperty("root_read_failures_omitted").GetInt32());
     }
 
     /// <summary>What a bounded caveat tail may overrun by — one line plus its marker, far under the quarter of
