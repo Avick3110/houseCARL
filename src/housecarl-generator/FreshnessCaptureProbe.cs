@@ -44,10 +44,6 @@ namespace HousecarlGenerator;
 ///      been served, so the race is staged rather than timed and no runner can be too fast to stage it.
 ///
 /// Self-contained: synthetic MO2 instances + synthesized plugins in temp; generates its own corpus. No game data.
-///
-/// Not standalone: arms 4 and 5 both park their write on a seam instead of racing it, so no runner can be too
-/// fast to stage either race and this guard runs inside ci-all like every other probe. It used to need its own
-/// cold-process step because both races were timed.
 /// </summary>
 internal static class FreshnessCaptureProbe
 {
