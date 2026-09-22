@@ -1077,12 +1077,12 @@ public static class RecordsTools
             }
         }
 
-        // The shared delta response pipeline — envelope, counts_only, window, spill, both renders — used by the
-        // list and scan lanes alike.
         /// <summary>The counts a windowed comparison carries, with `selected` beside them so `count` is never read as the whole selection.</summary>
         KeyValuePair<string, int>[] CmpCounts(params KeyValuePair<string, int>[] counts) =>
             cmpWindowNote is null ? counts : counts.Concat(new[] { KvI("selected", cmpSelected) }).ToArray();
 
+        // The shared delta response pipeline — envelope, counts_only, window, spill, both renders — used by the
+        // list and scan lanes alike.
         string DeltaResponse(IReadOnlyList<LoadOrderService.DeltaRow> rows, string? sArm, string? rArm, bool covers,
                              OrderStamp? epoch, List<KeyValuePair<string, string>> echo)
         {
