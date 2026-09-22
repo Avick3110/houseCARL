@@ -1,6 +1,10 @@
 ---
 updated: 2026-09-22
-covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/WriteSentences.cs, src/housecarl-core/WriteEngine.cs]
+covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/WriteSentences.cs, src/housecarl-core/WriteEngine.cs,
+  src/housecarl-core/WriteVerbs.cs, src/housecarl-core/RemapEngine.cs, src/housecarl-core/ClosureCopy.cs,
+  src/housecarl-core/MergeInjection.cs, src/housecarl-core/MergeLoadPosition.cs,
+  src/housecarl-mcp/ApplyTools.cs, src/housecarl-mcp/CreateTools.cs, src/housecarl-mcp/ForwardTools.cs,
+  src/housecarl-mcp/RemoveTools.cs, src/housecarl-mcp/SeqTools.cs, src/housecarl-mcp/WriteTools.cs]
 ---
 # The write path, service side
 
@@ -136,6 +140,138 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   itself.
 - `RemapEngine.LocalizedAmong` fails closed on a referencer it could not open, which is what forces the two-class
   split in `SplitBlockedReferencers`.
+- A call's destinations are mutually exclusive — `patch=` / `into=` / `in_place=`, and `.seq`'s `out_path=`, which
+  supersedes the `patch=`/`into=` pair, says so, and is checked before it — and a named lane is honoured or refused BY
+  NAME rather than accepted-and-ignored. Emptiness is judged one way for a lane string, so the exclusivity checks and
+  the write cannot disagree about whether a lane was named.
+- `format=` is resolved BEFORE the unconfigured-MO2 prompt, which is prose a json caller could not parse, and every
+  refusal below it answers in the requested format with a null epoch.
+- The lane a response reports is the one the CALL named, never one derived from the outcome's flags, which sit at
+  their defaults on a refusal.
+- The copy zip is a ZIP and never a product — N assignments × M bundle paths is N*M ops over N sources — and each
+  generated op carries the caller's own spelling, `assignments[i]` × `bundle[j]`, so a refusal names something the
+  caller wrote.
+- A record missing from the written file is said ABOVE the rows and outside their budget, so a row cut cannot remove
+  it. A nested child whose PARENT is missing belongs in both lists, each selected on its own flag.
+- Whether re-issuing a write to widen a truncated display is safe is a property of the LANE, not of the verb: safe on
+  `into=` and on a dry run, a SECOND patch mod on the default lane, a read-back on `in_place=`, and a READ rather
+  than a re-issue after a create, which would allocate the records again. The budget and cut-notice mechanics are
+  [`render-budget.md`](render-budget.md)'s.
+- The touched-record verify is forced on the in-place lane and renders compact by default, in full only on
+  `full_readback=true`. A dry run's records come from the in-memory would-be content and the render says so first, so
+  a dry run can never read like a write.
+- An external OVERRIDER is warned about by name rather than routed through the referencer path, an override being an
+  identity and not a link; a merge's swap is PLUGIN-level, not mod-level, because the merged records still reference
+  the donors' files by path; and the light, master, localized and header-text notes are keyed on what the DONORS
+  carried, never on the donor count.
+- A `.seq` write gives "already current" and "replaced" their own headlines and states the absent epoch, the bytes
+  being load-order-independent and a skipped write reported as a write reading like a silent failure.
+- Which write verbs work on a collection leaf is derived ONCE from its SHAPE — list or dict, crossed with how an
+  element gets in (a coerced value, built from parts, or an owned child record) — and each site filters that table by
+  purpose rather than naming verbs, so a dict caller cannot be offered a list verb and a verb added to the surface
+  reaches every message at once.
+- That table is indexed by SHAPE while the gate is indexed by VERB, and the two are held together by measurement
+  rather than by copying: every collection field in the corpus is bucketed by shape, and each bucket replays a
+  well-formed request through the real `CorpusRulebook.Validate` for every verb the table names (each must be
+  ACCEPTED) and every verb it omits (each REFUSED).
+- The two routes to a shape — the corpus `FieldSchema` route and the live-property route the engine's own throws use
+  — must give the same answer for every collection field in the corpus, because the engine keeps its
+  schema-blindness by never taking the corpus.
+- An owned-child-record collection has no placing verb at all: the element is allocated on the record axis, so its
+  menu is `Remove` alone and its how-to-place sentence names `housecarl_create` with `parent=`. `CopyFrom` is absent
+  from every dict shape too, a dict transplant not being built.
+- A list's keyed menu leads with `SetAtIndex`, not `InsertAtIndex`: a caller who bracketed an index that already
+  holds an element and read the menu top-down would otherwise append, which the gate ACCEPTS, and on a CTDA OR-run
+  that changes what the record gates on.
+- The create and nested-compose verb sets are DERIVED by subtraction from the one vocabulary, never hand-typed, and
+  each subtraction throws at startup when its subtrahend is absent from that vocabulary, because a subtraction
+  matching nothing would silently publish the whole set.
+- The caller-facing recitals are separate compile-time consts because an attribute argument must be constant, and a
+  description must CONCATENATE one rather than type the names out. The full recital's LAST token is load-bearing:
+  `BulkOp.verb` glues a gloss straight onto its tail, so appending or reordering a verb moves that gloss onto a
+  different verb.
+- Renumbering a record is `record.Duplicate(newKey)` into a FRESH mod followed by `RemapLinks(dict)`. `RemapLinks`
+  repoints outgoing references only, and the record's own FormKey setter — reachable but non-public — leaves the
+  FormKey-keyed group cache stale, so it is never used.
+- The identify pass is one whole-order walk per operation, never a held index, and its coverage is accounted: a
+  record whose link walk throws is counted and sampled, and a plugin that could not be read THROUGH is named with
+  its cause and is not counted as scanned.
+- The two unscannable causes stay apart because the remedies differ — a file that would not OPEN is almost always
+  another program holding it, while one that opened and then faulted part-way is not. A header read that faults
+  falls THROUGH to the records, a different read that may well succeed, and the plugin is named once, for the fault
+  that came first.
+- An external REFERENCER is found by outgoing link and can be repointed; an external OVERRIDER is found by record
+  IDENTITY, cannot be auto-repointed, and is warned about instead. The identity test runs BEFORE the link test, and
+  the deleted-record skip scopes to the link walk alone, so a deleted override is still a dependent.
+- A third dependent kind is read from HEADERS: a plugin declaring a transform-set plugin as a master while
+  referencing and overriding none of its records. Listed only where the record walk did not already find it, dropped
+  for a plugin whose record walk faulted, and opt-in because it costs one extra open per plugin and only a caller
+  that RENAMES the set has anything to report.
+- Allocation into an id window refuses LOUD when the source overflows it and never truncates; for an ESL compaction
+  that is the light-master ceiling, the usable window being 0x800–0xFFF INCLUSIVE, 2048 ids.
+- A merge KEEPS an object id wherever it is in-window and unclaimed, donors claiming in load order, and allocates a
+  fresh id only for a collision or an id below the write floor.
+- A record living only in a NESTED group has no flat top-level group, so the flat renumber refuses it by name rather
+  than dropping it; the structural renumber walks the source mod's structure instead, which is what keeps parentage,
+  and re-files a renumbered interior cell by its NEW id.
+- A cross-donor conflict on one FormKey resolves to the LOAD-ORDER WINNER and is reported per losing donor; donors
+  walk in reverse load order so the winner places first, and a losing donor's nested children the winner does not
+  re-list are GRAFTED into the winner's container. A structural mismatch on the winner's side, or an unrecognized
+  nested block shape, THROWS into the all-or-nothing refusal — any engine fault abandons the renumber or merge with
+  nothing shippable — rather than dropping a child.
+- A repoint result's entry count is the size of the dict APPLIED, not the number of links rewritten, which Mutagen
+  does not report.
+- The in-place repoint opens the single target mutable, resolves the target's OWN declared masters to overlays and
+  re-serializes over itself; a declared master that is inactive, unopenable or missing from disk is a loud refusal
+  with the file untouched, because this runs only once the compacted plugin is already on disk.
+- Every remap method opens at most one plugin mutable at a time and disposes its master overlays after the write, so
+  the load order is never held parsed.
+- An INJECTED record — carried by one donor under another plugin's FormID — originates to no donor, so it is given
+  to the FIRST donor carrying it and renumbered with that donor's own records; left out of the dict it is copied at
+  an identity naming a plugin the merge removes, and the write fails with a raw missing-mod fault after the whole
+  merge is built. Which plugin DEFINES it is not decidable from the order, so nothing claims it.
+- A donor link whose target no donor holds is refused before anything is built, and only the links that SURVIVE the
+  merge are asked about: the merge keeps the load-order winner's body, so a stale reference a later donor already
+  fixed must not refuse the merge.
+- The merged plugin must load after its masters and AT the last donor's position, because the merge baked the donors'
+  conflict outcomes in as they stood there. Positions come in 0-based from the resolver and are reported 1-based, and
+  a master that is not flagged ESM can sit after the last donor — an order the advice cannot satisfy, so it is
+  FLAGGED rather than an impossible slot printed.
+- The placement names no other plugins: the records whose winner it decides are the overrides the donors carry at
+  their MASTERS' FormIDs, which no pass in a merge enumerates, so the constraint is stated and the roster is not
+  guessed at.
+- A closure copy internalizes the walk's reached set with `Duplicate(newKey)` + `RemapLinks`, never field by field,
+  so no field can be forgotten; allocation comes off the patch's own counter, so an EXTENDED patch keeps counting.
+- Those duplicates are built in a SCRATCH mod sharing the patch's ModKey and transplanted in. That is a correctness
+  step, not an optimization: the remap runs over the whole target mod and would otherwise repoint a record the caller
+  had already put in an extended patch.
+- After internalize and remap, any link still pointing into the bound source universe was not part of what was
+  copied, and is removed by link identity with every removal named; a REQUIRED link that cannot be cleared is a loud
+  refusal, because keeping it would master the plugin the artifact claims to be free of.
+- Whether a link may be nulled is judged on the record model's `IFormLinkNullable<T>`, never on whether a
+  `SetToNull` method exists: Mutagen's required links expose one too, so deciding by method presence writes a null
+  into a required field.
+- The strip is two passes and the first does not mutate — a read-only scan refuses an unclearable shape before
+  anything is removed — so a refusal never leaves a half-stripped record. Nulling a link-bearing substruct takes the
+  WHOLE property rather than just the offending link, and the entry is marked so the render says so.
+- The attach lane writes links already mapped rather than fixing them up with a mod-wide pass, so a patch record the
+  caller never named is unreachable from it. A target inside the bound universe is refused, and a target in a NESTED
+  group is a typed refusal naming the shape rather than a throw rendered as an internal fault.
+- An unset or empty source seed CLEARS the target's value rather than leaving it, and the clear is reported as a
+  clear rather than as a no-op or a zero count. A seed's shape is classified once, by the walk's own classifier, so
+  the attach and clone lanes cannot disagree about a field.
+- The off-order link check is per lane: the attach lane asks UP FRONT, nothing stripping there, while the clone lane
+  asks the ARTIFACT after the strip, and the refusal splits by cause so the remedy names something the caller did —
+  their own `stop`, a record a previous call left in the patch, or an unseeded field carried across.
+- The post-attach leak check is scoped to BOUND keys only: a broader "any link that does not resolve" test would also
+  catch the target's pre-existing dangling reference, which is not this operation's defect.
+- Asset paths are harvested from the IN-PATCH duplicates and before the serialize, the donor bodies being
+  overlay-backed and released there, and an unreadable asset link is a report rather than a reason to fail a written
+  copy.
+- A walk that cycles back to the `from` record has already internalized it, so the clone reuses that copy rather
+  than minting a second duplicate sharing its EditorID.
+- Every closure-copy refusal returns with nothing usable written, while a post-commit read-back failure is a WARNING
+  on a success: the patch is on disk by then, and mislabelling it invites a duplicate re-run.
 
 ## Pinned by
 - `inplace-guard` arms E / L / U — the `in_place`⇔`target=` contract and the `into=` / `patch=` exclusion, on the
@@ -196,6 +332,49 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   reaches the pre-flight, because the identify pass drops it first, so that half is unpinned.
 - `freshness-capture-guard` arm 4 — one call's patch carries ONE build's bodies. The two captures agreeing about
   membership is not separately pinned.
+- `remedy-verbs-guard` arms population / routes / agreement / sites — the shape-indexed verb table: every shape's
+  corpus population stated out loud, the schema and runtime routes agreeing on every collection field, the measured
+  accept-and-refuse sweep through the real gate in both directions, and each consuming message carrying this
+  cardinality's verbs and not the other's.
+- `description-vocab-guard` arms INV4-HOMES / INV4-CREATEHOMES / INV4-COMPOSEHOMES — each verb list and its recital
+  agree with each other and with a vocabulary written independently in the probe, which is what lets the derived
+  subtractions fail; INV4-MARK — the recital marks exactly one verb as the default; INV4-TAILGLOSS — the verb the
+  recital ends with is the one the glued gloss describes.
+- `remap-wave1-guard` arms HAPPY / CAPACITY / NESTED — the whole compact proven on disk (records renumbered into the
+  ESL window, an internal reference repointed, the identify pass finding the external referencer and not the donor,
+  the in-place repoint rewriting it), the window-overflow refusal, and the flat renumber's nested-only refusal.
+- `remap-wave2-compact-guard` arms NESTED / EXTERNAL — the structural renumber keeping every nesting shape
+  (cell→placed, worldspace→exterior cell→placed, topic→INFO) with internal references repointed, and the
+  identify-plus-repoint half over it.
+- `merge-service-guard` arms MERGE / WINNER / GRAFT — the first donor's ids kept, a later donor's collision
+  renumbered, the cross-donor reference repointed, conflicts resolved to the load-order winner and reported with
+  winner and loser named, and the losing donor's un-relisted INFO grafted into the winning topic; arm HEADER — the
+  light, master and header-text notes keyed on what the donors carried; arm DECLARER — a declarer-only dependent
+  reaching the rendered report.
+- `overrider-detect-guard` arms OVERRIDER / REFERENCER — an overrider is a warn that lets the compaction succeed
+  while a referencer is refused and named, the contrast that holds the two apart.
+- `MasterDeclarerScanTests.ADeclarerOnlyDependentIsFoundAndNamed`, `AReferencerIsNotAlsoListedAsADeclarer`,
+  `APluginThePassCouldNotReadIsNotCalledADeclarer`, `APluginDeclaringAMasterOutsideTheTransformSetIsNotADeclarer` and
+  `ACorruptMasterTableReadsTheSameForBothCallers` — the declarer category's exclusions and the header-fault reading.
+- `IdentifyScanCoverageTests.AReferencerLockedAfterTheIndexWasBuiltIsReportedUnscannable` and
+  `TheReportSaysAnUnreadablePluginCouldNotBeOpened` — a plugin that could not be read through is named with its
+  cause; `InPlaceCompactRefusesWhenAReferencerCouldNotBeRead` — what that gap costs the caller.
+- `MergeInjectedRecordTests.AnInjectedRecordCarriedByADonorIsRenumberedIntoTheOutput` and
+  `APluginOutsideTheMergeCarryingTheSameInjectedRecordIsWarnedAboutByName` — the injected-record rule and its posture
+  toward a plugin outside the merge; `ADonorReferenceNoDonorHoldsIsRefusedBeforeAnythingIsBuilt`,
+  `AStaleReferenceALaterDonorAlreadyFixedDoesNotRefuseTheMerge` and
+  `ADeletedRecordsStaleReferenceDoesNotRefuseTheMerge` — the unremappable-link refusal and the two links it does not
+  ask about.
+- `MergeSitingTests.PositionsComeInZeroBasedAndComeBackOneBased` and `AMasterBelowTheLastDonorIsFlagged` — the
+  placement derivation itself; `MergePlacementTests.ThePlacementParagraphGivesTheDonorRangeAndTheSlot`,
+  `…NamesTheLastMasterAndItsPosition`, `…ClaimsNoWinnerOverARenumberedRecord` (the paragraph names the donors'
+  overrides at their masters' FormIDs and no roster) and `ASingleDonorGetsItsOwnPositionAndClaimsNothingAboutAnInterval`
+  — the rendered paragraph.
+- `closure-copy-guard` arms INTERNALIZE / REMAP SCOPING / NULLABILITY / REQUIRED LINK / LEAK SCOPING / PROVENANCE —
+  fresh keys off the patch's own counter with an extended patch still counting, the scratch-mod step (a record the
+  caller already put in the patch survives untouched, and the arm fails if the step is removed), nullability judged
+  on the record model's interface, the required-link refusal checkable in both directions, a surviving bound link
+  being a leak while a pre-existing dangling one is not, and the walk's arm attribution surviving into the report.
 
 ## Where
 - `src/housecarl-mcp/RecordWrites.cs` — the lanes: `ApplyEdits`, `CreateRecordsBatch` / `CommitCreate`,
@@ -219,3 +398,17 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   dev harnesses, and the `coerce-audit` / `coerce-selftest` probes.
 - Tools: `housecarl_apply`, `housecarl_create`, `housecarl_remove`, `housecarl_forward`, `housecarl_copy`,
   `housecarl_compact_plugin`, `housecarl_merge_plugins`, `housecarl_create_plugin`.
+- `src/housecarl-core/WriteVerbs.cs` — the write-verb vocabulary, `CollectionShape`, `WriteVerbs.On` and the purpose
+  filters (`HowToPlace`, `HowToPlaceOne`, `HowToPlaceOneAt`, `HowToAddress`), plus the two routes to a shape
+  (`OfField`, `OfRuntimeType` / `OfElement`).
+- `src/housecarl-core/RemapEngine.cs` — the shared foundation under compact and merge:
+  `IdentifyExternalReferencers`, `BuildSequentialRemap` / `BuildMergeRemap`, `RenumberRecordsInto` /
+  `RenumberModInto`, `MergeModsInto` with its graft helpers, `LocalizedAmong` and `RepointInPlace`.
+- `src/housecarl-core/ClosureCopy.cs` — `Internalize`, `StripBoundLinks`, `AttachSeedFields`, `FindBoundLeak` and
+  `BuildAndWrite`, behind `housecarl_copy`; the walk that feeds it is
+  [`select-and-walk.md`](select-and-walk.md)'s.
+- `src/housecarl-core/MergeInjection.cs` (`Renumberable`, `UnremappableLink`) and
+  `src/housecarl-core/MergeLoadPosition.cs` (`Derive`, `MergeSiting`) — the two merge pre-flights.
+- The tool fronts: `src/housecarl-mcp/ApplyTools.cs`, `CreateTools.cs`, `ForwardTools.cs`, `RemoveTools.cs`,
+  `SeqTools.cs` and `WriteTools.cs` — argument reading, the lane and transport gates, and the render helpers every
+  write tool calls.
