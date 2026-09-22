@@ -296,16 +296,16 @@ public class PlaceJsonRenderTests
         Assert.Equal("nothing supplies this path", bad.GetProperty("error").GetString());
     }
 
-    /// <summary>The WRITE lane's own arm of #809: a write outcome caps through <c>WriteSentences.Cap</c> rather than
-    /// the read lanes' <c>Cap</c>, so the cap its overrun member prints comes from a different rule and is pinned
-    /// here, on the one write document a test can build without a world.</summary>
+    /// <summary>The WRITE lane's own arm of #809, on the one write document a test can build without a world. Its
+    /// root close sits after a <c>truncated_note</c> and a <c>next_step</c>, so the member lands beside the two facts
+    /// it must not be confused with.</summary>
     [Fact]
     public void AnOverCapWriteOutcomeSaysItOverranAndNamesTheCapThatClearsIt()
     {
         var o = Outcome(ok: 4, failed: 0);
         string Render(int cap) => JsonWire.RenderPlaceOutcome(o, cap);
 
-        JsonOverrun.StatesTheThreeNumbers(Render(300), 300, Render);
+        JsonOverrun.StatesTheThreeNumbers(Render(300), 300);
     }
 
     [Fact]
