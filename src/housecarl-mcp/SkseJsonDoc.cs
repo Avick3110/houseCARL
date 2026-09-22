@@ -55,17 +55,24 @@ static class SkseJsonDoc
     }
 
     /// <summary>The build-level caveats every family carries — the same ones the text render writes and the accounting counts.</summary>
-    internal static void Caveats(Utf8JsonWriter w, bool readIncomplete, IReadOnlyList<string> warnings,
-                                 IReadOnlyList<string> bsaFailures, IReadOnlyList<string> rootFailures)
+    internal static void Caveats(Utf8JsonWriter w, CharCountedStream ms, bool readIncomplete,
+                                 IReadOnlyList<string> warnings, IReadOnlyList<string> bsaFailures,
+                                 IReadOnlyList<string> rootFailures, int share)
     {
         w.WriteStartObject("caveats");
         w.WriteBoolean("read_incomplete", readIncomplete);
         Strings(w, "warnings", warnings);
         Strings(w, "archive_read_failures", bsaFailures);
-        // The loose twin, beside the archives: a root that would not read is named, not just hedged.
-        Strings(w, "root_read_failures", rootFailures);
+        // The loose twin, beside the archives: a root that would not read is named, not just hedged — and BOUNDED,
+        // because one entry per root per directory asked about is a list a blocked tree can make wider than the whole
+        // document. The array plus its sibling count is the shape json-wire.md states and asset_status keeps.
+        if (rootFailures.Count == 0) Strings(w, "root_read_failures", rootFailures);
+        else JsonWire.WriteCappedStringArray(w, ms, "root_read_failures", rootFailures, Chars(ms) + Math.Max(share, 0));
         w.WriteEndObject();
     }
+
+    /// <summary>The document's length in characters so far; the writer buffers, so it is flushed first.</summary>
+    static int Chars(CharCountedStream ms) => JsonWire.Chars(ms);
 
     /// <summary>Is the document already at its char ceiling? Characters, not bytes, and the writer is flushed first because it buffers.</summary>
     internal static bool Over(Utf8JsonWriter w, CharCountedStream ms, int cap)
@@ -77,7 +84,7 @@ static class SkseJsonDoc
     /// <summary>The chars held back from max_chars for the tail every family document closes on — the json twin of
     /// <see cref="TransportAccounting.Reserve"/>, measured by composing the widest tail so no rendering outgrows it.</summary>
     internal static int TailReserve(bool readIncomplete, IReadOnlyList<string> warnings, IReadOnlyList<string> bsaFailures,
-                                    IReadOnlyList<string> rootFailures, TransportCounts widest,
+                                    IReadOnlyList<string> rootFailures, int share, TransportCounts widest,
                                     Action<Utf8JsonWriter>? conditional = null)
     {
         using var ms = new CharCountedStream();
@@ -85,7 +92,7 @@ static class SkseJsonDoc
         {
             w.WriteStartObject();
             conditional?.Invoke(w);
-            Caveats(w, readIncomplete, warnings, bsaFailures, rootFailures);
+            Caveats(w, ms, readIncomplete, warnings, bsaFailures, rootFailures, share);
             TransportAccounting.WriteJson(w, widest);
             w.WriteEndObject();
         }

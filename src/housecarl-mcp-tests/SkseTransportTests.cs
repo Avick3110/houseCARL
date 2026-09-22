@@ -502,9 +502,12 @@ public sealed class SkseTransportTests
                     $"{family}: {json.Length} chars against max_chars={cap} — the ~{tail}-char tail was not reserved.");
     }
 
-    /// <summary>The TEXT twin of the reserve: a blocked tree's named roots are charged AND bounded, so the document
-    /// stays inside max_chars instead of shipping a tail wider than the whole budget. The archive-failure and warning
-    /// lines are left uncut on purpose — they predate this and are bounded by the archive count, not the mod count.</summary>
+    /// <summary>The TEXT twin of the reserve: a blocked tree's named roots are charged AND bounded to a SHARE of
+    /// max_chars, so the document stays inside it instead of shipping a tail wider than the whole budget. The slack
+    /// here is far under that share, so removing the share fails this too, not only the SkyPatcher test.
+    /// <para>What is NOT bounded: the `warnings` and `archive_read_failures` lines above it, which this PR leaves as
+    /// it found them. They are a smaller list — one per archive, not one per root per directory asked about — but
+    /// smaller is not bounded, and 200 of either still overruns max_chars. Tracked in #858, not safe today.</para></summary>
     [Theory]
     [InlineData("inventory")]
     [InlineData("pairing")]
@@ -523,8 +526,8 @@ public sealed class SkseTransportTests
 
         Assert.Contains("BlockedMod001", text);                        // at least one root is NAMED, whatever the budget
         Assert.Contains("of 200 loose root read failure(s)", text);     // and the rest are counted
-        Assert.True(text.Length <= cap + OneRowSlack,
-                    $"{family}: {text.Length} chars against max_chars={cap} — the caveat tail was not bounded.");
+        Assert.True(text.Length <= cap + ShareSlack,
+                    $"{family}: {text.Length} chars against max_chars={cap} — the caveat tail took more than its share.");
     }
 
     /// <summary>The loose-root failures are a caveat array like the warnings, so the reserve has to hold room for them
@@ -536,8 +539,8 @@ public sealed class SkseTransportTests
     public void TheJsonTailReserveCountsTheRootFailureBlock(string family)
     {
         const int cap = 20_000;
-        var roots = Enumerable.Range(1, 60)
-            .Select(i => $"BlockedMod{i}: could not read 'SKSE\\Plugins' — " + new string('r', 180)).ToArray();
+        var roots = Enumerable.Range(1, 200)
+            .Select(i => $"BlockedMod{i:D3}: could not read 'SKSE\\Plugins' — " + new string('r', 180)).ToArray();
         string json = family switch
         {
             "inventory" => SkseInventoryWire.RenderJson(Inventory(40, rootFailures: roots), null, cap),
@@ -546,11 +549,19 @@ public sealed class SkseTransportTests
         };
 
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal(60, doc.RootElement.GetProperty("caveats").GetProperty("root_read_failures").GetArrayLength());
+        var caveats = doc.RootElement.GetProperty("caveats");
+        int named = caveats.GetProperty("root_read_failures").GetArrayLength();
+        // Bounded AND counted: some roots are named, the rest are a sibling number, the way json-wire.md states it.
+        Assert.InRange(named, 1, roots.Length - 1);
+        Assert.Equal(roots.Length - named, caveats.GetProperty("root_read_failures_omitted").GetInt32());
         int tail = roots.Sum(x => x.Length);
         Assert.True(json.Length < cap + OneRowSlack,
-                    $"{family}: {json.Length} chars against max_chars={cap} — the ~{tail}-char root-failure block was not reserved.");
+                    $"{family}: {json.Length} chars against max_chars={cap} — the ~{tail}-char root-failure block was not bounded.");
     }
+
+    /// <summary>What a bounded caveat tail may overrun by — one line plus its marker, far under the quarter of
+    /// max_chars the block is held to, so an unbounded block cannot pass as a bounded one.</summary>
+    const int ShareSlack = 600;
 
     /// <summary>The one row the cap can overrun by. Every family's row is comfortably under this, and every family's
     /// caveat tail in the test above is comfortably over it, so the bound tells the two apart.</summary>

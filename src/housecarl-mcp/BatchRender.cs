@@ -144,7 +144,7 @@ static class BatchRender
 
     /// <summary>How much of a response the named-roots caveat block may take: a quarter, so a blocked tree names
     /// several folders and still leaves the answer the caller asked for. One line names at minimum, however tight.</summary>
-    const int RootFailureShare = 4;
+    internal const int RootFailureShare = 4;
 
     /// <summary>The loose roots that would not read, as caveat LINES for the renders that close on a caveat block
     /// rather than open on an alarm — bounded to <see cref="RootFailureShare"/> of max_chars and counted, because one
@@ -154,7 +154,8 @@ static class BatchRender
     {
         if (failures.Count == 0) return "";
         var sb = new StringBuilder();
-        int room = Math.Max(cap / RootFailureShare, 0);
+        // The marker's own room is charged before the first line, as AppendLines charges its cut.
+        int room = Math.Max(cap / RootFailureShare - Marker(0, failures.Count).Length, 0);
         int shown = 0;
         foreach (var f in failures)
         {
@@ -164,11 +165,13 @@ static class BatchRender
             sb.Append(line);
             shown++;
         }
-        if (shown < failures.Count)
-            sb.Append("... [showing ").Append(shown).Append(" of ").Append(failures.Count)
-              .Append(" loose root read failure(s); raise max_chars]\n");
+        if (shown < failures.Count) sb.Append(Marker(shown, failures.Count));
         return sb.ToString();
     }
+
+    /// <summary>What a cut root list closes with — the count is the difference between a trimmed list and a short one.</summary>
+    static string Marker(int shown, int total) =>
+        "... [showing " + shown + " of " + total + " loose root read failure(s); raise max_chars]\n";
 
     /// <summary>A capped bullet list inside an alarm block, cut with the same named marker. Whole lines only, and
     /// the marker's own room is charged before the first line; the heading above it is unconditional.</summary>

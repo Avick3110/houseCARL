@@ -224,8 +224,8 @@ static class JsonWire
     /// <summary>The json twin of <see cref="BatchRender.AppendLines"/>: a caveat list bounded by the SAME budget the row
     /// loop is, cut as a sibling <c>_omitted</c> count. Pinned by
     /// <c>AssetStatusJsonLaneTests.TheCaveatBlocksAreCappedByMaxCharsToo</c>.</summary>
-    static int WriteCappedStringArray(Utf8JsonWriter w, CharCountedStream ms, string name, IReadOnlyList<string> items,
-                                      int budget)
+    internal static int WriteCappedStringArray(Utf8JsonWriter w, CharCountedStream ms, string name, IReadOnlyList<string> items,
+                                              int budget)
     {
         w.WriteStartArray(name);
         int shown = 0;
