@@ -209,7 +209,7 @@ internal static class EpochGuardProbe
                 Check(JsonWire.RenderCrossQueryDense(svc, q, null, 0, false, false).Contains($"\"epoch\": \"{current}\""), "…dense render carries it too");
                 var g = svc.CrossQuery("WEAP", null, null, false, null, null, 500, groupBy: "winner");
                 Check(g.Epoch == current && Wire.RenderCrossQuery(svc, g, null, 0).Contains($"epoch={current}"),
-                      "…group_by count table carries it (aggregations page too)");
+                      "…group_by count table carries it");
                 Check(svc.CrossQuery((string?)null, null, null, false, null, null, 500).Epoch is null,
                       "…a REFUSED query (no filter) stays unstamped — a refusal that consulted no build invents none");
 

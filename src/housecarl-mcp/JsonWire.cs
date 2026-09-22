@@ -535,7 +535,8 @@ static class JsonWire
                                              int count, int errors, OrderStamp? epoch,
                                              (int RowsRead, long Millis) bodyCost,
                                              IReadOnlyList<KeyValuePair<string, string>>? envelope = null,
-                                             int maxChars = 0, IReadOnlyList<string>? emptyGroups = null)
+                                             int maxChars = 0, IReadOnlyList<string>? emptyGroups = null,
+                                             int rowLimit = 0)
     {
         int cap = Cap(maxChars);
         using var ms = new CharCountedStream();
@@ -554,11 +555,13 @@ static class JsonWire
             w.WriteNumber("groups_total", rows.Count);
             WriteEmptyGroups(w, emptyGroups);
             w.WriteStartArray("groups");
-            int rendered = 0; bool truncated = false;
+            int rendered = 0; bool truncated = false, byBudget = false;
+            int shown = rowLimit > 0 ? Math.Min(rowLimit, rows.Count) : rows.Count;
             foreach (var (key, n) in rows.Select(r => (r.Key, r.Value)))
             {
+                if (rendered >= shown) { truncated = true; break; }   // limit= caps the table's rows
                 w.Flush();
-                if (Chars(ms) >= cap) { truncated = true; break; }
+                if (Chars(ms) >= cap) { truncated = true; byBudget = true; break; }
                 w.WriteStartObject();
                 w.WriteString("key", key);
                 w.WriteNumber("count", n);
@@ -568,6 +571,9 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
             w.WriteBoolean("truncated", truncated);
+            // WHICH knob stopped the table, the histogram's own member; null where the table is whole.
+            if (HistogramCut.For(rows.Count, rendered, byBudget) is { } cut) w.WriteString("cut_by", cut.Knob);
+            else w.WriteNull("cut_by");
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -1047,10 +1053,12 @@ static class JsonWire
 
     /// <summary>The spill-aware render: <paramref name="spill"/> rides IN the document, and
     /// <paramref name="truncated"/> is the auto-spill trigger handed back to the tool layer.</summary>
+    /// <param name="rowLimit">the caller's limit= as the group_by TABLE's row cap (0 = uncapped), the text twin's
+    /// own term (#810); <c>cut_by</c> names whichever knob stopped it.</param>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields, int depth,
                                           SpillState? spill, out bool truncated,
                                           IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null,
-                                          CancellationToken ct = default)
+                                          CancellationToken ct = default, int rowLimit = 0)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -1076,19 +1084,25 @@ static class JsonWire
                 w.WriteNumber("groups_total", gCounted.Count);
                 WriteEmptyGroups(w, gEmpty);
                 w.WriteStartArray("groups");
-                int gRendered = 0; bool gTrunc = false;
+                int gRendered = 0; bool gTrunc = false, gByBudget = false;
+                int gShown = rowLimit > 0 ? Math.Min(rowLimit, gCounted.Count) : gCounted.Count;
                 foreach (var g in gCounted)
                 {
                     if (manifestOnly) break;   // to_file: the rows are the FILE
+                    if (gRendered >= gShown) { gTrunc = true; break; }   // limit= caps the table's rows
                     w.Flush();
-                    if (Chars(ms) >= cap) { gTrunc = true; break; }
+                    if (Chars(ms) >= cap) { gTrunc = true; gByBudget = true; break; }
                     w.WriteStartObject(); w.WriteString("key", g.Key); w.WriteNumber("count", g.Count); w.WriteEndObject();
                     gRendered++;
                 }
                 w.WriteEndArray();
                 w.WriteNumber("rendered", gRendered);
                 w.WriteBoolean("truncated", gTrunc);
-                truncated = gTrunc;
+                // WHICH knob stopped the table, the histogram's own member; null where the table is whole.
+                if (HistogramCut.For(gCounted.Count, gRendered, gByBudget) is { } gCut) w.WriteString("cut_by", gCut.Knob);
+                else w.WriteNull("cut_by");
+                // Only the BUDGET cut triggers the caller's ceiling auto-spill; a limit cut is the caller's own ask.
+                truncated = gByBudget;
             }
             else                                                            // per-match: detail (fields=) or summary
             {
