@@ -5,7 +5,7 @@ namespace HousecarlCore;
 
 // DialogueCkParity — the CK-parity default-populate authority for the DIAL/INFO/DLVW family: the nullable fields
 // the Creation Kit always emits and Mutagen omits, filled at create time inside the Mutagen model. The invariants,
-// the three tiers and the two exceptions are contracts in docs/architecture/dialogue.md. Any further default
+// the three tiers and the two exceptions are contracts in docs/architecture/dialogue-validation.md. Any further default
 // belongs here too — do not fork a parallel path.
 
 /// <summary>One CK-parity field default-populated on create; a record that carried it produces NO fill.</summary>

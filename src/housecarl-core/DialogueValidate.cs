@@ -9,7 +9,7 @@ namespace HousecarlCore;
 // DialogueValidate — the on-demand whole-topic dialogue-graph validator, over a topic resolved against the
 // LOAD-ORDER WINNERS: quest and branch wiring, the INFO.LinkTo chain, a SET-but-dangling PNAM, INFO CK-parity, and
 // the reused VoiceCheck/DialogueScriptCheck. What a clean pass means, what PNAM absence means, the standing limits
-// and the deferred {plugin + masters} scope are contracts in docs/architecture/dialogue.md. Never throws over a
+// and the deferred {plugin + masters} scope are contracts in docs/architecture/dialogue-validation.md. Never throws over a
 // verify step: the whole run is wrapped, so a failure rides CheckError.
 
 /// <summary>How serious a graph finding is; no "info" level, as facts ride <see cref="TopicValidation"/>.</summary>
@@ -445,7 +445,7 @@ public static class DialogueValidate
         }
 
         // --- Subtype vs SNAM disagreement: SNAM wins, and this is reported, never "fixed". Scoped to a record a
-        //     mod AUTHORED the pair on (Aaron's ruling); contract in docs/architecture/dialogue.md.
+        //     mod AUTHORED the pair on (Aaron's ruling); contract in docs/architecture/dialogue-validation.md.
         else if (DialogueSubtype.MarkerDisagreesWithSubtype(topic))
         {
             // An inherited pair is the base record's statement: the override changed neither field.
@@ -679,7 +679,7 @@ public static class DialogueValidate
     // Engine-implicit forms are exempted from condition lints 1 and 3; the set lives in EngineImplicit.
 
     /// <summary>Static condition-lint suite over one INFO's <c>Conditions</c> — the data-layer-decidable subset,
-    /// all emitting WARNING; what is deliberately not linted is in docs/architecture/dialogue.md.</summary>
+    /// all emitting WARNING; what is deliberately not linted is in docs/architecture/dialogue-validation.md.</summary>
     internal static void CheckConditions(IDialogResponsesGetter info, HashSet<uint>? ownerAliasIds, string ownerQuestLabel,
         Func<FormKey, bool> inOrder, Func<FormKey, IMajorRecordGetter?> resolve, List<DialogueIssue> issues)
     {

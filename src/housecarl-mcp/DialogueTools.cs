@@ -21,7 +21,7 @@ internal static class DialogueWire
     }
 
     /// <param name="includeInfoOrder">render the effective merged INFO order inside this block; the <c>check</c>
-    /// surface's dialogue family does not (contract in docs/architecture/dialogue.md).</param>
+    /// surface's dialogue family does not (contract in docs/architecture/dialogue-validation.md).</param>
     internal static void AppendTopic(StringBuilder sb, TopicValidation t, bool indent, int cap,
                                      bool includeInfoOrder = true)
     {

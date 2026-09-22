@@ -3,7 +3,7 @@ namespace HousecarlCore;
 /// <summary>One SEED's contribution: its report, or the named reason it produced none. Carried, never dropped.</summary>
 public sealed record DialogueSeedResult(string Seed, DialogueValidationReport? Report, string? Refusal);
 
-/// <summary>The DIALOGUE family's result over a seed list; contract in docs/architecture/dialogue.md.</summary>
+/// <summary>The DIALOGUE family's result over a seed list; contract in docs/architecture/dialogue-validation.md.</summary>
 /// <param name="Seeds">one entry per seed the caller named, in that order — reports and refusals together.</param>
 /// <param name="ReadIncomplete">a BSA failed to read, so an "absent" voice file or .pex may merely be unscanned.</param>
 /// <param name="SeedsNamed">seeds the caller NAMED; the difference from <paramref name="Seeds"/> is the budget's cut.</param>

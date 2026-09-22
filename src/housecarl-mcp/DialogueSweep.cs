@@ -5,7 +5,7 @@ namespace HousecarlMcp;
 
 /// <summary>The dialogue family's orchestration on the merged <c>check</c> surface: expand a seed list into
 /// per-seed validations (core's <see cref="DialogueValidate"/>) and tally what they found. Seeded, not swept;
-/// contract in docs/architecture/dialogue.md.</summary>
+/// contract in docs/architecture/dialogue-validation.md.</summary>
 internal static class DialogueSweep
 {
     /// <summary>What this sweep needs off the load order, pinned to one build.</summary>

@@ -1,6 +1,6 @@
 namespace HousecarlMcp;
 
-/// <summary>Which checks a seed's kind actually runs; contract in docs/architecture/dialogue.md.</summary>
+/// <summary>Which checks a seed's kind actually runs; contract in docs/architecture/dialogue-validation.md.</summary>
 [Flags]
 internal enum DialogueChecks
 {
