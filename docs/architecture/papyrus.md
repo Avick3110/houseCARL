@@ -107,5 +107,5 @@ The decompiler itself is [`papyrus-decompile.md`](papyrus-decompile.md).
   `PapyrusClassParents` (baseline, `.psc` headers, `.pex` top-ups).
 - Tools: `CompileTools` (`housecarl_compile_script`, `BuildImports`, `PlanImports`, the import
   summary and detail renders).
-- Service: `LoadOrderService.PapyrusSourceImportDirs` (in `LoadOrderService.cs`) and
-  `ClassParentsForDecompile` (in `OutputLocations.cs`) supply the modlist-derived halves of both lanes.
+- Service: `LoadOrderService.PapyrusSourceImportDirs` and `ClassParentsForDecompile` (both in
+  `LoadOrderService.cs`) supply the modlist-derived halves of both lanes.
