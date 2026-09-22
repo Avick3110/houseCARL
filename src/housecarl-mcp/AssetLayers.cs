@@ -994,7 +994,9 @@ public sealed partial class LoadOrderService
             if (!string.IsNullOrWhiteSpace(sourceProvider))
             {
                 var pick = NifPick(view, place, rel, sourceProvider!.Trim());
-                if (pick.Error is not null) return NifSetResult.Fail(pick.Error, providers, profileName);
+                // The named-source refusal can hedge on the build, so it carries the roots that hedge points at.
+                if (pick.Error is not null)
+                    return NifSetResult.Fail(pick.Error, providers, profileName) with { RootFailures = view.RootFailures };
                 chosen = pick.Source!;
             }
             else
