@@ -876,6 +876,7 @@ static class SkseInventoryWire
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Inventory, filter, d.ProfileName, callerCap, (w, ms) =>
         {
+            var depths = new JsonWire.JsonUnitDepths(w.CurrentDepth);
             SkseJsonDoc.Nullable(w, "installed_runtime", d.InstalledRuntime);
             w.WriteStartObject("totals");
             w.WriteNumber("dlls", all.Loaded.Count);
@@ -895,19 +896,25 @@ static class SkseInventoryWire
             w.WriteEndObject();
 
             w.WriteStartArray("dlls");
+            int dllRows = 0;
             foreach (var e in dlls)
             {
-                if (SkseJsonDoc.Over(w, ms, cap)) break;
+                var row = e;
+                if (!SkseJsonDoc.Fits(w, ms, cap, JsonWire.MeasureUnit(depths.SkseRows, dllRows > 0, mw => WriteDllJson(mw, row, d)))) break;
                 WriteDllJson(w, e, d);
+                dllRows++;
                 rendered++;
             }
             w.WriteEndArray();
 
             w.WriteStartArray("configs");
+            int cfgRows = 0;
             foreach (var e in cfgs)
             {
-                if (SkseJsonDoc.Over(w, ms, cap)) break;
+                var row = e;
+                if (!SkseJsonDoc.Fits(w, ms, cap, JsonWire.MeasureUnit(depths.SkseRows, cfgRows > 0, mw => WriteConfigFileJson(mw, row)))) break;
                 WriteConfigFileJson(w, e);
+                cfgRows++;
                 rendered++;
             }
             w.WriteEndArray();
@@ -923,13 +930,11 @@ static class SkseInventoryWire
                                            Contested: g.Count(e => e.ProviderCount > 1)))
                              .OrderByDescending(g => g.Count).ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
                 {
-                    if (SkseJsonDoc.Over(w, ms, cap)) break;
-                    w.WriteStartObject();
-                    w.WriteString("folder", g.Name);
-                    w.WriteNumber("files", g.Count);
-                    SkseJsonDoc.Strings(w, "providers", g.Providers!);
-                    w.WriteNumber("contested", g.Contested);
-                    w.WriteEndObject();
+                    var row = g;
+                    if (!SkseJsonDoc.Fits(w, ms, cap,
+                            JsonWire.MeasureUnit(depths.SkseRows, folders > 0,
+                                                 mw => WriteConfigFolderJson(mw, row.Name, row.Count, row.Providers!, row.Contested)))) break;
+                    WriteConfigFolderJson(w, g.Name, g.Count, g.Providers!, g.Contested);
                     folders++;
                 }
                 w.WriteEndArray();
@@ -1008,6 +1013,17 @@ static class SkseInventoryWire
         w.WriteString("provider_kind", e.ProviderKind);
         w.WriteNumber("provider_count", e.ProviderCount);
         SkseJsonDoc.Providers(w, e.Providers);
+        w.WriteEndObject();
+    }
+
+    /// <summary>One config-folder row, written the same way the measurement measured it.</summary>
+    static void WriteConfigFolderJson(Utf8JsonWriter w, string folder, int files, IEnumerable<string> providers, int contested)
+    {
+        w.WriteStartObject();
+        w.WriteString("folder", folder);
+        w.WriteNumber("files", files);
+        SkseJsonDoc.Strings(w, "providers", providers);
+        w.WriteNumber("contested", contested);
         w.WriteEndObject();
     }
 
@@ -1314,6 +1330,7 @@ static class SkseConfigAuditWire
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Config, filter, d.ProfileName, callerCap, (w, ms) =>
         {
+            var depths = new JsonWire.JsonUnitDepths(w.CurrentDepth);
             int Verdicts(SkseRefVerdict v) => flatAll.Count(r => r.Verdict == v);
             w.WriteStartObject("totals");
             w.WriteNumber("configs_scanned", filtered ? allFiles.Count : d.ConfigCount);
@@ -1332,30 +1349,22 @@ static class SkseConfigAuditWire
             w.WriteStartArray("files");
             foreach (var file in files)
             {
-                if (SkseJsonDoc.Over(w, ms, cap)) break;
-                w.WriteStartObject();
-                w.WriteString("rel_path", file.RelPath);
-                w.WriteString("file_name", file.FileName);
-                w.WriteString("group", file.Group);
-                SkseJsonDoc.Nullable(w, "winning_provider", file.WinningProvider);
-                w.WriteNumber("provider_count", file.ProviderCount);
-                SkseJsonDoc.Providers(w, file.Providers);
-                SkseJsonDoc.Nullable(w, "read_error", file.ReadError);
+                var row = file;
+                // The room the row's own close needs is held back before its references spend, so a row whose
+                // references the cap cut still closes inside that cap.
+                int rowTail = ConfigRowTailCost(row, depths.SkseRows);
+                if (!SkseJsonDoc.Fits(w, ms, cap - rowTail,
+                        JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw => WriteConfigRowHead(mw, row, close: true)))) break;
+                WriteConfigRowHead(w, file, close: false);
                 w.WriteStartArray("references");
                 int refs = 0;
                 foreach (var r in file.Refs)
                 {
                     // One config can carry tens of thousands of form tokens, so the cap bounds the inner loop too.
-                    if (SkseJsonDoc.Over(w, ms, cap)) break;
-                    w.WriteStartObject();
-                    w.WriteString("raw", r.Ref.Raw);
-                    w.WriteString("shape", r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? "path_segment_gate" : "form_token");
-                    w.WriteString("plugin", r.Ref.Plugin);
-                    SkseJsonDoc.Nullable(w, "local_id", r.Ref.LocalId is { } id ? $"0x{id:X6}" : null);
-                    w.WriteNumber("line", r.Ref.Line);
-                    w.WriteString("verdict", VerdictName(r.Verdict));
-                    SkseJsonDoc.Nullable(w, "detail", r.Detail);
-                    w.WriteEndObject();
+                    var one = r;
+                    if (!SkseJsonDoc.Fits(w, ms, cap - rowTail,
+                            JsonWire.MeasureUnit(depths.SkseConfigRefs, refs > 0, mw => WriteConfigRefJson(mw, one)))) break;
+                    WriteConfigRefJson(w, r);
                     refs++;
                 }
                 w.WriteEndArray();
@@ -1370,6 +1379,52 @@ static class SkseConfigAuditWire
             TransportAccounting.WriteJson(w, TransportAccounting.Tally(allFiles.Count, files.Count, rendered, window, notes));
         });
     }
+
+    /// <summary>A config file row's own fields, without its references; <paramref name="close"/> closes the row on an
+    /// empty references array, which is the shape the admission measurement is taken over.</summary>
+    static void WriteConfigRowHead(Utf8JsonWriter w, SkseConfigFileAudit file, bool close)
+    {
+        w.WriteStartObject();
+        w.WriteString("rel_path", file.RelPath);
+        w.WriteString("file_name", file.FileName);
+        w.WriteString("group", file.Group);
+        SkseJsonDoc.Nullable(w, "winning_provider", file.WinningProvider);
+        w.WriteNumber("provider_count", file.ProviderCount);
+        SkseJsonDoc.Providers(w, file.Providers);
+        SkseJsonDoc.Nullable(w, "read_error", file.ReadError);
+        if (!close) return;
+        w.WriteStartArray("references");
+        w.WriteEndArray();
+        w.WriteEndObject();
+    }
+
+    /// <summary>One resolved reference, in the json lane.</summary>
+    static void WriteConfigRefJson(Utf8JsonWriter w, SkseAuditedRef r)
+    {
+        w.WriteStartObject();
+        w.WriteString("raw", r.Ref.Raw);
+        w.WriteString("shape", r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? "path_segment_gate" : "form_token");
+        w.WriteString("plugin", r.Ref.Plugin);
+        SkseJsonDoc.Nullable(w, "local_id", r.Ref.LocalId is { } id ? $"0x{id:X6}" : null);
+        w.WriteNumber("line", r.Ref.Line);
+        w.WriteString("verdict", VerdictName(r.Verdict));
+        SkseJsonDoc.Nullable(w, "detail", r.Detail);
+        w.WriteEndObject();
+    }
+
+    /// <summary>What closing a row whose references were CUT costs: the non-empty array's close, the cut member and the
+    /// object close. Composed rather than hand-written, because an indented close costs its own indent — the stand-in
+    /// element is there so the array closes in the shape a non-empty one does.</summary>
+    static int ConfigRowTailCost(SkseConfigFileAudit file, int depth)
+        => JsonWire.MeasureUnit(depth, false, w =>
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("references");
+            w.WriteNullValue();
+            w.WriteEndArray();
+            w.WriteNumber("references_truncated", file.Refs.Count);
+            w.WriteEndObject();
+        });
 
     /// <summary>The verdict's wire spelling — the json twin of <see cref="Tag"/>, from the same enum.</summary>
     static string VerdictName(SkseRefVerdict v) => v switch
@@ -1774,6 +1829,7 @@ static class NativePairingWire
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Pairing, filter, d.ProfileName, callerCap, (w, ms) =>
         {
+            var depths = new JsonWire.JsonUnitDepths(w.CurrentDepth);
             SkseJsonDoc.Nullable(w, "installed_runtime", d.InstalledRuntime);
             // Tri-state: null is "the check itself failed", never a checked-and-absent verdict.
             if (d.SkseLoaderSeen is { } seen) w.WriteBoolean("skse_loader_seen", seen); else w.WriteNull("skse_loader_seen");
@@ -1795,50 +1851,10 @@ static class NativePairingWire
             w.WriteStartArray("classes");
             foreach (var c in classes)
             {
-                if (SkseJsonDoc.Over(w, ms, cap)) break;
-                w.WriteStartObject();
-                w.WriteString("class_name", c.ClassName);
-                w.WriteString("rel_path", c.RelPath);
-                w.WriteString("provenance", c.Provenance switch
-                {
-                    NativeProvenance.Engine => "engine",
-                    NativeProvenance.SkseCore => "skse_core",
-                    _ => "third_party",
-                });
-                SkseJsonDoc.Nullable(w, "rung", c.Rung switch
-                {
-                    NativePairingRung.SameMod => "same_mod",
-                    NativePairingRung.ChainMod => "chain_mod",
-                    NativePairingRung.Unpaired => "unpaired",
-                    _ => null,
-                });
-                w.WriteString("verdict", VerdictName(c, d.InstalledRuntime));
-                SkseJsonDoc.Nullable(w, "winning_provider", c.WinningProvider);
-                w.WriteString("provider_kind", c.ProviderKind);
-                w.WriteNumber("provider_count", c.ProviderCount);
-                SkseJsonDoc.Providers(w, c.Providers);
-                SkseJsonDoc.Nullable(w, "paired_mod", c.PairedMod);
-                w.WriteNumber("native_count", c.NativeCount);
-                SkseJsonDoc.Strings(w, "native_functions", c.NativeFunctions);
-                w.WriteStartArray("paired_dlls");
-                foreach (var dll in c.PairedDlls)
-                {
-                    var (fate, detail) = Judge(dll, d.InstalledRuntime);
-                    w.WriteStartObject();
-                    w.WriteString("rel_path", dll.RelPath);
-                    w.WriteString("file_name", dll.FileName);
-                    w.WriteString("group", dll.Group);
-                    SkseJsonDoc.Nullable(w, "winning_provider", dll.WinningProvider);
-                    w.WriteString("fate", fate.ToString().ToLowerInvariant());
-                    w.WriteString("detail", detail);
-                    SkseJsonDoc.Nullable(w, "plugin_name", dll.Info?.Version?.Name);
-                    SkseJsonDoc.Nullable(w, "plugin_version", dll.Info?.Version?.PluginVersion);
-                    SkseJsonDoc.Nullable(w, "file_version", dll.Info?.FileVersion);
-                    SkseJsonDoc.Strings(w, "debug_crt_imports", dll.Info?.DebugCrtImports ?? Array.Empty<string>());
-                    w.WriteEndObject();
-                }
-                w.WriteEndArray();
-                w.WriteEndObject();
+                var row = c;
+                if (!SkseJsonDoc.Fits(w, ms, cap,
+                        JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw => WritePairingClassJson(mw, row, d.InstalledRuntime)))) break;
+                WritePairingClassJson(w, c, d.InstalledRuntime);
                 rendered++;
             }
             w.WriteEndArray();
@@ -1847,12 +1863,10 @@ static class NativePairingWire
             int unreadable = 0;
             foreach (var u in d.Unreadable)
             {
-                if (SkseJsonDoc.Over(w, ms, cap)) break;
-                w.WriteStartObject();
-                w.WriteString("rel_path", u.RelPath);
-                SkseJsonDoc.Nullable(w, "winning_provider", u.WinningProvider);
-                w.WriteString("reason", u.Reason);
-                w.WriteEndObject();
+                var row = u;
+                if (!SkseJsonDoc.Fits(w, ms, cap,
+                        JsonWire.MeasureUnit(depths.SkseRows, unreadable > 0, mw => WriteUnreadablePexJson(mw, row)))) break;
+                WriteUnreadablePexJson(w, u);
                 unreadable++;
             }
             w.WriteEndArray();
@@ -1862,6 +1876,64 @@ static class NativePairingWire
             SkseJsonDoc.Caveats(w, ms, d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare);
             TransportAccounting.WriteJson(w, TransportAccounting.Tally(allClasses.Count, classes.Count, rendered, window, notes));
         });
+    }
+
+    /// <summary>One native class's row, in the json lane — written whole, and measured the same way.</summary>
+    static void WritePairingClassJson(Utf8JsonWriter w, NativeClassEntry c, string? runtime)
+    {
+        w.WriteStartObject();
+        w.WriteString("class_name", c.ClassName);
+        w.WriteString("rel_path", c.RelPath);
+        w.WriteString("provenance", c.Provenance switch
+        {
+            NativeProvenance.Engine => "engine",
+            NativeProvenance.SkseCore => "skse_core",
+            _ => "third_party",
+        });
+        SkseJsonDoc.Nullable(w, "rung", c.Rung switch
+        {
+            NativePairingRung.SameMod => "same_mod",
+            NativePairingRung.ChainMod => "chain_mod",
+            NativePairingRung.Unpaired => "unpaired",
+            _ => null,
+        });
+        w.WriteString("verdict", VerdictName(c, runtime));
+        SkseJsonDoc.Nullable(w, "winning_provider", c.WinningProvider);
+        w.WriteString("provider_kind", c.ProviderKind);
+        w.WriteNumber("provider_count", c.ProviderCount);
+        SkseJsonDoc.Providers(w, c.Providers);
+        SkseJsonDoc.Nullable(w, "paired_mod", c.PairedMod);
+        w.WriteNumber("native_count", c.NativeCount);
+        SkseJsonDoc.Strings(w, "native_functions", c.NativeFunctions);
+        w.WriteStartArray("paired_dlls");
+        foreach (var dll in c.PairedDlls)
+        {
+            var (fate, detail) = Judge(dll, runtime);
+            w.WriteStartObject();
+            w.WriteString("rel_path", dll.RelPath);
+            w.WriteString("file_name", dll.FileName);
+            w.WriteString("group", dll.Group);
+            SkseJsonDoc.Nullable(w, "winning_provider", dll.WinningProvider);
+            w.WriteString("fate", fate.ToString().ToLowerInvariant());
+            w.WriteString("detail", detail);
+            SkseJsonDoc.Nullable(w, "plugin_name", dll.Info?.Version?.Name);
+            SkseJsonDoc.Nullable(w, "plugin_version", dll.Info?.Version?.PluginVersion);
+            SkseJsonDoc.Nullable(w, "file_version", dll.Info?.FileVersion);
+            SkseJsonDoc.Strings(w, "debug_crt_imports", dll.Info?.DebugCrtImports ?? Array.Empty<string>());
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteEndObject();
+    }
+
+    /// <summary>One unreadable .pex, in the json lane.</summary>
+    static void WriteUnreadablePexJson(Utf8JsonWriter w, NativeUnreadablePex u)
+    {
+        w.WriteStartObject();
+        w.WriteString("rel_path", u.RelPath);
+        SkseJsonDoc.Nullable(w, "winning_provider", u.WinningProvider);
+        w.WriteString("reason", u.Reason);
+        w.WriteEndObject();
     }
 
     /// <summary>Which section of the text render this class lands in, as one word — from the same Judge.</summary>
