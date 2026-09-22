@@ -102,7 +102,10 @@ which is what `JsonOverrun.Stated` does.
 
 `truncated`/`truncated_note` are a different fact and stay: they say content was CUT to stay inside the cap.
 `max_chars_overrun` says the cap was MISSED. A document can carry both. A refusal document is not capped and carries
-neither.
+neither: it ships whole, so "raise `max_chars`" would be a remedy that changes nothing, and the text twin says nothing
+either. Most renderers' refusal arms return before the root close, which is why nothing has to be said there; the two
+scan renderers render a refusal through the SAME close a served answer uses, so they guard the member on `q.Error`, as
+the spill write beside it already does.
 
 **Every renderer that takes a cap writes it, and taking a cap is the test.** A document with no rows to cut still
 has a cap it can miss outright: the `counts_only=` census renderers (`RenderCounts`, `RenderNamedCounts`) took no

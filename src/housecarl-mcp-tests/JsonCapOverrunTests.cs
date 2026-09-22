@@ -51,6 +51,16 @@ static class JsonOverrun
         return notice;
     }
 
+    /// <summary>A REFUSAL carries no member, however small the cap: it ships whole, so "raise max_chars" would be a
+    /// remedy that changes nothing — and the text twin says nothing either.</summary>
+    internal static void ARefusalCarriesNoMember(string json)
+    {
+        var root = JsonDocument.Parse(json).RootElement;
+        Assert.False(root.GetProperty("ok").GetBoolean(), "the fixture is not a refusal");
+        Assert.False(root.TryGetProperty(Member, out _),
+                     $"a refusal carries {Member}, telling the caller to raise a cap that will not change it");
+    }
+
     /// <summary>The member is not a dead end: a cap wide enough for the whole answer clears it. Asked of one family
     /// rather than of all, because on a lane whose render can overshoot its cap by a row the clearing cap depends on
     /// that lane's own budget, which is not this contract.</summary>
@@ -127,6 +137,22 @@ public sealed class RecordsJsonOverrunTests : BulkRecordsTestBase
                                  format: "json", max_chars: cap);
 
         JsonOverrun.StatesTheThreeNumbers(Render(60), 60);
+    }
+
+    /// <summary>A refusal is not a capped document: it ships whole whatever max_chars says, so it must not close on
+    /// the member. The two scan renderers are the ones that render a refusal through the SAME root close a served
+    /// answer uses — every other renderer's refusal arm returns before the member is written — so they are where it
+    /// was reachable, and the outcome is handed to them directly because that arm takes no other route.</summary>
+    [Fact]
+    public void ARefusedScanCarriesNoOverrunMemberHoweverSmallTheCap()
+    {
+        var refused = CrossQueryOutcome.Fail(
+            "the where= predicate names a field WEAP does not have, so drop it or name one the type carries");
+
+        JsonOverrun.ARefusalCarriesNoMember(
+            JsonWire.RenderCrossQuery(Svc, refused, null, 40, false, false));
+        JsonOverrun.ARefusalCarriesNoMember(
+            JsonWire.RenderCrossQueryDense(Svc, refused, null, 40, false, false));
     }
 
     /// <summary>The <c>counts_only=</c> census: a document with no rows to cut, so its cap can only be missed

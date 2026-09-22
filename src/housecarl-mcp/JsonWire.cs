@@ -1176,7 +1176,9 @@ static class JsonWire
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
-            WriteCapOverrun(w, ms, cap);
+            // A REFUSAL is not bounded by max_chars — it ships whole, and "raise max_chars" would not change it — so
+            // the member is guarded like the spill beside it. The other renderers' refusal arms return before this.
+            if (q.Error is null) WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -1383,7 +1385,9 @@ static class JsonWire
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
-            WriteCapOverrun(w, ms, cap);
+            // A REFUSAL is not bounded by max_chars — it ships whole, and "raise max_chars" would not change it — so
+            // the member is guarded like the spill beside it. The other renderers' refusal arms return before this.
+            if (q.Error is null) WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
