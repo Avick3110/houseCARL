@@ -80,16 +80,27 @@ public static class PapyrusClassParents
         return added;
     }
 
-    /// <summary>Top up from every readable .pex in <paramref name="folder"/>, non-recursively.</summary>
-    public static int AddFromPexFolder(Dictionary<string, string> edges, string folder)
+    /// <summary>What one sibling-.pex walk managed to read, its own holes included: edges added, .pex files seen,
+    /// files that could not be read, and whether the folder itself could not be listed.</summary>
+    public readonly record struct PexFolderScan(int Added, int FilesSeen, int FilesFailed, bool FolderUnreadable);
+
+    /// <summary>Top up from every readable .pex in <paramref name="folder"/>, non-recursively; an unreadable file or
+    /// folder is counted rather than thrown on, so the caller can name it.</summary>
+    public static PexFolderScan AddFromPexFolder(Dictionary<string, string> edges, string folder)
     {
-        int added = 0;
-        if (!Directory.Exists(folder)) return 0;
-        foreach (var f in Directory.EnumerateFiles(folder, "*.pex"))
+        int added = 0, seen = 0, failed = 0;
+        if (!Directory.Exists(folder)) return new PexFolderScan(0, 0, 0, true);
+        try
         {
-            try { added += AddFromPex(edges, PexFile.CreateFromFile(f, GameCategory.Skyrim)); }
-            catch { /* unreadable pex — fewer edges, never fatal */ }
+            // The enumeration throws lazily, so the listing's own failure is caught here with the reads.
+            foreach (var f in Directory.EnumerateFiles(folder, "*.pex"))
+            {
+                seen++;
+                try { added += AddFromPex(edges, PexFile.CreateFromFile(f, GameCategory.Skyrim)); }
+                catch { failed++; }   // unreadable pex — fewer edges, never fatal, counted
+            }
         }
-        return added;
+        catch { return new PexFolderScan(added, seen, failed, true); }
+        return new PexFolderScan(added, seen, failed, false);
     }
 }

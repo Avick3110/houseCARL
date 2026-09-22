@@ -59,6 +59,8 @@ made the change.
 - **`housecarl_skse`, `housecarl_skypatcher_layer` and `housecarl_nif_inspect` name the mod folder they could not
   read, instead of only warning that one failed.** Run any of them with a mod folder blocked: the answer names that
   mod.
+- **`housecarl_decompile_script` now names a `.pex` beside the input it could not read, so every thin part of the
+  class hierarchy is stated.** Decompile a script whose folder holds a corrupt `.pex` and read the note.
 
 ## 2.0.2 — 2026-09-15
 

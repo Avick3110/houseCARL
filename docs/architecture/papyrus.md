@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-22
+updated: 2026-09-23
 covers: [src/housecarl-core/PapyrusSourceRoots.cs, src/housecarl-core/PapyrusDependencyFilter.cs, src/housecarl-core/PapyrusCompile.cs, src/housecarl-core/PapyrusClassParents.cs, src/housecarl-core/PapyrusDecompiler.cs, src/housecarl-mcp/CompileTools.cs, src/housecarl-mcp/DecompileTools.cs]
 ---
 # Papyrus: compile and decompile
@@ -68,12 +68,15 @@ are [`mo2-instance.md`](mo2-instance.md), and the declaration side of a native P
 - Three layered sources — the committed vanilla baseline beside the exe, loose `.psc`
   `ScriptName X extends Y` headers across the mods tree, and the input `.pex` plus its siblings.
   First edge per child wins.
-- TWO of the three degraded modes are named in the result: a missing or unreadable baseline
-  (`ClassParents.BaselineNote`) and a mods-tree scan that read nothing (`TopUpMissing`), both rendered
-  by `DecompileTools.HierarchySentence`. The `.pex` top-up degrades SILENTLY — an unreadable sibling
-  `.pex` is swallowed per file in `PapyrusClassParents.AddFromPexFolder` and again at the call site,
-  and nothing in the result says so, so the classes it declared keep their explicit casts with no note
-  saying why.
+- ALL THREE degraded modes are named in the result, one member per source: a missing or unreadable
+  baseline (`ClassParents.BaselineNote`), a mods-tree scan that read nothing (`TopUpMissing`), and
+  sibling `.pex` files that were not all read (`SiblingPexMissing`), all rendered by
+  `DecompileTools.HierarchySentence` — one clause per thin source, then what the hierarchy IS instead,
+  then the one cost sentence. `PapyrusClassParents.AddFromPexFolder` counts an unreadable sibling
+  rather than swallowing it, the decompile lane turns the count into the reason (the service cannot
+  know it, so it sets the member after its own sibling walk), and the input `.pex` is always read, so
+  the "is" half is never empty. Pinned by
+  `DecompileOutPathTests.AnUnreadableSiblingPexIsNamedAndTheHierarchySaysWhatItIsInstead`.
 
 ### The decompiler
 - The codegen patterns it reads, each confirmed against compiler output: jump offsets are relative to

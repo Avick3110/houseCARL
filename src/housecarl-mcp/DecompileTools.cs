@@ -94,13 +94,23 @@ public static class DecompileTools
                 : "");
         }
 
-        // 6) class hierarchy: the baseline, the mods-tree sources, the input pex and its siblings; the first two name a
-        //    missing piece at the render, the pex top-up degrades silently (docs/architecture/papyrus.md).
+        // 6) class hierarchy: the baseline, the mods-tree sources, the input pex and its siblings; every source that
+        //    read less than all of itself names the reason at the render (docs/architecture/papyrus.md).
         var hierarchy = svc.ClassParentsForDecompile();
         var edges = new Dictionary<string, string>(hierarchy.Edges, StringComparer.OrdinalIgnoreCase);
         HousecarlCore.PapyrusClassParents.AddFromPex(edges, pexFile);
-        try { HousecarlCore.PapyrusClassParents.AddFromPexFolder(edges, Path.GetDirectoryName(pex)!); }
-        catch { /* fewer edges, never fatal */ }
+        var siblingDir = Path.GetDirectoryName(pex)!;
+        string? siblingMissing;
+        try
+        {
+            var pexScan = HousecarlCore.PapyrusClassParents.AddFromPexFolder(edges, siblingDir);
+            siblingMissing =
+                pexScan.FolderUnreadable ? $"the folder '{siblingDir}' could not be listed"
+                : pexScan.FilesFailed > 0 ? $"{pexScan.FilesFailed} of {pexScan.FilesSeen} .pex file(s) in '{siblingDir}' could not be read"
+                : null;
+        }
+        catch (Exception ex) { siblingMissing = $"the .pex files in '{siblingDir}' could not be read ({ex.GetType().Name})"; }
+        hierarchy = hierarchy with { SiblingPexMissing = siblingMissing };
 
         // A refused decompile leaves no orphan: an empty fresh folder is deleted, a partial one named, into= alone.
         string Refuse(string msg)
@@ -153,15 +163,24 @@ public static class DecompileTools
     /// <summary>One sentence saying what the class hierarchy IS when a source is missing; two could contradict each other.</summary>
     internal static string HierarchySentence(ClassParents h)
     {
-        if (h.BaselineNote is null && h.TopUpMissing is null) return "";
+        if (h.BaselineNote is null && h.TopUpMissing is null && h.SiblingPexMissing is null) return "";
         // What a thinner hierarchy costs, said once however many sources are thin.
         const string cost = ", so the source keeps an explicit cast wherever an edge is missing (cosmetic; the source stays correct).";
-        const string own = "what this .pex and the .pex files beside it declare";
-        if (h.BaselineNote is not null && h.TopUpMissing is not null)
-            return $"\nnote: {h.BaselineNote}, and the mods-tree sources were not read ({h.TopUpMissing}) — the class hierarchy is {own}{cost}";
-        if (h.BaselineNote is not null)
-            return $"\nnote: {h.BaselineNote} — the class hierarchy is the MO2 mods-tree sources plus {own}{cost}";
-        return $"\nnote: the mods-tree sources were not read ({h.TopUpMissing}) — the class hierarchy is the shipped vanilla baseline plus {own}{cost}";
+        // One clause per source: why it is thin, or what it still contributes. The input .pex is always read, so the
+        // "is" half is never empty.
+        var thin = new List<string>();
+        var kept = new List<string>();
+        if (h.BaselineNote is not null) thin.Add(h.BaselineNote);
+        else kept.Add("the shipped vanilla baseline");
+        if (h.TopUpMissing is not null) thin.Add($"the mods-tree sources were not read ({h.TopUpMissing})");
+        else kept.Add("the MO2 mods-tree sources");
+        if (h.SiblingPexMissing is not null)
+        {
+            thin.Add($"the .pex files beside this one were not all read ({h.SiblingPexMissing})");
+            kept.Add("what this .pex declares");
+        }
+        else kept.Add("what this .pex and the .pex files beside it declare");
+        return $"\nnote: {string.Join(", and ", thin)} — the class hierarchy is {string.Join(" plus ", kept)}{cost}";
     }
 
     /// <summary>The decompile-and-write outcome.</summary>
