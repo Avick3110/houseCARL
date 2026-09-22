@@ -140,6 +140,29 @@ public sealed class RecordsCountTableLimitTests : RecordsTestBase
         Assert.Contains("the counts above are exact", capped);
     }
 
+    /// <summary>An UNSET limit reads as this tool's 500 default on the table, exactly as it does on every row lane —
+    /// not as "uncapped". A table that uncapped on limit=0 would render every group row up to max_chars while the same
+    /// call at form='summary' rendered 500, and the parameter description promises 500 for the table too. limit=-1 is
+    /// the same input by a different spelling and must not uncap either.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void AnUnsetLimitCapsTheTableAtTheSameDefaultTheRowLanesUse(int limit)
+    {
+        var atDefault = Doc(RecordsTools.Records(Svc, formids: ManyTypedIds, project: ByType, format: "json",
+                                                 limit: RecordsTools.DefaultLimit));
+        var unset = Doc(RecordsTools.Records(Svc, formids: ManyTypedIds, project: ByType, format: "json",
+                                            limit: limit));
+
+        // The fixture has fewer groups than the default, so an unset limit renders the same table a limit of 500
+        // does — a cap of int.MaxValue would look identical here, so the CAP itself is asserted below, where the
+        // difference lives. Asked of the helper, because the two differ only above 500 rows and no world has that.
+        Assert.Equal(atDefault.GetProperty("rendered").GetInt32(), unset.GetProperty("rendered").GetInt32());
+        Assert.Equal(atDefault.GetProperty("cut_by").ValueKind, unset.GetProperty("cut_by").ValueKind);
+        Assert.Equal(RecordsTools.DefaultLimit, RecordsTools.TableRowLimit(limit));
+        Assert.Equal(7, RecordsTools.TableRowLimit(7));   // a limit the caller DID name is untouched
+    }
+
     [Fact]
     public void TheListTablesJsonNamesLimitAsWhatCutItAndKeepsTheWholeTotal()
     {
