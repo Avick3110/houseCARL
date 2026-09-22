@@ -63,6 +63,9 @@ made the change.
   class hierarchy is stated.** Decompile a script whose folder holds a corrupt `.pex` and read the note.
 - **A count table caps with `limit=` and never pages: `project.form="aggregate"` now honours `limit=`, and every lane
   refuses `offset=` against a table in one sentence.** Run an aggregate with `limit=1` and read the row it kept.
+- **A `format="json"` response that could not fit `max_chars` now closes with `max_chars_overrun`, naming its own
+  length and the cap that clears it, as the text answer already did.** Run any json call at `max_chars=100` and read
+  that member.
 
 ## 2.0.2 — 2026-09-15
 
