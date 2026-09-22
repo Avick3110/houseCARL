@@ -38,8 +38,9 @@ resolver reads no profile.
   `RootFailures` and sets `ReadIncomplete` too, so a root neither lane could read is said rather than silently
   omitted. **These lanes name the roots**, because a hedge that does not name the folder leaves the modder nothing to
   act on: `asset_status`, the three `skse` families, the SkyPatcher layer and the NIF batch, beside their archive
-  failures; the check sweep, at the response root above its family sections; the create lane, under the coverage
-  reports whose hedges depend on them; and the compact and merge carry notes, under the first pass that hedged.
+  failures; the check sweep, dialogue family included, at the response root above its family sections; the `place`
+  lane, above its rows, which is where its source-scan hedge points; the create lane, under the coverage reports
+  whose hedges depend on them; and the compact and merge carry notes, under the first pass that hedged.
   Whichever place, it is **once per response and in both transports**: a lane that names them twice in one document
   prints one list twice, so the response unions its families' or checks' lists and renders them once — a union, not
   whichever ran last, because two families in one call can answer off two asset builds. `BatchRender.RootFailureCut`
@@ -47,11 +48,11 @@ resolver reads no profile.
   through `JsonWire.WriteRootFailuresCut`, which is that same cut — so the text lines and the json
   `root_read_failures` of one build name the same roots. Bounding the json array against the json stream instead
   prices an element differently and the two counts drift apart, which is what the `skse` families did. A block inside a capped document is charged before that document's rows, never appended once
-  its budget is spent. Two exceptions, both named as such rather than papered over: `ScriptPropertyCheck`'s
-  per-property ".pex not on disk" reason has no block to point at, so it names the first root and counts the rest
-  inside the sentence; and the dialogue family's hedge and the `place` lane's source-scan hedge still name nothing at
-  all — the same defect in two lanes #850 did not enumerate, tracked in #863. A directory that will not even stat counts:
-  `Directory.Exists` answers "not there" for one this account cannot reach, so an absence is trusted only where a
+  its budget is spent. One exception, named as such rather than papered over: `ScriptPropertyCheck`'s per-property
+  ".pex not on disk" reason has no block to point at, so it names the first root and counts the rest inside the
+  sentence. And one gap: `nif_set` shares the `place` source-scan hedge for a named source that does not supply the
+  mesh, but its refusal carries no root list, so there the pointer has nothing under it. A directory that will not
+  even stat counts: `Directory.Exists` answers "not there" for one this account cannot reach, so an absence is trusted only where a
   readable ancestor lists the name as missing; the ancestor stats and their listings are memoized for the build — for
   THIS verdict only, never as a freshness baseline (see the watch below).
   **A memo never makes a failure.** Before a root is called unreadable the disk is asked again, uncached, so a name
