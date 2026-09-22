@@ -304,4 +304,49 @@ public sealed class AssetLooseFreshnessTests : IDisposable
 
         Assert.True(r.RefreshIfStale(), "a root-level path is resolved from the mod folder's own listing");
     }
+
+    /// <summary>Warming a subtree a root does not have settles that absence with two stats on the missing name — not
+    /// a directory, not a file — rather than a fresh listing of the ancestor per root per warm (#861). The absence is
+    /// still watched: the name appearing afterwards is seen on the next call.</summary>
+    [Fact]
+    public void WarmingAnAbsentSubtreeTakesNoListingAndStillSeesItAppear()
+    {
+        using var r = Build();
+        Assert.Equal(Provider, Winner(r, Provided));
+        var before = r.FreshListingCount;
+
+        for (int i = 0; i < 20; i++) Assert.Null(Winner(r, $@"meshes\hcgone{i}\x.nif"));
+
+        Assert.Equal(before, r.FreshListingCount);             // an ancestor listing per root per subtree would be 40
+
+        Directory.CreateDirectory(Path.Combine(_mods, Provider, "meshes", "hcgone7"));
+        File.WriteAllText(Path.Combine(_mods, Provider, "meshes", "hcgone7", "x.nif"), "x");
+
+        Assert.True(r.RefreshIfStale(), "the subtree established absent by stats appeared and was not noticed");
+        Assert.Equal(Provider, Winner(r, @"meshes\hcgone7\x.nif"));
+    }
+
+    /// <summary>The one case two stats cannot settle: a mod folder that stats but will not list, so its subtree does
+    /// not stat either and the absence cannot be proved. That root is named as a failure and nothing is watched for
+    /// it; watching the missing name there anyway would find the folder unlistable on every check and rebuild the
+    /// build on every call.</summary>
+    [Fact]
+    public void AModFolderThatWillNotListDoesNotMakeEveryCallStale()
+    {
+        var blocked = Path.Combine(_mods, "BlockedMod");
+        Directory.CreateDirectory(Path.Combine(blocked, Subtree));
+        File.WriteAllText(Path.Combine(blocked, Provided), "x");
+        Assert.True(DenyAce.TryDeny(blocked), UnreadableRootWorld.NotStaged);
+        try
+        {
+            using var r = AssetResolver.Build(overwriteDir: "", _mods, dataDir: "",
+                new[] { "BlockedMod", Newcomer, Provider }, Array.Empty<ActiveArchive>());
+            Assert.Equal(Provider, Winner(r, Provided));
+            Assert.Contains(r.RootFailures, f => f.StartsWith("BlockedMod"));   // named, not proved absent
+
+            Assert.False(r.RefreshIfStale(), "a root that will not list was watched as if it were absent");
+            Assert.False(r.RefreshIfStale(), "…and again: that watch would rebuild the build on every call");
+        }
+        finally { DenyAce.Undeny(blocked); }
+    }
 }
