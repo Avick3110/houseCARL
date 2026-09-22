@@ -45,13 +45,19 @@ resolver reads no profile.
   `ReadIncomplete` without naming a root — the same gap in lanes #827 did not enumerate, tracked in #850. A directory
   that will not even stat counts: `Directory.Exists` answers "not there" for one this account cannot reach, so an
   absence is trusted only where a readable ancestor lists the name as missing; the ancestor stats and their listings
-  are memoized for the build. **A memo never makes a failure.** Before a root is called unreadable
+  are memoized for the build — for THIS verdict only, never as a freshness baseline (see the watch below).
+  **A memo never makes a failure.** Before a root is called unreadable
   the disk is asked again, uncached, so a name that has gone since the listing was cached, and a name that is a file
   rather than a directory, are absences like any other. It is filled lazily and kept for the life of the build, so a later
   call names a root an earlier one found unreadable — the flag is the build's, not the call's. **What clears it is a
   new build**, which `RefreshIfStale` makes when an archive or a warmed subtree changes and the service makes when
   the mod set or profile changes. Granting permission moves no mtime, so it clears nothing on its own: the modder
   toggles something in MO2, or restarts the server, and the next call reads the folder again.
+- **A freshness baseline is read at the warm, never off a memo.** Every directory a warmed subtree puts under watch is
+  baselined by the listing that warm itself takes — the whole listing for a root's own copy, the ancestor's listing for
+  a root that has nothing there. The build's `Dirs`/`Children` memos answer the absence VERDICT and nothing else,
+  because a memo can predate the warm by any number of calls, and a baseline older than the warm makes a file that goes
+  and comes back invisible for the life of the build. Pinned by `AssetLooseFreshnessTests`.
 - **A bad path fails loud.** `NormalizeQueryPath` refuses a drive-rooted or `..`-escaping path naming the input, and
   collapses `.` and empty segments so the loose walk and the archive-table match answer for one set of files.
   `ValidateRelPath` exposes that one validator to the place lane, whose destination is `Path.Combine(modRoot, rel)`.
