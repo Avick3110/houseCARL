@@ -47,14 +47,16 @@ resolver reads no profile.
   and send the archive half to `asset_status`, which names it.
   Whichever place, it is **once per response and in both transports**: a lane that names them twice in one document
   prints one list twice, so the response unions its families' or checks' lists and renders them once — a union, not
-  whichever ran last, because two families in one call can answer off two asset builds. `BatchRender.RootFailureCut`
+  whichever ran last, because two families in one call can answer off two asset builds. `BatchRender.CaveatBlockCut`
   is the one cut rule, with no transport and no caller's indent priced into it, and every json lane writes the array
-  through `JsonWire.WriteRootFailuresCut`, which is that same cut — so the text lines and the json
-  `root_read_failures` of one build name the same roots. Bounding the json array against the json stream instead
-  prices an element differently and the two counts drift apart, which is what the `skse` families did. A block inside a capped document is charged before that document's rows, never appended once
-  its budget is spent. One exception, named as such rather than papered over: `ScriptPropertyCheck`'s per-property
-  ".pex not on disk" reason has no block to point at, so it names the first root and counts the rest inside the
-  sentence. A directory that will not even stat counts: `Directory.Exists` answers "not there" for one this account cannot reach, so an absence is trusted only where a
+  through `JsonWire.WriteCaveatCut` off that same cut — so the text lines and the json `root_read_failures` of one
+  build name the same roots. The `skse` families cut their warnings and archive failures by it too, and the SkyPatcher
+  layer its warnings: a block's lists share a quarter of `max_chars` max-min fair, each charged what its cut took.
+  Bounding the json array against the json stream instead prices an element differently and the two counts drift
+  apart, which is what the `skse` families did. A block inside a capped document is charged before that document's
+  rows, never appended once its budget is spent. One exception, named as such rather than papered over:
+  `ScriptPropertyCheck`'s per-property ".pex not on disk" reason has no block to point at, so it names the first root
+  and counts the rest inside the sentence. A directory that will not even stat counts: `Directory.Exists` answers "not there" for one this account cannot reach, so an absence is trusted only where a
   readable ancestor lists the name as missing; the ancestor stats and their listings are memoized for the build — for
   THIS verdict only, never as a freshness baseline (see the watch below).
   **A memo never makes a failure.** Before a root is called unreadable the disk is asked again, uncached, so a name
