@@ -5,6 +5,7 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
+// The output folders (rider, patch and the .seq writer), owned-folder resolution and plugin-locate-on-disk; contract in docs/architecture/output-and-artifacts.md.
 public sealed partial class LoadOrderService
 {
     /// <summary>The resolved output location for a NON-.esp rider: the directory to WRITE into, the mod-folder ROOT cleanup operates on, whether THIS call created it fresh, and the folder's <paramref name="Stem"/> without the "houseCARL - " prefix; contract in docs/architecture/output-and-artifacts.md.</summary>
@@ -348,76 +349,6 @@ public sealed partial class LoadOrderService
         catch { return false; }
     }
 
-    // ---- decompiler class hierarchy (lazy, cached for process lifetime) ----------------------------------------
-
-    Dictionary<string, string>? _classParents;
-    string? _classParentsNote;
-    bool _classParentsToppedUp;
-    string? _classParentsTopUpMissing;
-    readonly object _classParentsLock = new();
-
-    /// <summary>Drop the cached hierarchy whenever <see cref="_modsDir"/> can have changed, since a stale tree's edges could suppress a cast the new order does not justify. Rebuilds lazily.</summary>
-    void InvalidateClassParents()
-    {
-        lock (_classParentsLock)
-        {
-            _classParents = null; _classParentsNote = null;
-            _classParentsToppedUp = false; _classParentsTopUpMissing = null;
-        }
-    }
-
-    /// <summary>The decompiler's child-to-parent class map: the cached vanilla baseline beside the exe, plus loose .psc headers across the MO2 mods tree. The top-up is RETRIED every call until it runs, so a baseline-only map is never cached as complete, and both degraded modes come back named with their cause. A published map is never mutated. Lock order is _gate then _classParentsLock.</summary>
-    public ClassParents ClassParentsForDecompile()
-    {
-        bool configured;
-        string? deriveError = null;
-        lock (_gate)
-        {
-            configured = _configured;
-            // Not fatal here, but the reason is carried out: it is why the top-up below cannot run.
-            if (configured)
-                try { EnsurePathsDerived(); }
-                catch (Exception ex) { deriveError = ex.Message; }
-        }
-        lock (_classParentsLock)
-        {
-            if (_classParents is null)
-            {
-                var (edges, note) = HousecarlCore.PapyrusClassParents.LoadBaseline(
-                    Path.Combine(AppContext.BaseDirectory, "vanilla-class-parents.json"));
-                _classParents = edges;
-                _classParentsNote = note;
-            }
-            if (!_classParentsToppedUp)
-            {
-                string? missing =
-                    !configured ? "no MO2 instance is configured"
-                    : deriveError is not null ? $"the MO2 instance does not resolve ({deriveError})"
-                    : string.IsNullOrEmpty(_modsDir) ? "the instance has no mods folder"
-                    : !Directory.Exists(_modsDir) ? $"the mods folder '{_modsDir}' does not exist"
-                    : null;
-                if (missing is null)
-                {
-                    // Publish-once: the walk fills a COPY, so a concurrent reader never sees a map being written.
-                    var topped = new Dictionary<string, string>(_classParents, StringComparer.OrdinalIgnoreCase);
-                    var scan = HousecarlCore.PapyrusClassParents.AddFromPscHeaders(topped, new[] { _modsDir });
-                    if (scan.RootsUnreadable > 0)
-                        // Nothing was read from the tree: the copy is dropped and the walk is retried next call.
-                        missing = $"the mods folder '{_modsDir}' could not be listed";
-                    else
-                    {
-                        _classParents = topped;
-                        _classParentsToppedUp = true;
-                        if (scan.FilesFailed > 0)
-                            missing = $"{scan.FilesFailed} of {scan.FilesSeen} .psc file(s) under '{_modsDir}' could not be read";
-                    }
-                }
-                _classParentsTopUpMissing = missing;
-            }
-            return new ClassParents(_classParents, _classParentsNote, _classParentsTopUpMissing);
-        }
-    }
-
     /// <summary>The MO2 mod-folder name for a patch stem; the prefix is the human-visible ownership signal, while the meta.ini marker is the structural one.</summary>
     static string ModFolderName(string stem) => "houseCARL - " + stem;
 
@@ -739,19 +670,6 @@ public sealed partial class LoadOrderService
         return null;
     }
 
-    /// <summary>The single top-level plugin in a houseCARL folder, so <c>into=</c> a folder name needs no basename; null plus a named <paramref name="reason"/> when the folder holds none or more than one.</summary>
-    static string? SoleEspInFolder(string folder, out string reason)
-    {
-        var plugins = Directory.EnumerateFiles(folder)
-            .Where(f => PluginExts.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
-            .ToList();
-        if (plugins.Count == 1) { reason = ""; return plugins[0]; }
-        reason = plugins.Count == 0
-            ? "holds no plugin (.esp/.esm/.esl) to extend"
-            : $"holds {plugins.Count} plugins ({string.Join(", ", plugins.Select(Path.GetFileName))}) — name the one to extend by passing its filename as into=";
-        return null;
-    }
-
     /// <summary>A mod folder is houseCARL-owned iff its <c>meta.ini</c> carries the marker; fail-safe, so a missing or stripped one reads as NOT owned. Ownership contract in docs/architecture/output-and-artifacts.md.</summary>
     static bool IsHouseCarlOwned(string folder) => HousecarlOwnerMeta.MarksOwned(folder);
 
@@ -950,109 +868,5 @@ public sealed partial class LoadOrderService
             catch { /* an unparseable root simply isn't a match — never a false 'inside' */ }
         }
         return false;
-    }
-
-    // ---- corpus-backed type resolution (signature "WEAP" / catalog name "Weapon" → getter Type(s)) -------
-
-    Dictionary<string, List<Type>>? _typeLookup;
-    Dictionary<string, List<Type>> TypeLookup => _typeLookup ??= BuildTypeLookup();
-
-    /// <summary>Build the type-string to getter-Type map from the corpus, keyed by both catalog name and signature, with a many-to-one signature and an abstract-group base name each accumulating their variants. A corpus type that will not load is skipped and surfaces as "unknown type" at query time, never as a silently wrong one.</summary>
-    static Dictionary<string, List<Type>> BuildTypeLookup()
-    {
-        var lookup = new Dictionary<string, List<Type>>(StringComparer.OrdinalIgnoreCase);
-        void Add(string? key, Type t)
-        {
-            if (string.IsNullOrEmpty(key)) return;
-            if (!lookup.TryGetValue(key, out var list)) lookup[key] = list = new List<Type>();
-            if (!list.Contains(t)) list.Add(t);
-        }
-        var corpus = CorpusRulebook.LoadCorpus();
-        foreach (var ts in corpus.Types.Values)
-        {
-            if (ts.Kind != "record") continue;
-            var t = Type.GetType(ts.GetterInterfaceAssemblyQualified);
-            if (t is null) continue;
-            Add(ts.Name, t);
-            Add(ts.Signature, t);
-        }
-        // The arms come off the polymorphic base's own corpus entry: derived, not hand-wired (the coverage cornerstone).
-        foreach (var ts in corpus.Types.Values)
-        {
-            if (ts.Kind != "polymorphic-base" || ts.Arms is not { Count: > 0 } arms) continue;
-            foreach (var armName in arms)
-                if (corpus.Types.TryGetValue(armName, out var arm) && arm.Kind == "record"
-                    && Type.GetType(arm.GetterInterfaceAssemblyQualified) is { } at)
-                    Add(ts.Name, at);
-        }
-        return lookup;
-    }
-
-    /// <summary>A user type SET to its getter Types: each entry's resolution unioned in order and deduped, through the same <see cref="ResolveTypeFilter"/> the singular form uses. Null for an absent or empty set.</summary>
-    IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types) => ResolveTypeFilterSet(types, out _);
-
-    /// <summary>The display names a type SET resolves to — the same spelling a matched body's type renders as. Null for an absent set and for an unknown entry, which the calling surfaces have already refused by name.</summary>
-    public IReadOnlyList<string>? TypeDisplayNames(IReadOnlyList<string>? types)
-    {
-        try { return TypeDisplayNames(ResolveTypeFilterSet(types)); }
-        catch (ArgumentException) { return null; }
-    }
-
-    /// <summary>Seat every type the scan NAMED in a group_by=type census at zero, so a requested type with no records reads as a 0 row rather than being absent from the table. No-op for the other count keys.</summary>
-    static void SeedRequestedTypes(Dictionary<string, int>? groups, string? groupBy, IReadOnlyList<Type>? types)
-    {
-        if (groups is null || groupBy != "type") return;
-        foreach (var name in TypeDisplayNames(types) ?? Array.Empty<string>()) groups.TryAdd(name, 0);
-    }
-
-    /// <summary>The same names off the already-resolved getter Types.</summary>
-    static IReadOnlyList<string>? TypeDisplayNames(IReadOnlyList<Type>? types) =>
-        types is { Count: > 0 } ? types.Select(t => RecordNaming.StripGetterInterface(t.Name)).Distinct(StringComparer.Ordinal).ToList() : null;
-
-    /// <summary>The same resolution, also spelling each entry with the arms it expanded to — the label a response needs to name the types sharing one listing, since an entry like <c>GMST</c> names none of them itself.</summary>
-    IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types, out string? armLabel)
-    {
-        armLabel = null;
-        if (types is not { Count: > 0 }) return null;
-        var union = new List<Type>();
-        var spelled = new List<string>(types.Count);
-        foreach (var ts in types)
-        {
-            var entry = (ts ?? "").Trim();
-            var arms = ResolveTypeFilter(entry);
-            foreach (var t in arms)
-                if (!union.Contains(t)) union.Add(t);
-            spelled.Add(SweepScope.SpellTypeEntry(entry, arms));
-        }
-        armLabel = string.Join(", ", spelled);
-        return union;
-    }
-
-    /// <summary>A user type string to its getter Types, throwing and naming the bad input. A BLANK entry is refused as blank here, in one place, never quoted back as an unknown type; an empty or absent SET is a different thing and is handled by the callers.</summary>
-    IReadOnlyList<Type> ResolveTypeFilter(string type)
-    {
-        if (type.Trim().Length == 0)
-            throw new ArgumentException(
-                "a blank record type — pass a 4-char signature (e.g. 'WEAP') or a catalog name (e.g. 'Weapon'), " +
-                "or omit the parameter to leave the types unnarrowed.");
-        if (TypeLookup.TryGetValue(type.Trim(), out var types)) return types;
-        throw new ArgumentException(
-            $"unknown record type '{type}'. Expected a 4-char signature (e.g. 'WEAP') or a catalog name (e.g. 'Weapon').");
-    }
-
-    /// <summary>A form-scope string to getter Types: a catalog name or signature via the type lookup, or a Mutagen link-interface group name resolved as every corpus record getter assignable to <c>I{name}Getter</c>, derived from the real interfaces rather than a hand-kept list. Null means it names neither, which the caller surfaces loudly.</summary>
-    internal IReadOnlyList<Type>? ResolveFormScope(string type)
-    {
-        var t = type.Trim();
-        if (TypeLookup.TryGetValue(t, out var types)) return types;
-        var iface = typeof(SkyrimMod).Assembly.GetType($"Mutagen.Bethesda.Skyrim.I{t}Getter");
-        if (iface is null) return null;
-        var matches = TypeLookup.Values.SelectMany(v => v).Distinct().Where(iface.IsAssignableFrom).ToList();
-        return matches.Count > 0 ? matches : null;
-    }
-
-    public void Dispose()
-    {
-        lock (_gate) { _resolver?.Dispose(); _resolver = null; _assetResolver?.Dispose(); _assetResolver = null; }
     }
 }
