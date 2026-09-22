@@ -69,6 +69,9 @@ made the change.
   session: the twentieth answers about as fast as the second.
 - **A `housecarl_skse` `format="json"` answer now comes back inside the `max_chars` it was given, instead of about one
   row over it.** Run any family at `max_chars=8000` and check the length.
+- **The facegen and scripts sweeps, a created line's voice and result-script notes, and a compact's asset carry
+  name the mod folder they could not read.** Block a mod folder, then run `housecarl_check` and
+  `housecarl_compact_plugin`: each answer names that mod.
 
 ## 2.0.2 — 2026-09-15
 

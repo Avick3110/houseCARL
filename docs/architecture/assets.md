@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-22
+updated: 2026-09-23
 covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
@@ -8,8 +8,8 @@ covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSele
 `snapshot-view-guard`, `place-asset-guard`, `nif-source-lane-guard`, `source-chain-guard`, `asset-prefix-hint-guard`,
 `bsa-contract-guard`, `bsa-extract-guard`, `bsa-probe`, `facegen-carry-guard` and `voice-carry-guard` probes
 (`src/housecarl-generator`) and by `AssetSelectTests`, `AssetProviderTokenTests`, `AssetStatusSetTests`,
-`BsaPackCountTests`, `BsaPackReadBackTests`, `RawModsPathRefusalTests`, `UnreadableRootNamedTests`, `AssetLooseFreshnessTests`
-(`src/housecarl-mcp-tests`).
+`BsaPackCountTests`, `BsaPackReadBackTests`, `RawModsPathRefusalTests`, `UnreadableRootNamedTests`,
+`AssetLooseFreshnessTests`, `UnreadableRootNamedLanesTests` (`src/housecarl-mcp-tests`).
 
 FaceGen's own contracts — the FormID→path transform, the check's classes, what a dark face is — are in
 [`docs/facegen.md`](../facegen.md), not here.
@@ -39,16 +39,18 @@ resolver reads no profile.
   `ReadIncomplete`, which is the caveat an `Exists=false` depends on.
 - **A loose root that will not read is named the same way.** A walk or a subtree listing that throws lands in
   `RootFailures` and sets `ReadIncomplete` too, so a root neither lane could read is said rather than silently
-  omitted. `asset_status`, the three `skse` families, the SkyPatcher layer and the NIF batch each render the root
-  beside the archive failures, because a hedge that does not name the folder leaves the modder nothing to act on. The
-  facegen sweep, the script-read and facegen/voice-carry notes and `ScriptPropertyCheck` still hedge on
-  `ReadIncomplete` without naming a root — the same gap in lanes #827 did not enumerate, tracked in #850. A directory
-  that will not even stat counts: `Directory.Exists` answers "not there" for one this account cannot reach, so an
-  absence is trusted only where a readable ancestor lists the name as missing; the ancestor stats and their listings
-  are memoized for the build — for THIS verdict only, never as a freshness baseline (see the watch below).
-  **A memo never makes a failure.** Before a root is called unreadable
-  the disk is asked again, uncached, so a name that has gone since the listing was cached, and a name that is a file
-  rather than a directory, are absences like any other. It is filled lazily and kept for the life of the build, so a later
+  omitted. **Every lane that hedges on `ReadIncomplete` renders the root beside its hedge**, because a hedge that does
+  not name the folder leaves the modder nothing to act on: `asset_status`, the three `skse` families, the SkyPatcher
+  layer and the NIF batch beside the archive failures, and the facegen and scripts sweep heads, the create lane's
+  voice and result-script coverage reports and the compact/merge carry notes under their own. The one exception is
+  `ScriptPropertyCheck`'s per-property ".pex not on disk" reason, which has no caveat block to point at and so names
+  the first root and counts the rest inside the sentence. A directory that will not even stat counts:
+  `Directory.Exists` answers "not there" for one this account cannot reach, so an absence is trusted only where a
+  readable ancestor lists the name as missing; the ancestor stats and their listings are memoized for the build — for
+  THIS verdict only, never as a freshness baseline (see the watch below).
+  **A memo never makes a failure.** Before a root is called unreadable the disk is asked again, uncached, so a name
+  that has gone since the listing was cached, and a name that is a file rather than a directory, are absences like any
+  other. It is filled lazily and kept for the life of the build, so a later
   call names a root an earlier one found unreadable — the flag is the build's, not the call's. **What clears it is a
   new build**, which `RefreshIfStale` makes when an archive or a warmed subtree changes and the service makes when
   the mod set or profile changes. Granting permission moves no mtime, so it clears nothing on its own: the modder
