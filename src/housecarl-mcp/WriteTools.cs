@@ -1173,12 +1173,16 @@ public static class WriteTools
         sb.Append(tail);
     }
 
-    /// <summary>The loose roots a create's coverage checks could not read: both read ONE asset build, so the list is
-    /// the response's and is named once, under whichever of the two reports actually renders.</summary>
+    /// <summary>The loose roots a create's coverage checks could not read, UNIONED: they scan different subtrees
+    /// (<c>Sound\Voice</c> against <c>Scripts</c>) and each materialises the list at its own return off a dictionary
+    /// that fills lazily, so the one that ran first carries the shorter one. Taking either alone would name the folder
+    /// that hid a voice file and not the one that hid the .pex, which is the defect this work removes.</summary>
     internal static IReadOnlyList<string> CreateRootFailures(WritePatchBuilder.CreateOutcome o)
-        => o.Voice is { IsEmpty: false, RootFailures.Count: > 0 } v ? v.RootFailures
-         : o.ScriptBinding is { IsEmpty: false } s ? s.RootFailures
-         : Array.Empty<string>();
+        => (o.Voice is { IsEmpty: false } v ? v.RootFailures : Array.Empty<string>())
+           .Concat(o.ScriptBinding is { IsEmpty: false } s ? s.RootFailures : Array.Empty<string>())
+           .Distinct(StringComparer.OrdinalIgnoreCase)
+           .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
+           .ToList();
 }
 
 // ---- the retired 1.x wire DTOs: parked in WireNamesProbe.NonInputWireTypes, reachable from no tool's input schema ----

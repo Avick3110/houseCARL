@@ -571,11 +571,11 @@ public sealed class SkseTransportTests
         int tail = roots.Sum(x => x.Length);
         Assert.True(json.Length <= cap,
                     $"{family}: {json.Length} chars against max_chars={cap} — the ~{tail}-char root-failure block was not bounded.");
-        // The two lanes bound the SAME list the same way, so they name the same number of folders for one call, give or
-        // take the line's json quoting: the text lane charges the marker up front, the json lane stops on the budget. A
-        // baseline measured before the writer flushed charges the array for the warnings above it — 1 against 7 there.
+        // The two lanes bound the SAME list through the SAME cut, so they name the same folders for one call — exactly,
+        // not within a tolerance. They used to differ: the json array was bounded against the json stream, where an
+        // element costs its own length and no 28-char lead, so the same share held about seven where the text held five.
         int inText = NamedRootsInText(text);
-        Assert.InRange(named, inText - 2, inText + 2);
+        Assert.Equal(inText, named);
     }
 
     /// <summary>How many roots a text render actually named, off the lines themselves.</summary>

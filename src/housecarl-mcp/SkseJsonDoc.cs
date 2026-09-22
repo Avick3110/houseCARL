@@ -58,9 +58,9 @@ static class SkseJsonDoc
     }
 
     /// <summary>The build-level caveats every family carries — the same ones the text render writes and the accounting counts.</summary>
-    internal static void Caveats(Utf8JsonWriter w, CharCountedStream ms, bool readIncomplete,
+    internal static void Caveats(Utf8JsonWriter w, bool readIncomplete,
                                  IReadOnlyList<string> warnings, IReadOnlyList<string> bsaFailures,
-                                 IReadOnlyList<string> rootFailures, int share)
+                                 IReadOnlyList<string> rootFailures, int cap)
     {
         w.WriteStartObject("caveats");
         w.WriteBoolean("read_incomplete", readIncomplete);
@@ -68,11 +68,11 @@ static class SkseJsonDoc
         Strings(w, "archive_read_failures", bsaFailures);
         // The loose twin, beside the archives: a root that would not read is named, not just hedged — and BOUNDED,
         // because one entry per root per directory asked about is a list a blocked tree can make wider than the whole
-        // document. Always through the capped writer, empty or not, so the array and its sibling count add up to the
-        // whole on every document, which is the shape json-wire.md states and asset_status keeps.
-        w.Flush();   // the baseline must count what is WRITTEN, not only what has reached the stream
-        JsonWire.WriteCappedStringArray(w, ms, "root_read_failures", rootFailures,
-                                        JsonWire.Chars(ms) + Math.Max(share, 0));
+        // document. Through the SHARED writer, so this lane's json names the roots its own text lane names: bounding
+        // the array against the json stream instead priced an element differently and the two counts drifted apart.
+        // Written empty or not, so the array and its sibling count add up to the whole on every document, which is the
+        // shape json-wire.md states and asset_status keeps.
+        JsonWire.WriteRootFailuresCut(w, rootFailures, cap);
         w.WriteEndObject();
     }
 
@@ -93,7 +93,7 @@ static class SkseJsonDoc
     /// empty here charges that close plus the open's own width, which the open already paid for in the document, so the
     /// reserve is a floor of tens of chars rather than an exact figure — measured off the writer, never hand-written.</param>
     internal static int TailReserve(bool readIncomplete, IReadOnlyList<string> warnings, IReadOnlyList<string> bsaFailures,
-                                    IReadOnlyList<string> rootFailures, int share, TransportCounts widest,
+                                    IReadOnlyList<string> rootFailures, int cap, TransportCounts widest,
                                     IReadOnlyList<string> rowArrays, Action<Utf8JsonWriter>? conditional = null)
     {
         using var ms = new CharCountedStream();
@@ -106,7 +106,7 @@ static class SkseJsonDoc
                 w.WriteStartArray(name);
                 w.WriteEndArray();
             }
-            Caveats(w, ms, readIncomplete, warnings, bsaFailures, rootFailures, share);
+            Caveats(w, readIncomplete, warnings, bsaFailures, rootFailures, cap);
             TransportAccounting.WriteJson(w, widest);
             w.WriteEndObject();
         }

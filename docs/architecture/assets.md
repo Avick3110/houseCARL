@@ -43,10 +43,13 @@ resolver reads no profile.
   act on: `asset_status`, the three `skse` families, the SkyPatcher layer and the NIF batch, beside their archive
   failures; the check sweep, at the response root above its family sections; the create lane, under the coverage
   reports whose hedges depend on them; and the compact and merge carry notes, under the first pass that hedged.
-  Whichever place, it is **once per response and in both transports**: every lane in one call reads ONE asset build,
-  so two blocks would be two copies of one list, and `BatchRender.RootFailureCut` — the one cut rule, with no
-  transport and no caller's indent priced into it — keeps the text lines and the json `root_read_failures` array
-  naming the same roots. A block inside a capped document is charged before that document's rows, never appended once
+  Whichever place, it is **once per response and in both transports**: a lane that names them twice in one document
+  prints one list twice, so the response unions its families' or checks' lists and renders them once — a union, not
+  whichever ran last, because two families in one call can answer off two asset builds. `BatchRender.RootFailureCut`
+  is the one cut rule, with no transport and no caller's indent priced into it, and every json lane writes the array
+  through `JsonWire.WriteRootFailuresCut`, which is that same cut — so the text lines and the json
+  `root_read_failures` of one build name the same roots. Bounding the json array against the json stream instead
+  prices an element differently and the two counts drift apart, which is what the `skse` families did. A block inside a capped document is charged before that document's rows, never appended once
   its budget is spent. Two exceptions, both named as such rather than papered over: `ScriptPropertyCheck`'s
   per-property ".pex not on disk" reason has no block to point at, so it names the first root and counts the rest
   inside the sentence; and the dialogue family's hedge and the `place` lane's source-scan hedge still name nothing at
