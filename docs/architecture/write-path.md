@@ -300,7 +300,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   the child never needed and freeze another mod's content. The winner stays a fallback for an injected or excluded
   definer, and which copy was read is reported per record.
 - Only the LAST op touching a leaf is answerable by the written file: an earlier one's reading was taken mid-sequence,
-  so it is marked superseded rather than compared and reported as not landed.
+  so it is marked superseded and shown with the leaf's final state, rather than compared and wrongly reported as not
+  landed.
 - The dry run's unopenable-reference threshold is a MEASURED header rule, not something `set.Count > 1` states on its
   own: a header carrying ONE master writes even when that master is the unopenable plugin, because Mutagen derives the
   entry from the record's own FormKey, and a header that must be SORTED — two or more — refuses. Dropping the count
@@ -485,7 +486,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   write tool calls.
 - `src/housecarl-core/WritePatchBuilder.cs` — the core half: `Apply` / `ApplyInPlace`, `CreateRecords` /
   `CreateRecordsInPlace`, `RemoveRecords` / `RemoveRecordsInPlace`, `ForwardRecords` / `ForwardRecordsInPlace`,
-  `CreatePlugin`, `CompactBuild` and `MergeBuild`, each `…Core` body split so the one captured build's fingerprint
-  stamps every outcome from one place. Plus the shared seams: `LinkTypeLookup`, `ResolveForwardSources`,
+  `CreatePlugin`, `CompactBuild` and `MergeBuild`. The four record lanes — apply, create, remove, forward — are the
+  ones that split a `…Core` body, so the one captured build's fingerprint stamps every one of THEIR outcomes from a
+  single place; `CreatePlugin`, `CompactBuild` and `MergeBuild` have no such split and their results carry no stamp at
+  all. Plus the shared seams: `LinkTypeLookup`, `ResolveForwardSources`,
   `SyncEditedTopicMarkers`, `DryRunMastersPreview`, `MasterGrowNote`, `SerializeFailure`, `ReadBackInFull`,
   `VerifyLandedAgainstFile` and `VerifyCreatedAgainstFile`.

@@ -782,7 +782,6 @@ public static class WritePatchBuilder
         var mastersBefore = targetMod.ModHeader.MasterReferences
             .Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        // --- Phase 3: apply each verb to the TARGET's OWN record, which GenericGetOrAddAsOverride returns by get-semantics. ---
         // --- Phase 2b: SNAPSHOT every same-file copy source BEFORE any op mutates anything, ONE snapshot PER OP. ---
         Dictionary<PatchEdit, IMajorRecordGetter>? selfSnapshots = null;
         if (resolved.Any(r => r.selfSource))
@@ -806,6 +805,7 @@ public static class WritePatchBuilder
             }
         }
 
+        // --- Phase 3: apply each verb to the TARGET's OWN record, which GenericGetOrAddAsOverride returns by get-semantics. ---
         var ops = new List<OpResult>(resolved.Count);
         foreach (var (e, body, req, label, srcBody, selfSource) in resolved)
         {
