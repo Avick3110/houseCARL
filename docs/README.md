@@ -71,6 +71,8 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 | Note | What it covers |
 |---|---|
 | [`architecture/corpus-rulebook.md`](architecture/corpus-rulebook.md) | The write surface's pre-flight: every write is validated against the generated schema before any Mutagen mutation, and the gate can never disagree with apply. |
+| [`architecture/check-families.md`](architecture/check-families.md) | The contracts the check families share: the DELETED rule, the integrity sweep's boundary, the narrowing and exclusion axes, family selection, and selection versus outcome. |
+| [`architecture/check-scripts-and-dialogue-families.md`](architecture/check-scripts-and-dialogue-families.md) | The script-property sweep's boundary and its unverifiable ride-through, the dialogue family's four seed words, and the EditorID near-miss hint. |
 
 ### Writes
 
@@ -84,7 +86,8 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 
 | Note | What it covers |
 |---|---|
-| [`architecture/dialogue.md`](architecture/dialogue.md) | The implementation side of dialogue: the merged INFO order, the fold, CK parity, and what a clean pass means. |
+| [`architecture/dialogue.md`](architecture/dialogue.md) | The implementation side of dialogue: the merged INFO order, the fold, and the SNAM subtype marker. |
+| [`architecture/dialogue-validation.md`](architecture/dialogue-validation.md) | What houseCARL checks before dialogue goes out: CK parity, what a clean pass means, and the dialogue check family. |
 
 ### Records and owned children
 
