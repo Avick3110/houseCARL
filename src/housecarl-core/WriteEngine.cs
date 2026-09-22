@@ -1404,7 +1404,9 @@ public static class WriteEngine
         CommitStagedPatch(staged, outputPath);
     }
 
-    /// <summary>Is the plugin at <paramref name="path"/> flagged LOCALIZED — three answers, not a bool, which would answer false on a read fault.</summary>
+    /// <summary>Is the plugin at <paramref name="path"/> flagged LOCALIZED — three answers, not a bool, which would
+    /// answer false on a read fault. HEADER-ONLY and without the resolver's game-Data strings redirect, so
+    /// <c>Unreadable</c> means the file would not open, never that its tables were not found.</summary>
     public static LocalizedFlagRead PluginIsLocalized(string path)
     {
         ISkyrimModGetter? ov = null;
