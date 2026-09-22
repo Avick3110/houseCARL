@@ -1879,6 +1879,9 @@ static class JsonWire
         w.WriteString("findings_scope", o.ScopeSentence());
         // A response-level fact, like the roster below: this call's order was short of plugins (#353).
         WriteOrderDegraded(w, o.OrderExcluded);
+        // WHICH loose roots the asset build could not read — at the document root, because ONE build feeds every
+        // family that hedges on it, and cut by the same rule the text lane's lines are.
+        WriteRootFailuresCut(w, o.RootFailures, cap);
 
         // Above `families` because an accounting reports what has been emitted, and every family's is in the loop.
         WriteExcluded(w, o.ExcludedPlugins, body);
@@ -1903,12 +1906,12 @@ static class JsonWire
             }
             else if (f == SweepFamily.Scripts)
             {
-                WriteScriptsHead(w, s.Scripts!, cap);
+                WriteScriptsHead(w, s.Scripts!);
                 WriteScriptsSection(w, s.Scripts!, body, histogramLimit);
             }
             else if (f == SweepFamily.Facegen)
             {
-                FaceGenSweepRender.WriteHead(w, s.FaceGen!, cap);
+                FaceGenSweepRender.WriteHead(w, s.FaceGen!);
                 FaceGenSweepRender.WriteSection(w, s.FaceGen!, body, histogramLimit);
             }
             else
@@ -1927,7 +1930,7 @@ static class JsonWire
     // ---- housecarl_validate_scripts -----------------------------------------------------------------
     /// <summary>The scripts family's own head members. A finding CLASS the caller excluded is <c>null</c>, NOT 0 —
     /// the json counterpart of the text render's NOT CHECKED. <c>unverifiable</c> is never null.</summary>
-    static void WriteScriptsHead(Utf8JsonWriter w, ScriptCheckResult r, int cap)
+    static void WriteScriptsHead(Utf8JsonWriter w, ScriptCheckResult r)
     {
         bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
         bool didScalar = r.Classes.HasFlag(ScriptFindingClass.UnboundScalar);
@@ -1948,8 +1951,6 @@ static class JsonWire
         WriteOffOrder(w, r.OffOrderScanned, ReadSentences.SweepOffOrderScriptsCoverage);
         w.WriteNumber("unverifiable_collapsed", r.UnverifiableCollapsed);
         w.WriteBoolean("read_incomplete", r.ReadIncomplete);
-        // WHICH folder would not read — the json twin of the head's named-roots lines, cut by the same rule.
-        WriteRootFailuresCut(w, r.RootFailures ?? Array.Empty<string>(), cap);
         w.WriteBoolean("counts_only", r.CountsOnly);
     }
 
@@ -2463,6 +2464,9 @@ static class JsonWire
             w.WriteEndArray();
             w.WriteNumber("rendered_created", rendered);
 
+            // WHICH loose roots the coverage checks could not read — once at the document root, because both read
+            // ONE asset build, and cut by the same rule the text lane's lines are.
+            WriteRootFailuresCut(w, WriteTools.CreateRootFailures(o), cap);
             // The three post-write reports are INSIDE the budget, like the text twin's.
             WriteVoiceReport(w, o.Voice, ms, cap, ref truncated);
             WriteScriptBindingReport(w, o.ScriptBinding, ms, cap, ref truncated);
@@ -3052,8 +3056,6 @@ static class JsonWire
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("voice_coverage");
         WriteNullable(w, "check_error", report.CheckError);
-        // WHICH loose root would not read, so read_incomplete on a line below names a folder, not just a warning.
-        WriteRootFailuresCut(w, report.RootFailures, cap);
         int renderedLines = 0, renderedUndet = 0;
         bool blockCut = false;
         w.WriteStartArray("lines");
@@ -3124,8 +3126,6 @@ static class JsonWire
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("result_script_coverage");
         WriteNullable(w, "check_error", report.CheckError);
-        // WHICH loose root would not read, so read_incomplete on a finding below names a folder, not just a warning.
-        WriteRootFailuresCut(w, report.RootFailures, cap);
         int renderedFindings = 0;
         bool blockCut = false;
         w.WriteStartArray("findings");

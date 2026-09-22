@@ -12,7 +12,7 @@ internal static class FaceGenSweepRender
 
     /// <summary>The family's head: what it swept, what it excluded, and what it found by class. The two things this
     /// family does not claim — the withheld benign class and the untestable clean pairs — are stated here.</summary>
-    internal static void AppendHead(StringBuilder sb, FaceGenCheckResult r, int cap)
+    internal static void AppendHead(StringBuilder sb, FaceGenCheckResult r)
     {
         sb.Append("scanned ").Append(r.NpcsScanned).Append(r.NpcsScanned == 1 ? " NPC · " : " NPCs · ")
           .Append(r.NpcsTemplated + r.NpcsNoFaceGenRace + r.NpcsRaceUnresolved)
@@ -50,13 +50,7 @@ internal static class FaceGenSweepRender
             sb.Append("[SCAN ERROR] ").Append(r.ScanError).Append('\n');
         if (r.ReadIncomplete)
             sb.Append("note: a BSA or a loose mod folder failed to read this build — an 'absent' half below may merely be unscanned.\n");
-        // WHICH folder would not read, so the hedge above names a source instead of only warning there was one;
-        // bounded and counted by the shared renderer, because a blocked tree names a root per folder asked about.
-        sb.Append(BatchRender.RootFailureLines(Roots(r), cap));
     }
-
-    /// <summary>The loose roots this sweep could not read, empty rather than null, so both transports read one list.</summary>
-    static IReadOnlyList<string> Roots(FaceGenCheckResult r) => r.RootFailures ?? Array.Empty<string>();
 
     /// <summary>The family's body — everything a cap can refuse.</summary>
     internal static void AppendSection(StringBuilder sb, FaceGenCheckResult r, BoundedBody body, int histogramLimit)
@@ -103,7 +97,7 @@ internal static class FaceGenSweepRender
 
     // ---- json ---------------------------------------------------------------------------------------
 
-    internal static void WriteHead(Utf8JsonWriter w, FaceGenCheckResult r, int cap)
+    internal static void WriteHead(Utf8JsonWriter w, FaceGenCheckResult r)
     {
         w.WriteNumber("npcs_scanned", r.NpcsScanned);
         w.WriteNumber("npcs_excluded_templated", r.NpcsTemplated);
@@ -118,8 +112,6 @@ internal static class FaceGenSweepRender
         if (r.FilterNote is not null) w.WriteString("narrowed", r.FilterNote);
         if (r.ScanError is not null) w.WriteString("scan_error", r.ScanError);
         if (r.ReadIncomplete) w.WriteBoolean("read_incomplete", true);
-        // The json twin of the named-roots lines, cut by the same rule so the two transports name the same roots.
-        JsonWire.WriteRootFailuresCut(w, Roots(r), cap);
         if (r.OffOrderScanned is { Count: > 0 } off)
         {
             w.WriteStartArray("off_order_scanned");

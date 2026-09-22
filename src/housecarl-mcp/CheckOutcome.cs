@@ -85,6 +85,14 @@ internal sealed class CheckOutcome
     /// root so every lane says it once.</summary>
     internal IReadOnlyList<string> OrderExcluded => _s.OrderExcluded;
 
+    /// <summary>The loose roots this response's asset build could not read. Every family that reads assets reads ONE
+    /// build, so the list is the response's, named once at its root rather than repeated under each family's hedge —
+    /// two copies of one list would take half the answer between them.</summary>
+    internal IReadOnlyList<string> RootFailures =>
+        _s.FaceGen?.RootFailures is { Count: > 0 } facegen ? facegen
+        : _s.Scripts?.RootFailures is { Count: > 0 } scripts ? scripts
+        : Array.Empty<string>();
+
     /// <summary><c>findings=</c> was omitted, so <see cref="Ran"/> is the default rather than a caller's choice —
     /// the one selection fact a response still states.</summary>
     internal bool Defaulted => _s.Selection.Defaulted;

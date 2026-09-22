@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using HousecarlCore;
 using HousecarlMcp;
 using Mutagen.Bethesda;
@@ -8,9 +10,9 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>The four lanes #827 did not reach, each of which hedged that "a BSA or a loose mod folder failed to read"
-/// and named no folder: the facegen sweep's head, the scripts sweep's head, the per-property ".pex not on disk" reason,
-/// and the write lane's carry and coverage notes. Each now names the mod folder it could not read (#850), so the hedge
-/// leaves the modder something to act on.</summary>
+/// and named no folder: the facegen sweep, the scripts sweep, the per-property ".pex not on disk" reason, and the
+/// write lane's carry and coverage notes. Each now names the mod folder it could not read (#850), in both transports
+/// where the lane has one, and ONCE per document — every lane in one response reads one asset build.</summary>
 [Trait("tier", "integration")]
 public sealed class UnreadableRootNamedLanesTests : IDisposable
 {
@@ -18,7 +20,7 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
 
     public void Dispose() => _w.Dispose();
 
-    /// <summary>The named-root line, as the lane writes it — asserting on the shared lead rather than the mod name
+    /// <summary>The named-root line, as a lane writes it — asserting on the shared lead rather than the mod name
     /// alone, so a name that reached the response some other way cannot pass this test.</summary>
     static string Named(string mod) => BatchRender.RootFailureLead + mod;
 
@@ -26,7 +28,7 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
         => CheckTools.CheckTool(_w.Svc, findings: findings, max_chars: 60000);
 
     [Fact]
-    public void TheFacegenSweepHeadNamesTheRootItCouldNotRead()
+    public void TheFacegenSweepNamesTheRootItCouldNotRead()
     {
         Assert.True(_w.Blocked, BlockedSweepWorld.NotStaged);
 
@@ -36,21 +38,8 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
         Assert.Contains(Named(BlockedSweepWorld.BlockedMod), text, StringComparison.Ordinal);
     }
 
-    /// <summary>The json twin of the head's caveat: the same roots, under a named array, so a caller branching on
-    /// read_incomplete can say WHICH folder rather than only that one failed.</summary>
     [Fact]
-    public void TheFacegenSweepsJsonHeadNamesItToo()
-    {
-        Assert.True(_w.Blocked, BlockedSweepWorld.NotStaged);
-
-        var json = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" }, format: "json", max_chars: 60000);
-
-        Assert.Contains("root_read_failures", json, StringComparison.Ordinal);
-        Assert.Contains(BlockedSweepWorld.BlockedMod, json, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void TheScriptsSweepHeadNamesTheRootItCouldNotRead()
+    public void TheScriptsSweepNamesTheRootItCouldNotRead()
     {
         Assert.True(_w.Blocked, BlockedSweepWorld.NotStaged);
 
@@ -60,8 +49,33 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
         Assert.Contains(Named(BlockedSweepWorld.BlockedMod), text, StringComparison.Ordinal);
     }
 
-    /// <summary>The per-property reason inside the scripts listing has no caveat block above it to point at, so it
-    /// carries the root in its own sentence.</summary>
+    /// <summary>One response, two families that hedge, one asset build: the list is the response's, so it is named at
+    /// its root once rather than under each head — two copies of it would take half the answer between them.</summary>
+    [Fact]
+    public void AMergedSweepNamesTheRootOnceForTheWholeResponse()
+    {
+        Assert.True(_w.Blocked, BlockedSweepWorld.NotStaged);
+
+        AssertEachRootNamedOnce(Sweep("facegen", "scripts"));
+    }
+
+    /// <summary>The json twin of the response-level block: the root is an ELEMENT of the array, and nothing was cut.</summary>
+    [Fact]
+    public void TheSweepsJsonDocumentCarriesTheRootAsAnArrayElement()
+    {
+        Assert.True(_w.Blocked, BlockedSweepWorld.NotStaged);
+
+        var json = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen", "scripts" }, format: "json",
+                                        max_chars: 60000);
+
+        var named = RootArrayOf(json);
+        Assert.Contains(named, r => r.StartsWith(BlockedSweepWorld.BlockedMod, StringComparison.Ordinal));
+        Assert.Equal(0, JsonDocument.Parse(json).RootElement
+                                    .GetProperty("root_read_failures_omitted").GetInt32());
+    }
+
+    /// <summary>The per-property reason inside the scripts listing has no caveat block to point at, so it carries the
+    /// root in its own sentence.</summary>
     [Fact]
     public void ThePerPropertyReasonNamesTheRootItCouldNotRead()
     {
@@ -74,49 +88,154 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
                         StringComparison.Ordinal);
     }
 
-    /// <summary>The write lane's facegen and voice carry notes, off a real compact over a blocked tree.</summary>
+    /// <summary>The write lane's carry notes, off a real compact over a blocked tree. Both passes read one build, so
+    /// the root is named once — under the facegen note, with the voice note's hedge above it.</summary>
     [Fact]
     public void TheCarryNotesNameTheRootTheyCouldNotRead()
     {
         using var w = new BlockedCarryWorld();
         Assert.True(w.Blocked, BlockedSweepWorld.NotStaged);
 
-        var text = WriteTools.RenderCompact(w.Svc.CompactPlugin(BlockedCarryWorld.PluginName));
+        var outcome = w.Svc.CompactPlugin(BlockedCarryWorld.PluginName);
+        var text = WriteTools.RenderCompact(outcome);
 
-        // Both notes hedge on the same scan, so each names the root under its own hedge, not once for the pair.
-        int facegen = text.IndexOf("'no facegen' result may be incomplete", StringComparison.Ordinal);
-        int voice = text.IndexOf("'no voice' result may be incomplete", StringComparison.Ordinal);
-        Assert.True(facegen >= 0 && voice > facegen, text);
-        Assert.Contains(Named(BlockedCarryWorld.BlockedMod), text[facegen..voice], StringComparison.Ordinal);
-        Assert.Contains(Named(BlockedCarryWorld.BlockedMod), text[voice..], StringComparison.Ordinal);
+        Assert.Contains("'no facegen' result may be incomplete", text, StringComparison.Ordinal);
+        Assert.Contains("'no voice' result may be incomplete", text, StringComparison.Ordinal);
+        // Both passes read one build, so the voice note repeats no root the facegen note above already named.
+        AssertEachRootNamedOnce(text);
     }
 
     /// <summary>The create lane's two coverage reports. The checks run over a mods tree with one denied folder, so the
-    /// root each report names is one it really could not read, not a hand-built list.</summary>
+    /// root each carries is one they really could not read, not a hand-built list.</summary>
     [Fact]
     public void TheCreateCoverageNotesNameTheRootTheyCouldNotRead()
     {
         using var f = new BlockedReportFixture();
         Assert.True(f.Blocked, BlockedSweepWorld.NotStaged);
 
-        var outcome = new WritePatchBuilder.CreateOutcome(
-            true, null, f.PatchPath, false,
-            new[] { new WritePatchBuilder.CreatedRecord(f.InfoKey, "DialogResponses", "HcRootInfo",
-                                                        Array.Empty<WritePatchBuilder.OpResult>()) },
-            Array.Empty<string>(), 512)
-            { Voice = f.Voice, ScriptBinding = f.ScriptBinding };
-
         Assert.NotEmpty(f.Voice.RootFailures);
         Assert.NotEmpty(f.ScriptBinding.RootFailures);
-        var text = WriteTools.RenderCreate(outcome, maxChars: 60000);
+        var text = WriteTools.RenderCreate(f.Outcome, maxChars: 60000);
 
-        int result = text.IndexOf("result-script coverage", StringComparison.Ordinal);
-        int voice = text.IndexOf("voice coverage", StringComparison.Ordinal);
-        Assert.True(voice >= 0 && result > voice, text);
-        Assert.Contains(Named(BlockedReportFixture.BlockedMod), text[voice..result], StringComparison.Ordinal);
-        Assert.Contains(Named(BlockedReportFixture.BlockedMod), text[result..], StringComparison.Ordinal);
+        Assert.Contains("may merely be unscanned", text, StringComparison.Ordinal);
+        // One build behind both reports, so the response carries ONE block of it, not one per report.
+        AssertEachRootNamedOnce(text);
     }
 
+    /// <summary>A create whose coverage rows the cap CUT still says a folder went unread and which: the tail is
+    /// charged before the rows, so the one case that needs the name most cannot be the case that drops it.</summary>
+    [Fact]
+    public void ATruncatedCreateStillNamesTheRoot()
+    {
+        using var f = new BlockedReportFixture();
+        Assert.True(f.Blocked, BlockedSweepWorld.NotStaged);
+
+        // A report whose own ROWS the cap cuts, which is the loop that used to return: many lines, small cap.
+        var rows = WriteTools.RenderCreate(WithLines(f, 40), maxChars: 1200);
+        Assert.Contains("voice coverage truncated", rows, StringComparison.Ordinal);
+        Assert.Contains("may merely be unscanned", rows, StringComparison.Ordinal);
+        Assert.Contains(Named(BlockedReportFixture.BlockedMod), rows, StringComparison.Ordinal);
+
+        // And the checks' own reports, cut in their undetermined and finding loops.
+        var real = WriteTools.RenderCreate(f.Outcome, maxChars: 800);
+        Assert.Contains("coverage truncated", real, StringComparison.Ordinal);
+        Assert.Contains(Named(BlockedReportFixture.BlockedMod), real, StringComparison.Ordinal);
+    }
+
+    /// <summary>The staged fixture's outcome with hand-built voice LINES, as the write-surface probe builds them: the
+    /// claim under test is the renderer's budget, not the check's, and the root list stays the staged one.</summary>
+    static WritePatchBuilder.CreateOutcome WithLines(BlockedReportFixture f, int count)
+    {
+        var lines = Enumerable.Range(0, count).Select(i => new VoiceLine(
+            default, "HcRootTopic", i, $"line_{i:D4}.fuz", false, null, false,
+            $"line_{i:D4}.lip", false, true)).ToList();
+        return f.Outcome with
+        {
+            Voice = new VoiceReport(lines, Array.Empty<VoiceUndetermined>()) { RootFailures = f.Voice.RootFailures },
+            ScriptBinding = ScriptBindingReport.Empty,
+        };
+    }
+
+    /// <summary>And the block is CHARGED before the rows rather than appended once the budget is spent: at one cap, a
+    /// report whose roots are named renders fewer rows than the same report with none.</summary>
+    [Fact]
+    public void TheNamedRootsBlockIsChargedBeforeTheCoverageRows()
+    {
+        using var f = new BlockedReportFixture();
+        Assert.True(f.Blocked, BlockedSweepWorld.NotStaged);
+
+        var withRoots = WithLines(f, 40);
+        var without = withRoots with
+            { Voice = new VoiceReport(withRoots.Voice!.Lines, Array.Empty<VoiceUndetermined>()) };
+
+        int rowsWithRoots = CountOf(WriteTools.RenderCreate(withRoots, maxChars: 2000), " resp ");
+        int rowsWithout = CountOf(WriteTools.RenderCreate(without, maxChars: 2000), " resp ");
+
+        Assert.True(rowsWithout > rowsWithRoots,
+                    $"{rowsWithout} rows without the block, {rowsWithRoots} with it — the block was not charged");
+    }
+
+    /// <summary>The json twin of the create lane's block, at the document root and as an array element.</summary>
+    [Fact]
+    public void TheCreatesJsonDocumentCarriesTheRootAsAnArrayElement()
+    {
+        using var f = new BlockedReportFixture();
+        Assert.True(f.Blocked, BlockedSweepWorld.NotStaged);
+
+        var json = JsonWire.RenderCreateOutcome(f.Outcome, 60000, false, "patch");
+
+        Assert.Contains(RootArrayOf(json), r => r.StartsWith(BlockedReportFixture.BlockedMod, StringComparison.Ordinal));
+    }
+
+    /// <summary>The cut is ONE rule with no transport in it: at every cap, the text lines and the json array of one
+    /// build name the same roots. Charging a text indent inside the rule made them disagree at 200 of 3,801 caps.</summary>
+    [Fact]
+    public void TextAndJsonNameTheSameRootsAtEveryCap()
+    {
+        var roots = Enumerable.Range(0, 6).Select(i => $"BlockedMod{i}: could not read '{i}'".PadRight(30, '.')).ToList();
+
+        for (int cap = 200; cap <= 4000; cap++)
+        {
+            int text = CountOf(BatchRender.RootFailureLines(roots, cap, indent: "  "), BatchRender.RootFailureLead);
+            int json = JsonRootArray(roots, cap).Count;
+            Assert.Equal(text, json);
+        }
+    }
+
+    /// <summary>The json array the shared writer produces at one cap, read back as the caller sees it.</summary>
+    static IReadOnlyList<string> JsonRootArray(IReadOnlyList<string> roots, int cap)
+    {
+        var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms))
+        {
+            w.WriteStartObject();
+            JsonWire.WriteRootFailuresCut(w, roots, cap);
+            w.WriteEndObject();
+        }
+        return RootArrayOf(Encoding.UTF8.GetString(ms.ToArray()));
+    }
+
+    static IReadOnlyList<string> RootArrayOf(string json)
+        => JsonDocument.Parse(json).RootElement.GetProperty("root_read_failures")
+                       .EnumerateArray().Select(e => e.GetString() ?? "").ToList();
+
+    /// <summary>Every root this response names, it names ONCE: a second block over one asset build would repeat a
+    /// line verbatim. Robust to the list growing as later reads ask about more folders, which a count is not.</summary>
+    static void AssertEachRootNamedOnce(string text)
+    {
+        var named = text.Split('\n').Where(l => l.Contains(BatchRender.RootFailureLead, StringComparison.Ordinal))
+                        .Select(l => l.Trim()).ToList();
+        Assert.NotEmpty(named);
+        Assert.Equal(named.Count, named.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    static int CountOf(string haystack, string needle)
+    {
+        int n = 0;
+        for (int at = haystack.IndexOf(needle, StringComparison.Ordinal); at >= 0;
+             at = haystack.IndexOf(needle, at + needle.Length, StringComparison.Ordinal)) n++;
+        return n;
+    }
 }
 
 /// <summary>Its own instance, never a shared fixture: it denies the current account one whole mod folder. The order
@@ -285,14 +404,15 @@ sealed class BlockedReportFixture : IDisposable
 
     public string Root { get; }
     public string PatchPath { get; }
-    public FormKey InfoKey { get; }
     public bool Blocked { get; }
     public VoiceReport Voice { get; }
     public ScriptBindingReport ScriptBinding { get; }
+    public WritePatchBuilder.CreateOutcome Outcome { get; }
 
     readonly string _blockedDir;
 
-    public BlockedReportFixture()
+    /// <param name="lines">how many spoken responses the created line carries — several so a small cap cuts the rows.</param>
+    public BlockedReportFixture(int lines = 1)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-rootreport-" + Guid.NewGuid().ToString("N"));
         var mods = Path.Combine(Root, "mods");
@@ -312,24 +432,26 @@ sealed class BlockedReportFixture : IDisposable
         var vmad = new DialogResponsesAdapter();
         vmad.Scripts.Add(new ScriptEntry { Name = "HcRootUncompiled" });
         info.VirtualMachineAdapter = vmad;
-        // One spoken response, or the voice check has no line to verdict and writes no block at all.
-        info.Responses.Add(new DialogResponse { ResponseNumber = 1 });
+        // Spoken responses, or the voice check has no line to verdict and writes no block at all.
+        for (int i = 1; i <= lines; i++) info.Responses.Add(new DialogResponse { ResponseNumber = (byte)i });
         topic.Responses.Add(info);
         mod.BeginWrite.ToPath(PatchPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-        InfoKey = info.FormKey;
 
         try
         {
             Blocked = DenyAce.TryDeny(_blockedDir);
-            var created = new[] { new WritePatchBuilder.CreatedRecord(InfoKey, "DialogResponses", "HcRootInfo",
+            var created = new[] { new WritePatchBuilder.CreatedRecord(info.FormKey, "DialogResponses", "HcRootInfo",
                                                                      Array.Empty<WritePatchBuilder.OpResult>()) };
             using var resolver = LoadOrderResolver.Build(new[] { PatchPath });
             using var assets = AssetResolver.Build("", mods, dataDir, new[] { BlockedMod },
                                                    Array.Empty<ActiveArchive>());
-            // The binding check resolves a .pex, which is the read that finds the blocked root; the voice check
-            // reads the SAME asset build, whose failures are kept for its life, so it runs after it.
+            // The binding check resolves a .pex, which is the read that finds the blocked root; the voice check reads
+            // the SAME asset build, whose failures are kept for its life, so it runs after it.
             ScriptBinding = DialogueScriptCheck.Run(PatchPath, created, assets);
             Voice = VoiceCheck.Run(PatchPath, created, resolver, assets);
+            Outcome = new WritePatchBuilder.CreateOutcome(true, null, PatchPath, false, created,
+                                                         Array.Empty<string>(), 512)
+                      { Voice = Voice, ScriptBinding = ScriptBinding };
         }
         catch
         {
