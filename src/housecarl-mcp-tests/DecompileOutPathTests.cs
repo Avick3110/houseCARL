@@ -208,4 +208,32 @@ public sealed class DecompileOutPathTests
         }
         finally { try { Directory.Delete(dest, true); } catch { /* temp cleanup */ } }
     }
+
+    [Fact]
+    public void AnUnreadableSiblingPexIsNamedAndTheHierarchySaysWhatItIsInstead()
+    {
+        // The third hierarchy source used to degrade silently: a sibling .pex Mutagen cannot read cost edges and
+        // nothing in the result said so, leaving explicit casts with no reason. It is now named like the other two.
+        var dir = FreshDir();
+        var src = Path.Combine(dir, "src");
+        var dest = Path.Combine(dir, "psc");
+        Directory.CreateDirectory(src);
+        var pex = Path.Combine(src, "HcSiblingHost.pex");
+        PexWriter.WritePex(pex, "HcSiblingHost", parent: null);
+        // Not a .pex at all: Mutagen throws on it, which is the unreadable class this note covers.
+        File.WriteAllBytes(Path.Combine(src, "HcSiblingBroken.pex"), new byte[] { 0x01, 0x02, 0x03, 0x04 });
+        try
+        {
+            var r = DecompileTools.DecompileScript(W.Svc, pex, out_path: dest);
+
+            Assert.True(File.Exists(Path.Combine(dest, "HcSiblingHost.psc")), r);
+            Assert.Contains("the .pex files beside this one were not all read", r);
+            Assert.Contains("1 of 2 .pex file(s)", r);
+            Assert.Contains(src, r);
+            // The "is" half drops the siblings and keeps this .pex, so the note never claims edges it does not have.
+            Assert.Contains("the class hierarchy is", r);
+            Assert.Contains("what this .pex declares", r);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
+    }
 }

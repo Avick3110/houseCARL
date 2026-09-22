@@ -539,6 +539,7 @@ public sealed record SeqOutcome(
         => new(false, error, null, null, Array.Empty<HousecarlCore.SeqFile.SeqQuest>(), "", false);
 }
 
-/// <summary>The decompiler's class hierarchy and what is missing from it, as two named reasons that can both be set; both are soft, since a missing edge costs an explicit cast in the output, never wrong source.</summary>
+/// <summary>The decompiler's class hierarchy and what is missing from it, one named reason per source and any of them can be set; all are soft, since a missing edge costs an explicit cast in the output, never wrong source.</summary>
+/// <param name="SiblingPexMissing">Why the .pex files beside the input were not all read; the service cannot know it, so the decompile lane sets it after its own sibling walk.</param>
 public sealed record ClassParents(
-    Dictionary<string, string> Edges, string? BaselineNote, string? TopUpMissing);
+    Dictionary<string, string> Edges, string? BaselineNote, string? TopUpMissing, string? SiblingPexMissing = null);
