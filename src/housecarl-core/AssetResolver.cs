@@ -525,8 +525,10 @@ public sealed class AssetResolver : IDisposable
         for (int i = 0; i < roots.Count; i++)
         {
             var dir = subtreeDir.Length == 0 ? roots[i].Dir : Path.Combine(roots[i].Dir, subtreeDir);
-            Watch(dir, roots[i].Dir, snap);                          // the baseline for an appear/disappear, on the build's shared watch set
-            var files = SafeListFilenames(dir, roots[i].Name, roots[i].Dir, subtreeDir, snap);
+            // ONE read of this root's copy: the whole listing is the watch baseline, the filenames in it are what the
+            // subtree resolves from. Two reads of one directory would only differ by the split second between them.
+            var (names, files) = SafeListing(dir, roots[i].Name, roots[i].Dir, subtreeDir, snap);
+            Watch(dir, roots[i].Dir, snap, names);                   // the baseline for an appear/disappear, on the build's shared watch set
             if (files is { Count: > 0 }) present.Add((i, files));
         }
         return new LooseSubtree(present.ToArray());
@@ -541,9 +543,9 @@ public sealed class AssetResolver : IDisposable
     /// build already named, and no name moves when the permission is given back, so nothing is watched for it.
     /// <para>Every baseline here is a FRESH listing, never the build's memo: the memo can predate the warm by any
     /// number of calls, and a baseline older than the warm makes a file that goes and comes back invisible.</para></summary>
-    static void Watch(string dir, string rootDir, Snapshot snap)
+    static void Watch(string dir, string rootDir, Snapshot snap, HashSet<string>? entries)
     {
-        if (FreshNames(dir) is { } entries)
+        if (entries is not null)                                       // the warm's own listing of this root's copy
         {
             snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir()).Entries = entries;
             return;
@@ -553,12 +555,14 @@ public sealed class AssetResolver : IDisposable
         var child = dir;
         for (var up = Path.GetDirectoryName(child); up is not null; child = up, up = Path.GetDirectoryName(up))
         {
-            if (FreshNames(up) is not { } names)
+            // Exists first, then the listing: a level that is simply not there is the common case on the way up, and
+            // asking the enumeration to throw for it costs an exception per missing level per root.
+            if (!Directory.Exists(up))
             {
-                if (Directory.Exists(up)) break;                       // the ancestor itself would not list
                 if (up.Length <= floor) break;                         // walked past the root with nothing there
                 continue;
             }
+            if (FreshNames(up) is not { } names) break;                // the ancestor itself would not list
             var name = Path.GetFileName(child);
             if (!names.Contains(name))
                 snap.DirWatch.GetOrAdd(up, _ => new WatchedDir()).Forbidden[name] = 0;
@@ -568,22 +572,31 @@ public sealed class AssetResolver : IDisposable
         }
     }
 
-    /// <summary>One root's filenames in one directory. A dir that is not there is simply absent; a dir that THROWS is
-    /// named on the build, so the single-path lanes hedge an "absent" the same way a sweep does.</summary>
-    HashSet<string>? SafeListFilenames(string dir, string rootName, string rootDir, string subtreeDir, Snapshot snap)
+    /// <summary>One root's copy of a subtree in ONE read: every name in it, which is the watch baseline, and the
+    /// filenames among them, which is what the subtree resolves from. A dir that is not there is simply absent; a dir
+    /// that THROWS is named on the build, so the single-path lanes hedge an "absent" the same way a sweep does.</summary>
+    (HashSet<string>? Names, HashSet<string>? Files) SafeListing(string dir, string rootName, string rootDir,
+                                                                string subtreeDir, Snapshot snap)
     {
         try
         {
             // The same rule the walk makes: a "not there" this account cannot prove is a read failure, not an absence.
-            if (!Directory.Exists(dir)) { AbsenceIsReal(rootName, rootDir, subtreeDir, dir, snap); return null; }
-            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var f in Directory.EnumerateFiles(dir)) set.Add(Path.GetFileName(f));
-            return set;
+            if (!Directory.Exists(dir)) { AbsenceIsReal(rootName, rootDir, subtreeDir, dir, snap); return (null, null); }
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // One enumeration: on Windows the attributes ride the same find data as the name, so file-or-directory
+            // costs nothing beyond it, and the watch baseline and the resolvable filenames come off one pass.
+            foreach (var entry in new DirectoryInfo(dir).EnumerateFileSystemInfos())
+            {
+                names.Add(entry.Name);
+                if ((entry.Attributes & FileAttributes.Directory) == 0) files.Add(entry.Name);
+            }
+            return (names, files);
         }
         catch (Exception ex)
         {
             RecordRootFailure(rootName, subtreeDir, "read", ex, snap);
-            return null;
+            return (null, null);
         }
     }
 
