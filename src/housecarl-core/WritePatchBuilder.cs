@@ -232,7 +232,8 @@ public static class WritePatchBuilder
             && int.TryParse(parts[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out y);
     }
 
-    /// <summary>Test seam, called once inside <see cref="Apply"/>'s Phase-1 resolve loop; null in the product.</summary>
+    /// <summary>Test seam, called once inside <see cref="Apply"/>'s Phase-1 resolve loop; null in the product, and
+    /// parked on only by freshness-capture-guard arm 4 — see docs/architecture/write-path.md.</summary>
     internal static Action? InsidePhase1ResolveForGuard;
 
     /// <summary>Build or extend a patch from <paramref name="edits"/> to <paramref name="outPath"/>; <paramref name="dryRun"/> stops at the serialize.</summary>
@@ -511,7 +512,8 @@ public static class WritePatchBuilder
             ? $"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override this record — there is no version of it there to copy."
             : $"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override the SOURCE record {FormIdToken.Of(e.CopySource)} — there is no version of it there to copy from.";
 
-    /// <summary>Does this edit's CopyFrom source resolve through the service's OFF-ORDER pre-locate? Decided from THIS call's capture.</summary>
+    /// <summary>Does this edit's CopyFrom source resolve through the service's OFF-ORDER pre-locate? Decided from THIS
+    /// call's capture, which cannot yet disagree with the pre-locate's; contract in docs/architecture/write-path.md.</summary>
     static bool TryOffOrderCopyBody(
         IReadOnlyDictionary<PatchEdit, IMajorRecordGetter>? copyFromSources, PatchEdit e,
         LoadOrderResolver.IndexView view,
@@ -967,7 +969,8 @@ public static class WritePatchBuilder
             foreach (var bm in WriteEngine.BaselineMasters)
                 if (priority.ContainsKey(bm.FileName.String)) set.Add(bm.FileName.String);
 
-        // An UNOPENABLE referenced plugin is ACTIVE, so membership passes it; the BASELINE case is asked first, without the threshold.
+        // An UNOPENABLE referenced plugin is ACTIVE, so membership passes it; the BASELINE case is asked first, without the
+        // threshold, and the threshold itself is the measured header rule in docs/architecture/write-path.md.
         foreach (var bm in WriteEngine.BaselineMasters)
             // IsUnopenable already returns false for a name absent from the order, so no membership pre-test is needed.
             if (resolver.IsUnopenable(bm.FileName.String))
@@ -2884,7 +2887,8 @@ public static class WritePatchBuilder
         catch { return null; }
     }
 
-    /// <summary>Re-derive every op's "what landed" off the RE-OPENED WRITTEN FILE and compare; contract in docs/architecture/write-path.md.</summary>
+    /// <summary>Re-derive every op's "what landed" off the RE-OPENED WRITTEN FILE and compare; the compare's detection
+    /// bound and the superseded-op rule are in docs/architecture/write-path.md, which links json-wire.md for the rest.</summary>
     internal static IReadOnlyList<OpResult> VerifyLandedAgainstFile(   // internal: pinned by a test
         ISkyrimModGetter back, IReadOnlyList<(FormKey Target, WriteRequest? Req)> perOp, IReadOnlyList<OpResult> ops)
     {
