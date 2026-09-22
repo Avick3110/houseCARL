@@ -6,7 +6,7 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-/// <summary>housecarl_records — the read surface: SELECT, SOURCE, PROJECT and TRANSPORT compose in one call over ten form-scoped project forms; contracts in docs/architecture/read-engine.md.</summary>
+/// <summary>housecarl_records — the read surface: SELECT, SOURCE, PROJECT and TRANSPORT compose in one call over ten form-scoped project forms; contracts in docs/architecture/records-tool-front.md.</summary>
 [McpServerToolType]
 public static class RecordsTools
 {
@@ -61,7 +61,7 @@ public static class RecordsTools
         [Description("The node budget (default 2000, the read-expansion budget). Per seed on a forward walk and on the reverse carrier walk (each seed's carrier rows), where 250000 is the hard upper bound and a higher value is refused; ONE budget shared across every seed and every hop on the transitive reverse walk, whose hops are one frontier and not a per-seed expansion. A breach keeps what was proved and says which reading it spent. A reading form (summary/fields/rows/everything/aggregate) then renders the whole reached set — seeds times this budget at the worst — and reads a body per row, so it is held to the same render bound a scan is on EVERY walk lane, and refuses up front naming that lane's own levers: its seeds, this budget, and — on the forward and carrier walks, the two chain can draw — project.form='chain', which lists the same set without reading a body per rendered row (the walk reads one per reached node whatever the form).")]
         public int? max_nodes { get; set; }
 
-        /// <summary>The fixed hard upper bound on the PER-SEED reading of <see cref="max_nodes"/>, and not on the transitive reverse walk's one shared budget; contract in docs/architecture/read-engine.md.</summary>
+        /// <summary>The fixed hard upper bound on the PER-SEED reading of <see cref="max_nodes"/>, and not on the transitive reverse walk's one shared budget; contract in docs/architecture/records-tool-front.md.</summary>
         internal const int Ceiling = 250_000;
 
         [Description("Node classes the walk must not enter, as data: [{\"match\": \"Race\", \"severity\": \"stop\"|\"refuse\"}] — match is the record type name a read reports; stop prunes there (recorded as a boundary), refuse fails the whole call loud.")]
@@ -151,7 +151,7 @@ public static class RecordsTools
         bool json = fmt is Wire.QueryFormat.Json;
         bool dense = fmt is Wire.QueryFormat.Dense;
 
-        // ONE FormID door for the whole call; contract in docs/architecture/read-engine.md.
+        // ONE FormID door for the whole call; contract in docs/architecture/records-tool-front.md.
         var door = svc.OpenFormIdDoor();
 
         // ---- PROJECT: form + form-scoping ---------------------------------------------------------------
@@ -166,7 +166,7 @@ public static class RecordsTools
         bool bodyFields = form is "fields" or "rows";   // the two forms that read the caller's own field paths
         // Every reading form reads a body per row, so this is the set a derived selection's render bound is measured over.
         bool bodyForm = bodyFields || form is "summary" or "everything" or "aggregate";
-        // Form-scoping: a sub-parameter outside its form is refused by name; docs/architecture/read-engine.md.
+        // Form-scoping: a sub-parameter outside its form is refused by name; docs/architecture/records-tool-front.md.
         if (project?.fields is { Length: > 0 } && !bodyFields && !comparisonForm)
             return Wire.Refuse(json, $"error: project.fields belongs to the 'fields'/'rows'/'delta'/'tree' forms (got form='{form}'). Set project.form, or drop fields.");
         if (form == "fields" && project?.fields is not { Length: > 0 })
@@ -242,7 +242,7 @@ public static class RecordsTools
         var countFields = foldPlan?.CountOnlyPaths;
         var readPaths = foldPlan is null ? projFields : foldReadPaths;
         bool resolveNames = project?.resolve_names ?? false;
-        // The lever vocabulary is a function of (tool, FORM); docs/architecture/read-engine.md.
+        // The lever vocabulary is a function of (tool, FORM); docs/architecture/records-tool-front.md.
         var formLevers = form == "everything" ? LeverNames.Records.WithoutFieldSelector() : LeverNames.Records;
         // The rows form IS the fields form plus this fold, applied wherever a lane produces bodies, so the render,
         // the artifact and the json document see the same folded rows; a quantified path rides the same seam.
@@ -301,7 +301,7 @@ public static class RecordsTools
             if (walk.max_nodes is { } wn)
             {
                 if (wn < 1) return Wire.Refuse(json, $"error: walk.max_nodes={wn} — the node budget must be >= 1.");
-                // The bound is on the PER-SEED reading of this budget; docs/architecture/read-engine.md.
+                // The bound is on the PER-SEED reading of this budget; docs/architecture/records-tool-front.md.
                 bool perSeedBudget = walkDirection == "forward"
                                   || string.Equals(walk.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
                 if (perSeedBudget && wn > RecordsWalk.Ceiling)
@@ -373,7 +373,7 @@ public static class RecordsTools
         // is the only bound; the reverse MGEF walk keeps its own lane, where formids are seeds.
         bool reverseWalk = walk is not null && walkDirection == "reverse";
         // walk.follow tells the two reverse walks apart and the FORM only picks the view; under 'chain' the follow
-        // is said outright. Contract in docs/architecture/read-engine.md.
+        // is said outright. Contract in docs/architecture/records-tool-front.md.
         bool followAsked = !string.IsNullOrWhiteSpace(walk?.follow);
         bool reverseCarrier = reverseWalk
             && string.Equals(walk!.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
@@ -435,7 +435,7 @@ public static class RecordsTools
 
         // ---- info_order: the off-order fold ------------------------------------------------------------
         // The fold's file is resolved through the same one-pole probe every other source= goes through, and an
-        // ACTIVE plugin is refused; contract in docs/architecture/read-engine.md.
+        // ACTIVE plugin is refused; contract in docs/architecture/records-tool-front.md.
         LoadOrderService.PoleInfo? ioFold = null;
         if (form == "info_order" && srcSpec.Kind == LoadOrderService.PoleKind.Named)
         {
@@ -452,7 +452,7 @@ public static class RecordsTools
         LoadOrderService.FoldFacts? ioFoldFacts = null;
         if (ioFold is not null) { ioFoldFacts = new LoadOrderService.FoldFacts(); ioFoldFacts.FromArm(ioFold); }
         // The probe decided OFF-ORDER against its own build and the merge reads another, so the two are
-        // epoch-compared like every two-capture lane here; docs/architecture/read-engine.md.
+        // epoch-compared like every two-capture lane here; docs/architecture/records-tool-front.md.
         string? FoldSeam(OrderStamp? mergeEpoch)
             => ioFold?.Epoch is { } probeEpoch && mergeEpoch is not null && mergeEpoch.Epoch != probeEpoch
                 ? $"error: the load order changed between resolving '{ioFoldFacts!.Label}' as off-order (epoch={probeEpoch}) and reading the merge (epoch={mergeEpoch.Epoch}) — that copy may now be IN the order, and the fold would describe a different world. Retry the call."
@@ -472,7 +472,7 @@ public static class RecordsTools
         string headerLine = $"records  form={form}";
         void Arm(string statement)
         {
-            // One source statement per response, first call wins; docs/architecture/read-engine.md.
+            // One source statement per response, first call wins; docs/architecture/records-tool-front.md.
             if (envelope.Any(kv => kv.Key == "source")) return;
             envelope.Add(new("source", statement));
             headerLine += $"  source={statement}";
@@ -492,7 +492,7 @@ public static class RecordsTools
             foreach (var w in shown) headerLine += "\n[!] skypatcher: " + w;
             if (over > 0) headerLine += $"\n[!] skypatcher: {over} further warning(s) not listed.";
         }
-        // The seam between a deriving step's capture and the read's; docs/architecture/read-engine.md.
+        // The seam between a deriving step's capture and the read's; docs/architecture/records-tool-front.md.
         string? expectEpoch = null;
         string? SeamTear(OrderStamp? epoch) =>
             expectEpoch is not null && epoch is not null && epoch.Epoch != expectEpoch
@@ -500,7 +500,7 @@ public static class RecordsTools
                 : null;
 
         // limit=/offset= window the list lane's RENDER only, and the window note rides the header and envelope;
-        // docs/architecture/read-engine.md.
+        // docs/architecture/records-tool-front.md.
         int lim = limit <= 0 ? DefaultLimit : limit;
         // Set when a comparison form's KEYS were windowed before the rows were read (see ComparisonWindow); the
         // note rides along so the counts and any spilled artifact can say what they cover.
@@ -523,7 +523,7 @@ public static class RecordsTools
         }
 
         // The comparison forms' window, applied to the KEYS before any body is read; a census and a to_file=
-        // artifact cover the complete selection. Contract in docs/architecture/read-engine.md.
+        // artifact cover the complete selection. Contract in docs/architecture/records-tool-front.md.
         List<string> ComparisonWindow(IReadOnlyList<FormKey> keys, int total)
         {
             if (wantFile || counts_only) return keys.Select(k => k.ToString()).ToList();
@@ -611,7 +611,7 @@ public static class RecordsTools
                 var identityClock = System.Diagnostics.Stopwatch.StartNew();
                 var rows = svc.ResolveRefs(ids, demand, out var epoch, out var refusal);
                 identityClock.Stop();
-                // The count is the bodies READ, not the list's length; docs/architecture/read-engine.md.
+                // The count is the bodies READ, not the list's length; docs/architecture/records-tool-front.md.
                 var identityCost = (rows.Count(r => r.Resolved), identityClock.ElapsedMilliseconds);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + Wire.EpochLine(epoch);
@@ -665,7 +665,7 @@ public static class RecordsTools
             var readFieldCounts = ReferenceEquals(readFields, readPaths) ? countFields : null;
             IReadOnlyList<ReadOutcome> outcomes;
             LoadOrderService.PoleInfo? pole = null;
-            // Clocked like the scan's body lane, over the BODIES READ; docs/architecture/read-engine.md.
+            // Clocked like the scan's body lane, over the BODIES READ; docs/architecture/records-tool-front.md.
             var listClock = System.Diagnostics.Stopwatch.StartNew();
             if (srcOverlay && !string.Equals(srcSpec.OverlayState ?? "post", "pre", StringComparison.OrdinalIgnoreCase))
             {

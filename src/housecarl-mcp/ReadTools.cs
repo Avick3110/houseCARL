@@ -40,7 +40,7 @@ static class Wire
     /// <summary>The read surface's refusal prefix, defined once so the text and json lanes agree where the sentence starts.</summary>
     internal const string RefusalPrefix = "error: ";
 
-    /// <summary>The one whole-call refusal render for the read surface: text unchanged, json stripped of the prefix; contract in docs/architecture/read-engine.md.</summary>
+    /// <summary>The one whole-call refusal render for the read surface: text unchanged, json stripped of the prefix; contract in docs/architecture/records-tool-front.md.</summary>
     internal static string Refuse(bool json, string message, OrderStamp? epoch = null)
     {
         if (!json) return message;
@@ -71,7 +71,7 @@ static class Wire
         => RenderResolve(rows, maxChars, epoch, null, out _);
 
     /// <param name="header">The caller's own header line, written INSIDE the budget.</param>
-    /// <param name="bodyCost">What resolving these FormIDs cost, over the ids that RESOLVED; contract in docs/architecture/read-engine.md.</param>
+    /// <param name="bodyCost">What resolving these FormIDs cost, over the ids that RESOLVED; contract in docs/architecture/records-tool-front.md.</param>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated,
                                        string? header = null, (int RowsRead, long Millis)? bodyCost = null)
     {
@@ -140,7 +140,7 @@ static class Wire
         return sb.Append('\n').ToString();
     }
 
-    /// <summary>Whether this response has earned the owned-child clause, and over which fields; contract in docs/architecture/read-engine.md.</summary>
+    /// <summary>Whether this response has earned the owned-child clause, and over which fields; contract in docs/architecture/records-tool-front.md.</summary>
     internal sealed class ChildNotes
     {
         // One set per TIER: an assembled union and an index-only annotation earn different clauses.
@@ -203,7 +203,7 @@ static class Wire
         => RenderBatch(outcomes, maxChars, null, out _);
 
     /// <summary><paramref name="levers"/> is the caller's own parameter vocabulary for the remedy sentences below; omitted means the legacy spelling.</summary>
-    /// <param name="bodyCost">What reading these bodies cost, counted over the BODIES READ; contract in docs/architecture/read-engine.md.</param>
+    /// <param name="bodyCost">What reading these bodies cost, counted over the BODIES READ; contract in docs/architecture/records-tool-front.md.</param>
     /// <param name="header">The caller's own header line, written INSIDE the budget.</param>
     /// <param name="matches">Parallel to <paramref name="outcomes"/>: which multi-target references= target(s) each row hit, or null when the selection was not one.</param>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
