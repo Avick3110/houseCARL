@@ -25,6 +25,17 @@ static class JsonOverrun
     /// <see cref="ClearsAtAWideCap"/> checks with a cap wide enough for the whole answer.</summary>
     internal static void StatesTheThreeNumbers(string json, int cap)
     {
+        var notice = StatesItsLengthAndCap(json, cap);
+        // On these documents the retry number IS the length: nothing but the fixed part was over the cap.
+        Assert.Equal(json.Length, Stated(notice, "raise max_chars to at least "));
+    }
+
+    /// <summary>The part of the sentence EVERY document under this member shares, read with the one matcher: the
+    /// document's own length and the cap it was given. Returns the notice, because the RETRY number is the document's
+    /// own business — the merged check adds the cap-print-site growth term to its, which is why one-step clearing is
+    /// <c>CheckCapCharsTests</c>'s property and not this one's.</summary>
+    internal static string StatesItsLengthAndCap(string json, int cap)
+    {
         var root = JsonDocument.Parse(json).RootElement;
         Assert.True(json.Length > cap,
                     $"the fixture does not overrun: {json.Length} chars under max_chars={cap}");
@@ -34,7 +45,10 @@ static class JsonOverrun
 
         Assert.Equal(cap, Stated(notice, "over the max_chars="));
         Assert.Equal(json.Length, Stated(notice, "this response is "));
-        Assert.Equal(json.Length, Stated(notice, "raise max_chars to at least "));
+        // Whatever it is computed from, the number it names is a cap worth retrying at.
+        Assert.True(Stated(notice, "raise max_chars to at least ") > cap,
+                    "the notice names a cap no wider than the one that did not fit");
+        return notice;
     }
 
     /// <summary>The member is not a dead end: a cap wide enough for the whole answer clears it. Asked of one family
