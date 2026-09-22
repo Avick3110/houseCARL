@@ -74,7 +74,7 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 
 | Note | What it covers |
 |---|---|
-| [`architecture/write-path.md`](architecture/write-path.md) | The write path as the service sees it: new plugin by default and the in-place consent opt-in, the write gate, what a write response may report off the file it wrote, and the sentence catalogue's contracts. |
+| [`architecture/write-path.md`](architecture/write-path.md) | The write path as the service sees it: new plugin by default and the in-place consent opt-in, the write gate, what a write response may report off the file it wrote, the sentence catalogue's contracts, and the reflection-driven engine underneath — the patch-mod lifecycle, create, the verbs, the serialize and its refusals. |
 
 [`architecture/corpus-rulebook.md`](architecture/corpus-rulebook.md) covers `src/housecarl-core/WriteEngine.cs` — half of its two-file `covers:` list, not most of it, so it stays above and is cross-referenced here.
 
