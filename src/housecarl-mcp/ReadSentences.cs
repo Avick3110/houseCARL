@@ -565,8 +565,8 @@ internal static class ReadSentences
 
     [MustState("may merely be unscanned")]
     internal const string DialogueReadIncomplete =
-        " A BSA or a loose mod folder failed to read this build, so an \"absent\" voice file or .pex above may merely be unscanned — see " +
-        ToolNames.LoadOrderStatus + ".";
+        " A BSA or a loose mod folder failed to read this build, so an \"absent\" voice file or .pex above may merely be unscanned — " +
+        "a loose folder that failed is named among this response's root read failures.";
 
     [MustState("every one of the")]
     internal const string SweepDialogueAllVisible =
