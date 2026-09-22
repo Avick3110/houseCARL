@@ -538,10 +538,12 @@ public sealed class AssetResolver : IDisposable
     /// answers for every subtree watching it, so the watch set grows with directories touched and not with roots times
     /// subtrees. A name a plain FILE holds is a real absence too, and is watched as one: the change to look for there
     /// is the name becoming a directory. A name that IS listed, is no file, yet will not stat is a root failure this
-    /// build already named, and no name moves when the permission is given back, so nothing is watched for it.</summary>
+    /// build already named, and no name moves when the permission is given back, so nothing is watched for it.
+    /// <para>Every baseline here is a FRESH listing, never the build's memo: the memo can predate the warm by any
+    /// number of calls, and a baseline older than the warm makes a file that goes and comes back invisible.</para></summary>
     static void Watch(string dir, string rootDir, Snapshot snap)
     {
-        if (DirExists(dir, snap) && ChildNames(dir, snap) is { } entries)
+        if (FreshNames(dir) is { } entries)
         {
             snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir()).Entries = entries;
             return;
@@ -551,12 +553,12 @@ public sealed class AssetResolver : IDisposable
         var child = dir;
         for (var up = Path.GetDirectoryName(child); up is not null; child = up, up = Path.GetDirectoryName(up))
         {
-            if (!DirExists(up, snap))
+            if (FreshNames(up) is not { } names)
             {
+                if (Directory.Exists(up)) break;                       // the ancestor itself would not list
                 if (up.Length <= floor) break;                         // walked past the root with nothing there
                 continue;
             }
-            if (ChildNames(up, snap) is not { } names) break;           // the ancestor itself would not list
             var name = Path.GetFileName(child);
             if (!names.Contains(name))
                 snap.DirWatch.GetOrAdd(up, _ => new WatchedDir()).Forbidden[name] = 0;
