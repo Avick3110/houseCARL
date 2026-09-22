@@ -442,9 +442,10 @@ static class JsonWire
     /// <summary>records counts_only on the list lane: the census document, no rows. The resolved count is named
     /// <c>resolved</c>, never <c>ok</c> — that key is the refusal grammar's discriminant.</summary>
     /// <param name="maxChars">the caller's max_chars: this document has no rows to cut, so the cap can only be
-    /// missed outright, and it says so with the member every other capped document closes on (#809).</param>
+    /// missed outright, and it says so with the member every other capped document closes on (#809). REQUIRED, with
+    /// no default, so a call site that forgets it does not compile into a silent 80k ceiling.</param>
     public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, OrderStamp? epoch,
-                                      int maxChars = 0)
+                                      int maxChars)
     {
         int cap = Cap(maxChars);
         using var ms = new CharCountedStream();
@@ -466,7 +467,7 @@ static class JsonWire
     /// <param name="maxChars">as <see cref="RenderCounts"/>: no rows to cut, so an over-cap census says so.</param>
     public static string RenderNamedCounts(IReadOnlyList<KeyValuePair<string, string>> envelope,
                                            IReadOnlyList<KeyValuePair<string, int>> counts, OrderStamp? epoch,
-                                           int maxChars = 0)
+                                           int maxChars)
     {
         int cap = Cap(maxChars);
         using var ms = new CharCountedStream();

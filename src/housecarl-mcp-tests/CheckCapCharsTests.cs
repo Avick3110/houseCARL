@@ -110,6 +110,18 @@ public class CheckCapCharsTests
         Assert.Equal(Json(r, 200).Length, Stated(notice, "This response is "));
     }
 
+    /// <summary>The merged check's notice is read by the SHARED matcher too, which is what "one member, one grammar"
+    /// buys a consumer: this document capitalises its opening where <c>RenderCap.Overran</c> does not, so the shared
+    /// reader has to be case-insensitive, and this arm is what fails if it stops being. The RETRY number stays this
+    /// class's own business — check adds the growth term, so one-step clearing is the arm above.</summary>
+    [Fact]
+    public void TheSharedReaderOfTheOverrunMemberReachesTheCheckDocumentToo()
+    {
+        var json = Json(NonAsciiResult(), 200);
+
+        JsonOverrun.StatesItsLengthAndCap(json, 200);
+    }
+
     /// <summary>The text lane says the same length about the same sweep — it counts its StringBuilder, which was
     /// always characters, so the two transports agreeing is what "one cap, one unit" means.</summary>
     [Fact]
