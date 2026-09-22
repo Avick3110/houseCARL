@@ -26,6 +26,10 @@ public sealed record VoiceReport(IReadOnlyList<VoiceLine> Lines, IReadOnlyList<V
     /// when this is set: it means "voice coverage unverified", not "the write failed".</summary>
     public string? CheckError { get; init; }
 
+    /// <summary>The loose roots this scan could not walk or list, each named with the reason, so the "may merely be
+    /// unscanned" note says WHICH folder; empty when every root read.</summary>
+    public IReadOnlyList<string> RootFailures { get; init; } = Array.Empty<string>();
+
     public bool IsEmpty => Lines.Count == 0 && Undetermined.Count == 0 && CheckError is null;
     public static readonly VoiceReport Empty = new(Array.Empty<VoiceLine>(), Array.Empty<VoiceUndetermined>());
 }
@@ -108,7 +112,7 @@ public static class VoiceCheck
                 undetermined.Add(new VoiceUndetermined(fk, "",
                     "created but not found under any topic in the written patch — can't determine its voice path; inspect the patch in xEdit."));
 
-        return new VoiceReport(lines, undetermined);
+        return new VoiceReport(lines, undetermined) { RootFailures = av.RootFailures };
     }
 
     /// <summary>Resolve one INFO's voice graph and emit either a per-line presence verdict for each spoken response,

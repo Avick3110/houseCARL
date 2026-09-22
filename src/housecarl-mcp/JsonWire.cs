@@ -215,6 +215,15 @@ static class JsonWire
         w.WriteEndArray();
     }
 
+    /// <summary>The loose roots a render names, as a bounded array plus its sibling count — the json twin of
+    /// <see cref="BatchRender.RootFailureLines"/>, cut by that same rule so both transports name the same roots.</summary>
+    internal static void WriteRootFailuresCut(Utf8JsonWriter w, IReadOnlyList<string> failures, int cap)
+    {
+        var (shown, omitted) = BatchRender.RootFailureCut(failures, cap);
+        WriteStringArray(w, "root_read_failures", shown);
+        w.WriteNumber("root_read_failures_omitted", omitted);
+    }
+
     static void WriteStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string> items)
     {
         w.WriteStartArray(name);
@@ -1801,7 +1810,7 @@ static class JsonWire
             {
                 skeletonBody = BoundedBody.Skeleton(skeletonAccts, () => Size(sw, sms));
                 sw.WriteStartObject();
-                Compose(sw, o, sections, skeletonAccts, skeletonBody, histogramLimit);
+                Compose(sw, o, sections, skeletonAccts, skeletonBody, histogramLimit, cap);
                 sw.WriteEndObject();
             }
             fixedPart = Chars(sms) - skeletonBody.ReservedWritten - skeletonBody.BodyTotal;
@@ -1815,7 +1824,7 @@ static class JsonWire
                                                demand.Demand, demand.Reserved + fixedPart, o.ResponseSubjects,
                                                demand.Reserved);
             measured = body;
-            Compose(w, o, sections, accts, body, histogramLimit);
+            Compose(w, o, sections, accts, body, histogramLimit, cap);
 
             int closed = Size(w, ms) + Framing.RootClose;
             int needed = body.FixedPart(closed);
@@ -1841,7 +1850,7 @@ static class JsonWire
     /// <summary>The whole merged document bar the root braces and the overrun notice. Run twice: once with a
     /// <see cref="BoundedBody.Skeleton"/>, which leaves the fixed part to be measured, and once for real.</summary>
     static void Compose(Utf8JsonWriter w, CheckOutcome o, IReadOnlyList<SweepFamily> sections,
-                        IReadOnlyList<CheckAccounting> accts, BoundedBody body, int histogramLimit)
+                        IReadOnlyList<CheckAccounting> accts, BoundedBody body, int histogramLimit, int cap)
     {
         var s = o.Sweep;
         // The scope facts, as data and as the sentence. THREE LISTS, because a family can be in three states:
@@ -1894,12 +1903,12 @@ static class JsonWire
             }
             else if (f == SweepFamily.Scripts)
             {
-                WriteScriptsHead(w, s.Scripts!);
+                WriteScriptsHead(w, s.Scripts!, cap);
                 WriteScriptsSection(w, s.Scripts!, body, histogramLimit);
             }
             else if (f == SweepFamily.Facegen)
             {
-                FaceGenSweepRender.WriteHead(w, s.FaceGen!);
+                FaceGenSweepRender.WriteHead(w, s.FaceGen!, cap);
                 FaceGenSweepRender.WriteSection(w, s.FaceGen!, body, histogramLimit);
             }
             else
@@ -1918,7 +1927,7 @@ static class JsonWire
     // ---- housecarl_validate_scripts -----------------------------------------------------------------
     /// <summary>The scripts family's own head members. A finding CLASS the caller excluded is <c>null</c>, NOT 0 —
     /// the json counterpart of the text render's NOT CHECKED. <c>unverifiable</c> is never null.</summary>
-    static void WriteScriptsHead(Utf8JsonWriter w, ScriptCheckResult r)
+    static void WriteScriptsHead(Utf8JsonWriter w, ScriptCheckResult r, int cap)
     {
         bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
         bool didScalar = r.Classes.HasFlag(ScriptFindingClass.UnboundScalar);
@@ -1939,6 +1948,8 @@ static class JsonWire
         WriteOffOrder(w, r.OffOrderScanned, ReadSentences.SweepOffOrderScriptsCoverage);
         w.WriteNumber("unverifiable_collapsed", r.UnverifiableCollapsed);
         w.WriteBoolean("read_incomplete", r.ReadIncomplete);
+        // WHICH folder would not read — the json twin of the head's named-roots lines, cut by the same rule.
+        WriteRootFailuresCut(w, r.RootFailures ?? Array.Empty<string>(), cap);
         w.WriteBoolean("counts_only", r.CountsOnly);
     }
 
@@ -3041,6 +3052,8 @@ static class JsonWire
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("voice_coverage");
         WriteNullable(w, "check_error", report.CheckError);
+        // WHICH loose root would not read, so read_incomplete on a line below names a folder, not just a warning.
+        WriteRootFailuresCut(w, report.RootFailures, cap);
         int renderedLines = 0, renderedUndet = 0;
         bool blockCut = false;
         w.WriteStartArray("lines");
@@ -3111,6 +3124,8 @@ static class JsonWire
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("result_script_coverage");
         WriteNullable(w, "check_error", report.CheckError);
+        // WHICH loose root would not read, so read_incomplete on a finding below names a folder, not just a warning.
+        WriteRootFailuresCut(w, report.RootFailures, cap);
         int renderedFindings = 0;
         bool blockCut = false;
         w.WriteStartArray("findings");

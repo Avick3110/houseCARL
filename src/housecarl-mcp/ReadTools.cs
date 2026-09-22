@@ -749,7 +749,7 @@ static class Wire
         var skeleton = new StringBuilder();
         var skeletonAccts = o.Accountings(cap);
         var skeletonBody = BoundedBody.Skeleton(skeletonAccts, () => skeleton.Length);
-        Compose(skeleton, o, sections, skeletonAccts, skeletonBody, histogramLimit);
+        Compose(skeleton, o, sections, skeletonAccts, skeletonBody, histogramLimit, cap);
         int fixedPart = skeleton.Length - skeletonBody.ReservedWritten - skeletonBody.BodyTotal;
 
         var sb = new StringBuilder();
@@ -757,7 +757,7 @@ static class Wire
                                            demand.Demand, demand.Reserved + fixedPart, o.ResponseSubjects,
                                            demand.Reserved);
         measured = body;
-        Compose(sb, o, sections, accts, body, histogramLimit);
+        Compose(sb, o, sections, accts, body, histogramLimit, cap);
 
         // The overrun question, asked of the finished response, which the notice is part of — so it settles to a fixed point; docs/architecture/render-budget.md.
         var response = sb.ToString().TrimEnd('\n');
@@ -776,7 +776,7 @@ static class Wire
 
     /// <summary>The whole merged response bar its overrun notice, composed through one <paramref name="body"/>, run twice per render: once with a <see cref="BoundedBody.Skeleton"/> to leave the fixed part to be measured, and once for real.</summary>
     static void Compose(StringBuilder sb, CheckOutcome o, IReadOnlyList<SweepFamily> sections,
-                        IReadOnlyList<CheckAccounting> accts, BoundedBody body, int histogramLimit)
+                        IReadOnlyList<CheckAccounting> accts, BoundedBody body, int histogramLimit, int cap)
     {
         var s = o.Sweep;
         sb.Append(ReadSentences.SweepMergedTitle).Append('\n');
@@ -809,12 +809,12 @@ static class Wire
             }
             else if (f == SweepFamily.Scripts)
             {
-                AppendScriptsHead(sb, s.Scripts!);
+                AppendScriptsHead(sb, s.Scripts!, cap);
                 AppendScriptsSection(sb, s.Scripts!, body, histogramLimit);
             }
             else if (f == SweepFamily.Facegen)
             {
-                FaceGenSweepRender.AppendHead(sb, s.FaceGen!);
+                FaceGenSweepRender.AppendHead(sb, s.FaceGen!, cap);
                 FaceGenSweepRender.AppendSection(sb, s.FaceGen!, body, histogramLimit);
             }
             else
@@ -844,7 +844,7 @@ static class Wire
 
     // ---- the scripts family ----
     /// <summary>The scripts family's own head: what it swept and what it found, every count stating its own scope so no number reads as a wider claim than it is.</summary>
-    static void AppendScriptsHead(StringBuilder sb, ScriptCheckResult r)
+    static void AppendScriptsHead(StringBuilder sb, ScriptCheckResult r, int cap)
     {
         bool didObject = r.Classes.HasFlag(ScriptFindingClass.UnboundObject);
         bool didScalar = r.Classes.HasFlag(ScriptFindingClass.UnboundScalar);
@@ -868,6 +868,9 @@ static class Wire
             sb.Append(string.Format(ReadSentences.SweepScriptUnverifiableCollapsed, r.UnverifiableCollapsed)).Append('\n');
         if (r.ReadIncomplete)
             sb.Append("note: a BSA or a loose mod folder failed to read this build — a '.pex not on disk' below may merely be unscanned, not truly absent (Q3).\n");
+        // WHICH folder would not read, so the hedge above names a source instead of only warning there was one;
+        // bounded and counted by the shared renderer, because a blocked tree names a root per folder asked about.
+        sb.Append(BatchRender.RootFailureLines(r.RootFailures ?? Array.Empty<string>(), cap));
     }
 
     /// <summary>The scripts family's body: everything a cap can refuse, and like the errors family's no roster, accounting or boundary.</summary>

@@ -280,7 +280,8 @@ public static class FaceGenCheck
         return new FaceGenCheckResult(findings, npcsScanned, templated, filesSeen, totalFound, noPole,
                                       histClass, histMod, countsOnly, view.ExcludedPlugins, null,
                                       offOrderScanned, filterNote, classes, view.Epoch, limit, scanError,
-                                      assets.ReadIncomplete, wholeOrder, noFaceGenRace, raceUnresolved, withheld);
+                                      assets.ReadIncomplete, wholeOrder, noFaceGenRace, raceUnresolved, withheld,
+                                      assets.RootFailures);
 
         // ---- the per-NPC join ---------------------------------------------------------------------
         void Classify(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile)
@@ -545,7 +546,8 @@ public sealed record FaceGenCheckResult(
     bool WholeOrder = false,
     int NpcsNoFaceGenRace = 0,
     int NpcsRaceUnresolved = 0,
-    IReadOnlyList<FaceGenFinding>? WithheldBenign = null)
+    IReadOnlyList<FaceGenFinding>? WithheldBenign = null,
+    IReadOnlyList<string>? RootFailures = null)   // the loose roots this build could not walk or list, each named with the reason; null or empty when every root read
 {
     public bool Success => Error is null;
 

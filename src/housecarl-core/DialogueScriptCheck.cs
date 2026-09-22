@@ -37,6 +37,10 @@ public sealed record ScriptBindingReport(IReadOnlyList<ScriptBindingFinding> Fin
     /// <summary>The check could not run; the create ALREADY SUCCEEDED, so the binding is merely unverified.</summary>
     public string? CheckError { get; init; }
 
+    /// <summary>The loose roots this scan could not walk or list, each named with the reason, so the "may merely be
+    /// unscanned" note says WHICH folder; empty when every root read.</summary>
+    public IReadOnlyList<string> RootFailures { get; init; } = Array.Empty<string>();
+
     public bool IsEmpty => Findings.Count == 0 && CheckError is null;
     public static readonly ScriptBindingReport Empty = new(Array.Empty<ScriptBindingFinding>());
 }
@@ -92,7 +96,7 @@ public static class DialogueScriptCheck
                     Array.Empty<string>(), Array.Empty<string>(), false,
                     "created but not found under any topic in the written patch — can't check its result-script binding; inspect the patch in xEdit."));
 
-        return new ScriptBindingReport(findings);
+        return new ScriptBindingReport(findings) { RootFailures = av.RootFailures };
     }
 
     /// <summary>Verdict one created INFO; a line with no VirtualMachineAdapter yields nothing.</summary>

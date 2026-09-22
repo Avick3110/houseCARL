@@ -109,6 +109,15 @@ public sealed class AssetResolver : IDisposable
     /// answers for a subtree, which is not the same as one per root per subtree.</summary>
     internal int WatchedDirectoryCount => _snap.DirWatch.Count;
 
+    /// <summary>The unread loose roots as ONE short clause, for a per-item reason with no caveat block above it to
+    /// point at: the first root in full and the rest counted, because that sentence repeats per item. Empty string
+    /// when every root read, so a caller can append it unconditionally.</summary>
+    public static string RootFailureBrief(IReadOnlyList<string> failures)
+        => failures.Count == 0
+            ? ""
+            : " (the loose root that would not read: " + failures[0]
+              + (failures.Count > 1 ? $"; and {failures.Count - 1} more" : "") + ")";
+
     /// <summary>The root failures in a stable order, so two renders of one build read the same.</summary>
     static IReadOnlyList<string> SortedRootFailures(Snapshot snap) =>
         snap.RootFailures.IsEmpty
@@ -440,6 +449,9 @@ public sealed class AssetResolver : IDisposable
 
         /// <summary>The loose roots this view's walks could not enumerate — see <see cref="AssetResolver.RootFailures"/>.</summary>
         public IReadOnlyList<string> RootFailures => SortedRootFailures(_s);
+
+        /// <summary>This view's unread roots as one short clause — see <see cref="AssetResolver.RootFailureBrief"/>.</summary>
+        public string RootFailureBrief => AssetResolver.RootFailureBrief(RootFailures);
 
         public bool ReadIncomplete => _s.Failures.Count > 0 || !_s.RootFailures.IsEmpty;
 
