@@ -612,7 +612,8 @@ public sealed class SkseTransportTests
         string json = SkseConfigAuditWire.RenderJson(ConfigAudit(1, refs: 4_000), null, cap);
 
         using var doc = JsonDocument.Parse(json);
-        Assert.True(json.Length < cap + OneRowSlack, $"{json.Length} chars against max_chars={cap}");
+        // No slack: the row and each of its references are measured before they are admitted (#859).
+        Assert.True(json.Length <= cap, $"{json.Length} chars against max_chars={cap}");
         var file = doc.RootElement.GetProperty("files").EnumerateArray().Single();
         // The cut is stated on the file that carries it: the accounting counts files, not references.
         Assert.Equal(4_000 - file.GetProperty("references").GetArrayLength(),
@@ -768,15 +769,20 @@ public sealed class SkseTransportTests
 
     /// <summary>The json twin of <see cref="EachFamilysTextRenderFilledPastItsCapAnswersInsideIt"/> (#859): a family
     /// document filled past its cap comes back INSIDE it. The row loops used to test the length before writing a row,
-    /// so the row that crossed landed whole and the document ended about a row past the ceiling at every cap.</summary>
+    /// so the row that crossed landed whole and the document ended about a row past the ceiling at every cap.
+    /// <para>The fixtures reach both paths the fix adds: the pairing layer carries unreadable .pex, so the row arrays'
+    /// own framing is written past the last row admitted, and each config file declares more references than any cap
+    /// here can hold, so every rendered row has its references cut and closes on its own held-back tail.</para></summary>
     [Theory]
+    [InlineData(2_680)]
     [InlineData(4_000)]
     [InlineData(8_960)]
     [InlineData(40_000)]
     [InlineData(200_000)]
     public void EachFamilysJsonDocumentFilledPastItsCapAnswersInsideIt(int cap)
     {
-        var renders = new StubRenders(Inventory(300, configs: 300, folders: 60), Pairing(300), ConfigAudit(300, refs: 4));
+        var renders = new StubRenders(Inventory(300, configs: 300, folders: 60), Pairing(300, unreadable: 50),
+                                      ConfigAudit(300, refs: 200));
 
         foreach (var family in new[] { SkseTools.SkseFamily.Inventory, SkseTools.SkseFamily.Pairing, SkseTools.SkseFamily.Config })
         {
@@ -787,6 +793,17 @@ public sealed class SkseTransportTests
             Assert.False(JsonDocument.Parse(json).RootElement.TryGetProperty("max_chars_overrun", out _),
                          $"{family} claims it overran max_chars={cap} in a {json.Length}-char document");
         }
+    }
+
+    /// <summary>The pairing family straight into its render, at the cap the row arrays' unreserved framing used to
+    /// carry it over: a non-empty unreadable list leaves nothing to absorb the framing written past the last row.</summary>
+    [Fact]
+    public void ThePairingFamilysUnreadableListDoesNotPushItsDocumentOverTheCap()
+    {
+        string json = NativePairingWire.RenderJson(Pairing(300, unreadable: 50), null, 2_680);
+
+        Assert.True(json.Length <= 2_680, $"returned {json.Length} chars at max_chars=2680");
+        Assert.NotEmpty(JsonDocument.Parse(json).RootElement.GetProperty("unreadable_pex").EnumerateArray());
     }
 
 
