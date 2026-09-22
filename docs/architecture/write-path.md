@@ -1,11 +1,12 @@
 ---
-updated: 2026-09-22
+updated: 2026-09-23
 covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/WriteSentences.cs, src/housecarl-core/WriteEngine.cs,
   src/housecarl-core/WriteVerbs.cs, src/housecarl-core/RemapEngine.cs, src/housecarl-core/ClosureCopy.cs,
   src/housecarl-core/MergeInjection.cs, src/housecarl-core/MergeLoadPosition.cs,
   src/housecarl-core/WritePatchBuilder.cs,
   src/housecarl-mcp/ApplyTools.cs, src/housecarl-mcp/CreateTools.cs, src/housecarl-mcp/ForwardTools.cs,
-  src/housecarl-mcp/RemoveTools.cs, src/housecarl-mcp/SeqTools.cs, src/housecarl-mcp/WriteTools.cs]
+  src/housecarl-mcp/RemoveTools.cs, src/housecarl-mcp/SeqTools.cs, src/housecarl-mcp/WriteTools.cs,
+  src/housecarl-core/LocalizedStrings.cs]
 ---
 # The write path, service side
 
@@ -318,6 +319,15 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   reliably from a representational one ([`json-wire.md`](json-wire.md) carries that reading), and an element that
   landed but serialized with fewer fields than the caller supplied is bounded from the other end instead, by
   `WriteEngine.EmptyComposeRefusal` refusing the case where nothing was supplied at all.
+- The localized classifier supplies WORDS, never the in-place outcome, which is the same for every
+  shape. Its shapes are `NotLocalized`, `Unreadable` (the header was never read), `LooseComplete`,
+  `LoosePartial` (a missing kind would be materialised holding empty values), `LooseWithGameDataDuplicate`,
+  `BsaEmbedded` (including an archive that would not parse), `GameDataOnly` (a write beside the plugin
+  would shadow, not replace), `StringsFolderUnreadable`, `ModFolderUnreadable` and `Nowhere`. The last
+  three claim what houseCARL could FIND, never that the plugin has no strings.
+- Every folder look has the same three answers the plugin header read has — absent, listed,
+  unlistable — because "enumerated it and found nothing" and "could not enumerate it" are different
+  facts, and collapsing them makes an absence claim nothing checked.
 
 ## Pinned by
 - `inplace-guard` arms E / L / U — the `in_place`⇔`target=` contract and the `into=` / `patch=` exclusion, on the
@@ -448,6 +458,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   WRITES and a two-master header REFUSES naming the unopenable plugin and its remedy, on the patch lane and on the
   in-place lane, with the dry run predicting the real call's refusal verbatim and still predicting success for a write
   that does not reference it.
+- `LocalizedStringsSourceTests` / `LocalizedModFolderUnreadableTests` / `StatusLocalizedLookupTests`,
+  and `StringsResolveProbe` / `StringsDecisionProbe` / `LocalizedShapeSweep` — the shapes and the
+  three-answer folder reads.
 
 ## Where
 - `src/housecarl-mcp/RecordWrites.cs` — the lanes: `ApplyEdits`, `CreateRecordsBatch` / `CommitCreate`,
@@ -479,7 +492,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   `RenumberModInto`, `MergeModsInto` with its graft helpers, `LocalizedAmong` and `RepointInPlace`.
 - `src/housecarl-core/ClosureCopy.cs` — `Internalize`, `StripBoundLinks`, `AttachSeedFields`, `FindBoundLeak` and
   `BuildAndWrite`, behind `housecarl_copy`; the walk that feeds it is
-  [`select-and-walk.md`](select-and-walk.md)'s.
+  [`walk-and-reverse.md`](walk-and-reverse.md)'s.
 - `src/housecarl-core/MergeInjection.cs` (`Renumberable`, `UnremappableLink`) and
   `src/housecarl-core/MergeLoadPosition.cs` (`Derive`, `MergeSiting`) — the two merge pre-flights.
 - The tool fronts: `src/housecarl-mcp/ApplyTools.cs`, `CreateTools.cs`, `ForwardTools.cs`, `RemoveTools.cs`,
@@ -493,3 +506,5 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   all. Plus the shared seams: `LinkTypeLookup`, `ResolveForwardSources`,
   `SyncEditedTopicMarkers`, `DryRunMastersPreview`, `MasterGrowNote`, `SerializeFailure`, `ReadBackInFull`,
   `VerifyLandedAgainstFile` and `VerifyCreatedAgainstFile`.
+- `src/housecarl-core/LocalizedStrings.cs` — the strings-shape classifier; the write lanes' pre-flights call
+  `LocalizedStrings.RefusalFor`.
