@@ -10,7 +10,9 @@ public enum CollectionKind
 /// <summary>How an element gets INTO the collection — the fact that decides which placing verbs work and which input slot each consumes.</summary>
 public enum ElementPlacement
 {
+    /// <summary>One coerced value (scalar / enum / formlink / whole-coercible asset path): value=, values=, entries=.</summary>
     Coerced,
+    /// <summary>Built FROM PARTS against a modeled struct or a polymorphic arm: compose=, composes=.</summary>
     Composed,
     OwnedRecord,
 }

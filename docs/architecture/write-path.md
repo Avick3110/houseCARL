@@ -178,9 +178,11 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
 - The two routes to a shape — the corpus `FieldSchema` route and the live-property route the engine's own throws use
   — must give the same answer for every collection field in the corpus, because the engine keeps its
   schema-blindness by never taking the corpus.
-- An owned-child-record collection has no placing verb at all: the element is allocated on the record axis, so its
-  menu is `Remove` alone and its how-to-place sentence names `housecarl_create` with `parent=`. `CopyFrom` is absent
-  from every dict shape too, a dict transplant not being built.
+- An owned-child-record collection's menu is `Remove` alone: it has no placing verb, so the how-to-place site prints
+  the record-axis route rather than naming one. The rule itself — an owned child is written on the record axis by its
+  own FormID, never built into a parent by a write verb — and that route's `parent=` / `collection=` remedy are
+  [`corpus-rulebook.md`](corpus-rulebook.md)'s. `CopyFrom` is absent from every dict shape too, a dict transplant not
+  being built.
 - A list's keyed menu leads with `SetAtIndex`, not `InsertAtIndex`: a caller who bracketed an index that already
   holds an element and read the menu top-down would otherwise append, which the gate ACCEPTS, and on a CTDA OR-run
   that changes what the record gates on.
@@ -337,6 +339,26 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   corpus population stated out loud, the schema and runtime routes agreeing on every collection field, the measured
   accept-and-refuse sweep through the real gate in both directions, and each consuming message carrying this
   cardinality's verbs and not the other's.
+- `remedy-verbs-guard`'s SITE-BRACKET-ORDER arm — the bracketed-leaf remedy names `SetAtIndex` before
+  `InsertAtIndex`, asserted as a POSITION comparison so a reorder of the table fails it where membership would not;
+  `ElementRefusalRemedyTests.AListElementRemedyNamesOnlyVerbsThatTakeTheKeyItPrinted` asserts the same ordering on
+  the rendered remedy, beside the keyless `Add` being withheld.
+- `apply-guard`'s ZIP arm — the copy zip: a bundle copied BETWEEN records, the zip composing with `ops=` in one call,
+  and a bad FormID in an assignment refused NAMING THE ASSIGNMENT rather than a phantom `ops[2]` the caller never
+  wrote, which is the caller's-own-spelling half.
+- `write-surface-guard` — the `lane` value names the lane the CALL asked for on an `into=` refusal and on an in-place
+  consent prompt as much as on a success, and is spelled the same on apply / create / remove / forward; the
+  lane-aware truncation remedy on `into=` (the plain re-issue), on the default lane (a SECOND patch mod) and on
+  `in_place=` (a READ, never re-serializing the caller's original); `write_seq`'s `patch=`/`into=` pair refused BY
+  NAME on both transports, and its absent epoch stated with its reason on both.
+- `WriteReadbackFromFileTests.ThePerEditLineMatchesAFreshReadOfTheFile` and `TheJsonOpCarriesTheFilesOwnReading` —
+  the verify ran and rendered its compact per-op clause with no `full_readback=true` passed; `apply-guard` arms 6 and
+  8 drive the same clause off the written file on the in-place lane, which is the forced half.
+- `dry-run-guard`'s RENDER HONESTY arm — a dry outcome leads with DRY RUN and nothing-written and never reads like a
+  write, with the `full_readback` dump labelled as the IN-MEMORY preview.
+- `seq-write-guard` arms TOOL-LANE and UNCHANGED / -DIFFERS / RENDER-UNCHANGED / JSON-UNCHANGED — `out_path=` wins
+  over `patch=`/`into=` with the ignored lane STATED, and a byte-identical destination is left alone and renders as
+  its own state on both transports while a stale one is rewritten.
 - `description-vocab-guard` arms INV4-HOMES / INV4-CREATEHOMES / INV4-COMPOSEHOMES — each verb list and its recital
   agree with each other and with a vocabulary written independently in the probe, which is what lets the derived
   subtractions fail; INV4-MARK — the recital marks exactly one verb as the default; INV4-TAILGLOSS — the verb the

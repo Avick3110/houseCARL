@@ -696,7 +696,8 @@ public static class RemapEngine
     }
 
     /// <summary>Which of <paramref name="pluginNames"/> are flagged LOCALIZED — the pre-flight for a repoint, run
-    /// BEFORE the compaction writes anything; contract in docs/architecture/write-path.md.</summary>
+    /// BEFORE the compaction writes anything. It fails CLOSED on a referencer it could not open: that sentence, and
+    /// the two-class split it forces, are in docs/architecture/write-path.md.</summary>
     /// <returns>One entry per blocked referencer, each carrying the SHAPE it was blocked on.</returns>
     public static IReadOnlyList<(string Plugin, LocalizedShape Shape, string Why)> LocalizedAmong(
         LoadOrderResolver resolver, IEnumerable<string> pluginNames)
