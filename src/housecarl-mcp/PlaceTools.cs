@@ -223,6 +223,8 @@ static class PlaceWire
             // Whole warnings, in order, and the list STOPS at the first one that does not fit: skipping a long warning for a short one hands back a list that looks complete and is not.
             (sb, room) =>
             {
+                // WHICH loose roots would not read, once for the batch and before the rows, so a row's hedge has a folder to point at.
+                sb.Append(BatchRender.RootFailureLines(o.RootFailures, cap));
                 if (o.Warnings.Count == 0) return;
                 var lines = room.Less(WarningsOmitted(o.Warnings.Count, cap).Length);
                 int w = 0;

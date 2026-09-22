@@ -2992,6 +2992,8 @@ static class JsonWire
             var modFolder = o.ModFolder is null ? null : Path.GetFileName(o.ModFolder);
             WriteNullable(w, "mod_folder", modFolder);
             WriteStringArray(w, "warnings", o.Warnings);
+            // The text twin's root lines, cut by the same rule and written above the rows, so the rows' budget pays for them.
+            WriteRootFailuresCut(w, o.RootFailures, cap);
 
             w.WriteStartArray("results");
             int rendered = 0;

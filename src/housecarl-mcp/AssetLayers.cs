@@ -1149,8 +1149,9 @@ public sealed partial class LoadOrderService
 
             // Nothing placed into a fresh folder means an orphan to remove; a reused into= folder is never touched.
             string? leftover = placed == 0 ? RemoveOrNameRiderResidue(rf) : null;
+            // Taken AFTER the rows, because the view names a root only once a lookup has asked about it.
             return new PlaceOutcome(results, placed > 0 ? rf.ModFolder : null, warnings, leftover, null)
-                { FreshFolder = rf.CreatedFresh };
+                { FreshFolder = rf.CreatedFresh, RootFailures = view.RootFailures };
         }
     }
 
