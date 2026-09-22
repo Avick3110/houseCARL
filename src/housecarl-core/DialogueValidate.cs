@@ -58,6 +58,10 @@ public sealed record DialogueValidationReport(
     public string? CheckError { get; init; }
     public bool ReadIncomplete { get; init; }
 
+    /// <summary>The loose roots this validation's asset build could not walk or list, each named with the reason, so
+    /// the "may merely be unscanned" hedge says WHICH folder; empty when every root read.</summary>
+    public IReadOnlyList<string> RootFailures { get; init; } = Array.Empty<string>();
+
     /// <summary>The input record itself came from the FOLDED file; provenance rides beside the name.</summary>
     public bool InputWinnerIsFolded { get; init; }
 
@@ -271,7 +275,8 @@ public static class DialogueValidate
                 var tv = ValidateTopic(topic, provider, InOrder, Resolve, av, BaseCopy, forceLoaded)
                     with { InfoOrder = OrdersFor(new[] { fk }).GetValueOrDefault(fk), WinnerIsFolded = FoldProvides(fk) };
                 return new DialogueValidationReport(fk, "topic", topic.EditorID ?? "", provider, new[] { tv })
-                    { ReadIncomplete = av.ReadIncomplete, InputWinnerIsFolded = FoldProvides(fk) };
+                    { ReadIncomplete = av.ReadIncomplete, RootFailures = av.RootFailures,
+                      InputWinnerIsFolded = FoldProvides(fk) };
             }
 
             if (body is IQuestGetter quest)
@@ -325,8 +330,8 @@ public static class DialogueValidate
                     .ToList();
 
                 return new DialogueValidationReport(fk, "quest", quest.EditorID ?? "", provider, kept)
-                    { ReadIncomplete = av.ReadIncomplete, SeqLint = seqLint, InputIssues = questGaps, ScanGaps = scanGaps,
-                      InputWinnerIsFolded = FoldProvides(fk) };
+                    { ReadIncomplete = av.ReadIncomplete, RootFailures = av.RootFailures, SeqLint = seqLint,
+                      InputIssues = questGaps, ScanGaps = scanGaps, InputWinnerIsFolded = FoldProvides(fk) };
             }
 
             // DLVW / DLBR: a RECORD-LEVEL check, so Topics stays empty and the render names the narrower scope.

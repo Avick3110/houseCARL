@@ -93,6 +93,7 @@ internal sealed class CheckOutcome
     internal IReadOnlyList<string> RootFailures =>
         (_s.FaceGen?.RootFailures ?? Array.Empty<string>())
         .Concat(_s.Scripts?.RootFailures ?? Array.Empty<string>())
+        .Concat(_s.Dialogue?.RootFailures ?? Array.Empty<string>())
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
         .ToList();

@@ -5,9 +5,10 @@ public sealed record DialogueSeedResult(string Seed, DialogueValidationReport? R
 
 /// <summary>The DIALOGUE family's result over a seed list; contract in docs/architecture/dialogue-validation.md.</summary>
 /// <param name="Seeds">one entry per seed the caller named, in that order — reports and refusals together.</param>
-/// <param name="ReadIncomplete">a BSA failed to read, so an "absent" voice file or .pex may merely be unscanned.</param>
+/// <param name="ReadIncomplete">a BSA or a loose root failed to read, so an "absent" voice file or .pex may merely be unscanned.</param>
 /// <param name="SeedsNamed">seeds the caller NAMED; the difference from <paramref name="Seeds"/> is the budget's cut.</param>
 /// <param name="Epoch">the RECORD build every seed was validated against; it covers no asset verdict a graph check produced.</param>
+/// <param name="RootFailures">the loose roots the seeds' asset reads could not walk or list, unioned over the seeds; null or empty when every root read.</param>
 public sealed record DialogueCheckResult(
     IReadOnlyList<DialogueSeedResult> Seeds,
     int TopicsFound,
@@ -17,7 +18,8 @@ public sealed record DialogueCheckResult(
     int Limit = 0,
     int SeedsNamed = 0,
     bool CountsOnly = false,
-    string? Epoch = null)
+    string? Epoch = null,
+    IReadOnlyList<string>? RootFailures = null)
 {
     public bool Success => Error is null;
 

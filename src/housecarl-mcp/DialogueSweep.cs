@@ -35,6 +35,7 @@ internal static class DialogueSweep
         var results = new List<DialogueSeedResult>();
         int topics = 0, problems = 0;
         bool readIncomplete = false;
+        var rootFailures = new List<string>();
 
         foreach (var raw in named)
         {
@@ -66,6 +67,7 @@ internal static class DialogueSweep
             topics += report.Topics.Count;
             problems += Problems(report);
             readIncomplete |= report.ReadIncomplete;
+            rootFailures.AddRange(report.RootFailures);
         }
 
         // The placement is the FOLD's own spelling, shared with the info_order form.
@@ -82,7 +84,10 @@ internal static class DialogueSweep
                 epoch) with { Folded = folded };
 
         return new DialogueCheckResult(results, topics, problems, readIncomplete, Limit: limit,
-                                       SeedsNamed: named.Length, CountsOnly: countsOnly, Epoch: epoch)
+                                       SeedsNamed: named.Length, CountsOnly: countsOnly, Epoch: epoch,
+                                       // Each seed takes its list at its own return off a list that fills lazily, so the union, not the last.
+                                       RootFailures: rootFailures.Distinct(StringComparer.OrdinalIgnoreCase)
+                                                                 .OrderBy(r => r, StringComparer.OrdinalIgnoreCase).ToList())
             { Folded = folded };
     }
 
