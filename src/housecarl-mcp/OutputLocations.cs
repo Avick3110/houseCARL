@@ -247,6 +247,7 @@ public sealed partial class LoadOrderService
         if (!PluginExts.Contains(Path.GetExtension(pluginPath), StringComparer.OrdinalIgnoreCase))
             return SeqOutcome.Fail($"'{Path.GetFileName(pluginPath)}' is not a plugin (.esp/.esm/.esl).");
 
+        // Lock order is _writeGate then _gate; contract in docs/architecture/load-order-service.md.
         lock (_writeGate)                                                // one write at a time: build, resolve, commit
         {
             if (ConfigPromptOrNull() is { } cfgPrompt) return SeqOutcome.Fail(cfgPrompt);   // need ModsDir for the output folder

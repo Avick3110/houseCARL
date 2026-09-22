@@ -974,6 +974,7 @@ public sealed partial class LoadOrderService
         if (inPlace && !string.IsNullOrWhiteSpace(into))
             return NifSetResult.Fail("in_place and into are mutually exclusive — in_place overwrites the winning file where it sits; into= names a NEW houseCARL folder.");
 
+        // Lock order is _writeGate then _gate; contract in docs/architecture/load-order-service.md.
         lock (_writeGate)
         {
             AssetResolver.AssetView view; IReadOnlyList<string> warnings; string profileName;

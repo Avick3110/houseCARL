@@ -48,6 +48,7 @@ public sealed partial class LoadOrderService
             return WritePatchBuilder.PatchOutcome.Fail(
                 $"refused — {problems.Count} of {ops.Count} operation(s) malformed; NO patch written:\n  - " + string.Join("\n  - ", problems));
 
+        // Lock order is _writeGate then _gate; contract in docs/architecture/load-order-service.md.
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
             var resolver = Resolver;                                      // builds/refreshes the index
