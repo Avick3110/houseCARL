@@ -301,6 +301,22 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   definer, and which copy was read is reported per record.
 - Only the LAST op touching a leaf is answerable by the written file: an earlier one's reading was taken mid-sequence,
   so it is marked superseded rather than compared and reported as not landed.
+- The dry run's unopenable-reference threshold is a MEASURED header rule, not something `set.Count > 1` states on its
+  own: a header carrying ONE master writes even when that master is the unopenable plugin, because Mutagen derives the
+  entry from the record's own FormKey, and a header that must be SORTED — two or more — refuses. Dropping the count
+  test so that any unopenable reference refuses turns a legal write into a refusal.
+- BOUND on the dry-run guarantee above: `DryRunMastersPreview` asks `resolver.IsUnopenable`, which reads the resolver's
+  CURRENT snapshot, while the write lanes resolve against a pinned `IndexView` — so a rebuild between the prediction
+  and the write lets the two disagree. Inherited from the method taking a resolver rather than a view; the failure mode
+  is a stale prediction, never a bad write.
+- That agreement about membership is also why the engine's off-order re-check is KEPT although it cannot currently
+  change the arm: it is a structural invariant at one dictionary lookup, so the right behaviour is already there if
+  membership ever can move under a live resolver. Not dead code to delete.
+- What the per-op file compare CATCHES is content that is GONE — a container whose count moved, a leaf that held
+  something and now holds nothing. It is not a judgement that the write landed: a real difference cannot be told
+  reliably from a representational one ([`json-wire.md`](json-wire.md) carries that reading), and an element that
+  landed but serialized with fewer fields than the caller supplied is bounded from the other end instead, by
+  `WriteEngine.EmptyComposeRefusal` refusing the case where nothing was supplied at all.
 
 ## Pinned by
 - `inplace-guard` arms E / L / U — the `in_place`⇔`target=` contract and the `into=` / `patch=` exclusion, on the
@@ -426,6 +442,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   being a leak while a pre-existing dangling one is not, and the walk's arm attribution surviving into the report.
 - The seam that arm parks the write on is `WritePatchBuilder.InsidePhase1ResolveForGuard`, which is why the flip is
   staged rather than timed and no runner can be too fast to land it inside the resolve loop. It has no product caller.
+- `excluded-master-guard` — the unopenable-reference threshold, pinned BOTH ways on BOTH lanes: a one-master header
+  WRITES and a two-master header REFUSES naming the unopenable plugin and its remedy, on the patch lane and on the
+  in-place lane, with the dry run predicting the real call's refusal verbatim and still predicting success for a write
+  that does not reference it.
 
 ## Where
 - `src/housecarl-mcp/RecordWrites.cs` — the lanes: `ApplyEdits`, `CreateRecordsBatch` / `CommitCreate`,
