@@ -6,8 +6,8 @@ covers: [src/housecarl-core/DeletedRecordRule.cs, src/housecarl-core/ErrorCheck.
 
 ## What it is
 The home of the contracts the check-family code itself cannot express, cited from `ErrorCheck`,
-`DeletedRecordRule`, `SweepScope`, `SweepExclusion`, `SweepFamilies` and `CheckOutcome` under ADR 0001. The
-scripts family's own boundary, the dialogue family's seed words and the EditorID near-miss hint are in
+`DeletedRecordRule`, `ScriptPropertyCheck`, `SweepScope`, `SweepExclusion`, `SweepFamilies` and `CheckOutcome`
+under ADR 0001. The scripts family's own boundary, the dialogue family's seed words and the EditorID near-miss hint are in
 [`check-scripts-and-dialogue-families.md`](check-scripts-and-dialogue-families.md).
 
 ## Contracts
