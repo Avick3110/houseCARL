@@ -92,6 +92,19 @@ public sealed class SkyPatcherLayerFilterTests
                     $"{text.Length} chars against max_chars=4000 — the caveat block was not bounded.");
     }
 
+    /// <summary>The other end of the cut: a cap so tight that not even one failure line fits its share. One folder is
+    /// NAMED anyway, because a marker with no name is the hedge this work exists to remove — "showing 0 of M" tells a
+    /// modder nothing they can act on.</summary>
+    [Fact]
+    public void ARootIsNamedEvenWhenNotOneLineFitsTheShare()
+    {
+        var text = SkyPatcherWire.RenderLayer(WithRootFailures(OneNpcFolder(), 5), null, 400);
+
+        Assert.Contains("BlockedMod01", text);
+        Assert.Matches(@"showing 1 of 5 loose root read failure\(s\)", text);
+        Assert.DoesNotContain("showing 0 of", text);
+    }
+
     /// <summary>A short list is not marked as cut — a marker on a complete list would read as a missing name.</summary>
     [Fact]
     public void ARootFailureListThatFitsCarriesNoCutMarker()

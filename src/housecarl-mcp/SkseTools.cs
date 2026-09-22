@@ -864,7 +864,10 @@ static class SkseInventoryWire
         int rendered = 0;
         int folderCount = d.Configs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         // The tail is paid for inside max_chars, exactly as the text render's own reserve does.
-        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures,
+        // The named-root array takes the same share of the CALLER's max_chars the text tail takes, so the two
+        // lanes bound the same list the same way; the reserve composes the bounded block, not the whole list.
+        int rootShare = cap / BatchRender.RootFailureShare;
+        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare,
             TransportAccounting.Widest(total, windowed, window, notes),
             tw => { tw.WriteString("peek_note", PeekNoDllNote); tw.WriteNumber("config_folders_truncated", folderCount); }));
 
@@ -933,7 +936,7 @@ static class SkseInventoryWire
 
             if (d.PeekRequested && allDlls.Count == 0)
                 w.WriteString("peek_note", PeekNoDllNote);
-            SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures);
+            SkseJsonDoc.Caveats(w, ms, d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare);
             TransportAccounting.WriteJson(w, TransportAccounting.Tally(total, windowed, rendered, window, notes));
         });
     }
@@ -1299,7 +1302,10 @@ static class SkseConfigAuditWire
         int notes = NoteCount(d);
         int rendered = 0;
         // The caveats and accounting tail is paid for inside max_chars rather than appended past it.
-        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures,
+        // The named-root array takes the same share of the CALLER's max_chars the text tail takes, so the two
+        // lanes bound the same list the same way; the reserve composes the bounded block, not the whole list.
+        int rootShare = cap / BatchRender.RootFailureShare;
+        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare,
             TransportAccounting.Widest(allFiles.Count, files.Count, window, notes)));
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Config, filter, d.ProfileName, (w, ms) =>
@@ -1356,7 +1362,7 @@ static class SkseConfigAuditWire
             }
             w.WriteEndArray();
 
-            SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures);
+            SkseJsonDoc.Caveats(w, ms, d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare);
             TransportAccounting.WriteJson(w, TransportAccounting.Tally(allFiles.Count, files.Count, rendered, window, notes));
         });
     }
@@ -1754,7 +1760,10 @@ static class NativePairingWire
         int notes = NoteCount(d);
         int rendered = 0;
         // The tail — the unreadable-pex cut marker, caveats, accounting — is paid for inside max_chars.
-        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures,
+        // The named-root array takes the same share of the CALLER's max_chars the text tail takes, so the two
+        // lanes bound the same list the same way; the reserve composes the bounded block, not the whole list.
+        int rootShare = cap / BatchRender.RootFailureShare;
+        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare,
             TransportAccounting.Widest(allClasses.Count, classes.Count, window, notes),
             tw => tw.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count)));
 
@@ -1845,7 +1854,7 @@ static class NativePairingWire
             // Not row-list rows, so the accounting does not count them — the cut is named here instead.
             if (unreadable < d.Unreadable.Count) w.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count - unreadable);
 
-            SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures);
+            SkseJsonDoc.Caveats(w, ms, d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures, rootShare);
             TransportAccounting.WriteJson(w, TransportAccounting.Tally(allClasses.Count, classes.Count, rendered, window, notes));
         });
     }
