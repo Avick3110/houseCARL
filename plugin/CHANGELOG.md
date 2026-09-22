@@ -72,8 +72,8 @@ made the change.
 - **The facegen and scripts sweeps, a created line's voice and result-script notes, and a compact's asset carry
   name the mod folder they could not read.** Block a mod folder, then run `housecarl_check` and
   `housecarl_compact_plugin`: each answer names that mod.
-- **The dialogue check and a `housecarl_place` that finds no copy name the mod folder they could not read.** Block a
-  mod folder, then run `housecarl_check findings=["dialogue"]` and place a path nothing provides: each names that mod.
+- **The dialogue check, and a `housecarl_place` or `housecarl_nif_set` that finds no copy, name the mod folder they
+  could not read.** Block a mod folder, then place a path nothing provides: the answer names that mod.
 
 ## 2.0.2 — 2026-09-15
 
