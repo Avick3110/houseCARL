@@ -2087,6 +2087,19 @@ public sealed partial class LoadOrderService
         }
     }
 
+    /// <summary>The single top-level plugin in a houseCARL folder, so <c>into=</c> a folder name needs no basename; null plus a named <paramref name="reason"/> when the folder holds none or more than one.</summary>
+    static string? SoleEspInFolder(string folder, out string reason)
+    {
+        var plugins = Directory.EnumerateFiles(folder)
+            .Where(f => PluginExts.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (plugins.Count == 1) { reason = ""; return plugins[0]; }
+        reason = plugins.Count == 0
+            ? "holds no plugin (.esp/.esm/.esl) to extend"
+            : $"holds {plugins.Count} plugins ({string.Join(", ", plugins.Select(Path.GetFileName))}) — name the one to extend by passing its filename as into=";
+        return null;
+    }
+
     /// <summary>Remove a fresh folder <see cref="ResolveOutputPath"/> cut for a write that was then refused, gated on that
     /// folder holding nothing beyond our own meta.ini and an empty staging leftover. Best-effort.</summary>
     static void RemoveFolderCreatedThisCall(string outPath)

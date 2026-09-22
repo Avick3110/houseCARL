@@ -682,15 +682,6 @@ public sealed partial class LoadOrderService
         return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null, copy);
     }
 
-    /// <summary>Carry one replay's warnings into the caller's sink, deduplicated; each already names its own file and line.</summary>
-    static void CollectOverlayWarnings(IReadOnlyList<SkyPatcherFolderOutcome> folders, SkyPatcherOverlay.WarningSink? sink)
-    {
-        if (sink is null) return;
-        foreach (var f in folders)
-            foreach (var w in f.Result?.Warnings ?? Array.Empty<string>())
-                sink.Add(w);
-    }
-
     /// <summary>Scan the whole SkyPatcher layer: every loose INI as the DLL reads it, the same-field SET collisions,
     /// and the three ITM classes including the no-op writes the per-record replay finds. Report-only.</summary>
     public SkyPatcherLayerData SkyPatcherLayer()

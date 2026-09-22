@@ -67,6 +67,11 @@ public sealed partial class LoadOrderService : IDisposable
         return svc;
     }
 
+    public void Dispose()
+    {
+        lock (_gate) { _resolver?.Dispose(); _resolver = null; _assetResolver?.Dispose(); _assetResolver = null; }
+    }
+
     /// <summary>The write pre-flight rulebook (corpus.json), loaded once from an absolute CorpusPath.</summary>
     CorpusRulebook Rulebook => _rulebook ??= CorpusRulebook.Load();
 
@@ -292,6 +297,76 @@ public sealed partial class LoadOrderService : IDisposable
                     $"modlist scan: scanning the modlist for Papyrus source folders failed ({ex.Message}) — " +
                     "pass the dependency source folders via import_dirs=/import_set= for this compile.",
                     true);
+        }
+    }
+
+    // ---- decompiler class hierarchy (lazy, cached for process lifetime) ----------------------------------------
+
+    Dictionary<string, string>? _classParents;
+    string? _classParentsNote;
+    bool _classParentsToppedUp;
+    string? _classParentsTopUpMissing;
+    readonly object _classParentsLock = new();
+
+    /// <summary>Drop the cached hierarchy whenever <see cref="_modsDir"/> can have changed, since a stale tree's edges could suppress a cast the new order does not justify. Rebuilds lazily.</summary>
+    void InvalidateClassParents()
+    {
+        lock (_classParentsLock)
+        {
+            _classParents = null; _classParentsNote = null;
+            _classParentsToppedUp = false; _classParentsTopUpMissing = null;
+        }
+    }
+
+    /// <summary>The decompiler's child-to-parent class map: the cached vanilla baseline beside the exe, plus loose .psc headers across the MO2 mods tree. The top-up is RETRIED every call until it runs, so a baseline-only map is never cached as complete, and both degraded modes come back named with their cause. A published map is never mutated. Lock order is _gate then _classParentsLock.</summary>
+    public ClassParents ClassParentsForDecompile()
+    {
+        bool configured;
+        string? deriveError = null;
+        lock (_gate)
+        {
+            configured = _configured;
+            // Not fatal here, but the reason is carried out: it is why the top-up below cannot run.
+            if (configured)
+                try { EnsurePathsDerived(); }
+                catch (Exception ex) { deriveError = ex.Message; }
+        }
+        lock (_classParentsLock)
+        {
+            if (_classParents is null)
+            {
+                var (edges, note) = HousecarlCore.PapyrusClassParents.LoadBaseline(
+                    Path.Combine(AppContext.BaseDirectory, "vanilla-class-parents.json"));
+                _classParents = edges;
+                _classParentsNote = note;
+            }
+            if (!_classParentsToppedUp)
+            {
+                string? missing =
+                    !configured ? "no MO2 instance is configured"
+                    : deriveError is not null ? $"the MO2 instance does not resolve ({deriveError})"
+                    : string.IsNullOrEmpty(_modsDir) ? "the instance has no mods folder"
+                    : !Directory.Exists(_modsDir) ? $"the mods folder '{_modsDir}' does not exist"
+                    : null;
+                if (missing is null)
+                {
+                    // Publish-once: the walk fills a COPY, so a concurrent reader never sees a map being written.
+                    var topped = new Dictionary<string, string>(_classParents, StringComparer.OrdinalIgnoreCase);
+                    var scan = HousecarlCore.PapyrusClassParents.AddFromPscHeaders(topped, new[] { _modsDir });
+                    if (scan.RootsUnreadable > 0)
+                        // Nothing was read from the tree: the copy is dropped and the walk is retried next call.
+                        missing = $"the mods folder '{_modsDir}' could not be listed";
+                    else
+                    {
+                        _classParents = topped;
+                        _classParentsToppedUp = true;
+                        if (scan.FilesFailed > 0)
+                            missing = $"{scan.FilesFailed} of {scan.FilesSeen} .psc file(s) under '{_modsDir}' could not be read";
+                    }
+                }
+                _classParentsTopUpMissing = missing;
+            }
+            return new ClassParents(_classParents, _classParentsNote, _classParentsTopUpMissing);
         }
     }
 
