@@ -121,7 +121,7 @@ public static class RecordsTools
             JsonElement? versus = null,
         [Description("The pole field VALUES display from, when it differs from the matching pole: \"winner\" shows the live winner's values on a plugins=-scoped scan (the old winner_fields=true). Display only — where_source= governs matching. Under a plugins= scope the default renders the SCOPED plugin's OWN values — the defining plugin's era, not the number the game uses after later overrides — so a deliverable claiming live stats passes \"winner\" here. Neither pole reaches TEMPLATE inheritance: an NPC whose Configuration.TemplateFlags include Stats takes its level, and the rest of that category, from the record its Template points at, so the level rendered on its own row is not the level the game uses — walk={\"follow\": \"Template\"} under project.form='chain' reports, per category, which rows inherit and from which record, so read the inheritance there rather than by hand.")]
             string? fields_source = null,
-        [Description("PROJECT: the shape of the answer — a SINGLE form plus that form's own sub-parameters: identity | summary (default) | fields | rows | everything | aggregate | delta | tree | chain | info_order. Sub-parameters live INSIDE the form that uses them (depth belongs to fields/rows/everything, group_by to aggregate, fields to fields/rows/delta/tree), so there is no flat spelling for an illegal pairing. Omit for summary rows. aggregate counts ALL matches and limit= does not window its groups (offset= is refused there outright) — on a SCAN max_chars alone bounds the render, while on a formids= list nothing bounds the group rows, so a count is safe to size a job with.")]
+        [Description("PROJECT: the shape of the answer — a SINGLE form plus that form's own sub-parameters: identity | summary (default) | fields | rows | everything | aggregate | delta | tree | chain | info_order. Sub-parameters live INSIDE the form that uses them (depth belongs to fields/rows/everything, group_by to aggregate, fields to fields/rows/delta/tree), so there is no flat spelling for an illegal pairing. Omit for summary rows. aggregate COUNTS all matches whatever limit= says — the total and the distinct-group count are exact — so limit= caps the count TABLE's rows instead (default 500, and the marker says how many it held back) and offset= is refused, the same rule housecarl_asset_status's counts_only= census caps on. A count is safe to size a job with on either lane.")]
             RecordsProject? project = null,
         [Description("SELECT: the traversal construct — follow record-to-record links from this call's own SELECT (the seeds) and select what the walk reaches; project.form='chain' renders the paths/endpoints/cycles themselves (with, for NPC template chains, the per-category active-vs-masked inheritance report), while any other form reads the reached set like any selection. The walk expands on the WINNER's link graph; source= governs whose version the form then reads.")]
             RecordsWalk? walk = null,
@@ -2513,12 +2513,13 @@ public static class RecordsTools
         return RenderCap.Settle(sb.ToString(), cap);
     }
 
-    /// <summary>The list-lane aggregate render: the resolved rows counted by winner, type or defined_in — the batch twin of the scan lane's count table — with per-item errors in their own named bucket and the same response envelope every other form carries.</summary>
-    /// <param name="requestedTypes">The display names of the types the call NAMED, or null when it named none; under group_by=type each one gets a row, so a requested type with no records reads as 0.</param>
-    /// <summary>The caller's limit= as a count TABLE's row cap, spelled as <c>AssetTools.AssetCensus.RowLimit</c>
-    /// spells it so the two tools cap their tables on one rule: 0 is uncapped (#810).</summary>
+    /// <summary>A caller's limit= turned into a count TABLE's row cap: a limit of 0, which means "no limit" on
+    /// every lane that takes one, becomes an unreachable cap. Spelled as <c>AssetTools.AssetCensus.RowLimit</c>
+    /// spells it, so the two tools cap their tables on one rule (#810).</summary>
     static int TableRowLimit(int limit) => limit > 0 ? limit : int.MaxValue;
 
+    /// <summary>The list-lane aggregate render: the resolved rows counted by winner, type or defined_in — the batch twin of the scan lane's count table — with per-item errors in their own named bucket and the same response envelope every other form carries.</summary>
+    /// <param name="requestedTypes">The display names of the types the call NAMED, or null when it named none; under group_by=type each one gets a row, so a requested type with no records reads as 0.</param>
     /// <param name="rowLimit">the caller's limit= as the TABLE's row cap (0 = uncapped): a count table caps with
     /// limit= and does not page (#810), and the counts above it stay the whole tally.</param>
     static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, bool dense, OrderStamp? epoch,

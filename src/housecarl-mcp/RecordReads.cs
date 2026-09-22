@@ -2326,7 +2326,7 @@ public sealed partial class LoadOrderService
         List<RecordSummary>? prefilled = (hasType || hasPlugins || hasFormidSet) ? new() : null;   // parallel to keys; null = renderer fills lazily
         // OrdinalIgnoreCase so case-variant spellings of the SAME plugin merge into one group instead of splitting
         // the count; first-seen casing becomes the display key. Harmless for group_by=type.
-        Dictionary<string, int>? groups = groupBy is not null ? new(StringComparer.OrdinalIgnoreCase) : null;   // group_by= aggregation (bumped per match, over ALL matches — not limit-capped)
+        Dictionary<string, int>? groups = groupBy is not null ? new(StringComparer.OrdinalIgnoreCase) : null;   // group_by= aggregation (bumped per match, over ALL matches — the TALLY is not limit-capped; the render's table rows are)
         SeedRequestedTypes(groups, groupBy, types);
         int total = 0;
         int unscannable = 0;                                                // records whose body tests threw (Mutagen-unparseable content) — excluded and accounted, never silent
@@ -2661,7 +2661,7 @@ public sealed partial class LoadOrderService
         // The scope's own gap leads: it says which of the plugins the caller named are not in this answer at all.
         if (scopeMissingNote is not null)
             scanNote = scanNote is null ? scopeMissingNote : scopeMissingNote + " " + scanNote;
-        // group_by= aggregation is not limit-capped, so Capped is a match-line concern only.
+        // The group_by= TALLY is not limit-capped (the render's table rows are), so Capped is a match-line concern only.
         var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
                               .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
         // Capped means matches exist BEYOND the returned window; the matches offset= skipped were asked to be.
