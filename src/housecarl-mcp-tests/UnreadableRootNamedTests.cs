@@ -40,6 +40,22 @@ public sealed class UnreadableRootNamedTests : IDisposable
         Assert.Contains(BlockedModWorld.BlockedMod, SkseConfigAuditWire.Render(d, null, 200_000));
     }
 
+    /// <summary>filter= is the ordinary way to drive this tool, and it takes a different render — one that used to
+    /// write no build-level caveats at all, so a filtered read named nothing. All three families, one filter.</summary>
+    [Fact]
+    public void AFilteredSkseReadNamesTheRootTooInEveryFamily()
+    {
+        Assert.True(_w.Blocked, BlockedModWorld.NotStaged);
+
+        var inventory = SkseInventoryWire.Render(_w.Svc.SkseInventory(), "readable", 200_000);
+        var config = SkseConfigAuditWire.Render(_w.Svc.SkseConfigAudit(), "readable", 200_000);
+        var pairing = NativePairingWire.Render(_w.Svc.NativePairingAudit(), "readable", 200_000);
+
+        Assert.Contains(BlockedModWorld.BlockedMod, inventory);
+        Assert.Contains(BlockedModWorld.BlockedMod, config);
+        Assert.Contains(BlockedModWorld.BlockedMod, pairing);
+    }
+
     [Fact]
     public void TheNativePairingAuditNamesTheRootItCouldNotRead()
     {

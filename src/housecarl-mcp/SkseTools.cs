@@ -466,8 +466,11 @@ static class SkseInventoryWire
         var cfgHits = window.After(allDllHits.Count, dllHits.Count).Apply(allCfgHits);
         int windowed = dllHits.Count + cfgHits.Count;
         int reserve = TransportAccounting.Reserve(total, windowed, window, notes, MatchNoun);
+        // The caveats close this view too, charged with the accounting rather than appended past the cap: a filtered
+        // read that names no unreadable archive or mod folder reads as a complete answer.
+        var tail = "\n" + Caveats(d);
         // cap stays the caller's max_chars; budget is the room the blocks have once the tail is charged.
-        int budget = Math.Max(1, cap - trailer - reserve);
+        int budget = Math.Max(1, cap - trailer - reserve - tail.Length);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(
             TransportAccounting.Tally(total, windowed, tally.Count, window, notes), MatchNoun, everySentence: false);
@@ -481,6 +484,7 @@ static class SkseInventoryWire
             sb.Append("\nnothing under SKSE\\Plugins matched. ")
               .Append(HousecarlCore.PluginNameSuggest.DidYouMean(filter,
                   d.Dlls.Select(e => e.FileName).Concat(d.Configs.Select(e => e.Group).Where(g => g.Length > 0)).Distinct()));
+            sb.Append(tail);   // a "no match" over an incompletely-read build must carry the caveat (Q3)
             return sb.ToString().TrimEnd('\n') + Accounting();
         }
 
@@ -537,6 +541,7 @@ static class SkseInventoryWire
         }
         // A config already shown as a DLL's paired config is a rendered row too, so it counts.
         foreach (var e in cfgHits) if (shownCfg.Contains(e.RelPath)) tally.Mark(e.RelPath);
+        sb.Append(tail);
         return sb.ToString().TrimEnd('\n') + Accounting();
     }
 
@@ -1000,8 +1005,6 @@ static class SkseInventoryWire
         w.WriteEndObject();
     }
 
-    static void AppendCaveats(StringBuilder sb, SkseInventoryData d) => sb.Append(Caveats(d));
-
     /// <summary>The build-level caveats as one string, so a render can charge them before its rows are laid.</summary>
     static string Caveats(SkseInventoryData d)
     {
@@ -1200,7 +1203,9 @@ static class SkseConfigAuditWire
         int reserve = TransportAccounting.Reserve(allHits.Count, hits.Count, window, notes, RowNoun);
         // cap stays the caller's max_chars; budget is the room the file blocks have once the tail is charged.
         string FilesCut(int shown) => "\n  ... [showing " + shown + " of " + hits.Count + " files; raise max_chars]\n";
-        int budget = Math.Max(1, cap - trailer - reserve - FilesCut(hits.Count).Length);
+        // The caveats close this view too, charged like the pairing family's, so a filtered audit hedges what it must.
+        var tail = "\n" + Caveats(d);
+        int budget = Math.Max(1, cap - trailer - reserve - FilesCut(hits.Count).Length - tail.Length);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(
             TransportAccounting.Tally(allHits.Count, hits.Count, tally.Count, window, notes), RowNoun, everySentence: false);
@@ -1217,6 +1222,7 @@ static class SkseConfigAuditWire
                 .Concat(d.Files.SelectMany(f => f.Refs.Select(r => r.Ref.Plugin)));
             sb.Append("\nnothing under SKSE\\Plugins matched. ")
               .Append(HousecarlCore.PluginNameSuggest.DidYouMean(filter, suggestPool));
+            sb.Append(tail);   // a "no match" over an incompletely-read build must carry the caveat (Q3)
             return sb.ToString().TrimEnd('\n') + Accounting();
         }
 
@@ -1240,6 +1246,7 @@ static class SkseConfigAuditWire
             if (sb.Length > budget) { sb.Length = mark; sb.Append(FilesCut(shownFiles)); break; }
             shownFiles++; tally.Mark(f.RelPath);
         }
+        sb.Append(tail);
         return sb.ToString().TrimEnd('\n') + Accounting();
     }
 
