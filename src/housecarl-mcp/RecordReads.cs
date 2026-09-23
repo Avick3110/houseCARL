@@ -3091,16 +3091,4 @@ public sealed partial class LoadOrderService
         throw new ArgumentException(
             $"unknown record type '{type}'. Expected a 4-char signature (e.g. 'WEAP') or a catalog name (e.g. 'Weapon').");
     }
-
-    /// <summary>A form-scope string to getter Types: a catalog name or signature via the type lookup, or a Mutagen link-interface group name resolved as every corpus record getter assignable to <c>I{name}Getter</c>, derived from the real interfaces rather than a hand-kept list. Null means it names neither, which the caller surfaces loudly.</summary>
-    internal IReadOnlyList<Type>? ResolveFormScope(string type)
-    {
-        var t = type.Trim();
-        if (TypeLookup.TryGetValue(t, out var types)) return types;
-        var iface = typeof(SkyrimMod).Assembly.GetType($"Mutagen.Bethesda.Skyrim.I{t}Getter");
-        if (iface is null) return null;
-        var matches = TypeLookup.Values.SelectMany(v => v).Distinct().Where(iface.IsAssignableFrom).ToList();
-        return matches.Count > 0 ? matches : null;
-    }
-
 }
