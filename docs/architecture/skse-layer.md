@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-23
-covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs, src/housecarl-core/SkseConfigReferenceExtractor.cs, src/housecarl-core/NativePairing.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkseJsonDoc.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs]
+covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs, src/housecarl-core/SkseConfigReferenceExtractor.cs, src/housecarl-core/NativePairing.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkseInventoryWire.cs, src/housecarl-mcp/SkseConfigAuditWire.cs, src/housecarl-mcp/NativePairingWire.cs, src/housecarl-mcp/SkseJsonDoc.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs]
 ---
 # The SKSE layer: what a DLL declares, and the static-load rule
 
@@ -215,7 +215,7 @@ number describes a wider set than the rows beside it.
 `src/housecarl-core/SksePluginReader.cs` reads the PE manifest, the imports and the Debug-CRT verdict;
 `SksePeek.cs` is the embedded-string peek; `NativePairing.cs` extracts the native declarations;
 `SkseConfigReferenceExtractor.cs` extracts config references. `src/housecarl-mcp/AssetLayers.cs` holds the service
-lanes and the blocker string (`LooseDllBlocker`); `src/housecarl-mcp/SkseTools.cs` holds the tool, the family
-dispatch, and each family's text and json render, the pairing verdict among them (`SkseInventoryWire`,
-`NativePairingWire`); `src/housecarl-mcp/SkseJsonDoc.cs` writes the family documents. Tool:
+lanes and the blocker string (`LooseDllBlocker`); `src/housecarl-mcp/SkseTools.cs` holds the tool and the family
+dispatch. Each family's text and json render is in its own file: `SkseInventoryWire.cs`, `SkseConfigAuditWire.cs`
+and `NativePairingWire.cs`, the last with the pairing verdict. `src/housecarl-mcp/SkseJsonDoc.cs` writes the family documents. Tool:
 `housecarl_skse`.
