@@ -54,6 +54,26 @@ public sealed class VmadPropertyReadGuardTests
         => Assert.Contains("ScriptObjectProperty",
             _fields.Single(f => f.Path.EndsWith("Properties[0]", StringComparison.Ordinal) && !f.HasValue).Note);
 
+    // BOUNDED: the floor opens one level, so a list property shows its Objects summary and none of its elements.
+    // Condition-arm params are all leaves, so this is the arm family where a second level would show.
+    [Fact]
+    public void AListPropertyOpensOneLevelOnly()
+    {
+        var mod = new SkyrimMod(new ModKey("hc_vmadread", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var element = new ScriptObjectProperty { Name = "HcListElem", Alias = -1 };
+        element.Object.SetTo(FormKey.Factory("018C91:Skyrim.esm"));
+        var list = new ScriptObjectListProperty { Name = "HcListProp" };
+        list.Objects.Add(element);
+        var entry = new ScriptEntry { Name = "HcVmadReadScript" };
+        entry.Properties.Add(list);
+        var vmad = new DialogResponsesAdapter();
+        vmad.Scripts.Add(entry);
+        var info = new DialogResponses(mod.GetNextFormKey(), SkyrimRelease.SkyrimSE) { VirtualMachineAdapter = vmad };
+        var fields = ReadEngine.ReadFields(info, new[] { "VirtualMachineAdapter.Scripts[0].Properties" }, 2).Fields;
+        Assert.Contains(fields, f => f.Path.EndsWith("Properties[0].Objects", StringComparison.Ordinal));
+        Assert.DoesNotContain(fields, f => f.Path.Contains("Properties[0].Objects[", StringComparison.Ordinal));
+    }
+
     // NON-PROPERTY-UNCHANGED: a CTDA at the same depth still stops at its summary.
     [Fact]
     public void AConditionAtTheSameDepthStillStops()
