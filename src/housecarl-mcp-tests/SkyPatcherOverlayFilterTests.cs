@@ -34,6 +34,9 @@ public sealed class SkyPatcherOverlayFilterTests
     [Fact] // flagAnyOf: boundweapon flag matched (weight=3)
     public void AFlagAnyOfFilterMatchesIgnoringCase() => Assert.Equal(3f, Bow().BasicStats!.Weight, 3);
 
+    static IEnumerable<int> AppliedLines(SkyPatcherOverlay.SkyPatcherOverlayResult r, string op)
+        => r.Applied.Where(a => a.Op == op).Select(a => a.LineNumber);
+
     sealed record NpcRun(Npc Npc, SkyPatcherOverlay.SkyPatcherOverlayResult Result);
 
     static NpcRun FilteredNpc()
@@ -63,7 +66,12 @@ public sealed class SkyPatcherOverlayFilterTests
     }
 
     [Fact] // gender=female matched, male didn't; race formEquals matched last (weight 44->55)
-    public void GenderAndRaceFiltersMatchInOrder() => Assert.Equal(55f, FilteredNpc().Npc.Weight, 3);
+    public void GenderAndRaceFiltersMatchInOrder()
+    {
+        var run = FilteredNpc();
+        Assert.Equal(55f, run.Npc.Weight, 3);
+        Assert.Equal(new[] { 1, 7 }, AppliedLines(run.Result, "weight"));
+    }
 
     [Fact] // flagBool: essential matched, protected didn't; class-Exclude skipped (height=1.1)
     public void AFlagBoolFilterMatchesAndAClassExcludeSkips() => Assert.Equal(1.1f, FilteredNpc().Npc.Height, 3);
@@ -101,7 +109,12 @@ public sealed class SkyPatcherOverlayFilterTests
     }
 
     [Fact] // player rule: only the lone bare primary applied (weight=7, not 9/3/5)
-    public void OnlyALoneBarePrimaryReachesThePlayer() => Assert.Equal(7f, Player().Npc.Weight, 3);
+    public void OnlyALoneBarePrimaryReachesThePlayer()
+    {
+        var run = Player();
+        Assert.Equal(7f, run.Npc.Weight, 3);
+        Assert.Equal(new[] { 4 }, AppliedLines(run.Result, "weight"));
+    }
 
     [Fact] // hasPlugins on an npc line is not in the reference: unknown-key LOUD skip, player untouched
     public void HasPluginsOnAnNpcLineIsAnUnknownKey()
@@ -141,27 +154,32 @@ public sealed class SkyPatcherOverlayFilterTests
         Assert.Contains(r.Warnings, x => x.Contains("templates its TRAITS"));
     }
 
-    static Ammunition Arrow()
+    static (Ammunition Ammo, SkyPatcherOverlay.SkyPatcherOverlayResult Result) Arrow()
     {
         var a = NewMod().Ammunitions.AddNew();
         a.EditorID = "HcArrow";
         a.Weight = 0.1f;
         a.Flags = Ammunition.Flag.NonBolt;
-        Apply(a, a.FormKey, a.EditorID, "ammo", "Ammunition", new StubResolver(),
+        var r = Apply(a, a.FormKey, a.EditorID, "ammo", "Ammunition", new StubResolver(),
             L(1, "filterByWeightLessThan=0.5:value=20"),
             L(2, "filterByWeightLessThan=0.05:value=1"),
             L(3, "restrictToBolts=true:weight=9"),
             L(4, "restrictToBolts=false:weight=0.75"));
-        return a;
+        return (a, r);
     }
 
     [Fact] // numericLess (weightLessThan 0.5 yes, 0.05 no): value=20
-    public void AWeightLessThanFilterCompares() => Assert.Equal(20u, Arrow().Value);
+    public void AWeightLessThanFilterCompares() => Assert.Equal(20u, Arrow().Ammo.Value);
 
     [Fact] // restrictToBolts inverts the NonBolt flag (arrow: true no, false yes): weight=0.75
-    public void RestrictToBoltsInvertsTheNonBoltFlag() => Assert.Equal(0.75f, Arrow().Weight, 3);
+    public void RestrictToBoltsInvertsTheNonBoltFlag()
+    {
+        var (ammo, r) = Arrow();
+        Assert.Equal(0.75f, ammo.Weight, 3);
+        Assert.Equal(new[] { 4 }, AppliedLines(r, "weight"));
+    }
 
-    static Armor Cuirass()
+    static (Armor Armor, SkyPatcherOverlay.SkyPatcherOverlayResult Result) Cuirass()
     {
         var aaFk = new FormKey(new ModKey("HcAA", ModType.Plugin), 0xE01);
         var ar = NewMod().Armors.AddNew();
@@ -170,21 +188,26 @@ public sealed class SkyPatcherOverlayFilterTests
         ar.Armature.Add(aaFk.ToLink<IArmorAddonGetter>());
         var resolver = new StubResolver();
         resolver.Eids[aaFk] = "HcTestAAHeavyBody";
-        Apply(ar, ar.FormKey, ar.EditorID, "armor", "Armor", resolver,
+        var r = Apply(ar, ar.FormKey, ar.EditorID, "armor", "Armor", resolver,
             L(1, "filterByBipedSlots=2:weight=4"),
             L(2, "filterByBipedSlotsOr=0,9:weight=9"),
             L(3, "filterByArmorTypes=heavy:damageResist=30"),
             L(4, "filterByArmorAddons=TestAA:weight=6"));
-        return ar;
+        return (ar, r);
     }
 
     [Fact] // bipedSlots: index 2 (Body) matched, 0/9 didn't; addon EID substring matched (weight 4->6)
-    public void BipedSlotAndArmorAddonFiltersMatch() => Assert.Equal(6f, Cuirass().Weight, 3);
+    public void BipedSlotAndArmorAddonFiltersMatch()
+    {
+        var (armor, r) = Cuirass();
+        Assert.Equal(6f, armor.Weight, 3);
+        Assert.Equal(new[] { 1, 4 }, AppliedLines(r, "weight"));
+    }
 
     [Fact] // filterByArmorTypes heavy->HeavyArmor (damageResist=30)
-    public void AnArmorTypeFilterMatchesThroughItsValueMap() => Assert.Equal(30f, Cuirass().ArmorRating, 3);
+    public void AnArmorTypeFilterMatchesThroughItsValueMap() => Assert.Equal(30f, Cuirass().Armor.ArmorRating, 3);
 
-    static MagicEffect Mgef()
+    static (MagicEffect Mgef, SkyPatcherOverlay.SkyPatcherOverlayResult Result) Mgef()
     {
         var g = NewMod().MagicEffects.AddNew();
         g.EditorID = "HcMgef";
@@ -192,23 +215,33 @@ public sealed class SkyPatcherOverlayFilterTests
         g.HitShader.SetTo(new FormKey(new ModKey("HcShd", ModType.Plugin), 0xE01));
         var resolver = new StubResolver();
         resolver.Winners[g.FormKey] = "WinPatch.esp";
-        Apply(g, g.FormKey, g.EditorID, "magicEffect", "MagicEffect", resolver,
+        var r = Apply(g, g.FormKey, g.EditorID, "magicEffect", "MagicEffect", resolver,
             L(1, "modNamesLastOverriddenExcluded=WinPatch.esp:baseCost=9"),
             L(2, "modNamesLastOverriddenExcluded=Other.esp:baseCost=12"),
             L(3, "effectShadersExcluded=HcShd.esp|E01:spellmakingArea=3"),
             L(4, "effectShadersExcluded=HcShd.esp|E02:spellmakingArea=7"),
             L(5, "restrictToDetrimentalEffects=true:spellmakingCastingTime=2"));
-        return g;
+        return (g, r);
     }
 
     [Fact] // modNamesLastOverriddenExcluded YIELDS to the winning plugin (baseCost=12, never 9)
-    public void LastOverriddenExcludedYieldsToTheWinningPlugin() => Assert.Equal(12f, Mgef().BaseCost, 3);
+    public void LastOverriddenExcludedYieldsToTheWinningPlugin()
+    {
+        var (mgef, r) = Mgef();
+        Assert.Equal(12f, mgef.BaseCost, 3);
+        Assert.Equal(new[] { 2 }, AppliedLines(r, "baseCost"));
+    }
 
     [Fact] // effectShadersExcluded reads the attached shader (area=7, never 3)
-    public void EffectShadersExcludedReadsTheAttachedShader() => Assert.Equal(7u, Mgef().SpellmakingArea);
+    public void EffectShadersExcludedReadsTheAttachedShader()
+    {
+        var (mgef, r) = Mgef();
+        Assert.Equal(7u, mgef.SpellmakingArea);
+        Assert.Equal(new[] { 4 }, AppliedLines(r, "spellmakingArea"));
+    }
 
     [Fact] // restrictToDetrimentalEffects flagBool (castingTime=2)
-    public void RestrictToDetrimentalMatchesTheFlag() => Assert.Equal(2f, Mgef().SpellmakingCastingTime, 3);
+    public void RestrictToDetrimentalMatchesTheFlag() => Assert.Equal(2f, Mgef().Mgef.SpellmakingCastingTime, 3);
 
     [Fact] // cobj: ingredient + workbench + donor-keyword filters all matched (3 count sets, final 3)
     public void RecipeFiltersReadIngredientsWorkbenchAndTheCreatedObjectsKeywords()
@@ -236,11 +269,12 @@ public sealed class SkyPatcherOverlayFilterTests
         var cell = new Cell(new FormKey(new ModKey("HcSpOv", ModType.Plugin), 0xCE1), SkyrimRelease.SkyrimSE);
         cell.EditorID = "HcCell";
         cell.LightingTemplate.SetTo(new FormKey(new ModKey("Lux", ModType.Plugin), 0xC01));
-        Apply(cell, cell.FormKey, cell.EditorID, "cell", "Cell", new StubResolver(),
+        var r = Apply(cell, cell.FormKey, cell.EditorID, "cell", "Cell", new StubResolver(),
             L(1, "skipRecordByLightingTemplateFromMod=Lux.esp:fogNear=100"),
             L(2, "skipRecordByLightingTemplateFromMod=ELFX.esp:fogNear=200"),
             L(3, "skipRecordByModNameContains=HcSp:fogNear=300"));
         Assert.Equal(200f, cell.Lighting?.FogNear ?? 0, 3);
+        Assert.Equal(new[] { 2 }, AppliedLines(r, "fogNear"));
     }
 
     [Fact] // race substringLeaf: male skeleton path matched, absent female didn't (carryweight=150)
