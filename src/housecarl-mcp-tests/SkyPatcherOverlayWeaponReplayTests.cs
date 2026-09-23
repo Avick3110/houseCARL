@@ -93,7 +93,11 @@ public sealed class SkyPatcherOverlayWeaponReplayTests(SkyPatcherOverlayWeaponRe
     public void AnEditorIdPrimaryFilterMatches() => Assert.Contains(R.Applied, a => a.Op == "attackDamageToAdd");
 
     [Fact] // Excluded connective skips the record (value never 1)
-    public void AnExcludedFilterSkipsTheRecord() => Assert.Equal(777u, W.BasicStats!.Value);
+    public void AnExcludedFilterSkipsTheRecord()
+    {
+        Assert.Equal(777u, W.BasicStats!.Value);
+        Assert.DoesNotContain(R.Applied, a => a.File == "z.ini" && a.LineNumber == 16);
+    }
 
     [Fact] // hasPlugins gates the line (7 skipped, 777 applied)
     public void HasPluginsGatesTheLine() => Assert.Single(R.Applied, a => a.Op == "value");
@@ -115,6 +119,7 @@ public sealed class SkyPatcherOverlayWeaponReplayTests(SkyPatcherOverlayWeaponRe
     public void RestrictToSkillsEvaluatesAgainstTheRecord()
     {
         Assert.Equal(6f, W.Data!.Speed, 3);
+        Assert.Equal(new[] { 25 }, R.Applied.Where(a => a.Op == "speed").Select(a => a.LineNumber));
         Assert.DoesNotContain(R.Warnings, w => w.Contains("restrictToSkills") && w.Contains("UNRESOLVED"));
     }
 
