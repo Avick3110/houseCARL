@@ -141,8 +141,8 @@ hardened.
 - *The grammar*: `SkyPatcherParseProbe` (`skypatcher-parse-guard`) — a segment with no `=` or an empty key is noted
   and still surfaced, and a doubled `,` is noted and skipped.
 - *Addressing*: `SkyPatcherParseProbe` — a bare EditorID is left un-addressed, and the FormID side trims leading
-  zeros; `SkyPatcherOverlayWeaponReplayTests.AFullLoadIndexedEslFormIdMatchesTheRecord` (`FE000800`) — a full ESL
-  FormID keeps its 12-bit local id.
+  zeros; `SkyPatcherOverlayWeaponReplayTests.AFullEslFormIdWithANonZeroSlotKeepsOnlyTheLocalId` (`FE001800`) — a
+  full ESL FormID keeps its 12-bit local id.
 - *The per-type subfolder rule and the filename gate*: `SkyPatcherDiscoveryProbe` (`skypatcher-discovery-guard`) —
   the `0`→`z` relative-path order, `<Plugin>.esp.ini` gated and still inspectable, the `[Patcher]` toggle, a
   root-level INI and an undocumented subfolder each noted, loose-only, and the union with `ShadowedProviders`.
