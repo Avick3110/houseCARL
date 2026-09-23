@@ -328,7 +328,7 @@ public static class MergeServiceGuardProbe
                 // only ever detected the one literal the previous commit wrote: a reviewer quoted a REAL SkyPatcher
                 // spelling and they stayed green. An absence arm over an unbounded string space cannot fail
                 // meaningfully (the winnerTokenFree class). What keeps the sentence honest is the claim rule at its
-                // definition and WriteSurfaceGuardProbe's [MustState] walk; what this arm owes is that the render
+                // definition and WriteSurfaceTwinParityTests' [MustState] walk; what this arm owes is that the render
                 // actually carries it.
                 Check(rendered.Contains(WriteSentences.MergeRuntimeConfigs),
                     "WARN the runtime-config loss reaches user output, verbatim from the shared sentence");

@@ -399,7 +399,7 @@ public static class CopyServiceProbe
             // The third cause — a record a PREVIOUS call left in a patch reached through into= — is not reachable
             // end to end here: into= only accepts a patch houseCARL wrote, and a call that left an off-order link
             // in one would itself have been refused by this very check. Its sentence is pinned at the render level
-            // in write-surface-guard, and this comment is the record that its WIRE is not driven.
+            // in WriteSurfaceTwinParityTests, and this comment is the record that its WIRE is not driven.
 
             // ---- 7d. THE SHAPE CLASSIFIER — the four misbehaviours round 2 measured, as arms ----------------
             // Each of these was a site deciding the shape for itself off the runtime VALUE. Mutagen declares these

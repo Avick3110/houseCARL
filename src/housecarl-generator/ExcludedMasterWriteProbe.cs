@@ -20,7 +20,7 @@ namespace HousecarlGenerator;
 ///
 /// <para><b>Why its own probe.</b> The fixture cannot be shared. An unopenable plugin in the active order poisons
 /// every write in whatever order it sits in — which is exactly the bug, and is how this was found (it broke every
-/// unrelated arm of <c>write-surface-guard</c> when added there). So this order is built once, used only here, and
+/// unrelated arm of the old <c>write-surface-guard</c> probe when added there). So this order is built once, used only here, and
 /// deliberately contains the broken plugin.</para>
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator excluded-master-guard</c>

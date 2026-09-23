@@ -203,9 +203,8 @@ own lane can survive.
   member; `TheCensusDocumentSaysItOverranAndNamesTheCapThatClearsIt` and
   `TheNamedCounterCensusSaysItOverranAndNamesTheCapThatClearsIt` in the same class — the `counts_only=` census
   renderers take a cap.
-- *The read-back block*: `WriteSurfaceGuardProbe` (`src/housecarl-generator/WriteSurfaceGuardProbe.cs`, ci probe
-  `write-surface-guard`) — "json: an in-place lane that FORCED the read-back reports readback_full:true, ask kept
-  separately".
+- *The read-back block*: `WriteSurfaceInPlaceTransportTests.ForcedReadbackIsReportedFull` — "json: an in-place
+  lane that FORCED the read-back reports readback_full:true, ask kept separately".
 
 ## Where
 
