@@ -1052,32 +1052,25 @@ public sealed partial class LoadOrderService
         armStatement = "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
                      + (spec.Draft is null ? "" : $", with {spec.Draft.Arm}");
         // The replay context is built lazily once for the whole batch.
-        SkyPatcherFieldMap? fieldMap = null; SkyPatcherCatalog? catalog = null;
-        SkyPatcherDiscovery.LayerScan? scan = null; SkyrimMod? scratch = null;
-        SkyPatcherOverlay.IFormResolver? formResolver = null;
-        Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>? linesCache = null;
+        SkyPatcherReplay? replay = null;
         // Per-key memo: the scratch mod is shared across the reader's lifetime, so a repeated key's second replay
         // would re-apply every INI line onto the already-mutated copy.
         var postMemo = new Dictionary<FormKey, PoleReading>();
         string? setupError = null;
         void Setup()
         {
-            if (scan is not null || setupError is not null) return;
+            if (replay is not null || setupError is not null) return;
             try
             {
                 AssetResolver.AssetView assets;
                 lock (_gate) { assets = Assets.Capture(); }
-                fieldMap = SkyPatcherFieldMap.Load();
-                catalog = SkyPatcherCatalog.Load();
-                scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
+                var opened = OpenSkyPatcherReplay(assets, view, session);
                 if (spec.Draft is not null)
                 {
-                    scan = spec.Draft.Fold(scan, catalog, view.ContainsPlugin, out var draftRefusal, overlayWarnings);
-                    if (draftRefusal is not null) { scan = null; setupError = draftRefusal; return; }
+                    var draftRefusal = opened.FoldDraft(spec.Draft, overlayWarnings);
+                    if (draftRefusal is not null) { setupError = draftRefusal; return; }
                 }
-                scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
-                formResolver = new SkyPatcherServiceResolver(this, view, session);
-                linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
+                replay = opened;
             }
             catch (Exception ex)
             {
@@ -1097,7 +1090,7 @@ public sealed partial class LoadOrderService
             if (postMemo.TryGetValue(fk, out var memoized)) return memoized;
             Setup();
             if (setupError is not null) return new PoleReading(null, null, null, setupError);
-            var r = ReplaySkyPatcher(view, session, scan, catalog!, fieldMap!, scratch!, formResolver!, fk, linesCache);
+            var r = replay!.Replay(fk);
             CollectOverlayWarnings(r.Folders, overlayWarnings);
             if (r.Error is not null)
             {
@@ -1194,17 +1187,12 @@ public sealed partial class LoadOrderService
         var pin = new ViewPin(resolver, view);
         using var session = resolver.OpenSession();
 
-        SkyPatcherFieldMap fieldMap; SkyPatcherCatalog catalog; SkyPatcherDiscovery.LayerScan scan;
-        SkyrimMod scratch; SkyPatcherOverlay.IFormResolver formResolver;
+        SkyPatcherReplay replay;
         try
         {
             AssetResolver.AssetView assets;
             lock (_gate) { assets = Assets.Capture(); }
-            fieldMap = SkyPatcherFieldMap.Load();
-            catalog = SkyPatcherCatalog.Load();
-            scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
-            scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
-            formResolver = new SkyPatcherServiceResolver(this, view, session);
+            replay = OpenSkyPatcherReplay(assets, view, session);
         }
         catch (Exception ex)
         {
@@ -1214,10 +1202,9 @@ public sealed partial class LoadOrderService
         }
         if (draft is not null)
         {
-            scan = draft.Fold(scan, catalog, view.ContainsPlugin, out var draftRefusal, overlayWarnings);
+            var draftRefusal = replay.FoldDraft(draft, overlayWarnings);
             if (draftRefusal is not null) { refusal = draftRefusal; refusalEpoch = view.Stamp; return Array.Empty<ReadOutcome>(); }
         }
-        var linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
 
         // Per-batch replay memo: the scratch mod is shared, so a duplicated key's second replay would run every
         // INI line onto the already-mutated copy. One replay per key.
@@ -1239,7 +1226,7 @@ public sealed partial class LoadOrderService
                 replayMemo[fk] = miss; outcomes.Add(miss);
                 continue;
             }
-            var r = ReplaySkyPatcher(view, session, scan, catalog, fieldMap, scratch, formResolver, fk, linesCache);
+            var r = replay.Replay(fk);
             CollectOverlayWarnings(r.Folders, overlayWarnings);
             IMajorRecordGetter? bodyToRead = r.Copy;
             if (r.Error is not null)
