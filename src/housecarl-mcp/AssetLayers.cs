@@ -1384,11 +1384,4 @@ public sealed partial class LoadOrderService
         return false;                                                    // a volume or UNC path ⇒ one exact file (or archive) on disk
     }
 
-    /// <summary>Whole-order stats (forces the lazy build). A test seam: the probes warm the lazy index through it. No shipped caller.</summary>
-    public (int plugins, int records, int conflicts, int maxDepth, IReadOnlyList<string> loadFailures, string epoch) Stats()
-    {
-        var view = Resolver.Capture();          // one build for every counter in the line
-        return (view.PluginCount, view.RecordCount, view.ConflictCount, view.MaxDepth, view.LoadFailures, view.Epoch);
-    }
-
 }
