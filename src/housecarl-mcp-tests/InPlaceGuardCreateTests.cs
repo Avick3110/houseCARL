@@ -45,19 +45,23 @@ public sealed class InPlaceGuardCreateTests
     }
 
     // O cross-master reference adds the master (xEdit-parity serialize)
+    // Two referenced plugins, not one: Mutagen writes a lone master off the FormKey alone, so only a header it must
+    // SORT needs the serialize's master set, and one reference passes with that set emptied.
     [Fact]
-    public void AnInPlaceCreateReferencingAnotherPluginAddsItAsAMaster()
+    public void AnInPlaceCreateReferencingOtherPluginsAddsThemAsMasters()
     {
         var bare = Path.Combine(_w.NewDir(), "HcInPlaceBare.esp");
         new SkyrimMod(new ModKey("HcInPlaceBare", ModType.Plugin), SkyrimRelease.SkyrimSE)
             .BeginWrite.ToPath(bare).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        WriteRequest AddItem(string id) => new() { RecordType = "FormList", Path = new[] { "Items" }, Verb = "Add", Value = id };
         var o = Create(bare, "HcInPlaceBare.esp",
             new[] { new WritePatchBuilder.CreateSpec { RecordType = "FormList", EditorId = "HcIP_RefFlst",
-                Edits = new[] { new WriteRequest { RecordType = "FormList", Path = new[] { "Items" }, Verb = "Add", Value = _w.WeaponId } } } },
-            _w.MasterPath, bare);
+                Edits = new[] { AddItem(_w.WeaponId), AddItem($"{_w.HighKeyword.ID:X6}:{W.HighName}") } } },
+            _w.MasterPath, _w.HighPath, bare);
         Assert.True(o.Success, o.Error);
         Assert.True(o.InPlace);
         Assert.True(W.HasMaster(bare, W.MasterName));
+        Assert.True(W.HasMaster(bare, W.HighName));
     }
 
     // M nested under a FOREIGN parent works in place (parent overridden in + child)
