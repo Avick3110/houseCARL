@@ -141,9 +141,9 @@ prefix so a throwing lane and a returning lane can both use it.
 - *Re-entering an artifact*, error rows: pinned across `RecordsArtifactTests`' re-entry facts —
   `AMixedArtifactReEntersOnItsResolvedRowsWithNoWasItEditedMisdiagnosis` (error rows are skipped) and
   `AnAllErrorArtifactIsRefusedByItsRealCauseNeverByAccusingTheFile` (an all-error artifact refuses by its real cause).
-- *The atomic-write contract*: what the `atomic-commit-guard` probe (`AtomicCommitProbe`) pins is that the code takes
+- *The atomic-write contract*: what `AtomicCommitGuardTests` pins is that the code takes
   `File.Replace`'s path rather than `File.Move`'s — except on a host whose filesystem tunneling masks creation time,
-  where the probe says so and skips that sub-check — that a fresh target still lands, and that a pre- or mid-swap
+  where that test stops at its control — that a fresh target still lands, and that a pre- or mid-swap
   failure throws with the prior target byte-for-byte intact.
 - *The freshness stamp: last write plus size*: pinned by `FreshnessKeyTests` — an edit that leaves the mtime alone is
   still stale, the shared stamp separates two files that differ only in length, and one sentinel stands for a path

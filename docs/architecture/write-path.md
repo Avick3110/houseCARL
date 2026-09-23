@@ -354,7 +354,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   member is rendered by both lanes, and every outer `[MustState]` sentence reaches a render.
 - `formid-floor-guard` — the 0x800 floor before an allocation and the in-memory counter persisted verbatim by the
   serialize.
-- `atomic-commit-guard` arms A / B / C / C2 — the staged commit lands a fresh file, replaces an existing one
+- `AtomicCommitGuardTests` — the staged commit lands a fresh file, replaces an existing one
   byte-exact, and throws with the prior target intact when the source is missing or the target is held.
 - `localized-write-guard` — the in-place refusal over every arrangement, each named accurately, the plugin and its
   tables byte-untouched, and a destination that cannot be classified refusing rather than reading as not-localized.

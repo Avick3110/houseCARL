@@ -130,8 +130,8 @@ swallows the note turns a recoverable state into a silent loss.
   asserts the load comes back blank with a note naming the backup, that the backup is byte-identical, and that two
   `UserConfigStore` instances on one file — each with its own process-local gate, the way the two hosts share it —
   hammering different fields for 200 rounds each leave BOTH concerns' last values intact. The commit itself is
-  `AtomicFile.Commit`, pinned by `atomic-commit-guard` (`AtomicCommitProbe`), which names `UserConfig.Update` as one
-  of its three call sites; that guard is explicit that it proves the `File.Replace` path is taken, not
+  `AtomicFile.Commit`, pinned by `AtomicCommitGuardTests`, one of whose three call sites is `UserConfig.Update`;
+  those tests prove the `File.Replace` path is taken, not
   crash-atomicity across a power cut, which is not demonstrable in-process and is not claimed.
 
 ## Where

@@ -411,7 +411,7 @@ internal static class PlaceProbe
             // File.Move(overwrite) regression in PlaceOne (which resets it). HONEST residual: a regression to a plain
             // File.WriteAllBytes is NOT distinguishable in-process (it also preserves creation time and is also atomic for
             // non-crash writes) — only the crash window differs, which no in-process probe can observe (the same limit
-            // atomic-commit-guard states). This arm catches the File.Move regression + the stale-bytes false-success.
+            // AtomicCommitGuardTests states). This arm catches the File.Move regression + the stale-bytes false-success.
             Console.WriteLine();
             Console.WriteLine("--- H: service overwrite (into=) — NEW bytes, not stale; creation-time preserved (routes through AtomicFile) ---");
             {

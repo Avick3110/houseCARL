@@ -41,7 +41,7 @@ namespace HousecarlGenerator;
 /// materialize-write-back relies on — GenderedItem&lt;T&gt;.Male is settable; the named-from-null path materializes it).
 ///
 /// Self-contained: pure in-memory Mutagen records + the GENERATED corpus.json (built into a unique temp dir on a fresh
-/// checkout, exactly as formlink-null-guard / nullarm-guard do); no Skyrim.esm, no MO2.
+/// checkout, exactly as nullarm-guard does); no Skyrim.esm, no MO2.
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator gendered-nav-guard</c>
 /// </summary>

@@ -19,7 +19,7 @@ namespace HousecarlGenerator;
 /// <see cref="WriteEngine"/>.<c>EmptyFormLinkOf</c> — a FormLink-family property gets its EMPTY link (FormKey.Null),
 /// every other nullable scalar / substruct / polymorphic still gets <c>null</c> (EmptyFormLinkOf returns null for
 /// non-FormLink types). So Remove on a nullable FormLink is now identical to Set = "0" (the null-synonym clear that
-/// already worked — see formlink-null-guard). The non-FormLink half is unchanged and is guarded by
+/// already worked — see FormLinkNullGuardApplyTests). The non-FormLink half is unchanged and is guarded by
 /// substruct-nullable-clear-guard (nullable substruct / poly Remove), which rides the SAME ApplyScalarVerb line.
 ///
 /// RED-&gt;GREEN: the TEETH are R1/R1b (apply Remove on a nullable FormLink CLEARS it instead of throwing — RED
@@ -32,7 +32,7 @@ namespace HousecarlGenerator;
 /// for a caller that bypasses it).
 ///
 /// Self-contained: R1/R1b/R2 are pure in-memory Mutagen (no plugin file, no Skyrim.esm); the PRE-* checks use the
-/// GENERATED corpus.json (built into a unique temp dir on a fresh checkout, exactly as formlink-null-guard does).
+/// GENERATED corpus.json (built into a unique temp dir on a fresh checkout, exactly as nullarm-guard does).
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator formlink-remove-guard</c>
 /// </summary>
@@ -71,7 +71,7 @@ public static class FormLinkRemoveProbe
 
         // The three NPC FormLinks under test, verified against the runtime schema (NOT assumed):
         //   HeadTexture — IFormLinkNullable<ITextureSetGetter>  (nullable) — the report's EXACT field (WNAM)
-        //   DeathItem   — IFormLinkNullable<ILeveledItemGetter> (nullable) — the formlink-null-guard sibling
+        //   DeathItem   — IFormLinkNullable<ILeveledItemGetter> (nullable) — the FormLinkNullGuardApplyTests sibling
         //   Race        — IFormLink<IRaceGetter>                (REQUIRED) — the pre-flight refusal control
         // Assert that nullability at RUNTIME so a Mutagen reshape that flips any of them can't pass green silently.
         Check("S0: test fields have the expected nullability (HeadTexture + DeathItem nullable, Race required)",
