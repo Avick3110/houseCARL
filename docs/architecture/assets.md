@@ -293,7 +293,8 @@ a miss, stating that form is not provided either; the generic lane does not, bec
 `AssetLinkHarvest.cs` are the two selectors; `AssetPathHint.cs` is the root-prefix hint; `VoicePath.cs` and
 `VoiceCheck.cs` are the voice paths; `AssetRenameService.cs` is the renumber carry; `BsaArchive.cs` lists, unpacks and
 packs. `src/housecarl-mcp/AssetLayers.cs` is the service lane over all of it, `ModsPathAddress.cs` refuses a raw mods
-path, and `AssetArtifact.cs` is `asset_status`'s `to_file=` artifact, and `AssetResults.cs` holds the records the lanes return. The tool fronts are `AssetTools.cs`,
-`PlaceTools.cs`, `BsaTools.cs`, `NifTools.cs`, `SkseTools.cs` and `SkyPatcherTools.cs`. Tools:
+path, and `AssetArtifact.cs` is `asset_status`'s `to_file=` artifact. `AssetResults.cs` holds the records the lanes
+return. The tool fronts are `AssetTools.cs`, `PlaceTools.cs`, `BsaTools.cs`, `NifTools.cs`, `SkseTools.cs` and
+`SkyPatcherTools.cs`. Tools:
 `housecarl_asset_status`, `housecarl_place`, `housecarl_bsa_list`, `housecarl_bsa_extract`, `housecarl_bsa_repack`,
 `housecarl_nif_inspect`, `housecarl_nif_set`, `housecarl_skse`, `housecarl_skypatcher_layer`.

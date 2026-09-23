@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-23
-covers: [src/housecarl-core/NifService.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/AssetLayers.cs]
+covers: [src/housecarl-core/NifService.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs]
 ---
 # The NIF layer: reading mesh values, and the two write gates
 
