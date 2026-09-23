@@ -38,7 +38,7 @@ namespace HousecarlGenerator;
 ///
 /// Self-contained: the apply / serialize arms are pure in-memory Mutagen (no plugin file, no Skyrim.esm — the
 /// "0001F4:Skyrim.esm" target is a FormKey value, never resolved); the pre-flight arms use the GENERATED corpus.json
-/// (built into a unique temp dir on a fresh checkout, exactly as nullarm-guard / formlink-null-guard do).
+/// (built into a unique temp dir on a fresh checkout, exactly as nullarm-guard does).
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator floi-fields-guard</c>
 /// </summary>
