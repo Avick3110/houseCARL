@@ -16,6 +16,15 @@ public sealed class DescriptionVocabularyScanTests
             Assert.True(r.Ok, r.Label + "\n  - " + string.Join("\n  - ", r.Detail.Take(20)));
     }
 
+    // Every check the scan records passes, including INV2 (every declared exemption still fires) and any added later.
+    [Fact]
+    public void EveryRecordedCheckPasses()
+    {
+        var failed = DescriptionVocabularyScan.All.Where(r => !r.Ok)
+            .Select(r => r.Label + "\n  - " + string.Join("\n  - ", r.Detail.Take(20))).ToList();
+        Assert.True(failed.Count == 0, string.Join("\n", failed));
+    }
+
     // ---- the two-reader net over the shipped source ----
 
     // GREEN-LINEBREAK: every run a Line call already closed stayed two sentences.

@@ -119,7 +119,7 @@ public sealed class PluginValidateFrontmatterTests
     /// CRLF and a leading BOM are normalized, as the harness reads them.</summary>
     static string? ExtractFrontmatter(string content)
     {
-        var text = content.Replace("\r\n", "\n").Replace('\r', '\n').TrimStart('﻿');
+        var text = content.Replace("\r\n", "\n").Replace('\r', '\n').TrimStart('\uFEFF');
         if (text != "---" && !text.StartsWith("---\n", StringComparison.Ordinal)) return null;
         var nl = text.IndexOf('\n');
         if (nl < 0) return null;
