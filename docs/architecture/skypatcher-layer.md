@@ -6,12 +6,6 @@ covers: [src/housecarl-core/SkyPatcherParse.cs, src/housecarl-core/SkyPatcherCat
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by the generator probes
-`skypatcher-parse-guard`, `skypatcher-catalog-guard`, `skypatcher-fieldmap-guard`,
-`skypatcher-discovery-guard`, `skypatcher-overlay-guard` and `skypatcher-conflicts-guard`, and by
-`SkyPatcherLayerFilterTests`, `SkyPatcherWarningSinkTests` and `RecordsSkyPatcherDraftTests` in
-`src/housecarl-mcp-tests`.
-
 SkyPatcher is a runtime record patcher: it edits Bethesda records from INI files at load, so a
 plugin read alone does not say what the game sees. houseCARL reads that layer in four tiers, each
 of which only knows its own job — tokenizer, catalog, field map, overlay. The tokenizer is pure
@@ -140,18 +134,23 @@ hardened.
 - *Contracts*, the catalog paragraph: `SkyPatcherCatalogProbe` (ci probe `skypatcher-catalog-guard`) — an unknown key
   is Unknown, never assumed, and `CrossCheckRouterTable` holds the record dimension against the skill's router table.
 - *Contracts*, the field-map paragraph: `SkyPatcherFieldMapProbe` (`skypatcher-fieldmap-guard`) — every path walked
-  and every value target parsed against the real Mutagen types, with its self-test arms catching a bad path, a bad
-  target, a mapped HARD op and a stateful-shape disagreement.
+  and every value target parsed against the real Mutagen types, with self-test arms catching a bad path and a bad
+  value target. Its stateful-shape arm checks that the catalog's op shape and the map's semantic agree on being
+  stateful; that is not the paragraph's leaf-type check, and the stateful-numeric-on-a-non-numeric-leaf, flags-on-a-non-enum
+  and dict-on-a-non-dict checks have no self-test arm.
 - *The grammar*: `SkyPatcherParseProbe` (`skypatcher-parse-guard`) — a segment with no `=` or an empty key is noted
   and still surfaced, and a doubled `,` is noted and skipped.
 - *Addressing*: `SkyPatcherParseProbe` — a bare EditorID is left un-addressed, and the FormID side trims leading
-  zeros.
+  zeros; `SkyPatcherOverlayProbe`'s load-indexed ESL FormID arm (`FE000800`) — a full ESL FormID keeps its 12-bit
+  local id.
 - *The per-type subfolder rule and the filename gate*: `SkyPatcherDiscoveryProbe` (`skypatcher-discovery-guard`) —
   the `0`→`z` relative-path order, `<Plugin>.esp.ini` gated and still inspectable, the `[Patcher]` toggle, a
   root-level INI and an undocumented subfolder each noted, loose-only, and the union with `ShadowedProviders`.
 - *How the overlay replays onto a record*: `SkyPatcherOverlayProbe` (`skypatcher-overlay-guard`) — the stateful
-  apply-order replay, an unknown key poisoning the whole line, an unmapped filter skipping the line loud, a HARD op
-  coming back as a directive, and a load-indexed ESL FormID matching.
+  apply-order replay, an unknown key poisoning the whole line, an unmapped filter skipping the line loud, and a HARD
+  op coming back as a directive.
+- *How the overlay replays onto a record*: `SkyPatcherFieldMapProbe`'s mapped-HARD-op self-test arm — CI rejects a
+  HARD op that acquires a mapping.
 - *Reports and drafts*: `SkyPatcherConflictsProbe` (`skypatcher-conflicts-guard`) — SET collisions with the later
   file winning, accumulating ops not conflicts, and the ITM classes.
 - *Reports and drafts*: `RecordsSkyPatcherDraftTests.ADraftThatSetsALeafIsReadInThePostState` — a draft is folded into

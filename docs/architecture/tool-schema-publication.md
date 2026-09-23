@@ -6,12 +6,6 @@ covers: [src/housecarl-mcp/ToolSchemas.cs, src/housecarl-mcp/NestedSchemaConstra
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by
-`PublishedSchemaShapeTests`, `PublishedNestedConstraintTests` and `PublishedSchemaDepthTests` in `src/housecarl-mcp-tests`
-(the real published surface) and `schema-flatten-guard` (the flattening mechanism, over synthetic
-documents for the shapes the real surface cannot produce, and over the real pre-flatten surface
-for the emission grammar and the strict reader).
-
 houseCARL's MCP tools are discovered by an assembly scan, and the SDK generates each tool's
 `inputSchema` from its C# method signature. Three things that generator cannot get right on its
 own are corrected once, at registration, before anything is served, and a fourth pass cuts the
@@ -93,10 +87,8 @@ Schema `$ref` implementation and must not be reused as one: it reads a `$ref` as
 wherever one appears, which holds for generator output and not for JSON Schema at large. Plain-name
 `$anchor` fragments, percent-encoded and empty reference tokens, boolean schemas as a pointer
 target, a `$ref`-shaped value under `default`/`enum`, and 2020-12's rule that `$ref` siblings apply
-*in addition* to the target (this merge lets them override) are all outside what it handles. The
-emission grammar it depends on is asserted by `schema-flatten-guard`, so a generator that drifts on
-an SDK bump reddens there rather than at a user's server start. Widen the handling before widening
-the input.
+*in addition* to the target (this merge lets them override) are all outside what it handles. Widen the
+handling before widening the input.
 
 A `$ref` the pass does **not** handle is left exactly as it is — a pointer that resolves
 nowhere, and equally a form that is not a same-document pointer at all (a plain-name anchor, a
@@ -163,7 +155,7 @@ the same rulebook switch an op is, which accepts all eight — so nothing backs 
 
 ### Pass 4 — the optional depth cut (`HOUSECARL_MAX_SCHEMA_DEPTH`)
 
-`src/housecarl-mcp/SchemaDepthCap.cs`, pinned by `PublishedSchemaDepthTests`. **Unset — the default —
+**Unset — the default —
 it does nothing, and the published schemas are byte for byte what the three passes above leave.** The
 variable is spelled the way houseCARL's others are (`HOUSECARL_DATA_DIR`, and the installer's
 `HOUSECARL_SETUP_HOME`).
@@ -228,22 +220,25 @@ schemas; two entries split them.
   — the invariant, with a predicate wider than the pass's own gate; `EveryRecursiveSiteExpandsExactlyOneLevelBeforeClosing`
   and `EveryRecursiveSiteClosesOnAnOpenNodeSayingNestingContinues` in the same class — a cycle is expanded a bounded
   number of times and closed with an open node.
-- *Pass 2 — no `$ref` in a published schema*: `SchemaFlattenProbe` (ci probe `schema-flatten-guard`) — `$defs` is
-  dropped once nothing refers to it (arm 2); a `$ref` the pass does not handle is left as it is, and a non-string one
-  does not throw (arm 5); the emission grammar over the real pre-flatten surface (arm 7).
+- *Pass 2 — no `$ref` in a published schema*: the emission grammar it depends on is asserted by
+  `schema-flatten-guard` (`SchemaFlattenProbe`, arm 7), so a generator that drifts on an SDK bump reddens there rather
+  than at a user's server start. The same probe: `$defs` is dropped once nothing refers to it (arm 2); a `$ref` the
+  pass does not handle is left as it is, and a non-string one does not throw (arm 5).
 - *Pass 3 — `required` and `enum` inside a parameter*:
   `PublishedNestedConstraintTests.EveryPublishedOccurrenceOfAMarkedShapeCarriesItsRequiredAndEnum` — every expanded
-  copy of a marked shape carries its stamps; `EveryMemberWithAClosedValueSetPublishesATypeAdmittingNull` in the same
-  class — a nullable member's `enum` carries `null`.
-- *Pass 4 — the optional depth cut*: `PublishedSchemaDepthTests.WithTheVariableUnsetTheCutChangesNoPublishedSchemaByAByte`
-  — unset, it does nothing; `EveryPublishedSchemaFitsTheConfiguredDepth` — every schema is cut to the cap;
+  copy of a marked shape carries its `required` and `enum`, and a member whose type admits null carries `null` in its
+  `enum`; `EveryMemberWithAClosedValueSetPublishesATypeAdmittingNull` — a closed-set member's published type admits
+  null; `NoRequiredMemberPublishesANullableType` — a required member's type loses its null arm (all in the same
+  class).
+- *Pass 4 — the optional depth cut*: `src/housecarl-mcp/SchemaDepthCap.cs`, pinned by `PublishedSchemaDepthTests`:
+  `WithTheVariableUnsetTheCutChangesNoPublishedSchemaByAByte` — unset, it does nothing;
+  `EveryPublishedSchemaFitsTheConfiguredDepth` — every schema is cut to the cap;
   `EveryCutSchemaIsStillAValidSchemaDocument` — a dictionary is never replaced by a terminator;
   `ACutNodeSaysTheShapeIsNotInThisDocumentAndTheBoundsWordingIsGone` — the cut's own clause;
   `ACallNestedDeeperThanTheCutStillReachesTheToolBody` — `tools/call` is untouched;
   `AtTheShallowestCapEveryParameterStillPublishesTheTypeItPublishedUncut` and
   `AtTheShallowestCapAMissingRequiredParameterIsStillRefusedByName` — the floor of 4;
-  `AnInvalidDepthIsRefusedAtStartupInOneSentence` — a value below the floor refuses the server's start (all in the
-  same class).
+  `AnInvalidDepthIsRefusedAtStartupInOneSentence` — a value below the floor refuses the server's start.
 
 ## Where
 

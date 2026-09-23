@@ -6,12 +6,6 @@ covers: [src/housecarl-core/Mo2Instance.cs, src/housecarl-core/Mo2LoadOrder.cs, 
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by the
-generator probes `mo2instance-probe` (the root derivation), `overwrite-resolve-guard` (the priority
-model), `mo2-modmeta-guard` (the `meta.ini` read), `tool-bridge` (the config file) and
-`atomic-commit-guard` (its commit), and by `Mo2IniEscapeTests`, `ProfileRewriteTests` and
-`MasterSplitInstallLocationsTests` in `src/housecarl-mcp-tests`.
-
 houseCARL reads a live MO2 portable instance off disk — never through the USVFS or a live
 `IOrganizer`. A subprocess-spawned server does not inherit MO2's VFS (only MO2's own Executables
 launch does, and that locks MO2), so the instance's ini and the three profile text files are the
@@ -115,21 +109,14 @@ other saved setting is recoverable only from `.corrupt.bak`. The loudness is wha
 survivable — `Load` and `Update` both return the note naming the backup — so a caller that
 swallows the note turns a recoverable state into a silent loss.
 
-All four are pinned. `tool-bridge` writes a corrupt file and asserts the load comes back blank with
-a note naming the backup, that the backup is byte-identical, and that two `UserConfigStore`
-instances on one file — each with its own process-local gate, the way the two hosts share it —
-hammering different fields for 200 rounds each leave BOTH concerns' last values intact. The commit
-itself is `AtomicFile.Commit`, pinned by `atomic-commit-guard`, which names `UserConfig.Update` as
-one of its three call sites; that guard is explicit that it proves the `File.Replace` path is taken,
-not crash-atomicity across a power cut, which is not demonstrable in-process and is not claimed.
-
 ## Pinned by
 
 - *The priority model*: `OverwriteResolveProbe` (ci probe `overwrite-resolve-guard`) — a plugin in overwrite resolves
   there and beats the same filename in an enabled mod; a genuinely missing plugin warns, naming only the places
   searched.
 - *The priority model*: `MasterSplitInstallLocationsTests.TheSplitFilesEachMasterByWhichInstallLayerHoldsItsFile` —
-  the install split covers the same places a locate searches, all five layers.
+  `AllPluginFileNames` walks all five layers. No test calls `LocatePlugin`, so that the two draw from the same places
+  rests on their shared `CandidateFolders`, not on an assertion.
 - *Deriving the roots from one path*: `Mo2InstanceProbe` (`mo2instance-probe`) — the roots and the active profile
   derived from the instance folder, the `base_directory` override, and a missing required piece named rather than
   half-derived.
@@ -139,9 +126,13 @@ not crash-atomicity across a power cut, which is not demonstrable in-process and
   and a value with a lone backslash left as it stands (`HandWrittenPathsAreLeftAlone`).
 - *The Qt/QSettings value grammar*: `Mo2ModMetaProbe` (`mo2-modmeta-guard`) — the `[General]` Nexus cache fields read
   raw, and the `[installedFiles]` file ids.
-- *houseCARL's own config file*: `ToolBridgeProbe` (`tool-bridge`) — a corrupt file loads blank with a note naming a
-  byte-identical backup, and two stores on one file keep both concerns' last values; `AtomicCommitProbe`
-  (`atomic-commit-guard`) — the commit takes `File.Replace`'s path.
+- *houseCARL's own config file*: all four are pinned. `tool-bridge` (`ToolBridgeProbe`) writes a corrupt file and
+  asserts the load comes back blank with a note naming the backup, that the backup is byte-identical, and that two
+  `UserConfigStore` instances on one file — each with its own process-local gate, the way the two hosts share it —
+  hammering different fields for 200 rounds each leave BOTH concerns' last values intact. The commit itself is
+  `AtomicFile.Commit`, pinned by `atomic-commit-guard` (`AtomicCommitProbe`), which names `UserConfig.Update` as one
+  of its three call sites; that guard is explicit that it proves the `File.Replace` path is taken, not
+  crash-atomicity across a power cut, which is not demonstrable in-process and is not claimed.
 
 ## Where
 

@@ -6,8 +6,6 @@ covers: [src/housecarl-core/CorpusRulebook.cs, src/housecarl-core/WriteEngine.cs
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above.
-
 The rulebook is the write surface's pre-flight: every write is validated against the generated schema before any
 Mutagen mutation. This file is the home of the contracts that hold it, cited from the code under ADR 0001.
 
@@ -154,7 +152,21 @@ A literal FormID mixed in beside siblings IS type-checked; a sibling is not, bec
 
 ## Pinned by
 
-Nothing pins this note today.
+- *Over-arms search: agree in shape, or refuse by name*: `SameShapeAgreeProbe` (ci probe `sameshape-agree-guard`) —
+  `float` and `float?` agree (`APerkEffect.Value`, check A, and the synthetic E2), every genuine difference still
+  rejects (C, D, and E1 on the underlying CLR type), and apply takes what pre-flight admitted (Apply-1).
+- *The FormLink target-type gate*: `FormLinkTargetTypeTests.ASingularLinkToTheWrongRecordTypeIsRefused`,
+  `AListElementLinkToTheWrongRecordTypeIsRefused` and `AComposedStructFieldLinkToTheWrongRecordTypeIsRefused` — a
+  link to a record of the wrong type is refused; `ALinkThatAcceptsAnyRecordIsNotRefused` — a link that accepts any
+  record is never refused; `AnUnresolvableTargetIsNotTypeChecked` — an unresolvable FormID is not type-checked;
+  `RemovingALinkByValueIsNotTypeChecked` — `Remove` is exempt (all in the same class).
+- *The harvest pass and the checking pass are one walk*: `LinkHarvestSkipTests.ALinkFreeWriteGetsTheSameVerdictFromBothWalks`
+  and `ALinkFreeRefusalIsTheSameSentenceFromBothWalks` — a write that contributed nothing to the sink keeps the
+  harvest's verdict, which is the checking walk's; `AFormLinkWriteContributesItsValue` — a write that sets a link
+  contributes; `ASameCallSiblingReferenceContributesToo` — a same-call `@editorid` goes into the sink (all in the
+  same class).
+- *`@editorid`: where a same-call reference is legal*: `FormLinkTargetTypeTests.ALiteralBesideASameCallSiblingIsTypeChecked`
+  — a literal FormID beside a sibling is type-checked, the sibling is not.
 
 ## Where
 

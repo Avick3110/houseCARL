@@ -6,17 +6,14 @@ covers: [src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/OwnedChildCon
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `RecordsOwnedChildTests` (`src/housecarl-mcp-tests`) and `OwnedChildContentProbe`
-(`src/housecarl-generator`).
-
-## Contracts
-
-### What a read of a child-bearing field answers
-
 A child-bearing field (a cell's `Persistent`/`Temporary`, a topic's `Responses`, a worldspace's `SubCells`) is
 declared per plugin and assembled by the game from every declarer. An override that touches the parent for an
 unrelated reason (occlusion, lighting) carries none and deletes none, so reading it reports an empty collection
 the game fills — the #342 bug.
+
+## Contracts
+
+### What a read of a child-bearing field answers
 
 So a read states two quantities, and they are not the same:
 
@@ -98,8 +95,7 @@ session for the call and hand it down. On the synthetic above, the 200-cell `for
 
 The remaining second is the per-toucher body walk itself, which is the thing the caller asked for. Opens scale
 with the ORDER's plugin count now instead of with rows, which is what makes the real-order shape — more
-touchers, bigger plugins — cost more only in the walk. `RecordsOwnedChildTests` pins the count via
-`LoadOrderResolver.SessionOverlayOpens`; nothing else reads it.
+touchers, bigger plugins — cost more only in the walk.
 
 ### The tree form still names WHICH
 
@@ -205,13 +201,16 @@ grammar guard that harvests one rendered notice covers the wording of all of the
 - *Which lanes assemble it*: `RecordsOwnedChildTests.AScanStatesTheIndexOnlyNote_NotTheUnionItWouldPayPerRowFor` and
   `AScansClauseIsTheIndexOnlyOneAndNamesTheFormidsLane` — a scan annotates with the index-only note and names the
   formids lane; `TheSameCellNamedByFormidIsUnioned` — the formids lane assembles the union.
-- *One overlay cache per call, not per record*: `RecordsOwnedChildTests.ABatchOpensEachPluginOnce_NotOncePerRecordItUnions`
-  — the open count, read through `LoadOrderResolver.SessionOverlayOpens`.
+- *One overlay cache per call, not per record*: `RecordsOwnedChildTests` pins the count via
+  `LoadOrderResolver.SessionOverlayOpens`; nothing else reads it
+  (`ABatchOpensEachPluginOnce_NotOncePerRecordItUnions`).
 - *The tree form still names WHICH*: `RecordsOwnedChildTests.ThePreciseTierNamesEveryProviderDeclaringInACollectionField`
   — per-provider declaration on the tree form.
 - *The negative is a sentence, not silence*: `RecordsOwnedChildTests.AFieldNoProviderDeclaresInGetsTheNoneSentence_NeverSilence`;
-  `OwnedChildContentProbe`'s UNREADABLE and SENTENCE arms — `DeclaresChild` answers null, never false, for "could
-  not look", and "nobody declares" never absorbs a body that could not be read.
+  `OwnedChildContentProbe`'s SENTENCE arms — "nobody declares" never absorbs a body that could not be read; its
+  UNREADABLE arm — `DeclaresChild` answers null, never false, for a field the body does not have. The other null
+  cases the section lists (a body that would not read, an unknown container shape, the depth tripwire) are not run
+  by any test.
 - *Two shapes*: `RecordsOwnedChildTests.ASingularChildFieldIsCountedNotNamed` — a SINGULAR field's line is a count;
   `OwnedChildContentProbe`'s SENTENCE arms — the collection note caps its names.
 - *The unit a count is in*: `RecordsOwnedChildTests.ANestedFieldsNoteNamesItsUnit_TheValueCountsContainersAndTheUnionCountsRecords`
