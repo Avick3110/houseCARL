@@ -136,22 +136,16 @@ public static class CiAll
     public static IReadOnlyList<(string Name, Type Host)> RosterIn(IReadOnlyList<Assembly> assemblies) =>
         Discover(assemblies).Select(e => (e.Name, e.Host)).ToArray();
 
-    /// <summary>Each roster verb with the type hosting its entry point.</summary>
-    public static IReadOnlyList<(string Name, Type Host)> ProbeHosts =>
-        _probeHosts ??= All().Select(e => (e.Name, e.Host)).ToArray();
-
-    static (string Name, Type Host)[]? _probeHosts;
-
     /// <summary>Every CI probe's name, for the unknown-mode refusal's list and did-you-mean (Program.cs).
     /// Sorted by name — the order <c>ci-all</c> runs them in.</summary>
-    public static IReadOnlyList<string> ProbeNames => _probeNames ??= ProbeHosts.Select(p => p.Name).ToArray();
+    public static IReadOnlyList<string> ProbeNames => _probeNames ??= All().Select(e => e.Name).ToArray();
 
     static string[]? _probeNames;
 
     /// <summary>
-    /// Dispatch a single CI guard by name. Program.cs routes local single-probe runs
-    /// here rather than keeping a parallel if-chain that could drift out of sync with what CI runs. Returns
-    /// false if the name is not a guard verb; the caller then tries its own manual/exploratory dispatches.
+    /// Dispatch a single CI guard by name. Program.cs routes local single-probe runs here rather than keeping a
+    /// parallel if-chain that could drift out of sync with what CI runs. Returns false if the name is not a
+    /// guard verb; the caller then tries its own manual/exploratory dispatches.
     /// </summary>
     public static bool TryDispatch(string name, string[] args, out int rc)
     {
