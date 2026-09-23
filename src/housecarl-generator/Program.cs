@@ -14,9 +14,8 @@ using HousecarlGenerator;
 // reflected once via CorpusGenerator's memoize, instead of once per probe. See CiAll.
 if (args.Length > 0 && args[0] == "ci-all") return CiAll.RunAll(args[1..]);
 
-// Single-probe runs of any CI guard dispatch through the reflected [CiProbe] set, so a
-// guard cannot be runnable locally yet missing from the CI run. Only the manual/exploratory probes below keep
-// their own explicit dispatch.
+// Single-probe runs of any CI guard dispatch through the reflected [CiProbe] set, so a guard cannot be runnable
+// locally yet missing from the CI run. Only the manual/exploratory probes below keep their own explicit dispatch.
 if (args.Length > 0 && CiAll.TryDispatch(args[0], args[1..], out var ciRc)) return ciRc;
 
 // #459 measurement: is the containing parent in hand during the flat index walk, and what does a containment-aware
@@ -255,12 +254,11 @@ if (args.Length > 0 && !IsDirectoryArgument(args[0]))
     Console.Error.WriteLine($"unknown mode '{args[0]}' — nothing was generated and nothing was written.");
     // TrimStart, then skip an EMPTY suggestion entirely: DidYouMean returns "" when nothing is close, and a blank
     // line above the mode list reads like a truncated message.
-    var guardVerbs = CiAll.ProbeNames;
-    if (HousecarlCore.PluginNameSuggest.DidYouMean(args[0], guardVerbs).TrimStart(' ') is { Length: > 0 } near)
+    if (HousecarlCore.PluginNameSuggest.DidYouMean(args[0], CiAll.ProbeNames).TrimStart(' ') is { Length: > 0 } near)
         Console.Error.WriteLine(near);
     Console.Error.WriteLine();
     Console.Error.WriteLine("CI guards (`ci-all` runs them all):");
-    foreach (var name in guardVerbs)
+    foreach (var name in CiAll.ProbeNames)
         Console.Error.WriteLine("  " + name);
     Console.Error.WriteLine();
     Console.Error.WriteLine("Other modes are the manual/exploratory harnesses declared in src/housecarl-generator/Program.cs");
