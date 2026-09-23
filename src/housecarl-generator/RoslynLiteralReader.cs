@@ -7,7 +7,7 @@ namespace HousecarlGenerator;
 /// <summary>
 /// READER A — the C# compiler's own tokenizer, asked what string literals a file contains.
 ///
-/// <para><b>Why the compiler rather than a hand lexer here.</b> <c>description-vocab-guard</c>'s net is "every
+/// <para><b>Why the compiler rather than a hand lexer here.</b> <c>DescriptionVocabularyScanTests</c>'s net is "every
 /// string literal in the shipped source trees", and the set of string literals in a C# file is not a matter of
 /// opinion — it is what the compiler decides. Roslyn IS that decision, so this reader cannot disagree with the
 /// build about what a literal is, what an escape decodes to, or where an interpolation hole begins.</para>

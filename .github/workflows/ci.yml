@@ -98,7 +98,7 @@ jobs:
 
       # The real `claude plugin validate --strict`, on the real assembled plugin tree. This is the
       # validator the harness ships, so it is the only check that agrees with the harness by
-      # construction; the plugin-validate-guard probe above is a YAML proxy for it. The version is
+      # construction; PluginValidateFrontmatterTests in the suite is a YAML proxy for it. The version is
       # pinned so a CLI release cannot turn this step red on its own. `validate` reads files and
       # exits — it needs no API key and no login.
       - name: Set up Node 22

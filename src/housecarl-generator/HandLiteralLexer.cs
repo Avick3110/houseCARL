@@ -6,7 +6,7 @@ namespace HousecarlGenerator;
 /// READER B — a second, independent statement of "what string literals does this C# file contain", written from
 /// the language's lexical grammar rather than derived from <see cref="RoslynLiteralReader"/>.
 ///
-/// <para><b>Why a second reader exists.</b> <c>description-vocab-guard</c> claims its net is every shipped
+/// <para><b>Why a second reader exists.</b> <c>DescriptionVocabularyScanTests</c> claims its net is every shipped
 /// literal, and a completeness claim checked by the machinery it certifies proves nothing. So this file must be a
 /// SECOND SPELLING that can disagree with Roslyn: <c>INV6-AGREE</c> holds the two literal sets against each other
 /// per file, and a reader that stops early, mis-decodes an escape, or misses a literal inside an interpolation

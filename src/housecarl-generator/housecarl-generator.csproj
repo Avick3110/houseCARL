@@ -14,7 +14,7 @@
     <!-- Reflection target. Pinned to match housecarl-mcp and housecarl-core; the three move together on a bump. -->
     <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.54.4" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
-    <!-- The C# parser, for description-vocab-guard's READER A (#386). The guard's net is "every string literal in
+    <!-- The C# parser, for DescriptionVocabularyScanTests' READER A (in housecarl-mcp-tests) (#386). The guard's net is "every string literal in
          the shipped source trees", and what counts as a literal is the compiler's decision, not a matter of
          opinion — two hand-written designs of that guard were measured green over prose their own lexers could not
          see. Roslyn is that decision, and HandLiteralLexer is the independent second spelling its output is held
