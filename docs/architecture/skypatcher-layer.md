@@ -1,8 +1,10 @@
 ---
-updated: 2026-09-18
+updated: 2026-09-23
 covers: [src/housecarl-core/SkyPatcherParse.cs, src/housecarl-core/SkyPatcherCatalog.cs, src/housecarl-core/SkyPatcherFieldMap.cs, src/housecarl-core/SkyPatcherDiscovery.cs, src/housecarl-core/SkyPatcherOverlay.cs, src/housecarl-core/SkyPatcherConflicts.cs, src/housecarl-core/SkyPatcherDraft.cs, src/housecarl-mcp/SkyPatcherTools.cs]
 ---
 # The SkyPatcher layer
+
+## What it is
 
 **Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by the generator probes
 `skypatcher-parse-guard`, `skypatcher-catalog-guard`, `skypatcher-fieldmap-guard`,
@@ -14,6 +16,8 @@ SkyPatcher is a runtime record patcher: it edits Bethesda records from INI files
 plugin read alone does not say what the game sees. houseCARL reads that layer in four tiers, each
 of which only knows its own job — tokenizer, catalog, field map, overlay. The tokenizer is pure
 grammar and cannot drift when the hand-modeled catalog changes.
+
+## Contracts
 
 **The catalog is transcribed, never invented.** It is the full enumeration of every documented
 filter and operation per record type, taken from the bundled `skypatcher-authoring` reference, and
@@ -31,7 +35,7 @@ types) and parses every `ValueMap` target against the real leaf enum, and reject
 op on a non-numeric leaf, a flags op on a non-enum, and a dict op on a non-dict. A typo'd path or
 enum member cannot survive CI; only a semantically-wrong-but-existing field can.
 
-## The grammar
+### The grammar
 
 ```
 line         := ';' comment | blank | patch | '[' label ']'
@@ -50,7 +54,7 @@ a segment. An empty `:`-segment or `,`-item (a stray or doubled delimiter) is no
 **skipped**, contributing nothing. So `filterByNpcs=X::level=5` yields a `Note` plus **two**
 segments, not three, and the segment count of a noted line cannot be used to count delimiters.
 
-## Addressing: `Plugin.esp|FormID`
+### Addressing: `Plugin.esp|FormID`
 
 The tokenizer resolves only the unambiguous `Plugin.esp|FormID` form. A bare identifier is left
 un-addressed, because an EditorID (`filterByWeapons=IronSword`) and an enum scalar
@@ -62,7 +66,7 @@ The FormID side is hex with trimmable leading zeros. A full load-indexed ESL For
 keeps only its 12-bit local id; anything else keeps the low 24 bits. That normalization lives in
 `FormIdRange`, shared with the SKSE config audit, because getting it wrong inverts every verdict.
 
-## The per-type subfolder rule and the filename gate
+### The per-type subfolder rule and the filename gate
 
 INIs live under `Data/SKSE/Plugins/SkyPatcher/<type>/`. The first path component under the root is
 the record type; deeper nesting is organisation only. An INI sitting directly in the root is listed
@@ -84,7 +88,7 @@ Two further discovery contracts: the layer is **loose-only** (an INI resolving o
 INI applies, and the VFS winner rule collapses only two mods shipping the *identical* relative
 path, which is surfaced per file as `ShadowedProviders`.
 
-## How the overlay replays onto a record
+### How the overlay replays onto a record
 
 `SkyPatcherOverlay.Apply` takes the ordered, game-visible line union for a type folder and replays
 it onto a deep **mutable copy** of the record's load-order winner:
@@ -111,7 +115,7 @@ warnings. Every CLEAN and COLLECTION op in the catalog has exactly one field-map
 mapping or an explicit `Unmapped` with a reason; HARD ops have none, and CI rejects one that
 acquires a mapping.
 
-## Reports and drafts
+### Reports and drafts
 
 `SkyPatcherConflicts` is report-only: it names same-field, same-target SET collisions across files
 (the later-sorted file wins), plus the ITM classes — intra-file dead writes, cross-INI duplicates,
@@ -123,10 +127,41 @@ be read as the game would see it once placed. A draft that is already one of the
 files, or whose filename would collide at the same relative path, is refused: which copy wins would
 then depend on mod order, not on the draft.
 
-## Known limitation
+### Known limitation
 
 Line splitting on `:`, item splitting on `,` and compound splitting on `~` are naive, matching the
 documented "`:` separates every segment". A rename literal containing `:` or `,`
 (`fullName=~Amulet of Mara, Blessed~`), or a plugin filename containing `~`, over-splits. The real
 DLL's delimiter precedence must be verified against the running binary before any of this is
 hardened.
+
+## Pinned by
+
+- *Contracts*, the catalog paragraph: `SkyPatcherCatalogProbe` (ci probe `skypatcher-catalog-guard`) — an unknown key
+  is Unknown, never assumed, and `CrossCheckRouterTable` holds the record dimension against the skill's router table.
+- *Contracts*, the field-map paragraph: `SkyPatcherFieldMapProbe` (`skypatcher-fieldmap-guard`) — every path walked
+  and every value target parsed against the real Mutagen types, with its self-test arms catching a bad path, a bad
+  target, a mapped HARD op and a stateful-shape disagreement.
+- *The grammar*: `SkyPatcherParseProbe` (`skypatcher-parse-guard`) — a segment with no `=` or an empty key is noted
+  and still surfaced, and a doubled `,` is noted and skipped.
+- *Addressing*: `SkyPatcherParseProbe` — a bare EditorID is left un-addressed, and the FormID side trims leading
+  zeros.
+- *The per-type subfolder rule and the filename gate*: `SkyPatcherDiscoveryProbe` (`skypatcher-discovery-guard`) —
+  the `0`→`z` relative-path order, `<Plugin>.esp.ini` gated and still inspectable, the `[Patcher]` toggle, a
+  root-level INI and an undocumented subfolder each noted, loose-only, and the union with `ShadowedProviders`.
+- *How the overlay replays onto a record*: `SkyPatcherOverlayProbe` (`skypatcher-overlay-guard`) — the stateful
+  apply-order replay, an unknown key poisoning the whole line, an unmapped filter skipping the line loud, a HARD op
+  coming back as a directive, and a load-indexed ESL FormID matching.
+- *Reports and drafts*: `SkyPatcherConflictsProbe` (`skypatcher-conflicts-guard`) — SET collisions with the later
+  file winning, accumulating ops not conflicts, and the ITM classes.
+- *Reports and drafts*: `RecordsSkyPatcherDraftTests.ADraftThatSetsALeafIsReadInThePostState` — a draft is folded into
+  the live scan; `ADraftWhoseFilenameIsAlreadyPlacedIsRefused` and
+  `ADraftThatIsAlreadyPlacedIsRefusedRatherThanFoldedInTwice` in the same class — the two refusals.
+
+## Where
+
+`src/housecarl-core/SkyPatcherParse.cs` is the tokenizer; `SkyPatcherCatalog.cs` the catalog; `SkyPatcherFieldMap.cs`
+the field map; `SkyPatcherDiscovery.cs` the discovery and apply order; `SkyPatcherOverlay.cs` the replay
+(`SkyPatcherOverlay.Apply`); `SkyPatcherConflicts.cs` the conflict and ITM report; `SkyPatcherDraft.cs` the draft fold.
+`src/housecarl-mcp/SkyPatcherTools.cs` is the tool front. Tool: `housecarl_skypatcher_layer`; the overlay and the
+draft are also read through `housecarl_records`'s SkyPatcher overlay source.

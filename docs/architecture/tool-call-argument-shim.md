@@ -1,8 +1,10 @@
 ---
-updated: 2026-09-18
+updated: 2026-09-23
 covers: [src/housecarl-mcp/ToolCallShim.cs, src/housecarl-mcp/Program.cs, src/housecarl-mcp/Guard.cs]
 ---
 # The tool-call argument shim
+
+## What it is
 
 **Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `ToolCallShimCoercionTests` and `ToolCallShimWirePathTests` in
 `src/housecarl-mcp-tests`.
@@ -13,7 +15,9 @@ genericizes it to "An error occurred invoking '\<tool\>'." — an opaque dead en
 self-correct from. Every pass is driven off the tool's own published `InputSchema`, so current and future
 parameters are covered without per-tool wiring.
 
-## Pass order, and why it is an order
+## Contracts
+
+### Pass order, and why it is an order
 
 1. **Retired tool name.** `MatchedPrimitive` is resolved by the SDK before filters run, so this check
    only ever sees a name the server does not register; `AliasTable` answers it with its successor call
@@ -57,12 +61,12 @@ retired **tool**-name rows are not scaffolding and have no removal date: nothing
 or executed there — the call is refused with one sentence naming its 2.0 successor, where the caller
 would otherwise get the SDK's bare "Unknown tool" and no way forward.
 
-## What the shim reads of a schema
+### What the shim reads of a schema
 
 Stated once, in `docs/architecture/tool-schema-publication.md`, where it is the premise of the depth
 cut's floor of 4 — read it there before changing what any pass here reads.
 
-## Named failure, end to end
+### Named failure, end to end
 
 The passes run inside the same `try` as the call, so a throw from coercion or a refusal pass also comes
 back named rather than as the SDK generic. A real request cancellation stays the SDK's, and so does
@@ -74,3 +78,22 @@ stderr, the MCP log, never to stdout, which is the protocol channel.
 exception returns a named error instead of escaping to the SDK. Every body must stay wrapped — that is
 what keeps `Guard`'s "the arguments bound fine" wording true and leaves only pre-body binding failures to
 the shim.
+
+## Pinned by
+
+- *Pass order*, pass 3: `ToolCallShimCoercionTests` — what `CoerceObviousShapes` produces, as a value: a bare string
+  for an array, a string spelling a real JSON array, a quoted bool or number, and a value of the declared type left
+  alone.
+- *Pass order*, pass 4: `ToolCallShimWirePathTests.EveryToolWithARequiredParameterRefusesAnEmptyCallNamingEveryMissingParameter`
+  and `AnExplicitNullForARequiredParameterIsRefusedAsMissingAndSaysItWasNull` in the same class — the named
+  missing-parameter refusal, an explicit null counted as missing.
+- *Pass order*, pass 5 and the 1.x parameter names: `ToolCallShimWirePathTests.CreatePluginTakesPatchAndRefusesTheOldPluginSpellingByName`,
+  `CompactPluginTakesSourceAndRefusesTheOldPluginSpellingByName` and
+  `AStrayTargetOnCompactPluginIsANamedUnknown_NotAnInPlaceTypeError` in the same class — an old or undeclared
+  parameter is refused by name with the supported list, never mapped.
+
+## Where
+
+`src/housecarl-mcp/ToolCallShim.cs` holds the passes, run from `ToolCallShim.LenientArguments`;
+`src/housecarl-mcp/Program.cs` registers it as the call-tool filter; `src/housecarl-mcp/Guard.cs` is `Guard.Tool`,
+which wraps every tool body. No tool of its own: it runs on every `tools/call`.

@@ -1,8 +1,10 @@
 ---
-updated: 2026-09-18
+updated: 2026-09-23
 covers: [src/housecarl-core/Mo2Instance.cs, src/housecarl-core/Mo2LoadOrder.cs, src/housecarl-core/QtIniEscapes.cs, src/housecarl-core/Mo2ModMeta.cs, src/housecarl-core/UserConfig.cs, src/housecarl-mcp/SetupTools.cs, src/housecarl-mcp/StatusTools.cs, src/housecarl-mcp/UpdateStatusTools.cs]
 ---
 # The MO2 instance
+
+## What it is
 
 **Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by the
 generator probes `mo2instance-probe` (the root derivation), `overwrite-resolve-guard` (the priority
@@ -15,7 +17,9 @@ houseCARL reads a live MO2 portable instance off disk — never through the USVF
 launch does, and that locks MO2), so the instance's ini and the three profile text files are the
 only standalone source of truth.
 
-## The priority model
+## Contracts
+
+### The priority model
 
 **Overwrite beats every mod; a higher-priority enabled mod beats a lower one; the game Data folder
 is the floor. First sighting of a filename wins.** That is MO2's own overwrite rule, and it is
@@ -39,7 +43,7 @@ drawn from the same set of places.
 A plugin the load order lists that no searched place provides goes into `Warnings`, never a silent
 drop, and the warning names only the places actually searched.
 
-## Deriving the roots from one path
+### Deriving the roots from one path
 
 The user configures a single "where is your MO2?" path — the instance folder holding
 `ModOrganizer.ini`. Everything else is derived, and the active profile is auto-detected from
@@ -53,7 +57,7 @@ NAMED in the problem list and the resolve FAILS — never a half-derived path se
 one exception: it is derived like the others but never gates validity, because MO2 does not create
 it until a tool writes there.
 
-## The profile files
+### The profile files
 
 - `loadorder.txt` — every plugin in load order, masters first, **winner last**.
 - `modlist.txt` — mod priority, `+`enabled / `-`disabled / `#`comment, `…_separator` entries
@@ -67,7 +71,7 @@ window is a transient, not a failure: only the Win32 sharing and lock violations
 error, because telling a user to wait for a re-sort that is not happening is the silently-wrong
 answer that type exists to avoid.
 
-## The Qt/QSettings value grammar
+### The Qt/QSettings value grammar
 
 `ModOrganizer.ini` and a mod's `meta.ini` are both QSettings files, and both readers go through
 `QtIniEscapes.Clean` so they cannot behave differently. One value is read in Qt's own order: trim
@@ -93,7 +97,7 @@ boolean. `[installedFiles]` uses prefixed keys (`1\fileid=…`), which is the jo
 FILE-level currency check; a FOMOD or manual install has `size=0` and no fileid, and the check says
 so rather than guessing.
 
-## houseCARL's own config file
+### houseCARL's own config file
 
 `houseCARL.user.json` carries four independent concerns — the MO2 instance folder, external tool
 paths, in-place write acknowledgements, and named Papyrus import sets. They MUST coexist, so the
@@ -118,3 +122,32 @@ hammering different fields for 200 rounds each leave BOTH concerns' last values 
 itself is `AtomicFile.Commit`, pinned by `atomic-commit-guard`, which names `UserConfig.Update` as
 one of its three call sites; that guard is explicit that it proves the `File.Replace` path is taken,
 not crash-atomicity across a power cut, which is not demonstrable in-process and is not claimed.
+
+## Pinned by
+
+- *The priority model*: `OverwriteResolveProbe` (ci probe `overwrite-resolve-guard`) — a plugin in overwrite resolves
+  there and beats the same filename in an enabled mod; a genuinely missing plugin warns, naming only the places
+  searched.
+- *The priority model*: `MasterSplitInstallLocationsTests.TheSplitFilesEachMasterByWhichInstallLayerHoldsItsFile` —
+  the install split covers the same places a locate searches, all five layers.
+- *Deriving the roots from one path*: `Mo2InstanceProbe` (`mo2instance-probe`) — the roots and the active profile
+  derived from the instance folder, the `base_directory` override, and a missing required piece named rather than
+  half-derived.
+- *The profile files*: `ProfileRewriteTests.AColdAssetCallOnAHeldProfileNamesTheHoldInsteadOfAnInternalFailure` — a
+  held profile file is a named transient, not an internal failure.
+- *The Qt/QSettings value grammar*: `Mo2IniEscapeTests` — the quoted wrapper, the greedy hex runs, the named escapes,
+  and a value with a lone backslash left as it stands (`HandWrittenPathsAreLeftAlone`).
+- *The Qt/QSettings value grammar*: `Mo2ModMetaProbe` (`mo2-modmeta-guard`) — the `[General]` Nexus cache fields read
+  raw, and the `[installedFiles]` file ids.
+- *houseCARL's own config file*: `ToolBridgeProbe` (`tool-bridge`) — a corrupt file loads blank with a note naming a
+  byte-identical backup, and two stores on one file keep both concerns' last values; `AtomicCommitProbe`
+  (`atomic-commit-guard`) — the commit takes `File.Replace`'s path.
+
+## Where
+
+`src/housecarl-core/Mo2Instance.cs` derives the roots and the active profile (`Resolve`, `ReadSelectedProfile`);
+`Mo2LoadOrder.cs` reads the profile files and walks the priority model (`Build`, `LocatePlugin`,
+`AllPluginFileNames`, `CandidateFolders`); `QtIniEscapes.cs` is the one Qt value reader (`Clean`); `Mo2ModMeta.cs`
+reads a mod's `meta.ini`; `UserConfig.cs` is `houseCARL.user.json` and `UserConfigStore`. The tool fronts are
+`src/housecarl-mcp/SetupTools.cs`, `StatusTools.cs` and `UpdateStatusTools.cs`. Tools: `housecarl_set_mo2_instance`,
+`housecarl_set_tool_path`, `housecarl_load_order_status`, `housecarl_update_status`.

@@ -1,15 +1,19 @@
 ---
-updated: 2026-09-18
+updated: 2026-09-23
 covers: [src/housecarl-core/CorpusRulebook.cs, src/housecarl-core/WriteEngine.cs]
 ---
 # The corpus rulebook: what pre-flight decides, and why it can never disagree with apply
+
+## What it is
 
 **Class:** LIVING. Subsystem: the files in `covers:` above.
 
 The rulebook is the write surface's pre-flight: every write is validated against the generated schema before any
 Mutagen mutation. This file is the home of the contracts that hold it, cited from the code under ADR 0001.
 
-## Gate and apply share one recogniser, never two
+## Contracts
+
+### Gate and apply share one recogniser, never two
 
 Every value the gate judges is judged with the predicate the apply path will use on the same value — never a second
 spelling of the same rule. That is what makes a refusal a real answer instead of a guess, and it is why so many
@@ -28,7 +32,7 @@ checks read as one call into `WriteEngine`:
 Two bounds stay with apply, deliberately, because the gate has no live collection: whether an index is **in range**,
 and insert's admission of the append slot (`index == count`).
 
-## Presence, shape, and range are three different gates
+### Presence, shape, and range are three different gates
 
 - **PRESENCE** — does the verb have the key, index or value it consumes at all — is `VerbLegality`'s.
 - **SHAPE** — is the present value one the coercion can read — is `ValueLegality`'s.
@@ -38,7 +42,7 @@ A slot the apply path never reads is not over-rejected: the value checks are sco
 consume each slot, so a list `Remove` by index does not have its (unused) value judged, and a stray off-cardinality
 slot apply ignores is left alone.
 
-## Shape before verb, and the owned-child doors
+### Shape before verb, and the owned-child doors
 
 A refusal must not end by naming a call that refuses on the caller's next attempt. So at every compose door the
 SHAPE is decided before the VERB: the verb sentence ("use composes= with Add or ReplaceAll") is true only of a list
@@ -63,7 +67,7 @@ and apply would then read one plugin's child record and write into another's, wi
 result reported as an edit to the parent. The in-place verbs through the same hop stay accepted: they edit the child
 this record already carries, which is the only way to edit a carried child at all.
 
-## A polymorphic base is never composed
+### A polymorphic base is never composed
 
 An element or field whose type is a polymorphic base is composed by choosing a concrete ARM. Naming the base itself
 is rejected at both entry points — `StructElementLegality` and `ArmLegality`.
@@ -78,7 +82,7 @@ A concrete base is also the one shape where "no listed arm fits" is real, becaus
 base. Its refusal therefore names the working lane — dotted-subfield Sets, which pre-flight descends — rather than
 dead-ending the caller. That hint is gated on the field's mutable AQ resolving to a concrete class.
 
-## Over-arms search: agree in shape, or refuse by name
+### Over-arms search: agree in shape, or refuse by name
 
 `FindField` looks through a polymorphic base's ARMS when the base itself lacks a name, which is what makes
 `Properties[0].Object` legal on a list modeled as the base. The static validator cannot know which arm sits at a
@@ -95,7 +99,7 @@ not resolve to a runtime Type falls back to raw-string identity, so an unknown t
 A listed-but-absent arm is a real corpus defect and is surfaced loud: skipping it could fake shape-agreement over an
 incomplete arm set, or fake "no such field" for a field that arm exclusively declares.
 
-## The FormLink target-type gate
+### The FormLink target-type gate
 
 The value-shape checks prove a FormID parses; they say nothing about WHAT it points at, and a link set to a record
 of the wrong type serializes fine and is wrong in game. The allowed set is written down nowhere: the generator
@@ -111,7 +115,7 @@ Three things it deliberately does not do:
 - **`Remove` is exempt at every slot.** It takes an element OUT, and a list already carrying a wrong-typed link
   written by another mod is exactly what a caller needs to be able to repair.
 
-## The harvest pass and the checking pass are one walk
+### The harvest pass and the checking pass are one walk
 
 The write path cannot type-check a link before it knows which records to resolve, so it runs `Validate` twice
 through two derived rulebooks: `WithLinkHarvest(sink)` first, collecting every FormLink value the walk reaches and
@@ -132,7 +136,7 @@ unchecked. Two consequences follow:
 The link-target lookup rides on the rulebook rather than through the recursion, so every value slot sees it without
 a parameter at each hop, and the printed-legal-names memo spans the whole call.
 
-## `@editorid`: where a same-call reference is legal
+### `@editorid`: where a same-call reference is legal
 
 An `@editorid` value names a record created earlier in the same `create` call — or the record being created ITSELF —
 and is substituted with the allocated FormKey after allocation. It is legal **only** in create context
@@ -147,6 +151,18 @@ A compose spec riding alongside an admitted `@` value is refused for the same re
 compose branches, so the spec would be walked by apply's substitution recursion without ever having been validated.
 
 A literal FormID mixed in beside siblings IS type-checked; a sibling is not, because its record does not exist yet.
+
+## Pinned by
+
+Nothing pins this note today.
+
+## Where
+
+`src/housecarl-core/CorpusRulebook.cs` holds the rulebook: `Validate`, `CollectLinkValues`, and the two derived
+rulebooks `WithLinkHarvest` and `WithLinkTargets`. `src/housecarl-core/WriteEngine.cs` holds the apply path and the
+recognisers the gate shares with it (`IsValidListIndexValue`, `IsValidFormLinkValue`, `IsFormLinkOrIndex`,
+`TryRecognizeCtorArgs`, `TryRecognizeInstantiable`). No tool of its own: it is the pre-flight of the write lanes in
+`src/housecarl-mcp/RecordWrites.cs`, reached through `housecarl_apply` and `housecarl_create`.
 
 ## Related
 
