@@ -447,7 +447,7 @@ public class BatchRenderCapTests
     {
         const int cap = 20_000;
         var warnings = BatchRender.WarningList(Enumerable.Range(1, 200).Select(i => $"warning {i:D3}: " + new string('w', 180)).ToList());
-        // Three lines of ~218 chars: 654 of them together, well inside any fair share.
+        // Three lines of 216 chars: 648 together, well inside any fair share.
         var archives = BatchRender.ArchiveFailureList(Enumerable.Range(1, 3).Select(i => $"Archive{i}.bsa: " + new string('a', 175)).ToList());
         var roots = BatchRender.RootFailureList(Enumerable.Range(1, 200).Select(i => $"BlockedMod{i:D3}: " + new string('r', 160)).ToList());
 
@@ -467,5 +467,54 @@ public class BatchRenderCapTests
         var tight = BatchRender.CaveatBlockCut(8_000, warnings, archives, roots);
         Assert.Equal(3, tight[1].Shown.Count);
         Assert.Equal(0, tight[1].Omitted);
+
+        // At 2,000 the quarter (500) is under three forced lines: each list names its one entry and no more, so the
+        // one-entry minimum is the only thing past the quarter.
+        var floor = BatchRender.CaveatBlockCut(2_000, warnings, archives, roots);
+        Assert.All(floor, c => Assert.Single(c.Shown));
+
+        // A forced entry wider than its part is charged to the next list, not to the rows: one 3,000-char warning at
+        // 8,000 spends the whole quarter, so the roots get their one forced entry — not the 1,000 chars the split
+        // gave them before, which pushed the block ~1,000 chars past its quarter.
+        var wide = BatchRender.WarningList(new[] { "one wide warning: " + new string('w', 2_982) });
+        var over = BatchRender.CaveatBlockCut(8_000, wide, roots);
+        string overBlock = BatchRender.CaveatBlockLines(8_000, wide, roots);
+        Assert.Single(over[1].Shown);
+        Assert.True(overBlock.Length <= 3_005 + 300,
+                    $"the block is {overBlock.Length} chars: more than the wide warning plus one forced root");
+    }
+
+    /// <summary>A roots-only lane (the records sweep, create, their json) cuts through the same block cut: a list whose
+    /// lines fit the quarter is shown WHOLE with no marker, even where the lines plus a marker would not fit, and one
+    /// line more is cut and counted — in the text lines and the json array alike.</summary>
+    [Fact]
+    public void ARootsOnlyListThatFitsItsQuarterIsWholeAndOneMoreIsCut()
+    {
+        const int cap = 4_000;   // a quarter of 1,000; the widest marker is ~63, so 960 of lines sits between the two
+        var four = Enumerable.Range(1, 4).Select(i => $"BlockedMod{i}: " + new string('r', 197)).ToList();   // 240 a line
+        var five = four.Append("BlockedMod5: " + new string('r', 197)).ToList();
+
+        Assert.Equal(960, four.Sum(f => BatchRender.RootFailureLead.Length + f.Length + 1));
+        Assert.Equal((4, 0), (BatchRender.RootFailureCut(four, cap).Shown.Count, BatchRender.RootFailureCut(four, cap).Omitted));
+        Assert.DoesNotContain("raise max_chars", BatchRender.RootFailureLines(four, cap));
+        Assert.Equal((0, 4), JsonRoots(four, cap));
+
+        Assert.Contains("of 5 loose root read failure(s); raise max_chars", BatchRender.RootFailureLines(five, cap));
+        Assert.Equal((2, 3), JsonRoots(five, cap));   // 1,000 less the marker holds three 240-char lines
+    }
+
+    /// <summary>What a roots-only json lane writes for <paramref name="roots"/>: (omitted, shown).</summary>
+    static (int Omitted, int Shown) JsonRoots(IReadOnlyList<string> roots, int cap)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new System.Text.Json.Utf8JsonWriter(ms))
+        {
+            w.WriteStartObject();
+            JsonWire.WriteRootFailuresCut(w, roots, cap);
+            w.WriteEndObject();
+        }
+        using var doc = System.Text.Json.JsonDocument.Parse(ms.ToArray());
+        return (doc.RootElement.GetProperty("root_read_failures_omitted").GetInt32(),
+                doc.RootElement.GetProperty("root_read_failures").GetArrayLength());
     }
 }

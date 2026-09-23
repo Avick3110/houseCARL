@@ -528,7 +528,7 @@ public sealed class SkseTransportTests
                     $"{family}: {text.Length} chars against max_chars={cap} — the caveat tail took more than its share.");
         // And it took THE share, not merely some bound. The numbers are absolute on purpose: a caveat line here is ~250
         // chars, so a quarter of 8,000 holds 7 of them and a half would hold 15. Deriving the expectation from
-        // RootFailureShare would scale with the constant and pin nothing.
+        // CaveatShare would scale with the constant and pin nothing.
         Assert.InRange(NamedRootsInText(text), 5, 10);
     }
 
@@ -608,6 +608,8 @@ public sealed class SkseTransportTests
         Assert.Matches(@"showing \d+ of 200 archive read failure\(s\)", text);
         Assert.True(text.Length <= cap + ShareSlack,
                     $"{family}: {text.Length} chars against max_chars={cap} — a caveat list was not bounded.");
+        // And the rows are still in the answer: a block that ate the budget would pass the length check with none.
+        Assert.Contains(family switch { "inventory" => "p1.dll", "pairing" => "Klass1", _ => "f1.ini" }, text);
     }
 
     /// <summary>The json twin: each list is an array plus its sibling count, inside max_chars, naming exactly the

@@ -57,23 +57,27 @@ static class SkseJsonDoc
         w.WriteEndArray();
     }
 
-    /// <summary>The build-level caveats every family carries — the same ones the text render writes and the accounting counts.</summary>
-    internal static void Caveats(Utf8JsonWriter w, bool readIncomplete,
-                                 IReadOnlyList<string> warnings, IReadOnlyList<string> bsaFailures,
-                                 IReadOnlyList<string> rootFailures, int cap)
+    /// <summary>A family document's build-level caveats, cut ONCE, so the reserve and the write use the same cut.</summary>
+    internal readonly record struct CaveatCuts(bool ReadIncomplete, (IReadOnlyList<string> Shown, int Omitted)[] Lists);
+
+    /// <summary>Every list BOUNDED, because a blocked tree or a lost archive drive makes any of them wider than the
+    /// whole document. Cut by the SHARED block rule, so this lane's json names the entries its own text lane names:
+    /// bounding an array against the json stream instead priced an element differently and the counts drifted.</summary>
+    internal static CaveatCuts CutCaveats(bool readIncomplete, IReadOnlyList<string> warnings,
+                                          IReadOnlyList<string> bsaFailures, IReadOnlyList<string> rootFailures, int cap) =>
+        new(readIncomplete, BatchRender.CaveatBlockCut(cap, BatchRender.WarningList(warnings),
+            BatchRender.ArchiveFailureList(bsaFailures), BatchRender.RootFailureList(rootFailures)));
+
+    /// <summary>The build-level caveats every family carries — the same ones the text render writes and the accounting
+    /// counts. Written empty or not, so each array and its sibling count add up to the whole on every document, which
+    /// is the shape json-wire.md states and asset_status keeps.</summary>
+    internal static void Caveats(Utf8JsonWriter w, CaveatCuts caveats)
     {
         w.WriteStartObject("caveats");
-        w.WriteBoolean("read_incomplete", readIncomplete);
-        // Every list BOUNDED, because a blocked tree or a lost archive drive makes any of them wider than the whole
-        // document. Cut by the SHARED block rule, so this lane's json names the entries its own text lane names:
-        // bounding an array against the json stream instead priced an element differently and the counts drifted.
-        // Written empty or not, so each array and its sibling count add up to the whole on every document, which is
-        // the shape json-wire.md states and asset_status keeps.
-        var cuts = BatchRender.CaveatBlockCut(cap, BatchRender.WarningList(warnings),
-            BatchRender.ArchiveFailureList(bsaFailures), BatchRender.RootFailureList(rootFailures));
-        JsonWire.WriteCaveatCut(w, "warnings", cuts[0]);
-        JsonWire.WriteCaveatCut(w, "archive_read_failures", cuts[1]);
-        JsonWire.WriteCaveatCut(w, "root_read_failures", cuts[2]);
+        w.WriteBoolean("read_incomplete", caveats.ReadIncomplete);
+        JsonWire.WriteCaveatCut(w, "warnings", caveats.Lists[0]);
+        JsonWire.WriteCaveatCut(w, "archive_read_failures", caveats.Lists[1]);
+        JsonWire.WriteCaveatCut(w, "root_read_failures", caveats.Lists[2]);
         w.WriteEndObject();
     }
 
@@ -93,8 +97,7 @@ static class SkseJsonDoc
     /// under-reserve. What is written past the last row the budget admitted is each array's CLOSE; composing the array
     /// empty here charges that close plus the open's own width, which the open already paid for in the document, so the
     /// reserve is a floor of tens of chars rather than an exact figure — measured off the writer, never hand-written.</param>
-    internal static int TailReserve(bool readIncomplete, IReadOnlyList<string> warnings, IReadOnlyList<string> bsaFailures,
-                                    IReadOnlyList<string> rootFailures, int cap, TransportCounts widest,
+    internal static int TailReserve(CaveatCuts caveats, TransportCounts widest,
                                     IReadOnlyList<string> rowArrays, Action<Utf8JsonWriter>? conditional = null)
     {
         using var ms = new CharCountedStream();
@@ -107,7 +110,7 @@ static class SkseJsonDoc
                 w.WriteStartArray(name);
                 w.WriteEndArray();
             }
-            Caveats(w, readIncomplete, warnings, bsaFailures, rootFailures, cap);
+            Caveats(w, caveats);
             TransportAccounting.WriteJson(w, widest);
             w.WriteEndObject();
         }
