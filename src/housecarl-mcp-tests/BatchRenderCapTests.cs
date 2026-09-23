@@ -225,6 +225,25 @@ public class BatchRenderCapTests
         Assert.DoesNotContain("wider than this response's whole budget", second);
     }
 
+    /// <summary>The place render's named-roots block grows with max_chars, so the oversize remedy has to price it at
+    /// the cap it names: following that remedy once still gets the row onto the page past a long root list.</summary>
+    [Fact]
+    public void FollowingThePlaceRemedyOnceRendersTheRowPastManyRoots()
+    {
+        var roots = Enumerable.Range(0, 200)
+                              .Select(i => $"BlockedMod{i:D3}: could not read 'meshes' — Access to the path is denied.")
+                              .ToList();
+        var data = new PlaceOutcome(new[] { PlaceResult.Fail("meshes/wide/row.nif", new string('e', 6000)) }, null,
+                                    Array.Empty<string>(), null, null) { RootFailures = roots };
+        var first = PlaceWire.Render(data, 2_000);
+        var needed = int.Parse(System.Text.RegularExpressions.Regex.Match(first, @"raise max_chars to at least (\d+)").Groups[1].Value);
+
+        var second = PlaceWire.Render(data, needed);
+
+        Assert.Contains("meshes/wide/row.nif", second);
+        Assert.DoesNotContain("wider than this response's whole budget", second);
+    }
+
     /// <summary>The empty page has two causes and the notice names the right one: when the ALARMS above the items
     /// filled the budget, the first item is ordinary and the cut marker is what the caller reads — not a sentence
     /// blaming an item that would have fitted an empty page.</summary>

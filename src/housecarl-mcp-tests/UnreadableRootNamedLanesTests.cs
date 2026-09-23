@@ -61,31 +61,36 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
         var json = CheckTools.CheckTool(_w.Svc, findings: new[] { "dialogue" }, seeds: seeds, format: "json",
                                         max_chars: 60000);
 
-        // The hedge points at the named roots, not at another tool.
-        Assert.Contains("may merely be unscanned — a loose folder that failed is named among this response's root read failures",
+        // The hedge points at the named roots for the loose half, and names no block this response lacks.
+        Assert.Contains("may merely be unscanned — any loose folder that failed is named among this response's root read failures",
                         text, StringComparison.Ordinal);
         Assert.Contains(Named(BlockedSweepWorld.BlockedMod), text, StringComparison.Ordinal);
         Assert.Contains(RootArrayOf(json), r => r.StartsWith(BlockedSweepWorld.BlockedMod, StringComparison.Ordinal));
     }
 
-    /// <summary>nif_set's named-source refusal shares the place hedge, so it names the root that hedge points at. The
-    /// lane has no json transport, so the text is the whole claim.</summary>
-    [Fact]
-    public void TheNifSetRefusalNamesTheRootItCouldNotRead()
+    /// <summary>nif_set's refusals for a mesh it found no copy of hedge on the build and name the root that hedge
+    /// points at: a named source that lacks it, the '*winner' pole, and no source at all. The lane has no json
+    /// transport, so the text is the whole claim.</summary>
+    [Theory]
+    [InlineData("SweepAssetMod")]
+    [InlineData("*winner")]
+    [InlineData(null)]
+    public void TheNifSetRefusalNamesTheRootItCouldNotRead(string? sourceProvider)
     {
         Assert.True(_w.Blocked, BlockedSweepWorld.NotStaged);
 
         var d = _w.Svc.NifSet(@"meshes\hcrootnowhere\absent.nif",
                               new[] { new NifSetOp(NifSetOpKind.SetFlags, "AnyShape", Flags: 0x80000) },
-                              "SweepAssetMod", null, null, false, false);
+                              sourceProvider, null, null, false, false);
         var text = NifSetWire.Render(d);
 
         Assert.Contains(WriteSentences.PlaceSourceScanIncomplete, text, StringComparison.Ordinal);
         Assert.Contains(Named(BlockedSweepWorld.BlockedMod), text, StringComparison.Ordinal);
     }
 
-    /// <summary>The place refusal for a path nothing provides hedges on the build, on both arms — no source, and a named
-    /// source nothing provides — so the response names the root above its rows in both transports (#863).</summary>
+    /// <summary>The place refusal for a path nothing provides hedges on the build, on all three arms — no source, a
+    /// named source nothing provides, and a source_provider= that does not supply it — so the response names the root
+    /// above its rows in both transports (#863).</summary>
     [Fact]
     public void ThePlaceRefusalNamesTheRootItCouldNotRead()
     {
@@ -95,6 +100,7 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
         {
             new PlaceRequest(@"meshes\hcrootnowhere\absent.nif", null),
             new PlaceRequest(@"meshes\hcrootnowhere\dest.nif", @"meshes\hcrootnowhere\src.nif"),
+            new PlaceRequest(@"meshes\hcrootnowhere\named.nif", null, "SweepAssetMod"),
         }, null, null);
         var text = PlaceWire.Render(outcome, 60000);
         var json = JsonWire.RenderPlaceOutcome(outcome, 60000);
