@@ -6,8 +6,6 @@ covers: [src/housecarl-mcp-tests/PexWriter.cs, src/housecarl-mcp-tests/ScriptsWo
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `ScriptsWorldTests` and `HeldOpenTests` in the same project.
-
 Two pieces of machinery the test project did not have before #486 PR 1, each in its own file, plus the
 tests that prove the machinery is what it claims to be. They exist because #486 PR 2 rewrites 200 old
 assertion sites (204 compiler complaints, some lines carrying two) as 60 xUnit facts, and 14 of those are
@@ -46,9 +44,7 @@ would then read off `VariableType` and render as `Bool Property MyFlag = 1 Auto`
 fixture would assert product behaviour against a `.pex` shape the game never produces and stay green while
 claiming to model a defaulted Bool. So the writer **refuses** a non-`Int` declared type with an initializer,
 `ArgumentException` naming the property, the type and the value: the parameter name `initInt` was the only
-thing carrying the restriction, and #486 PR 2 spells 14 script-property arms against this machinery. Both
-branches are pinned — `TheWriterRefusesABakedInitializerOnANonIntScalar` and
-`TheWriterStillBakesAnIntScalarInitializerAndItRoundTrips`.
+thing carrying the restriction, and #486 PR 2 spells 14 script-property arms against this machinery.
 
 ### `ScriptsWorld` — the probe's records, re-homed as an MO2 instance
 
@@ -172,8 +168,9 @@ sentence, restated where PR 2's three dialogue lock arms will read it.
 
 ## Pinned by
 
-- *`PexWriter` — ported, not referenced*: `ScriptsWorldTests.TheWriterRefusesABakedInitializerOnANonIntScalar` and
-  `TheWriterStillBakesAnIntScalarInitializerAndItRoundTrips` — both branches of the baked-initializer rule.
+- *`PexWriter` — ported, not referenced*: both branches are pinned —
+  `ScriptsWorldTests.TheWriterRefusesABakedInitializerOnANonIntScalar` and
+  `TheWriterStillBakesAnIntScalarInitializerAndItRoundTrips`.
 - *`ScriptsWorld` — the probe's records, re-homed as an MO2 instance*:
   `ScriptsWorldTests.TheServiceSweepsTheInstanceAndExactlyTheVmadCarryingRecordsAreScriptBearing` — the four
   script-bearing records, with the script-free weapon not counted.

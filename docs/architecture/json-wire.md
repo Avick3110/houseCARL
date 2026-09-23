@@ -6,8 +6,6 @@ covers: [src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RenderCap.cs, src/hous
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above.
-
 This file is the home of the json transport's own contracts — what a document may say and how it may say it. The
 budget those documents are written against is a different subject and lives in
 `docs/architecture/render-budget.md`: `max_chars` counts characters, `CharCountedStream` is where a json lane takes
@@ -62,11 +60,6 @@ fixed part comes out of the budget the findings are listed from.
 `epoch_covers_all_inputs` is false when off-order files were swept beside the index, or when the family reports
 verdicts read off another substrate, which `epoch_uncovered` names.
 
-**Pinned by** `DegradedOrderMarkerTests` — the marker rides on both transports on the read, scan and write lanes, and
-`TheCheckDocumentCarriesTheMarkerAtItsRootAndOnTheErrorsFamily` pins the root sentence against the per-family flag and
-count. The silence on a healthy order is `HealthyOrderMarkerTests.AHealthyBuildCarriesNoMarkerOnEitherLane`, its own
-class because the healthy world is a different collection.
-
 ### A capped STRING list is an array plus a sibling count
 
 Where a list of plain strings is bounded — the build-level caveat blocks, and `Wire.ContestedHostsShown` on the text
@@ -78,10 +71,6 @@ An array of OBJECTS is cut the other way, and that is not a violation of this: `
 field-truncated `fields` with a sentinel object (`{path:"…", note:"[truncated at max_chars: …]"}`), because a row
 there is already an object with a `note` member and the sentinel reads as one more of them. Consumers and tests read
 that row; do not replace it with a `fields_omitted` sibling.
-
-**Pinned by** `AssetStatusJsonLaneTests.TheCaveatBlocksAreCappedByMaxCharsToo` — the array and the omitted count add up
-to the whole, and no entry carries a prose marker; and `ADocumentWhoseCaveatsWereCutSaysItWasTruncated` in the same
-class — a document that lost only caveat entries still reports `truncated`.
 
 ### A document that overran its cap says so, in one member
 
@@ -127,14 +116,6 @@ covers it by composing the array empty, which also charges the open the document
 chars, in the safe direction, rather than an exact figure.
 `SkseTools.Dispatch` must not run `RenderCap.Settle` over a json body: the text notice would land past the root close
 and the document would stop being json. `AssetTools`'s manifest-only lane guards the same seam the same way.
-
-**Pinned by** `AssetStatusJsonOverrunTests` and `RecordsJsonOverrunTests` (both in `JsonCapOverrunTests.cs`, which
-also holds the shared `JsonOverrun` assertion), `SkseTransportTests.AnOverCapJsonFamilyDocumentStaysJsonAndSaysItOverran`
-for the skse families and `PlaceJsonRenderTests.AnOverCapWriteOutcomeSaysItOverranAndNamesTheCapThatClearsIt` for a
-write outcome — each asserting the three numbers and that the member's own length is counted; and
-`CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` for the merged check's own twin. The other
-side of the skse arm is `SkseTransportTests.EachFamilysJsonDocumentFilledPastItsCapAnswersInsideIt` — a document filled
-past its cap comes back inside it and carries no member at all.
 
 ### Envelope keys must stay disjoint
 
@@ -191,9 +172,6 @@ truth**. `readback_full` describes THIS DOCUMENT: the json renders emit every fi
 read-back is always the full one, and it must not be made to carry the caller's ask, which the in-place lanes
 override. `readback_requested` is where the ask lives.
 
-**Pinned by** `src/housecarl-generator/WriteSurfaceGuardProbe.cs` — "json: an in-place lane that FORCED the read-back
-reports readback_full:true, ask kept separately".
-
 The truncation remedy on a write document is lane-aware for the same reason. "Raise `max_chars` to see the rest" is
 safe on `into=`, `in_place=` and a dry run, but on the default lane a re-issue auto-suffixes a second patch, a repeated
 remove is refused outright, and a repeated create allocates the records again. Each write renderer names the remedy its
@@ -201,34 +179,33 @@ own lane can survive.
 
 ## Pinned by
 
-- *The epoch stamp and the degraded-order marker*: `DegradedOrderMarkerTests` — the marker rides beside the epoch
-  on both transports on the read, scan and write lanes; its
-  `TheCheckDocumentCarriesTheMarkerAtItsRootAndOnTheErrorsFamily` — the sentence stated once at the root, against
-  the per-family flag and count.
-- *The epoch stamp and the degraded-order marker*: `HealthyOrderMarkerTests.AHealthyBuildCarriesNoMarkerOnEitherLane`
-  — the marker is silent on a healthy order.
-- *A capped STRING list is an array plus a sibling count*:
-  `AssetStatusJsonLaneTests.TheCaveatBlocksAreCappedByMaxCharsToo` — the array and the omitted count add up to the
-  whole, and no entry is a prose marker; `ADocumentWhoseCaveatsWereCutSaysItWasTruncated` in the same class — a
-  document that lost only caveat entries still reports `truncated`.
-- *A document that overran its cap says so, in one member*: `AssetStatusJsonOverrunTests` and
-  `RecordsJsonOverrunTests` — the three numbers, and the member counted in the length it states;
+- *The epoch stamp and the degraded-order marker*: `DegradedOrderMarkerTests` — the marker rides on both transports on
+  the read, scan and write lanes, and `TheCheckDocumentCarriesTheMarkerAtItsRootAndOnTheErrorsFamily` pins the root
+  sentence against the per-family flag and count. The write lane is asserted on the text transport only
+  (`TheWriteLaneCarriesTheClauseBesideItsStamp`); no json write document is checked.
+- *The epoch stamp and the degraded-order marker*: the silence on a healthy order is
+  `HealthyOrderMarkerTests.AHealthyBuildCarriesNoMarkerOnEitherLane`, its own class because the healthy world is a
+  different collection.
+- *A capped STRING list is an array plus a sibling count*: `AssetStatusJsonLaneTests.TheCaveatBlocksAreCappedByMaxCharsToo`
+  — the array and the omitted count add up to the whole, and no entry carries a prose marker; and
+  `ADocumentWhoseCaveatsWereCutSaysItWasTruncated` in the same class — a document that lost only caveat entries still
+  reports `truncated`.
+- *A document that overran its cap says so, in one member*: `AssetStatusJsonOverrunTests` and `RecordsJsonOverrunTests`
+  (both in `JsonCapOverrunTests.cs`, which also holds the shared `JsonOverrun` assertion),
+  `SkseTransportTests.AnOverCapJsonFamilyDocumentStaysJsonAndSaysItOverran` for the skse families and
+  `PlaceJsonRenderTests.AnOverCapWriteOutcomeSaysItOverranAndNamesTheCapThatClearsIt` for a write outcome — each
+  asserting the three numbers and that the member's own length is counted; and
+  `CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` for the merged check's own twin. The other
+  side of the skse arm is `SkseTransportTests.EachFamilysJsonDocumentFilledPastItsCapAnswersInsideIt` — a document
+  filled past its cap comes back inside it and carries no member at all.
+- *A document that overran its cap says so, in one member*:
   `RecordsJsonOverrunTests.ARefusedScanCarriesNoOverrunMemberHoweverSmallTheCap` — a refusal document carries no
   member; `TheCensusDocumentSaysItOverranAndNamesTheCapThatClearsIt` and
   `TheNamedCounterCensusSaysItOverranAndNamesTheCapThatClearsIt` in the same class — the `counts_only=` census
   renderers take a cap.
-- *A document that overran its cap says so, in one member*:
-  `SkseTransportTests.AnOverCapJsonFamilyDocumentStaysJsonAndSaysItOverran` — the `housecarl_skse` family documents
-  write the member and stay json; `SkseTransportTests.EachFamilysJsonDocumentFilledPastItsCapAnswersInsideIt` — a
-  family document filled past its cap comes back inside it and carries no member.
-- *A document that overran its cap says so, in one member*:
-  `PlaceJsonRenderTests.AnOverCapWriteOutcomeSaysItOverranAndNamesTheCapThatClearsIt` — a write outcome states the
-  three numbers.
-- *A document that overran its cap says so, in one member*:
-  `CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` — the merged check's own twin, which
-  promises one-step clearing.
-- *The read-back block*: `WriteSurfaceGuardProbe` (ci probe `write-surface-guard`) — an in-place lane that forced
-  the read-back reports `readback_full:true`, with the ask kept separately.
+- *The read-back block*: `WriteSurfaceGuardProbe` (`src/housecarl-generator/WriteSurfaceGuardProbe.cs`, ci probe
+  `write-surface-guard`) — "json: an in-place lane that FORCED the read-back reports readback_full:true, ask kept
+  separately".
 
 ## Where
 

@@ -6,13 +6,6 @@ covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSele
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by the `asset-resolver-guard`, `asset-status-guard`, `overwrite-resolve-guard`,
-`snapshot-view-guard`, `place-asset-guard`, `nif-source-lane-guard`, `source-chain-guard`, `asset-prefix-hint-guard`,
-`bsa-contract-guard`, `bsa-extract-guard`, `bsa-probe`, `facegen-carry-guard` and `voice-carry-guard` probes
-(`src/housecarl-generator`) and by `AssetSelectTests`, `AssetProviderTokenTests`, `AssetStatusSetTests`,
-`BsaPackCountTests`, `BsaPackReadBackTests`, `RawModsPathRefusalTests`, `UnreadableRootNamedTests`,
-`AssetLooseFreshnessTests`, `UnreadableRootNamedLanesTests` (`src/housecarl-mcp-tests`).
-
 FaceGen's own contracts — the FormID→path transform, the check's classes, what a dark face is — are in
 [`docs/facegen.md`](../facegen.md), not here.
 
@@ -72,7 +65,7 @@ resolver reads no profile.
   baselined by the listing that warm itself takes — the whole listing for a root's own copy, the ancestor's listing for
   a root that has nothing there. The build's `Dirs`/`Children` memos answer the absence VERDICT and nothing else,
   because a memo can predate the warm by any number of calls, and a baseline older than the warm makes a file that goes
-  and comes back invisible for the life of the build. Pinned by `AssetLooseFreshnessTests`.
+  and comes back invisible for the life of the build.
 - **A bad path fails loud.** `NormalizeQueryPath` refuses a drive-rooted or `..`-escaping path naming the input, and
   collapses `.` and empty segments so the loose walk and the archive-table match answer for one set of files.
   `ValidateRelPath` exposes that one validator to the place lane, whose destination is `Path.Combine(modRoot, rel)`.
@@ -80,8 +73,7 @@ resolver reads no profile.
 ### One build per call
 
 - A build holds **string sets only** — each archive's table copied out and the reader dropped — plus a lazily warmed
-  per-subtree set of loose filenames. **Zero archive handles at rest:** pinned by `asset-resolver-guard`'s at-rest
-  arm (rename *and* delete while the resolver lives) and, for single-entry extraction, `place-asset-guard` arm B.
+  per-subtree set of loose filenames. **Zero archive handles at rest.**
 - `RefreshIfStale` re-stats the active archives and re-lists the build's **watched directories**, and swaps one
   reference. A changed archive or mod *set* is an order change, and the service rebuilds the resolver. Warming a
   subtree puts one directory per root under watch, and the watch is made of **names**, never of a directory's
@@ -127,8 +119,7 @@ refusal — the caller chooses), the VFS winner, or a named provider.
   handed the address form — mod folder name plus Data-relative path — that every pole takes.
 - `AssetSourceSelection.Describe` is the one formatter for a provider in any list a selector is read out of: the
   name in **double quotes**, which Windows forbids inside a name, with the kind outside them. The printed token is
-  the token a selector accepts — `place-asset-guard` arm I1c round-trips a refusal's own tokens back through the
-  tool, and `AssetProviderTokenTests` pins the render.
+  the token a selector accepts.
 - `*winner` selects the winner pole. `*` is illegal in a Windows name, so the pole and provider-name spaces are
   disjoint by construction and a bare `winner` always means a provider called that.
 
@@ -168,8 +159,7 @@ voiced but not computable here. It runs after a create that already succeeded, s
 ### Carrying assets across a renumber
 
 A renumber moves every record while the files the engine looks up *by* FormID keep their old names.
-`AssetRenameService` carries them, composing existing primitives. Four contracts, pinned by `facegen-carry-guard`
-and `voice-carry-guard`:
+`AssetRenameService` carries them, composing existing primitives. Four contracts:
 
 - **Two phases, one helper.** Facegen and voice both ride `CarryItems`: every read stages to a `.houseCARL-tmp`
   sibling, and only once every read is done are the temps committed. A renumber packs the new ids into the window
@@ -191,8 +181,7 @@ named advisory, not an invented file (xEdit parity). Strings stay out: they are 
 ### Archives
 
 Reads go through **Mutagen's own in-process reader**; only repack drives **BSArch**, because Mutagen 0.53.1 exposes
-no writer. Reads do not shell BSArch: its unpacker is stricter than its own lister and than the engine. The reader's
-byte parity with BSArch, and its reading of archives BSArch rejects, are pinned by the opt-in `bsa-probe`.
+no writer. Reads do not shell BSArch: its unpacker is stricter than its own lister and than the engine.
 
 - **List and unpack cross-check the header's own declared file count**, read directly because Mutagen's public
   `IArchiveReader` exposes no count, so a mis-parse down to a short or empty list fails loud.
@@ -201,7 +190,7 @@ byte parity with BSArch, and its reading of archives BSArch rejects, are pinned 
 - **Pack is non-destructive, on provenance.** BSArch writes to a houseCARL scratch cleared before the run, and a
   stuck stale one refuses up front, so a non-empty scratch after a zero-exit run is *this* run's. A non-zero exit is
   a failed pack whatever it left behind. Only then is the header count checked against the source scan and the
-  target swapped. `bsa-contract-guard` locks both halves.
+  target swapped.
 - **An unknown format token refuses** rather than coercing to `-sse`.
 
 ### Writing into the VFS
@@ -224,7 +213,7 @@ A model path read off a record is stored relative to `meshes\`, so passing it ve
 true for the string as given. `AssetPathHint` is **verified, never guessed**: it re-resolves the prefixed candidate
 through the same view and offers it only if a real provider supplies it. The mesh lane also names the convention on
 a miss, stating that form is not provided either; the generic lane does not, because it legitimately answers for
-`sound\`, `scripts\` and `interface\`. Pinned by `asset-prefix-hint-guard`.
+`sound\`, `scripts\` and `interface\`.
 
 ## Pinned by
 
@@ -232,52 +221,58 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   then Data, first sighting wins (the loose precedence and mod-priority arms); loose beats BSA-packed (arm 6); the
   higher plugin rank wins among BSAs (arm 7).
 - *Precedence*: `AssetStatusProbe` (`asset-status-guard`) — `X.bsa` and `X - Textures.bsa` bind at their plugin's rank
-  above the Skyrim.ini block (arm A); an archive filename resolves through the overwrite > mods > Data map (arm B); a
-  Skyrim.ini that cannot be found is a surfaced warning (arm C).
+  above the Skyrim.ini block (arm A); an archive filename resolves to the higher-priority mod's copy (arm B, which
+  places no copy in overwrite or Data, so only the mods leg of the map is pinned); a Skyrim.ini that cannot be found is
+  a surfaced warning (arm C).
 - *What an answer may claim*: `AssetResolverProbe` — an archive that will not read is one named `BsaFailure` and sets
-  `ReadIncomplete` (the negative arm); a drive-rooted or `..` path is refused loud, and the spellings of one path
-  resolve to one winner (the normalize arm).
-- *What an answer may claim*: `UnreadableRootNamedTests` and `UnreadableRootNamedLanesTests` — a loose root that will
-  not read is named by the lanes the sentence lists; `UnreadableRootNamedLanesTests.AMergedSweepNamesTheRootOnceForTheWholeResponse`
-  — once per response; `TheNamedRootsBlockIsChargedBeforeTheCoverageRows` and
+  `ReadIncomplete` (the negative arm); a drive-rooted or `..` path is refused loud (the normalize arm, which also
+  covers slash direction, a leading separator and case on loose files). No test uses a `.` or empty segment, so the
+  collapse the sentence describes is not pinned.
+- *What an answer may claim*: `AssetRootWalkFailureTests` — `asset_status` names a loose root it could not read, on the
+  sweep and on the single-path lane; `UnreadableRootNamedTests` and `UnreadableRootNamedLanesTests` — the other lanes
+  the sentence lists name it too; `UnreadableRootNamedLanesTests.AMergedSweepNamesTheRootOnceForTheWholeResponse` —
+  once per response; `TheNamedRootsBlockIsChargedBeforeTheCoverageRows` and
   `TheJsonCreateDocumentChargesTheRootsToItsRows` in the same class — the block is charged before the rows;
   `ThePerPropertyReasonNamesTheRootItCouldNotRead` in the same class — the `ScriptPropertyCheck` exception.
-- *What an answer may claim*: `AssetLooseFreshnessTests.AFileDeletedAndPutBackBetweenCallsIsSeen` and
-  `ASubtreeDeletedAfterASweepMemoizedItsParentIsSeenComingBack` — a freshness baseline is read at the warm, never off
-  a memo.
-- *One build per call*: `AssetResolverProbe`'s at-rest arm and `PlaceProbe` (`place-asset-guard`) arm B — zero
-  archive handles at rest; `AssetResolverProbe`'s capture/refresh arm — a batch answers off one build.
+- *What an answer may claim*: Pinned by `AssetLooseFreshnessTests` — a freshness baseline is read at the warm, never
+  off a memo (`AFileDeletedAndPutBackBetweenCallsIsSeen`, `ASubtreeDeletedAfterASweepMemoizedItsParentIsSeenComingBack`).
+- *One build per call*: **Zero archive handles at rest:** pinned by `asset-resolver-guard`'s at-rest arm (rename *and*
+  delete while the resolver lives) and, for single-entry extraction, `place-asset-guard` arm B.
+- *One build per call*: `AssetResolverProbe`'s capture/refresh arm reads a batch and a captured view off one build, but
+  changes nothing on disk between the capture and the read, so it would pass if a view read the live build: the
+  `Capture()` sentence is not pinned against a rebuild.
 - *One build per call*: `AssetLooseFreshnessTests` — the watch is made of names
   (`AppearAndVanishAreSeenEvenInsideOneTimestampTick`), an unrelated file beside a root's answering ancestor does not
   discard the build (`AnUnrelatedFileAppearingInAModFolderDoesNotDiscardTheBuild`), and a loose file's bytes are never
   cached (`AFilesChangedBytesAreSeenOnTheNextRead`).
-- *Naming a source*: `PlaceProbe` arm M — naming an unticked mod reads its loose copy, then its root archives, and no
-  other pole widens with it; M7 and M16 — a name the built universe knows never reaches a mods folder of that name;
-  M22 — a trailing-dot spelling never reaches disk; arm I1c — a refusal's own provider tokens round-trip through the
-  tool.
+- *Naming a source*: `place-asset-guard` arm I1c round-trips a refusal's own tokens back through the tool, and
+  `AssetProviderTokenTests` pins the render.
+- *Naming a source*: `PlaceProbe` (`place-asset-guard`) arm M — naming an unticked mod reads its loose copy, then its
+  root archives, and no other pole widens with it; M7 and M16 — a name the built universe knows never reaches a mods
+  folder of that name; M22 — a trailing-dot spelling never reaches disk.
 - *Naming a source*: `NifSourceLaneProbe` (`nif-source-lane-guard`) — every printed provider token is one
   `source_provider=` accepts, and naming a mod reaches its loose files and its root archives.
-- *Naming a source*: `AssetProviderTokenTests` — `AssetSourceSelection.Describe`'s render: the name in double quotes,
-  the kind outside, over the whole provider chain.
 - *Naming a source*: `RawModsPathRefusalTests` — a raw path into MO2's mods tree is refused and handed the address
   form.
 - *Selecting a set of paths*: `AssetSelectTests.AnUnanchoredGlobIsRefusedRatherThanSweepingTheWholeLoadOrder` — a
   selector with no literal directory prefix is refused; `AGlobNarrowsTheSweepToTheFilesItMatches` in the same class —
   `*` within a segment, `**` across separators; `AssetStatusSetTests.ANarrowGlobUnderAWideFolderIsNotRefusedForTheFoldersSize`
   — the enumeration is bounded by matches, not candidates.
-- *Carrying assets across a renumber*: `FacegenCarryProbe` (`facegen-carry-guard`) and `VoiceCarryProbe`
-  (`voice-carry-guard`) — the two-phase carry (the overlapping-window arm), the old files left as orphans, a record
-  with nothing to carry is not a failure, and voice found by scanning disk.
-- *Archives*: `BsaProbe` (the opt-in `bsa-probe`) — the in-process reader's byte parity with BSArch.
+- *Carrying assets across a renumber*: the four contracts are pinned by `facegen-carry-guard` and `voice-carry-guard`
+  (`FacegenCarryProbe`, `VoiceCarryProbe`) — the two-phase carry (the overlapping-window arm), the old files left as
+  orphans, a record with nothing to carry is not a failure, and voice found by scanning disk.
+- *Archives*: the reader's byte parity with BSArch, and its reading of archives BSArch rejects, are pinned by the
+  opt-in `bsa-probe` (`BsaProbe`).
 - *Archives*: `BsaExtractProbe` (`bsa-extract-guard`) — unpack refuses an entry resolving outside the destination and
   skips a byte-identical file.
-- *Archives*: `BsaContractProbe` (`bsa-contract-guard`) — a stuck stale scratch refuses up front, a failing pack
-  leaves the prior archive untouched, and an unknown format token refuses.
+- *Archives*: `bsa-contract-guard` (`BsaContractProbe`) locks both halves of the pack contract — a stuck stale scratch
+  refuses up front and a failing pack leaves the prior archive untouched — and the unknown format token refusal.
 - *Archives*: `BsaPackReadBackTests.PackRefusesAScratchFromANonZeroExit` — a non-zero exit is a failed pack whatever it
   left behind; `PackRefusesAnArchiveThatCountsShort` in the same class and
   `BsaPackCountTests.ACountMismatchRefusesNamingBothNumbers` — the header count is checked against the source scan.
-- *Suggesting a root prefix*: `AssetPrefixHintProbe` (`asset-prefix-hint-guard`) — the prefixed candidate is offered
-  only when a real provider supplies it, and the generic lane stays quiet on a non-asset root.
+- *Suggesting a root prefix*: Pinned by `asset-prefix-hint-guard` (`AssetPrefixHintProbe`) — the prefixed candidate is
+  offered only when a real provider supplies it. Its non-asset-root check (`sound\`) asserts the same thing as its
+  plain-miss check, so it cannot see whether the generic lane prints the convention note: that half is not pinned.
 
 ## Where
 

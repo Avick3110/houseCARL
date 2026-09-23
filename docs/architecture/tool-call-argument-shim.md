@@ -6,9 +6,6 @@ covers: [src/housecarl-mcp/ToolCallShim.cs, src/housecarl-mcp/Program.cs, src/ho
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `ToolCallShimCoercionTests` and `ToolCallShimWirePathTests` in
-`src/housecarl-mcp-tests`.
-
 The shim is a call-tool filter that runs **before** the SDK binds a call's JSON arguments to the tool
 method's parameters. Without it a malformed argument shape throws inside SDK binding and the SDK
 genericizes it to "An error occurred invoking '\<tool\>'." — an opaque dead end a caller cannot
@@ -85,12 +82,16 @@ the shim.
   for an array, a string spelling a real JSON array, a quoted bool or number, and a value of the declared type left
   alone.
 - *Pass order*, pass 4: `ToolCallShimWirePathTests.EveryToolWithARequiredParameterRefusesAnEmptyCallNamingEveryMissingParameter`
-  and `AnExplicitNullForARequiredParameterIsRefusedAsMissingAndSaysItWasNull` in the same class — the named
-  missing-parameter refusal, an explicit null counted as missing.
-- *Pass order*, pass 5 and the 1.x parameter names: `ToolCallShimWirePathTests.CreatePluginTakesPatchAndRefusesTheOldPluginSpellingByName`,
-  `CompactPluginTakesSourceAndRefusesTheOldPluginSpellingByName` and
-  `AStrayTargetOnCompactPluginIsANamedUnknown_NotAnInPlaceTypeError` in the same class — an old or undeclared
-  parameter is refused by name with the supported list, never mapped.
+  and `AnExplicitNullForARequiredParameterIsRefusedAsMissingAndSaysItWasNull` — the named missing-parameter refusal,
+  an explicit null counted as missing; `TheOnePointXPluginNameSpellingIsRefusedByName_NotMappedOntoCompactPluginsOwnSource`
+  — when the call also carries an undeclared key, the refusal names that key and the accepted list too (all in the
+  same class).
+- *Pass order*, pass 5: `ToolCallShimWirePathTests.AStrayTargetOnCompactPluginIsANamedUnknown_NotAnInPlaceTypeError`
+  — an undeclared argument is refused as a named unknown, never rewritten onto another parameter. It does not assert
+  the supported list.
+- *No pass maps a 1.x parameter name*: `ToolCallShimWirePathTests.CreatePluginTakesPatchAndRefusesTheOldPluginSpellingByName`
+  and `CompactPluginTakesSourceAndRefusesTheOldPluginSpellingByName` — the old `plugin=` spelling is refused, not
+  rebound (on `compact_plugin` by pass 4, since `source` is required).
 
 ## Where
 

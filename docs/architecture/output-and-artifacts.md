@@ -6,8 +6,6 @@ covers: [src/housecarl-mcp/OutputLocations.cs, src/housecarl-mcp/Artifacts.cs, s
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above.
-
 Everything houseCARL writes lands in a houseCARL-owned MO2 mod folder, a folder the caller named outright, or a
 result artifact file. These are the contracts those three share, cited from the files above under ADR 0001.
 
@@ -18,21 +16,18 @@ result artifact file. These are the contracts those three share, cited from the 
 - **A houseCARL-owned mod folder, by default.** Plugins and every non-`.esp` rider — compiled scripts, a packed
   `.bsa`, extracted loose files, a generated `.seq` — go into `<ModsDir>\houseCARL - <stem>`. Ownership is
   `[houseCARL] generated=true` in the folder's `meta.ini`, the one mod-root file MO2 does not deploy into Data. A
-  missing or stripped marker reads as NOT owned. *No test pins the fail-safe direction.*
+  missing or stripped marker reads as NOT owned.
 - **`into=` extends an owned folder** through one resolver shared by the `.esp`, rider and asset lanes. Four
   ownership-gated arms, in order: canonical `houseCARL - <stem>`; the owned folder holding `<stem>.esp` (the `.esp`
   basename is fixed by whatever binds the patch, the folder name is the user's to rename); the folder's own name;
   then a refusal naming every place searched, offering only `into=` spellings that resolve back. `needEsp` tightens
-  the canonical arm for the record lane. *No test pins the arm order.*
+  the canonical arm for the record lane.
 - **A fresh stem is auto-suffixed** to `<stem>_NNN` when a mod folder of that name exists or an ACTIVE plugin is
   named `<stem>.esp`. Two departures from suffixing:
-  - a stem that would shadow a plugin the active order is NOT loading REFUSES (#561) —
-    `PatchStemShadowTests.AStemThatWouldShadowAnInactivePluginInAForeignModFolderIsRefused`, with
-    `…AForeignEsmOfTheSameStemIsNoShadowForTheEspTheLaneWrites` for the boundary;
+  - a stem that would shadow a plugin the active order is NOT loading REFUSES (#561);
   - a lane whose artifact's exact basename is load-bearing (the `.bsa` the game auto-loads under its plugin's
     basename, the merged plugin) refuses a TAKEN stem **the caller named**; a defaulted stem is suffixed like any
-    other — `PatchArtifactCollisionTests.Merge_folder_collision_refuses_by_name_and_writes_nothing` and
-    `…Repack_folder_collision_refuses_by_name_rather_than_renaming_the_archive`, both of which name the stem.
+    other.
 - **`out_path=` is the escape hatch:** the caller names a mod-folder ROOT and houseCARL appends the artifact's
   subfolder (`Scripts\`, `SEQ\`), never doubling a segment already there. The folder is the user's, so
   `CreatedFresh=false` and residue cleanup never touches it; `into=` stays ownership-gated on these lanes.
@@ -46,28 +41,15 @@ result artifact file. These are the contracts those three share, cited from the 
   otherwise keeps it and names its path. A reused `into=` folder is never touched.
 - **Result artifacts:** an auto-spill goes to the server-managed results directory (`HOUSECARL_DATA_DIR`, else the
   server binary's folder, plus `results\`), pruned after `ResultsStore.PruneAfterDays` days. A caller-named
-  `to_file=` never lands there, and one pointing into it is refused by name —
-  `RecordsArtifactTests.ToFileIntoTheServersResultsDirectoryIsRefusedNamingThePruneHazard`.
-- **Two dispositions write one:** `to_file=`, because the caller asked, which renders only the manifest inline —
-  `RecordsTransportTests.ToFile_TheArtifactIsWrittenAndTheResponseIsManifestOnlyInline`, with
-  `RecordsArtifactTests.ToFileJson_TheRowsAreOmittedWhileTheTrueTotalStaysIntact` for the json twin; and the
-  `ceiling` auto-spill, because the inline render hit `max_chars`, which renders the prefix it managed and claims the
-  complete result only when the file holds every match, naming where the missing matches are when it cannot —
-  `RecordsArtifactTests.AnAutoSpillAnnouncesTheCompleteResultWithItsRowCountNotTheRenderedPrefix` and
-  `…AWindowedAutoSpillSaysWindowAndNeverClaimsTheCompleteResult`.
+  `to_file=` never lands there, and one pointing into it is refused by name.
+- **Two dispositions write one:** `to_file=`, because the caller asked, which renders only the manifest inline; and
+  the `ceiling` auto-spill, because the inline render hit `max_chars`, which renders the prefix it managed and claims
+  the complete result only when the file holds every match, naming where the missing matches are when it cannot.
 
 ### The reservation is the file
 
 An auto-spill claims its path by CREATING the file with `FileMode.CreateNew`, not by probing `File.Exists`, and the
-artifact is written through that same exclusive handle. The claims and their pins, all in `RecordsArtifactTests`:
-
-| contract | pinned by |
-|---|---|
-| two same-second reservations get distinct paths, because reserving creates the file | `SameSecondReservationsGetDistinctNamesBecauseReservingCreatesTheFile` |
-| the exclusive handle stays open across the write | `NothingElseCanOpenAReservedFileWhileTheSpillIsBeingWritten` |
-| disposing a reservation nothing wrote deletes the file it owns | `AReservationNoSpillWroteIsDeletedWhenItIsDisposed` |
-| a spill still lands while a scanner holds every new file without share-delete (#766) | `AnAutoSpillLandsWhileAScannerGrabsEveryFileTheResultsDirectoryGains` |
-| a failed write to a caller-named target leaves that file as it was | `ToFile_AWriteThatFailsAfterItStartedLeavesTheCallersFileAsItWas` |
+artifact is written through that same exclusive handle.
 
 A caller-named target carries the opposite hazard — it is the CALLER's file and may already hold an artifact they
 want — so it is written through a same-directory temp moved into place. A crash mid-write cannot pass a half
@@ -86,8 +68,7 @@ because it names no record that could go stale.
 **Error rows are not identity-bearing.** A row carrying an `error` member documents a failure and does not name a
 record, so extraction SKIPS them: re-entering an artifact means "the records this file resolved". An all-error
 artifact refuses by its real cause, never by accusing the file; the "was it edited?" refusal is reserved for a
-SUCCESS row missing the identity column, which a server-written artifact never contains. Pinned across
-`RecordsArtifactTests`' re-entry facts.
+SUCCESS row missing the identity column, which a server-written artifact never contains.
 
 ### The atomic-write contract
 
@@ -102,12 +83,8 @@ metadata-merge error, and both must stay loud with the original byte-intact rath
 copy. The 3-argument overload is deliberate — the 4-argument `ignoreMetadataErrors: true` would swallow that
 failure. `AtomicFile` holds no handle at rest.
 
-Crash-atomicity itself is not demonstrable in one process and is not claimed anywhere. What the
-`atomic-commit-guard` probe (`src/housecarl-generator/AtomicCommitProbe.cs`) pins is that the code takes
-`File.Replace`'s path rather than `File.Move`'s — except on a host whose filesystem tunneling masks creation time,
-where the probe says so and skips that sub-check — that a fresh target still lands, and that a pre- or mid-swap
-failure throws with the prior target byte-for-byte intact. Fresh-CREATE writes deliberately do not funnel through
-it: there is no original to lose.
+Crash-atomicity itself is not demonstrable in one process and is not claimed anywhere. Fresh-CREATE writes
+deliberately do not funnel through it: there is no original to lose.
 
 ### The freshness stamp: last write plus size
 
@@ -116,19 +93,14 @@ stamps against — the plugin read cache, the MO2 profile gate, the BSA and loos
 parse cache — so there is one answer to "has this changed" rather than one per cache. Length is in the key because
 an edit inside the filesystem's timestamp granularity, or one whose tool restores the timestamp it found, leaves
 the mtime where it was (#406). Both terms come from ONE stat. `FileStamp.Absent`, with its negative length, is the
-single sentinel for missing, locked and unreadable. Pinned by `FreshnessKeyTests`.
+single sentinel for missing, locked and unreadable.
 
 ### The order stamp: epoch plus health
 
 `OrderStamp` carries an index build's epoch AND the plugins that build lost to a load failure as ONE value, because
 a legitimate reorder changes the epoch too and the epoch alone cannot tell a degraded order from a reordered one
 (#353). The health is a SIBLING of the epoch, never folded into it: the epoch is opaque and compared only for
-equality. Pinned by `DegradedOrderMarkerTests` —
-`ADegradedBuildsJsonResponseCarriesTheMarkerAndNamesWhatIsMissing` and
-`ADegradedBuildsTextHeadCarriesTheClauseBesideTheEpoch` for the marker riding beside the epoch on both transports,
-`AHealthyBuildCarriesNoMarkerOnEitherLane` for the silence on a healthy build — and by
-`AssetStatusSetTests.TheDegradedOrderRosterSurvivesTheArtifactRoundTrip` for the roster travelling with an
-artifact.
+equality.
 
 ### The absolute-path rule
 
@@ -136,40 +108,53 @@ Every path a CALLER names — an `out_path=` folder, a `to_file=` artifact, an `
 FULLY QUALIFIED, not merely rooted: the server's working directory is not the caller's, and `C:work` or `\work`
 resolve against the server's own directory while the response names the path that was typed. One definition,
 `PathArguments.NotAbsolute`, in core because the predicate and draft readers are there, and carrying no `error:`
-prefix so a throwing lane and a returning lane can both use it. Pinned per lane by `AbsolutePathArgumentTests`.
+prefix so a throwing lane and a returning lane can both use it.
 
 ## Pinned by
 
-- *Where output lands*: `PatchStemShadowTests.AStemThatWouldShadowAnInactivePluginInAForeignModFolderIsRefused` and
-  `AForeignEsmOfTheSameStemIsNoShadowForTheEspTheLaneWrites` in the same class — the shadowing stem refuses, and its
-  boundary.
-- *Where output lands*: `PatchArtifactCollisionTests.Merge_folder_collision_refuses_by_name_and_writes_nothing` and
-  `Repack_folder_collision_refuses_by_name_rather_than_renaming_the_archive` in the same class — a taken stem the
-  caller named is refused on a lane whose basename is load-bearing.
-- *Where output lands*: `RecordsArtifactTests.ToFileIntoTheServersResultsDirectoryIsRefusedNamingThePruneHazard` — a
-  `to_file=` into the results directory is refused by name.
-- *Where output lands*: `RecordsTransportTests.ToFile_TheArtifactIsWrittenAndTheResponseIsManifestOnlyInline` and
-  `RecordsArtifactTests.ToFileJson_TheRowsAreOmittedWhileTheTrueTotalStaysIntact` — `to_file=` renders only the
-  manifest inline; `RecordsArtifactTests.AnAutoSpillAnnouncesTheCompleteResultWithItsRowCountNotTheRenderedPrefix`
-  and `AWindowedAutoSpillSaysWindowAndNeverClaimsTheCompleteResult` — the `ceiling` auto-spill claims the complete
-  result only when the file holds every match.
-- *The reservation is the file*: the five `RecordsArtifactTests` facts in the table, each pinning its row.
-- *Re-entering an artifact*: `RecordsArtifactTests.StaleReEntry_TheBodyLaneRefusalNamesBothEpochsAndTheNoOverridePosture`
-  — the epoch mismatch refuses naming both epochs, with no override; `AnArtifactDeclaringNoIdentityColumnRefusesReEntryByName`
-  — the wrong identity column is refused by name; `AMixedArtifactReEntersOnItsResolvedRowsWithNoWasItEditedMisdiagnosis`
-  and `AnAllErrorArtifactIsRefusedByItsRealCauseNeverByAccusingTheFile` — error rows are skipped, and an all-error
-  artifact refuses by its real cause (all in the same class).
-- *The atomic-write contract*: `AtomicCommitProbe` (ci probe `atomic-commit-guard`) — `File.Replace`'s path is taken
-  rather than `File.Move`'s, a fresh target still lands, and a pre- or mid-swap failure leaves the prior target intact.
-- *The freshness stamp: last write plus size*: `FreshnessKeyTests` — an edit that leaves the mtime alone is still
-  stale, the shared stamp separates two files that differ only in length, and one sentinel stands for a path that
-  cannot be statted.
-- *The order stamp: epoch plus health*: `DegradedOrderMarkerTests.ADegradedBuildsJsonResponseCarriesTheMarkerAndNamesWhatIsMissing`
-  and `ADegradedBuildsTextHeadCarriesTheClauseBesideTheEpoch` — the marker beside the epoch on both transports;
-  `HealthyOrderMarkerTests.AHealthyBuildCarriesNoMarkerOnEitherLane` — the silence on a healthy build;
-  `AssetStatusSetTests.TheDegradedOrderRosterSurvivesTheArtifactRoundTrip` — the roster travels with an artifact.
-- *The absolute-path rule*: `AbsolutePathArgumentTests` — every caller-named path that is not fully qualified is
-  refused, one lane per test.
+- *Where output lands*, ownership: *No test pins the fail-safe direction.*
+- *Where output lands*, `into=`: *No test pins the arm order.*
+- *Where output lands*, the shadowing stem: `PatchStemShadowTests.AStemThatWouldShadowAnInactivePluginInAForeignModFolderIsRefused`,
+  with `…AForeignEsmOfTheSameStemIsNoShadowForTheEspTheLaneWrites` for the boundary.
+- *Where output lands*, a caller-named taken stem: `PatchArtifactCollisionTests.Merge_folder_collision_refuses_by_name_and_writes_nothing`
+  and `…Repack_folder_collision_refuses_by_name_rather_than_renaming_the_archive`, both of which name the stem.
+- *Where output lands*, result artifacts: `RecordsArtifactTests.ToFileIntoTheServersResultsDirectoryIsRefusedNamingThePruneHazard`.
+- *Where output lands*, the two dispositions: `RecordsTransportTests.ToFile_TheArtifactIsWrittenAndTheResponseIsManifestOnlyInline`,
+  with `RecordsArtifactTests.ToFileJson_TheRowsAreOmittedWhileTheTrueTotalStaysIntact` for the json twin; and
+  `RecordsArtifactTests.AnAutoSpillAnnouncesTheCompleteResultWithItsRowCountNotTheRenderedPrefix` and
+  `…AWindowedAutoSpillSaysWindowAndNeverClaimsTheCompleteResult` for the `ceiling` auto-spill.
+- *The reservation is the file*: the claims and their pins, three in `RecordsArtifactResultsStoreTests` and two in
+  `RecordsArtifactTests`:
+
+| contract | pinned by |
+|---|---|
+| two same-second reservations get distinct paths, because reserving creates the file | `RecordsArtifactResultsStoreTests.SameSecondReservationsGetDistinctNamesBecauseReservingCreatesTheFile` |
+| the exclusive handle stays open across the write | `RecordsArtifactResultsStoreTests.NothingElseCanOpenAReservedFileWhileTheSpillIsBeingWritten` |
+| disposing a reservation nothing wrote deletes the file it owns | `RecordsArtifactResultsStoreTests.AReservationNoSpillWroteIsDeletedWhenItIsDisposed` |
+| a spill still lands while a scanner holds every new file without share-delete (#766) | `RecordsArtifactTests.AnAutoSpillLandsWhileAScannerGrabsEveryFileTheResultsDirectoryGains` |
+| a failed write to a caller-named target leaves that file as it was | `RecordsArtifactTests.ToFile_AWriteThatFailsAfterItStartedLeavesTheCallersFileAsItWas` |
+
+- *Re-entering an artifact*: `RecordsArtifactEpochTests.StaleReEntry_TheBodyLaneRefusalNamesBothEpochsAndTheNoOverridePosture`
+  — the epoch mismatch refuses naming both epochs, with no override. `RecordsArtifactTests.AnArtifactDeclaringNoIdentityColumnRefusesReEntryByName`
+  — an artifact with no identity column refuses re-entry by name. No test pins the refusal of an artifact whose
+  identity column is not the one the parameter takes.
+- *Re-entering an artifact*, error rows: pinned across `RecordsArtifactTests`' re-entry facts —
+  `AMixedArtifactReEntersOnItsResolvedRowsWithNoWasItEditedMisdiagnosis` (error rows are skipped) and
+  `AnAllErrorArtifactIsRefusedByItsRealCauseNeverByAccusingTheFile` (an all-error artifact refuses by its real cause).
+- *The atomic-write contract*: what the `atomic-commit-guard` probe (`AtomicCommitProbe`) pins is that the code takes
+  `File.Replace`'s path rather than `File.Move`'s — except on a host whose filesystem tunneling masks creation time,
+  where the probe says so and skips that sub-check — that a fresh target still lands, and that a pre- or mid-swap
+  failure throws with the prior target byte-for-byte intact.
+- *The freshness stamp: last write plus size*: pinned by `FreshnessKeyTests` — an edit that leaves the mtime alone is
+  still stale, the shared stamp separates two files that differ only in length, and one sentinel stands for a path
+  that cannot be statted.
+- *The order stamp: epoch plus health*: pinned by `DegradedOrderMarkerTests` —
+  `ADegradedBuildsJsonResponseCarriesTheMarkerAndNamesWhatIsMissing` and
+  `ADegradedBuildsTextHeadCarriesTheClauseBesideTheEpoch` for the marker riding beside the epoch on both transports,
+  `HealthyOrderMarkerTests.AHealthyBuildCarriesNoMarkerOnEitherLane` for the silence on a healthy build — and by
+  `AssetStatusSetTests.TheDegradedOrderRosterSurvivesTheArtifactRoundTrip` for the roster travelling with an
+  artifact.
+- *The absolute-path rule*: pinned per lane by `AbsolutePathArgumentTests`.
 
 ## Where
 

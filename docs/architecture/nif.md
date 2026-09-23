@@ -6,10 +6,6 @@ covers: [src/housecarl-core/NifService.cs, src/housecarl-mcp/NifTools.cs, src/ho
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `NifServiceGuardProbe`,
-`NifSetGuardProbe`, `NifSectionsProbe`, `NifSourceLaneProbe` and `NifInspectBatchGuardProbe`
-(`src/housecarl-generator`), and by `NifSetBlockOrderTests` (`src/housecarl-mcp-tests`).
-
 `NifService` is pure format logic: raw mesh bytes in, the model behind `nif_inspect` out — header and version, block
 census, shapes, node tree, header string table. It knows nothing of MO2, the VFS or which mod won; the service layer
 resolves the winning bytes and hands them here. Geometry, vertices and `.dds` pixels are out of scope: this reads and
@@ -44,10 +40,6 @@ The coverage cornerstone applies inside the format layer, and three pieces imple
 - **`DecodeFlagWord`** — flag-bit names come from `Enum.GetValues` over nifly's own enum, so coverage is the library's.
   Members are peeled largest-first, so a combo member wins over its constituent bits, and whatever no member covers is
   reported as an explicit `UnknownBits` mask: an unnamed bit is something the mesh really carries.
-
-`NifServiceGuardProbe` pins both branches of `ReallyReads`, `NifSetGuardProbe` pins all three `ReallyWrites` states
-including the unmarshalable one via a stand-in type, and the flag decode's gap and combo-peel behaviour is pinned
-rather than assumed.
 
 ### The Skyrim-layout gate
 
@@ -103,7 +95,7 @@ returned:
    so a value accepted in memory and never serialized is caught even if the write gate ever mis-answers.
 
 Cannot verify means will not write: a layout the diff cannot recover REFUSES rather than passing silently. Both gates
-are `internal` so a probe can feed them a collateral change and a no-op write directly, which `NifSetGuardProbe` does.
+are `internal` so a probe can feed them a collateral change and a no-op write directly.
 
 Block ids are resolved only AFTER the save, because nifly's save re-sorts the block list into its own canonical tree
 order — a mesh whose on-disk order was not already that order is renumbered, and a gate comparing the right block at
@@ -132,20 +124,23 @@ and the final render stay unseen, so a rewritten path or a renamed shape still n
 
 ## Pinned by
 
-- *Contracts*, the parse-failure paragraph: `NifServiceGuardProbe` (ci probe `nif-service-guard`) — empty bytes and non-NIF
-  garbage each return a named error, never a throw or a half-model (the refusal arm).
-- *Coverage comes from the library, never a hand list*: `NifServiceGuardProbe` — both branches of `ReallyReads`, and
-  the flag decode's unnamed-bit mask and combo-first peel (the unnamed-bits arm); `NifSetGuardProbe`
-  (`nif-set-guard`) — all three `ReallyWrites` states, the unmarshalable one through a stand-in type.
+- *Contracts*, the parse-failure paragraph: `NifServiceGuardProbe` (ci probe `nif-service-guard`) — empty bytes and
+  non-NIF garbage each return a named error, never a throw or a half-model (the refusal arm).
+- *Coverage comes from the library, never a hand list*: `NifServiceGuardProbe` pins both branches of `ReallyReads`,
+  `NifSetGuardProbe` (`nif-set-guard`) pins all three `ReallyWrites` states including the unmarshalable one via a
+  stand-in type, and the flag decode's gap and combo-peel behaviour is pinned rather than assumed (the
+  `NifServiceGuardProbe` unnamed-bits arm).
 - *The Skyrim-layout gate*: `NifServiceGuardProbe` — the FO4-layout Glossiness default `ReallyReads` cannot see, and a
   texture slot nothing determines stays unnamed rather than getting a plausible label (the slot-names arm).
-- *The two write gates*: `NifSetGuardProbe` — gate 1 refuses a collateral change and gate 2 refuses a no-op write,
-  fed to them directly; the refusal arms — a non-SE stream, a target not found or ambiguous, an op that cannot apply.
+- *The two write gates*: both gates are fed a collateral change and a no-op write directly, which `NifSetGuardProbe`
+  does — gate 1 refuses the collateral change and gate 2 the no-op; its refusal arms — a target not found or
+  ambiguous, an op that cannot apply, and a non-SE stream (that arm prints SKIP rather than failing when its fixture
+  cannot be built on the NiflySharp in use).
 - *The two write gates*: `NifSetBlockOrderTests.SetPathWritesOnAMeshWhoseStoredBlockOrderIsNotTheSaveOrder` — block
   ids are resolved after the save's re-sort; `TheFixtureMeshStoresItsTextureSetAtADifferentIdThanASaveGivesIt` in the
   same class — the fixture really is out of save order.
-- *Refusals, and what a green verify proves*: `NifSetGuardProbe`'s `set_path` header-string arm — a shape's or
-  node's NAME is refused rather than swapped.
+- *Refusals, and what a green verify proves*: `NifSetGuardProbe`'s `set_path` header-string arm — a shape's NAME is
+  refused and sent to `rename_shape`. No arm sends `set_path` onto a node's name, so that half is not pinned.
 
 ## Where
 

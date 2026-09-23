@@ -6,15 +6,6 @@ covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs,
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `SkseReaderProbe`, `SksePeekProbe`, `SkseConfigAuditProbe` and `NativePairingProbe`
-(`src/housecarl-generator`), and by `SkseFamilySelectionTests`, `SkseFindingsWireShapeTests`,
-`SkseTransportTests`, `SkseTransportWireTests`, `SkseDirectoryReadTests` and `SkseVersionSourceTests`
-(`src/housecarl-mcp-tests`).
-
-## Contracts
-
-### The ceiling
-
 Everything in this layer is what a FILE DECLARES, never what a DLL DOES. A version manifest, an import table, an
 embedded string and a config token are static facts about bytes on disk; loading, registering and hooking are runtime
 behaviour houseCARL never observes. So a finding is a plausibility verdict to verify, the absence of a token proves
@@ -24,6 +15,8 @@ description, because it is the same ceiling for all three families.
 `housecarl_skse` runs ONE family per call — inventory, pairing or config. The three answer different questions over
 different populations, so a merged response would have no honest summary line; every response instead names the family
 it ran and the spelling of the two it did not.
+
+## Contracts
 
 ### The static-load rule
 
@@ -81,8 +74,7 @@ powerof3/CommonLibSSE@dev):
 0x34C uint32  xseMinimum
 ```
 
-`supportEmail` being 252 rather than 256 is what puts the two flag words at 0x304 and 0x308; the map is pinned by
-`SkseReaderProbe` arms A and F, which fail the instant email is "fixed" to 256 and both flag fields shift. The reader
+`supportEmail` being 252 rather than 256 is what puts the two flag words at 0x304 and 0x308. The reader
 never guesses a layout — the offsets come from the pinned headers. A real blob is the full 0x350 bytes with a non-zero
 `dataVersion`; a short or all-zero one (a forwarded or corrupt export) is named rather than presented as a phantom
 `""` v0.0.0 plugin.
@@ -100,8 +92,7 @@ Size as a bound and so answers UNKNOWN instead. Both refuse a partial answer —
 Three version numbers are in sight and none is the truth about the others: the SKSE manifest's own declaration (what
 the author typed, routinely stale — SPID 7.3.3 declares 7.0.0), the image's Win32 file version, and the mod's MO2
 `meta.ini`. Each is labelled with its source and the others ride the same line only where they disagree on their
-numeric prefix; a modder's tag ("7.0.19.0-AIO") is unknown, not different. `SkseVersionSourceTests` pins the row
-separator the composed text may not use.
+numeric prefix; a modder's tag ("7.0.19.0-AIO") is unknown, not different.
 
 Reads hold no handle at rest: a read-share stream, closed before return, so MO2 and xEdit can still move the file.
 
@@ -116,8 +107,7 @@ no partial-scan state, because a half-read image's "nothing embedded" would be a
 The two classifiers are held to DIFFERENT bars, and the asymmetry is deliberate. A config path is only ever SHOWN, so a
 `{}` template costs nothing and is kept. A plugin name is ADJUDICATED against the load order and can come back "NOT in
 your load order", so a false positive there is a false alarm: anything not shaped like a real filename is dropped,
-including both format-string dialects (`%s.esp`, `{}.esp`). `SksePeekProbe` part 1 pins the UTF-16 arm and the negative
-classification arms.
+including both format-string dialects (`%s.esp`, `{}.esp`).
 
 ### Native pairing
 
@@ -126,8 +116,8 @@ a DLL that registers the implementation at runtime. The halves ship as separate 
 engine's response is "unable to bind" plus calls that silently no-op.
 
 `NativePairing` extracts the DECLARATION side only, purely over Mutagen's `PexFile` model. The native flag is raw bit1
-(bit0 is Global): Mutagen's enum names sit one off from the file format, so the raw bit is the truth, and
-`NativePairingProbe` part 1 pins it. A native-flagged property accessor is counted as `Prop.Get` / `Prop.Set`.
+(bit0 is Global): Mutagen's enum names sit one off from the file format, so the raw bit is the truth. A native-flagged
+property accessor is counted as `Prop.Get` / `Prop.Set`.
 
 The baseline is honest by construction: a class carried by an official archive is the ENGINE's even when SKSE's loose
 override wins the file, and skse64's own script additions are SKSE CORE, implemented by the game-root loader. Remaining
@@ -163,13 +153,12 @@ because a token embedded in prose (`will cast fireball (Skyrim.esm|0x5)`) otherw
 plugin name. The price, which the extractor accepts rather than solves, is a KNOWN false negative: a plugin literally
 named `Mod (v2).esp` is never matched, so a reference to it is silently absent from the audit rather than reported.
 That is the safe direction for this family — a missed reference is a gap, a prose false positive would be a false
-DANGLING — and both charset directions are pinned by `SkseConfigAuditProbe` arms 2b and 2d.
+DANGLING.
 
 The verdict is the service's, over the active order: OK, PLUGIN MISSING, DANGLING, UNPARSEABLE. The headline keeps two
 signals apart. BROKEN (dangling + unparseable) should resolve and does not, and is actionable. INERT (plugin missing) is
 optional support for a mod you do not have; counting it as dead would make a healthy order read as thousands of dead
-references. `SkseConfigAuditProbe` pins the extractor against every reference shape the evidence sample established,
-because a false DANGLING is this family's worst failure mode.
+references.
 
 ### Transport
 
@@ -188,27 +177,30 @@ number describes a wider set than the rows beside it.
 
 ## Pinned by
 
-- *The ceiling*: `SkseFamilySelectionTests.TheFooterNamesTheFamilyThatRanAndTheSpellingOfBothThatDidNot` — every
-  response names the family it ran and the spelling of the two it did not; `AnUnknownFindingsValueIsRefused_NamingTheThreeFamilies`
-  in the same class and `SkseFindingsWireShapeTests.AJsonArrayForFindingsGetsTheToolsOwnOneFamilyRefusal` — one
-  family per call.
-- *The static-load rule*: `SksePeekProbe` (ci probe `skse-peek-guard`) part 2 — a failed import walk never renders as
-  "imports nothing", and the Debug-CRT verdict.
+- *What it is*, the one-family paragraph: `SkseFamilySelectionTests.TheFooterNamesTheFamilyThatRanAndTheSpellingOfBothThatDidNot`
+  — every response names the family it ran and the spelling of the two it did not;
+  `AnUnknownFindingsValueIsRefused_NamingTheThreeFamilies` in the same class and
+  `SkseFindingsWireShapeTests.AJsonArrayForFindingsGetsTheToolsOwnOneFamilyRefusal` — one family per call;
+  `SkseFamilyBindingTests.EachFamilyAnswersWithItsOwnWireClassHeaderAndItsOwnFooter` — each `findings=` value is
+  answered by its own family's render and footer, through the real renders.
+- *The static-load rule*: `SksePeekProbe` (ci probe `skse-peek-guard`) part 2 — a failed import walk leaves `Imports`
+  null, never a genuine empty, and a null never becomes a Debug-CRT claim or blocker.
 - *The static-load rule*: `NativePairingProbe` (`native-pairing-guard`) part 2 — the runtime compare that decides the
   version lock, where garbage never passes.
-- *The PE manifest read*: `SkseReaderProbe` (`skse-reader-guard`) arms A and F — the offset map, with `supportEmail`
-  at 252 bytes; the rest of the probe — the flag decode, and a non-SKSE or unreadable image classified by kind rather
-  than thrown.
+- *The PE manifest read*: the map is pinned by `SkseReaderProbe` (`skse-reader-guard`) arms A and F, which fail the
+  instant email is "fixed" to 256 and both flag fields shift; the rest of the probe — the flag decode, and a
+  non-SKSE or unreadable image classified by kind rather than thrown.
 - *The PE manifest read*: `SkseDirectoryReadTests` — a zero directory Size beside a declared RVA: the export walk
   reads it, the import walk answers unknown rather than a short list.
-- *The PE manifest read*: `SkseVersionSourceTests` — the three version numbers each labelled with its source and shown
-  only where they disagree, a modder's tag is not a disagreement, and the row separator the version text may not use
-  (`TheVersionTextDoesNotUseTheRowSeparator`).
-- *The peek*: `SksePeekProbe` part 1 — the UTF-16 arm and the negative classification arms.
-- *Native pairing*: `NativePairingProbe` part 1 — the native flag is raw bit1; part 2 — an official archive's class is
+- *The PE manifest read*: `SkseVersionSourceTests` pins the row separator the composed text may not use
+  (`TheVersionTextDoesNotUseTheRowSeparator`); the rest of the class — the three version numbers each labelled with
+  its source and shown only where they disagree, and a modder's tag not a disagreement.
+- *The peek*: `SksePeekProbe` part 1 pins the UTF-16 arm and the negative classification arms.
+- *Native pairing*: `NativePairingProbe` part 1 pins the raw bit1 native flag; part 2 — an official archive's class is
   the ENGINE's even under a winning loose override; part 3 — UNPAIRED is framed a verify flag, never "broken".
-- *Config references*: `SkseConfigAuditProbe` (`skse-config-audit-guard`) — the extractor against every reference
-  shape, both charset directions (arms 2b and 2d), and the BROKEN / INERT headline.
+- *Config references*: both charset directions are pinned by `SkseConfigAuditProbe` (`skse-config-audit-guard`) arms
+  2b and 2d; `SkseConfigAuditProbe` pins the extractor against every reference shape the evidence sample established,
+  because a false DANGLING is this family's worst failure mode; its renderer part pins the BROKEN / INERT headline.
 - *Transport*: `SkseTransportTests.EachFamilysTextRenderFilledPastItsCapAnswersInsideIt` and
   `TheJsonTailIsPaidForInsideMaxCharsRatherThanAppendedPastIt` — the tail is charged before a row is laid, and a row
   that crossed is taken back out; `ACapTooSmallForTheFixedPartSaysSoInsteadOfOverrunningSilently` — the one arm that

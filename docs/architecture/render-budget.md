@@ -6,8 +6,6 @@ covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/
 
 ## What it is
 
-**Class:** LIVING. Subsystem: the files in `covers:` above.
-
 Two budgets share the word, and are not the same thing: **`max_chars`**, how WIDE the response may be, and
 **the render bound** (`RenderBudget`), how LONG a call may spend rendering before it refuses up front. This
 file is the home of both, cited from the code under ADR 0001.
@@ -30,10 +28,6 @@ Multilingual Plane (#754), and two constraints hold that bound:
 - .NET offers no encoder that widens past the BMP without also unescaping that set
   (`UnsafeRelaxedJsonEscaping` does both), so the plane is where this stops. Above it a character rides as an
   escape pair, which is ASCII and counted as the characters it is, so the cap is right on both sides.
-
-**Pinned by** `CheckCapCharsTests` — non-ASCII is carried unescaped, the overrun notice states its own length
-and clears in one step, an astral character escapes and is counted as written, and both transports state the
-same length about the same sweep.
 
 ### The bound holds by layout, never by trimming
 
@@ -71,24 +65,6 @@ the fixed part. The pieces that vary with the cut go through `BoundedBody.Reserv
 
 `BoundedBody` is the one place either transport appends anything `max_chars` can refuse; every body write goes
 through `Emit`, and a subject's own share sits on top of the response-wide test, not instead of it.
-
-#### What the properties pin
-
-In `src/housecarl-generator/CheckMergeProbe.cs` (`ci-all`):
-
-| property | what it holds |
-|---|---|
-| `ALLOCATION-MONOTONE-IN-MAX-CHARS` | over every integer cap in a wide band, no subject spends fewer characters at a wider cap — what makes the response's own "raise `max_chars=`" remedy true |
-| `ALLOCATION-NO-STRANDING` | a call whose whole demand fits its budget renders every unit and claims no cut, in both transports |
-| `ALLOCATION-EQUALS-SPEND` | on a response with **nothing cut**, what a subject was allocated is what it spent, to the byte. At a biting cap a subject spends the largest whole-unit prefix under λ, so it spends less — the #398 granularity term |
-| `ALLOCATION-SECOND-FAMILY-DOES-NOT-WAIT-ITS-TURN` | a later family is not starved by an earlier one spending first (#394) |
-| `RESERVE-DECLARED-IS-RESERVE-DEMANDED` | the demand pass's reserve and the render's reserve are one number |
-| `RESERVE-COVERS-WHAT-IT-RESERVES-FOR` | a reserve is wide enough for the sentence it was held back for |
-
-`CheckShapeMatrix.cs` drives the same properties over a shape matrix
-(`MATRIX-MONOTONE-IN-MAX-CHARS`, `MATRIX-JSON-PARSES-AT-EVERY-CAP`), and its one-budget arm **bounds**
-`OutstandingHigh` by `ReservedForRows` — it fails only on `>`. Equality is the diagnostic reading, that the
-up-front measurement was not exceeded, and not the asserted property.
 
 #### Known under-fills — open gaps, not design
 
@@ -203,23 +179,37 @@ ten minutes at that lane's per-row cost — a third of the 30-minute idle timeou
 call — except the comparison forms, whose bound is about a minute because their row is. What a call spent
 comes back as `render_ms`, which is how the estimates are checked against a real order. The bounds are
 settable so a test can drive the seam; production never assigns them. `AccountingReserve` is held back from
-`max_chars` so the accounting line is paid for inside the cap, **pinned by**
-`RecordsRenderCostTests.TheAccountingLineIsReservedFromTheRowBudget`.
+`max_chars` so the accounting line is paid for inside the cap.
 
 ## Pinned by
 
-- *The unit is CHARACTERS, not bytes*: `CheckCapCharsTests` — non-ASCII is carried unescaped, an astral character
-  escapes and is counted as written, and both transports state the same length about the same sweep.
-- *A merged response water-fills its body budget over measured demand*: `CheckMergeProbe` (ci probe `check-guard`) —
-  the six properties in the table, each pinning the row it names.
-- *A merged response water-fills its body budget over measured demand*: `CheckShapeMatrix`, run inside
-  `CheckMergeProbe` — `MATRIX-MONOTONE-IN-MAX-CHARS` and `MATRIX-JSON-PARSES-AT-EVERY-CAP` over the shape matrix, and
-  the one-budget arm that bounds `OutstandingHigh` by `ReservedForRows`.
+- *The unit is CHARACTERS, not bytes*: `CheckCapCharsTests` — non-ASCII is carried unescaped, the overrun notice
+  states its own length and clears in one step, and an astral character escapes and is counted as written. Each
+  transport states its own length about the same sweep (`TheTextLaneStatesItsOwnLengthOnTheSameSweep` for text); no
+  test compares the two lengths with each other.
+- *A merged response water-fills its body budget over measured demand*: the properties, in
+  `src/housecarl-generator/CheckMergeProbe.cs` (`ci-all`, ci probe `check-guard`):
+
+| property | what it holds |
+|---|---|
+| `ALLOCATION-MONOTONE-IN-MAX-CHARS` | over every integer cap in a wide band, no subject spends fewer characters at a wider cap — what makes the response's own "raise `max_chars=`" remedy true |
+| `ALLOCATION-NO-STRANDING` | a call whose whole demand fits its budget renders every unit and claims no cut, in both transports |
+| `ALLOCATION-EQUALS-SPEND` | on a response with **nothing cut**, what a subject was allocated is what it spent, to the byte. At a biting cap a subject spends the largest whole-unit prefix under λ, so it spends less — the #398 granularity term |
+| `ALLOCATION-SECOND-FAMILY-DOES-NOT-WAIT-ITS-TURN` | a later family is not starved by an earlier one spending first (#394) |
+| `RESERVE-DECLARED-IS-RESERVE-DEMANDED` | the demand pass's reserve and the render's reserve are one number |
+| `RESERVE-COVERS-WHAT-IT-RESERVES-FOR` | a reserve is wide enough for the sentence it was held back for |
+
+- *A merged response water-fills its body budget over measured demand*: `CheckShapeMatrix.cs`, run inside
+  `CheckMergeProbe`, drives the same properties over a shape matrix (`MATRIX-MONOTONE-IN-MAX-CHARS`,
+  `MATRIX-JSON-PARSES-AT-EVERY-CAP`), and its one-budget arm **bounds** `OutstandingHigh` by `ReservedForRows` — it
+  fails only on `>`. Equality is the diagnostic reading, that the up-front measurement was not exceeded, and not the
+  asserted property.
 - *What a merged response's accounting may claim*:
   `CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` — the overrun notice states the finished
   response's length, and its remedy clears the overrun in one step.
 - *The render bound is a time budget, not a width one*: `RecordsRenderCostTests.TheAccountingLineIsReservedFromTheRowBudget`
-  — `AccountingReserve` is held back from `max_chars`.
+  — the accounting line at its widest fits inside `AccountingReserve`. It renders nothing against a cap, so that the
+  reserve is taken out of `max_chars` is not asserted.
 
 ## Where
 
