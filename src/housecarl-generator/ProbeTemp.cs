@@ -3,7 +3,7 @@ namespace HousecarlGenerator;
 /// <summary>
 /// The fixture root a probe run works under: one directory per process, removed when the run ends.
 ///
-/// <para>Probes name their own fixture directories — <c>hc-inplace-guard</c>, <c>hc-mo2instance-probe</c> and
+/// <para>Probes name their own fixture directories — <c>hc-inplace-nested</c>, <c>hc-mo2instance-probe</c> and
 /// ~50 more — off <see cref="Path.GetTempPath"/>. Those names are fixed, so two runs at once used to open the
 /// same directory and fail each other on file-in-use. Rather than rewrite every call site (and leave the next
 /// probe free to add another fixed path), this points the PROCESS at its own temp directory before any probe
