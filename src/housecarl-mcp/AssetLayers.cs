@@ -983,117 +983,129 @@ public sealed partial class LoadOrderService
             try { lock (_gate) { view = Assets.Capture(); warnings = AssetWarningsLocked(); profileName = _profileName; } }
             catch (Exception ex) { return NifSetResult.Fail($"could not resolve the asset layer (the MO2 instance may not be readable): {ex.Message}"); }
 
-            PlacementResolution place;
-            try { place = view.ResolveForPlacement(rel); }
-            catch (ArgumentException ex) { return NifSetResult.Fail($"invalid path — {ex.Message}"); }
-
-            var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
-
-            // Pick the copy to read/edit: the VFS winner, or source_provider='s, answered ahead of the ABSENT return.
-            PlacementSource chosen;
-            if (!string.IsNullOrWhiteSpace(sourceProvider))
-            {
-                var pick = NifPick(view, place, rel, sourceProvider!.Trim());
-                // The named-source refusal can hedge on the build, so it carries the roots that hedge points at.
-                if (pick.Error is not null)
-                    return NifSetResult.Fail(pick.Error, providers, profileName) with { RootFailures = view.RootFailures };
-                chosen = pick.Source!;
-            }
-            else
-            {
-                if (place.Sources.Count == 0)
-                {
-                    var hint = AssetPathHint.MeshHint(view, rel);   // same verified re-resolve as nif_inspect's ABSENT
-                    return NifSetResult.Fail(
-                        $"ABSENT — no active mod or BSA provides '{rel}', so there is no copy to edit." + (hint is null ? "" : " " + hint),
-                        providers, profileName);
-                }
-                chosen = place.Sources[0];
-            }
-
-            var (bytes, readErr) = AssetResolver.ReadPlacementSource(chosen);
-            if (bytes is null) return NifSetResult.Fail(readErr ?? "could not read the resolved mesh bytes.", providers, profileName);
-
-            // ---- apply and verify (pure; nothing is written unless this returns verified bytes) ----
-            var outcome = NifService.Set(bytes, ops);
-            if (outcome.Error is not null) return NifSetResult.Fail(outcome.Error, providers, profileName);
-            var editedBytes = outcome.WrittenBytes!;
-            var report = outcome.Report!;
-            var chosenProv = NifProviderFor(chosen);
-            // Whether the edited copy is the VFS winner or a source_provider=-named loser. Drives the "is it live" wording.
-            bool editedIsWinner = place.Sources.Count > 0 && ReferenceEquals(chosen, place.Sources[0]);
-
-            // ---- IN-PLACE lane ----
-            if (inPlace)
-            {
-                // The lane overwrites the WINNING file with no backup, and its handshake is written about that file — so a copy the game is not loading is declined.
-                if (chosen.OffOrder)
-                    return NifSetResult.Fail(
-                        $"in-place edits the copy the game loads, but '{chosen.ProviderName}' supplied one it does not "
-                        + "(see the provenance note on a read). Drop in_place to write the edited mesh into a new houseCARL "
-                        + "folder instead (the default lane).", providers, profileName);
-                if (chosen.Kind != AssetKind.Loose || string.IsNullOrEmpty(chosen.LooseFilePath))
-                    return NifSetResult.Fail(
-                        $"in-place needs a LOOSE copy to overwrite, but '{rel}' resolves to {chosen.ProviderName} ({KindLabel(chosen.Kind)}). " +
-                        "Drop in_place to write a loose winning override into a new houseCARL folder instead (the default lane).", providers, profileName);
-                var targetPath = chosen.LooseFilePath!;
-                var meshName = Path.GetFileName(targetPath);
-
-                // The acknowledgement is recorded only once the overwrite has landed and verified, so neither the pre-flight nor a failed write spends the caller's one-time confirmation.
-                bool already = _store.IsInPlaceAcknowledged(targetPath);
-                if (!already && !acknowledge)
-                    return NifSetResult.NeedsAck(NifInPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
-                bool owesConsent = !already && acknowledge;
-
-                if (InPlaceParentUnwritable(targetPath, out var why)) return NifSetResult.Fail(why, providers, profileName);
-                try { AtomicFile.WriteAllBytes(targetPath, editedBytes); }
-                catch (Exception ex) { return NifSetResult.Fail($"could not overwrite '{targetPath}' in place: {ex.Message}. Nothing was written.", providers, profileName); }
-                long sz; try { sz = new FileInfo(targetPath).Length; } catch { sz = -1; }
-                if (sz != editedBytes.Length)
-                    return NifSetResult.Fail($"wrote '{meshName}' but its on-disk size ({sz}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
-
-                var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "edit", subject: "file");
-                return NifSetResult.OkInPlace(rel, chosenProv, providers, place.Ambiguous, editedIsWinner, report, targetPath,
-                    MergeWarnings(report.Warnings, warnings, ackNote), profileName);
-            }
-
-            // ---- DEFAULT (new-folder) lane ----
-            RiderFolder rf;
-            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new RiderNaming("patch")); }
-            catch (InvalidOperationException ex) { return NifSetResult.Fail(ex.Message, providers, profileName); }
-
-            var dest = Path.Combine(rf.OutputDir, rel);
-            try { Directory.CreateDirectory(Path.GetDirectoryName(dest)!); AtomicFile.WriteAllBytes(dest, editedBytes); }
-            catch (Exception ex)
-            {
-                var residue = RemoveOrNameRiderResidue(rf);
-                return NifSetResult.Fail($"could not write '{rel}' into the patch folder: {ex.Message}"
-                    + (residue is null ? "" : $" The freshly created mod folder was left at '{residue}'."), providers, profileName);
-            }
-            long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
-            if (size != editedBytes.Length)
-            {
-                RemoveOrNameRiderResidue(rf);
-                return NifSetResult.Fail($"wrote '{rel}' but its on-disk size ({size}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
-            }
-
-            string? winner = providers.Count > 0 ? providers[0].Text : null;
-            // MO2's overwrite folder is the TOP loose root, so no mod folder out-ranks it and no left-pane sort reaches it.
-            var winSrc = place.Sources.Count > 0 ? place.Sources[0] : null;
-            bool winnerIsOverwrite = winSrc is { Kind: AssetKind.Loose }
-                && string.Equals(winSrc.ProviderName, AssetResolver.OverwriteLayerName, StringComparison.OrdinalIgnoreCase);
-            // The folder just written into is already the winner — an into= re-edit. Sorting it above itself is not an instruction.
-            bool winnerIsDestination = winSrc is not null
-                && string.Equals(winSrc.ProviderName, Path.GetFileName(rf.ModFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
-                                 StringComparison.OrdinalIgnoreCase);
-            // A BSA or the game's Data folder loses to any enabled mod's loose copy, at any priority.
-            bool winnerLosesOnEnable = winSrc is not null && !winnerIsDestination
-                && (winSrc.Kind == AssetKind.Bsa
-                    || string.Equals(winSrc.ProviderName, AssetResolver.DataLayerName, StringComparison.OrdinalIgnoreCase));
-            return NifSetResult.OkNewFolder(rel, chosenProv, providers, place.Ambiguous, report, rf.ModFolder, rf.CreatedFresh, winner, MergeWarnings(report.Warnings, warnings, null), profileName)
-                with { WinnerIsOverwrite = winnerIsOverwrite, WinnerIsDestination = winnerIsDestination,
-                       WinnerLosesOnEnable = winnerLosesOnEnable };
+            // Every answer built off the view carries the roots it could not read, so no refusal arm has to remember them.
+            return NifSetOn(view, warnings, profileName, rel, ops, sourceProvider, patchName, into, inPlace, acknowledge)
+                   with { RootFailures = view.RootFailures };
         }
+    }
+
+    /// <summary>nif_set once the asset view is captured: resolve, pick, apply, verify and write. Caller holds _writeGate.</summary>
+    NifSetResult NifSetOn(AssetResolver.AssetView view, IReadOnlyList<string> warnings, string profileName, string rel,
+                          IReadOnlyList<NifSetOp> ops, string? sourceProvider, string? patchName, string? into,
+                          bool inPlace, bool acknowledge)
+    {
+        PlacementResolution place;
+        try { place = view.ResolveForPlacement(rel); }
+        catch (ArgumentException ex) { return NifSetResult.Fail($"invalid path — {ex.Message}"); }
+
+        var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
+        // An ABSENT over a build that did not fully read may merely be unscanned; nif_inspect hedges its own per mesh.
+        string HedgedAbsent(string absent)
+            => place.ReadIncomplete ? absent + " " + WriteSentences.PlaceSourceScanIncomplete : absent;
+
+        // Pick the copy to read/edit: the VFS winner, or source_provider='s, answered ahead of the ABSENT return.
+        PlacementSource chosen;
+        if (!string.IsNullOrWhiteSpace(sourceProvider))
+        {
+            var pick = NifPick(view, place, rel, sourceProvider!.Trim());
+            if (pick.Error is not null)
+                return NifSetResult.Fail(pick.Absent ? HedgedAbsent(pick.Error) : pick.Error, providers, profileName);
+            chosen = pick.Source!;
+        }
+        else
+        {
+            if (place.Sources.Count == 0)
+            {
+                var hint = AssetPathHint.MeshHint(view, rel);   // same verified re-resolve as nif_inspect's ABSENT
+                return NifSetResult.Fail(HedgedAbsent(
+                    $"ABSENT — no active mod or BSA provides '{rel}', so there is no copy to edit." + (hint is null ? "" : " " + hint)),
+                    providers, profileName);
+            }
+            chosen = place.Sources[0];
+        }
+
+        var (bytes, readErr) = AssetResolver.ReadPlacementSource(chosen);
+        if (bytes is null) return NifSetResult.Fail(readErr ?? "could not read the resolved mesh bytes.", providers, profileName);
+
+        // ---- apply and verify (pure; nothing is written unless this returns verified bytes) ----
+        var outcome = NifService.Set(bytes, ops);
+        if (outcome.Error is not null) return NifSetResult.Fail(outcome.Error, providers, profileName);
+        var editedBytes = outcome.WrittenBytes!;
+        var report = outcome.Report!;
+        var chosenProv = NifProviderFor(chosen);
+        // Whether the edited copy is the VFS winner or a source_provider=-named loser. Drives the "is it live" wording.
+        bool editedIsWinner = place.Sources.Count > 0 && ReferenceEquals(chosen, place.Sources[0]);
+
+        // ---- IN-PLACE lane ----
+        if (inPlace)
+        {
+            // The lane overwrites the WINNING file with no backup, and its handshake is written about that file — so a copy the game is not loading is declined.
+            if (chosen.OffOrder)
+                return NifSetResult.Fail(
+                    $"in-place edits the copy the game loads, but '{chosen.ProviderName}' supplied one it does not "
+                    + "(see the provenance note on a read). Drop in_place to write the edited mesh into a new houseCARL "
+                    + "folder instead (the default lane).", providers, profileName);
+            if (chosen.Kind != AssetKind.Loose || string.IsNullOrEmpty(chosen.LooseFilePath))
+                return NifSetResult.Fail(
+                    $"in-place needs a LOOSE copy to overwrite, but '{rel}' resolves to {chosen.ProviderName} ({KindLabel(chosen.Kind)}). " +
+                    "Drop in_place to write a loose winning override into a new houseCARL folder instead (the default lane).", providers, profileName);
+            var targetPath = chosen.LooseFilePath!;
+            var meshName = Path.GetFileName(targetPath);
+
+            // The acknowledgement is recorded only once the overwrite has landed and verified, so neither the pre-flight nor a failed write spends the caller's one-time confirmation.
+            bool already = _store.IsInPlaceAcknowledged(targetPath);
+            if (!already && !acknowledge)
+                return NifSetResult.NeedsAck(NifInPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
+            bool owesConsent = !already && acknowledge;
+
+            if (InPlaceParentUnwritable(targetPath, out var why)) return NifSetResult.Fail(why, providers, profileName);
+            try { AtomicFile.WriteAllBytes(targetPath, editedBytes); }
+            catch (Exception ex) { return NifSetResult.Fail($"could not overwrite '{targetPath}' in place: {ex.Message}. Nothing was written.", providers, profileName); }
+            long sz; try { sz = new FileInfo(targetPath).Length; } catch { sz = -1; }
+            if (sz != editedBytes.Length)
+                return NifSetResult.Fail($"wrote '{meshName}' but its on-disk size ({sz}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
+
+            var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "edit", subject: "file");
+            return NifSetResult.OkInPlace(rel, chosenProv, providers, place.Ambiguous, editedIsWinner, report, targetPath,
+                MergeWarnings(report.Warnings, warnings, ackNote), profileName);
+        }
+
+        // ---- DEFAULT (new-folder) lane ----
+        RiderFolder rf;
+        try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new RiderNaming("patch")); }
+        catch (InvalidOperationException ex) { return NifSetResult.Fail(ex.Message, providers, profileName); }
+
+        var dest = Path.Combine(rf.OutputDir, rel);
+        try { Directory.CreateDirectory(Path.GetDirectoryName(dest)!); AtomicFile.WriteAllBytes(dest, editedBytes); }
+        catch (Exception ex)
+        {
+            var residue = RemoveOrNameRiderResidue(rf);
+            return NifSetResult.Fail($"could not write '{rel}' into the patch folder: {ex.Message}"
+                + (residue is null ? "" : $" The freshly created mod folder was left at '{residue}'."), providers, profileName);
+        }
+        long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
+        if (size != editedBytes.Length)
+        {
+            RemoveOrNameRiderResidue(rf);
+            return NifSetResult.Fail($"wrote '{rel}' but its on-disk size ({size}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
+        }
+
+        string? winner = providers.Count > 0 ? providers[0].Text : null;
+        // MO2's overwrite folder is the TOP loose root, so no mod folder out-ranks it and no left-pane sort reaches it.
+        var winSrc = place.Sources.Count > 0 ? place.Sources[0] : null;
+        bool winnerIsOverwrite = winSrc is { Kind: AssetKind.Loose }
+            && string.Equals(winSrc.ProviderName, AssetResolver.OverwriteLayerName, StringComparison.OrdinalIgnoreCase);
+        // The folder just written into is already the winner — an into= re-edit. Sorting it above itself is not an instruction.
+        bool winnerIsDestination = winSrc is not null
+            && string.Equals(winSrc.ProviderName, Path.GetFileName(rf.ModFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+                             StringComparison.OrdinalIgnoreCase);
+        // A BSA or the game's Data folder loses to any enabled mod's loose copy, at any priority.
+        bool winnerLosesOnEnable = winSrc is not null && !winnerIsDestination
+            && (winSrc.Kind == AssetKind.Bsa
+                || string.Equals(winSrc.ProviderName, AssetResolver.DataLayerName, StringComparison.OrdinalIgnoreCase));
+        return NifSetResult.OkNewFolder(rel, chosenProv, providers, place.Ambiguous, report, rf.ModFolder, rf.CreatedFresh, winner, MergeWarnings(report.Warnings, warnings, null), profileName)
+            with { WinnerIsOverwrite = winnerIsOverwrite, WinnerIsDestination = winnerIsDestination,
+                   WinnerLosesOnEnable = winnerLosesOnEnable };
     }
 
     /// <summary>Merge the write report's notes with the asset-layer warnings and an optional extra, so a disclosure cannot vanish by riding the other lane's list.</summary>
