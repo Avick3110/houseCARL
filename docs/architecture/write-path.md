@@ -482,6 +482,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   refusal types (`ExpectedApplyRejectionException`, `MalformedTargetDataException`, `NullArmSerializeException`,
   `CompositionRequiredException`, `LocalizedTargetUnsupportedException`), and the `patch` / `show` /
   `condition-patch` dev harnesses.
+- `src/housecarl-generator/CoerceAuditProbe.cs` and `CoerceSelftestProbe.cs` — the `coerce-audit` and
+  `coerce-selftest` probes over the coercion family.
 - Tools: `housecarl_apply`, `housecarl_create`, `housecarl_remove`, `housecarl_forward`, `housecarl_copy`,
   `housecarl_compact_plugin`, `housecarl_merge_plugins`, `housecarl_create_plugin`.
 - `src/housecarl-core/WriteVerbs.cs` — the write-verb vocabulary, `CollectionShape`, `WriteVerbs.On` and the purpose

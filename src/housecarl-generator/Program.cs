@@ -102,9 +102,6 @@ if (args.Length > 0 && args[0] == "header-probe") return Wave5Probe.RunHeaderPro
 // The PEX read-to-write round-trip gate.
 if (args.Length > 0 && args[0] == "pex-probe") return Wave5Probe.RunPexProbe(args[1..]);
 
-// coerce-audit and coerce-selftest carry [CiProbe] and dispatch via CiAll.TryDispatch at the top of this file,
-// so they get no separate dispatch here.
-
 // Write-surface census: corpus-derived reachability map of every writable leaf.
 if (args.Length > 0 && args[0] == "write-census") return WriteCensus.Run(args[1..]);
 

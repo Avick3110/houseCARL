@@ -1,14 +1,10 @@
 using HousecarlCore;
-using static HousecarlCore.WriteEngine;
 
 namespace HousecarlGenerator;
 
 /// <summary>The <c>coerce-audit</c> probe: every writable leaf in the corpus coerces, or sits in a named deferred bucket.</summary>
 public static class CoerceAuditProbe
 {
-    // ---- COERCE-AUDIT ----
-    //  Walks every WRITABLE leaf in corpus.json, resolves the CLR type a Set/Add must coerce to, and asserts
-    //  CanCoerce holds. Any uncoercible type is the exact gap to add to TryValueType. Reports, never skips.
     [CiProbe("coerce-audit")]
     public static int RunCoerceAudit(string[] args)
     {
@@ -54,7 +50,7 @@ public static class CoerceAuditProbe
                     // build-cases — EXCEPT a WHOLE-COERCIBLE element, routed to the same CanCoerce path by the same
                     // predicate the rulebook uses, through ResolveType, so a shape that stops resolving goes red.
                     if (f.ElementTypeRef is null && f.ElementTypeAssemblyQualified is { } eaq) aq = eaq;
-                    else if (IsWholeCoercibleElement(f.ElementTypeRef, f.ElementTypeAssemblyQualified)
+                    else if (WriteEngine.IsWholeCoercibleElement(f.ElementTypeRef, f.ElementTypeAssemblyQualified)
                              && f.ElementTypeAssemblyQualified is { } weaq) aq = weaq;
                     else { navOrBuild++; continue; }
                     break;
@@ -62,7 +58,7 @@ public static class CoerceAuditProbe
                 {
                     // navigate-into; record whole-coercibility (the TranslatedString-style case) but don't gate on it.
                     var saq = f.MutableTypeAssemblyQualified ?? f.GetterTypeAssemblyQualified;
-                    if (ResolveType(saq) is { } sst) substructWhole[sst.FullName ?? saq] = CanCoerce(sst);
+                    if (WriteEngine.ResolveType(saq) is { } sst) substructWhole[sst.FullName ?? saq] = WriteEngine.CanCoerce(sst);
                     navOrBuild++;
                     continue;
                 }
@@ -73,11 +69,11 @@ public static class CoerceAuditProbe
 
             if (string.IsNullOrEmpty(aq)) { navOrBuild++; continue; }
             hardTargets++;
-            var rt = ResolveType(aq);
+            var rt = WriteEngine.ResolveType(aq);
             if (rt is null) { Bump(unresolved, aq, site); continue; }
             // FormLinkOrIndex condition targets are writable through the parent-aware SetFloi branch; counted below.
-            if (IsFormLinkOrIndex(rt)) { floiHandled++; continue; }
-            if (!CanCoerce(rt))
+            if (WriteEngine.IsFormLinkOrIndex(rt)) { floiHandled++; continue; }
+            if (!WriteEngine.CanCoerce(rt))
             {
                 var u = Nullable.GetUnderlyingType(rt) ?? rt;
                 var ex = $"{site} [{f.Cardinality}]";
