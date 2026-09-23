@@ -124,7 +124,7 @@ public sealed class SkseVersionSourceTests
     [Fact]
     public void TheVersionTextDoesNotUseTheRowSeparator()
     {
-        var text = SkseInventoryWire.VersionText(
+        var text = SkseRenderParts.VersionText(
             new SksePluginReader.SksePluginInfo("p.dll", SksePluginReader.SksePluginKind.Modern, true,
                 new SksePluginReader.SkseVersionInfo("P", "a", "", "7.0.0", true, false, false, false, Array.Empty<string>(), null),
                 null, null, "7.3.3.0"),

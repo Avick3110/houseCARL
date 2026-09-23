@@ -45,7 +45,7 @@ static class SkseConfigAuditWire
              noRefFiles0.Count + " file(s) declare no form-shaped references\n").Length +
             (noRefFiles0.Count == 0 ? 0 : ("  no-reference configs by folder (" + noRefGroups + "):\n").Length) + noRefCut;
         // cap stays the caller's max_chars — the number the notices quote; budget is the room the sections have.
-        int budget = Math.Max(1, cap - trailer - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
+        int budget = Math.Max(1, cap - trailer - reserve - tail.Length - alwaysWritten - SkseRenderParts.SectionsMissed(9, cap).Length);
         // The always-written accounted-for block lays its folder rows in the room reserved for it, above the
         // diagnostic sections' ceiling.
         int noRefCeil = budget + alwaysWritten;
@@ -101,8 +101,8 @@ static class SkseConfigAuditWire
                               Files: g.Select(h => h.File.RelPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
                               Example: g.First().File.RelPath))
                 .OrderByDescending(g => g.Refs).ThenBy(g => g.Plugin, StringComparer.OrdinalIgnoreCase).ToList();
-            int byPluginCut = SkseInventoryWire.CutRoom(byPlugin.Count, "plugins", " or use filter=");
-            if (!SkseInventoryWire.Head(sb, budget - byPluginCut, "\nPLUGIN MISSING — target plugin not in the load order (inert; often a config shipping optional support for a mod you don't have) — by plugin (" +
+            int byPluginCut = SkseRenderParts.CutRoom(byPlugin.Count, "plugins", " or use filter=");
+            if (!SkseRenderParts.Head(sb, budget - byPluginCut, "\nPLUGIN MISSING — target plugin not in the load order (inert; often a config shipping optional support for a mod you don't have) — by plugin (" +
                     byPlugin.Count + " plugins, " + missingToks.Count + " refs):\n")) missed++;
             else
             {
@@ -114,7 +114,7 @@ static class SkseConfigAuditWire
                 sb.Append("  - ").Append(g.Plugin).Append(": ").Append(g.Refs).Append(" ref(s)");
                 if (g.Files.Count > 1) sb.Append(" across ").Append(g.Files.Count).Append(" file(s)");
                 sb.Append("  (e.g. ").Append(g.Example).Append(")\n");
-                if (sb.Length > rows2) { sb.Length = mark; sb.Append(SkseInventoryWire.Showing(shown, byPlugin.Count, "plugins", " or use filter=")); break; }
+                if (sb.Length > rows2) { sb.Length = mark; sb.Append(SkseRenderParts.Showing(shown, byPlugin.Count, "plugins", " or use filter=")); break; }
                 shown++;
                 foreach (var f in g.Files) tally.Mark(f);
             }
@@ -126,7 +126,7 @@ static class SkseConfigAuditWire
             h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}", tally)) missed++;
         string ReadErrCut(int shown) => "  ... [" + shown + " of " + readErrors.Count + "; raise max_chars]\n";
         int readErrCut = readErrors.Count == 0 ? 0 : ReadErrCut(readErrors.Count).Length;
-        if (readErrors.Count > 0 && !SkseInventoryWire.Head(sb, budget - readErrCut, "\nread errors — configs that could not be read/decoded (NOT counted as clean) (" + readErrors.Count + "):\n")) missed++;
+        if (readErrors.Count > 0 && !SkseRenderParts.Head(sb, budget - readErrCut, "\nread errors — configs that could not be read/decoded (NOT counted as clean) (" + readErrors.Count + "):\n")) missed++;
         else if (readErrors.Count > 0)
         {
             int rows3 = budget - readErrCut;
@@ -167,7 +167,7 @@ static class SkseConfigAuditWire
             }
         }
 
-        if (missed > 0) sb.Append(SkseInventoryWire.SectionsMissed(missed, cap));
+        if (missed > 0) sb.Append(SkseRenderParts.SectionsMissed(missed, cap));
         sb.Append(tail);
         return sb.ToString().TrimEnd('\n')
              + TransportAccounting.Compose(TransportAccounting.Tally(d.Files.Count, rows.Count, tally.Count, window, notes),
@@ -253,13 +253,13 @@ static class SkseConfigAuditWire
     {
         if (items.Count == 0) return true;
         // Heading and rows both leave room for the cut notice this list may end on.
-        int room = cap - SkseInventoryWire.CutRoom(items.Count, hint: " or use filter=");
-        if (!SkseInventoryWire.Head(sb, room, "\n" + label + " (" + items.Count + "):\n")) return false;
+        int room = cap - SkseRenderParts.CutRoom(items.Count, hint: " or use filter=");
+        if (!SkseRenderParts.Head(sb, room, "\n" + label + " (" + items.Count + "):\n")) return false;
         int shown = 0;
         foreach (var h in items)
         {
             var row = line(h) + "\n";
-            if (sb.Length + row.Length > room) { sb.Append(SkseInventoryWire.Showing(shown, items.Count, hint: " or use filter=")); break; }
+            if (sb.Length + row.Length > room) { sb.Append(SkseRenderParts.Showing(shown, items.Count, hint: " or use filter=")); break; }
             sb.Append(row); shown++; tally?.Mark(h.File.RelPath);
         }
         return true;

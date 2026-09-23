@@ -140,11 +140,11 @@ static class NativePairingWire
             ("\npaired healthy (" + w.Healthy.Count + " class(es)) — implementing mod ← its classes:\n").Length +
             HealthyCut.Length;
         // cap stays the caller's max_chars; budget is the room the sections have once the tail is charged.
-        int budget = Math.Max(1, cap - trailer - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
+        int budget = Math.Max(1, cap - trailer - reserve - tail.Length - alwaysWritten - SkseRenderParts.SectionsMissed(9, cap).Length);
         // The always-written healthy roster lays its rows in the room reserved for it, above the sections' ceiling.
         int healthyCeil = budget + alwaysWritten;
         // A section starts only where the cut notice its rows may end on fits too.
-        int Room(int n) => budget - SkseInventoryWire.CutRoom(n, hint: SkseInventoryWire.FilterHint);
+        int Room(int n) => budget - SkseRenderParts.CutRoom(n, hint: SkseRenderParts.FilterHint);
         int missed = 0;
         // Every section below the summary states the WINDOW, the accounted-for baseline included.
         var engine = w.Engine; var skseCore = w.SkseCore;
@@ -179,24 +179,24 @@ static class NativePairingWire
         }
 
         // ── Diagnostics first, in full. ──
-        if (dead.Count > 0 && !SkseInventoryWire.Head(sb, Room(dead.Count), "\nPAIRED BUT DEAD — the high-confidence finding: every candidate DLL statically will not load, so every native these scripts declare is a silent no-op in game (" + dead.Count + "):\n")) missed++;
+        if (dead.Count > 0 && !SkseRenderParts.Head(sb, Room(dead.Count), "\nPAIRED BUT DEAD — the high-confidence finding: every candidate DLL statically will not load, so every native these scripts declare is a silent no-op in game (" + dead.Count + "):\n")) missed++;
         else if (dead.Count > 0)
         {
             AppendCapped(sb, dead, budget, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
         }
-        if (verify.Count > 0 && !SkseInventoryWire.Head(sb, Room(verify.Count), "\npaired, version-LOCKED, runtime unknown — verify the listed runtime matches your game (" + verify.Count + "):\n")) missed++;
+        if (verify.Count > 0 && !SkseRenderParts.Head(sb, Room(verify.Count), "\npaired, version-LOCKED, runtime unknown — verify the listed runtime matches your game (" + verify.Count + "):\n")) missed++;
         else if (verify.Count > 0)
         {
             AppendCapped(sb, verify, budget, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
         }
-        if (unpaired.Count > 0 && !SkseInventoryWire.Head(sb, Room(unpaired.Count), "\nUNPAIRED — no mod shipping these scripts (winner or chain) ships any SKSE plugin DLL (" + unpaired.Count +
+        if (unpaired.Count > 0 && !SkseRenderParts.Head(sb, Room(unpaired.Count), "\nUNPAIRED — no mod shipping these scripts (winner or chain) ships any SKSE plugin DLL (" + unpaired.Count +
                 "). A VERIFY flag, not 'broken': most often a declaration copy of a framework that isn't installed — the calls will silently no-op if anything uses them:\n")) missed++;
         else if (unpaired.Count > 0)
         {
             AppendCapped(sb, unpaired, budget, c =>
                 $"  - {c.ClassName} ({c.NativeCount} native fn) ← {c.WinningProvider ?? "(no provider)"} ({c.ProviderKind})", tally, c => c.ClassName);
         }
-        if (debugBuilds.Count > 0 && !SkseInventoryWire.Head(sb, Room(debugBuilds.Count), "\nDEBUG BUILD — these load on THIS machine and nowhere else (" + debugBuilds.Count +
+        if (debugBuilds.Count > 0 && !SkseRenderParts.Head(sb, Room(debugBuilds.Count), "\nDEBUG BUILD — these load on THIS machine and nowhere else (" + debugBuilds.Count +
                 "). The debug C runtime ships with Visual Studio and is not redistributable, so the DLL fails with " +
                 "error 126 for anyone without it and every native these scripts declare is a silent no-op there. " +
                 "If you built it, ship a Release build; if you installed it, ask its author for one:\n")) missed++;
@@ -204,7 +204,7 @@ static class NativePairingWire
         {
             AppendCapped(sb, debugBuilds, budget, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
         }
-        if (d.Unreadable.Count > 0 && !SkseInventoryWire.Head(sb, Room(d.Unreadable.Count), "\nunreadable .pex — could not be parsed, NOT counted as native-free (" + d.Unreadable.Count + "):\n")) missed++;
+        if (d.Unreadable.Count > 0 && !SkseRenderParts.Head(sb, Room(d.Unreadable.Count), "\nunreadable .pex — could not be parsed, NOT counted as native-free (" + d.Unreadable.Count + "):\n")) missed++;
         else if (d.Unreadable.Count > 0)
         {
             AppendCapped(sb, d.Unreadable, budget, u => $"  - {u.RelPath}: {u.Reason}{(u.WinningProvider is { } p ? $"  [← {p}]" : "")}");
@@ -229,7 +229,7 @@ static class NativePairingWire
             foreach (var c in g) tally.Mark(c.ClassName);
         }
 
-        if (missed > 0) sb.Append(SkseInventoryWire.SectionsMissed(missed, cap));
+        if (missed > 0) sb.Append(SkseRenderParts.SectionsMissed(missed, cap));
         sb.Append(tail);
         return sb.ToString().TrimEnd('\n')
              + TransportAccounting.Compose(TransportAccounting.Tally(d.Classes.Count, rows.Count, tally.Count, window, notes),
@@ -258,7 +258,7 @@ static class NativePairingWire
         var sb = new StringBuilder();
         sb.Append(fate switch { DllFate.Dead => "[DEAD] ", DllFate.Verify => "[VERIFY] ", _ => "[LOADS] " })
           .Append(dll.Group.Length > 0 ? dll.Group + "\\" : "").Append(dll.FileName);
-        if (withVersion && dll.Info?.Version is { } v) sb.Append("  \"").Append(v.Name).Append("\" v").Append(SkseInventoryWire.VersionText(dll.Info, null));
+        if (withVersion && dll.Info?.Version is { } v) sb.Append("  \"").Append(v.Name).Append("\" v").Append(SkseRenderParts.VersionText(dll.Info, null));
         sb.Append(" — ").Append(detail);
         return sb.ToString();
     }
@@ -340,13 +340,13 @@ static class NativePairingWire
                                 RowTally? tally = null, Func<T, string>? key = null)
     {
         // The cut notice is charged before the first row, so a list that cuts says so inside max_chars.
-        int room = cap - SkseInventoryWire.CutRoom(items.Count, hint: SkseInventoryWire.FilterHint);
+        int room = cap - SkseRenderParts.CutRoom(items.Count, hint: SkseRenderParts.FilterHint);
         int shown = 0;
         foreach (var e in items)
         {
             // Composed once: measuring this row apart from writing it walked the paired DLLs twice per row.
             var row = line(e) + "\n";
-            if (sb.Length + row.Length > room) { sb.Append(SkseInventoryWire.Showing(shown, items.Count, hint: SkseInventoryWire.FilterHint)); break; }
+            if (sb.Length + row.Length > room) { sb.Append(SkseRenderParts.Showing(shown, items.Count, hint: SkseRenderParts.FilterHint)); break; }
             sb.Append(row); shown++;
             if (tally is not null && key is not null) tally.Mark(key(e));
         }
