@@ -129,6 +129,7 @@ public sealed class SkyPatcherOverlayWeaponReplayTests(SkyPatcherOverlayWeaponRe
         Assert.True(R.LinesSkippedUnresolvedFilter >= 1);
         Assert.Contains(R.Warnings, w => w.Contains("filterByHasAmmoFromWeaponList") && w.Contains("no static evaluation"));
         Assert.Equal(1.5f, W.Data!.Stagger, 3);
+        Assert.DoesNotContain(R.Applied, a => a.File == "z.ini" && a.LineNumber == 26);
     }
 
     [Fact] // filterByModNames matches the defining master; Excluded skips (rangeMin=11)
@@ -147,6 +148,18 @@ public sealed class SkyPatcherOverlayWeaponReplayTests(SkyPatcherOverlayWeaponRe
 
     [Fact] // full load-indexed ESL FormID (FE000800) matches the record
     public void AFullLoadIndexedEslFormIdMatchesTheRecord() => Assert.Equal((ushort)77, W.EnchantmentAmount);
+
+    /// <summary>FE000800 keeps the same low 24 bits either way; FE001800 is light slot 1, local id 800, and only
+    /// the 12-bit reading lands on the record.</summary>
+    [Fact] // full load-indexed ESL FormID matches the record (a non-zero light slot)
+    public void AFullEslFormIdWithANonZeroSlotKeepsOnlyTheLocalId()
+    {
+        var w = new SkyrimMod(new ModKey("HcSpOv", ModType.Plugin), SkyrimRelease.SkyrimSE).Weapons.AddNew();
+        w.EditorID = "HcSlotSword";
+        Apply(w, w.FormKey, w.EditorID, "weapon", "Weapon", new StubResolver(),
+            Line("esl.ini", 1, $"filterByWeapons=HcSpOv.esp|FE001{w.FormKey.ID:X3}:enchantAmount=77"));
+        Assert.Equal((ushort)77, w.EnchantmentAmount);
+    }
 
     [Fact] // empty set value warns loud, does not silently no-op
     public void AnEmptySetValueWarns()
@@ -172,7 +185,7 @@ public sealed class SkyPatcherOverlayWeaponReplayTests(SkyPatcherOverlayWeaponRe
     public void AnEnumValueCoercesIgnoringCase() => Assert.Equal(WeaponAnimationType.Bow, W.Data!.AnimationType);
 
     [Fact] // valueMap translates the documented token (weaponHitType=no)
-    public void AValueMapTranslatesTheDocumentedToken() => Assert.StartsWith("No", W.Data!.OnHit.ToString());
+    public void AValueMapTranslatesTheDocumentedToken() => Assert.Equal("NoDismemberOrExplode", W.Data!.OnHit.ToString());
 
     [Fact] // enum without valueMap (soundLevel=silent)
     public void AnEnumWithoutAValueMapCoerces() => Assert.Equal(SoundLevel.Silent, W.DetectionSoundLevel);
