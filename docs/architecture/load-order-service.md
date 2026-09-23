@@ -39,7 +39,7 @@ the config file.
 
 ## Where
 `src/housecarl-mcp/LoadOrderService.cs`: the `Resolver` and `Assets` getters, `SetInstance`,
-`RefreshOnProfileChange`, `ReResolve`, `EnsurePathsDerived`, `StatusData`, `UpdateCache`,
+`RefreshOnProfileChange`, `ReResolve`, `EnsurePathsDerived`, `StatusData`, `Stats`, `UpdateCache`,
 `NamedProfileComposition`, `PapyrusSourceImportDirs`, `Dispose`, the class-parent cache
 (`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`.
 Tools: `housecarl_load_order_status`, `housecarl_set_mo2_instance`, `housecarl_update_status`.
