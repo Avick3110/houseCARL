@@ -243,7 +243,11 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   `TheJsonCreateDocumentChargesTheRootsToItsRows` in the same class — the block is charged before the rows;
   `ThePerPropertyReasonNamesTheRootItCouldNotRead` in the same class — the `ScriptPropertyCheck` exception.
 - *What an answer may claim*: Pinned by `AssetLooseFreshnessTests` — a freshness baseline is read at the warm, never
-  off a memo (`AFileDeletedAndPutBackBetweenCallsIsSeen`, `ASubtreeDeletedAfterASweepMemoizedItsParentIsSeenComingBack`).
+  off a memo (`AFileDeletedAndPutBackBetweenCallsIsSeen`, `ASubtreeDeletedAfterASweepMemoizedItsParentIsSeenComingBack`);
+  an absent root is watched by two stats, with no listing (`WarmingAnAbsentSubtreeListsNothingAndStillSeesItAppear`),
+  only once the absence is proved (`AModFolderThatWillNotListDoesNotMakeEveryCallStale`,
+  `AMemoThatWronglyProvesAnAbsenceCostsOneRebuildNotOnePerCall`); a memo never makes a failure
+  (`AnAbsenceUnderAFolderGivenBackAfterItWouldNotListIsProvedAndWatched`).
 - *One build per call*: **Zero archive handles at rest:** pinned by `asset-resolver-guard`'s at-rest arm (rename *and*
   delete while the resolver lives) and, for single-entry extraction, `place-asset-guard` arm B.
 - *One build per call*: `AssetResolverProbe`'s capture/refresh arm reads a batch and a captured view off one build, but
