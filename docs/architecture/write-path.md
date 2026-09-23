@@ -330,18 +330,18 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   facts, and collapsing them makes an absence claim nothing checked.
 
 ## Pinned by
-- `inplace-guard` arms E / L / U — the `in_place`⇔`target=` contract and the `into=` / `patch=` exclusion, on the
-  edit, create and remove lanes; `forward-from-plugin-guard`'s INPLACE-CONTRACT arm for the forward lane's three
-  halves.
-- `inplace-guard` arms F / V — a target that is not an active plugin is refused.
-- `inplace-guard` arms G / K / W — the handshake refuses, then writes under `acknowledge=true`, does not re-prompt,
-  persists, and one acknowledgement covers the edit, create and remove lanes.
-- `inplace-guard` arms CO-A–CO-D — a refused in-place write spends no consent; CO-E / CO-F — one that lands records
-  it; CO-G — the prompt states when it stops and keeps its file claim direction-neutral.
-- `inplace-guard` arm I — the marker is stamped, `generated=true` is not, and a later `into=` on that folder is
-  still refused.
-- `inplace-guard` arms LOC-A–LOC-J — the localized pre-flight answers before consent in each lane's own words, file
-  untouched and no consent spent, on the real call and the dry run alike.
+- `InPlaceGuardContractTests` — the `in_place`⇔`target=` contract and the `into=` / `patch=` exclusion on the edit,
+  create and remove lanes, and a target that is not an active plugin refused; `forward-from-plugin-guard`'s
+  INPLACE-CONTRACT arm for the forward lane's three halves.
+- `InPlaceGuardConsentTests` — the handshake refuses, then writes under `acknowledge=true`, does not re-prompt,
+  persists, and one acknowledgement covers the edit and remove lanes; a refused in-place write spends no consent on
+  any of the four lanes, one that lands records it, and the prompt states when it stops and keeps its file claim
+  direction-neutral.
+- `InPlaceGuardMarkerTests` — the marker is stamped, `generated=true` is not, a later `into=` on that folder is
+  still refused, and the create and remove lanes ride the same acknowledgement and marker.
+- `InPlaceGuardLocalizedPreflightTests` — the localized pre-flight answers before consent in each lane's own words,
+  no consent spent, on the real call and the dry run alike; `InPlaceGuardEditTests` / `InPlaceGuardRemoveTests` —
+  the write's own refusal of a localized target, file untouched and nothing staged.
 - `apply-guard` arm 5 — the APPLY lane's render carries the epoch on both transports, on success, on a json refusal
   and on the consent prompt; `DegradedOrderMarkerTests.TheWriteLaneCarriesTheClauseBesideItsStamp` renders a DRY RUN
   and asserts the degraded clause that rides beside the stamp. The other three record lanes are unpinned for it.

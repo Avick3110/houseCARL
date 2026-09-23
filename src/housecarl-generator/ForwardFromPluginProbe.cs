@@ -402,7 +402,7 @@ public static class ForwardFromPluginProbe
         //      Reads housecarl_forward, this guard's own tool, after forward_record went at the demolition catch-up
         //      (#468). in_place is now the overwritten file's NAME (SPEC §5.2(1)), so "off" is absent, not false, and
         //      the target= half of the old pair has no spelling to assert. The whole in_place-declaring surface is
-        //      swept from its derived subject set in inplace-guard's arm H; this stays as forward's own statement.
+        //      swept from its derived subject set in InPlaceGuardContractTests; this stays as forward's own statement.
         {
             var fw = typeof(ForwardTools).GetMethod(nameof(ForwardTools.Forward))!;
             bool pass = fw.GetParameters().First(p => p.Name == "in_place").DefaultValue is null

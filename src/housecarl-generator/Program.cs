@@ -177,12 +177,12 @@ if (args.Length > 0 && args[0] == "writelock-apply-probe") return WriteLockProbe
 if (args.Length > 0 && args[0] == "writelock-nested-proof") return WriteLockProbe.RunNestedProof(args[1..]);
 
 // REAL-DATA proof of the NESTED own-override re-edit IN PLACE (the LinkCacheFor-on-a-foreign-target overlay path),
-// the one arm the self-contained guard cannot synthesize. Needs Skyrim.esm; self-skips on the runner.
-if (args.Length > 0 && args[0] == "inplace-nested-proof") return InPlaceProbe.RunNestedProof(args[1..]);
+// the one case the self-contained InPlaceGuard* tests cannot synthesize. Needs Skyrim.esm; self-skips on the runner.
+if (args.Length > 0 && args[0] == "inplace-nested-proof") return InPlaceNestedProof.RunNestedProof(args[1..]);
 
 // REAL-DATA proof of the NESTED own-override REMOVE IN PLACE (typed nested Remove plus a real-data WriteInPlace
 // re-serialize on a foreign target) — the remove counterpart of inplace-nested-proof. Needs Skyrim.esm; self-skips.
-if (args.Length > 0 && args[0] == "inplace-remove-nested-proof") return InPlaceProbe.RunRemoveNestedProof(args[1..]);
+if (args.Length > 0 && args[0] == "inplace-remove-nested-proof") return InPlaceNestedProof.RunRemoveNestedProof(args[1..]);
 
 // Perk references= crash, DIAGNOSIS: run Mutagen's EnumerateFormLinks over every PERK in a real plugin and report
 // which records throw and with what. Skips without Skyrim.esm.
