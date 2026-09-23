@@ -1,67 +1,35 @@
 using System.Reflection;
-using HousecarlCore;
 using Mutagen.Bethesda.Skyrim;
+using Xunit;
 
-namespace HousecarlGenerator;
+namespace HousecarlMcpTests;
 
-// ======================================================================
-//  SkyPatcherFieldMapProbe — CI guard for the Wave-1 op→field map
-//  (SkyPatcherFieldMap; plan dev/plans/SKYPATCHER_DISTRIBUTOR_TOOL_PLAN_
-//  2026-07-08.md). The TRIANGLE check: catalog ⇄ field map ⇄ the real
-//  Mutagen types.
-//
-//  • COMPLETENESS — every catalog record type (OMOD excepted) has a field
-//    map, and every CLEAN/COLLECTION op has exactly one entry (mapped, or
-//    explicitly unmapped WITH a reason). HARD ops must have NO entry (a
-//    mapped HARD op would claim fidelity the layer doesn't have).
-//  • REALITY — every mapped path walks the actual Mutagen mutable type
-//    via the write engine's own ResolveProperty (so a typo'd path can't
-//    survive CI); every valueMap target / flag token parses into the real
-//    leaf enum; element types instantiate and their sub-paths walk.
-//  • AGREEMENT — catalog shape mult/add_numeric ⇔ map semantic mult/
-//    addNumeric (the stateful ops can't silently become literal sets).
-//  • SELF-TEST (RED-proof) — a deliberately-broken fixture map must
-//    produce all four expected complaint classes.
-// ======================================================================
-public static class SkyPatcherFieldMapProbe
+/// <summary>
+/// Migrated from the skypatcher-fieldmap-guard probe: the shipped SkyPatcher catalog and field map agree with
+/// Mutagen. Every non-HARD op is mapped or unmapped with a reason, HARD ops carry no mapping, the stateful ops keep
+/// their statefulness, and every path, enum member, flag and formType walks a real type. The filter map is held to
+/// the same rules. Self-test arms feed the checker a broken map and require each complaint.
+/// </summary>
+[Trait("tier", "unit")]
+public sealed class SkyPatcherFieldMapGuardTests
 {
-    [CiProbe("skypatcher-fieldmap-guard")]
-    public static int RunGuard(string[] args)
+    // the triangle holds: catalog, field map and Mutagen agree on every op
+    [Fact]
+    public void TheShippedFieldMapAgreesWithTheCatalogAndMutagen()
     {
-        Console.WriteLine("[skypatcher-fieldmap-guard] SkyPatcher op → Mutagen field map (Wave 1)");
-        int failures = 0;
+        var problems = SkyPatcherFieldMapChecks.Validate(SkyPatcherCatalog.Load(), SkyPatcherFieldMap.Load());
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
 
-        var catalog = SkyPatcherCatalog.Load();
-        SkyPatcherFieldMap map;
-        try { map = SkyPatcherFieldMap.Load(); }
-        catch (Exception ex) { Console.WriteLine($"FAIL  field map failed to load: {ex.GetType().Name}: {ex.Message}"); return 1; }
+    // the filter triangle holds: every catalog filter is a built-in family or in the filter map, and every spec walks
+    [Fact]
+    public void TheShippedFilterMapAgreesWithTheCatalogAndMutagen()
+    {
+        var problems = SkyPatcherFieldMapChecks.ValidateFilters(SkyPatcherCatalog.Load(), SkyPatcherFieldMap.Load());
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
 
-        var problems = Validate(catalog, map);
-        foreach (var p in problems) Console.WriteLine($"  FAIL  {p}");
-        failures += problems.Count;
-        if (problems.Count == 0)
-            Console.WriteLine($"  PASS  triangle holds — {map.Records.Count} record map(s), " +
-                $"{map.Records.Sum(r => r.Ops.Count)} op entries ({map.Records.Sum(r => r.Ops.Values.Count(o => o.IsUnmapped))} explicitly unmapped)");
-
-        // ---- Wave 2: the FILTER triangle — catalog filters ⇄ filter specs ⇄ the real Mutagen types ----
-        var filterProblems = ValidateFilters(catalog, map);
-        foreach (var p in filterProblems) Console.WriteLine($"  FAIL  {p}");
-        failures += filterProblems.Count;
-        if (filterProblems.Count == 0)
-            Console.WriteLine($"  PASS  filter triangle holds — {map.Records.Sum(r => r.Filters.Count)} filter specs " +
-                $"({map.Records.Sum(r => r.Filters.Values.Count(f => f.IsUnmapped))} explicitly unmapped) + " +
-                $"{SkyPatcherOverlay.BuiltInFilterBases.Count} built-in families");
-        foreach (var r in map.Records)
-            foreach (var (f, spec) in r.Filters.Where(kv => kv.Value.IsUnmapped))
-                Console.WriteLine($"  note  {r.Subfolder}.{f} filter unmapped: {spec.Unmapped}");
-
-        // Visibility: the explicitly-unmapped list (each is a reviewed judgment, listed so drift is seen).
-        foreach (var r in map.Records)
-            foreach (var (op, m) in r.Ops.Where(kv => kv.Value.IsUnmapped))
-                Console.WriteLine($"  note  {r.Subfolder}.{op} unmapped: {m.Unmapped}");
-
-        // ---- self-test: the checker must CATCH a broken map (RED-proof of the guard itself) ----
-        const string broken = """
+    const string BrokenOps = """
         [
          { "subfolder": "weapon", "recordType": "Weapon", "ops": {
             "attackDamage":  { "semantic": "set", "path": "BasicStats.NoSuchField" },
@@ -71,15 +39,28 @@ public static class SkyPatcherFieldMapProbe
          } }
         ]
         """;
-        var bad = SkyPatcherFieldMap.LoadFrom(broken);
-        var caught = Validate(catalog, bad, completeness: false);
-        failures += Check("self-test: bad path caught", caught.Any(p => p.Contains("NoSuchField")));
-        failures += Check("self-test: bad valueMap target caught", caught.Any(p => p.Contains("NotARealMember")));
-        failures += Check("self-test: mapped HARD op caught", caught.Any(p => p.Contains("mirrorWeapon") && p.Contains("HARD")));
-        failures += Check("self-test: stateful-shape disagreement caught", caught.Any(p => p.Contains("attackDamageMult") && p.Contains("semantic")));
 
-        // ---- self-test: the FILTER checker must CATCH a broken filter map ----
-        const string brokenFilters = """
+    static List<string> BrokenOpProblems() =>
+        SkyPatcherFieldMapChecks.Validate(SkyPatcherCatalog.Load(), SkyPatcherFieldMap.LoadFrom(BrokenOps), completeness: false);
+
+    // self-test: bad path caught
+    [Fact]
+    public void ABadPathIsCaught() => Assert.Contains(BrokenOpProblems(), p => p.Contains("NoSuchField"));
+
+    // self-test: bad valueMap target caught
+    [Fact]
+    public void ABadValueMapTargetIsCaught() => Assert.Contains(BrokenOpProblems(), p => p.Contains("NotARealMember"));
+
+    // self-test: mapped HARD op caught
+    [Fact]
+    public void AMappedHardOpIsCaught() => Assert.Contains(BrokenOpProblems(), p => p.Contains("mirrorWeapon") && p.Contains("HARD"));
+
+    // self-test: stateful-shape disagreement caught
+    [Fact]
+    public void AStatefulShapeDisagreementIsCaught() =>
+        Assert.Contains(BrokenOpProblems(), p => p.Contains("attackDamageMult") && p.Contains("semantic"));
+
+    const string BrokenFilters = """
         [
          { "subfolder": "npc", "recordType": "Npc",
            "filters": {
@@ -90,24 +71,26 @@ public static class SkyPatcherFieldMapProbe
            "ops": {} }
         ]
         """;
-        var badF = SkyPatcherFieldMap.LoadFrom(brokenFilters);
-        var caughtF = ValidateFilters(catalog, badF, completeness: false);
-        failures += Check("filter self-test: bad path caught", caughtF.Any(p => p.Contains("NoSuchLink")));
-        failures += Check("filter self-test: bad flag member caught", caughtF.Any(p => p.Contains("NotARealFlag")));
-        failures += Check("filter self-test: non-catalog filter caught", caughtF.Any(p => p.Contains("notACatalogFilter")));
 
-        Console.WriteLine(failures == 0
-            ? "[skypatcher-fieldmap-guard] PASS — catalog ⇄ field map ⇄ Mutagen agree."
-            : $"[skypatcher-fieldmap-guard] FAIL — {failures} problem(s).");
-        return failures == 0 ? 0 : 1;
-    }
+    static List<string> BrokenFilterProblems() =>
+        SkyPatcherFieldMapChecks.ValidateFilters(SkyPatcherCatalog.Load(), SkyPatcherFieldMap.LoadFrom(BrokenFilters), completeness: false);
 
-    static int Check(string label, bool ok)
-    {
-        Console.WriteLine($"  {(ok ? "PASS" : "FAIL")}  {label}");
-        return ok ? 0 : 1;
-    }
+    // filter self-test: bad path caught
+    [Fact]
+    public void ABadFilterPathIsCaught() => Assert.Contains(BrokenFilterProblems(), p => p.Contains("NoSuchLink"));
 
+    // filter self-test: bad flag member caught
+    [Fact]
+    public void ABadFilterFlagMemberIsCaught() => Assert.Contains(BrokenFilterProblems(), p => p.Contains("NotARealFlag"));
+
+    // filter self-test: non-catalog filter caught
+    [Fact]
+    public void ANonCatalogFilterIsCaught() => Assert.Contains(BrokenFilterProblems(), p => p.Contains("notACatalogFilter"));
+}
+
+/// <summary>The catalog, field map and Mutagen triangle as a problem list.</summary>
+static class SkyPatcherFieldMapChecks
+{
     /// <summary>The whole triangle as a problem list (shared with the self-test arm).
     /// <paramref name="completeness"/> off ⇒ per-entry reality checks only (the fixture is partial).</summary>
     internal static List<string> Validate(SkyPatcherCatalog catalog, SkyPatcherFieldMap map, bool completeness = true)
