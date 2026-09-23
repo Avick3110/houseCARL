@@ -224,7 +224,8 @@ static class PlaceWire
             (sb, room) =>
             {
                 // WHICH loose roots would not read, once for the batch and before the rows, so a row's hedge has a folder to point at.
-                sb.Append(BatchRender.RootFailureLines(o.RootFailures, cap));
+                // Cut against the room handed in, so the oversize remedy's unbounded re-run prices the whole list.
+                sb.Append(BatchRender.RootFailureLines(o.RootFailures, room.Cap));
                 if (o.Warnings.Count == 0) return;
                 var lines = room.Less(WarningsOmitted(o.Warnings.Count, cap).Length);
                 int w = 0;
