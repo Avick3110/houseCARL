@@ -33,9 +33,9 @@ public sealed class StringsDecisionGuardTests : IDisposable
         Assert.False(LoadOrderResolver.FolderHasOwnStrings(plugin));
     }
 
-    // Strings folder + .bsa -> has own strings (no redirect).
+    // Strings folder + .bsa -> has own strings (no redirect). The archive is unreadable, so it is what answers.
     [Fact]
-    public void AnOwnTableBesideAnArchiveIsAStringsSource()
+    public void AnUnreadableArchiveBesideAnOwnTableKeepsTheUnchangedOpen()
     {
         var plugin = Plugin("both", "M.esp");
         var dir = Path.GetDirectoryName(plugin)!;
