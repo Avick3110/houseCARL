@@ -16,6 +16,7 @@ the config file.
 ### Sessions and writes
 - `_writeGate` serializes the whole resolve, stage and commit of every plugin write; `SetInstance` takes it too, so an instance switch cannot tear a write in flight. Where both gates are held the order is `_writeGate` then `_gate`. The `Resolver` and `Assets` getters are the one exception: they take `_gate` first and only try `_writeGate` with `Monitor.TryEnter`, never waiting on it, so the reverse order never turns into a wait.
 - A read-path freshness refresh is DEFERRED while a write holds `_writeGate` — probed with `TryEnter`, never blocking — because a rebuild transiently maps every plugin including the one the write is serializing and dispose-swaps the resolver that write captured; a skipped refresh serves the last good snapshot and re-checks next call.
+- Lock order is `_gate` then `_classParentsLock`. Nothing pins it.
 
 ### The service's answers
 - The index build is lazy, so startup and `tools/list` are instant, and it is serialized on one gate because the server dispatches tool calls concurrently.
@@ -39,5 +40,6 @@ the config file.
 ## Where
 `src/housecarl-mcp/LoadOrderService.cs`: the `Resolver` and `Assets` getters, `SetInstance`,
 `RefreshOnProfileChange`, `ReResolve`, `EnsurePathsDerived`, `StatusData`, `UpdateCache`,
-`NamedProfileComposition`, `PapyrusSourceImportDirs`, `_gate` and `_writeGate`.
+`NamedProfileComposition`, `PapyrusSourceImportDirs`, `Dispose`, the class-parent cache
+(`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`.
 Tools: `housecarl_load_order_status`, `housecarl_set_mo2_instance`, `housecarl_update_status`.
