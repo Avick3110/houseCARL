@@ -19,7 +19,7 @@ namespace HousecarlGenerator;
 /// validator cannot see: the Codex umbrella skill ships at the package ROOT (dist/codex), outside the plugin tree
 /// the validator reads, so its frontmatter is guarded here or nowhere.
 ///
-/// Self-contained, in the corpus-hygiene-guard pattern: it reads the REAL shipped artifacts from the repo
+/// Self-contained, in the CorpusHygieneGuardTests pattern: it reads the REAL shipped artifacts from the repo
 /// (every .claude/skills/*/SKILL.md, the Codex umbrella plugin/codex/housecarl/SKILL.md, and the manifest
 /// plugin/.claude-plugin/plugin.json — CWD is the repo root, as the generator's corpus default already assumes)
 /// and asserts each invariant GREEN over them, paired with a RED
