@@ -322,7 +322,7 @@ public sealed partial class LoadOrderService : IDisposable
     public ClassParents ClassParentsForDecompile()
     {
         bool configured;
-        string? deriveError = null;
+        string? deriveError = null, modsDir;
         lock (_gate)
         {
             configured = _configured;
@@ -330,6 +330,7 @@ public sealed partial class LoadOrderService : IDisposable
             if (configured)
                 try { EnsurePathsDerived(); }
                 catch (Exception ex) { deriveError = ex.Message; }
+            modsDir = _modsDir;
         }
         lock (_classParentsLock)
         {
@@ -345,23 +346,23 @@ public sealed partial class LoadOrderService : IDisposable
                 string? missing =
                     !configured ? "no MO2 instance is configured"
                     : deriveError is not null ? $"the MO2 instance does not resolve ({deriveError})"
-                    : string.IsNullOrEmpty(_modsDir) ? "the instance has no mods folder"
-                    : !Directory.Exists(_modsDir) ? $"the mods folder '{_modsDir}' does not exist"
+                    : string.IsNullOrEmpty(modsDir) ? "the instance has no mods folder"
+                    : !Directory.Exists(modsDir) ? $"the mods folder '{modsDir}' does not exist"
                     : null;
                 if (missing is null)
                 {
                     // Publish-once: the walk fills a COPY, so a concurrent reader never sees a map being written.
                     var topped = new Dictionary<string, string>(_classParents, StringComparer.OrdinalIgnoreCase);
-                    var scan = HousecarlCore.PapyrusClassParents.AddFromPscHeaders(topped, new[] { _modsDir });
+                    var scan = HousecarlCore.PapyrusClassParents.AddFromPscHeaders(topped, new[] { modsDir });
                     if (scan.RootsUnreadable > 0)
                         // Nothing was read from the tree: the copy is dropped and the walk is retried next call.
-                        missing = $"the mods folder '{_modsDir}' could not be listed";
+                        missing = $"the mods folder '{modsDir}' could not be listed";
                     else
                     {
                         _classParents = topped;
                         _classParentsToppedUp = true;
                         if (scan.FilesFailed > 0)
-                            missing = $"{scan.FilesFailed} of {scan.FilesSeen} .psc file(s) under '{_modsDir}' could not be read";
+                            missing = $"{scan.FilesFailed} of {scan.FilesSeen} .psc file(s) under '{modsDir}' could not be read";
                     }
                 }
                 _classParentsTopUpMissing = missing;
