@@ -62,10 +62,10 @@ static class SkseInventoryWire
             : "\nconfig folders (" + folderGroups + ") — folder: files ← provider(s):\n";
         // cap stays the CALLER's max_chars; budget is the room content has once everything written after it is
         // charged, each list's own cut notice included. See docs/architecture/skse-layer.md.
-        int rosterCut = CutRoom(rows.Count, hint: FilterHint);
-        int folderCut = CutRoom(folderGroups, "folders");
+        int rosterCut = SkseRenderParts.CutRoom(rows.Count, hint: SkseRenderParts.FilterHint);
+        int folderCut = SkseRenderParts.CutRoom(folderGroups, "folders");
         int budget = Math.Max(1, cap - trailer - reserve - tail.Length - rosterHead.Length - rosterCut
-                                 - foldersHead.Length - folderCut - SectionsMissed(9, cap).Length);
+                                 - foldersHead.Length - folderCut - SkseRenderParts.SectionsMissed(9, cap).Length);
         int rosterCeil = budget + rosterHead.Length + rosterCut;
         int folderCeil = rosterCeil + foldersHead.Length + folderCut;
         int missed = 0;
@@ -99,7 +99,7 @@ static class SkseInventoryWire
 
         // Debug-CRT offenders lead: the sharpest static verdict, and surfaced without peek= because the import walk is free.
         var debugCrt = loaded.Where(x => x.Plugin is { Imports: not null } pl && pl.DebugCrtImports.Count > 0).ToList();
-        if (debugCrt.Count > 0 && !Head(sb, budget - CutRoom(debugCrt.Count, hint: FilterHint), "\n[!] DEBUG-BUILD plugins (" + debugCrt.Count +
+        if (debugCrt.Count > 0 && !SkseRenderParts.Head(sb, budget - SkseRenderParts.CutRoom(debugCrt.Count, hint: SkseRenderParts.FilterHint), "\n[!] DEBUG-BUILD plugins (" + debugCrt.Count +
                 ") — they import the debug C runtime, which ships only with Visual Studio and is NOT redistributable:\n")) missed++;
         else if (debugCrt.Count > 0)
         {
@@ -122,7 +122,7 @@ static class SkseInventoryWire
             ? "      ↑ these target DIFFERENT runtimes (" + string.Join(", ", distinctRuntimes) +
               ") — verify each matches your game version (the installed version could not be resolved).\n"
             : "";
-        if (locked.Count > 0 && !Head(sb, budget - CutRoom(locked.Count, hint: FilterHint) - runtimesNote.Length, lockedHead)) missed++;
+        if (locked.Count > 0 && !SkseRenderParts.Head(sb, budget - SkseRenderParts.CutRoom(locked.Count, hint: SkseRenderParts.FilterHint) - runtimesNote.Length, lockedHead)) missed++;
         else if (locked.Count > 0)
         {
             AppendCapped(sb, locked, budget - runtimesNote.Length, e =>
@@ -157,7 +157,7 @@ static class SkseInventoryWire
         AppendCapped(sb, modern.OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase).ToList(), rosterCeil, e =>
         {
             var v = e.Plugin!.Version!;
-            return $"  - {e.FileName}  \"{v.Name}\" v{VersionText(e.Plugin, e.ModVersion)}  {CompatTag(v)}{Provider(e)}";
+            return $"  - {e.FileName}  \"{v.Name}\" v{SkseRenderParts.VersionText(e.Plugin, e.ModVersion)}  {CompatTag(v)}{Provider(e)}";
         }, tally);
 
         // ── Config folders, grouped by the derived subfolder and sorted by size. ──
@@ -185,12 +185,12 @@ static class SkseInventoryWire
                 if (g.Contested > 0) sb.Append("  [").Append(g.Contested).Append(" contested]");
                 sb.Append('\n');
                 // The row is taken back out whole when it crossed, so the response ends inside max_chars.
-                if (sb.Length > folderRoom) { sb.Length = mark; sb.Append(Showing(shown, groups.Count, "folders")); break; }
+                if (sb.Length > folderRoom) { sb.Length = mark; sb.Append(SkseRenderParts.Showing(shown, groups.Count, "folders")); break; }
                 shown++;
             }
         }
 
-        if (missed > 0) sb.Append(SectionsMissed(missed, cap));
+        if (missed > 0) sb.Append(SkseRenderParts.SectionsMissed(missed, cap));
         sb.Append(tail);
         return sb.ToString().TrimEnd('\n')
              + TransportAccounting.Compose(TransportAccounting.Tally(d.Dlls.Count, rows.Count, tally.Count, window, notes),
@@ -242,7 +242,7 @@ static class SkseInventoryWire
             ? "\n[!] peek=true matched no DLL at all — nothing was peeked. Pass filter= the name of a loose DLL to peek it.\n"
             : "";
         int cfgRoom = cfgHits.Count == 0 ? 0
-            : ("\nmatching configs (" + cfgHits.Count + "):\n").Length + CutRoom(cfgHits.Count);
+            : ("\nmatching configs (" + cfgHits.Count + "):\n").Length + SkseRenderParts.CutRoom(cfgHits.Count);
         int dllRoom = budget - dllCut.Length - peekNote.Length - cfgRoom;
 
         var shownCfg = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -271,7 +271,7 @@ static class SkseInventoryWire
         if (rest.Count > 0)
         {
             sb.Append("\nmatching configs (").Append(rest.Count).Append("):\n");
-            int cfgRows = budget - CutRoom(rest.Count);
+            int cfgRows = budget - SkseRenderParts.CutRoom(rest.Count);
             string? curGroup = null;
             int shown = 0;
             foreach (var e in rest)
@@ -283,7 +283,7 @@ static class SkseInventoryWire
                 if (e.ProviderCount > 1) sb.Append(": ").Append(Chain(e));   // contested config → the full winner→loser chain
                 else sb.Append(Provider(e));
                 sb.Append('\n');
-                if (sb.Length > cfgRows) { sb.Length = mark; sb.Append(Showing(shown, rest.Count)); break; }
+                if (sb.Length > cfgRows) { sb.Length = mark; sb.Append(SkseRenderParts.Showing(shown, rest.Count)); break; }
                 shown++; tally.Mark(e.RelPath);
             }
         }
@@ -316,7 +316,7 @@ static class SkseInventoryWire
             case SksePluginReader.SksePluginKind.Unreadable:
                 sb.Append("  ").Append(p.Note).Append('\n');
                 // No manifest, but the image's own file version is still readable and answers "which build is this?".
-                if (VersionText(p, e.ModVersion) is { Length: > 0 } other) sb.Append("  version ").Append(other).Append('\n');
+                if (SkseRenderParts.VersionText(p, e.ModVersion) is { Length: > 0 } other) sb.Append("  version ").Append(other).Append('\n');
                 if (p.Is64Bit == false) sb.Append("  [!] NOT an x64 image — a 32-bit DLL cannot load in Skyrim SE/AE.\n");
                 // The import-table verdict rides every kind, and a debug-CRT build often shows up unclassifiable.
                 AppendPeek(sb, e, d);
@@ -326,7 +326,7 @@ static class SkseInventoryWire
         var v = p.Version!;
         sb.Append("  \"").Append(v.Name).Append("\" by ").Append(v.Author.Length > 0 ? v.Author : "(no author)");
         if (v.SupportEmail.Length > 0) sb.Append(" <").Append(v.SupportEmail).Append('>');
-        sb.Append("\n  version ").Append(VersionText(p, e.ModVersion)).Append('\n');
+        sb.Append("\n  version ").Append(SkseRenderParts.VersionText(p, e.ModVersion)).Append('\n');
         if (p.Is64Bit == false) sb.Append("  [!] NOT an x64 image — a 32-bit DLL cannot load in Skyrim SE/AE.\n");
 
         if (v.VersionIndependent)
@@ -487,71 +487,6 @@ static class SkseInventoryWire
         return "LOCKED→" + (v.CompatibleVersions.Count > 0 ? string.Join("/", v.CompatibleVersions) : "?");
     }
 
-    /// <summary>A section heading, laid whole; false means the budget had no room to start the section at all.</summary>
-    internal static bool Head(StringBuilder sb, int cap, string head)
-    {
-        if (sb.Length + head.Length > cap) return false;
-        sb.Append(head);
-        return true;
-    }
-
-    /// <summary>The line that says how many sections the budget could not start, naming the max_chars the CALLER passed.</summary>
-    internal static string SectionsMissed(int missed, int cap) =>
-        "  ... [" + missed + " section(s) omitted at max_chars=" + cap + "; raise max_chars to see them]\n";
-
-    /// <summary>The advice a cut row list carries where narrowing the answer is the other way out.</summary>
-    internal const string FilterHint = " or use filter= to see all";
-
-    /// <summary>The one cut notice a capped row list ends on, spelled once so its widest form can be charged up front.</summary>
-    internal static string Showing(int shown, int total, string noun = "", string hint = "") =>
-        "  ... [showing " + shown + " of " + total + (noun.Length > 0 ? " " + noun : "") + "; raise max_chars" + hint + "]\n";
-
-    /// <summary>The chars a capped row list must hold back for that notice.</summary>
-    internal static int CutRoom(int total, string noun = "", string hint = "") => Showing(total, total, noun, hint).Length;
-
-    /// <summary>A plugin's version with the SOURCE it was read from, plus every other version in sight that disagrees;
-    /// everything after the leading number is parenthesised, so a row joining its fields with " — " keeps one separator.
-    /// The three version sources are in docs/architecture/skse-layer.md; pinned by SkseVersionSourceTests.</summary>
-    internal static string VersionText(SksePluginReader.SksePluginInfo? p, string? modVersion)
-    {
-        string declared = p?.Version?.PluginVersion ?? "";
-        string file = p?.FileVersion ?? "";
-        string mod = modVersion ?? "";
-        // No manifest: whatever version WAS read is the answer, labelled for what it is.
-        if (declared.Length == 0)
-        {
-            if (file.Length == 0) return mod.Length == 0 ? "" : $"{mod} (mod meta.ini)";
-            return Differs(file, mod) ? $"{file} (DLL file version; meta.ini {mod})" : $"{file} (DLL file version)";
-        }
-        var others = new List<string>();
-        if (Differs(declared, file)) others.Add($"DLL file version {file}");
-        // meta.ini is held back only when the file version already carries it.
-        if (Differs(declared, mod) && (file.Length == 0 || Differs(file, mod))) others.Add($"meta.ini {mod}");
-        return others.Count == 0
-            ? $"{declared} (SKSE manifest)"
-            : $"{declared} (SKSE manifest; {string.Join(", ", others)})";
-    }
-
-    /// <summary>Two version strings both present and NOT the same version, compared on their numeric prefix: a modder's
-    /// tag is UNKNOWN, not different, so it is not reported as a disagreement.</summary>
-    static bool Differs(string? a, string? b)
-    {
-        if (a is not { Length: > 0 } || b is not { Length: > 0 }) return false;   // an unread version says nothing about the one that was read
-        string na = NumericPrefix(a), nb = NumericPrefix(b);
-        if (na.Length == 0 || nb.Length == 0) return false;
-        return !SksePluginReader.VersionsEqual(na, nb);
-    }
-
-    /// <summary>The dotted numeric head of a version string, a leading "v" dropped and any trailing tag cut.</summary>
-    static string NumericPrefix(string s)
-    {
-        var t = s.Trim();
-        if (t.Length > 0 && (t[0] == 'v' || t[0] == 'V')) t = t[1..];
-        int end = 0;
-        while (end < t.Length && (char.IsAsciiDigit(t[end]) || t[end] == '.')) end++;
-        return t[..end].Trim('.');
-    }
-
     static string Provider(SkseFileEntry e) =>
         e.WinningProvider is null ? "  (no active provider)" : $"  ← {e.WinningProvider}";
 
@@ -564,7 +499,7 @@ static class SkseInventoryWire
     {
         if (items.Count == 0) return true;
         // The heading goes in whole or the subset does not start, and only where its rows' cut notice fits too.
-        if (!Head(sb, cap - CutRoom(items.Count, hint: FilterHint), "\n" + label + " (" + items.Count + "):\n")) return false;
+        if (!SkseRenderParts.Head(sb, cap - SkseRenderParts.CutRoom(items.Count, hint: SkseRenderParts.FilterHint), "\n" + label + " (" + items.Count + "):\n")) return false;
         AppendCapped(sb, items, cap, line, tally);
         return true;
     }
@@ -573,13 +508,13 @@ static class SkseInventoryWire
                              RowTally? tally = null)
     {
         // The cut notice's widest spelling is held back before the first row.
-        int room = cap - CutRoom(items.Count, hint: FilterHint);
+        int room = cap - SkseRenderParts.CutRoom(items.Count, hint: SkseRenderParts.FilterHint);
         int shown = 0;
         foreach (var e in items)
         {
             var row = line(e) + "\n";
             // Measured against the row about to be written, not against what the buffer already holds.
-            if (sb.Length + row.Length > room) { sb.Append(Showing(shown, items.Count, hint: FilterHint)); break; }
+            if (sb.Length + row.Length > room) { sb.Append(SkseRenderParts.Showing(shown, items.Count, hint: SkseRenderParts.FilterHint)); break; }
             sb.Append(row); shown++; tally?.Mark(e.RelPath);
         }
     }
