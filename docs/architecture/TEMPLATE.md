@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-20
+updated: 2026-09-23
 covers: [src/housecarl-core/Foo.cs, src/housecarl-mcp/FooTools.cs]
 ---
 # Foo
@@ -15,6 +15,9 @@ Three lines.
 
 ## Where
 Files, entry points, the tool names.
+
+## Related
+Optional, and last. One line per other note this one leans on.
 
 ---
 
