@@ -844,6 +844,17 @@ public sealed partial class LoadOrderService
         }
     }
 
+    /// <summary>A form-scope string to getter Types: a catalog name or signature via the type lookup, or a Mutagen link-interface group name resolved as every corpus record getter assignable to <c>I{name}Getter</c>, derived from the real interfaces rather than a hand-kept list. Null means it names neither, which the caller surfaces loudly.</summary>
+    internal IReadOnlyList<Type>? ResolveFormScope(string type)
+    {
+        var t = type.Trim();
+        if (TypeLookup.TryGetValue(t, out var types)) return types;
+        var iface = typeof(SkyrimMod).Assembly.GetType($"Mutagen.Bethesda.Skyrim.I{t}Getter");
+        if (iface is null) return null;
+        var matches = TypeLookup.Values.SelectMany(v => v).Distinct().Where(iface.IsAssignableFrom).ToList();
+        return matches.Count > 0 ? matches : null;
+    }
+
     // ---- NIF layer: read the data values inside one or many meshes (housecarl_nif_inspect) ----
 
     /// <summary>Inspect the data values inside one or many Skyrim meshes: capture the resolver once under the gate,
