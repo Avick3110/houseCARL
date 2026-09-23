@@ -82,6 +82,18 @@ public sealed class ApplyGuardLaneTests : IClassFixture<ApplyGuardCorpus>, IDisp
         Assert.StartsWith("extended ", extended);
     }
 
+    // probe (lines only): the into= "no such patch" refusal ran with patches from earlier arms in the order, so it
+    // listed them; a mistyped into= offers the patch it was near
+    [Fact]
+    public void AnIntoThatMissesOffersTheExistingPatch()
+    {
+        var fresh = ApplyTools.Apply(W.Svc, ops: Je(W.DamageOp("33")), patch: "ApNearby");
+        Assert.StartsWith("wrote ", fresh);
+        var r = ApplyTools.Apply(W.Svc, ops: Je(W.DamageOp("34")), into: "ApNearbx.esp");
+        Assert.StartsWith("error:", r);
+        Assert.Contains("try into=\"houseCARL - ApNearby\"", r);
+    }
+
     // probe: "dry_run reports what WOULD change and writes nothing"
     [Fact]
     public void DryRunReportsAndWritesNothing()
