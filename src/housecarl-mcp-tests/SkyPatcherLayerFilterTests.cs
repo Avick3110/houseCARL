@@ -176,6 +176,54 @@ public sealed class SkyPatcherLayerFilterTests
         Assert.True(text.Length <= 8_000, $"{text.Length} chars against max_chars=8000.");
     }
 
+    /// <summary>Four folders of multi-line INIs plus all four report sections, each item with entries, and 30 warnings.</summary>
+    static SkyPatcherLayerData LayerWithReports()
+    {
+        static SkyPatcherDiscovery.IniFile LongIni(string sub, int i) =>
+            new(RelPath: sub + "\\" + $"Mod{i:D3}.ini", Subfolder: sub, SortKey: $"Mod{i:D3}.ini", WinningProvider: $"Provider {i:D3}",
+                LooseFilePath: "C:\\mods\\p\\" + $"Mod{i:D3}.ini", ShadowedProviders: Array.Empty<string>(), GatePlugin: null, NotApplied: null,
+                Lines: Enumerable.Range(1, 20).Select(n => new SkyPatcherLine($"filterByNpcs=Skyrim.esm|{n:X5}:health={n * 10}",
+                    SkyPatcherLineKind.Patch, Array.Empty<SkyPatcherSegment>(), n % 5 == 0 ? "a note on this line" : null)).ToArray());
+        var entries = Enumerable.Range(1, 4)
+            .Select(n => new SkyPatcherConflicts.SkyPatcherConflictEntry($"C:\\mods\\p\\Mod{n:D3}.ini", n, "health", (n * 7).ToString(), n % 2 == 0))
+            .ToArray();
+        var d = Layer(Enumerable.Range(1, 4).Select(k => new SkyPatcherDiscovery.FolderScan($"type{k}", Catalog: null, PatchingEnabled: true,
+                          Files: Enumerable.Range(1, 6).Select(i => LongIni($"type{k}", i)).ToArray())).ToArray());
+        return d with
+        {
+            Conflicts = Enumerable.Range(1, 25).Select(i => new SkyPatcherConflicts.SkyPatcherConflict("npc", "health", $"Skyrim.esm|{i:X6}", entries)).ToArray(),
+            Itms = Enumerable.Range(1, 25).Select(i => new SkyPatcherConflicts.SkyPatcherItm("npc", "health", $"C:\\mods\\p\\Mod{i:D3}.ini",
+                       Enumerable.Range(1, 3).Select(n => new SkyPatcherConflicts.SkyPatcherItmEntry(n, "health", "5", "Skyrim.esm|0001A696", n == 2, new[] { n + 1 })).ToArray())).ToArray(),
+            Duplicates = Enumerable.Range(1, 25).Select(i => new SkyPatcherConflicts.SkyPatcherDuplicate("npc", "health", $"Skyrim.esm|{i:X6}", entries)).ToArray(),
+            NoOps = Enumerable.Range(1, 25).Select(i => new SkyPatcherNoOpWrite("npc", $"{i:X6}:Skyrim.esm", $"EditorId{i}", "Configuration.HealthOffset",
+                        $"C:\\mods\\p\\Mod{i:D3}.ini", i, "health", "10", "10")).ToArray(),
+            AssetWarnings = Enumerable.Range(1, 30).Select(i => $"warning {i}: " + new string('w', 120)).ToList(),
+        };
+    }
+
+    /// <summary>Every body line is admitted by the width it writes and every cut notice's room is held back, so no cap
+    /// lands a render past it — whether the cut falls in the folder listing, inside an expanded file's lines, or inside a
+    /// report section. Swept over caps and three filters, since each cut site needs a cap that bites exactly there.</summary>
+    [Fact]
+    public void NoCapLandsTheRenderPastItWithReportSectionsAndExpandedLines()
+    {
+        var d = LayerWithReports();
+        var over = new List<string>();
+        var reached = new HashSet<string>();
+        string[] sites = { "remaining folders omitted", "  ... [cut at max_chars]", "lines cut at max_chars",
+                           "entries cut at max_chars", "of 25; raise max_chars", "of 25 finding(s)", "report section(s) omitted" };
+        foreach (var filter in new string?[] { null, "Mod003", "type3" })
+            for (int cap = 1_500; cap <= 20_000; cap += 7)
+            {
+                var text = SkyPatcherWire.RenderLayer(d, filter, cap);
+                if (text.Length > cap) over.Add($"filter={filter ?? "none"} cap={cap}: {text.Length}");
+                reached.UnionWith(sites.Where(text.Contains));
+            }
+
+        Assert.True(over.Count == 0, $"{over.Count} renders over the cap, first: {over.FirstOrDefault()}");
+        Assert.Equal(sites.OrderBy(s => s), reached.OrderBy(s => s));   // the sweep does reach every cut site it is for
+    }
+
     static SkyPatcherLayerData OneNpcFolder() =>
         Layer(new SkyPatcherDiscovery.FolderScan("npc", Catalog: null, PatchingEnabled: true,
                   Files: new[] { Ini("npc", "Bandits.ini", "Bandit Overhaul") }));
@@ -279,9 +327,10 @@ public sealed class SkyPatcherLayerFilterTests
     /// <summary>The widest cap at which the unfiltered render still cuts before the second folder.</summary>
     static int CapAtTheWeaponFolder()
     {
-        int cap = 1;
-        while (!SkyPatcherWire.RenderLayer(LateMatchLayer(), null, cap + 1).Contains("\nweapon:", StringComparison.Ordinal)) cap++;
-        return cap;
+        for (int cap = 1; cap < 100_000; cap++)
+            if (SkyPatcherWire.RenderLayer(LateMatchLayer(), null, cap + 1).Contains("\nweapon:", StringComparison.Ordinal)) return cap;
+        Assert.Fail("the unfiltered render never lists the weapon folder");
+        return 0;
     }
 
     [Fact]
