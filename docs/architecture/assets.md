@@ -39,9 +39,12 @@ resolver reads no profile.
   omitted. **These lanes name the roots**, because a hedge that does not name the folder leaves the modder nothing to
   act on: `asset_status`, the three `skse` families, the SkyPatcher layer and the NIF batch, beside their archive
   failures; the check sweep, dialogue family included, at the response root above its family sections; the `place`
-  lane, above its rows, which is where its source-scan hedge points; `nif_set`'s named-source refusal, which shares
-  that hedge, under its error line (a text-only lane with no max_chars, so cut at the server default); the create lane, under the coverage reports
-  whose hedges depend on them; and the compact and merge carry notes, under the first pass that hedged.
+  lane, above its rows, which is where its source-scan hedge points; `nif_set`'s no-copy refusals (a named source,
+  the `*winner` pole, or no source), which share that hedge, under the error line (a text-only lane with no
+  max_chars, so cut at the server default); the create lane, under the coverage reports whose hedges depend on them;
+  and the compact and merge carry notes, under the first pass that hedged. The dialogue and `place` hedges fire on a
+  failed archive too, which those responses do not list, so they point at the named roots for the loose half only
+  and send the archive half to `asset_status`, which names it.
   Whichever place, it is **once per response and in both transports**: a lane that names them twice in one document
   prints one list twice, so the response unions its families' or checks' lists and renders them once — a union, not
   whichever ran last, because two families in one call can answer off two asset builds. `BatchRender.RootFailureCut`
