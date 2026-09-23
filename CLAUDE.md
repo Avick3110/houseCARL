@@ -36,10 +36,10 @@ Code comments call the first two of these the cornerstones. A design question th
 | `src/housecarl-mcp/` | The MCP server and tool surface |
 | `src/housecarl-mcp/LoadOrderService.cs` | The service's head, fields, and the instance, status, config, and Papyrus source-root lanes |
 | `src/housecarl-mcp/AssetLayers.cs` | Assets, the SKSE layer, NIF, SkyPatcher, place |
-| `src/housecarl-mcp/RecordReads.cs` | Read, resolve, query |
+| `src/housecarl-mcp/RecordReads.cs` | Read, resolve, query, type lookup |
 | `src/housecarl-mcp/RecordChecks.cs` | The check lanes |
 | `src/housecarl-mcp/RecordWrites.cs` | The write lanes |
-| `src/housecarl-mcp/OutputLocations.cs` | Output folders, plugin locate, `.seq`, type lookup |
+| `src/housecarl-mcp/OutputLocations.cs` | Output folders, plugin locate, `.seq` |
 | `src/housecarl-mcp/ServiceResults.cs` | The result records and enums those lanes return |
 | `src/housecarl-core/` | Record, asset, read, and write engines; the load-order resolver |
 | `src/housecarl-generator/` | Build-time schema generator; also the probe runner (`ci-all`) |
