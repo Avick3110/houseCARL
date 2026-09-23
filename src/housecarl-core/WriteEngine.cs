@@ -2412,7 +2412,7 @@ public static class WriteEngine
     //  its family and emits the value only when `text` is non-null, so the two surfaces cannot drift.
 
     /// <summary>Turn a string into a value of <paramref name="targetType"/>, or throw fail-loud.</summary>
-    internal static object? Coerce(string text, Type targetType)
+    static object? Coerce(string text, Type targetType)
     {
         var u = Nullable.GetUnderlyingType(targetType) ?? targetType;
         if (TryPrimitive(text, u, out var r) || TryEnum(text, u, out r)
@@ -2740,10 +2740,13 @@ public static class WriteEngine
     }
 
     /// <summary>Non-throwing coercion, for the rulebook's pre-flight value check.</summary>
-    internal static bool TryCoerce(string text, Type type, out object? result)
+    internal static bool TryCoerce(string text, Type type, out object? result) => TryCoerce(text, type, out result, out _);
+
+    /// <summary>Non-throwing coercion that also hands back the exception, for coerce-selftest's failure line.</summary>
+    internal static bool TryCoerce(string text, Type type, out object? result, out Exception? error)
     {
-        try { result = Coerce(text, type); return true; }
-        catch { result = null; return false; }
+        try { result = Coerce(text, type); error = null; return true; }
+        catch (Exception ex) { result = null; error = ex; return false; }
     }
 
     /// <summary>Resolve a runtime type from an assembly-qualified name (corpus AQ fields).</summary>

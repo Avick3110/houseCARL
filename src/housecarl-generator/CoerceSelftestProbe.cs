@@ -2,15 +2,12 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using Noggog;
 using HousecarlCore;
-using static HousecarlCore.WriteEngine;
 
 namespace HousecarlGenerator;
 
-/// <summary>The <c>coerce-selftest</c> probe: each value-type coercion builds an assignable instance from a sample string.</summary>
+/// <summary>The <c>coerce-selftest</c> probe: each value-type coercion builds an assignable instance from a sample string, and a failure prints the exception.</summary>
 public static class CoerceSelftestProbe
 {
-    // ---- COERCE-SELFTEST: do the value-type CONSTRUCTIONS actually build a valid, assignable instance from a
-    //  sample string? coerce-audit covers only RECOGNITION. Diagnoses on failure by dumping the ctor surface.
     [CiProbe("coerce-selftest")]
     public static int RunCoerceSelftest(string[] args)
     {
@@ -51,16 +48,15 @@ public static class CoerceSelftestProbe
         int ok = 0;
         foreach (var (label, type, text) in samples)
         {
-            try
+            if (WriteEngine.TryCoerce(text, type, out var v, out var ex))
             {
-                var v = Coerce(text, type);
                 var assignable = v is not null && type.IsInstanceOfType(v);
                 Console.WriteLine($"  [{(assignable ? "OK" : "??")}] {label,-20} '{text}' -> {v?.GetType().Name ?? "null"}  (= {v})");
                 if (assignable) ok++;
             }
-            catch (Exception ex)
+            else
             {
-                var inner = ex.InnerException is { } ie ? $" / {ie.GetType().Name}: {ie.Message}" : "";
+                var inner = ex!.InnerException is { } ie ? $" / {ie.GetType().Name}: {ie.Message}" : "";
                 Console.WriteLine($"  [FAIL] {label,-20} '{text}' -> {ex.GetType().Name}: {ex.Message}{inner}");
             }
         }
