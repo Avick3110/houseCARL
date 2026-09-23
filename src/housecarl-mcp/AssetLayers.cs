@@ -20,116 +20,114 @@ public sealed partial class LoadOrderService
         IReadOnlyList<FaceGenSeed>? seeds = null,
         bool wholeSelection = false)
     {
-        lock (_gate)
+        AssetResolver.AssetView view; IReadOnlyList<string> warnings; string profileName;
+        lock (_gate) { view = Assets.Capture(); warnings = AssetWarningsLocked(); profileName = _profileName; }   // the view is pinned and handle-free, so the body runs outside the gate
+        var notes = new List<string>();
+        var selected = new List<Selection>(relPaths.Count);
+        foreach (var p in relPaths) selected.Add(new Selection(p ?? "", null, null, null));   // explicit paths first, in the order given, never deduped
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in relPaths)
+            try { seen.Add(AssetResolver.ValidateRelPath((p ?? "").Trim())); } catch (ArgumentException) { /* a bad explicit path answers per-path below */ }
+
+        // formids=: each NPC contributes BOTH halves of its pair, a pure transform of the FormKey, so no record is read.
+        foreach (var seed in seeds ?? Array.Empty<FaceGenSeed>())
         {
-            var view = Assets.Capture();                          // reentrant gate; build/refresh the asset resolver once for the batch
-            var notes = new List<string>();
-            var selected = new List<Selection>(relPaths.Count);
-            foreach (var p in relPaths) selected.Add(new Selection(p ?? "", null, null, null));   // explicit paths first, in the order given, never deduped
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var p in relPaths)
-                try { seen.Add(AssetResolver.ValidateRelPath((p ?? "").Trim())); } catch (ArgumentException) { /* a bad explicit path answers per-path below */ }
-
-            // formids=: each NPC contributes BOTH halves of its pair, a pure transform of the FormKey, so no record is read.
-            foreach (var seed in seeds ?? Array.Empty<FaceGenSeed>())
+            if (seed.Error is not null || seed.Key is not { } fk)
             {
-                if (seed.Error is not null || seed.Key is not { } fk)
-                {
-                    selected.Add(new Selection(seed.Token, seed.Token, null, null, seed.Error));
-                    continue;
-                }
-                var mesh = FaceGenPath.For(fk, FaceGenSlot.Mesh);
-                var tint = FaceGenPath.For(fk, FaceGenSlot.Tint);
-                selected.Add(new Selection(mesh, seed.Token, FaceGenSlot.Mesh, tint));
-                selected.Add(new Selection(tint, seed.Token, FaceGenSlot.Tint, mesh));
-                seen.Add(mesh);
-                seen.Add(tint);
+                selected.Add(new Selection(seed.Token, seed.Token, null, null, seed.Error));
+                continue;
             }
-
-            // The bound is on what this call RESOLVES: a window's walk runs to the end, while a whole-selection resolve stops the enumeration the moment it would cross it.
-            bool wholeIsResolved = wholeSelection || limit <= 0;
-            bool overBound = false;
-            foreach (var raw in under ?? Array.Empty<string>())
-            {
-                if (overBound) break;
-                var sel = (raw ?? "").Trim();
-                if (sel.Length == 0) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
-                try
-                {
-                    // One past what is left of the budget: a selector that fills it has proved the selection is over. 0 = no cap.
-                    int room = wholeIsResolved ? Math.Max(RenderBudget.MaxAssetPaths - selected.Count, 0) + 1 : 0;
-                    var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped);
-                    overBound |= stopped;
-                    // A selector that named a FILE is said out loud too, so the sweep's own count is explained.
-                    if (namedOneFile)
-                        notes.Add($"under '{sel}' names a file, not a directory — it was resolved as that one path.");
-                    // A selector that matched nothing is said out loud: silent, a typo would read as a clean sweep.
-                    else if (matched.Count == 0)
-                        notes.Add($"under '{sel}' matched no file in the active load order — check the spelling, or nothing enabled provides that folder.");
-                    foreach (var m in matched) if (seen.Add(m)) selected.Add(new Selection(m, null, null, null));
-                }
-                catch (ArgumentException ex) { notes.Add($"under '{sel}': {ex.Message}"); }
-            }
-            if (overBound)
-                return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
-                                           view.ReadIncomplete,
-                                           AssetWarningsLocked(), _profileName, notes, selected.Count, Math.Max(offset, 0),
-                                           Math.Max(limit, 0),
-                                           // Dedup can leave the running count at the bound rather than past it; the walk stopping is the proof.
-                                           RenderBudget.RefuseAssetPaths(Math.Max(selected.Count, RenderBudget.MaxAssetPaths + 1),
-                                                                         wholeSelection, atLeast: true)!);
-
-            var total = selected.Count;
-            var start = wholeSelection ? 0 : Math.Min(Math.Max(offset, 0), total);
-            var window = wholeSelection
-                ? selected
-                : selected.Skip(start).Take(limit > 0 ? limit : int.MaxValue).ToList();
-
-            // The declared cost, stated before a path is resolved: past the bound the call says what it would have spent.
-            int toResolve = window.Count(s => s.Error is null)
-                          + (window.Count > 0 && window[^1].PairPath is { } lastPair
-                             && (window.Count < 2 || !string.Equals(lastPair, window[^2].Path, StringComparison.OrdinalIgnoreCase))
-                             ? 1 : 0);
-            if (RenderBudget.RefuseAssetPaths(toResolve, wholeSelection) is { } tooBig)
-                return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
-                                           view.ReadIncomplete,
-                                           AssetWarningsLocked(), _profileName, notes, total, Math.Max(offset, 0),
-                                           Math.Max(limit, 0), tooBig);
-
-            // A TWO-ENTRY lookaside, not a call-scoped memo: a pair's halves are adjacent, so one row of history gives the identical dedup at O(1) retention.
-            string? seenA = null, seenB = null;
-            AssetHit? seenAHit = null, seenBHit = null;
-            AssetHit Resolve(string p)
-            {
-                if (seenA is not null && string.Equals(p, seenA, StringComparison.OrdinalIgnoreCase)) return seenAHit!;
-                if (seenB is not null && string.Equals(p, seenB, StringComparison.OrdinalIgnoreCase)) return seenBHit!;
-                return view.Resolve(p);
-            }
-
-            var results = new List<AssetPathResult>(window.Count);
-            foreach (var sel in window)
-            {
-                var p = (sel.Path ?? "").Trim();
-                if (sel.Error is not null) { results.Add(new AssetPathResult(p, null, sel.Error, null, sel.FormId)); continue; }
-                try
-                {
-                    var hit = Resolve(p);
-                    // Only on ABSENT, and only VERIFIED prefixes: a path taken off a record is stored relative to its root folder.
-                    var suggest = hit.Exists ? Array.Empty<string>()
-                                             : AssetPathHint.VerifiedPrefixes(view, p, AssetPathHint.AssetRoots);
-                    var pair = sel.PairPath is null ? null : Resolve(sel.PairPath);
-                    results.Add(new AssetPathResult(p, hit, null, suggest, sel.FormId, sel.Slot, sel.PairPath, pair));
-                    seenA = p; seenAHit = hit;
-                    seenB = sel.PairPath; seenBHit = pair;
-                }
-                catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message, null, sel.FormId)); }   // bad path → per-path note, never a batch failure
-            }
-            // The caveats are read AFTER the reads that fill them: a root that would not walk or list is named here.
-            return new AssetStatusData(results, view.BsaFailures, view.RootFailures, view.ReadIncomplete,
-                                       AssetWarningsLocked(), _profileName,
-                                       notes, total, Math.Max(offset, 0),    // the offset ASKED for, so a past-the-end page can say so
-                                       Math.Max(limit, 0));                  // the limit ASKED for, so the next-page advice repeats it
+            var mesh = FaceGenPath.For(fk, FaceGenSlot.Mesh);
+            var tint = FaceGenPath.For(fk, FaceGenSlot.Tint);
+            selected.Add(new Selection(mesh, seed.Token, FaceGenSlot.Mesh, tint));
+            selected.Add(new Selection(tint, seed.Token, FaceGenSlot.Tint, mesh));
+            seen.Add(mesh);
+            seen.Add(tint);
         }
+
+        // The bound is on what this call RESOLVES: a window's walk runs to the end, while a whole-selection resolve stops the enumeration the moment it would cross it.
+        bool wholeIsResolved = wholeSelection || limit <= 0;
+        bool overBound = false;
+        foreach (var raw in under ?? Array.Empty<string>())
+        {
+            if (overBound) break;
+            var sel = (raw ?? "").Trim();
+            if (sel.Length == 0) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
+            try
+            {
+                // One past what is left of the budget: a selector that fills it has proved the selection is over. 0 = no cap.
+                int room = wholeIsResolved ? Math.Max(RenderBudget.MaxAssetPaths - selected.Count, 0) + 1 : 0;
+                var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped);
+                overBound |= stopped;
+                // A selector that named a FILE is said out loud too, so the sweep's own count is explained.
+                if (namedOneFile)
+                    notes.Add($"under '{sel}' names a file, not a directory — it was resolved as that one path.");
+                // A selector that matched nothing is said out loud: silent, a typo would read as a clean sweep.
+                else if (matched.Count == 0)
+                    notes.Add($"under '{sel}' matched no file in the active load order — check the spelling, or nothing enabled provides that folder.");
+                foreach (var m in matched) if (seen.Add(m)) selected.Add(new Selection(m, null, null, null));
+            }
+            catch (ArgumentException ex) { notes.Add($"under '{sel}': {ex.Message}"); }
+        }
+        if (overBound)
+            return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
+                                       view.ReadIncomplete,
+                                       warnings, profileName, notes, selected.Count, Math.Max(offset, 0),
+                                       Math.Max(limit, 0),
+                                       // Dedup can leave the running count at the bound rather than past it; the walk stopping is the proof.
+                                       RenderBudget.RefuseAssetPaths(Math.Max(selected.Count, RenderBudget.MaxAssetPaths + 1),
+                                                                     wholeSelection, atLeast: true)!);
+
+        var total = selected.Count;
+        var start = wholeSelection ? 0 : Math.Min(Math.Max(offset, 0), total);
+        var window = wholeSelection
+            ? selected
+            : selected.Skip(start).Take(limit > 0 ? limit : int.MaxValue).ToList();
+
+        // The declared cost, stated before a path is resolved: past the bound the call says what it would have spent.
+        int toResolve = window.Count(s => s.Error is null)
+                      + (window.Count > 0 && window[^1].PairPath is { } lastPair
+                         && (window.Count < 2 || !string.Equals(lastPair, window[^2].Path, StringComparison.OrdinalIgnoreCase))
+                         ? 1 : 0);
+        if (RenderBudget.RefuseAssetPaths(toResolve, wholeSelection) is { } tooBig)
+            return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
+                                       view.ReadIncomplete,
+                                       warnings, profileName, notes, total, Math.Max(offset, 0),
+                                       Math.Max(limit, 0), tooBig);
+
+        // A TWO-ENTRY lookaside, not a call-scoped memo: a pair's halves are adjacent, so one row of history gives the identical dedup at O(1) retention.
+        string? seenA = null, seenB = null;
+        AssetHit? seenAHit = null, seenBHit = null;
+        AssetHit Resolve(string p)
+        {
+            if (seenA is not null && string.Equals(p, seenA, StringComparison.OrdinalIgnoreCase)) return seenAHit!;
+            if (seenB is not null && string.Equals(p, seenB, StringComparison.OrdinalIgnoreCase)) return seenBHit!;
+            return view.Resolve(p);
+        }
+
+        var results = new List<AssetPathResult>(window.Count);
+        foreach (var sel in window)
+        {
+            var p = (sel.Path ?? "").Trim();
+            if (sel.Error is not null) { results.Add(new AssetPathResult(p, null, sel.Error, null, sel.FormId)); continue; }
+            try
+            {
+                var hit = Resolve(p);
+                // Only on ABSENT, and only VERIFIED prefixes: a path taken off a record is stored relative to its root folder.
+                var suggest = hit.Exists ? Array.Empty<string>()
+                                         : AssetPathHint.VerifiedPrefixes(view, p, AssetPathHint.AssetRoots);
+                var pair = sel.PairPath is null ? null : Resolve(sel.PairPath);
+                results.Add(new AssetPathResult(p, hit, null, suggest, sel.FormId, sel.Slot, sel.PairPath, pair));
+                seenA = p; seenAHit = hit;
+                seenB = sel.PairPath; seenBHit = pair;
+            }
+            catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message, null, sel.FormId)); }   // bad path → per-path note, never a batch failure
+        }
+        // The caveats are read AFTER the reads that fill them: a root that would not walk or list is named here.
+        return new AssetStatusData(results, view.BsaFailures, view.RootFailures, view.ReadIncomplete,
+                                   warnings, profileName,
+                                   notes, total, Math.Max(offset, 0),    // the offset ASKED for, so a past-the-end page can say so
+                                   Math.Max(limit, 0));                  // the limit ASKED for, so the next-page advice repeats it
     }
 
     /// <summary>One entry of an <c>asset_status</c> selection: the path, and on a <c>formids=</c> row the NPC, the slot and the other half's path. <c>Error</c> answers as its own row.</summary>
