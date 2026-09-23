@@ -101,9 +101,12 @@ public sealed class WriteSurfaceChildGroupTests : IClassFixture<WriteSurfaceWorl
     [Fact]
     public void ReplaceOfARecordWithNoChildrenSaysSo()
     {
-        var made = ForwardTools.Forward(_w.Svc, formids: new[] { _w.SubjectFid }, source: _w.MasterName, patch: "W324Flat");
-        var file = Path.GetFileName(_w.ArtifactPathFrom(made));
-        Assert.NotNull(file);
+        // The probe's setup: the same patch already holds a topic whose child a replace kept, so the weapon's
+        // count must be its own, not the file's.
+        var path = TopicPatchWithChild("W324Flat");
+        var file = Path.GetFileName(path);
+        Assert.Contains("were KEPT", ForwardTools.Forward(_w.Svc, formids: new[] { _w.TopicFid }, source: _w.ReplacerName, into: file));
+        ForwardTools.Forward(_w.Svc, formids: new[] { _w.SubjectFid }, source: _w.MasterName, into: file);
 
         var dry = ForwardTools.Forward(_w.Svc, formids: new[] { _w.SubjectFid }, source: _w.ReplacerName, into: file, dry_run: true);
         Assert.Contains("the old body would be gone", dry);

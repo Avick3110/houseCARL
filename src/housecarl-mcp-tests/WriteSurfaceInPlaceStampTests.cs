@@ -40,5 +40,6 @@ public sealed class WriteSurfaceInPlaceStampTests : IDisposable
         var r = ApplyTools.Apply(_w.Svc, into: "W2Repl",
             ops: Json($$"""[{"formid":"{{_w.SubjectFid}}","field_path":"Name","value":"x"}]"""));
         Assert.StartsWith("error:", r);
+        Assert.Contains("NOT created by houseCARL", r);
     }
 }

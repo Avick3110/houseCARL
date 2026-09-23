@@ -76,7 +76,7 @@ public sealed class WriteSurfaceCreateGrammarTests : IClassFixture<WriteSurfaceW
         var r = CreateTools.Create(_w.Svc,
             records: Json($$"""["@{{JsonPath(manifest)}}", {"record_type":"Keyword","editorid":"W2Mixed"}]"""));
         Assert.StartsWith("error:", r);
-        Assert.Contains("cannot be mixed", r);
+        Assert.Contains("cannot be mixed with inline elements", r);
     }
 
     // probe: records=[] is refused by name, not read as absent
