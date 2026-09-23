@@ -141,14 +141,15 @@ hardened.
 - *The grammar*: `SkyPatcherParseProbe` (`skypatcher-parse-guard`) — a segment with no `=` or an empty key is noted
   and still surfaced, and a doubled `,` is noted and skipped.
 - *Addressing*: `SkyPatcherParseProbe` — a bare EditorID is left un-addressed, and the FormID side trims leading
-  zeros; `SkyPatcherOverlayProbe`'s load-indexed ESL FormID arm (`FE000800`) — a full ESL FormID keeps its 12-bit
-  local id.
+  zeros; `SkyPatcherOverlayWeaponReplayTests.AFullLoadIndexedEslFormIdMatchesTheRecord` (`FE000800`) — a full ESL
+  FormID keeps its 12-bit local id.
 - *The per-type subfolder rule and the filename gate*: `SkyPatcherDiscoveryProbe` (`skypatcher-discovery-guard`) —
   the `0`→`z` relative-path order, `<Plugin>.esp.ini` gated and still inspectable, the `[Patcher]` toggle, a
   root-level INI and an undocumented subfolder each noted, loose-only, and the union with `ShadowedProviders`.
-- *How the overlay replays onto a record*: `SkyPatcherOverlayProbe` (`skypatcher-overlay-guard`) — the stateful
-  apply-order replay, an unknown key poisoning the whole line, an unmapped filter skipping the line loud, and a HARD
-  op coming back as a directive.
+- *How the overlay replays onto a record*: `SkyPatcherOverlayWeaponReplayTests` — the stateful apply-order replay,
+  an unknown key poisoning the whole line, an unmapped filter skipping the line loud, and a HARD op coming back as a
+  directive; `SkyPatcherOverlayFilterTests`, `SkyPatcherOverlayEntryOpsTests` and `SkyPatcherOverlayOpClosureTests`
+  — the filter kinds, the entry and list ops, and the op closures.
 - *How the overlay replays onto a record*: `SkyPatcherFieldMapGuardTests.AMappedHardOpIsCaught` — CI rejects a
   HARD op that acquires a mapping.
 - *Reports and drafts*: `SkyPatcherConflictsProbe` (`skypatcher-conflicts-guard`) — SET collisions with the later
