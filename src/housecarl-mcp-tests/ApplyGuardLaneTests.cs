@@ -20,7 +20,7 @@ public sealed class ApplyGuardLaneTests : IClassFixture<ApplyGuardCorpus>, IDisp
         var r = ApplyTools.Apply(W.Svc, ops: Je(W.DamageOp("1")), patch: "X", into: "Y.esp");
         Assert.StartsWith("error:", r);
         Assert.Contains("patch=", r);
-        Assert.Contains("into=", r);
+        Assert.Contains("the two lanes are exclusive", r);
     }
 
     // probe: "patch= + in_place= refused BY NAME"

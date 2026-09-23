@@ -54,6 +54,7 @@ public sealed class ApplyGuardZipTests : IClassFixture<ApplyGuardCorpus>, IDispo
         var r = ApplyTools.Apply(W.Svc, assignments: Je(Pair()));
         Assert.StartsWith("error:", r);
         Assert.Contains("bundle=", r);
+        Assert.Contains("the zip needs both", r);
     }
 
     // probe: "target == from refused as a no-op, pointing at from_source= for the version case"
