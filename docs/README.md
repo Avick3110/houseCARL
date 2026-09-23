@@ -29,7 +29,7 @@ flowchart LR
 
 ## The architecture notes
 
-Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so the code map and the doc map are the same map. The rule: a note is grouped under the `CLAUDE.md` row holding most of the files in its `covers:` list, not by its subject; a note that also covers a file in another row gets a one-line cross-reference under that row. A new note starts from [`architecture/TEMPLATE.md`](architecture/TEMPLATE.md) and adds its line here.
+Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so the code map and the doc map are the same map. A note files under the `CLAUDE.md` row that its own tools and entry points live in — the row named under its `## Where` heading — never by counting `covers:` files; `src/housecarl-core/` files inherit the lane they serve, and a note with no tool of its own files under the row of its files' project. A new note starts from [`architecture/TEMPLATE.md`](architecture/TEMPLATE.md) and adds its line here.
 
 ### The MCP server and tool surface
 
@@ -70,7 +70,6 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 
 | Note | What it covers |
 |---|---|
-| [`architecture/corpus-rulebook.md`](architecture/corpus-rulebook.md) | The write surface's pre-flight: every write is validated against the generated schema before any Mutagen mutation, and the gate can never disagree with apply. |
 | [`architecture/check-families.md`](architecture/check-families.md) | The contracts the check families share: the DELETED rule, the integrity sweep's boundary, the narrowing and exclusion axes, family selection, and selection versus outcome. |
 | [`architecture/check-scripts-and-dialogue-families.md`](architecture/check-scripts-and-dialogue-families.md) | The script-property sweep's boundary and its unverifiable ride-through, the dialogue family's four seed words, and the EditorID near-miss hint. |
 
@@ -79,8 +78,7 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 | Note | What it covers |
 |---|---|
 | [`architecture/write-path.md`](architecture/write-path.md) | The write path as the service sees it: new plugin by default and the in-place consent opt-in, the write gate, what a write response may report off the file it wrote, the sentence catalogue's contracts, and the reflection-driven engine underneath — the patch-mod lifecycle, create, the verbs, the serialize and its refusals. |
-
-[`architecture/corpus-rulebook.md`](architecture/corpus-rulebook.md) covers `src/housecarl-core/WriteEngine.cs` — half of its two-file `covers:` list, not most of it, so it stays above and is cross-referenced here.
+| [`architecture/corpus-rulebook.md`](architecture/corpus-rulebook.md) | The write surface's pre-flight: every write is validated against the generated schema before any Mutagen mutation, and the gate can never disagree with apply. |
 
 ### Dialogue
 
@@ -107,6 +105,8 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 | [`architecture/test-project-fixtures.md`](architecture/test-project-fixtures.md) | Two pieces of test machinery, the Papyrus `.pex` world and the file-lock harness, plus the tests that prove each is what it claims to be. |
 
 ## Older notes outside `architecture/`
+
+[`dialogue.md`](dialogue.md) and [`facegen.md`](facegen.md) are modder-facing, and the template does not apply to them.
 
 | Note | What it covers |
 |---|---|
