@@ -459,7 +459,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   in-place lane, with the dry run predicting the real call's refusal verbatim and still predicting success for a write
   that does not reference it.
 - `LocalizedStringsSourceTests` / `LocalizedModFolderUnreadableTests` / `StatusLocalizedLookupTests`,
-  and `StringsResolveProbe` / `StringsDecisionProbe` / `LocalizedShapeSweep` — the shapes and the
+  and `StringsResolveProbe` / `StringsDecisionGuardTests` / `LocalizedShapeSweep` — the shapes and the
   three-answer folder reads.
 
 ## Where
