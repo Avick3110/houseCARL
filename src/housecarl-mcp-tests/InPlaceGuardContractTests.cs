@@ -33,9 +33,15 @@ public sealed class InPlaceGuardContractTests
     public void TheEditLaneRefusesInPlaceWithoutTargetWithIntoAndTargetWithoutInPlace()
     {
         using var svc = Service();
-        Assert.Contains("requires target=", svc.ApplyEdits(SetDamage, null, null, inPlace: true).Error);
-        Assert.Contains("mutually exclusive", svc.ApplyEdits(SetDamage, null, "somepatch", fullReadback: false, target: W.UserName, inPlace: true).Error);
-        Assert.Contains("only meaningful with in_place", svc.ApplyEdits(SetDamage, null, null, fullReadback: false, target: W.UserName, inPlace: false).Error);
+        var r1 = svc.ApplyEdits(SetDamage, null, null, inPlace: true);
+        Assert.False(r1.Success);
+        Assert.Contains("requires target=", r1.Error);
+        var r2 = svc.ApplyEdits(SetDamage, null, "somepatch", fullReadback: false, target: W.UserName, inPlace: true);
+        Assert.False(r2.Success);
+        Assert.Contains("mutually exclusive", r2.Error);
+        var r3 = svc.ApplyEdits(SetDamage, null, null, fullReadback: false, target: W.UserName, inPlace: false);
+        Assert.False(r3.Success);
+        Assert.Contains("only meaningful with in_place", r3.Error);
     }
 
     // L contract (in_place<->target, _|_ into=) — create
@@ -43,9 +49,15 @@ public sealed class InPlaceGuardContractTests
     public void TheCreateLaneRefusesInPlaceWithoutTargetWithIntoAndTargetWithoutInPlace()
     {
         using var svc = Service();
-        Assert.Contains("requires target=", svc.InPlaceGuardCreate("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: null, inPlace: true, acknowledge: true).Error);
-        Assert.Contains("mutually exclusive", svc.InPlaceGuardCreate("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, "somepatch", false, null, null, null, target: W.UserName, inPlace: true, acknowledge: true).Error);
-        Assert.Contains("only meaningful with in_place", svc.InPlaceGuardCreate("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: W.UserName, inPlace: false, acknowledge: false).Error);
+        var r4 = svc.InPlaceGuardCreate("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: null, inPlace: true, acknowledge: true);
+        Assert.False(r4.Success);
+        Assert.Contains("requires target=", r4.Error);
+        var r5 = svc.InPlaceGuardCreate("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, "somepatch", false, null, null, null, target: W.UserName, inPlace: true, acknowledge: true);
+        Assert.False(r5.Success);
+        Assert.Contains("mutually exclusive", r5.Error);
+        var r6 = svc.InPlaceGuardCreate("Keyword", "HcIP_K", Array.Empty<BulkOp>(), null, null, false, null, null, null, target: W.UserName, inPlace: false, acknowledge: false);
+        Assert.False(r6.Success);
+        Assert.Contains("only meaningful with in_place", r6.Error);
     }
 
     // U contract (in_place<->target, _|_ patch=) — remove
@@ -53,9 +65,15 @@ public sealed class InPlaceGuardContractTests
     public void TheRemoveLaneRefusesInPlaceWithoutTargetWithPatchAndTargetWithoutInPlace()
     {
         using var svc = Service();
-        Assert.Contains("requires target=", svc.RemoveRecords(new[] { _w.WeaponId }, null, target: null, inPlace: true, acknowledge: true).Error);
-        Assert.Contains("mutually exclusive", svc.RemoveRecords(new[] { _w.WeaponId }, "somepatch", target: W.UserName, inPlace: true, acknowledge: true).Error);
-        Assert.Contains("only meaningful with in_place", svc.RemoveRecords(new[] { _w.WeaponId }, null, target: W.UserName, inPlace: false).Error);
+        var r7 = svc.RemoveRecords(new[] { _w.WeaponId }, null, target: null, inPlace: true, acknowledge: true);
+        Assert.False(r7.Success);
+        Assert.Contains("requires target=", r7.Error);
+        var r8 = svc.RemoveRecords(new[] { _w.WeaponId }, "somepatch", target: W.UserName, inPlace: true, acknowledge: true);
+        Assert.False(r8.Success);
+        Assert.Contains("mutually exclusive", r8.Error);
+        var r9 = svc.RemoveRecords(new[] { _w.WeaponId }, null, target: W.UserName, inPlace: false);
+        Assert.False(r9.Success);
+        Assert.Contains("only meaningful with in_place", r9.Error);
     }
 
     // F resolver refuses a non-load-order target
