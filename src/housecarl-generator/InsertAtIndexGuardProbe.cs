@@ -79,7 +79,7 @@ namespace HousecarlGenerator;
 ///
 /// The batch-verification classification (InsertAtIndex is NOT count-neutral, so it must not join SetAtIndex's keyed
 /// exemption) is pinned in <c>apply-guard</c>, beside the exemption itself; the owned-child disposition rows are
-/// pinned in <c>write-surface-guard</c>, in the table that enumerates every verb against that shape.
+/// pinned in <c>WriteSurfaceOwnedChildEngineTests.Disposition</c>, the table that enumerates every verb against that shape.
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator insert-at-index-guard</c>
 /// </summary>

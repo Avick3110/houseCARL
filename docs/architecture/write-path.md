@@ -350,7 +350,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   `…ARecordMissingFromTheWrittenFileIsSaidOutright` and `…AFailedWalkIsNotCheckedRatherThanAVerdict` — the W0 rule's
   four readings.
 - `OpaqueBytesVerifyTests.TheVerifySentenceNamesTheOpaqueFieldItReReadAsBytesOnly` — the opaque-leaf caveat.
-- `write-surface-guard` — every `WriteSentences` const decides and still states its declared phrases, every `Twins`
+- `WriteSurfaceTwinParityTests` — every `WriteSentences` const decides and still states its declared phrases, every `Twins`
   member is rendered by both lanes, and every outer `[MustState]` sentence reaches a render.
 - `formid-floor-guard` — the 0x800 floor before an allocation and the in-memory counter persisted verbatim by the
   serialize.
@@ -399,11 +399,12 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - `apply-guard`'s ZIP arm — the copy zip: a bundle copied BETWEEN records, the zip composing with `ops=` in one call,
   and a bad FormID in an assignment refused NAMING THE ASSIGNMENT rather than a phantom `ops[2]` the caller never
   wrote, which is the caller's-own-spelling half.
-- `write-surface-guard` — the `lane` value names the lane the CALL asked for on an `into=` refusal and on an in-place
-  consent prompt as much as on a success, and is spelled the same on apply / create / remove / forward; the
-  lane-aware truncation remedy on `into=` (the plain re-issue), on the default lane (a SECOND patch mod) and on
-  `in_place=` (a READ, never re-serializing the caller's original); `write_seq`'s `patch=`/`into=` pair refused BY
-  NAME on both transports, and its absent epoch stated with its reason on both.
+- `WriteSurfaceTransportTests`, `WriteSurfaceInPlaceTransportTests` and `WriteSurfaceReportRenderTests` — the
+  `lane` value names the lane the CALL asked for on an `into=` refusal and on an in-place consent prompt as much as
+  on a success, and is spelled the same on apply / create / remove / forward; the lane-aware truncation remedy on
+  `into=` (the plain re-issue), on the default lane (a SECOND patch mod) and on `in_place=` (a READ, never
+  re-serializing the caller's original); `write_seq`'s `patch=`/`into=` pair refused BY NAME on both transports,
+  and its absent epoch stated with its reason on both.
 - `WriteReadbackFromFileTests.ThePerEditLineMatchesAFreshReadOfTheFile` and `TheJsonOpCarriesTheFilesOwnReading` —
   the verify ran and rendered its compact per-op clause with no `full_readback=true` passed; `apply-guard` arms 6 and
   8 drive the same clause off the written file on the in-place lane, which is the forced half.

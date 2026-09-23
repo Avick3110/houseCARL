@@ -412,7 +412,7 @@ static class ParentInHandProbe
     }
 
     /// <summary>The child-bearing concrete record types, each paired with the getter interface the overlay enumerates
-    /// by. One source, asked once: WriteEngine.ChildBearingProperties over WriteSurfaceGuardProbe.ConcreteRecordTypes.
+    /// by. One source, asked once: WriteEngine.ChildBearingProperties over ConcreteRecordTypes.All.
     /// A child-bearing type with no getter interface is a real coverage gap, so it is named rather than dropped.</summary>
     static IReadOnlyList<Type> ChildBearingGetters() => _childBearingGetters ??= BuildChildBearingGetters();
     static IReadOnlyList<Type>? _childBearingGetters;
@@ -431,7 +431,7 @@ static class ParentInHandProbe
 
     /// <summary>Every concrete record type Mutagen models that has a child-bearing property.</summary>
     static IEnumerable<Type> ChildBearingTypes() =>
-        WriteSurfaceGuardProbe.ConcreteRecordTypes().Where(t => WriteEngine.ChildBearingProperties(t).Count > 0);
+        ConcreteRecordTypes.All().Where(t => WriteEngine.ChildBearingProperties(t).Count > 0);
 
     /// <summary>The DIRECT child records held by one child-bearing field's value — stopping at the first major
     /// record on each branch, so a worldspace's SubCells yields its CELLs and not their placed references. Same cut
