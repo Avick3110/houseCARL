@@ -4,137 +4,39 @@ using System.Reflection.Metadata;
 using System.Text;
 using System.Text.RegularExpressions;
 using HousecarlCore;
+using HousecarlGenerator;
 using HousecarlMcp;
 
-namespace HousecarlGenerator;
+namespace HousecarlMcpTests;
 
-/// <summary>
-/// REGRESSION GUARD (standing CI instrument, self-contained) — CALLER-FACING PROSE VOCABULARY (#386).
-///
-/// <para><b>The gap this closes.</b> Nothing read the WORDS of two caller-facing prose surfaces: the
-/// <c>[Description]</c> attributes a model reads to decide how to call a tool, and the consent prompts a modder
-/// reads to decide whether to say yes. <c>write-surface-guard</c> and the <see cref="MustStateAttribute"/> /
-/// <see cref="NoClaimsAttribute"/> walk both police the <see cref="WriteSentences"/> / <see cref="ReadSentences"/>
-/// consts and reach neither; <c>wire-names-guard</c> does reach a <c>[Description]</c>, but only to parse the
-/// brace shape declaration out of it and hold that against the reflected wire names — it has no opinion about the
-/// sentence the declaration sits in, and a stale consent claim is invisible to it. So the in-place consent fix (#378) — which changed exactly one fact, that a REFUSED
-/// call records nothing — left stale text behind that took FOUR sweeps to clear: three, run surface by surface,
-/// found 11 on the <c>acknowledge=</c> parameters, 6 in the <c>WriteTools</c> lane parentheticals and 2 in the
-/// handshake builders, and a fourth, run repo-wide by VOCABULARY instead, found fourteen more in homes the first
-/// three had no reason to look at. (The per-pass counts are #386's own table; its headline totals those three
-/// passes as thirteen, which is a discrepancy in the issue rather than something to average here — the counts
-/// are given per pass so nothing restates a total its own itemisation contradicts.) Three of the four were triggered by a reviewer noticing a claim by eye rather than by
-/// anything going red.</para>
-///
-/// <para><b>Two readers, because a completeness claim cannot certify itself.</b> This is the third design. The
-/// first enumerated the surface by REFLECTION and was class-stopped: five measured routes carried a consent
-/// sentence to a caller that reflection could not reach, including <c>compact_plugin</c>'s inline consent prompt.
-/// The second scanned SOURCE LITERALS with a hand lexer and was class-stopped on the same class one design later:
-/// the lexer could not see a literal inside an interpolation hole, so 201 shipped lines were outside the net, and
-/// the arm chartered to make that falsifiable (compiled values covered by the scan) structurally could not see it
-/// either — C# requires a compiled constant, and runtime-interpolated prose has none. Both deaths were the same
-/// shape: <b>a completeness claim certified by an oracle derived from the machinery it certifies.</b></para>
-///
-/// <para>So the net is still the shipped source literals — that premise was never falsified, and every one of the
-/// five routes IS a source literal — but the reading of them is done TWICE, by two independently written readers,
-/// and the two are held against each other:
-/// <list type="bullet">
-///   <item><see cref="RoslynLiteralReader"/> (READER A) — the C# compiler's own parser. What counts as a literal
-///         is its decision, not an opinion, so this reader cannot disagree with the build.</item>
-///   <item><see cref="HandLiteralLexer"/> (READER B) — a second spelling written from C#'s lexical grammar,
-///         sharing no code with A beyond the <see cref="SourceLiteral"/> record.</item>
-/// </list>
-/// <c>INV6-AGREE</c> asserts the two produce the same literals, file by file. A reader that stops early,
-/// mis-decodes an escape, or cannot see into a hole makes them disagree and turns that arm red with the file
-/// named. Neither reader is its own oracle, which is the property both prior designs lacked.</para>
-///
-/// <para><b>And the files those readers are handed come from the COMPILER'S RECEIPT, not from a directory
-/// walk.</b> Two readers agreeing about a file set nobody certified is the same shape one floor up, and it was
-/// measured: a <c>&lt;Compile Include&gt;</c>-linked source file shipped a false consent claim at 59/59 green.
-/// So <c>MANIFEST-SET</c> holds the scanned file set against the portable-PDB document table of each shipped
-/// assembly — the compiler's own record of what went into the thing that ships — in both directions. See
-/// <see cref="ReadManifest"/> for the ruling that chose it (§4, Aaron-go 2026-08-26), the alternatives declined,
-/// and the evaluation run before it was built. Above that receipt there is no further enumeration to certify:
-/// what remains — that the guard runs, what is on the watchlist, and whether a sentence of known words is TRUE —
-/// is declared residue, printed on every run in <see cref="NotInReach"/>.</para>
-///
-/// <para><b>The enumerations, and the question each answers.</b>
-/// <list type="bullet">
-///   <item><b>SOURCE</b> — every string-literal SENTENCE in the three shipped trees (<c>housecarl-mcp</c>,
-///         <c>housecarl-core</c>, <c>housecarl-setup</c>), a sentence being a maximal run of adjacent literals
-///         joined by <c>+</c> OR a run of consecutive <c>Append</c> / <c>Write</c> calls on one receiver,
-///         optionally finished by the <c>Line</c> form of that verb: the unit an author writes. This answers
-///         ABSENCE (INV1) — a phrase absent from every literal is absent from every string built out of them by
-///         those two shapes. Assembly across control flow or through a helper is a DECLARED
-///         boundary, printed on every run (<see cref="NotInReach"/>), not a claim this quietly covers.</item>
-///   <item><b>SURFACE</b> — the compiled <c>[Description]</c> attributes of the tool assembly. This answers
-///         PRESENCE and COMPLETENESS (INV3/INV4): "which verbs does a caller read" needs the text assembled, and
-///         only the attribute knows which literals reached a description.</item>
-/// </list></para>
-///
-///   INV1 — every consent-vocabulary phrase declared here is ABSENT from every shipped source literal, or the
-///          sentence carrying it also states the clause that makes it true (the phrase's COMPANION).
-///   INV2 — every declared exemption still matches a real site (materialises with the first declared row), and
-///          the exemption table cannot degenerate into an allowlist of the surface (INV2-DEGEN, always runs).
-///   INV3 — every write-verb RECITAL on the <c>[Description]</c> surface names only real verbs, and between them
-///          the recitals name the whole published vocabulary.
-///   INV4 — the two homes for the verb vocabulary still say the same thing and still say what this guard writes
-///          down independently; the verb marked <c>(default)</c> is one verb, the same one at every site that
-///          marks it, and the one the annotated slots actually default to; and the TAIL of the recital is the verb
-///          the gloss glued to that tail describes.
-///   INV5 — every compile-time constant on the surface (the <c>[Description]</c> arguments and the <c>const</c>
-///          strings) is covered by the SOURCE scan. A third kind of evidence, through the compiler and the
-///          runtime rather than through either reader.
-///   INV6 — every scanned file PARSES, and the two readers AGREE about what is in it. This is the arm the
-///          by-construction claim rests on.
-///
-/// <para><b>The pin.</b> <see cref="Phrases"/>, <see cref="PublishedVocabulary"/>, <see cref="PublishedDefault"/>
-/// and <see cref="TailGlossVerb"/> are INDEPENDENTLY WRITTEN literals, never derived from the consts they check. A
-/// const-concat conversion verified against the same const that produced it is the check-A tautology — it stays
-/// green when the const is emptied. <c>remedy-verbs-guard</c>'s SITE-UNKNOWN-VERB arm documents the same pattern
-/// for the same reason. A deliberate change to the published vocabulary turns INV4 red once, on purpose. A silent
-/// one turns it red too.</para>
-///
-/// <para><b>Declared boundary — what this does NOT reach, and why.</b> The by-construction claim is exactly as
-/// honest as this list, so the run PRINTS it (see <see cref="NotInReach"/>) rather than leaving it in a docstring
-/// that no CI log carries.
-/// <list type="bullet">
-///   <item><b>Comments, including XML docstrings.</b> Not literals; skipped by both readers, deliberately.
-///         Authored narrative prose is the non-mechanizable residue #337/#330 ruled on, and the docstrings on
-///         these very builders are part of it. So are the READMEs, the shipped skills, the CHANGELOG, and the
-///         plugin / marketplace metadata — none of which is in a scanned tree.</item>
-///   <item><b>Text assembled around a value</b> — <c>"shown " + name + "once"</c>, or a phrase split across an
-///         interpolation hole. The <c>+</c>-run merge is conservative (it joins literals separated by nothing but
-///         <c>+</c>) and a hole is rendered as <see cref="SourceLiteral.HoleMarker"/>, which carries no letters.
-///         So a phrase split around a value carries no phrase in any fragment. This cannot be closed short of
-///         dataflow analysis and is not claimed to be: what the guard makes structural is that putting a consent
-///         claim in front of a caller AS ORDINARY TEXT takes a deliberate act. Splitting a sentence around a value
-///         to get past a vocabulary guard IS that act, and it leaves the evidence of intent in the diff — which is
-///         the standard #386 asks for, not a proof of impossibility.</item>
-///   <item><b>Non-source text.</b> Third-party library messages surfaced to a caller, and the shipped JSON data
-///         files plus the generated corpus: machine-shaped identifiers, paths and edges rather than authored
-///         English. A consent claim cannot originate in them because nothing in them is a sentence.</item>
-///   <item><b>Truth, as opposed to vocabulary.</b> The check cannot tell a true sentence from a false one built
-///         entirely of known words, and teaching it to grade prose would be #308's verdict-layer mistake wearing
-///         new clothes.</item>
-///   <item><b>A verb recital whose tokens are ALL stale at once.</b> <see cref="Recitals"/> admits a run only if
-///         at least one token is a real verb — otherwise "Text | Json" would be read as a verb list — so a run in
-///         which every name went stale simultaneously is dropped and INV3-TOKENS stays green. Rename drift does
-///         not have that shape (it moves one name and leaves the rest); the marked-default arm reaches such a run
-///         only where it marks a default AND the annotated slot declares one in code, which is a narrower reach
-///         than this paragraph used to claim; and the census prints every dropped run, and every marker whose
-///         slot declares nothing, so what is asserted about by nothing is named on every run.</item>
-///   <item><b>Completeness per site.</b> INV3's union arm cannot see a verb missing from ONE description while
-///         another names it. Whether a verb is legal at a given carrier is a semantic fact no attribute carries
-///         (<c>create_record</c>'s <c>op</c> refuses <c>CopyFrom</c>) — the same boundary <c>wire-names-guard</c>
-///         records for its INV5.</item>
-/// </list></para>
-///
-/// Run: <c>dotnet run --project src/housecarl-generator -- description-vocab-guard</c>
-/// </summary>
-public static class DescriptionVocabularyGuardProbe
+/// <summary>The caller-facing prose vocabulary scan behind <see cref="DescriptionVocabularyScanTests"/>, ported
+/// from the description-vocab-guard probe. Two independent readers (Roslyn and the hand lexer, both in the
+/// generator) read every string literal in the shipped trees; the consent phrases, the verb recitals and the
+/// WriteVerbs homes are held against literals written independently here. Every arm is recorded as an
+/// <see cref="ArmResult"/> once per test run, and each test asserts one arm. Paths resolve from the repo root.</summary>
+static class DescriptionVocabularyScan
 {
-    static int _pass, _fail, _class1, _class2, _harness;
+    /// <summary>One arm's verdict: its id (the label's first word), the label, and what it found.</summary>
+    internal sealed record ArmResult(string Id, string Label, bool Ok, List<string> Detail);
+
+    static List<ArmResult> _sink = new();
+
+    static readonly Lazy<IReadOnlyList<ArmResult>> Results = new(RunAllArms, LazyThreadSafetyMode.ExecutionAndPublication);
+
+    /// <summary>Every arm the scan records, computed once.</summary>
+    internal static IReadOnlyList<ArmResult> All => Results.Value;
+
+    static IReadOnlyList<ArmResult> RunAllArms()
+    {
+        _sink = new List<ArmResult>();
+        var source = SourceArm();
+        VocabularyArm(source);
+        var surface = SurfaceSites().ToList();
+        ReachArm(surface, source);
+        VerbArm(surface);
+        RedArms();
+        return _sink;
+    }
 
     // ================= the independently-written literals (the PIN — never derived) =================
 
@@ -296,51 +198,6 @@ public static class DescriptionVocabularyGuardProbe
             + "INV6-DIRECTIVES names one whenever it could explain a disagreement the readers actually had",
     };
 
-    // ================= entry =================
-
-    [CiProbe("description-vocab-guard")]
-    public static int RunGuard(string[] args)
-    {
-        _pass = _fail = _class1 = _class2 = _harness = 0;
-        Console.WriteLine("################  REGRESSION GUARD — caller-facing prose vocabulary (two readers over the shipped source literals + the [Description] surface)  ################");
-        Console.WriteLine();
-        try
-        {
-            var source = SourceArm();
-            VocabularyArm(source);
-            // The TOOLNAME arm was RETIRED at the 1.x cut. It held every housecarl_ token in a caller-facing
-            // sentence against the registered set, and the tool-name registry (ADR 0004) took its population
-            // away: shipped prose interpolates a ToolNames CONSTANT, and a constant cannot name a tool that does
-            // not exist. Its anti-vacuity floor was held up entirely by the 43 literals in the three
-            // deletion-flagged 1.x tool bodies; deleting those bodies took `carrying` to 0 and the arm went RED
-            // with nothing left to read. Re-flooring it would have been in-place growth in a harness being
-            // retired. What it proved lives in ToolNameRegistryTests (constants == declared == registered) and
-            // PublishedNameAnchorTests (each published name pinned to a literal), both in src/housecarl-mcp-tests.
-            // What it never covered, and still nobody does by construction: a BARE retired name (no housecarl_
-            // prefix) in a shipped sentence. The token filter matched the prefix only. Deleting a tool means
-            // grepping for its bare spelling too — RecordsRetiredNameRemedyTests holds the reachable records
-            // sentences against the retired table, and states which spellings that oracle can decide.
-            var surface = SurfaceSites().ToList();
-            ReachArm(surface, source);
-            VerbArm(surface);
-            RedArms();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"   [FAIL] the guard threw: {ex.GetType().Name}: {(ex.InnerException ?? ex).Message}");
-            _fail++;
-        }
-
-        Console.WriteLine();
-        Console.WriteLine($"    [c1] BY CONSTRUCTION: {_class1} arm(s) — the two-reader net and the arms over it, and the pins, which "
-                        + "hold two independently written statements of one fact against each other. Unqualified claims.");
-        Console.WriteLine($"    [c2] BEST-EFFORT: {_class2} arm(s) — every arm that reads MEANING out of prose or reflection BY PATTERN. A "
-                        + "pattern's reach is not a by-construction fact, so each of these prints its own coverage above: how much of "
-                        + "what is present it compared, and what it skipped, named with the reason.");
-        Console.WriteLine($"         {_harness} further arm(s) drive those checkers with synthetic input; they claim nothing about the shipped surface.");
-        Console.WriteLine($"=== description-vocab-guard: {_pass} passed, {_fail} failed -> {(_fail == 0 ? "PASS" : "FAIL")} ===");
-        return _fail == 0 ? 0 : 1;
-    }
 
     // ================= enumeration SOURCE: every string literal the shipped trees declare =================
 
@@ -386,11 +243,11 @@ public static class DescriptionVocabularyGuardProbe
     {
         var roots = new List<string>();
         var problems = new List<string>();
-        var present = Directory.Exists("src")
-            ? Directory.EnumerateDirectories("src").ToList()
+        var present = Directory.Exists(Path.Combine(HarnessPaths.RepoRoot, "src"))
+            ? Directory.EnumerateDirectories(Path.Combine(HarnessPaths.RepoRoot, "src")).ToList()
             : new List<string>();
         if (present.Count == 0)
-            problems.Add($"there is no 'src' directory to scan — the CWD must be the repo root (it is '{Directory.GetCurrentDirectory()}')");
+            problems.Add($"there is no 'src' directory to scan — the CWD must be the repo root (it is '{HarnessPaths.RepoRoot}')");
 
         foreach (var asm in ShippedAssemblies)
         {
@@ -528,7 +385,7 @@ public static class DescriptionVocabularyGuardProbe
     /// and the derivation reports the second as residue.</summary>
     static List<string>? ProjectReferencesOf(string tree)
     {
-        var proj = Path.Combine("src", tree, tree + ".csproj");
+        var proj = Path.Combine(HarnessPaths.RepoRoot, "src", tree, tree + ".csproj");
         if (!File.Exists(proj)) return null;
         string xml;
         try { xml = File.ReadAllText(proj); } catch { return null; }
@@ -550,7 +407,7 @@ public static class DescriptionVocabularyGuardProbe
                            + "INV1's net. Add it to ShippedAssemblies and to PublishedShippedTrees, or stop shipping it"))
             .ToList();
 
-    static string Rel(string p) => Path.GetRelativePath(Directory.GetCurrentDirectory(), p).Replace('\\', '/');
+    static string Rel(string p) => Path.GetRelativePath(HarnessPaths.RepoRoot, p).Replace('\\', '/');
 
     /// <summary>Whether a REPO-RELATIVE path lies under a build-output directory. ONE home, used by the file walk
     /// AND by the manifest classifier below, so the net and the compiler's receipt cannot drift about what "build
@@ -686,7 +543,7 @@ public static class DescriptionVocabularyGuardProbe
             }
             if (unresolvable.Count > 0)
                 problems.Add($"{Rel(pdb)}: {unresolvable.Count} of its document(s) are not under this run's working directory "
-                           + $"('{Directory.GetCurrentDirectory().Replace('\\', '/')}') and cannot be matched against a scanned file — for example "
+                           + $"('{HarnessPaths.RepoRoot.Replace('\\', '/')}') and cannot be matched against a scanned file — for example "
                            + $"'{unresolvable[0]}'. Either the guard is not running from the repo root, or the build ANONYMISED its source paths "
                            + "(ContinuousIntegrationBuild, DeterministicSourcePaths or PathMap — a '/_/' root is SourceLink's). The receipt then no "
                            + "longer names files this machine has, and the net's membership is uncertified: build the guard's inputs without path "
@@ -831,10 +688,10 @@ public static class DescriptionVocabularyGuardProbe
         // The packaging authority, held against the same pin. Class 2 and labelled so: it reads a PowerShell
         // script and a set of .csproj files by pattern, which is not construction — so it prints its coverage,
         // and every publish call it could not resolve is named rather than absorbed.
-        var ship = File.Exists(PackagingScript)
-            ? DeriveShippedTrees(File.ReadAllText(PackagingScript), ProjectReferencesOf)
+        var ship = File.Exists(Path.Combine(HarnessPaths.RepoRoot, PackagingScript))
+            ? DeriveShippedTrees(File.ReadAllText(Path.Combine(HarnessPaths.RepoRoot, PackagingScript)), ProjectReferencesOf)
             : new ShipDerivation(new List<string>(), 0, 0,
-                new List<string> { $"{PackagingScript} is not readable from '{Directory.GetCurrentDirectory()}' — nothing derived. The guard must "
+                new List<string> { $"{PackagingScript} is not readable from '{HarnessPaths.RepoRoot}' — nothing derived. The guard must "
                                  + "run from the repo root; a derivation with no input cannot certify the pin, and does not pretend to" });
         Console.WriteLine($"        packaging authority ({PackagingScript}): {ship.Resolved} of {ship.PublishCalls} 'dotnet publish' call(s) resolved to a tree "
                         + $"under src/; ProjectReference closure -> {ship.Trees.Count} tree(s): {(ship.Trees.Count == 0 ? "(none)" : string.Join(", ", ship.Trees))}");
@@ -2541,21 +2398,12 @@ public static class DescriptionVocabularyGuardProbe
     /// </list></summary>
     enum Tier { Construction, BestEffort, Harness }
 
+
     static void Check(string label, bool ok, List<string> detail, bool redArm = false, Tier tier = Tier.Harness)
     {
-        if (tier == Tier.Construction) _class1++;
-        else if (tier == Tier.BestEffort) _class2++;
-        else _harness++;
-        var tag = tier switch { Tier.Construction => "[c1] ", Tier.BestEffort => "[c2] ", _ => "     " };
-        Console.WriteLine($"   [{(ok ? "PASS" : "FAIL")}] {tag}{label}");
-        if (!ok)
-        {
-            if (detail.Count == 0)
-                Console.WriteLine(redArm ? "        - (the checker reported NO violation — it is toothless)" : "        - (no detail)");
-            foreach (var d in detail.Take(20)) Console.WriteLine($"        - {d}");
-            // Never a silent cut (Q3): a 58-violation failure showing 20 rows reads like a 20-violation one.
-            if (detail.Count > 20) Console.WriteLine($"        - … and {detail.Count - 20} more");
-        }
-        if (ok) _pass++; else _fail++;
+        var id = label.Split(' ', 2)[0];
+        if (!ok && detail.Count == 0)
+            detail = new List<string> { redArm ? "(the checker reported NO violation)" : "(no detail)" };
+        _sink.Add(new ArmResult(id, label, ok, detail));
     }
 }
