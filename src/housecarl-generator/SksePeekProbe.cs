@@ -276,8 +276,8 @@ internal static class SksePeekProbe
         // BOTH wordings, in ONE run, via the injected machine probe. Without this seam CI (no Visual Studio) only ever
         // pins the "will NOT load" arm and a dev box only the other — leaving whichever half the current machine can't
         // produce free to rot. The machine-dependence IS the finding, so both halves have to be pinned.
-        string absent = SkseTools_DebugCrtVerdict(["vcruntime140d.dll"], _ => false);
-        string here = SkseTools_DebugCrtVerdict(["vcruntime140d.dll"], _ => true);
+        string absent = SkseInventoryWire_DebugCrtVerdict(["vcruntime140d.dll"], _ => false);
+        string here = SkseInventoryWire_DebugCrtVerdict(["vcruntime140d.dll"], _ => true);
         Check(absent.Contains("will NOT load") && absent.Contains("error 126"),
               "debug runtime ABSENT ⇒ the flat 'will NOT load' verdict");
         Check(here.Contains("loads on THIS machine") && here.Contains("for anyone who doesn't"),
@@ -299,7 +299,7 @@ internal static class SksePeekProbe
     // ---- fixture helpers ----
 
     /// <summary>The renderer's pure Debug-CRT verdict with the machine probe injected (internal via InternalsVisibleTo).</summary>
-    static string SkseTools_DebugCrtVerdict(IReadOnlyList<string> crt, Func<string, bool> resolvable) =>
+    static string SkseInventoryWire_DebugCrtVerdict(IReadOnlyList<string> crt, Func<string, bool> resolvable) =>
         SkseInventoryWire.DebugCrtVerdict(crt, resolvable);
 
     /// <summary>File offset of the FIRST <c>IMAGE_IMPORT_DESCRIPTOR</c>'s Name RVA field (descriptor + 0x0C) in a raw PE
