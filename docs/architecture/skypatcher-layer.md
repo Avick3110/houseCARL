@@ -23,7 +23,7 @@ here the code cannot express at all: it couples `src/housecarl-core/` to a file 
 `.claude/skills/`, so adding a record type on one side without the other fails
 `skypatcher-catalog-guard`.
 
-**How far to trust the field map.** It is hand-modeled, but `skypatcher-fieldmap-guard` walks every
+**How far to trust the field map.** It is hand-modeled, but `SkyPatcherFieldMapGuardTests` walks every
 `OpMap.Path` with the real write engine (`WriteEngine.ResolveProperty` over the actual Mutagen
 types) and parses every `ValueMap` target against the real leaf enum, and rejects a stateful numeric
 op on a non-numeric leaf, a flags op on a non-enum, and a dict op on a non-dict. A typo'd path or
@@ -133,7 +133,7 @@ hardened.
 
 - *Contracts*, the catalog paragraph: `SkyPatcherCatalogProbe` (ci probe `skypatcher-catalog-guard`) — an unknown key
   is Unknown, never assumed, and `CrossCheckRouterTable` holds the record dimension against the skill's router table.
-- *Contracts*, the field-map paragraph: `SkyPatcherFieldMapProbe` (`skypatcher-fieldmap-guard`) — every path walked
+- *Contracts*, the field-map paragraph: `SkyPatcherFieldMapGuardTests` — every path walked
   and every value target parsed against the real Mutagen types, with self-test arms catching a bad path and a bad
   value target. Its stateful-shape arm checks that the catalog's op shape and the map's semantic agree on being
   stateful; that is not the paragraph's leaf-type check, and the stateful-numeric-on-a-non-numeric-leaf, flags-on-a-non-enum
@@ -149,7 +149,7 @@ hardened.
 - *How the overlay replays onto a record*: `SkyPatcherOverlayProbe` (`skypatcher-overlay-guard`) — the stateful
   apply-order replay, an unknown key poisoning the whole line, an unmapped filter skipping the line loud, and a HARD
   op coming back as a directive.
-- *How the overlay replays onto a record*: `SkyPatcherFieldMapProbe`'s mapped-HARD-op self-test arm — CI rejects a
+- *How the overlay replays onto a record*: `SkyPatcherFieldMapGuardTests.AMappedHardOpIsCaught` — CI rejects a
   HARD op that acquires a mapping.
 - *Reports and drafts*: `SkyPatcherConflictsProbe` (`skypatcher-conflicts-guard`) — SET collisions with the later
   file winning, accumulating ops not conflicts, and the ITM classes.

@@ -1348,7 +1348,7 @@ public static class WriteSurfaceGuardProbe
             $"{ConcreteRecordTypes().Count} concrete record types · owners=[{string.Join(", ", owners)}]");
 
         // --- WRITING AT A SINGULAR OWNED CHILD (#335). The reference now calls Cell.Landscape / Worldspace.TopCell
-        //     what they are — owned child records, not FormLinks — and corpus-hygiene-guard's INV6 pins that
+        //     what they are — owned child records, not FormLinks — and CorpusHygieneGuardTests pins that
         //     classification against the very set pinned above. What the classification CHANGES for a caller is the
         //     write path: a descent that the gate used to refuse as a formlink now reaches MaterializeSubstruct, so
         //     the two states an owned child can be in are measured here rather than assumed. ABSENT is the one that
@@ -1430,7 +1430,7 @@ public static class WriteSurfaceGuardProbe
         //     Structs, the @editorid same-call branch, the unknown-verb default) and found no leaf door the rows
         //     miss. Both real gaps it did find were OFF-leaf: a path running THROUGH the child, and the shape that
         //     never becomes "substruct" at all (a singular field typed as a record polymorphic base — closed in
-        //     SchemaClassifier, pinned by corpus-hygiene-guard's INV6-SHAPE arms). So the dimension a row covers is
+        //     SchemaClassifier, pinned by CorpusHygieneGuardTests' INV6-SHAPE tests). So the dimension a row covers is
         //     the leaf; the path dimension needed rows of its own, and they are marked as such.
         var ownedChild = new (string What, WriteRequest Req, string? MustSay)[]
         {
@@ -1714,7 +1714,7 @@ public static class WriteSurfaceGuardProbe
 
     /// <summary>Every concrete major-record type Mutagen models for Skyrim — the NestedProbe enumeration, reused so
     /// the child-property pin is a by-construction sweep rather than a list of names someone remembered. Internal
-    /// because corpus-hygiene-guard's INV6 sweeps the SAME set to check the shipped reference's classification
+    /// because CorpusHygieneGuardTests sweeps the SAME set to check the shipped reference's classification
     /// against this walk (#335): two guards over one enumeration cannot drift apart the way two lists would.</summary>
     internal static List<Type> ConcreteRecordTypes() => typeof(Weapon).Assembly.GetTypes()
         .Where(t => t.IsClass && !t.IsAbstract && !t.Name.EndsWith("BinaryOverlay", StringComparison.Ordinal)
