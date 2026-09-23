@@ -18,9 +18,9 @@ namespace HousecarlGenerator;
 /// </summary>
 public static class CorpusGenerator
 {
-    /// <summary>Internal (not private) so corpus-hygiene-guard's INV6 can drive <see cref="ClassifyField"/>
+    /// <summary>Internal (not private) so CorpusHygieneGuardTests can drive <see cref="ClassifyField"/>
     /// directly on a real Mutagen type — the classifier's own branches, checked without going through a whole
-    /// emit. Same assembly; nothing outside the generator sees it.</summary>
+    /// emit.</summary>
     internal record RefItem(Type Getter, string Kind, string? AbstractBase);
 
     static readonly List<string> Warnings = new();
@@ -31,7 +31,7 @@ public static class CorpusGenerator
     /// <see cref="Warnings"/> is an unbounded stream printed under a fixed cap, so a coverage-gap line sharing
     /// that budget can be truncated away by unrelated warnings added first — silently losing the one output
     /// this channel exists to produce. It is printed IN FULL and BEFORE the warnings, so the two can never
-    /// compete for the same budget, and it is what arm-classification-guard reads, so the guard asserts
+    /// compete for the same budget, and it is what ArmClassificationEmitTests reads, so the test asserts
     /// against the untruncated set.
     /// </summary>
     static readonly List<string> CoverageAnomalies = new();
@@ -395,7 +395,7 @@ public static class CorpusGenerator
         // write surface reads as "owned child record, navigate in, never Set wholesale" (WriteEngine's
         // record-substruct arm) and the shape a LIST of owned children (Cell.Persistent, DialogTopic.Responses)
         // has always had. Same predicate WriteEngine.ChildBearingProperties uses, so the reference and the walk
-        // that preserves children across a forward agree by construction; corpus-hygiene-guard INV6 pins it.
+        // that preserves children across a forward agree by construction; CorpusHygieneGuardTests pins it.
         if (!typeof(IMajorRecordGetter).IsAssignableFrom(getterIfc)
             && ImplementsByName(getterIfc, "IFormLinkIdentifier"))
         {
