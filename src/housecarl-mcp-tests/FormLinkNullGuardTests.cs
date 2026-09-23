@@ -120,4 +120,17 @@ public sealed class FormLinkNullGuardPreflightTests : BulkRecordsTestBase
         Assert.NotNull(err);
         Assert.Contains("FormLink", err, StringComparison.OrdinalIgnoreCase);
     }
+
+    // C2: "pre-flight accepts a null-clear synonym ('00000000')". The all-zeros forms do not parse as a FormKey, so
+    // only the synonym arm lets them through.
+    [Theory]
+    [InlineData("00000000")]
+    [InlineData("0")]
+    public void AnAllZerosClearPassesPreflight(string synonym)
+    {
+        var err = CorpusRulebook.Load().Validate(
+            new WriteRequest { RecordType = "Npc", Path = new[] { "Race" }, Verb = "Set", Value = synonym });
+
+        Assert.Null(err);
+    }
 }

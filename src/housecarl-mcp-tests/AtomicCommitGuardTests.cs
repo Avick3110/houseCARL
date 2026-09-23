@@ -1,5 +1,6 @@
 using HousecarlCore;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace HousecarlMcpTests;
 
@@ -16,7 +17,13 @@ public sealed class AtomicCommitGuardTests : IDisposable
 
     readonly string _root = Path.Combine(Path.GetTempPath(), "hc-atomic-commit-tests-" + Guid.NewGuid().ToString("N"));
 
-    public AtomicCommitGuardTests() => Directory.CreateDirectory(_root);
+    readonly ITestOutputHelper _out;
+
+    public AtomicCommitGuardTests(ITestOutputHelper output)
+    {
+        _out = output;
+        Directory.CreateDirectory(_root);
+    }
 
     public void Dispose()
     {
@@ -68,7 +75,11 @@ public sealed class AtomicCommitGuardTests : IDisposable
         File.SetCreationTimeUtc(ctlFinal, OldCreate);
         File.WriteAllBytes(ctlStaged, new byte[] { 1 });
         File.Move(ctlStaged, ctlFinal, overwrite: true);
-        if (File.GetCreationTimeUtc(ctlFinal) == OldCreate) return;
+        if (File.GetCreationTimeUtc(ctlFinal) == OldCreate)
+        {
+            _out.WriteLine("Skipped: file system tunneling keeps the creation time through File.Move on this host.");
+            return;
+        }
 
         var staged = At("b2.tmp");
         var final = At("b2.dat");
