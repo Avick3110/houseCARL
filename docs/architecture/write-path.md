@@ -412,8 +412,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - `seq-write-guard` arms TOOL-LANE and UNCHANGED / -DIFFERS / RENDER-UNCHANGED / JSON-UNCHANGED — `out_path=` wins
   over `patch=`/`into=` with the ignored lane STATED, and a byte-identical destination is left alone and renders as
   its own state on both transports while a stale one is rewritten.
-- `description-vocab-guard` arms INV4-HOMES / INV4-CREATEHOMES / INV4-COMPOSEHOMES — each verb list and its recital
-  agree with each other and with a vocabulary written independently in the probe, which is what lets the derived
+- `DescriptionVocabularyScanTests` (the former `description-vocab-guard` arms) INV4-HOMES / INV4-CREATEHOMES / INV4-COMPOSEHOMES — each verb list and its recital
+  agree with each other and with a vocabulary written independently in the test, which is what lets the derived
   subtractions fail; INV4-MARK — the recital marks exactly one verb as the default; INV4-TAILGLOSS — the verb the
   recital ends with is the one the glued gloss describes.
 - `remap-wave1-guard` arms HAPPY / CAPACITY / NESTED — the whole compact proven on disk (records renumbered into the

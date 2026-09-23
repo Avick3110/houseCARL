@@ -150,7 +150,7 @@ public static class SkyPatcherCatalogProbe
 
         // Each row is guarded to a NAMED fail — the guard's whole purpose is the reference-update
         // event, which is exactly when a row can change shape; a raw exception would skip every
-        // remaining cross-check and name nothing (the PluginValidateProbe treatment).
+        // remaining cross-check and name nothing (the PluginValidateFrontmatterTests treatment).
         var entries = new List<(string Name, string[] Sigs, string Subfolder, string[] PrimaryFilters)>();
         bool inTable = false;
         int lineNo = 0;

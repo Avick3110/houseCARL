@@ -5,7 +5,7 @@ namespace HousecarlGenerator;
 /// that lets adjacent literals be recognised as one authored sentence.
 ///
 /// <para>This record is the ONLY thing <see cref="RoslynLiteralReader"/> and <see cref="HandLiteralLexer"/> may
-/// share. <c>description-vocab-guard</c> certifies its completeness by the two readers agreeing, so they must not
+/// share. <c>DescriptionVocabularyScanTests</c> certifies its completeness by the two readers agreeing, so they must not
 /// share any code that decides what a literal IS — a shared data shape is fine, a shared tokenization helper is
 /// not.</para>
 /// </summary>

@@ -728,7 +728,7 @@ public static class BulkPrimitivesWave3Probe
         // re-asserting what the code stopped claiming cannot drift back in unnoticed.
         foreach (var doc in new[] { Path.Combine("plugin", "README.md"), Path.Combine("plugin", "codex", "housecarl", "SKILL.md") })
         {
-            // Repo-relative from the run CWD, the same convention codex-umbrella-coverage-guard uses. A MISSING file
+            // Repo-relative from the run CWD, the same convention the Codex umbrella check used. A MISSING file
             // fails rather than silently passing — a sweep that quietly checks nothing is worse than no sweep (Q3).
             if (!File.Exists(doc)) { Check($"#271 sweep: shipped doc present to sweep ({doc})", false); continue; }
             Check($"#271 sweep: {doc} does not assert the overclaim either",
