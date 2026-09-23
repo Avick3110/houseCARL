@@ -11,6 +11,9 @@ made the change.
 
 ## Unreleased
 
+- **`housecarl_skypatcher_layer` now stays inside the `max_chars` it is given, closing hint and cut notices
+  included.** Pass `max_chars=8000` on a large layer: the answer is 8,000 characters or fewer.
+
 ## 2.0.3 — 2026-09-23
 
 houseCARL 2.0.3 widens what several tools take and makes more answers say so when they cannot finish. `housecarl_decompile_script` writes into any absolute folder with `out_path=`, rebuilds more functions correctly, and fails a function loudly or refuses a file rather than writing wrong source. `housecarl_asset_status` takes `formids=`, `to_file=` and `@file` lists, answers a sweep as a census with `counts_only=`, writes an over-long answer to an artifact instead of cutting it, and no longer slows with each folder asked about. The dialogue check and `info_order` take an unenabled patch on `source=`, and the Nexus tools take `game=`. The asset, SKSE, SkyPatcher, NIF, place, compact and create answers and the facegen, scripts and dialogue checks now name a mod folder they could not read. A json answer over `max_chars` now says so with `max_chars_overrun`, and `housecarl_skse` and `housecarl_skypatcher_layer` keep their json and warning lists inside it. An aggregate honours `limit=` and a count table refuses `offset=`, a path that is not absolute is refused by name, and a call during an MO2 re-sort asks for a retry. A PERK effect Mutagen refuses no longer hides the whole perk, the index hands spare memory back once built, and the main tools carry plain titles. The entries below are in the order they landed.
