@@ -14,7 +14,7 @@ the config file.
 ## Contracts
 
 ### Sessions and writes
-- `_writeGate` serializes the whole resolve, stage and commit of every plugin write; `SetInstance` takes it too, so an instance switch cannot tear a write in flight. Where both gates are held the order is `_writeGate` then `_gate`.
+- `_writeGate` serializes the whole resolve, stage and commit of every plugin write; `SetInstance` takes it too, so an instance switch cannot tear a write in flight. Where both gates are held the order is `_writeGate` then `_gate`. The `Resolver` and `Assets` getters are the one exception: they take `_gate` first and only try `_writeGate` with `Monitor.TryEnter`, never waiting on it, so the reverse order never turns into a wait.
 - A read-path freshness refresh is DEFERRED while a write holds `_writeGate` — probed with `TryEnter`, never blocking — because a rebuild transiently maps every plugin including the one the write is serializing and dispose-swaps the resolver that write captured; a skipped refresh serves the last good snapshot and re-checks next call.
 
 ### The service's answers
@@ -31,7 +31,8 @@ the config file.
 - UNCONFIGURED: the server still boots and every tool returns the prompt for the MO2 path until `housecarl_set_mo2_instance` is called.
 
 ## Pinned by
-- `write-mutex-guard` (`ci-all`) — concurrent same-default-name writes each allocate their own folder and commit their own bytes.
+- `write-mutex-guard` (`ci-all`) — concurrent same-default-name writes each allocate their own folder and commit their own bytes: the serialized resolve, stage and commit, not the rest of that bullet.
+- Nothing pins the lock order, the getters' `TryEnter` exception to it, or `SetInstance` taking `_writeGate`.
 - `ProfileRewriteTests.AWarmAssetCallAnswersOffTheKeptBuildSaysSoAndFollowsTheProfileOnceItIsFree`, `TheRecordIndexRefusesRatherThanAnswerOffASupersededBuild` and `AColdRecordBuildAfterAHoldDoesNotStrandTheKeptAssetBuild` — the held-profile split between the two lanes.
 - `freshness-capture-guard` (`ci-all`), arm 5 — a read while a write holds `_writeGate` completes without waiting, serves the last good snapshot, and the next call refreshes: the deferred-refresh sentence, not the mapped-plugin reason it gives.
 
