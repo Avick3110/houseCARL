@@ -342,7 +342,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - `InPlaceGuardLocalizedPreflightTests` — the localized pre-flight answers before consent in each lane's own words,
   no consent spent, on the real call and the dry run alike; `InPlaceGuardEditTests` / `InPlaceGuardRemoveTests` —
   the write's own refusal of a localized target, file untouched and nothing staged.
-- `apply-guard` arm 5 — the APPLY lane's render carries the epoch on both transports, on success, on a json refusal
+- `ApplyGuardTransportTests` — the APPLY lane's render carries the epoch on both transports, on success, on a json refusal
   and on the consent prompt; `DegradedOrderMarkerTests.TheWriteLaneCarriesTheClauseBesideItsStamp` renders a DRY RUN
   and asserts the degraded clause that rides beside the stamp. The other three record lanes are unpinned for it.
 - `WriteEditLineSourceTests.ThePerEditLinePrintsTheFileValueNotTheAppliedOne`,
@@ -380,7 +380,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   and the coordinate-keyed cell routes through a real serialize and re-open.
 - `OwnedChildLifecycleTests.EveryChildBearingPropertyIsASlotCreateCanNameOrACoordinateRouteItNames` — every
   child-bearing property the reflected set answers is a slot create can name or a coordinate route it names.
-- `apply-guard` — a compose given no fields is refused as having no serializable content.
+- `ApplyGuardVerifyTests.AnEmptyComposeIsRefusedBeforeTheFileIsTouched` — a compose given no fields is refused as
+  having no serializable content.
 - `coerce-audit` — every writable scalar, enum, value, formlink and coercible-element leaf in the corpus resolves to
   a coercible type; `coerce-selftest` — each value-type rule builds an instance assignable to its target.
 - `compact-service-guard`'s REPOINT-MIXED arm — both refusals split on the shape `LocalizedAmong` returns, rendered
@@ -396,7 +397,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   `InsertAtIndex`, asserted as a POSITION comparison so a reorder of the table fails it where membership would not;
   `ElementRefusalRemedyTests.AListElementRemedyNamesOnlyVerbsThatTakeTheKeyItPrinted` asserts the same ordering on
   the rendered remedy, beside the keyless `Add` being withheld.
-- `apply-guard`'s ZIP arm — the copy zip: a bundle copied BETWEEN records, the zip composing with `ops=` in one call,
+- `ApplyGuardZipTests` — the copy zip: a bundle copied BETWEEN records, the zip composing with `ops=` in one call,
   and a bad FormID in an assignment refused NAMING THE ASSIGNMENT rather than a phantom `ops[2]` the caller never
   wrote, which is the caller's-own-spelling half.
 - `WriteSurfaceTransportTests`, `WriteSurfaceInPlaceTransportTests` and `WriteSurfaceReportRenderTests` — the
@@ -406,8 +407,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   re-serializing the caller's original); `write_seq`'s `patch=`/`into=` pair refused BY NAME on both transports,
   and its absent epoch stated with its reason on both.
 - `WriteReadbackFromFileTests.ThePerEditLineMatchesAFreshReadOfTheFile` and `TheJsonOpCarriesTheFilesOwnReading` —
-  the verify ran and rendered its compact per-op clause with no `full_readback=true` passed; `apply-guard` arms 6 and
-  8 drive the same clause off the written file on the in-place lane, which is the forced half.
+  the verify ran and rendered its compact per-op clause with no `full_readback=true` passed; `ApplyGuardVerifyTests`
+  drives the same clause off the written file on the in-place lane, which is the forced half.
 - `dry-run-guard`'s RENDER HONESTY arm — a dry outcome leads with DRY RUN and nothing-written and never reads like a
   write, with the `full_readback` dump labelled as the IN-MEMORY preview.
 - `seq-write-guard` arms TOOL-LANE and UNCHANGED / -DIFFERS / RENDER-UNCHANGED / JSON-UNCHANGED — `out_path=` wins

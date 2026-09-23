@@ -78,7 +78,7 @@ namespace HousecarlGenerator;
 /// which is what a sweep is read for.</para>
 ///
 /// The batch-verification classification (InsertAtIndex is NOT count-neutral, so it must not join SetAtIndex's keyed
-/// exemption) is pinned in <c>apply-guard</c>, beside the exemption itself; the owned-child disposition rows are
+/// exemption) is pinned in <c>ApplyGuardVerifyTests</c>, beside the exemption itself; the owned-child disposition rows are
 /// pinned in <c>WriteSurfaceOwnedChildEngineTests.Disposition</c>, the table that enumerates every verb against that shape.
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator insert-at-index-guard</c>
