@@ -73,7 +73,7 @@ public sealed class SkyPatcherLayerPinTests : IDisposable
 
     public void Dispose()
     {
-        LoadOrderService.BeforeSkyPatcherSessionForGuard = null;
+        _svc.BeforeSkyPatcherSessionForGuard = null;
         _svc.Dispose();
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }
@@ -84,10 +84,10 @@ public sealed class SkyPatcherLayerPinTests : IDisposable
     [Fact]
     public void ARefreshBetweenTheViewAndTheSessionDoesNotSplitTheLayersBuild()
     {
-        LoadOrderService.BeforeSkyPatcherSessionForGuard = () => WriteOrder(Second, First);
+        _svc.BeforeSkyPatcherSessionForGuard = () => WriteOrder(Second, First);
 
         var layer = _svc.SkyPatcherLayer();
-        LoadOrderService.BeforeSkyPatcherSessionForGuard = null;
+        _svc.BeforeSkyPatcherSessionForGuard = null;
 
         Assert.Equal(0, _svc.CaptureView().OrderIndexOf(Second));              // the flip did land: the next read follows it
         var noOp = Assert.Single(layer.NoOps);

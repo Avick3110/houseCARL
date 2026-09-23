@@ -683,7 +683,7 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>Test seam: invoked in <see cref="SkyPatcherLayer"/> after the view is taken and before the session opens; null in the product.</summary>
-    internal static Action? BeforeSkyPatcherSessionForGuard;
+    internal Action? BeforeSkyPatcherSessionForGuard;
 
     /// <summary>Scan the whole SkyPatcher layer: every loose INI as the DLL reads it, the same-field SET collisions,
     /// and the three ITM classes including the no-op writes the per-record replay finds. Report-only.</summary>
