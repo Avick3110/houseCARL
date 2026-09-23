@@ -1,19 +1,21 @@
 ---
-updated: 2026-09-17
+updated: 2026-09-23
 covers: [src/housecarl-core/NifService.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/AssetLayers.cs]
 ---
 # The NIF layer: reading mesh values, and the two write gates
+
+## What it is
 
 **Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `NifServiceGuardProbe`,
 `NifSetGuardProbe`, `NifSectionsProbe`, `NifSourceLaneProbe` and `NifInspectBatchGuardProbe`
 (`src/housecarl-generator`), and by `NifSetBlockOrderTests` (`src/housecarl-mcp-tests`).
 
-## What the layer is
-
 `NifService` is pure format logic: raw mesh bytes in, the model behind `nif_inspect` out — header and version, block
 census, shapes, node tree, header string table. It knows nothing of MO2, the VFS or which mod won; the service layer
 resolves the winning bytes and hands them here. Geometry, vertices and `.dds` pixels are out of scope: this reads and
 writes DATA VALUES.
+
+## Contracts
 
 Reads ride NiflySharp (NuGet `Nifly`), source-generated from `nif.xml`. One library quirk binds every read: the
 alpha / shader / skin refs are read DIRECTLY off `INiShape`, never via `NifFile.GetPropertyOfType<T>`, which NREs on
@@ -24,7 +26,7 @@ model. A file that loaded but threw while its structure was read is a real defec
 message. Unknown blocks are preserved byte-for-byte and reported by their REAL on-disk type from the header's
 block-type table — `GetType().Name` would flatten every one of them to `NiUnknown`.
 
-## Coverage comes from the library, never a hand list
+### Coverage comes from the library, never a hand list
 
 The coverage cornerstone applies inside the format layer, and three pieces implement it:
 
@@ -47,7 +49,7 @@ The coverage cornerstone applies inside the format layer, and three pieces imple
 including the unmarshalable one via a stand-in type, and the flag decode's gap and combo-peel behaviour is pinned
 rather than assumed.
 
-## The Skyrim-layout gate
+### The Skyrim-layout gate
 
 Two layers of nifly dispatch on which game's stream a block was read as, and both produce a CONFIDENT DEFAULT rather
 than a blank when read wrong:
@@ -82,7 +84,7 @@ so the fourth component is a synthetic 0 that would render as a fully transparen
 write (any component past B is carried over from the current value, never invented) and on read-back (comparing a
 synthetic A would fail every colour write).
 
-## The two write gates
+### The two write gates
 
 `NifService.Set` is bytes-in / VERIFIED-bytes-out. It refuses, with nothing written, when: the mesh will not parse; it
 is not a Skyrim SE stream (user 12 / stream 100 — a normalized cross-game write is untested); a target is not found or
@@ -112,7 +114,7 @@ Two NiflySharp rules bind every op: a bitfield sub-value or a struct in a list (
 read-modified-written and RE-ASSIGNED, and a block must be mutated via its OWNING ref — a freshly-built one does not
 persist on save.
 
-## Refusals, and what a green verify proves
+### Refusals, and what a green verify proves
 
 Ambiguity is a named refusal, never a first-match write. `set_path` carries two addressing forms in one op, and the
 header-string form refuses three cases by redirect rather than swapping: a shape's or node's NAME goes to
@@ -127,3 +129,27 @@ to meshes that exist. The warning names the NifSkope 0–255 colour picker, beca
 
 A green verify proves the DATA VALUE landed — not that the face or the armour RENDERS right. The geometry, the pixels
 and the final render stay unseen, so a rewritten path or a renamed shape still needs the in-game check.
+
+## Pinned by
+
+- *Contracts*, the parse-failure paragraph: `NifServiceGuardProbe` (ci probe `nif-service-guard`) — empty bytes and non-NIF
+  garbage each return a named error, never a throw or a half-model (the refusal arm).
+- *Coverage comes from the library, never a hand list*: `NifServiceGuardProbe` — both branches of `ReallyReads`, and
+  the flag decode's unnamed-bit mask and combo-first peel (the unnamed-bits arm); `NifSetGuardProbe`
+  (`nif-set-guard`) — all three `ReallyWrites` states, the unmarshalable one through a stand-in type.
+- *The Skyrim-layout gate*: `NifServiceGuardProbe` — the FO4-layout Glossiness default `ReallyReads` cannot see, and a
+  texture slot nothing determines stays unnamed rather than getting a plausible label (the slot-names arm).
+- *The two write gates*: `NifSetGuardProbe` — gate 1 refuses a collateral change and gate 2 refuses a no-op write,
+  fed to them directly; the refusal arms — a non-SE stream, a target not found or ambiguous, an op that cannot apply.
+- *The two write gates*: `NifSetBlockOrderTests.SetPathWritesOnAMeshWhoseStoredBlockOrderIsNotTheSaveOrder` — block
+  ids are resolved after the save's re-sort; `TheFixtureMeshStoresItsTextureSetAtADifferentIdThanASaveGivesIt` in the
+  same class — the fixture really is out of save order.
+- *Refusals, and what a green verify proves*: `NifSetGuardProbe`'s `set_path` header-string arm — a shape's or
+  node's NAME is refused rather than swapped.
+
+## Where
+
+`src/housecarl-core/NifService.cs` is the format layer: `Inspect`, `Set`, `ReallyReads`, `ReallyWrites`,
+`DecodeFlagWord`, `SlotName`, and the two gates `VerifyBlockContent` and `VerifyReadBack`.
+`src/housecarl-mcp/AssetLayers.cs` resolves the winning bytes and writes the result into the VFS;
+`src/housecarl-mcp/NifTools.cs` is the tool front. Tools: `housecarl_nif_inspect`, `housecarl_nif_set`.

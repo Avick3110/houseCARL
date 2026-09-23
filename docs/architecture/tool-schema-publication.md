@@ -1,8 +1,10 @@
 ---
-updated: 2026-09-18
+updated: 2026-09-23
 covers: [src/housecarl-mcp/ToolSchemas.cs, src/housecarl-mcp/NestedSchemaConstraints.cs, src/housecarl-mcp/SchemaDepthCap.cs, src/housecarl-mcp/Program.cs]
 ---
 # Tool schema publication
+
+## What it is
 
 **Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by
 `PublishedSchemaShapeTests`, `PublishedNestedConstraintTests` and `PublishedSchemaDepthTests` in `src/housecarl-mcp-tests`
@@ -19,7 +21,9 @@ parameter's own `type` — never the nested part these passes rewrite (the full 
 cut below, where it is the premise of the floor) — and the composed payloads are then
 read by `ListParams.Read<T>`, which consults no schema and is stricter than the SDK binder.
 
-## Why the rewrite happens at registration
+## Contracts
+
+### Why the rewrite happens at registration
 
 The SDK's `WithToolsFromAssembly` has no overload carrying
 `McpServerToolCreateOptions.SchemaCreateOptions`, so the per-node `TransformSchemaNode` hook
@@ -31,7 +35,7 @@ collection is being built, and stdio and HTTP build their hosts separately: a po
 keeps this on one line inside the shared registration rather than a call site per transport
 that could drift apart.
 
-## Pass 1 — the `@file` union
+### Pass 1 — the `@file` union
 
 A list-valued input accepts either an inline array of objects or the string
 `"@<absolute path>"` (SPEC §5.1). C# has no type for that union, so the parameter is declared
@@ -54,7 +58,7 @@ The hoist is **first-wins by name**, sound only while two distinct types cannot 
 name here. Today's rows share literal C# types (`StructInput`, `NestedSet`), so a duplicate name is a
 duplicate schema. Key the hoist by type if that stops holding.
 
-## Pass 1b — the shape union
+### Pass 1b — the shape union
 
 A parameter declared `JsonElement` so it can **bind** more than one wire shape publishes untyped, and
 `ToolCallShim` — which judges off the published type — then lets every shape through to the binder.
@@ -64,7 +68,7 @@ refused in the tool's own words rather than by the shim's generic type-mismatch 
 `housecarl_skse`'s `findings` is the one row: the tool takes one family and says so, while the array shape
 is the `housecarl_check` habit, so it must bind and be answered by the tool rather than intercepted.
 
-## Pass 2 — no `$ref` in a published schema
+### Pass 2 — no `$ref` in a published schema
 
 The schema generator does not expand a recursive type. It inlines it once and terminates the
 second occurrence with a **positional back-reference** — `$ref: "#/properties/ops/anyOf/0/…"`
@@ -111,7 +115,7 @@ only moment it matters.
 The bound is a cost/legibility trade, not a correctness one: raising it deepens every recursive
 branch of every affected schema (at 1, the five affected tools grew ~3 KB each).
 
-## Pass 3 — `required` and `enum` inside a parameter
+### Pass 3 — `required` and `enum` inside a parameter
 
 The generator reads requiredness and closed value sets off the C# **method signature**, so it
 gets them right for a tool's own parameters and says nothing at all about the members inside
@@ -157,7 +161,7 @@ inventing a second home rather than exposing the first. `compose.sets[].verb` is
 of the same thing: its description names five verbs while the request it builds is validated by
 the same rulebook switch an op is, which accepts all eight — so nothing backs the five.
 
-## Pass 4 — the optional depth cut (`HOUSECARL_MAX_SCHEMA_DEPTH`)
+### Pass 4 — the optional depth cut (`HOUSECARL_MAX_SCHEMA_DEPTH`)
 
 `src/housecarl-mcp/SchemaDepthCap.cs`, pinned by `PublishedSchemaDepthTests`. **Unset — the default —
 it does nothing, and the published schemas are byte for byte what the three passes above leave.** The
@@ -214,3 +218,37 @@ provider the cap was set for.
 
 The cap applies to the server entry, not to a model, so every model behind that entry gets the cut
 schemas; two entries split them.
+
+## Pinned by
+
+- *Pass 1 — the `@file` union*: `PublishedSchemaShapeTests.EveryFileListUnionPublishesAnyOfGeneratedArrayOrString`
+  and `EveryFileListUnionsArrayArmCarriesItsGeneratedElementMembers` — the union, with the array arm generated from
+  the C# element type.
+- *Pass 2 — no `$ref` in a published schema*: `PublishedSchemaShapeTests.NoPublishedToolSchemaCarriesARefMemberInAnySpelling`
+  — the invariant, with a predicate wider than the pass's own gate; `EveryRecursiveSiteExpandsExactlyOneLevelBeforeClosing`
+  and `EveryRecursiveSiteClosesOnAnOpenNodeSayingNestingContinues` in the same class — a cycle is expanded a bounded
+  number of times and closed with an open node.
+- *Pass 2 — no `$ref` in a published schema*: `SchemaFlattenProbe` (ci probe `schema-flatten-guard`) — `$defs` is
+  dropped once nothing refers to it (arm 2); a `$ref` the pass does not handle is left as it is, and a non-string one
+  does not throw (arm 5); the emission grammar over the real pre-flatten surface (arm 7).
+- *Pass 3 — `required` and `enum` inside a parameter*:
+  `PublishedNestedConstraintTests.EveryPublishedOccurrenceOfAMarkedShapeCarriesItsRequiredAndEnum` — every expanded
+  copy of a marked shape carries its stamps; `EveryMemberWithAClosedValueSetPublishesATypeAdmittingNull` in the same
+  class — a nullable member's `enum` carries `null`.
+- *Pass 4 — the optional depth cut*: `PublishedSchemaDepthTests.WithTheVariableUnsetTheCutChangesNoPublishedSchemaByAByte`
+  — unset, it does nothing; `EveryPublishedSchemaFitsTheConfiguredDepth` — every schema is cut to the cap;
+  `EveryCutSchemaIsStillAValidSchemaDocument` — a dictionary is never replaced by a terminator;
+  `ACutNodeSaysTheShapeIsNotInThisDocumentAndTheBoundsWordingIsGone` — the cut's own clause;
+  `ACallNestedDeeperThanTheCutStillReachesTheToolBody` — `tools/call` is untouched;
+  `AtTheShallowestCapEveryParameterStillPublishesTheTypeItPublishedUncut` and
+  `AtTheShallowestCapAMissingRequiredParameterIsStillRefusedByName` — the floor of 4;
+  `AnInvalidDepthIsRefusedAtStartupInOneSentence` — a value below the floor refuses the server's start (all in the
+  same class).
+
+## Where
+
+`src/housecarl-mcp/ToolSchemas.cs` holds passes 1, 1b and 2 (`FileListParams`, `ShapeUnionParams`, `FlattenRefs`,
+`MaxSelfExpansions`) and `PublishSchemas`, which runs them; `src/housecarl-mcp/NestedSchemaConstraints.cs` is pass 3;
+`src/housecarl-mcp/SchemaDepthCap.cs` is pass 4; `src/housecarl-mcp/Program.cs` registers the passes as the
+post-configure over the shared tool registration. Entry points: `tools/list`, and the `HOUSECARL_MAX_SCHEMA_DEPTH`
+variable.

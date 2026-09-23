@@ -1,8 +1,10 @@
 ---
-updated: 2026-09-22
+updated: 2026-09-23
 covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/housecarl-mcp/SweepEmission.cs, src/housecarl-mcp/SweepDemand.cs, src/housecarl-mcp/BodyAllocation.cs, src/housecarl-mcp/BatchRender.cs, src/housecarl-mcp/TransportAccounting.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-core/CharCountedStream.cs, src/housecarl-core/JsonTextEncoder.cs]
 ---
 # The render budget: what `max_chars` counts, and who gets to spend it
+
+## What it is
 
 **Class:** LIVING. Subsystem: the files in `covers:` above.
 
@@ -10,7 +12,9 @@ Two budgets share the word, and are not the same thing: **`max_chars`**, how WID
 **the render bound** (`RenderBudget`), how LONG a call may spend rendering before it refuses up front. This
 file is the home of both, cited from the code under ADR 0001.
 
-## The unit is CHARACTERS, not bytes
+## Contracts
+
+### The unit is CHARACTERS, not bytes
 
 `max_chars` counts UTF-16 code units — what `string.Length` returns for the finished response, and what the
 text lane's StringBuilder measures. The json lane is written as UTF-8, so its stream's `Length` is a byte
@@ -31,7 +35,7 @@ Multilingual Plane (#754), and two constraints hold that bound:
 and clears in one step, an astral character escapes and is counted as written, and both transports state the
 same length about the same sweep.
 
-## The bound holds by layout, never by trimming
+### The bound holds by layout, never by trimming
 
 `RenderCap` carries two numbers together so neither is used where the other belongs: `Cap` is the `max_chars`
 the caller passed — the number a cut notice names and the finished response may not exceed — and `Budget` is
@@ -43,7 +47,7 @@ whatever the budget, the answer ships and `RenderCap.Settle` appends an overrun 
 clears it in one step. The notice is part of the response whose length it states, so it settles to a fixed
 point. The merged sweep's `max_chars_overrun` has the same shape (#361).
 
-## A merged response water-fills its body budget over measured demand
+### A merged response water-fills its body budget over measured demand
 
 `housecarl_check` can run several families in one response, and the room its body may occupy is divided
 **max-min fair**: every child gets `min(its demand, λ)`, where λ is the level at which the budget is
@@ -68,7 +72,7 @@ the fixed part. The pieces that vary with the cut go through `BoundedBody.Reserv
 `BoundedBody` is the one place either transport appends anything `max_chars` can refuse; every body write goes
 through `Emit`, and a subject's own share sits on top of the response-wide test, not instead of it.
 
-### What the properties pin
+#### What the properties pin
 
 In `src/housecarl-generator/CheckMergeProbe.cs` (`ci-all`):
 
@@ -86,7 +90,7 @@ In `src/housecarl-generator/CheckMergeProbe.cs` (`ci-all`):
 `OutstandingHigh` by `ReservedForRows` — it fails only on `>`. Equality is the diagnostic reading, that the
 up-front measurement was not exceeded, and not the asserted property.
 
-### Known under-fills — open gaps, not design
+#### Known under-fills — open gaps, not design
 
 No-stranding is a claim about the **allocation**, not about spending, and two measured shapes under-fill:
 
@@ -99,7 +103,7 @@ Both are over-measures in the safe direction: monotonicity holds and no response
 behaviour — they are filed gaps. `BoundedBody`'s `ReservedWrittenBy*` counters say which holder is sitting on
 the unspent reserve; nothing in a response branches on them.
 
-## The row-shape contract
+### The row-shape contract
 
 Everything the caller may be refused is a **unit**, and a unit is emitted whole or not at all — per-plugin
 sections, per-record sections, dialogue topic blocks, facegen finding rows and histogram rows alike.
@@ -119,7 +123,7 @@ sections, per-record sections, dialogue topic blocks, facegen finding rows and h
 - **A closing disclosure is never refusable**, out of room `BoundedBody.Reserve` held back before the body
   renders, because the pressure that cut the rows would cut the line reporting the cut.
 
-## Spilling to a file
+### Spilling to a file
 
 The spill dispositions themselves — `to_file=` and the `ceiling` auto-spill — are stated in
 [output-and-artifacts.md](output-and-artifacts.md), the note covering `src/housecarl-mcp/Artifacts.cs`. What a
@@ -146,7 +150,7 @@ wrote. A FOLDED dialogue call carries its frame in both the manifest notes and t
 read against a plugin the order does not load, a manifest-only render is the ONLY render such a call gets, and a
 projection without its frame reads as the live answer.
 
-## What a merged response's accounting may claim
+### What a merged response's accounting may claim
 
 `CheckAccounting` is the one accounting of what a sweep response left out, shared by both transports so the text and
 json answers cannot disagree. Its rules:
@@ -189,7 +193,7 @@ prints back, so the growth is added from two measured terms — how many places 
 response rather than derived from the number of accountings, and how many digits the number gains. The notice's own
 length is excluded, because it disappears the moment the response fits.
 
-## The render bound is a time budget, not a width one
+### The render bound is a time budget, not a width one
 
 `RenderBudget` states up front what a scan's RENDER will cost and refuses past it, because the scan terms
 bound the scan and nothing bounded the render (#582). Each lane carries its own measured per-row cost and its
@@ -201,6 +205,31 @@ comes back as `render_ms`, which is how the estimates are checked against a real
 settable so a test can drive the seam; production never assigns them. `AccountingReserve` is held back from
 `max_chars` so the accounting line is paid for inside the cap, **pinned by**
 `RecordsRenderCostTests.TheAccountingLineIsReservedFromTheRowBudget`.
+
+## Pinned by
+
+- *The unit is CHARACTERS, not bytes*: `CheckCapCharsTests` — non-ASCII is carried unescaped, an astral character
+  escapes and is counted as written, and both transports state the same length about the same sweep.
+- *A merged response water-fills its body budget over measured demand*: `CheckMergeProbe` (ci probe `check-guard`) —
+  the six properties in the table, each pinning the row it names.
+- *A merged response water-fills its body budget over measured demand*: `CheckShapeMatrix`, run inside
+  `CheckMergeProbe` — `MATRIX-MONOTONE-IN-MAX-CHARS` and `MATRIX-JSON-PARSES-AT-EVERY-CAP` over the shape matrix, and
+  the one-budget arm that bounds `OutstandingHigh` by `ReservedForRows`.
+- *What a merged response's accounting may claim*:
+  `CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` — the overrun notice states the finished
+  response's length, and its remedy clears the overrun in one step.
+- *The render bound is a time budget, not a width one*: `RecordsRenderCostTests.TheAccountingLineIsReservedFromTheRowBudget`
+  — `AccountingReserve` is held back from `max_chars`.
+
+## Where
+
+`src/housecarl-mcp/RenderCap.cs` holds `Cap`, `Budget` and `RenderCap.Settle`; `RenderBudget.cs` is the render bound;
+`SweepDemand.cs` is the demand pass and `BodyAllocation.cs` the max-min fill; `SweepEmission.cs` holds `SweepSubject`
+and `BoundedBody`; `BatchRender.cs` is the write-and-retract batch render; `TransportAccounting.cs` is the four-cause
+omission block; `RowProjection.cs` is the `rows` project form. `src/housecarl-core/CharCountedStream.cs` is where the
+json lane takes its length from, and `src/housecarl-core/JsonTextEncoder.cs` is the one encoder. Entry points:
+`max_chars=` on every tool that takes it, the merged `housecarl_check` response, and the render bound on
+`housecarl_records` and `housecarl_asset_status`.
 
 ## Related
 

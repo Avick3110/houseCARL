@@ -1,8 +1,10 @@
 ---
-updated: 2026-09-22
+updated: 2026-09-23
 covers: [src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/SkseJsonDoc.cs]
 ---
 # The json wire: the shape a machine-readable response is allowed to take
+
+## What it is
 
 **Class:** LIVING. Subsystem: the files in `covers:` above.
 
@@ -12,7 +14,9 @@ budget those documents are written against is a different subject and lives in
 its length from, `JsonTextEncoder` is the one encoder, and `BoundedBody` is the one place a merged check appends
 anything a cap can refuse. Nothing here restates any of that.
 
-## One serializer per read tool, over the text lane's own outcome objects
+## Contracts
+
+### One serializer per read tool, over the text lane's own outcome objects
 
 Each renderer consumes the SAME outcome object the text `Wire` consumes, so text and json can differ only in
 formatting, never in data. Field values are the same wire tokens the text mode emits, so a token read out of json is
@@ -22,7 +26,7 @@ A json document is never a silently degraded mode. Truncation drops trailing ROW
 alongside `rendered`); it is never a cut of the serialized string at a byte budget, which would emit malformed JSON.
 The accounting and the notes ride inside the document rather than beside it.
 
-## `ok` is a discriminant, and it is document-level only
+### `ok` is a discriminant, and it is document-level only
 
 - A whole-call refusal **on the read surface** writes `ok:false` and the message through `WriteRefusal`, so the shape
   cannot be stated one way in one renderer and another in the next. The write lanes write `ok` themselves, on both
@@ -36,7 +40,7 @@ The accounting and the notes ride inside the document rather than beside it.
 - The epoch is left to the call site. Some refusals stamp the build they consulted, some state it as null, and
   pre-capture validation refusals omit it because they consulted no build.
 
-## Null, empty and zero are three different answers
+### Null, empty and zero are three different answers
 
 - `null` says the value was NOT COMPUTED — a finding class the caller excluded, a split that was not made, a list
   nobody looked for. A class emitted as `0` would parse as one that came back clean.
@@ -45,7 +49,7 @@ The accounting and the notes ride inside the document rather than beside it.
 
 `WriteNullableStringArray` is the array twin of `WriteNullable` for members whose null carries that meaning.
 
-## The epoch stamp and the degraded-order marker
+### The epoch stamp and the degraded-order marker
 
 `order_degraded` is a **sibling** of the epoch, never folded into it: the epoch string is opaque and compared only for
 equality, so folding health into it would leave two builds that differ only in health comparing as merely "different".
@@ -63,7 +67,7 @@ verdicts read off another substrate, which `epoch_uncovered` names.
 count. The silence on a healthy order is `HealthyOrderMarkerTests.AHealthyBuildCarriesNoMarkerOnEitherLane`, its own
 class because the healthy world is a different collection.
 
-## A capped STRING list is an array plus a sibling count
+### A capped STRING list is an array plus a sibling count
 
 Where a list of plain strings is bounded — the build-level caveat blocks, and `Wire.ContestedHostsShown` on the text
 lane — what did not fit is a sibling `<name>_omitted` number, never a prose marker element inside the array. A marker
@@ -79,7 +83,7 @@ that row; do not replace it with a `fields_omitted` sibling.
 to the whole, and no entry carries a prose marker; and `ADocumentWhoseCaveatsWereCutSaysItWasTruncated` in the same
 class — a document that lost only caveat entries still reports `truncated`.
 
-## A document that overran its cap says so, in one member
+### A document that overran its cap says so, in one member
 
 A json document that could not fit `max_chars` ships over the ceiling, as the text lane's does, and closes with
 `max_chars_overrun` — ONE member, written at every capped document's root close by `JsonWire.WriteCapOverrun`, whose
@@ -132,14 +136,14 @@ write outcome — each asserting the three numbers and that the member's own len
 side of the skse arm is `SkseTransportTests.EachFamilysJsonDocumentFilledPastItsCapAnswersInsideIt` — a document filled
 past its cap comes back inside it and carries no member at all.
 
-## Envelope keys must stay disjoint
+### Envelope keys must stay disjoint
 
 Response-envelope pairs are written as top-level string fields at the START of a document. `Utf8JsonWriter` does not
 dedupe, so an envelope key colliding with a renderer's own top-level key (`count`, `epoch`, `records`, `rendered`,
 `truncated`, `total`, …) emits a duplicate-key document. The current set is disjoint; keep it that way when adding
 pairs.
 
-## Measuring a unit means writing it
+### Measuring a unit means writing it
 
 A `Utf8JsonWriter` cannot be asked what something would cost, and it BUFFERS — a length reading must flush first, or it
 misses what the writer still holds. Two consequences:
@@ -159,7 +163,7 @@ misses what the writer still holds. Two consequences:
 A helper that returns from INSIDE the writer's `using` block must flush first, or the buffered document is still
 unwritten and the caller gets an empty string. The write lanes' refusal arms all do.
 
-## `landed_source` on the write lanes
+### `landed_source` on the write lanes
 
 The per-op read-back names WHERE its clause came from, as a word rather than a verdict:
 
@@ -180,7 +184,7 @@ nothing below it was checked, and **no op under a `verified:false` record may ca
 `verified:true` says the walk reached the record OR completed, which reaches every record it did not find — so
 `verified:true` beside `absent_from_file:true` is the ordinary miss, not a contradiction.
 
-## The read-back block
+### The read-back block
 
 `readback_source` names the WRITTEN FILE's content, or a dry run's in-memory would-be content — **never load-order
 truth**. `readback_full` describes THIS DOCUMENT: the json renders emit every field of every row, so a present
@@ -194,6 +198,45 @@ The truncation remedy on a write document is lane-aware for the same reason. "Ra
 safe on `into=`, `in_place=` and a dry run, but on the default lane a re-issue auto-suffixes a second patch, a repeated
 remove is refused outright, and a repeated create allocates the records again. Each write renderer names the remedy its
 own lane can survive.
+
+## Pinned by
+
+- *The epoch stamp and the degraded-order marker*: `DegradedOrderMarkerTests` — the marker rides beside the epoch
+  on both transports on the read, scan and write lanes; its
+  `TheCheckDocumentCarriesTheMarkerAtItsRootAndOnTheErrorsFamily` — the sentence stated once at the root, against
+  the per-family flag and count.
+- *The epoch stamp and the degraded-order marker*: `HealthyOrderMarkerTests.AHealthyBuildCarriesNoMarkerOnEitherLane`
+  — the marker is silent on a healthy order.
+- *A capped STRING list is an array plus a sibling count*:
+  `AssetStatusJsonLaneTests.TheCaveatBlocksAreCappedByMaxCharsToo` — the array and the omitted count add up to the
+  whole, and no entry is a prose marker; `ADocumentWhoseCaveatsWereCutSaysItWasTruncated` in the same class — a
+  document that lost only caveat entries still reports `truncated`.
+- *A document that overran its cap says so, in one member*: `AssetStatusJsonOverrunTests` and
+  `RecordsJsonOverrunTests` — the three numbers, and the member counted in the length it states;
+  `RecordsJsonOverrunTests.ARefusedScanCarriesNoOverrunMemberHoweverSmallTheCap` — a refusal document carries no
+  member; `TheCensusDocumentSaysItOverranAndNamesTheCapThatClearsIt` and
+  `TheNamedCounterCensusSaysItOverranAndNamesTheCapThatClearsIt` in the same class — the `counts_only=` census
+  renderers take a cap.
+- *A document that overran its cap says so, in one member*:
+  `SkseTransportTests.AnOverCapJsonFamilyDocumentStaysJsonAndSaysItOverran` — the `housecarl_skse` family documents
+  write the member and stay json; `SkseTransportTests.EachFamilysJsonDocumentFilledPastItsCapAnswersInsideIt` — a
+  family document filled past its cap comes back inside it and carries no member.
+- *A document that overran its cap says so, in one member*:
+  `PlaceJsonRenderTests.AnOverCapWriteOutcomeSaysItOverranAndNamesTheCapThatClearsIt` — a write outcome states the
+  three numbers.
+- *A document that overran its cap says so, in one member*:
+  `CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` — the merged check's own twin, which
+  promises one-step clearing.
+- *The read-back block*: `WriteSurfaceGuardProbe` (ci probe `write-surface-guard`) — an in-place lane that forced
+  the read-back reports `readback_full:true`, with the ask kept separately.
+
+## Where
+
+`src/housecarl-mcp/JsonWire.cs` holds the json renderers and their shared writers (`WriteRefusal`, `WriteNullable`,
+`WriteNullableStringArray`, `WriteCapOverrun`, `MeasureUnit`); `src/housecarl-mcp/RenderCap.cs` holds
+`RenderCap.Overran`, the sentence the overrun member carries; `src/housecarl-mcp/SkseJsonDoc.cs` holds
+`SkseJsonDoc.Write`, `Fits` and `TailReserve` for the `housecarl_skse` family documents. Entry point:
+`format="json"` on every tool that takes it.
 
 ## Related
 

@@ -1,15 +1,19 @@
 ---
-updated: 2026-09-18
+updated: 2026-09-23
 covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs, src/housecarl-core/SkseConfigReferenceExtractor.cs, src/housecarl-core/NativePairing.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkseJsonDoc.cs, src/housecarl-mcp/AssetLayers.cs]
 ---
 # The SKSE layer: what a DLL declares, and the static-load rule
+
+## What it is
 
 **Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `SkseReaderProbe`, `SksePeekProbe`, `SkseConfigAuditProbe` and `NativePairingProbe`
 (`src/housecarl-generator`), and by `SkseFamilySelectionTests`, `SkseFindingsWireShapeTests`,
 `SkseTransportTests`, `SkseTransportWireTests`, `SkseDirectoryReadTests` and `SkseVersionSourceTests`
 (`src/housecarl-mcp-tests`).
 
-## The ceiling
+## Contracts
+
+### The ceiling
 
 Everything in this layer is what a FILE DECLARES, never what a DLL DOES. A version manifest, an import table, an
 embedded string and a config token are static facts about bytes on disk; loading, registering and hooking are runtime
@@ -21,7 +25,7 @@ description, because it is the same ceiling for all three families.
 different populations, so a merged response would have no honest summary line; every response instead names the family
 it ran and the spelling of the two it did not.
 
-## The static-load rule
+### The static-load rule
 
 A loose, top-level, x64, readable, version-matching, non-debug DLL is the only kind the SKSE loader loads. Each of the
 following is a STATIC reason it will not, and this list is the rule's one home:
@@ -59,7 +63,7 @@ The rule is applied in three shapes, on purpose, and they must agree:
 Consolidating the three into one helper is issue #415. Until then, a new blocker lands in all three or the tools
 disagree.
 
-## The PE manifest read
+### The PE manifest read
 
 `SksePluginReader` reads `SKSEPlugin_Version`, a data blob the AE loader itself reads without executing the DLL. The
 layout is ABI-fixed by the loader and identical in both CommonLib lineages (alandtse/CommonLibVR@ng and
@@ -101,7 +105,7 @@ separator the composed text may not use.
 
 Reads hold no handle at rest: a read-share stream, closed before return, so MO2 and xEdit can still move the file.
 
-## The peek
+### The peek
 
 `SksePeek` scans one DLL's image for embedded strings — opt-in per DLL, because scanning a whole image is not free,
 while imports ride the PE open the manifest read already pays for. Runs are scanned in ASCII AND UTF-16LE (modern C++
@@ -115,7 +119,7 @@ your load order", so a false positive there is a false alarm: anything not shape
 including both format-string dialects (`%s.esp`, `{}.esp`). `SksePeekProbe` part 1 pins the UTF-16 arm and the negative
 classification arms.
 
-## Native pairing
+### Native pairing
 
 A native Papyrus function is ONE thing declared in TWO places — a `.pex` class carrying a native-flagged function, and
 a DLL that registers the implementation at runtime. The halves ship as separate files and fail independently, and the
@@ -141,7 +145,7 @@ residual edges, all of them false-flag or missed-flag modes of the audit:
 - a provider co-shipping a vanilla override AND an orphan declaration copy has that copy rescued into the unflagged
   baseline — which for the game `Data` folder covers everything installed there.
 
-## Config references
+### Config references
 
 `SkseConfigReferenceExtractor` is catalog-free and framework-agnostic: it finds the two things checkable against the
 load order without knowing what any framework MEANS. A form token is a hex FormID paired with a plugin filename by `|`
@@ -167,7 +171,7 @@ optional support for a mod you do not have; counting it as dead would make a hea
 references. `SkseConfigAuditProbe` pins the extractor against every reference shape the evidence sample established,
 because a false DANGLING is this family's worst failure mode.
 
-## Transport
+### Transport
 
 Every family render charges its tail before laying a row: the scope note, the caveats, the filter hint, the family
 footer, each list's own cut notice, and the headings written whatever the rows cost. `cap` stays the caller's own
@@ -181,3 +185,45 @@ render uses, which is why each family's serializer lives beside its text render 
 dropped from the tail when the document reaches the cap; the serialized string is never cut, which would emit malformed
 json. A census counts the population the document answers over — the filter's matches when there is a filter — so no
 number describes a wider set than the rows beside it.
+
+## Pinned by
+
+- *The ceiling*: `SkseFamilySelectionTests.TheFooterNamesTheFamilyThatRanAndTheSpellingOfBothThatDidNot` — every
+  response names the family it ran and the spelling of the two it did not; `AnUnknownFindingsValueIsRefused_NamingTheThreeFamilies`
+  in the same class and `SkseFindingsWireShapeTests.AJsonArrayForFindingsGetsTheToolsOwnOneFamilyRefusal` — one
+  family per call.
+- *The static-load rule*: `SksePeekProbe` (ci probe `skse-peek-guard`) part 2 — a failed import walk never renders as
+  "imports nothing", and the Debug-CRT verdict.
+- *The static-load rule*: `NativePairingProbe` (`native-pairing-guard`) part 2 — the runtime compare that decides the
+  version lock, where garbage never passes.
+- *The PE manifest read*: `SkseReaderProbe` (`skse-reader-guard`) arms A and F — the offset map, with `supportEmail`
+  at 252 bytes; the rest of the probe — the flag decode, and a non-SKSE or unreadable image classified by kind rather
+  than thrown.
+- *The PE manifest read*: `SkseDirectoryReadTests` — a zero directory Size beside a declared RVA: the export walk
+  reads it, the import walk answers unknown rather than a short list.
+- *The PE manifest read*: `SkseVersionSourceTests` — the three version numbers each labelled with its source and shown
+  only where they disagree, a modder's tag is not a disagreement, and the row separator the version text may not use
+  (`TheVersionTextDoesNotUseTheRowSeparator`).
+- *The peek*: `SksePeekProbe` part 1 — the UTF-16 arm and the negative classification arms.
+- *Native pairing*: `NativePairingProbe` part 1 — the native flag is raw bit1; part 2 — an official archive's class is
+  the ENGINE's even under a winning loose override; part 3 — UNPAIRED is framed a verify flag, never "broken".
+- *Config references*: `SkseConfigAuditProbe` (`skse-config-audit-guard`) — the extractor against every reference
+  shape, both charset directions (arms 2b and 2d), and the BROKEN / INERT headline.
+- *Transport*: `SkseTransportTests.EachFamilysTextRenderFilledPastItsCapAnswersInsideIt` and
+  `TheJsonTailIsPaidForInsideMaxCharsRatherThanAppendedPastIt` — the tail is charged before a row is laid, and a row
+  that crossed is taken back out; `ACapTooSmallForTheFixedPartSaysSoInsteadOfOverrunningSilently` — the one arm that
+  can exceed the cap is named; `TheJsonTwinCarriesTheWindowedRows` and
+  `OverMaxCharsTheJsonTwinDropsRowsAndStaysValid` — the json twin states the same rows and drops them from the tail;
+  `TheConfigTwinsCensusCountsTheFiltersReferencesNotTheWholeAudit` — a census counts the filter's matches (all in
+  the same class).
+- *Transport*: `SkseTransportWireTests` — the json twin's rows and accounting in named fields, driven over the wire.
+
+## Where
+
+`src/housecarl-core/SksePluginReader.cs` reads the PE manifest, the imports and the Debug-CRT verdict;
+`SksePeek.cs` is the embedded-string peek; `NativePairing.cs` extracts the native declarations;
+`SkseConfigReferenceExtractor.cs` extracts config references. `src/housecarl-mcp/AssetLayers.cs` holds the service
+lanes and the blocker string (`LooseDllBlocker`); `src/housecarl-mcp/SkseTools.cs` holds the tool, the family
+dispatch, and each family's text and json render, the pairing verdict among them (`SkseInventoryWire`,
+`NativePairingWire`); `src/housecarl-mcp/SkseJsonDoc.cs` writes the family documents. Tool:
+`housecarl_skse`.

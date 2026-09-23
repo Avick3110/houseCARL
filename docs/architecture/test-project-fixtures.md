@@ -1,8 +1,10 @@
 ---
-updated: 2026-09-04
+updated: 2026-09-23
 covers: [src/housecarl-mcp-tests/PexWriter.cs, src/housecarl-mcp-tests/ScriptsWorld.cs, src/housecarl-mcp-tests/HeldOpen.cs]
 ---
 # Test-project fixtures: the Papyrus world and the file-lock harness
+
+## What it is
 
 **Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `ScriptsWorldTests` and `HeldOpenTests` in the same project.
 
@@ -12,7 +14,9 @@ assertion sites (204 compiler complaints, some lines carrying two) as 60 xUnit f
 script-property arms that need a `.pex` fixture while three are dialogue arms that need a held file.
 Nothing under `src/housecarl-mcp`, `src/housecarl-core` or `src/housecarl-generator` is involved.
 
-## `PexWriter` — ported, not referenced
+## Contracts
+
+### `PexWriter` — ported, not referenced
 
 `WritePex` / `Decl` / `AutoObj` / `AutoScalar` were lifted from `src/housecarl-generator/ScriptPropertyCheckProbe.cs`
 (modulo accessibility and namespace) while that file still existed; #486 PR 2 deleted it, and the
@@ -46,7 +50,7 @@ thing carrying the restriction, and #486 PR 2 spells 14 script-property arms aga
 branches are pinned — `TheWriterRefusesABakedInitializerOnANonIntScalar` and
 `TheWriterStillBakesAnIntScalarInitializerAndItRoundTrips`.
 
-## `ScriptsWorld` — the probe's records, re-homed as an MO2 instance
+### `ScriptsWorld` — the probe's records, re-homed as an MO2 instance
 
 The five records the probe plants are carried over with the same EditorIDs, VMAD shapes and property
 bindings: a footgun weapon (binds one non-null form, one null form, one quest alias; leaves three
@@ -75,7 +79,7 @@ open is a mutation by another name, since a held file is unreadable by anything 
 builds its own instance instead, or the world's readability would depend on test scheduling. That is why
 `HeldOpenTests` builds its own one-plugin world rather than locking this one's `PluginPath`.
 
-### The `HcSpNoPex` collision, and what the assertions rest on
+#### The `HcSpNoPex` collision, and what the assertions rest on
 
 The no-`.pex` record's EditorID is `HcSpNoPex`, which is also the name of the script it attaches. Renaming
 would break the same-EditorIDs fidelity PR 1 is scoped to, so the fixture keeps the collision and the
@@ -84,7 +88,7 @@ header alone, so the wire arm asserts the composed reason line (`'Scripts\HcSpNo
 instead, which no record header can produce. If PR 2 finds the collision costs its arms more than it saves,
 renaming there is a fixture change with its own review.
 
-### Why the arms assert what they assert
+#### Why the arms assert what they assert
 
 `ScriptCheckResult.RecordsWithScripts` is incremented *before* any `.pex` is opened, so a world whose
 planted `.pex` files were never found still reports four script-bearing records with every declaration
@@ -115,7 +119,7 @@ off the built server, to prove the fixture is reachable through the live surface
 spins its **own** server process: the shared `ServerFixture` is deliberately unconfigured and every stdio
 test in the run reads "the body ran" off its config prompt, so configuring it would retune all of them.
 
-### The scripts family was briefly in both harnesses; the overlap is closed
+#### The scripts family was briefly in both harnesses; the overlap is closed
 
 For the length of PR 1, `ScriptsWorldTests` drove `ValidateScripts` and `housecarl_check
 findings=["scripts"]` while `ScriptPropertyCheckProbe.cs` still guarded the same family in `ci-all`; one
@@ -125,7 +129,7 @@ probe arm (PEX-ROUNDTRIP) was re-homed here.
 probes: `ScriptPropertyCheckProbe.cs` is deleted and `ScriptsFamilyTests.cs` carries the
 `Converted-from: ScriptPropertyCheckProbe` marker. The scripts family now lives in one harness.
 
-## `HeldOpen` — the file-lock harness
+### `HeldOpen` — the file-lock harness
 
 An `IDisposable` that holds one file with `FileShare.None` and releases on dispose: MO2 or xEdit sitting on
 a plugin, which is the scenario houseCARL's no-handles-at-rest design explicitly invites. The mechanism is
@@ -151,7 +155,7 @@ The sharing-violation arm asserts the exact exception type and `ERROR_SHARING_VI
 `0x80070020`), not the message text: the BCL composes that message and it is a localizable resource string,
 so a substring of it would pin .NET rather than the harness.
 
-### `Read<T>` — `use` must materialise everything it returns
+#### `Read<T>` — `use` must materialise everything it returns
 
 The arms' `Read<T>` helper unmaps the overlay in a `finally`, so the overlay is gone *before* the value
 crosses the return. Every value-returning call site must therefore materialise inside `use` — a string, a
@@ -165,3 +169,28 @@ left to the fixture's size. The check is a static one on `typeof(T)`: a caller w
 `object`) walks past it, which is the limit of what a cheap guard buys. Same contract the product states on
 `OverlaySession` ("the service reads fields off a fetched body before its session disposes"); this is that
 sentence, restated where PR 2's three dialogue lock arms will read it.
+
+## Pinned by
+
+- *`PexWriter` — ported, not referenced*: `ScriptsWorldTests.TheWriterRefusesABakedInitializerOnANonIntScalar` and
+  `TheWriterStillBakesAnIntScalarInitializerAndItRoundTrips` — both branches of the baked-initializer rule.
+- *`ScriptsWorld` — the probe's records, re-homed as an MO2 instance*:
+  `ScriptsWorldTests.TheServiceSweepsTheInstanceAndExactlyTheVmadCarryingRecordsAreScriptBearing` — the four
+  script-bearing records, with the script-free weapon not counted.
+- *Why the arms assert what they assert*: `ScriptsWorldTests.BothPlantedPexFilesResolveThroughTheLooseLayer_SoTheDeclarationsAreRealNotUnverifiable`
+  — the declarations are observed through the loose layer, and both finding sets are pinned whole;
+  `CheckOverTheWireReportsTheFixtureKnownScriptCountAndNamesTheUnverifiableScript` — the wire-path smoke test on
+  its own server.
+- *`HeldOpen` — the file-lock harness*: `HeldOpenTests.WhileHeldTheEngineReadFaultsLoudly_AndReturnsNoQuietlyEmptyPlugin`
+  and `AfterTheHoldIsDisposedTheSameReadSucceeds` — the hold and its release; `HoldingAPathThatDoesNotExistThrowsAndNamesThePath`
+  — acquisition failure throws (all in the same class).
+- *`Read<T>` — `use` must materialise everything it returns*: `HeldOpenTests.ReadRefusesAValueThatWouldStillBeAViewOnTheUnmappedOverlay`
+  — a `T` that is still a view on the overlay is refused before the plugin is opened.
+
+## Where
+
+`src/housecarl-mcp-tests/PexWriter.cs` writes the `.pex` fixtures (`WritePex`, `Decl`, `AutoObj`, `AutoScalar`);
+`src/housecarl-mcp-tests/ScriptsWorld.cs` is the Papyrus world behind `LoadOrderService.WithInstance`;
+`src/housecarl-mcp-tests/HeldOpen.cs` is the file-lock harness (`Hold`). Their own tests are `ScriptsWorldTests.cs` and
+`HeldOpenTests.cs` in the same project. No tool of its own; the wire-path smoke test drives
+`housecarl_set_mo2_instance` and `housecarl_check`.

@@ -1,8 +1,10 @@
 ---
-updated: 2026-09-22
+updated: 2026-09-23
 covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
+
+## What it is
 
 **Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by the `asset-resolver-guard`, `asset-status-guard`, `overwrite-resolve-guard`,
 `snapshot-view-guard`, `place-asset-guard`, `nif-source-lane-guard`, `source-chain-guard`, `asset-prefix-hint-guard`,
@@ -14,7 +16,9 @@ covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSele
 FaceGen's own contracts — the FormID→path transform, the check's classes, what a dark face is — are in
 [`docs/facegen.md`](../facegen.md), not here.
 
-## Precedence
+## Contracts
+
+### Precedence
 
 - **Loose beats BSA-packed.**
 - **Among loose:** overwrite, then each enabled mod highest-priority-first, then the game's Data folder; first
@@ -30,7 +34,7 @@ surfaced warning, never a silent omission.
 archives with their ranks. The BSA winner is only as correct as those ranks, which the service computes; the
 resolver reads no profile.
 
-## What an answer may claim
+### What an answer may claim
 
 - **Every provider comes back, not just the winner.** `Ambiguous` is more than one provider, or a loose copy
   coexisting with a BSA copy — the one edge the common rule cannot promise under MO2's managed archives. It flags
@@ -73,7 +77,7 @@ resolver reads no profile.
   collapses `.` and empty segments so the loose walk and the archive-table match answer for one set of files.
   `ValidateRelPath` exposes that one validator to the place lane, whose destination is `Path.Combine(modRoot, rel)`.
 
-## One build per call
+### One build per call
 
 - A build holds **string sets only** — each archive's table copied out and the reader dropped — plus a lazily warmed
   per-subtree set of loose filenames. **Zero archive handles at rest:** pinned by `asset-resolver-guard`'s at-rest
@@ -99,7 +103,7 @@ resolver reads no profile.
 - `Capture()` pins one build as an `AssetView`, so a batch's hits and its `BsaFailures` cannot describe two builds.
   The view is immutable and handle-free, which is what lets the service enumerate, read and parse outside `_gate`.
 
-## Naming a source
+### Naming a source
 
 `AssetSourceSelection` is the one policy for which provider a read comes from: the sole provider (contention is a
 refusal — the caller chooses), the VFS winner, or a named provider.
@@ -128,7 +132,7 @@ refusal — the caller chooses), the VFS winner, or a named provider.
 - `*winner` selects the winner pole. `*` is illegal in a Windows name, so the pole and provider-name spaces are
   disjoint by construction and a bare `winner` always means a provider called that.
 
-## Selecting a set of paths
+### Selecting a set of paths
 
 `AssetGlob` turns one selector into the paths it names: enumerate the literal directory prefix, keep what the
 pattern matches. `*` within a segment, `?` one character, `**` across separators, case-insensitive against the whole
@@ -139,7 +143,7 @@ the pattern filters inside the walk, which stops at the cap.
 `AssetLinkHarvest` is the other selector: every asset path a set of records declares, from a generic
 `IAssetLinkGetter` walk over each record's property graph. Generated coverage, not a per-record-type field list.
 
-## Voice paths
+### Voice paths
 
 There is no Voice/Lip/FileName field on INFO or DialogResponse anywhere in the Mutagen corpus: a line's audio is
 resolved by filesystem convention, so a byte-valid INFO with no `.fuz` on disk plays nothing. `VoicePath` is the
@@ -161,7 +165,7 @@ undetermined reason, never a false "fine" — including a line that borrows anot
 voiced but not computable here. It runs after a create that already succeeded, so a whole-check failure rides
 `CheckError` and is never thrown.
 
-## Carrying assets across a renumber
+### Carrying assets across a renumber
 
 A renumber moves every record while the files the engine looks up *by* FormID keep their old names.
 `AssetRenameService` carries them, composing existing primitives. Four contracts, pinned by `facegen-carry-guard`
@@ -184,7 +188,7 @@ and `voice-carry-guard`:
 **rebuilt** from the renumbered plugin rather than renamed, and refresh-only — a source that shipped none gets a
 named advisory, not an invented file (xEdit parity). Strings stay out: they are plugin-name-keyed.
 
-## Archives
+### Archives
 
 Reads go through **Mutagen's own in-process reader**; only repack drives **BSArch**, because Mutagen 0.53.1 exposes
 no writer. Reads do not shell BSArch: its unpacker is stricter than its own lister and than the engine. The reader's
@@ -200,7 +204,7 @@ byte parity with BSArch, and its reading of archives BSArch rejects, are pinned 
   target swapped. `bsa-contract-guard` locks both halves.
 - **An unknown format token refuses** rather than coercing to `-sse`.
 
-## Writing into the VFS
+### Writing into the VFS
 
 `housecarl_place` and `housecarl_nif_set`'s default lane write into a houseCARL-owned MO2 mod folder; originals are
 never touched. `housecarl_nif_set` alone has an in-place lane: a consent-gated opt-in keyed on the resolved file
@@ -214,10 +218,75 @@ another mod wins, which a *fresh* folder out-ranks on enable — MO2 registers a
 priority — while an `into=` folder must also be sorted above it. `PlaceWire.WinnerLine` and `EnableAndSort` are the
 one home, because the JSON transport carries them verbatim.
 
-## Suggesting a root prefix
+### Suggesting a root prefix
 
 A model path read off a record is stored relative to `meshes\`, so passing it verbatim returns a flat ABSENT that is
 true for the string as given. `AssetPathHint` is **verified, never guessed**: it re-resolves the prefixed candidate
 through the same view and offers it only if a real provider supplies it. The mesh lane also names the convention on
 a miss, stating that form is not provided either; the generic lane does not, because it legitimately answers for
 `sound\`, `scripts\` and `interface\`. Pinned by `asset-prefix-hint-guard`.
+
+## Pinned by
+
+- *Precedence*: `AssetResolverProbe` (ci probe `asset-resolver-guard`) — overwrite, then mods highest-priority-first,
+  then Data, first sighting wins (the loose precedence and mod-priority arms); loose beats BSA-packed (arm 6); the
+  higher plugin rank wins among BSAs (arm 7).
+- *Precedence*: `AssetStatusProbe` (`asset-status-guard`) — `X.bsa` and `X - Textures.bsa` bind at their plugin's rank
+  above the Skyrim.ini block (arm A); an archive filename resolves through the overwrite > mods > Data map (arm B); a
+  Skyrim.ini that cannot be found is a surfaced warning (arm C).
+- *What an answer may claim*: `AssetResolverProbe` — an archive that will not read is one named `BsaFailure` and sets
+  `ReadIncomplete` (the negative arm); a drive-rooted or `..` path is refused loud, and the spellings of one path
+  resolve to one winner (the normalize arm).
+- *What an answer may claim*: `UnreadableRootNamedTests` and `UnreadableRootNamedLanesTests` — a loose root that will
+  not read is named by the lanes the sentence lists; `UnreadableRootNamedLanesTests.AMergedSweepNamesTheRootOnceForTheWholeResponse`
+  — once per response; `TheNamedRootsBlockIsChargedBeforeTheCoverageRows` and
+  `TheJsonCreateDocumentChargesTheRootsToItsRows` in the same class — the block is charged before the rows;
+  `ThePerPropertyReasonNamesTheRootItCouldNotRead` in the same class — the `ScriptPropertyCheck` exception.
+- *What an answer may claim*: `AssetLooseFreshnessTests.AFileDeletedAndPutBackBetweenCallsIsSeen` and
+  `ASubtreeDeletedAfterASweepMemoizedItsParentIsSeenComingBack` — a freshness baseline is read at the warm, never off
+  a memo.
+- *One build per call*: `AssetResolverProbe`'s at-rest arm and `PlaceProbe` (`place-asset-guard`) arm B — zero
+  archive handles at rest; `AssetResolverProbe`'s capture/refresh arm — a batch answers off one build.
+- *One build per call*: `AssetLooseFreshnessTests` — the watch is made of names
+  (`AppearAndVanishAreSeenEvenInsideOneTimestampTick`), an unrelated file beside a root's answering ancestor does not
+  discard the build (`AnUnrelatedFileAppearingInAModFolderDoesNotDiscardTheBuild`), and a loose file's bytes are never
+  cached (`AFilesChangedBytesAreSeenOnTheNextRead`).
+- *Naming a source*: `PlaceProbe` arm M — naming an unticked mod reads its loose copy, then its root archives, and no
+  other pole widens with it; M7 and M16 — a name the built universe knows never reaches a mods folder of that name;
+  M22 — a trailing-dot spelling never reaches disk; arm I1c — a refusal's own provider tokens round-trip through the
+  tool.
+- *Naming a source*: `NifSourceLaneProbe` (`nif-source-lane-guard`) — every printed provider token is one
+  `source_provider=` accepts, and naming a mod reaches its loose files and its root archives.
+- *Naming a source*: `AssetProviderTokenTests` — `AssetSourceSelection.Describe`'s render: the name in double quotes,
+  the kind outside, over the whole provider chain.
+- *Naming a source*: `RawModsPathRefusalTests` — a raw path into MO2's mods tree is refused and handed the address
+  form.
+- *Selecting a set of paths*: `AssetSelectTests.AnUnanchoredGlobIsRefusedRatherThanSweepingTheWholeLoadOrder` — a
+  selector with no literal directory prefix is refused; `AGlobNarrowsTheSweepToTheFilesItMatches` in the same class —
+  `*` within a segment, `**` across separators; `AssetStatusSetTests.ANarrowGlobUnderAWideFolderIsNotRefusedForTheFoldersSize`
+  — the enumeration is bounded by matches, not candidates.
+- *Carrying assets across a renumber*: `FacegenCarryProbe` (`facegen-carry-guard`) and `VoiceCarryProbe`
+  (`voice-carry-guard`) — the two-phase carry (the overlapping-window arm), the old files left as orphans, a record
+  with nothing to carry is not a failure, and voice found by scanning disk.
+- *Archives*: `BsaProbe` (the opt-in `bsa-probe`) — the in-process reader's byte parity with BSArch.
+- *Archives*: `BsaExtractProbe` (`bsa-extract-guard`) — unpack refuses an entry resolving outside the destination and
+  skips a byte-identical file.
+- *Archives*: `BsaContractProbe` (`bsa-contract-guard`) — a stuck stale scratch refuses up front, a failing pack
+  leaves the prior archive untouched, and an unknown format token refuses.
+- *Archives*: `BsaPackReadBackTests.PackRefusesAScratchFromANonZeroExit` — a non-zero exit is a failed pack whatever it
+  left behind; `PackRefusesAnArchiveThatCountsShort` in the same class and
+  `BsaPackCountTests.ACountMismatchRefusesNamingBothNumbers` — the header count is checked against the source scan.
+- *Suggesting a root prefix*: `AssetPrefixHintProbe` (`asset-prefix-hint-guard`) — the prefixed candidate is offered
+  only when a real provider supplies it, and the generic lane stays quiet on a non-asset root.
+
+## Where
+
+`src/housecarl-core/AssetResolver.cs` and `ArchiveDiscovery.cs` hold the build, its precedence and the archive ranks;
+`AssetSourceSelection.cs` and `OffOrderAssetSource.cs` decide which provider a read comes from; `AssetGlob.cs` and
+`AssetLinkHarvest.cs` are the two selectors; `AssetPathHint.cs` is the root-prefix hint; `VoicePath.cs` and
+`VoiceCheck.cs` are the voice paths; `AssetRenameService.cs` is the renumber carry; `BsaArchive.cs` lists, unpacks and
+packs. `src/housecarl-mcp/AssetLayers.cs` is the service lane over all of it, `ModsPathAddress.cs` refuses a raw mods
+path, and `AssetArtifact.cs` is `asset_status`'s `to_file=` artifact. The tool fronts are `AssetTools.cs`,
+`PlaceTools.cs`, `BsaTools.cs`, `NifTools.cs`, `SkseTools.cs` and `SkyPatcherTools.cs`. Tools:
+`housecarl_asset_status`, `housecarl_place`, `housecarl_bsa_list`, `housecarl_bsa_extract`, `housecarl_bsa_repack`,
+`housecarl_nif_inspect`, `housecarl_nif_set`, `housecarl_skse`, `housecarl_skypatcher_layer`.
