@@ -11,6 +11,10 @@ made the change.
 
 ## Unreleased
 
+## 2.0.3 — 2026-09-23
+
+houseCARL 2.0.3 widens four tools and makes the rest say more when they cannot finish. `housecarl_decompile_script` writes into any absolute folder with `out_path=`, rebuilds more functions correctly, and fails a function loudly or refuses a file rather than writing wrong source. `housecarl_asset_status` takes `formids=`, `to_file=` and `@file` lists, answers a sweep as a census with `counts_only=`, writes an over-long answer to an artifact instead of cutting it, and no longer slows with each folder asked about. The dialogue check and `info_order` take an unenabled patch on `source=`, and the Nexus tools take `game=`. Every family now names a mod folder it could not read, every json render and warning list stays inside `max_chars`, an aggregate honours `limit=`, a path that is not absolute is refused by name, and a call during an MO2 re-sort asks for a retry. A PERK effect Mutagen refuses no longer hides the whole perk, the index hands spare memory back once built, and the main tools carry plain titles. The entries below are in the order they landed.
+
 - **`housecarl_decompile_script` takes `out_path=`, an absolute folder it writes the `.psc` into with no MO2
   instance needed; an incomplete class hierarchy is now named.** Decompile into a scratch folder: the `.psc`
   lands there and no mod folder is created.
