@@ -85,9 +85,8 @@ internal static class DialogueSweep
 
         return new DialogueCheckResult(results, topics, problems, readIncomplete, Limit: limit,
                                        SeedsNamed: named.Length, CountsOnly: countsOnly, Epoch: epoch,
-                                       // Each seed takes its list at its own return off a list that fills lazily, so the union, not the last.
-                                       RootFailures: rootFailures.Distinct(StringComparer.OrdinalIgnoreCase)
-                                                                 .OrderBy(r => r, StringComparer.OrdinalIgnoreCase).ToList())
+                                       // Every seed's list, not the last one's; CheckOutcome de-dupes and orders them.
+                                       RootFailures: rootFailures)
             { Folded = folded };
     }
 
