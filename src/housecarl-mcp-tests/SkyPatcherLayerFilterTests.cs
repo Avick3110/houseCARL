@@ -56,7 +56,7 @@ public sealed class SkyPatcherLayerFilterTests
         Assert.Contains("Mod001.ini", text);                                 // and so did the listing under it
         Assert.Contains("warning 1: ", text);
         Assert.Matches(@"showing \d+ of 200 warning\(s\)", text);
-        Assert.True(text.Length <= 8_000 + TrailerSlack,
+        Assert.True(text.Length <= 8_000,
                     $"{text.Length} chars against max_chars=8000 — the warning list was not bounded.");
     }
 
@@ -107,7 +107,7 @@ public sealed class SkyPatcherLayerFilterTests
         Assert.Contains("Mod001.ini", text);                                 // and so did the listing under it
         Assert.Contains("BlockedMod01", text);                               // with roots still named
         Assert.Matches(@"showing \d+ of 20 loose root read failure\(s\)", text);
-        Assert.True(text.Length <= 4_000 + TrailerSlack,
+        Assert.True(text.Length <= 4_000,
                     $"{text.Length} chars against max_chars=4000 — the caveat block was not bounded.");
     }
 
@@ -147,12 +147,34 @@ public sealed class SkyPatcherLayerFilterTests
         Assert.Contains("BlockedMod03", text);
         Assert.DoesNotContain("showing 0 of 3 loose root read failure(s)", text);
         // Paid for INSIDE max_chars, not appended past it: the trailer the render always writes is the only overrun.
-        Assert.True(text.Length <= 4_000 + TrailerSlack,
+        Assert.True(text.Length <= 4_000,
                     $"{text.Length} chars against max_chars=4000 — the caveat block was not reserved.");
     }
 
-    /// <summary>The "→ housecarl_records …" hint every layer render closes with, the one thing written past the cap.</summary>
-    const int TrailerSlack = 400;
+    /// <summary>Eight type folders of fifty INIs each, so the listing crosses the cap inside a folder with more to follow.</summary>
+    static SkyPatcherLayerData EightFolders() =>
+        Layer(Enumerable.Range(1, 8).Select(k => new SkyPatcherDiscovery.FolderScan($"type{k}", Catalog: null, PatchingEnabled: true,
+                  Files: Enumerable.Range(1, 50).Select(i => Ini($"type{k}", $"Mod{i:D3}.ini", $"Provider Number {i:D3}")).ToArray()))
+              .ToArray());
+
+    /// <summary>The closing hint is charged before the body and each line is admitted by the width it writes, so the
+    /// render stays inside max_chars. Before, the hint (~330 chars) and the line crossing the cap plus its cut notice
+    /// landed past it: 8,436 chars for the eight-folder layer with 200 warnings, 8,327 for the 400-INI layer.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void TheLayerRenderStaysInsideMaxChars(bool eightFoldersWithWarnings)
+    {
+        var d = eightFoldersWithWarnings
+            ? EightFolders() with { AssetWarnings = Enumerable.Range(1, 200).Select(i => $"warning {i}: " + new string('w', 180)).ToList() }
+            : BigLayer(400);
+
+        var text = SkyPatcherWire.RenderLayer(d, null, 8_000);
+
+        Assert.Contains("  ... [cut at max_chars]", text);                   // the listing was cut, and says so
+        Assert.Contains("→ housecarl_records", text);                        // the hint still closes the render
+        Assert.True(text.Length <= 8_000, $"{text.Length} chars against max_chars=8000.");
+    }
 
     static SkyPatcherLayerData OneNpcFolder() =>
         Layer(new SkyPatcherDiscovery.FolderScan("npc", Catalog: null, PatchingEnabled: true,
@@ -254,9 +276,13 @@ public sealed class SkyPatcherLayerFilterTests
               new SkyPatcherDiscovery.FolderScan("weapon", Catalog: null, PatchingEnabled: true,
                   Files: new[] { Ini("weapon", "Blades.ini", "Weapon Overhaul") }));
 
-    /// <summary>A cap landing exactly on the second folder's boundary in the unfiltered render.</summary>
-    static int CapAtTheWeaponFolder() =>
-        SkyPatcherWire.RenderLayer(LateMatchLayer(), null, 1_000_000).IndexOf("\nweapon:", StringComparison.Ordinal);
+    /// <summary>The widest cap at which the unfiltered render still cuts before the second folder.</summary>
+    static int CapAtTheWeaponFolder()
+    {
+        int cap = 1;
+        while (!SkyPatcherWire.RenderLayer(LateMatchLayer(), null, cap + 1).Contains("\nweapon:", StringComparison.Ordinal)) cap++;
+        return cap;
+    }
 
     [Fact]
     public void AMatchingFolderIsNotLostToTheCapAndTheCutNoticeDoesNotSuggestAFilter()
