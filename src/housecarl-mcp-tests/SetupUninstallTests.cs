@@ -37,6 +37,8 @@ public sealed class SetupUninstallTests
 
         Assert.Equal(SetupProgram.InstallOutcome.Installed, box.Install(SetupProgram.Target.Both).Outcome);
         Assert.True(File.Exists(SetupProgram.ClaudeSkillRecord(box.Home)));
+        Assert.Contains("housecarl", File.ReadAllText(SetupProgram.ClaudeJson(box.Home)));
+        Assert.Contains("[mcp_servers.housecarl]", File.ReadAllText(SetupProgram.CodexConfigToml(box.Home)));
         SetupInstallerSandbox.WriteFile(Path.Combine(SetupProgram.CodexServerDir(box.Home, box.Home), "houseCARL.user.json"), "{}");
         SetupInstallerSandbox.WriteFile(Path.Combine(SetupProgram.ClaudeSkillsDest(box.Home), "server", "houseCARL.user.json"), "{}");
 
@@ -121,11 +123,13 @@ public sealed class SetupUninstallTests
         using var box = new SetupInstallerSandbox();
         box.WritePackage("skill-one");
         box.Install(SetupProgram.Target.Codex);
+        SetupInstallerSandbox.WriteFile(Path.Combine(SetupProgram.CodexSkillsRoot(box.Home), "someone-elses-skill", "SKILL.md"), "not ours");
         File.Delete(SetupProgram.CodexSkillRecord(box.Home, box.Home));
 
         string said = SetupInstallerSandbox.Capture(() => SetupUninstall.TryUninstall(SetupProgram.Target.Codex, box.Home, box.Home));
 
         Assert.True(Directory.Exists(Path.Combine(SetupProgram.CodexSkillsRoot(box.Home), "skill-one")));
+        Assert.True(Directory.Exists(Path.Combine(SetupProgram.CodexSkillsRoot(box.Home), "someone-elses-skill")));
         Assert.Contains("no record of which skills", said);
         Assert.False(Directory.Exists(SetupProgram.CodexServerDir(box.Home, box.Home)));
     }
