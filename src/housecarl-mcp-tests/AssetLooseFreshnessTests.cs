@@ -305,20 +305,20 @@ public sealed class AssetLooseFreshnessTests : IDisposable
         Assert.True(r.RefreshIfStale(), "a root-level path is resolved from the mod folder's own listing");
     }
 
-    /// <summary>Warming a subtree a root does not have settles that absence with two stats on the missing name — not
-    /// a directory, not a file — rather than a fresh listing of the ancestor per root per warm (#861). The absence
-    /// memo still lists an ancestor the first time it is asked; what must not happen is an uncached ancestor listing
-    /// per warm. The absence is still watched: the name appearing afterwards is seen on the next call.</summary>
+    /// <summary>Once the absence memo holds each root's ancestor, warming a further absent subtree lists nothing: the
+    /// watch is two stats on the missing name, not a fresh ancestor listing per root per warm (#861). The absence is
+    /// still watched: the name appearing afterwards is seen on the next call.</summary>
     [Fact]
-    public void WarmingAnAbsentSubtreeTakesNoFreshAncestorListingAndStillSeesItAppear()
+    public void WarmingAnAbsentSubtreeListsNothingAndStillSeesItAppear()
     {
         using var r = Build();
         Assert.Equal(Provider, Winner(r, Provided));
-        var before = r.FreshListingCount;
+        Assert.Null(Winner(r, @"meshes\hcgonefirst\x.nif"));  // fills the absence memo for each root's ancestor
+        var before = r.WarmListingCount;
 
         for (int i = 0; i < 20; i++) Assert.Null(Winner(r, $@"meshes\hcgone{i}\x.nif"));
 
-        Assert.Equal(before, r.FreshListingCount);             // an ancestor listing per root per subtree would be 40
+        Assert.Equal(before, r.WarmListingCount);              // an ancestor listing per root per subtree would be 40
 
         Directory.CreateDirectory(Path.Combine(_mods, Provider, "meshes", "hcgone7"));
         File.WriteAllText(Path.Combine(_mods, Provider, "meshes", "hcgone7", "x.nif"), "x");
@@ -353,11 +353,11 @@ public sealed class AssetLooseFreshnessTests : IDisposable
     }
 
     /// <summary>The fallback for an absence the memo could not prove: a folder the build found unlistable and that has
-    /// since been given back. The memo still says "would not list", so a new subtree under it is not proved absent;
-    /// the warm lists the ancestor fresh instead, finds the name missing and watches it — so the subtree appearing
-    /// there later is seen, rather than hidden behind a failure the build named when the folder was still denied.</summary>
+    /// since been given back. The memo still says "would not list", and a memo never makes a failure: the walk is taken
+    /// again off the disk, which proves the new subtree absent — so the answer is not hedged for it, and the subtree
+    /// appearing there later is seen.</summary>
     [Fact]
-    public void AnAbsenceUnderAFolderGivenBackAfterItWouldNotListIsStillWatched()
+    public void AnAbsenceUnderAFolderGivenBackAfterItWouldNotListIsProvedAndWatched()
     {
         var blocked = Path.Combine(_mods, "BlockedMod");
         Directory.CreateDirectory(Path.Combine(blocked, "meshes"));
@@ -374,12 +374,41 @@ public sealed class AssetLooseFreshnessTests : IDisposable
 
         using (r)
         {
-            Assert.Null(Winner(r, @"meshes\hclater\y.nif"));  // not provable off the memo; the fresh walk stops at meshes
+            Assert.Null(Winner(r, @"meshes\hclater\y.nif"));  // not provable off the memo; proved off the disk
+            Assert.DoesNotContain(r.RootFailures, f => f.Contains("hclater"));   // no failure made from the memo
+
             Directory.CreateDirectory(Path.Combine(blocked, "meshes", "hclater"));
             File.WriteAllText(Path.Combine(blocked, "meshes", "hclater", "y.nif"), "y");
 
             Assert.True(r.RefreshIfStale(), "a subtree appearing under the folder given back was not noticed");
             Assert.Equal("BlockedMod", Winner(r, @"meshes\hclater\y.nif"));
         }
+    }
+
+    /// <summary>The other way a memo can be wrong: it proves an absence off an ancestor that has since stopped
+    /// listing. The watch that warm takes finds the ancestor unlistable on the next check — one rebuild — and the new
+    /// build, reading the folder fresh, names it a failure and watches nothing, so the calls after it do not rebuild.</summary>
+    [Fact]
+    public void AMemoThatWronglyProvesAnAbsenceCostsOneRebuildNotOnePerCall()
+    {
+        var blocked = Path.Combine(_mods, "BlockedMod");
+        Directory.CreateDirectory(blocked);
+        using var r = AssetResolver.Build(overwriteDir: "", _mods, dataDir: "",
+            new[] { "BlockedMod", Newcomer, Provider }, Array.Empty<ActiveArchive>());
+        r.EnumerateUnder(@"meshes\hcnothing");                 // memoizes BlockedMod as listing nothing, watching nothing
+
+        Assert.True(DenyAce.TryDeny(blocked), UnreadableRootWorld.NotStaged);
+        try
+        {
+            Assert.Equal(Provider, Winner(r, Provided));      // proved absent off the memo, though the folder will not list now
+            Assert.True(r.RefreshIfStale(), "the watch on a folder that will not list should cost one rebuild");
+
+            Assert.Equal(Provider, Winner(r, Provided));      // the new build reads the folder fresh
+            Assert.Contains(r.RootFailures, f => f.StartsWith("BlockedMod"));
+            Assert.False(r.RefreshIfStale(), "a second rebuild: the wrong proof was not corrected by the first");
+            Assert.Equal(Provider, Winner(r, Provided));
+            Assert.False(r.RefreshIfStale(), "…and again: it would rebuild on every call");
+        }
+        finally { DenyAce.Undeny(blocked); }
     }
 }

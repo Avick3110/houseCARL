@@ -68,8 +68,9 @@ resolver reads no profile.
   toggles something in MO2, or restarts the server, and the next call reads the folder again.
 - **A freshness baseline is read at the warm, never off a memo.** Every directory a warmed subtree puts under watch is
   baselined by what that warm itself reads — the whole listing for a root's own copy; for a root that has nothing
-  there, two stats on the missing name (no directory, no file), with the ancestor listed only where the absence could
-  not be proved, because a name that is listed yet will not stat looks absent to both stats. The build's
+  there, two stats on the missing name (no directory, no file), taken only once the absence is proved; where it is
+  not (a name listed that will not stat, or an ancestor that stats but will not list, both of which look absent to
+  the two stats) the root is a named failure and nothing is watched. The build's
   `Dirs`/`Children` memos answer the absence VERDICT and nothing else, because a memo can predate the warm by any
   number of calls, and a baseline older than the warm makes a file that goes and comes back invisible for the life of
   the build.
