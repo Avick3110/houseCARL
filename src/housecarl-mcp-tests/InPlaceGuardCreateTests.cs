@@ -20,7 +20,7 @@ public sealed class InPlaceGuardCreateTests
     WritePatchBuilder.CreateOutcome Create(string target, string targetName, WritePatchBuilder.CreateSpec[] specs, params string[] order)
     {
         using var r = LoadOrderResolver.Build(order);
-        return WritePatchBuilder.CreateRecordsInPlace(r, _w.Rulebook, specs, target, targetName);
+        return WritePatchBuilder.CreateRecordsInPlace(r, TestCorpus.Rulebook, specs, target, targetName);
     }
 
     static bool InUser(FormKey fk) => fk.ModKey.FileName.String.Equals(W.UserName, StringComparison.OrdinalIgnoreCase);

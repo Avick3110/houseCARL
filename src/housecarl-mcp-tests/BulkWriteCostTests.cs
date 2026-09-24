@@ -63,7 +63,7 @@ public sealed class BulkWriteCostTests : IDisposable
 
 
         _resolver = LoadOrderResolver.Build(new[] { masterFile });
-        _rulebook = CorpusRulebook.Load();
+        _rulebook = TestCorpus.Rulebook;
     }
 
     [Fact]

@@ -19,7 +19,7 @@ public sealed class LinkHarvestSkipTests
     static (List<string> sunk, string? verdict) Harvest(WriteRequest req, IReadOnlyCollection<string>? siblings = null)
     {
         var sink = new List<string>();
-        var verdict = CorpusRulebook.Load().WithLinkHarvest(sink).CollectLinkValues(req, siblings);
+        var verdict = TestCorpus.Rulebook.WithLinkHarvest(sink).CollectLinkValues(req, siblings);
         return (sink, verdict);
     }
 
@@ -35,7 +35,7 @@ public sealed class LinkHarvestSkipTests
     {
         var req = Req("Armor", new[] { "Value" }, "Set", "100");
 
-        Assert.Equal(CorpusRulebook.Load().Validate(req), Harvest(req).verdict);
+        Assert.Equal(TestCorpus.Rulebook.Validate(req), Harvest(req).verdict);
     }
 
     /// <summary>The same for a REFUSED one: a bad field path is reported off the harvest walk, word for word.</summary>
@@ -47,7 +47,7 @@ public sealed class LinkHarvestSkipTests
 
         Assert.Empty(sunk);
         Assert.NotNull(verdict);
-        Assert.Equal(CorpusRulebook.Load().Validate(req), verdict);
+        Assert.Equal(TestCorpus.Rulebook.Validate(req), verdict);
     }
 
     /// <summary>A write that DOES set a link contributes its value, so its lane pays the second walk — the one that

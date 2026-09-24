@@ -50,7 +50,7 @@ public sealed class WritePatchNoteTests : IDisposable
     public void AFreshApplyCarriesNoMasterAddedNote()
     {
         var order = _rig.Order(_masterPath);
-        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), Damage(), _rig.Out("HcWpNoteFresh.esp"), extend: false);
+        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook, Damage(), _rig.Out("HcWpNoteFresh.esp"), extend: false);
         Assert.True(o.Success, o.Error);
         Assert.Null(o.Note);
     }
@@ -59,7 +59,7 @@ public sealed class WritePatchNoteTests : IDisposable
     public void AFreshApplyDryRunCarriesNoMasterAddedNote()
     {
         var order = _rig.Order(_masterPath);
-        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), Damage(), _rig.Out("HcWpNoteDry.esp"), extend: false, dryRun: true);
+        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook, Damage(), _rig.Out("HcWpNoteDry.esp"), extend: false, dryRun: true);
         Assert.True(o.Success, o.Error);
         Assert.Null(o.Note);
     }
@@ -84,7 +84,7 @@ public sealed class WritePatchNoteTests : IDisposable
     {
         var order = _rig.Order(_masterPath);
         var path = EmptyPatch("HcWpNoteGrow.esp");
-        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), Damage(), path, extend: true);
+        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook, Damage(), path, extend: true);
         Assert.True(o.Success, o.Error);
         Assert.Contains("re-sort your load order", o.Note);
     }
@@ -94,7 +94,7 @@ public sealed class WritePatchNoteTests : IDisposable
     {
         var order = _rig.Order(_masterPath);
         var path = EmptyPatch("HcWpNoteGrowDry.esp");
-        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), Damage(), path, extend: true, dryRun: true);
+        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook, Damage(), path, extend: true, dryRun: true);
         Assert.True(o.Success, o.Error);
         Assert.Contains("re-sort your load order", o.Note);
     }
@@ -110,7 +110,7 @@ public sealed class WritePatchNoteTests : IDisposable
         };
         WritePatchBuilder.PatchOutcome o;
         using (HeldOpen.Hold(_linkedPath))
-            o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), new[] { edit }, _rig.Out("HcWpNoteLink.esp"),
+            o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook, new[] { edit }, _rig.Out("HcWpNoteLink.esp"),
                 extend: false, dryRun: true);
         Assert.True(o.Success, o.Error);
         Assert.Contains("HcWpNoteLinked.esm", o.Note);

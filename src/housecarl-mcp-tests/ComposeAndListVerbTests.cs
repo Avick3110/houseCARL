@@ -15,7 +15,7 @@ public sealed class ComposeFromConstructorTests
 {
     readonly CorpusRulebook _rulebook;
 
-    public ComposeFromConstructorTests() => _rulebook = TestCorpus.Rulebook();
+    public ComposeFromConstructorTests() => _rulebook = TestCorpus.Rulebook;
 
     string? SetArchetype(StructSpec arm) => _rulebook.Validate(new WriteRequest
     {

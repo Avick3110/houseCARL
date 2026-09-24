@@ -66,7 +66,7 @@ public sealed class BulkWriteBytesTests : IDisposable
 
 
         _resolver = LoadOrderResolver.Build(new[] { masterFile });
-        _rulebook = CorpusRulebook.Load();
+        _rulebook = TestCorpus.Rulebook;
     }
 
     static string Sha(string path)

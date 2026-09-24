@@ -14,7 +14,7 @@ public sealed class FieldNotFoundListTests
 {
     static string Refusal(string recordType, string field)
     {
-        var r = CorpusRulebook.Load().Validate(new WriteRequest
+        var r = TestCorpus.Rulebook.Validate(new WriteRequest
         {
             RecordType = recordType, Path = new[] { field }, Verb = "Set", Value = "1",
         });
@@ -26,7 +26,7 @@ public sealed class FieldNotFoundListTests
     /// "cuts nothing" said directly, rather than by the absence of one literal from the message.</summary>
     static void AssertNamesEveryField(string recordType, string refusal)
     {
-        var fields = CorpusRulebook.LoadCorpus().Types[recordType].Fields.Select(f => f.Name).ToList();
+        var fields = CorpusRulebook.LoadCorpus(TestCorpus.Path).Types[recordType].Fields.Select(f => f.Name).ToList();
         Assert.NotEmpty(fields);
         foreach (var f in fields) Assert.Contains(f, refusal);
     }

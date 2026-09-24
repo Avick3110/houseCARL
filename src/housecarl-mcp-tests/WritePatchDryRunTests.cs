@@ -39,7 +39,7 @@ public sealed class WritePatchDryRunTests : IDisposable
     }
 
     WritePatchBuilder.PatchOutcome DryRun(bool fullReadback, params WritePatchBuilder.PatchEdit[] edits)
-        => WritePatchBuilder.Apply(_order, TestCorpus.Rulebook(), edits, _rig.Out("HcWpDryOut.esp"), extend: false,
+        => WritePatchBuilder.Apply(_order, TestCorpus.Rulebook, edits, _rig.Out("HcWpDryOut.esp"), extend: false,
             fullReadback: fullReadback, dryRun: true);
 
     WritePatchBuilder.PatchEdit Damage() => WritePathRig.Set(_weapon, "BasicStats.Damage", "42");

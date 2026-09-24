@@ -78,7 +78,7 @@ public sealed class ComposeNestedVerbTests : RecordsTestBase
     [Fact]
     public void TheEditLaneIsSentToItsOwnCopyFromOp()
     {
-        var r = CorpusRulebook.Load().Validate(NestedCopyFrom());
+        var r = TestCorpus.Rulebook.Validate(NestedCopyFrom());
 
         Assert.NotNull(r);
         Assert.Contains("from_source=", r);
@@ -89,7 +89,7 @@ public sealed class ComposeNestedVerbTests : RecordsTestBase
     [Fact]
     public void TheCreateLaneGetsARemedyThatLaneCanFollow()
     {
-        var r = CorpusRulebook.Load().Validate(NestedCopyFrom(), new[] { "HcSomeSibling" });
+        var r = TestCorpus.Rulebook.Validate(NestedCopyFrom(), new[] { "HcSomeSibling" });
 
         Assert.NotNull(r);
         Assert.Contains(ToolNames.Apply, r);

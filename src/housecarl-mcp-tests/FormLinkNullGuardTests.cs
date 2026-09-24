@@ -110,7 +110,7 @@ public sealed class FormLinkNullGuardPreflightTests
     [Fact]
     public void AMalformedFormLinkValueIsRefusedBeforeTheWrite()
     {
-        var err = CorpusRulebook.Load().Validate(
+        var err = TestCorpus.Rulebook.Validate(
             new WriteRequest { RecordType = "Npc", Path = new[] { "Race" }, Verb = "Set", Value = "notaformkey" });
 
         Assert.NotNull(err);
@@ -124,7 +124,7 @@ public sealed class FormLinkNullGuardPreflightTests
     [InlineData("0")]
     public void AnAllZerosClearPassesPreflight(string synonym)
     {
-        var err = CorpusRulebook.Load().Validate(
+        var err = TestCorpus.Rulebook.Validate(
             new WriteRequest { RecordType = "Npc", Path = new[] { "Race" }, Verb = "Set", Value = synonym });
 
         Assert.Null(err);

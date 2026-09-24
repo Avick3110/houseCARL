@@ -64,7 +64,7 @@ public sealed class WritePatchVerifyTests : IDisposable
 
     WritePatchBuilder.PatchOutcome Apply(params WritePatchBuilder.PatchEdit[] edits)
     {
-        var o = WritePatchBuilder.Apply(_order, TestCorpus.Rulebook(), edits, _rig.Out("HcWpVerifyOut.esp"), extend: false);
+        var o = WritePatchBuilder.Apply(_order, TestCorpus.Rulebook, edits, _rig.Out("HcWpVerifyOut.esp"), extend: false);
         Assert.True(o.Success, o.Error);
         return o;
     }
@@ -169,7 +169,7 @@ public sealed class WritePatchVerifyTests : IDisposable
         var path = _rig.Out("HcWpVerifyTwo.esp");
         patch.BeginWrite.ToPath(path).WithLoadOrder(_master).Write();
 
-        var o = WritePatchBuilder.Apply(_order, TestCorpus.Rulebook(),
+        var o = WritePatchBuilder.Apply(_order, TestCorpus.Rulebook,
             new[] { Edit(_axe, "BasicStats.Damage", "Set", "42") }, path, extend: true);
 
         Assert.True(o.Success, o.Error);
