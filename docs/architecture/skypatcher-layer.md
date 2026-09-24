@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-23
-covers: [src/housecarl-core/SkyPatcherParse.cs, src/housecarl-core/SkyPatcherCatalog.cs, src/housecarl-core/SkyPatcherFieldMap.cs, src/housecarl-core/SkyPatcherDiscovery.cs, src/housecarl-core/SkyPatcherOverlay.cs, src/housecarl-core/SkyPatcherConflicts.cs, src/housecarl-core/SkyPatcherDraft.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/SkyPatcherReplay.cs, src/housecarl-mcp/AssetResults.cs]
+updated: 2026-09-24
+covers: [src/housecarl-core/SkyPatcherParse.cs, src/housecarl-core/SkyPatcherCatalog.cs, src/housecarl-core/SkyPatcherFieldMap.cs, src/housecarl-core/SkyPatcherDiscovery.cs, src/housecarl-core/SkyPatcherOverlay.cs, src/housecarl-core/SkyPatcherConflicts.cs, src/housecarl-core/SkyPatcherDraft.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/SkyPatcherReplay.cs]
 ---
 # The SkyPatcher layer
 
@@ -167,3 +167,4 @@ the field map; `SkyPatcherDiscovery.cs` the discovery and apply order; `SkyPatch
 one call's context (asset capture, catalog, field map, scan, draft fold) and `Replay` runs one record's winner through
 it, for both the layer tool and the overlay source. `src/housecarl-mcp/SkyPatcherTools.cs` is the tool front. Tool: `housecarl_skypatcher_layer`; the overlay and the
 draft are also read through `housecarl_records`'s SkyPatcher overlay source.
+The result records are in `src/housecarl-mcp/AssetResults.cs` ([`assets.md`](assets.md)).

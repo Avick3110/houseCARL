@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-24
-covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/SkseInventoryWire.cs, src/housecarl-mcp/SkseConfigAuditWire.cs, src/housecarl-mcp/NativePairingWire.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
+covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
 
@@ -296,8 +296,9 @@ packs. `src/housecarl-mcp/AssetLayers.cs` is the service lane over all of it: th
 builds over itself and reaches through one-line delegators, with the SkyPatcher replay in `SkyPatcherReplay.cs`.
 `ModsPathAddress.cs` refuses a raw mods
 path, and `AssetArtifact.cs` is `asset_status`'s `to_file=` artifact. `AssetResults.cs` holds the records the lanes
-return. The tool fronts are `AssetTools.cs`, `PlaceTools.cs`, `BsaTools.cs`, `NifTools.cs`, `SkseTools.cs` and
-`SkyPatcherTools.cs`. Tools:
+return. The tool fronts here are `AssetTools.cs`, `PlaceTools.cs` and `BsaTools.cs`. The other families' fronts and
+renders are in their own notes: NIF in [`nif.md`](nif.md), SKSE in [`skse-layer.md`](skse-layer.md), SkyPatcher in
+[`skypatcher-layer.md`](skypatcher-layer.md). Tools:
 `housecarl_asset_status`, `housecarl_place`, `housecarl_bsa_list`, `housecarl_bsa_extract`, `housecarl_bsa_repack`,
 `housecarl_nif_inspect`, `housecarl_nif_set`, `housecarl_skse`, `housecarl_skypatcher_layer`.
 
