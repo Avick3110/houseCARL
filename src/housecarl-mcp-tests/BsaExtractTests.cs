@@ -96,6 +96,40 @@ public sealed class BsaExtractTests : IDisposable
         Assert.False(result.Success);
     }
 
+    /// <summary>The three-file archive with its header folder count (offset 16) zeroed: the reader enumerates nothing and does not throw.</summary>
+    static byte[] ZeroFolders(uint version)
+    {
+        var archive = BsaBuilder.Build(version, Named, ThreeFiles);
+        BitConverter.GetBytes(0u).CopyTo(archive, 16);
+        return archive;
+    }
+
+    // #217 guard: a read that comes back empty is refused against the header's own file count, not reported as success
+    [Theory]
+    [InlineData(105u)]
+    [InlineData(104u)]
+    public void AnUnpackThatReadsNothingOfAThreeFileHeaderIsRefused(uint version)
+    {
+        var result = BsaArchive.Unpack(Write(_work, "zero.bsa", ZeroFolders(version)), Path.Combine(_work, "zero-out"));
+
+        Assert.True(result.Ran, result.RunError);
+        Assert.False(result.Success);
+        Assert.Contains("declares 3", result.Raw);
+    }
+
+    // #217 guard, list side: an empty enumeration of a three-file header is not a short list
+    [Theory]
+    [InlineData(105u)]
+    [InlineData(104u)]
+    public void AListThatReadsNothingOfAThreeFileHeaderIsRefused(uint version)
+    {
+        var result = BsaArchive.List(Write(_work, "zero.bsa", ZeroFolders(version)));
+
+        Assert.True(result.Ran, result.RunError);
+        Assert.False(result.Success);
+        Assert.Contains("declares 3", result.Raw);
+    }
+
     static readonly byte[] Garbage = { 0x42, 0x53, 0x41, 0x00, 1, 2, 3, 4 };
 
     // probe: "garbage archive -> loud open error"
