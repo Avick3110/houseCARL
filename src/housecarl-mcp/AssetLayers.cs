@@ -682,26 +682,28 @@ public sealed partial class LoadOrderService
         return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null, copy);
     }
 
-    /// <summary>Test seam: invoked in <see cref="SkyPatcherLayer"/> after the view is taken and before the session opens; null in the product.</summary>
-    internal Action? BeforeSkyPatcherSessionForGuard;
+    /// <summary>Test seam: invoked in <see cref="SkyPatcherLayer"/> after the pin and before the asset capture; null in the product.</summary>
+    internal Action? AfterSkyPatcherPinForGuard;
 
     /// <summary>Scan the whole SkyPatcher layer: every loose INI as the DLL reads it, the same-field SET collisions,
     /// and the three ITM classes including the no-op writes the per-record replay finds. Report-only.</summary>
     public SkyPatcherLayerData SkyPatcherLayer()
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
-        var pin = CapturePin();                 // one resolver for the view AND the session: a refresh between two getter reads would split them
-        var view = pin.View;
+        ViewPin pin;
         AssetResolver.AssetView assets;
         IReadOnlyList<string> assetWarnings;
         string profileName;
-        lock (_gate)
+        lock (_gate)                            // one hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself
         {
-            assets = Assets.Capture();
+            pin = CapturePin();
+            AfterSkyPatcherPinForGuard?.Invoke();                        // test seam; null in the product
+            assets = AssetsNoProfileRefreshLocked().Capture();
             assetWarnings = AssetWarningsLocked();
             profileName = _profileName;
         }
 
+        var view = pin.View;
         var catalog = SkyPatcherCatalog.Load();
         var fieldMap = SkyPatcherFieldMap.Load();
         var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
@@ -721,7 +723,6 @@ public sealed partial class LoadOrderService
         var noOps = new List<SkyPatcherNoOpWrite>();
         var noOpNotes = new List<string>();
         {
-            BeforeSkyPatcherSessionForGuard?.Invoke();                   // test seam; null in the product
             using var session = pin.Resolver.OpenSession();
             var formResolver = new SkyPatcherServiceResolver(this, view, session);
             var scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
