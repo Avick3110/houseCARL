@@ -112,9 +112,12 @@ provider whose field could not be read is counted separately (`CouldNotRead`), n
 "nobody declares" (the #308 rule, one level down at the sentence layer).
 
 The same rule holds at the value walk under it. `OwnedChildContent.DeclaresChild` and
-`OwnedChildUnion.ChildKeys` answer NULL for "could not look" and never false: a body that would not read, a
-container shape the walk does not know, and a nesting depth past the walk's own tripwire all answer null rather
-than being reported as an empty field. The tripwire is a guard against a Mutagen shape nobody has seen, not a
+`OwnedChildUnion.ChildKeys` answer NULL for "could not look" and never false: a body that would not read and a
+nesting depth past the walk's own tripwire both answer null rather than being reported as an empty field, and
+`ChildKeys` answers null for a container shape its walk does not know as well. `DeclaresChild` answers false for a
+value that is not a record, a sequence or a container that enumerates its own records; no value of a
+child-bearing field (the set `ChildWalkPinTests` pins) is such a value, because the one nested container there, a
+worldspace block, enumerates its cells itself. The tripwire is a guard against a Mutagen shape nobody has seen, not a
 limit the current model approaches. One case needs stating because Mutagen makes it look like an answer: a typed
 containment enumeration Mutagen cannot route yields an EMPTY sequence rather than throwing, so an empty typed
 walk over a container that holds records at all is read as a MISS, not as a negative.
