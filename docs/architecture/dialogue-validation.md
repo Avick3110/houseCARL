@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-25
 covers: [src/housecarl-core/DialogueValidate.cs, src/housecarl-core/DialogueCkParity.cs, src/housecarl-core/DialogueScriptCheck.cs, src/housecarl-core/DialogueCheck.cs, src/housecarl-mcp/DialogueSweep.cs, src/housecarl-mcp/DialogueSweepRender.cs, src/housecarl-mcp/DialogueKindChecks.cs]
 ---
 # Dialogue validation: CK parity, what a clean pass means, and the check family
@@ -94,8 +94,9 @@ on cost. A seed that does not resolve is carried as a named refusal, never dropp
 list and a discarded seed silently narrows it.
 
 The effective merged INFO order is deliberately absent from this family. It is an ordered sequence over the
-touching-plugin stack rather than a findings list, so it belongs to `records project=info_order`. Both surfaces share
-ONE render, `DialogueWire.AppendInfoOrderView`; the family gates it off.
+touching-plugin stack rather than a findings list, so it belongs to `records project=info_order`. The family's topic
+block does not carry it, and `records project=info_order` is the only surface that computes it
+(`DialogueValidate.InfoOrders`) and renders it (`DialogueWire.AppendInfoOrderView`).
 
 Which checks a seed's kind runs comes from one table, `DialogueKindChecks`, read both by the seed's own verdict line
 and by the family's boundary claim, so the two cannot disagree. An unrecognised kind claims nothing rather than
