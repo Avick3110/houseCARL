@@ -87,13 +87,13 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
         return new ViewPin(r, r.Capture());
     }
 
-    (ViewPin Pin, SkyPatcherAssets Assets) IAssetHost.CapturePinAndAssets(Action? afterPin)
+    (ViewPin Pin, AssetCapture Assets) IAssetHost.CapturePinAndAssets(Action? afterPin)
     {
         lock (_gate)
         {
             var pin = CapturePin();
             afterPin?.Invoke();
-            return (pin, new SkyPatcherAssets(AssetsNoProfileRefreshLocked().Capture(), AssetWarningsLocked(), _profileName));
+            return (pin, AssetCaptureLocked(AssetsNoProfileRefreshLocked().Capture()));
         }
     }
 

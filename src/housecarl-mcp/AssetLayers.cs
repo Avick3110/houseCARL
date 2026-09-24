@@ -31,7 +31,7 @@ internal interface IAssetHost : ILoadOrderHost
     (AssetCapture Assets, LoadOrderResolver.IndexView Index) CaptureAssetsAndIndex();
 
     /// <summary>A pinned index and the asset build that pairs with it, in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between the two.</summary>
-    (LoadOrderService.ViewPin Pin, LoadOrderService.SkyPatcherAssets Assets) CapturePinAndAssets(Action? afterPin);
+    (LoadOrderService.ViewPin Pin, AssetCapture Assets) CapturePinAndAssets(Action? afterPin);
 
     /// <summary>The installed game runtime version, or null.</summary>
     string? InstalledGameRuntime();

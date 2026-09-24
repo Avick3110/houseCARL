@@ -13,25 +13,20 @@ public sealed partial class LoadOrderService
     /// <summary>The in-memory scratch mod the replay copy is overridden into — never written to disk.</summary>
     static readonly ModKey SkyPatcherScratchKey = new("HousecarlSkyPatcherScratch", ModType.Plugin);
 
-    /// <summary>An asset build with the warnings and profile name taken in the same capture hold.</summary>
-    internal readonly record struct SkyPatcherAssets(AssetResolver.AssetView View, IReadOnlyList<string> Warnings, string ProfileName);
-
     /// <summary>Open one call's replay context, folding in the draft if given; null with the refusal when the draft cannot be folded.</summary>
     internal SkyPatcherReplay? OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                                     out string? draftRefusal, SkyPatcherDraft.Plan? draft = null,
                                                     SkyPatcherOverlay.WarningSink? draftWarnings = null)
     {
-        var c = Host.CaptureAssets();
-        var captured = new SkyPatcherAssets(c.View, c.Warnings, c.ProfileName);
-        return OpenSkyPatcherReplay(captured, view, session, out draftRefusal, draft, draftWarnings);
+        return OpenSkyPatcherReplay(Host.CaptureAssets(), view, session, out draftRefusal, draft, draftWarnings);
     }
 
     /// <summary>The same door over assets the caller took in its own capture hold, for a lane that pins the index in that hold.</summary>
-    internal SkyPatcherReplay? OpenSkyPatcherReplay(SkyPatcherAssets captured, LoadOrderResolver.IndexView view,
+    internal SkyPatcherReplay? OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
                                                     LoadOrderResolver.OverlaySession session, out string? draftRefusal,
                                                     SkyPatcherDraft.Plan? draft = null, SkyPatcherOverlay.WarningSink? draftWarnings = null)
     {
-        var (assets, assetWarnings, profileName) = captured;
+        var assets = captured.View;
         var fieldMap = SkyPatcherFieldMap.Load();
         var catalog = SkyPatcherCatalog.Load();
         var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
@@ -41,7 +36,7 @@ public sealed partial class LoadOrderService
             scan = draft.Fold(scan, catalog, view.ContainsPlugin, out draftRefusal, draftWarnings);
             if (draftRefusal is not null) return null;
         }
-        return new SkyPatcherReplay(this, view, session, assets, assetWarnings, profileName, catalog, fieldMap, scan);
+        return new SkyPatcherReplay(this, view, session, assets, captured.Warnings, captured.ProfileName, catalog, fieldMap, scan);
     }
 
     /// <summary>One call's replay context; its scratch mod is shared across the call, so a caller replays each key once.</summary>
