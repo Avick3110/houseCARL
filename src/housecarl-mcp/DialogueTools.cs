@@ -68,7 +68,7 @@ internal static class DialogueWire
     /// <summary>How many order rows are listed in full before the render lists only the MOVED lines.</summary>
     const int MaxOrderRows = 25;
 
-    /// <summary>The effective merged INFO order, for the <c>records project=info_order</c> form; contract in
+    /// <summary>The effective merged INFO order, as the <c>records project=info_order</c> form renders it; contract in
     /// docs/architecture/dialogue.md.</summary>
     internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, string pad, int cap, bool indent)
     {
