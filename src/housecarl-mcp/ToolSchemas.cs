@@ -13,7 +13,7 @@ internal static class ToolSchemas
     /// <summary>One list parameter whose published schema becomes the @file union.</summary>
     internal readonly record struct FileListParam(string Tool, string Parameter, Type ElementArrayType);
 
-    /// <summary>The @file parameters typed <see cref="JsonElement"/>, and the only declared link from each to its element type; read by <c>wire-names-guard</c>.</summary>
+    /// <summary>The @file parameters typed <see cref="JsonElement"/>, and the only declared link from each to its element type; read by WireNamesSpecObjectTests and PublishedSchemaShapeTests.</summary>
     internal static readonly FileListParam[] FileListParams =
     {
         new(ToolNames.Apply, "ops", typeof(ApplyOp[])),
