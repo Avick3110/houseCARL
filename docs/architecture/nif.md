@@ -124,14 +124,15 @@ and the final render stay unseen, so a rewritten path or a renamed shape still n
 
 ## Pinned by
 
-- *Contracts*, the parse-failure paragraph: `NifServiceGuardProbe` (ci probe `nif-service-guard`) — empty bytes and
-  non-NIF garbage each return a named error, never a throw or a half-model (the refusal arm).
-- *Coverage comes from the library, never a hand list*: `NifServiceGuardProbe` pins both branches of `ReallyReads`,
-  `NifSetGuardProbe` (`nif-set-guard`) pins all three `ReallyWrites` states including the unmarshalable one via a
-  stand-in type, and the flag decode's gap and combo-peel behaviour is pinned rather than assumed (the
-  `NifServiceGuardProbe` unnamed-bits arm).
-- *The Skyrim-layout gate*: `NifServiceGuardProbe` — the FO4-layout Glossiness default `ReallyReads` cannot see, and a
-  texture slot nothing determines stays unnamed rather than getting a plausible label (the slot-names arm).
+- *Contracts*, the parse-failure paragraph: `NifInspectDecodeTests` — empty bytes and non-NIF garbage each return a
+  named error, never a throw or a half-model (`EmptyBytesReturnANamedError`, `NonNifGarbageReturnsANamedErrorNotAThrow`).
+- *Coverage comes from the library, never a hand list*: `NifShaderDecodeTests` and `NifInspectRenderTests` pin both
+  branches of `ReallyReads`, `NifSetGuardProbe` (`nif-set-guard`) pins all three `ReallyWrites` states including the
+  unmarshalable one via a stand-in type, and the flag decode's gap and combo-peel behaviour is pinned rather than
+  assumed (`NifShaderDecodeTests.AnUnnamedBitIsAResidualMaskAndAComboPeelsBeforeItsParts`).
+- *The Skyrim-layout gate*: `NifShaderDecodeTests` and `NifInspectRenderTests` — the FO4-layout Glossiness default
+  `ReallyReads` cannot see, and a texture slot nothing determines stays unnamed rather than getting a plausible label
+  (`NifShaderDecodeTests.AnUndeterminedSlotStaysUnnamed`).
 - *The two write gates*: both gates are fed a collateral change and a no-op write directly, which `NifSetGuardProbe`
   does — gate 1 refuses the collateral change and gate 2 the no-op; its refusal arms — a target not found or
   ambiguous, an op that cannot apply, and a non-SE stream (that arm prints SKIP rather than failing when its fixture

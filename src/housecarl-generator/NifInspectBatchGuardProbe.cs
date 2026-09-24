@@ -8,7 +8,7 @@ namespace HousecarlGenerator;
 /// nif-inspect batch-wire guard (#229 — mesh_paths array on housecarl_nif_inspect; hardened by the PR #243 review) —
 /// locks the six batch contracts of NifWire.Render over NifInspectBatchData, fully self-contained (constructed
 /// per-path results through the REAL renderer via InternalsVisibleTo — no game data, no MO2 instance, no file I/O).
-/// The synthetic mesh model is NifServiceGuardProbe.FakeInspect — ONE builder for both render guards, not a fork.
+/// The synthetic mesh model is this probe's own OneShapeMesh.
 ///
 /// Arms:
 ///   1. INPUT ORDER — three results render as three per-mesh blocks in the order passed, never re-sorted.
@@ -124,10 +124,19 @@ internal static class NifInspectBatchGuardProbe
         => new(results, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), "TestProfile");
 
     /// <summary>A clean per-path result: one loose provider, a minimal 1-shape SE mesh named
-    /// <paramref name="shapePrefix"/>0 (via the shared NifServiceGuardProbe.FakeInspect builder).</summary>
+    /// <paramref name="shapePrefix"/>0.</summary>
     static NifInspectData Ok(string rel, string shapePrefix)
         => new(rel, new NifProvider("ModA", "loose"), new[] { new NifProvider("ModA", "loose") }, false, false,
-            NifServiceGuardProbe.FakeInspect(1, 0, false, Array.Empty<string>(), namePrefix: shapePrefix), null);
+            OneShapeMesh(shapePrefix + "0"), null);
+
+    /// <summary>A synthetic one-shape SE inspect model whose shape is named <paramref name="shapeName"/>.</summary>
+    static NifInspect OneShapeMesh(string shapeName)
+        => new("20.2.0.7", 12, 100, true, 2,
+            new List<NifBlockTypeCount> { new("BSTriShape", 1), new("NiNode", 1) },
+            false, Array.Empty<string>(),
+            new List<NifShape> { new(shapeName, 0x400000E, 1f, "BSTriShape", 0x8000E, "BSTriShape",
+                new List<NifPartition>(), null, new List<NifTexture>(), new List<string>()) },
+            new List<NifNode> { new(0, "Root", 0xE, "NiNode", 0xE, "NiNode") }, new List<string> { "Root", shapeName });
 
     /// <summary>An ABSENT per-path result — the no-provider outcome the renderer hedges at point of use.</summary>
     static NifInspectData Absent(string rel)
