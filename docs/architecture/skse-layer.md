@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-23
-covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs, src/housecarl-core/SkseConfigReferenceExtractor.cs, src/housecarl-core/NativePairing.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkseInventoryWire.cs, src/housecarl-mcp/SkseConfigAuditWire.cs, src/housecarl-mcp/NativePairingWire.cs, src/housecarl-mcp/SkseRenderParts.cs, src/housecarl-mcp/SkseJsonDoc.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs]
+updated: 2026-09-24
+covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs, src/housecarl-core/SkseConfigReferenceExtractor.cs, src/housecarl-core/NativePairing.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkseInventoryWire.cs, src/housecarl-mcp/SkseConfigAuditWire.cs, src/housecarl-mcp/NativePairingWire.cs, src/housecarl-mcp/SkseRenderParts.cs, src/housecarl-mcp/SkseJsonDoc.cs, src/housecarl-mcp/AssetResults.cs]
 ---
 # The SKSE layer: what a DLL declares, and the static-load rule
 
@@ -214,9 +214,9 @@ number describes a wider set than the rows beside it.
 
 `src/housecarl-core/SksePluginReader.cs` reads the PE manifest, the imports and the Debug-CRT verdict;
 `SksePeek.cs` is the embedded-string peek; `NativePairing.cs` extracts the native declarations;
-`SkseConfigReferenceExtractor.cs` extracts config references. `src/housecarl-mcp/AssetLayers.cs` holds the service
-lanes and the blocker string (`LooseDllBlocker`); `src/housecarl-mcp/SkseTools.cs` holds the tool and the family
+`SkseConfigReferenceExtractor.cs` extracts config references. `src/housecarl-mcp/SkseTools.cs` holds the tool and the family
 dispatch. Each family's text and json render is in its own file: `SkseInventoryWire.cs`, `SkseConfigAuditWire.cs`
 and `NativePairingWire.cs`, the last with the pairing verdict. `SkseRenderParts.cs` holds the section heading and
 the cut notices all three use, and the plugin version text the inventory and pairing renders use.
 `src/housecarl-mcp/SkseJsonDoc.cs` writes the family documents. Tool: `housecarl_skse`.
+The service code, the three lanes and the blocker string (`LooseDllBlocker`), is in `src/housecarl-mcp/AssetLayers.cs` ([`assets.md`](assets.md)).

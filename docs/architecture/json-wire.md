@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-23
-covers: [src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/SkseJsonDoc.cs]
+updated: 2026-09-24
+covers: [src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RenderCap.cs]
 ---
 # The json wire: the shape a machine-readable response is allowed to take
 

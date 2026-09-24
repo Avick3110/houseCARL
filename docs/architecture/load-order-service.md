@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-24
-covers: [src/housecarl-mcp/LoadOrderService.cs, src/housecarl-mcp/LoadOrderHost.cs]
+covers: [src/housecarl-mcp/LoadOrderService.cs, src/housecarl-mcp/LoadOrderHost.cs, src/housecarl-mcp/ServiceResults.cs]
 ---
 # The load-order service
 
@@ -50,4 +50,9 @@ the config file.
 (`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, and the explicit
 `ILoadOrderHost` and `IAssetHost` members. `src/housecarl-mcp/LoadOrderHost.cs` declares `ILoadOrderHost` and
 `AssetCapture`; `IAssetHost` is at the top of `src/housecarl-mcp/AssetLayers.cs`.
+The head's asset-facing surface is one-line delegators to `_assetLayers`, the `AssetLayers` it builds over itself in
+its constructor: `AssetStatus`, `SkseInventory`, `SkseConfigAudit`, `NativePairingAudit`, `SkyPatcherLayer`,
+`NifInspect`, `NifSet`, `PlaceAssets`, the two `OpenSkyPatcherReplay` overloads and the `AfterSkyPatcherPinForGuard` test seam.
+`src/housecarl-mcp/ServiceResults.cs` holds the result records the head's lanes and the other areas' lanes return;
+the asset records are in `AssetResults.cs`.
 Tools: `housecarl_load_order_status`, `housecarl_set_mo2_instance`, `housecarl_update_status`.

@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-23
-covers: [src/housecarl-core/NifService.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs]
+updated: 2026-09-24
+covers: [src/housecarl-core/NifService.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/AssetResults.cs]
 ---
 # The NIF layer: reading mesh values, and the two write gates
 
@@ -146,5 +146,5 @@ and the final render stay unseen, so a rewritten path or a renamed shape still n
 
 `src/housecarl-core/NifService.cs` is the format layer: `Inspect`, `Set`, `ReallyReads`, `ReallyWrites`,
 `DecodeFlagWord`, `SlotName`, and the two gates `VerifyBlockContent` and `VerifyReadBack`.
-`src/housecarl-mcp/AssetLayers.cs` resolves the winning bytes and writes the result into the VFS;
 `src/housecarl-mcp/NifTools.cs` is the tool front. Tools: `housecarl_nif_inspect`, `housecarl_nif_set`.
+The service code, which resolves the winning bytes and writes the result into the VFS, is in `src/housecarl-mcp/AssetLayers.cs` ([`assets.md`](assets.md)).
