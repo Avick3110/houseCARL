@@ -1,5 +1,4 @@
 using System.Text.Json;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -42,7 +41,6 @@ public sealed class DryRunBaselineMastersTests : IDisposable
         w.BasicStats = new WeaponBasicStats { Damage = 5, Weight = 1 };
         _weapon = w.FormKey;
         mod.BeginWrite.ToPath(Path.Combine(baseDir, BaseName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

@@ -4,7 +4,6 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -31,7 +30,6 @@ public sealed class WinnerSourceWorld : IDisposable
     /// <summary>Records of a SECOND type in the same master, so a typed gather can be handed a type that does not
     /// cover every wanted key.</summary>
     public IReadOnlyList<FormKey> ArmorKeys { get; }
-
 
     public WinnerSourceWorld()
     {
@@ -87,7 +85,6 @@ public sealed class WinnerSourceWorld : IDisposable
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), string.Concat(order.Select(n => "*" + n + "\r\n")));
         File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+MidMod\r\n+LowMod\r\n+BaseMod\r\n");
-
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
         Svc.Stats();

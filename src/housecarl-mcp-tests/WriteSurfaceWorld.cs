@@ -4,7 +4,6 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 
 namespace HousecarlMcpTests;
@@ -40,7 +39,6 @@ public sealed class WriteSurfaceWorld : IDisposable
 
     public string ReplacerPath => Path.Combine(ModsDir, "W2Repl", ReplacerName);
     public string MasterPath => Path.Combine(ModsDir, "W2Master", MasterName);
-
 
     public WriteSurfaceWorld()
     {
@@ -152,7 +150,6 @@ public sealed class WriteSurfaceWorld : IDisposable
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + MasterName + "\r\n*" + ReplacerName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "modlist.txt"),
             "# header\r\n-W2AmbB\r\n-W2AmbA\r\n-W2OffChain\r\n-W2OffDep\r\n-W2Off\r\n+W2Repl\r\n+W2Master\r\n");
-
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
         Svc.Stats();

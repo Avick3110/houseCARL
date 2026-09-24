@@ -4,7 +4,6 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -83,7 +82,6 @@ public sealed class OpaqueBytesVerifyTests : IDisposable
         Directory.CreateDirectory(Path.Combine(mods, "BlobMod"));
         mod.BeginWrite.ToPath(Path.Combine(mods, "BlobMod", PluginName))
             .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

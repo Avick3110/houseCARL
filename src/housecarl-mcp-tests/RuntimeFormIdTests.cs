@@ -2,7 +2,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -589,7 +588,6 @@ public sealed class RuntimeFormIdTests
             WriteOrder(spareFirst: false);
             File.WriteAllText(Path.Combine(_profileDir, "modlist.txt"),
                 "# header\r\n+WideMod\r\n+SpareMod\r\n+LightMod\r\n+FullMod\r\n+MasterMod\r\n");
-
 
             ModsDir = mods;
             ModFolders = Directory.GetDirectories(mods).Length;

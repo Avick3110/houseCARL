@@ -3,7 +3,6 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -52,10 +51,8 @@ public sealed class TypeArmWorld : IDisposable
     public const string SweepNpc = "HcArmSweepNpc";
     public const string SweepWeapon = "HcArmSweepWeapon";
 
-
     public TypeArmWorld()
     {
-
         Root = Path.Combine(Path.GetTempPath(), "hc-typearm-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
 
@@ -90,7 +87,6 @@ public sealed class TypeArmWorld : IDisposable
         var offDir = Path.Combine(instance, "mods", "ArmOffOrderMod");
         Directory.CreateDirectory(offDir);
         off.BeginWrite.ToPath(Path.Combine(offDir, OffOrderName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

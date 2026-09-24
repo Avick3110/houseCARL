@@ -7,7 +7,6 @@ using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Strings;
 using Mutagen.Bethesda.Strings.DI;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -59,7 +58,6 @@ public sealed class Utf8NameTests : IDisposable
         File.WriteAllText(Path.Combine(tableDir, "meta.ini"), HousecarlOwnerMeta.Section + "\r\ngenerated=true\r\n");
         _latinWeapon = WriteLatin(NewDir(mods, "LatinMod"));
         _utf8LatinWeapon = WriteUtf8Latin(NewDir(mods, "AccentMod"));
-
 
         File.WriteAllText(Path.Combine(_instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

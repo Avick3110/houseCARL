@@ -3,7 +3,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -99,7 +98,6 @@ public sealed class ForkWarningTests : IDisposable
         // The ownership marker, so into="HcForkA.esp" reaches this folder the way it reaches a patch houseCARL wrote.
         // The foreign folder gets none, which is what makes it foreign.
         File.WriteAllText(Path.Combine(patchFolder, "meta.ini"), HousecarlOwnerMeta.Section + "\r\ngenerated=true\r\n");
-
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

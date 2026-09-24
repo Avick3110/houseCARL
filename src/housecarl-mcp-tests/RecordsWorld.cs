@@ -3,7 +3,6 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -85,7 +84,6 @@ public sealed class RecordsWorld : IDisposable
     public IReadOnlyDictionary<FormKey, IMajorRecordGetter> MgefByKey { get; }
 
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
-
 
     public RecordsWorld()
     {
@@ -243,7 +241,6 @@ public sealed class RecordsWorld : IDisposable
         // be folded into that the DLL would skip wholesale. 'weapon' is left at its default (on).
         File.WriteAllText(Path.Combine(ModsDir, "MasterMod", "SKSE", "Plugins", "SkyPatcher.ini"),
             "[Patcher]\r\niEnable" + ToggledOffSkyPatcherType + "Patching=0\r\n");
-
 
         File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

@@ -41,7 +41,6 @@ public sealed class PerkEncodingWorld : IDisposable
     /// those four bytes are a strings-table key, not characters.</summary>
     public string LocalizedParamPerkFid { get; }
 
-
     public PerkEncodingWorld()
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-perk-encoding-tests-" + Guid.NewGuid().ToString("N"));
@@ -134,7 +133,6 @@ public sealed class PerkEncodingWorld : IDisposable
             var cond = overlay.Perks.First(p => p.FormKey == badCondition.FormKey);
             Assert.ThrowsAny<Exception>(() => cond.Conditions[0]);
         }
-
 
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + MasterName + "\r\n");

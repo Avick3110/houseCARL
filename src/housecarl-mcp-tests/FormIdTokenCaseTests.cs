@@ -5,7 +5,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -27,7 +26,6 @@ public sealed class MasterCaseDriftWorld : IDisposable
     public LoadOrderService Svc { get; }
     public FormKey Race { get; }
     public FormKey Npc { get; }
-
 
     public MasterCaseDriftWorld()
     {
@@ -55,7 +53,6 @@ public sealed class MasterCaseDriftWorld : IDisposable
         patch.BeginWrite.ToPath(PatchPath).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
         LowercaseTheMasterEntry(PatchPath);
-
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

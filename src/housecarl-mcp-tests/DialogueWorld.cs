@@ -163,7 +163,6 @@ public sealed class DialogueWorld : IDisposable
     /// <summary>The same quest in the plain off-order patch — the control the shadowed arm is measured against.</summary>
     public FormKey PatchSeqQuest { get; }
 
-
     /// <param name="patchActive">write the same patch into the ACTIVE order instead — the comparison arm for a
     /// folded read, so what the fold projects can be measured against what the order really says once the plugin
     /// is enabled. Its own instance, never the shared fixture.</param>

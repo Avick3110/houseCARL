@@ -2,7 +2,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -51,7 +50,6 @@ public sealed class InPlaceGuardWorld : IDisposable
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-inplace-guard-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Root);
-
 
         MasterPath = Path.Combine(Root, MasterName);
         UserPristine = Path.Combine(Root, "pristine", UserName);
