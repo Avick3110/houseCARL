@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-24
 covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkseInventoryWire.cs, src/housecarl-mcp/SkseConfigAuditWire.cs, src/housecarl-mcp/NativePairingWire.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
@@ -292,7 +292,8 @@ a miss, stating that form is not provided either; the generic lane does not, bec
 `AssetSourceSelection.cs` and `OffOrderAssetSource.cs` decide which provider a read comes from; `AssetGlob.cs` and
 `AssetLinkHarvest.cs` are the two selectors; `AssetPathHint.cs` is the root-prefix hint; `VoicePath.cs` and
 `VoiceCheck.cs` are the voice paths; `AssetRenameService.cs` is the renumber carry; `BsaArchive.cs` lists, unpacks and
-packs. `src/housecarl-mcp/AssetLayers.cs` is the service lane over all of it, `ModsPathAddress.cs` refuses a raw mods
+packs. `src/housecarl-mcp/AssetLayers.cs` is the service lane over all of it; `IAssetHost` at its top lists everything that
+lane takes from outside itself, on top of the shared `ILoadOrderHost` ([`load-order-service.md`](load-order-service.md)). `ModsPathAddress.cs` refuses a raw mods
 path, and `AssetArtifact.cs` is `asset_status`'s `to_file=` artifact. `AssetResults.cs` holds the records the lanes
 return. The tool fronts are `AssetTools.cs`, `PlaceTools.cs`, `BsaTools.cs`, `NifTools.cs`, `SkseTools.cs` and
 `SkyPatcherTools.cs`. Tools:

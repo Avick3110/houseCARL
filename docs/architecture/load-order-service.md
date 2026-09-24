@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-24
 covers: [src/housecarl-mcp/LoadOrderService.cs]
 ---
 # The load-order service
@@ -17,6 +17,12 @@ the config file.
 - `_writeGate` serializes the whole resolve, stage and commit of every plugin write; `SetInstance` takes it too, so an instance switch cannot tear a write in flight. Where both gates are held the order is `_writeGate` then `_gate`. The `Resolver` and `Assets` getters are the one exception: they take `_gate` first and only try `_writeGate` with `Monitor.TryEnter`, never waiting on it, so the reverse order never turns into a wait.
 - A read-path freshness refresh is DEFERRED while a write holds `_writeGate` — probed with `TryEnter`, never blocking — because a rebuild transiently maps every plugin including the one the write is serializing and dispose-swaps the resolver that write captured; a skipped refresh serves the last good snapshot and re-checks next call.
 - Lock order is `_gate` then `_classParentsLock`. Nothing pins it.
+
+### The shared head door
+- `ILoadOrderHost` is how an area reaches the head members more than one area takes: `Resolver`, `CaptureAssets()` and `WriteGate`. The head implements each member once, explicitly, next to what it wraps.
+- `CaptureAssets()` takes one `_gate` hold: it derives the roots, captures the asset build, and reads the warnings, profile name, four roots, active archives and enabled mods of that same build. The caller works on the capture outside the hold.
+- `WriteGate` is the same object as `_writeGate`, so the lock order above holds through it: take the write gate first, then capture.
+- Each area's own interface extends `ILoadOrderHost` with the members only that area takes, plus rows relayed from areas that are not their own classes yet. The first is `IAssetHost`, in `src/housecarl-mcp/AssetLayers.cs`.
 
 ### The service's answers
 - The index build is lazy, so startup and `tools/list` are instant, and it is serialized on one gate because the server dispatches tool calls concurrently.
@@ -41,5 +47,7 @@ the config file.
 `src/housecarl-mcp/LoadOrderService.cs`: the `Resolver` and `Assets` getters, `SetInstance`,
 `RefreshOnProfileChange`, `ReResolve`, `EnsurePathsDerived`, `StatusData`, `Stats`, `UpdateCache`,
 `NamedProfileComposition`, `PapyrusSourceImportDirs`, `Dispose`, the class-parent cache
-(`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`.
+(`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, and the explicit
+`ILoadOrderHost` and `IAssetHost` members. The two interfaces and `AssetCapture` are declared at the top of
+`src/housecarl-mcp/AssetLayers.cs`.
 Tools: `housecarl_load_order_status`, `housecarl_set_mo2_instance`, `housecarl_update_status`.
