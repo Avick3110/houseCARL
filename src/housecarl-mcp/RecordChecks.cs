@@ -5,20 +5,36 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
+/// <summary>Everything the checks area takes from outside itself.</summary>
+internal interface ICheckHost : ILoadOrderHost
+{
+    /// <summary>A FormID door for a sweep's <c>formids=</c> tokens, with no captured view of its own.</summary>
+    FormIdDoor OpenFormIdDoor();
+
+    // Relayed from reads until reads is its own class.
+    IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types, out string? armLabel);
+
+    // Relayed from reads until reads is its own class.
+    DialogueFold? OpenDialogueFold(LoadOrderService.PoleInfo arm, out string? error, string? label, bool withRecords);
+}
+
 public sealed partial class LoadOrderService
 {
+    /// <summary>Every head member the checks area takes, and nothing else.</summary>
+    ICheckHost Host => this;
+
     /// <summary>The on-demand whole-topic dialogue-graph validator: a DIAL validates its own graph, a QUST fans out to
     /// every topic it owns, everything judged against the resolved winners. Never throws over a verify step — a
     /// mid-run failure rides <see cref="DialogueValidationReport.CheckError"/>, a bad input is a named
     /// <see cref="DialogueValidationReport.Error"/>.</summary>
     public DialogueValidationReport ValidateDialogue(FormKey fk)
-        => DialogueValidate.Run(Resolver, Assets, fk, null, ForceLoadedPluginNames());
+        => DialogueValidate.Run(Host.Resolver, Host.Assets, fk, null, ForceLoadedPluginNames());
 
     /// <summary>The force-loaded plugin names, for a check that must not blame a modder for content they did not
     /// author. Null, never an empty set, when the MO2 profile cannot be read.</summary>
     IReadOnlyCollection<string>? ForceLoadedPluginNames()
     {
-        var (names, err) = ImplicitPluginNames();
+        var (names, err) = ImplicitPluginNames(Host.CaptureRoots().ProfileDir);
         return err is null ? names : null;
     }
 
@@ -35,8 +51,8 @@ public sealed partial class LoadOrderService
         {
             // One resolver, one asset resolver, one view and one composition read for the whole call, so every seed
             // is validated against the same build and the stamp names it.
-            var resolver = Resolver;
-            var assets = Assets;
+            var resolver = Host.Resolver;
+            var assets = Host.Assets;
             var view = resolver.Capture();
             // The seed door is pinned to that same view, so the seeds cannot name records from another build.
             var forceLoaded = ForceLoadedPluginNames();
@@ -46,7 +62,7 @@ public sealed partial class LoadOrderService
             string? foldError = null;
             if (foldArm is not null)
             {
-                fold = OpenDialogueFold(foldArm, out foldError, FoldLabel(foldArm), withRecords: true);
+                fold = Host.OpenDialogueFold(foldArm, out foldError, FoldLabel(foldArm), withRecords: true);
                 // Placed HERE, where the file is opened and the build is in hand: a fold that reaches a render
                 // unplaced would print the field's default position, which is a guess.
                 fold?.PlaceIn(view);
@@ -84,14 +100,15 @@ public sealed partial class LoadOrderService
 
         // One resolver and one view for the whole call: the scope check, the refusal stamps and the sweep all name
         // the same build.
-        var resolver = Resolver;
+        var resolver = Host.Resolver;
         var viewAll = resolver.Capture();
+        var roots = Host.CaptureRoots();
 
         // The exclude= axis. The `implicit` group is a fact about the MO2 composition, so it is read here and the
         // core sweep receives plain filenames, before anything is swept. Gated on the caller having written the
         // token, so a named-plugin exclusion over an unreadable profile is not refused about a group they never named.
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
-        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames() : (Array.Empty<string>(), null);
+        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(roots.ProfileDir) : (Array.Empty<string>(), null);
         if (implicitErr is not null) return ErrorCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return ErrorCheckResult.Fail(excludeErr);
@@ -99,11 +116,9 @@ public sealed partial class LoadOrderService
         if (plugins is { Count: > 0 })
         {
             var view = viewAll;
-            string modsDir, dataDir, overwriteDir, profileDir;
-            lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
             // Membership and locate refusals are decided against THIS build, so they are stamped; a blank name
             // consulted no build and stays unstamped.
-            if (SweepOffOrderScope.Split(view, plugins, modsDir, dataDir, overwriteDir, profileDir,
+            if (SweepOffOrderScope.Split(view, plugins, roots.ModsDir, roots.DataDir, roots.OverwriteDir, roots.ProfileDir,
                                          out var active, out var offOrder, offOrderMemo) is { } splitErr)
                 return splitErr.Stamped
                     ? ErrorCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
@@ -126,7 +141,7 @@ public sealed partial class LoadOrderService
         if (!r.Reports.Any(p => p.MissingMasters.Count > 0)) return r;
 
         string modsDir, dataDir, overwriteDir, profileDir;
-        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+        try { (modsDir, dataDir, overwriteDir, profileDir) = Host.CaptureRoots(); }
         catch { return r; }
         Mo2Composition comp;
         IReadOnlyCollection<string> installed;
@@ -151,10 +166,8 @@ public sealed partial class LoadOrderService
     /// <summary>The force-loaded plugin names — in the order, absent from plugins.txt — for
     /// <see cref="SweepExclusion.ImplicitToken"/>, or the reason they could not be read. A read that did not happen
     /// is not a set that is empty.</summary>
-    (IReadOnlyList<string> Names, string? Error) ImplicitPluginNames()
+    (IReadOnlyList<string> Names, string? Error) ImplicitPluginNames(string profileDir)
     {
-        string profileDir;
-        lock (_gate) { EnsurePathsDerived(); profileDir = _profileDir; }
         try { return (Mo2LoadOrder.ReadComposition(profileDir).ImplicitPluginNames, null); }
         catch (Exception ex)
         {
@@ -181,7 +194,7 @@ public sealed partial class LoadOrderService
         if (formids is { Count: > 0 })
         {
             keys = new HashSet<FormKey>();
-            var door = OpenFormIdDoor();
+            var door = Host.OpenFormIdDoor();
             foreach (var raw in formids)
             {
                 var t = raw?.Trim() ?? "";
@@ -197,7 +210,7 @@ public sealed partial class LoadOrderService
         string? armLabel = null;
         if (typeSet is { Count: > 0 })
         {
-            try { types = ResolveTypeFilterSet(typeSet, out armLabel); }
+            try { types = Host.ResolveTypeFilterSet(typeSet, out armLabel); }
             catch (ArgumentException ex) { return (null, ex.Message); }
             typeLabel = string.Join(", ", typeSet.Select(t => (t ?? "").Trim()));
         }
@@ -225,12 +238,12 @@ public sealed partial class LoadOrderService
         if (!SweepFindings.TryParseScriptClasses(findings, out var classes, out var classErr))
             return ScriptCheckResult.Fail(classErr!);
         // One resolver, view, asset build and set of roots threaded through, taken in one hold.
-        var (pin, captured) = CaptureCheckPinAndAssets();
+        var (pin, captured) = Host.CapturePinAndAssets(AfterCheckPinForGuard);
         var resolver = pin.Resolver;
         var view = pin.View;
         // The exclusion resolves here, where the MO2 composition lives, exactly as it does for CheckErrors.
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
-        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames() : (Array.Empty<string>(), null);
+        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(captured.ProfileDir) : (Array.Empty<string>(), null);
         if (implicitErr is not null) return ScriptCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return ScriptCheckResult.Fail(excludeErr);
@@ -254,17 +267,6 @@ public sealed partial class LoadOrderService
     /// <summary>Test seam: invoked in the facegen and script sweeps after the pin and before the asset capture; null in the product.</summary>
     internal Action? AfterCheckPinForGuard;
 
-    /// <summary>The index view, the asset build and the roots from one hold, so a profile switch cannot split them; the checks door takes this over in the next PR.</summary>
-    (ViewPin Pin, AssetCapture Assets) CaptureCheckPinAndAssets()
-    {
-        lock (_gate)
-        {
-            var pin = CapturePin();
-            AfterCheckPinForGuard?.Invoke();
-            return (pin, AssetCaptureLocked(AssetsNoProfileRefreshLocked().Capture()));
-        }
-    }
-
     /// <summary>Sweep the facegen join. <paramref name="plugins"/> takes the same active/off-order split the errors and scripts families take, through the same memo.</summary>
     public FaceGenCheckResult CheckFaceGen(IReadOnlyList<string>? plugins, int limit,
                                            IReadOnlyList<string>? formids = null, string? editoridContains = null,
@@ -277,14 +279,14 @@ public sealed partial class LoadOrderService
         if (!TryParseFaceGenClasses(findings, out var classes, out var classErr))
             return FaceGenCheckResult.Fail(classErr!);
 
-        var (pin, captured) = CaptureCheckPinAndAssets();   // one VFS build for every path this sweep resolves
+        var (pin, captured) = Host.CapturePinAndAssets(AfterCheckPinForGuard);   // one VFS build for every path this sweep resolves
         var resolver = pin.Resolver;
         var view = pin.View;
         var assets = captured.View;
         string modsDir = captured.ModsDir, dataDir = captured.DataDir, overwriteDir = captured.OverwriteDir, profileDir = captured.ProfileDir;
 
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
-        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames() : (Array.Empty<string>(), null);
+        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(captured.ProfileDir) : (Array.Empty<string>(), null);
         if (implicitErr is not null) return FaceGenCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return FaceGenCheckResult.Fail(excludeErr);

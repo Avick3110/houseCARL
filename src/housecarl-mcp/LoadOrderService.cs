@@ -6,7 +6,7 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlMcp;
 
 /// <summary>Owns the load-order resolver's lifecycle and is the one place the tools reach the core engines; contract in docs/architecture/load-order-service.md.</summary>
-public sealed partial class LoadOrderService : IDisposable, IAssetHost
+public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHost
 {
     string? _instanceDir;                          // INSTANCE-mode source of truth; null in explicit/unconfigured mode
     string _dataDir;                               // DERIVED (instance mode) or configured (explicit); mutable for a live profile switch
@@ -88,7 +88,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
         return new ViewPin(r, r.Capture());
     }
 
-    (ViewPin Pin, AssetCapture Assets) IAssetHost.CapturePinAndAssets(Action? afterPin)
+    (ViewPin Pin, AssetCapture Assets) ILoadOrderHost.CapturePinAndAssets(Action? afterPin)
     {
         lock (_gate)
         {
@@ -100,6 +100,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
 
     /// <summary>A FormID door for a tool body with no captured view of its own — see <see cref="FormIdDoor"/>.</summary>
     internal FormIdDoor OpenFormIdDoor() => FormIdDoor.For(this);
+    FormIdDoor ICheckHost.OpenFormIdDoor() => OpenFormIdDoor();
 
     /// <summary>The same door for a WRITE verb's tokens, which refuses a runtime FormID.</summary>
     internal FormIdDoor OpenWriteFormIdDoor() => FormIdDoor.ForWrite(this);
@@ -151,6 +152,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
         }
     }
 
+    LoadOrderResolver ILoadOrderHost.Resolver => Resolver;
+
     // ---- VFS asset resolution (housecarl_asset_status) --------------------------------------------------
 
     /// <summary>The VFS-aware asset resolver, built on first asset query and kept fresh after — the asset twin of <see cref="Resolver"/>, which it never forces. Takes <see cref="_gate"/>.</summary>
@@ -172,6 +175,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
             }
         }
     }
+
+    AssetResolver ILoadOrderHost.Assets => Assets;
 
     /// <summary>The asset resolver for the profile already resolved, with no profile re-read; caller holds <see cref="_gate"/>.</summary>
     AssetResolver AssetsNoProfileRefreshLocked()
@@ -207,7 +212,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
     AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
         new(view, AssetWarningsLocked(), _profileName, _profileDir, _dataDir, _modsDir, _overwriteDir, _activeArchives, _enabledModsAtBuild);
 
-    // Rows the assets area takes from output, writes and reads, relayed here until those areas are their own classes.
+    // Rows the assets and checks areas take from output, writes and reads, relayed here until those areas are their own classes.
     RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);
     string? IAssetHost.RemoveOrNameRiderResidue(RiderFolder folder) => RemoveOrNameRiderResidue(folder);
     bool IAssetHost.IsInPlaceAcknowledged(string path) => _store.IsInPlaceAcknowledged(path);
@@ -216,6 +221,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
     string IAssetHost.InPlaceHandshakeLead(string name, string path, string subject, string verb) => InPlaceHandshakeLead(name, path, subject, verb);
     Dictionary<string, List<Type>> IAssetHost.TypeLookup => TypeLookup;
     string IAssetHost.UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk) => UnresolvedFormId(view, fk);
+    IReadOnlyList<Type>? ICheckHost.ResolveTypeFilterSet(IReadOnlyList<string>? types, out string? armLabel) => ResolveTypeFilterSet(types, out armLabel);
+    DialogueFold? ICheckHost.OpenDialogueFold(PoleInfo arm, out string? error, string? label, bool withRecords) => OpenDialogueFold(arm, out error, label, withRecords);
 
     // The assets area's tool-facing surface; the bodies are in AssetLayers.cs and SkyPatcherReplay.cs.
     public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under = null, int limit = 0, int offset = 0,
@@ -692,6 +699,11 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName; _overwriteDir = p.OverwriteDir;
         _iniStamp = iniStamp;
         InvalidateClassParents();                                // _modsDir just gained a value — a cache built before derivation is baseline-only
+    }
+
+    Mo2Roots ILoadOrderHost.CaptureRoots()
+    {
+        lock (_gate) { EnsurePathsDerived(); return new(_modsDir, _dataDir, _overwriteDir, _profileDir); }
     }
 
     static bool PathEq(string a, string b) =>

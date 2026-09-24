@@ -11,9 +11,6 @@ internal interface IAssetHost : ILoadOrderHost
     /// <summary>An asset capture and an index capture in one <c>_gate</c> hold, so neither is from a later build than the other.</summary>
     (AssetCapture Assets, LoadOrderResolver.IndexView Index) CaptureAssetsAndIndex();
 
-    /// <summary>A pinned index and the asset build that pairs with it, in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between the two.</summary>
-    (LoadOrderService.ViewPin Pin, AssetCapture Assets) CapturePinAndAssets(Action? afterPin);
-
     /// <summary>The installed game runtime version, or null.</summary>
     string? InstalledGameRuntime();
 
