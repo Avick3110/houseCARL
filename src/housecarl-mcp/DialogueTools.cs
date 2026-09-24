@@ -20,10 +20,9 @@ internal static class DialogueWire
         return true;
     }
 
-    /// <param name="includeInfoOrder">render the effective merged INFO order inside this block; the <c>check</c>
-    /// surface's dialogue family does not (contract in docs/architecture/dialogue-validation.md).</param>
-    internal static void AppendTopic(StringBuilder sb, TopicValidation t, bool indent, int cap,
-                                     bool includeInfoOrder = true)
+    /// <summary>One topic's block. The effective merged INFO order is not in it; that lives on
+    /// <c>records project=info_order</c> (contract in docs/architecture/dialogue-validation.md).</summary>
+    internal static void AppendTopic(StringBuilder sb, TopicValidation t, bool indent, int cap)
     {
         string pad = indent ? "  " : "";
         sb.Append(pad).Append("topic ").Append(Edid(t.TopicEditorId)).Append(" (").Append(FormIdToken.Of(t.Topic)).Append(')')
@@ -62,8 +61,6 @@ internal static class DialogueWire
             if (!AppendIssues(sb, t.Issues, pad + "    ", cap)) return;
         }
 
-        if (includeInfoOrder && !AppendInfoOrder(sb, t, pad, cap, indent)) return;
-
         AppendVoice(sb, t, pad, cap);
         AppendScripts(sb, t, pad, cap);
     }
@@ -71,11 +68,8 @@ internal static class DialogueWire
     /// <summary>How many order rows are listed in full before the render lists only the MOVED lines.</summary>
     const int MaxOrderRows = 25;
 
-    /// <summary>The effective merged INFO order; contract in docs/architecture/dialogue.md.</summary>
-    static bool AppendInfoOrder(StringBuilder sb, TopicValidation t, string pad, int cap, bool indent)
-        => AppendInfoOrderView(sb, t.InfoOrder, pad, cap, indent);
-
-    /// <summary>The view-level body, shared with the <c>records project=info_order</c> form.</summary>
+    /// <summary>The effective merged INFO order, for the <c>records project=info_order</c> form; contract in
+    /// docs/architecture/dialogue.md.</summary>
     internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, string pad, int cap, bool indent)
     {
         // An empty order says nothing, unless it is empty because nothing could be read — never render that as silence.

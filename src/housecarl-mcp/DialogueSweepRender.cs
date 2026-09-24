@@ -28,7 +28,7 @@ internal static class DialogueSweepRender
     {
         // int.MaxValue: the cap that decides is the emitter's.
         var one = new StringBuilder();
-        DialogueWire.AppendTopic(one, t, indent: true, int.MaxValue, includeInfoOrder: false);
+        DialogueWire.AppendTopic(one, t, indent: true, int.MaxValue);
         return one.ToString();
     }
 
