@@ -183,8 +183,8 @@ number describes a wider set than the rows beside it.
   `SkseFindingsWireShapeTests.AJsonArrayForFindingsGetsTheToolsOwnOneFamilyRefusal` — one family per call;
   `SkseFamilyBindingTests.EachFamilyAnswersWithItsOwnWireClassHeaderAndItsOwnFooter` — each `findings=` value is
   answered by its own family's render and footer, through the real renders.
-- *The static-load rule*: `SksePeekProbe` (ci probe `skse-peek-guard`) part 2 — a failed import walk leaves `Imports`
-  null, never a genuine empty, and a null never becomes a Debug-CRT claim or blocker.
+- *The static-load rule*: `SkseImportWalkTests` — a failed import walk leaves `Imports` null, never a genuine empty,
+  and a null never becomes a Debug-CRT claim or blocker; `SksePeekRenderTests` pins both Debug-CRT wordings.
 - *The static-load rule*: `NativePairingProbe` (`native-pairing-guard`) part 2 — the runtime compare that decides the
   version lock, where garbage never passes.
 - *The PE manifest read*: the map is pinned by `SkseReaderProbe` (`skse-reader-guard`) arms A and F, which fail the
@@ -195,7 +195,8 @@ number describes a wider set than the rows beside it.
 - *The PE manifest read*: `SkseVersionSourceTests` pins the row separator the composed text may not use
   (`TheVersionTextDoesNotUseTheRowSeparator`); the rest of the class — the three version numbers each labelled with
   its source and shown only where they disagree, and a modder's tag not a disagreement.
-- *The peek*: `SksePeekProbe` part 1 pins the UTF-16 arm and the negative classification arms.
+- *The peek*: `SksePeekScanTests` pins the UTF-16 arm and the negative classification arms; `SksePeekRenderTests`
+  pins the load-order cross-check, including no ABSENT verdict when the order is unknown.
 - *Native pairing*: `NativePairingProbe` part 1 pins the raw bit1 native flag; part 2 — an official archive's class is
   the ENGINE's even under a winning loose override; part 3 — UNPAIRED is framed a verify flag, never "broken".
 - *Config references*: both charset directions are pinned by `SkseConfigAuditProbe` (`skse-config-audit-guard`) arms
