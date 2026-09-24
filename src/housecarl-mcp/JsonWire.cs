@@ -171,8 +171,8 @@ static class JsonWire
     /// <summary>The post-write read-back block, one construction for apply / create / forward: <c>readback_source</c>
     /// names the WRITTEN FILE's content or a dry run's in-memory would-be content, never load-order truth, and
     /// <c>readback_requested</c> carries the caller's ask; <c>readback_full</c> describes this document and must not
-    /// be made to carry that ask, pinned by <c>WriteSurfaceGuardProbe</c> ("an in-place lane that FORCED the
-    /// read-back reports readback_full:true, ask kept separately").</summary>
+    /// be made to carry that ask, pinned by <c>WriteSurfaceInPlaceTransportTests.ForcedReadbackIsReportedFull</c>
+    /// ("an in-place lane that FORCED the read-back reports readback_full:true, ask kept separately").</summary>
     static void WriteReadbackBlock(Utf8JsonWriter w, CharCountedStream ms, int cap,
         IReadOnlyList<WritePatchBuilder.FullReadback> rb, bool dryRun, bool requested, ref bool truncated)
     {

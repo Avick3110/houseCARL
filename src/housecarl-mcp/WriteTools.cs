@@ -1185,7 +1185,7 @@ public static class WriteTools
            .ToList();
 }
 
-// ---- the retired 1.x wire DTOs: parked in WireNamesProbe.NonInputWireTypes, reachable from no tool's input schema ----
+// ---- the retired 1.x wire DTOs: parked in WireNamesScan.NonInputWireTypes, reachable from no tool's input schema ----
 
 /// <summary>One edit operation off the wire, mirroring <see cref="WritePatchBuilder.PatchEdit"/>; RecordType is derived
 /// from the resolved winner's runtime type rather than supplied.</summary>
