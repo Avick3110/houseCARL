@@ -16,7 +16,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
     string _overwriteDir = "";                     // MO2's overwrite layer (instance mode: derived; explicit mode: none)
     bool _configured;                              // false ⇒ tools return the trained prompt instead of resolving
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
-    bool IAssetHost.IsInPlaceAcknowledged(string path) => _store.IsInPlaceAcknowledged(path);
     readonly int _maxPlugins;
     readonly object _gate = new();
     // Serializes every plugin write's resolve, stage and commit; contract in docs/architecture/load-order-service.md.
@@ -209,6 +208,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
     // Rows the assets area takes from output, writes and reads, relayed here until those areas are their own classes.
     RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);
     string? IAssetHost.RemoveOrNameRiderResidue(RiderFolder folder) => RemoveOrNameRiderResidue(folder);
+    bool IAssetHost.IsInPlaceAcknowledged(string path) => _store.IsInPlaceAcknowledged(path);
     string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
     Dictionary<string, List<Type>> IAssetHost.TypeLookup => TypeLookup;
     string IAssetHost.UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk) => UnresolvedFormId(view, fk);
