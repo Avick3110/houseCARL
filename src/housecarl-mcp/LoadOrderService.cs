@@ -6,7 +6,7 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlMcp;
 
 /// <summary>Owns the load-order resolver's lifecycle and is the one place the tools reach the core engines; contract in docs/architecture/load-order-service.md.</summary>
-public sealed partial class LoadOrderService : IDisposable
+public sealed partial class LoadOrderService : IDisposable, IAssetHost
 {
     string? _instanceDir;                          // INSTANCE-mode source of truth; null in explicit/unconfigured mode
     string _dataDir;                               // DERIVED (instance mode) or configured (explicit); mutable for a live profile switch
@@ -16,10 +16,12 @@ public sealed partial class LoadOrderService : IDisposable
     string _overwriteDir = "";                     // MO2's overwrite layer (instance mode: derived; explicit mode: none)
     bool _configured;                              // false ⇒ tools return the trained prompt instead of resolving
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
+    bool IAssetHost.IsInPlaceAcknowledged(string path) => _store.IsInPlaceAcknowledged(path);
     readonly int _maxPlugins;
     readonly object _gate = new();
     // Serializes every plugin write's resolve, stage and commit; contract in docs/architecture/load-order-service.md.
     readonly object _writeGate = new();
+    object ILoadOrderHost.WriteGate => _writeGate;
     LoadOrderResolver? _resolver;
     CorpusRulebook? _rulebook;
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
@@ -85,6 +87,16 @@ public sealed partial class LoadOrderService : IDisposable
         return new ViewPin(r, r.Capture());
     }
 
+    (ViewPin Pin, SkyPatcherAssets Assets) IAssetHost.CapturePinAndAssets(Action? afterPin)
+    {
+        lock (_gate)
+        {
+            var pin = CapturePin();
+            afterPin?.Invoke();
+            return (pin, new SkyPatcherAssets(AssetsNoProfileRefreshLocked().Capture(), AssetWarningsLocked(), _profileName));
+        }
+    }
+
     /// <summary>A FormID door for a tool body with no captured view of its own — see <see cref="FormIdDoor"/>.</summary>
     internal FormIdDoor OpenFormIdDoor() => FormIdDoor.For(this);
 
@@ -138,6 +150,8 @@ public sealed partial class LoadOrderService : IDisposable
         }
     }
 
+    LoadOrderResolver ILoadOrderHost.Resolver => Resolver;
+
     // ---- VFS asset resolution (housecarl_asset_status) --------------------------------------------------
 
     /// <summary>The VFS-aware asset resolver, built on first asset query and kept fresh after — the asset twin of <see cref="Resolver"/>, which it never forces. Takes <see cref="_gate"/>.</summary>
@@ -175,6 +189,33 @@ public sealed partial class LoadOrderService : IDisposable
         return _assetResolver;
     }
 
+    AssetCapture ILoadOrderHost.CaptureAssets()
+    {
+        lock (_gate) { EnsurePathsDerived(); return AssetCaptureLocked(Assets.Capture()); }
+    }
+
+    (AssetCapture Assets, LoadOrderResolver.IndexView Index) IAssetHost.CaptureAssetsAndIndex()
+    {
+        lock (_gate)
+        {
+            EnsurePathsDerived();
+            var view = Assets.Capture();
+            var index = Resolver.Capture();   // before the warnings: a first index build can clear the held-profile note they carry
+            return (AssetCaptureLocked(view), index);
+        }
+    }
+
+    /// <summary>The rest of an asset capture around a view just taken; caller holds <see cref="_gate"/>.</summary>
+    AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
+        new(view, AssetWarningsLocked(), _profileName, _profileDir, _dataDir, _modsDir, _overwriteDir, _activeArchives, _enabledModsAtBuild);
+
+    // Rows the assets area takes from output, writes and reads, relayed here until those areas are classes (W4 plan ledger).
+    RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);
+    string? IAssetHost.RemoveOrNameRiderResidue(RiderFolder folder) => RemoveOrNameRiderResidue(folder);
+    string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
+    Dictionary<string, List<Type>> IAssetHost.TypeLookup => TypeLookup;
+    string IAssetHost.UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk) => UnresolvedFormId(view, fk);
+
     internal int AbsenceExplanations;   // how many times the explainer has parsed the profile — a test seam for the memo
 
     /// <summary>MO2's mods root as this service currently has it, or null when it has none yet; taken under the gate.</summary>
@@ -190,6 +231,8 @@ public sealed partial class LoadOrderService : IDisposable
             }
         }
     }
+
+    string? IAssetHost.ModsRootOrNull => ModsRootOrNull;
 
     /// <summary>The injected answer to "why is this plugin filename not in the active order?": the profile and the roots
     /// are read FRESH on each call rather than captured, and the count of those reads is <see cref="AbsenceExplanations"/>,
@@ -697,6 +740,8 @@ public sealed partial class LoadOrderService : IDisposable
             return null;
         }
     }
+
+    string? IAssetHost.InstalledGameRuntime() => InstalledGameRuntime();
 
     /// <summary>The game dirs to search for the Creation Kit's compiler, in priority order: the load order's own, then the located real Skyrim SE install. De-duplicated, best-effort.</summary>
     public IReadOnlyList<string> CompilerGameDirHints()
