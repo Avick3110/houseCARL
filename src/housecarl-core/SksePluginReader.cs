@@ -134,7 +134,8 @@ public static class SksePluginReader
     }
 
     /// <summary>Decode the raw <c>SKSEPlugin_Version</c> blob into the manifest, pure and bounds-checked; the offset
-    /// map is in docs/architecture/skse-layer.md and pinned by SkseReaderProbe arms A and F.</summary>
+    /// map is in docs/architecture/skse-layer.md and pinned by SkseVersionBlobDecodeTests, the 0x304/0x308 split by
+    /// its ViExAlone_SetsNoStructsOnly and ViAlone_SetsAddressLibraryOnly.</summary>
     public static SkseVersionInfo DecodeVersionBlob(ReadOnlySpan<byte> b)
     {
         uint pluginVersion = U32(b, 0x004);
