@@ -3,7 +3,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -42,7 +41,6 @@ public sealed class CreateReadbackFromFileTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_mods, "CrMasterMod"));
         master.BeginWrite.ToPath(Path.Combine(_mods, "CrMasterMod", MasterName))
             .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

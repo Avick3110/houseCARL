@@ -3,7 +3,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -66,7 +65,6 @@ public sealed class WriteReadbackFromFileTests : IDisposable
         // The owner marker: into= only extends a folder houseCARL made.
         File.WriteAllText(Path.Combine(mods, PatchFolder, "meta.ini"),
             "[General]\r\ngameName=skyrimse\r\n\r\n[houseCARL]\r\ngenerated=true\r\nplugin=" + PatchName + "\r\n");
-
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

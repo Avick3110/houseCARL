@@ -3,7 +3,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using Xunit;
 
 namespace HousecarlMcpTests;
@@ -63,7 +62,6 @@ public sealed class BulkWriteBytesTests : IDisposable
         }
         var masterFile = Path.Combine(_root, masterKey.FileName.String);
         master.BeginWrite.ToPath(masterFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
 
         _resolver = LoadOrderResolver.Build(new[] { masterFile });
         _rulebook = TestCorpus.Rulebook;

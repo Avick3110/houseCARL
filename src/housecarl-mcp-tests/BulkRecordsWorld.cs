@@ -4,7 +4,6 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -64,7 +63,6 @@ public sealed class BulkRecordsWorld : IDisposable
     public const string W1Name = "Bulk Iron Sword";
 
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
-
 
     public BulkRecordsWorld()
     {
@@ -186,7 +184,6 @@ public sealed class EngineImplicitLinkWorld : IDisposable
 
     public const string PlayerRefToken = "000014:Skyrim.esm";
     public const string ControlToken = "000015:Skyrim.esm";
-
 
     public EngineImplicitLinkWorld()
     {

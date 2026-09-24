@@ -4,7 +4,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -65,7 +64,6 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
         master.BeginWrite.ToPath(Path.Combine(mods, "ClashMasterMod", MasterName))
             .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         user.BeginWrite.ToPath(_userPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

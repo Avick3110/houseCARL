@@ -68,7 +68,6 @@ public sealed class WalkUnscannableWorld : IDisposable
         File.WriteAllBytes(path, bytes[..(sub + 6 + Keep)].Concat(bytes[(sub + 6 + len)..]).ToArray());
     }
 
-
     public WalkUnscannableWorld()
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-walk-unscannable-tests-" + Guid.NewGuid().ToString("N"));
@@ -143,7 +142,6 @@ public sealed class WalkUnscannableWorld : IDisposable
             var cut = overlay.Npcs.First(n => n.FormKey == broken.FormKey);
             Assert.ThrowsAny<Exception>(() => cut.Configuration.TemplateFlags);
         }
-
 
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + MasterName + "\r\n");

@@ -2,7 +2,6 @@
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -31,7 +30,6 @@ public sealed class WalkCostWorld : IDisposable
     /// <summary>The seed of the revisit fan: a list of <see cref="Hubs"/> hubs that each point back at every hub and
     /// at one terminal of their own, so hop 2's frontier is half revisits and half records still to reach.</summary>
     public string RevisitSeed { get; }
-
 
     public WalkCostWorld()
     {
@@ -90,7 +88,6 @@ public sealed class WalkCostWorld : IDisposable
         Directory.CreateDirectory(Path.Combine(mods, "WalkCostMod"));
         master.BeginWrite.ToPath(Path.Combine(mods, "WalkCostMod", MasterName))
               .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

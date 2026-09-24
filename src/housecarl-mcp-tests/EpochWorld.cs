@@ -2,7 +2,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -34,7 +33,6 @@ public sealed class EpochWorld : IDisposable
     /// order, so the dialogue family renders a head rather than refusing. DLVW reads nothing off disk, so the head
     /// it renders is the whole-coverage one.</summary>
     public FormKey View { get; }
-
 
     public EpochWorld()
     {
@@ -79,7 +77,6 @@ public sealed class EpochWorld : IDisposable
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + masterName + "\r\n*" + BadName + "\r\n");
         // OldMod is UNTICKED ('-' prefix) — off-order: on disk, not in the active order.
         File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-OldMod\r\n+BadMod\r\n+MasterMod\r\n");
-
 
         var store = new UserConfigStore(Path.Combine(Root, "user.json"));
         Svc = LoadOrderService.WithInstance(Instance, 0, store);

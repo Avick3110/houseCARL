@@ -3,7 +3,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -33,7 +32,6 @@ public sealed class WalkCycleWorld : IDisposable
     /// <summary>Hubs in the dense fan. A DFS over n mutually-linking records reports n(n+1)/2 back edges, so this
     /// is set past what it takes to trip the per-seed cycle-search cap.</summary>
     public const int Hubs = 22;
-
 
     public WalkCycleWorld()
     {
@@ -102,7 +100,6 @@ public sealed class WalkCycleWorld : IDisposable
         Directory.CreateDirectory(Path.Combine(mods, "WalkCycleMod"));
         master.BeginWrite.ToPath(Path.Combine(mods, "WalkCycleMod", MasterName))
               .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

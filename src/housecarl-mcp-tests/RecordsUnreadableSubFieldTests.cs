@@ -3,7 +3,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -37,7 +36,6 @@ public sealed class TruncatedSubFieldWorld : IDisposable
             if (b[i] == sig[0] && b[i + 1] == sig[1] && b[i + 2] == sig[2] && b[i + 3] == sig[3]) return i;
         return -1;
     }
-
 
     public TruncatedSubFieldWorld()
     {
@@ -96,7 +94,6 @@ public sealed class TruncatedSubFieldWorld : IDisposable
         BitConverter.GetBytes(BitConverter.ToUInt32(bytes, rec + 4) - (uint)cut).CopyTo(bytes, rec + 4);
         BitConverter.GetBytes(BitConverter.ToUInt32(bytes, grup + 4) - (uint)cut).CopyTo(bytes, grup + 4);
         File.WriteAllBytes(path, bytes[..(sub + 6 + Keep)].Concat(bytes[(sub + 6 + len)..]).ToArray());
-
 
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + cleanKey.FileName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + cleanKey.FileName + "\r\n");

@@ -3,7 +3,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -70,7 +69,6 @@ public sealed class WinnerScanCoverageTests
             var iniDir = Path.Combine(mods, "BaseMod", "SKSE", "Plugins", "SkyPatcher", "weapon");
             Directory.CreateDirectory(iniDir);
             File.WriteAllText(Path.Combine(iniDir, "hcws.ini"), "filterByWeapons=HcWsHeldWeapon:attackDamage=20\r\n");
-
 
             File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
                 "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

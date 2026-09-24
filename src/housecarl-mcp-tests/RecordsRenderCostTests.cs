@@ -2,7 +2,6 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
-using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -59,7 +58,6 @@ public sealed class RenderCostWorld : IDisposable
     public string OffOrderName { get; }
 
     public LoadOrderService Svc { get; }
-
 
     public RenderCostWorld()
     {
@@ -167,7 +165,6 @@ public sealed class RenderCostWorld : IDisposable
         Directory.CreateDirectory(Path.Combine(mods, "CostOffMod"));
         off.BeginWrite.ToPath(Path.Combine(mods, "CostOffMod", OffOrderName))
            .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
