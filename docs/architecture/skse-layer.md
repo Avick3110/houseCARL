@@ -190,7 +190,8 @@ number describes a wider set than the rows beside it.
 - *The PE manifest read*: the map is pinned by `SkseVersionBlobDecodeTests` (`ViExAlone_SetsNoStructsOnly`,
   `ViAlone_SetsAddressLibraryOnly`), which fail the instant email is "fixed" to 256 and both flag fields shift; the
   rest of that class — the flag decode, the zero-terminated runtime list, the REL::Version unpack — and
-  `SkseReadFromDiskTests`, a non-SKSE or unreadable image classified by kind rather than thrown.
+  `SkseReadFromDiskTests` with `SkseImportWalkTests.ASystemDllIsClassifiedNotSkse`, a non-SKSE or unreadable image
+  classified by kind rather than thrown.
 - *The PE manifest read*: `SkseDirectoryReadTests` — a zero directory Size beside a declared RVA: the export walk
   reads it, the import walk answers unknown rather than a short list.
 - *The PE manifest read*: `SkseVersionSourceTests` pins the row separator the composed text may not use
