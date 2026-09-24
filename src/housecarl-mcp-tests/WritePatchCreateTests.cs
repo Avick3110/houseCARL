@@ -35,13 +35,13 @@ public sealed class WritePatchCreateTests : IDisposable
         => new() { RecordType = type, EditorId = edid, Edits = edits };
 
     WritePatchBuilder.CreateOutcome Create(string outName, params WritePatchBuilder.CreateSpec[] specs)
-        => WritePatchBuilder.CreateRecords(_order, TestCorpus.Rulebook(), specs, _rig.Out(outName), extend: false);
+        => WritePatchBuilder.CreateRecords(_order, TestCorpus.Rulebook, specs, _rig.Out(outName), extend: false);
 
     // T48
     [Fact]
     public void AnInPlaceCreateIsNotMarkedExtended()
     {
-        var o = WritePatchBuilder.CreateRecordsInPlace(_order, TestCorpus.Rulebook(),
+        var o = WritePatchBuilder.CreateRecordsInPlace(_order, TestCorpus.Rulebook,
             new[] { Spec("Keyword", "HcWpCreateInPlace") }, _targetPath, TargetName);
         Assert.True(o.Success, o.Error);
         Assert.True(o.InPlace);

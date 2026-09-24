@@ -53,14 +53,14 @@ public sealed class WritePatchApplyTests : IDisposable
     {
         var order = Order();
         var path = _rig.Out("HcWpApplyExtend.esp");
-        var created = WritePatchBuilder.CreateRecords(order, TestCorpus.Rulebook(), new[]
+        var created = WritePatchBuilder.CreateRecords(order, TestCorpus.Rulebook, new[]
         {
             new WritePatchBuilder.CreateSpec { RecordType = "Weapon", EditorId = "HcWpApplyNewSword", Edits = Array.Empty<WriteRequest>() },
         }, path, extend: false);
         Assert.True(created.Success, created.Error);
         var fk = created.Created[0].FormKey;
 
-        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), new[] { WritePathRig.Set(fk, "BasicStats.Damage", "77") }, path, extend: true);
+        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook, new[] { WritePathRig.Set(fk, "BasicStats.Damage", "77") }, path, extend: true);
 
         Assert.True(o.Success, o.Error);
         Assert.Equal(77, _rig.Open(path).Weapons.Single(x => x.FormKey == fk).BasicStats!.Damage);
@@ -70,7 +70,7 @@ public sealed class WritePatchApplyTests : IDisposable
     [Fact]
     public void APatchRefusalListsItsProblemsInEditOrder()
     {
-        var o = WritePatchBuilder.Apply(Order(), TestCorpus.Rulebook(), new[]
+        var o = WritePatchBuilder.Apply(Order(), TestCorpus.Rulebook, new[]
         {
             WritePathRig.Set(_weapon, "NoSuchField", "1"),
             WritePathRig.Set(NotInOrder, "BasicStats.Damage", "1"),
@@ -83,7 +83,7 @@ public sealed class WritePatchApplyTests : IDisposable
     [Fact]
     public void AnInPlaceRefusalListsItsProblemsInEditOrder()
     {
-        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook(), new[]
+        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook, new[]
         {
             WritePathRig.Set(_ownWeapon, "NoSuchField", "1"),
             WritePathRig.Set(_weapon, "BasicStats.Damage", "1"),        // a master record the target does not carry
@@ -103,7 +103,7 @@ public sealed class WritePatchApplyTests : IDisposable
     [Fact]
     public void TheJsonApplyResultMarksEveryOpApplied()
     {
-        var o = WritePatchBuilder.Apply(Order(), TestCorpus.Rulebook(), new[]
+        var o = WritePatchBuilder.Apply(Order(), TestCorpus.Rulebook, new[]
         {
             WritePathRig.Set(_weapon, "BasicStats.Damage", "42"),
             WritePathRig.Set(_weapon, "BasicStats.Weight", "2"),
@@ -116,7 +116,7 @@ public sealed class WritePatchApplyTests : IDisposable
     [Fact]
     public void TheJsonInPlaceApplyResultMarksEveryOpApplied()
     {
-        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook(),
+        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook,
             new[] { WritePathRig.Set(_ownWeapon, "BasicStats.Damage", "42") }, _targetPath, TargetName);
         Assert.True(o.Success, o.Error);
 
@@ -127,7 +127,7 @@ public sealed class WritePatchApplyTests : IDisposable
     [Fact]
     public void TheJsonCreateResultMarksEveryOpAppliedFillsIncluded()
     {
-        var o = WritePatchBuilder.CreateRecords(Order(), TestCorpus.Rulebook(), new[]
+        var o = WritePatchBuilder.CreateRecords(Order(), TestCorpus.Rulebook, new[]
         {
             new WritePatchBuilder.CreateSpec
             {
@@ -152,7 +152,7 @@ public sealed class WritePatchApplyTests : IDisposable
     [Fact]
     public void AnInPlaceLinkToAWrongTypeRecordIsRefused()
     {
-        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook(),
+        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook,
             new[] { WritePathRig.Set(_ownWeapon, "EquipmentType", _keyword.ToString()) }, _targetPath, TargetName);
 
         Assert.False(o.Success);
@@ -163,7 +163,7 @@ public sealed class WritePatchApplyTests : IDisposable
     [Fact]
     public void ALandedInPlaceApplyReportsSuccessNotAnExtend()
     {
-        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook(),
+        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook,
             new[] { WritePathRig.Set(_ownWeapon, "BasicStats.Damage", "42") }, _targetPath, TargetName);
 
         Assert.True(o.Success, o.Error);

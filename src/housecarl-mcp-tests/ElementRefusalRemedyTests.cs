@@ -13,7 +13,7 @@ namespace HousecarlMcpTests;
 [Trait("tier", "integration")]
 public sealed class ElementRefusalRemedyTests
 {
-    static CorpusRulebook Book() => CorpusRulebook.Load();
+    static CorpusRulebook Book() => TestCorpus.Rulebook;
 
     static string Refusal(string[] path, string verb, string? key = null, string? value = null)
     {

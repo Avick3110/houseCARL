@@ -159,7 +159,7 @@ public sealed class FormLinkNullSynonymTests
 {
     readonly CorpusRulebook _rulebook;
 
-    public FormLinkNullSynonymTests() => _rulebook = TestCorpus.Rulebook();
+    public FormLinkNullSynonymTests() => _rulebook = TestCorpus.Rulebook;
 
     [Theory]
     [InlineData("0")]
@@ -198,7 +198,7 @@ public sealed class SiblingReferenceTests
 {
     readonly CorpusRulebook _rulebook;
 
-    public SiblingReferenceTests() => _rulebook = TestCorpus.Rulebook();
+    public SiblingReferenceTests() => _rulebook = TestCorpus.Rulebook;
 
     [Fact]
     public void AOneCharacterEditorIdSiblingReferenceIsAccepted()

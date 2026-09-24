@@ -80,7 +80,7 @@ public sealed class WritePatchHandleTests : IDisposable
     public void ApplyReleasesItsOutput()
     {
         var path = _rig.Out("HcWpHoldApply.esp");
-        var o = WritePatchBuilder.Apply(Order(), TestCorpus.Rulebook(), new[] { WritePathRig.Set(_sword, "BasicStats.Damage", "42") }, path, extend: false);
+        var o = WritePatchBuilder.Apply(Order(), TestCorpus.Rulebook, new[] { WritePathRig.Set(_sword, "BasicStats.Damage", "42") }, path, extend: false);
         Assert.True(o.Success, o.Error);
         NoneHeld(path, _masterPath);
     }
@@ -88,7 +88,7 @@ public sealed class WritePatchHandleTests : IDisposable
     [Fact]
     public void InPlaceApplyReleasesItsTarget()
     {
-        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook(),
+        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook,
             new[] { WritePathRig.Set(_ownSword, "BasicStats.Damage", "42") }, _targetPath, TargetName);
         Assert.True(o.Success, o.Error);
         NoneHeld(_targetPath, _masterPath);
@@ -99,7 +99,7 @@ public sealed class WritePatchHandleTests : IDisposable
     {
         var order = Order();
         var path = _rig.Out("HcWpHoldRemove.esp");
-        var created = WritePatchBuilder.CreateRecords(order, TestCorpus.Rulebook(), new[]
+        var created = WritePatchBuilder.CreateRecords(order, TestCorpus.Rulebook, new[]
         {
             new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcWpHoldGone", Edits = Array.Empty<WriteRequest>() },
             new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcWpHoldKept", Edits = Array.Empty<WriteRequest>() },

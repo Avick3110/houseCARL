@@ -41,7 +41,7 @@ public sealed class WritePatchEpochTests : IDisposable
 
     string Epoch => _order.Capture().Stamp.Epoch;
 
-    WritePatchBuilder.CreateOutcome CreateSword(string path) => WritePatchBuilder.CreateRecords(_order, TestCorpus.Rulebook(), new[]
+    WritePatchBuilder.CreateOutcome CreateSword(string path) => WritePatchBuilder.CreateRecords(_order, TestCorpus.Rulebook, new[]
     {
         new WritePatchBuilder.CreateSpec { RecordType = "Weapon", EditorId = "HcWpEpochNew", Edits = Array.Empty<WriteRequest>() },
     }, path, extend: false);
@@ -69,7 +69,7 @@ public sealed class WritePatchEpochTests : IDisposable
     [Fact]
     public void AnInPlaceApplyCarriesTheEpoch()
     {
-        var o = WritePatchBuilder.ApplyInPlace(_order, TestCorpus.Rulebook(),
+        var o = WritePatchBuilder.ApplyInPlace(_order, TestCorpus.Rulebook,
             new[] { WritePathRig.Set(_ownWeapon, "BasicStats.Damage", "42") }, _targetPath, TargetName);
         Assert.True(o.Success, o.Error);
         Assert.Equal(Epoch, o.Epoch);

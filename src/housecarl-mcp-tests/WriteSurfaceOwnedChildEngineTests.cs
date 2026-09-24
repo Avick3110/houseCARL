@@ -15,7 +15,7 @@ namespace HousecarlMcpTests;
 [Trait("tier", "integration")]
 public sealed class WriteSurfaceOwnedChildEngineTests
 {
-    static CorpusRulebook Rules => CorpusRulebook.Load();
+    static CorpusRulebook Rules => TestCorpus.Rulebook;
 
     static string? Throws(Action act)
     {

@@ -16,7 +16,7 @@ public sealed class InPlaceGuardEditTests
     WritePatchBuilder.PatchOutcome Edit(string target, string targetName, string[] path, string verb, string value, params string[] order)
     {
         using var r = LoadOrderResolver.Build(order);
-        return WritePatchBuilder.ApplyInPlace(r, _w.Rulebook,
+        return WritePatchBuilder.ApplyInPlace(r, TestCorpus.Rulebook,
             new[] { new WritePatchBuilder.PatchEdit { Target = _w.Weapon, Path = path, Verb = verb, Value = value } },
             target, targetName);
     }
@@ -54,7 +54,7 @@ public sealed class InPlaceGuardEditTests
         var user = _w.FreshUser();
         var before = File.ReadAllBytes(user);
         using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, user, _w.HighPath });
-        var o = WritePatchBuilder.ApplyInPlace(r, _w.Rulebook,
+        var o = WritePatchBuilder.ApplyInPlace(r, TestCorpus.Rulebook,
             new[] { new WritePatchBuilder.PatchEdit { Target = _w.Weapon2, Path = new[] { "BasicStats", "Damage" }, Verb = "Set", Value = "7" } },
             user, W.UserName);
         Assert.False(o.Success);

@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using HousecarlMcp;
 
 namespace HousecarlMcpTests;
@@ -23,14 +22,13 @@ public sealed class ResultsDirScope : IDisposable
     public void Dispose() => ResultsStore.OverrideDirForTests = _prior;
 }
 
-/// <summary>Every other test spills into one directory for the whole process, set before any test runs, so no
-/// truncating call writes an artifact into the build output.</summary>
+/// <summary>Every other test spills into one directory for the whole run, set by <see cref="TestRunSetup"/> before
+/// any test runs, so no truncating call writes an artifact into the build output.</summary>
 static class TestResultsDir
 {
-    [ModuleInitializer]
     internal static void Set()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "hc-test-results-" + Environment.ProcessId);
+        var dir = Path.Combine(Path.GetTempPath(), "hc-test-results-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         ResultsStore.OverrideDirForTests = dir;
         AppDomain.CurrentDomain.ProcessExit += (_, _) => { try { Directory.Delete(dir, true); } catch { /* best-effort */ } };

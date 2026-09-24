@@ -56,7 +56,7 @@ public sealed class InPlaceGuardRemoveTests
         FormKey kw;
         using (var rc = LoadOrderResolver.Build(new[] { _w.MasterPath, user, _w.HighPath }))
         {
-            var c = WritePatchBuilder.CreateRecordsInPlace(rc, _w.Rulebook,
+            var c = WritePatchBuilder.CreateRecordsInPlace(rc, TestCorpus.Rulebook,
                 new[] { new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcIP_RmKw", Edits = Array.Empty<WriteRequest>() } },
                 user, W.UserName);
             kw = Assert.Single(c.Created).FormKey;

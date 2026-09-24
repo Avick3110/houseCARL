@@ -32,7 +32,6 @@ public sealed class InPlaceGuardWorld : IDisposable
     public string UserPristine { get; }
     public string HighPath { get; }
     public string LocPristine { get; }
-    public CorpusRulebook Rulebook { get; }
 
     public FormKey Weapon { get; }
     public FormKey Weapon2 { get; }
@@ -53,7 +52,6 @@ public sealed class InPlaceGuardWorld : IDisposable
         Root = Path.Combine(Path.GetTempPath(), "hc-inplace-guard-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Root);
 
-        Rulebook = TestCorpus.Rulebook();
 
         MasterPath = Path.Combine(Root, MasterName);
         UserPristine = Path.Combine(Root, "pristine", UserName);

@@ -52,7 +52,7 @@ public sealed class WriteSurfaceCopyFromTests : IClassFixture<WriteSurfaceWorld>
             FromPlugin = mKey.FileName.String,
         };
         var outPath = Path.Combine(dir, "HcCfPatch.esp");
-        var o = WritePatchBuilder.Apply(resolver, CorpusRulebook.Load(), new[] { edit }, outPath, extend: false, fullReadback: false,
+        var o = WritePatchBuilder.Apply(resolver, TestCorpus.Rulebook, new[] { edit }, outPath, extend: false, fullReadback: false,
             copyFromSources: new Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter> { [edit] = decoyBody });
         Assert.True(o.Success, o.Error);
         Assert.Equal((ushort)10, DamageIn(outPath, subject.FormKey));

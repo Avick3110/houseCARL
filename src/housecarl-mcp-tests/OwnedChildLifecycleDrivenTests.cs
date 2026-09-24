@@ -109,7 +109,7 @@ public sealed class OwnedChildLifecycleDrivenTests
     [Fact]
     public void TheFieldLaneRemoveRefusalSaysToNameTheRecordsUnderTheChild()
     {
-        var refusal = CorpusRulebook.Load().Validate(new WriteRequest
+        var refusal = TestCorpus.Rulebook.Validate(new WriteRequest
         {
             RecordType = "Worldspace", Path = new[] { "TopCell" }, Verb = "Remove",
         });

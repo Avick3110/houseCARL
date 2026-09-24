@@ -1,27 +1,38 @@
-using System.Runtime.CompilerServices;
 using HousecarlCore;
 using HousecarlGenerator;
 
 namespace HousecarlMcpTests;
 
 /// <summary>The one corpus every test in this process reads. The corpus is a pure function of the Mutagen build, so
-/// one copy serves every world; it is generated before any test runs, <c>CorpusRulebook.CorpusPath</c> is set to it
-/// once, and nothing repoints or deletes it while tests run.</summary>
+/// one copy serves every world; <see cref="TestRunSetup"/> generates it before the first test runs and sets
+/// <c>CorpusRulebook.CorpusPath</c> to it once, and nothing repoints or deletes it while tests run.</summary>
 public static class TestCorpus
 {
-    static readonly string Dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hc-test-corpus-" + Environment.ProcessId);
+    static readonly string Dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hc-test-corpus-" + Guid.NewGuid().ToString("N"));
 
-    /// <summary>The generated corpus.json.</summary>
-    public static string Path { get; } = System.IO.Path.Combine(Dir, "gen", "corpus.json");
+    static readonly Lazy<string> Generated = new(Generate);
+    static readonly Lazy<CorpusRulebook> Book = new(() => CorpusRulebook.Load(Path));
 
-    /// <summary>A fresh rulebook over <see cref="Path"/>.</summary>
-    public static CorpusRulebook Rulebook() => CorpusRulebook.Load(Path);
+    /// <summary>The generated corpus.json, generated on first use.</summary>
+    public static string Path => Generated.Value;
 
-    [ModuleInitializer]
-    internal static void Generate()
+    /// <summary>The rulebook over <see cref="Path"/>, loaded once. It is safe to share: a call that needs link
+    /// targets derives its own with <see cref="CorpusRulebook.WithLinkTargets"/>.</summary>
+    public static CorpusRulebook Rulebook => Book.Value;
+
+    static string Generate()
     {
-        CorpusGenerator.GenerateAll(System.IO.Path.GetDirectoryName(Path)!, System.IO.Path.Combine(Dir, "ref"));
-        CorpusRulebook.CorpusPath = Path;
+        var path = System.IO.Path.Combine(Dir, "gen", "corpus.json");
+        try
+        {
+            CorpusGenerator.GenerateAll(System.IO.Path.GetDirectoryName(path)!, System.IO.Path.Combine(Dir, "ref"));
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"The test corpus could not be generated into {Dir}: {ex.Message}", ex);
+        }
+        CorpusRulebook.CorpusPath = path;
         AppDomain.CurrentDomain.ProcessExit += (_, _) => { try { Directory.Delete(Dir, true); } catch { /* best-effort */ } };
+        return path;
     }
 }
