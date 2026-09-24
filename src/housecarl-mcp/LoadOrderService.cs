@@ -235,12 +235,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
                                                                 SkyPatcherOverlay.WarningSink? draftWarnings = null)
         => _assetLayers.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, draftWarnings);
 
-    /// <summary>Test seam: runs in <see cref="SkyPatcherLayer"/> after the pin and before the asset capture; null in the product.</summary>
-    internal Action? AfterSkyPatcherPinForGuard
-    {
-        get => _assetLayers.AfterSkyPatcherPinForGuard;
-        set => _assetLayers.AfterSkyPatcherPinForGuard = value;
-    }
+    internal AssetLayers AssetArea => _assetLayers;   // the assets area instance, for tests that set its seams
 
     internal int AbsenceExplanations;   // how many times the explainer has parsed the profile — a test seam for the memo
 

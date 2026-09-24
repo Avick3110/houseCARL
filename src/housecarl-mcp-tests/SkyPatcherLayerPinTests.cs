@@ -78,7 +78,7 @@ public sealed class SkyPatcherLayerPinTests : IDisposable
     public void ARefreshAfterThePinDoesNotSplitTheLayersBuild()
     {
         Assert.Single(_svc.SkyPatcherLayer().NoOps);                           // warms the index and the asset build
-        _svc.AfterSkyPatcherPinForGuard = () => WriteProfile(Second, First, iniModEnabled: false);
+        _svc.AssetArea.AfterSkyPatcherPinForGuard = () => WriteProfile(Second, First, iniModEnabled: false);
 
         var layer = _svc.SkyPatcherLayer();
 
