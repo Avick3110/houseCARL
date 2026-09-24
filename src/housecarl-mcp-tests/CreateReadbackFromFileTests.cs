@@ -20,13 +20,12 @@ public sealed class CreateReadbackFromFileTests : IDisposable
 {
     const string MasterName = "HcCrMaster.esm";
 
-    readonly string _root, _priorCorpusPath, _mods;
+    readonly string _root, _mods;
     readonly LoadOrderService _svc;
     readonly FormKey _topic;
 
     public CreateReadbackFromFileTests()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         _root = Path.Combine(Path.GetTempPath(), "hc-create-readback-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
 
@@ -44,9 +43,6 @@ public sealed class CreateReadbackFromFileTests : IDisposable
         master.BeginWrite.ToPath(Path.Combine(_mods, "CrMasterMod", MasterName))
             .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        var genDir = Path.Combine(_root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -173,7 +169,6 @@ public sealed class CreateReadbackFromFileTests : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         _svc.Dispose();
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }

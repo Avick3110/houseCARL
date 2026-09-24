@@ -8,7 +8,7 @@ namespace HousecarlMcpTests;
 /// acknowledge= is refused by name, in_place= takes the file's name with its consent prompt, into= extends, and a dry
 /// run writes nothing.</summary>
 [Trait("tier", "integration")]
-public sealed class ApplyGuardLaneTests : IClassFixture<ApplyGuardCorpus>, IDisposable
+public sealed class ApplyGuardLaneTests : IDisposable
 {
     readonly ApplyGuardWorld W = new();
     public void Dispose() => W.Dispose();

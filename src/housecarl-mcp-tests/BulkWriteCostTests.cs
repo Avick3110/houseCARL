@@ -22,13 +22,13 @@ namespace HousecarlMcpTests;
 /// nothing still looks right on every arm except N specs naming N DISTINCT parents.</para>
 /// </summary>
 [Trait("tier", "integration")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class BulkWriteCostTests : IDisposable
 {
     const int Records = 300;
     const int Ops = 200;
 
     readonly string _root;
-    readonly string _priorCorpus;
     readonly LoadOrderResolver _resolver;
     readonly CorpusRulebook _rulebook;
     readonly string _masterName;
@@ -37,7 +37,6 @@ public sealed class BulkWriteCostTests : IDisposable
 
     public BulkWriteCostTests()
     {
-        _priorCorpus = CorpusRulebook.CorpusPath;
         _root = Path.Combine(Path.GetTempPath(), "hc-bulkcost-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_root);
 
@@ -62,9 +61,6 @@ public sealed class BulkWriteCostTests : IDisposable
         var masterFile = Path.Combine(_root, _masterName);
         master.BeginWrite.ToPath(masterFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        var genDir = Path.Combine(_root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         _resolver = LoadOrderResolver.Build(new[] { masterFile });
         _rulebook = CorpusRulebook.Load();
@@ -220,7 +216,6 @@ public sealed class BulkWriteCostTests : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpus;
         _resolver.Dispose();
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }

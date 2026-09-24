@@ -41,13 +41,11 @@ public sealed class Utf8NameTests : IDisposable
     const string Utf8LatinName = "HcUtf8Accent.esp";
 
     readonly string _root, _instance;
-    readonly string _priorCorpusPath;
     readonly LoadOrderService _svc;
     readonly FormKey _inlineWeapon, _inlineLatinWeapon, _tableWeapon, _latinWeapon, _utf8LatinWeapon;
 
     public Utf8NameTests()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         _root = Path.Combine(Path.GetTempPath(), "hc-utf8-name-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
         _instance = Path.Combine(_root, "inst");
@@ -62,9 +60,6 @@ public sealed class Utf8NameTests : IDisposable
         _latinWeapon = WriteLatin(NewDir(mods, "LatinMod"));
         _utf8LatinWeapon = WriteUtf8Latin(NewDir(mods, "AccentMod"));
 
-        var genDir = Path.Combine(_root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(_instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -82,7 +77,6 @@ public sealed class Utf8NameTests : IDisposable
     public void Dispose()
     {
         _svc.Dispose();
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }
 

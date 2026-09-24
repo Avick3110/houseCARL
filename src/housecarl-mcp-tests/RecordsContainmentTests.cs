@@ -15,15 +15,12 @@ namespace HousecarlMcpTests;
 /// filters and walks across it. This is the reported gap — an INFO found by content, and no way back to its owning
 /// DIAL, because group nesting is not a FormLink and <c>references=</c> correctly returns nothing.
 /// </summary>
-[Collection("records")]
 [Trait("tier", "integration")]
 public sealed class RecordsContainmentTests : IClassFixture<OwnedChildFixture>
 {
     readonly OwnedChildWorld _w;
 
-    /// <summary>The owned-child world supplies the records; the records collection's fixture is taken only for the
-    /// generated corpus a types= scan resolves record-type names against.</summary>
-    public RecordsContainmentTests(OwnedChildFixture f, RecordsFixture corpus) { _w = f.W; _ = corpus; }
+    public RecordsContainmentTests(OwnedChildFixture f) => _w = f.W;
 
     LoadOrderService Svc => _w.Svc;
 

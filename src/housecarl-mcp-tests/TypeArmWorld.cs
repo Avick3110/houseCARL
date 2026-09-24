@@ -52,11 +52,9 @@ public sealed class TypeArmWorld : IDisposable
     public const string SweepNpc = "HcArmSweepNpc";
     public const string SweepWeapon = "HcArmSweepWeapon";
 
-    readonly string _priorCorpusPath;
 
     public TypeArmWorld()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
 
         Root = Path.Combine(Path.GetTempPath(), "hc-typearm-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
@@ -93,9 +91,6 @@ public sealed class TypeArmWorld : IDisposable
         Directory.CreateDirectory(offDir);
         off.BeginWrite.ToPath(Path.Combine(offDir, OffOrderName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -111,7 +106,6 @@ public sealed class TypeArmWorld : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
@@ -123,7 +117,6 @@ public sealed class TypeArmFixture : IDisposable
     public void Dispose() => W.Dispose();
 }
 
-/// <summary>Its own collection, for the reason the records and bulk ones have theirs:
-/// <c>CorpusRulebook.CorpusPath</c> is a process-global and only one world may own it at a time.</summary>
+/// <summary>One collection, sharing one <see cref="TypeArmWorld"/>.</summary>
 [CollectionDefinition("type-arms")]
 public sealed class TypeArmCollection : ICollectionFixture<TypeArmFixture> { }

@@ -7,27 +7,6 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>A pre-flight rulebook over a corpus this fixture generates into its own temp folder, so nothing here
-/// touches the process-wide <c>CorpusRulebook.CorpusPath</c> a world sets.</summary>
-public sealed class OwnCorpusFixture : IDisposable
-{
-    readonly string _root = Path.Combine(Path.GetTempPath(), "hc-own-corpus-" + Guid.NewGuid().ToString("N"));
-
-    public CorpusRulebook Rulebook { get; }
-
-    public OwnCorpusFixture()
-    {
-        var gen = Path.Combine(_root, "gen");
-        CorpusGenerator.GenerateAll(gen, Path.Combine(_root, "ref"));
-        Rulebook = CorpusRulebook.Load(Path.Combine(gen, "corpus.json"));
-    }
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_root, recursive: true); } catch (IOException) { }
-    }
-}
-
 /// <summary>
 /// A condition's FormLinkOrIndex target set outside a compose (Stryker row T15): the value lands, and its form or
 /// index reading sets the arm's discriminator.
@@ -176,11 +155,11 @@ public sealed class ScalarSetTests
 /// a value that is neither a synonym nor a FormID is refused at pre-flight.
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class FormLinkNullSynonymTests : IClassFixture<OwnCorpusFixture>
+public sealed class FormLinkNullSynonymTests
 {
     readonly CorpusRulebook _rulebook;
 
-    public FormLinkNullSynonymTests(OwnCorpusFixture f) => _rulebook = f.Rulebook;
+    public FormLinkNullSynonymTests() => _rulebook = TestCorpus.Rulebook();
 
     [Theory]
     [InlineData("0")]
@@ -215,11 +194,11 @@ public sealed class FormLinkNullSynonymTests : IClassFixture<OwnCorpusFixture>
 /// created earlier in the call, not a malformed FormID.
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class SiblingReferenceTests : IClassFixture<OwnCorpusFixture>
+public sealed class SiblingReferenceTests
 {
     readonly CorpusRulebook _rulebook;
 
-    public SiblingReferenceTests(OwnCorpusFixture f) => _rulebook = f.Rulebook;
+    public SiblingReferenceTests() => _rulebook = TestCorpus.Rulebook();
 
     [Fact]
     public void AOneCharacterEditorIdSiblingReferenceIsAccepted()

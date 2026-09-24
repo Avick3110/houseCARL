@@ -28,13 +28,12 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
     const string DupeEditorId = "HcClashDupe";             // two Factions share it — duplicate editorid residue
     const string TopicEditorId = "HcClashTopic";           // a DialogTopic with INFOs under it — children a replace drops
 
-    readonly string _root, _userPath, _priorCorpusPath;
+    readonly string _root, _userPath;
     readonly LoadOrderService _svc;
     readonly FormKey _faction;
 
     public InPlaceCreateEditoridClashTests()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         _root = Path.Combine(Path.GetTempPath(), "hc-clash-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
 
@@ -67,9 +66,6 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
             .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         user.BeginWrite.ToPath(_userPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        var genDir = Path.Combine(_root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -267,7 +263,6 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         _svc.Dispose();
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }

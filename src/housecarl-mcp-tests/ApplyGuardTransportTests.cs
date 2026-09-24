@@ -8,7 +8,7 @@ namespace HousecarlMcpTests;
 /// <summary>apply-guard arm 5: format=json is valid JSON, refusals and the consent prompt are documents too, both
 /// renders carry the epoch, and the empty-input rules for bundle= and patch=.</summary>
 [Trait("tier", "integration")]
-public sealed class ApplyGuardTransportTests : IClassFixture<ApplyGuardCorpus>, IDisposable
+public sealed class ApplyGuardTransportTests : IDisposable
 {
     readonly ApplyGuardWorld W = new();
     public void Dispose() => W.Dispose();

@@ -32,7 +32,6 @@ public sealed class InPlaceGuardWorld : IDisposable
     public string UserPristine { get; }
     public string HighPath { get; }
     public string LocPristine { get; }
-    public string CorpusPath { get; }
     public CorpusRulebook Rulebook { get; }
 
     public FormKey Weapon { get; }
@@ -47,20 +46,14 @@ public sealed class InPlaceGuardWorld : IDisposable
     public string TopicId => $"{Topic.ID:X6}:{MasterName}";
     public string WorldId => $"{World.ID:X6}:{MasterName}";
 
-    readonly string _priorCorpusPath;
     int _next;
 
     public InPlaceGuardWorld()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         Root = Path.Combine(Path.GetTempPath(), "hc-inplace-guard-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Root);
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusPath = Path.Combine(genDir, "corpus.json");
-        CorpusRulebook.CorpusPath = CorpusPath;
-        Rulebook = CorpusRulebook.Load(CorpusPath);
+        Rulebook = TestCorpus.Rulebook();
 
         MasterPath = Path.Combine(Root, MasterName);
         UserPristine = Path.Combine(Root, "pristine", UserName);
@@ -100,9 +93,6 @@ public sealed class InPlaceGuardWorld : IDisposable
         if (!Directory.Exists(Path.Combine(Path.GetDirectoryName(LocPristine)!, "Strings")))
             throw new InvalidOperationException("the localized fixture wrote no Strings folder, so it is not localized");
     }
-
-    /// <summary>Points the process-global corpus path back at this world's corpus; another world may have moved it.</summary>
-    public void UseCorpus() => CorpusRulebook.CorpusPath = CorpusPath;
 
     /// <summary>A fresh copy of the user plugin, under its own filename, in a folder no other test uses.</summary>
     public string FreshUser() => CopyInto(NewDir(), UserPristine, UserName);
@@ -178,7 +168,6 @@ public sealed class InPlaceGuardWorld : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         try { Directory.Delete(Root, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 }

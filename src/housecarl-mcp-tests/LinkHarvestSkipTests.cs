@@ -8,16 +8,10 @@ namespace HousecarlMcpTests;
 /// Phase 1b would double the cost of every edit in a bulk call; the write lanes keep the harvest's verdict for any
 /// edit that put nothing in the sink and re-walk only the ones that did. These pin the premise: what goes in the
 /// sink, and that the harvest's verdict is the checking pass's verdict for a link-free edit.
-///
-/// <para>Corpus-only, so it needs no records — the world is here for the generated corpus
-/// <c>CorpusRulebook.CorpusPath</c> points at.</para>
 /// </summary>
 [Trait("tier", "integration")]
-[Collection("bulk-records")]
-public sealed class LinkHarvestSkipTests : BulkRecordsTestBase
+public sealed class LinkHarvestSkipTests
 {
-    public LinkHarvestSkipTests(BulkRecordsFixture f) : base(f) { }
-
     static WriteRequest Req(string type, string[] path, string verb, string? value = null)
         => new() { RecordType = type, Path = path, Verb = verb, Value = value };
 

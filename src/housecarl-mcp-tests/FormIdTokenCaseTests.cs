@@ -28,11 +28,9 @@ public sealed class MasterCaseDriftWorld : IDisposable
     public FormKey Race { get; }
     public FormKey Npc { get; }
 
-    readonly string _priorCorpusPath;
 
     public MasterCaseDriftWorld()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;    // a process-global this world repoints and restores
         Root = Path.Combine(Path.GetTempPath(), "hc-case-drift-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "inst");
         var masterDir = Path.Combine(instance, "mods", "CaseMaster");
@@ -58,9 +56,6 @@ public sealed class MasterCaseDriftWorld : IDisposable
 
         LowercaseTheMasterEntry(PatchPath);
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -100,7 +95,6 @@ public sealed class MasterCaseDriftWorld : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
@@ -109,6 +103,7 @@ public sealed class MasterCaseDriftWorld : IDisposable
 /// <summary>A FormID token spells its plugin the way the file is spelled on disk, whichever read produced it —
 /// so two reads of the same record hand back the same string and a join of them lines up (#664).</summary>
 [Trait("tier", "integration")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class FormIdTokenCaseTests : IDisposable
 {
     readonly MasterCaseDriftWorld _w = new();
@@ -206,6 +201,7 @@ public sealed class FormIdTokenCaseTests : IDisposable
 /// instance without a restart, so a publish REPLACES the table: a name the new order does not carry must fall
 /// back to its own spelling rather than keep the old order's.</summary>
 [Trait("tier", "unit")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class FormIdTokenPublishTests
 {
     [Fact]

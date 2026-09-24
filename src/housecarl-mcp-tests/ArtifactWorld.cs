@@ -4,41 +4,21 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The artifact family's fixture: a <see cref="RecordsWorld"/> plus a PRIVATE auto-spill results
-/// directory. Without the override <c>ResultsStore.Dir</c> resolves to the server binary's folder, so
-/// truncating calls would write artifacts into the build output and read each other's spills.</summary>
+/// <summary>The artifact family's fixture: a <see cref="RecordsWorld"/>. A test that needs to see EXACTLY the
+/// file its own call wrote takes a private results directory via <see cref="ArtifactTestBase.OwnResults"/>.</summary>
 public sealed class ArtifactFixture : IDisposable
 {
-    public RecordsWorld W { get; }
+    public RecordsWorld W { get; } = new();
 
-    /// <summary>The class-wide auto-spill directory. A test that needs to see EXACTLY the file its own call
-    /// wrote takes a private one via <see cref="ArtifactTestBase.OwnResults"/> instead.</summary>
-    public string ResultsDir { get; }
-
-    readonly ResultsDirScope _results;
-
-    public ArtifactFixture()
-    {
-        W = new RecordsWorld();
-        _results = new ResultsDirScope(Path.Combine(W.Root, "artifact-results"));
-        ResultsDir = _results.Dir;
-    }
-
-    public void Dispose()
-    {
-        // Before the world's delete: the static must not be left naming a directory the next line removes.
-        _results.Dispose();
-        W.Dispose();
-    }
+    public void Dispose() => W.Dispose();
 }
 
 /// <summary>Shared shorthand for the artifact tests: the world, the artifact readers, the transport helpers.</summary>
 public abstract class ArtifactTestBase
 {
     protected readonly RecordsWorld W;
-    protected readonly string ResultsDir;
 
-    protected ArtifactTestBase(ArtifactFixture f) { W = f.W; ResultsDir = f.ResultsDir; }
+    protected ArtifactTestBase(ArtifactFixture f) => W = f.W;
 
     protected LoadOrderService Svc => W.Svc;
 

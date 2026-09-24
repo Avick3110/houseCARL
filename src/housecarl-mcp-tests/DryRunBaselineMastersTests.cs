@@ -19,13 +19,11 @@ public sealed class DryRunBaselineMastersTests : IDisposable
     const string BaseName = "HcBaselineBase.esp";
 
     readonly string _root;
-    readonly string _priorCorpusPath;
     readonly LoadOrderService _svc;
     readonly FormKey _weapon;
 
     public DryRunBaselineMastersTests()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         _root = Path.Combine(Path.GetTempPath(), "hc-dryrun-baseline-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
         var instance = Path.Combine(_root, "inst");
@@ -45,9 +43,6 @@ public sealed class DryRunBaselineMastersTests : IDisposable
         _weapon = w.FormKey;
         mod.BeginWrite.ToPath(Path.Combine(baseDir, BaseName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        var genDir = Path.Combine(_root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -63,7 +58,6 @@ public sealed class DryRunBaselineMastersTests : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         try { Directory.Delete(_root, recursive: true); } catch (IOException) { }
     }
 

@@ -163,7 +163,6 @@ public sealed class DialogueWorld : IDisposable
     /// <summary>The same quest in the plain off-order patch — the control the shadowed arm is measured against.</summary>
     public FormKey PatchSeqQuest { get; }
 
-    readonly ResultsDirScope _results;
 
     /// <param name="patchActive">write the same patch into the ACTIVE order instead — the comparison arm for a
     /// folded read, so what the fold projects can be measured against what the order really says once the plugin
@@ -176,7 +175,6 @@ public sealed class DialogueWorld : IDisposable
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-dialogue-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
-        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var masterKey = ModKey.FromNameAndExtension(MasterName);
         var midKey = ModKey.FromNameAndExtension(MidName);
@@ -464,7 +462,6 @@ public sealed class DialogueWorld : IDisposable
     public void Dispose()
     {
         Svc.Dispose();
-        _results.Dispose();   // before the delete below: the static must not name a removed directory
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }

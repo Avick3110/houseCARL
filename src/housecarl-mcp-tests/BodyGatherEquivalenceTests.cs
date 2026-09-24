@@ -14,6 +14,7 @@ namespace HousecarlMcpTests;
 /// null for one the plugin does not hold.
 /// </summary>
 [Trait("tier", "integration")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class BodyGatherEquivalenceTests : IDisposable
 {
     const int Records = 200;

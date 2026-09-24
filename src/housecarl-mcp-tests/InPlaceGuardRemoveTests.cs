@@ -13,7 +13,7 @@ namespace HousecarlMcpTests;
 public sealed class InPlaceGuardRemoveTests
 {
     readonly W _w;
-    public InPlaceGuardRemoveTests(W w) { _w = w; _w.UseCorpus(); }
+    public InPlaceGuardRemoveTests(W w) { _w = w; }
 
     static WritePatchBuilder.RemovalOutcome Remove(FormKey fk, string target, string targetName, params string[] order)
     {

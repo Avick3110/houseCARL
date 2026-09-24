@@ -14,19 +14,17 @@ namespace HousecarlMcpTests;
 /// cannot say. Stryker rows T50, T51, T54, T55 and T56 (dev/plans/STRYKER_WRITE_PATH_2026-09-23.md).
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class WritePatchVerifyTests : IClassFixture<WritePathCorpus>, IDisposable
+public sealed class WritePatchVerifyTests : IDisposable
 {
     const string Master = "HcWpVerifyMaster.esm";
 
-    readonly WritePathCorpus _corpus;
     readonly WritePathRig _rig = new();
     readonly SkyrimMod _master;
     readonly LoadOrderResolver _order;
     readonly FormKey _sword, _axe, _list, _kw1, _kw2;
 
-    public WritePatchVerifyTests(WritePathCorpus corpus)
+    public WritePatchVerifyTests()
     {
-        _corpus = corpus;
         _master = new SkyrimMod(ModKey.FromFileName(Master), SkyrimRelease.SkyrimSE);
         var k1 = _master.Keywords.AddNew(); k1.EditorID = "HcWpVerifyKw1"; _kw1 = k1.FormKey;
         var k2 = _master.Keywords.AddNew(); k2.EditorID = "HcWpVerifyKw2"; _kw2 = k2.FormKey;
@@ -66,7 +64,7 @@ public sealed class WritePatchVerifyTests : IClassFixture<WritePathCorpus>, IDis
 
     WritePatchBuilder.PatchOutcome Apply(params WritePatchBuilder.PatchEdit[] edits)
     {
-        var o = WritePatchBuilder.Apply(_order, _corpus.Rulebook(), edits, _rig.Out("HcWpVerifyOut.esp"), extend: false);
+        var o = WritePatchBuilder.Apply(_order, TestCorpus.Rulebook(), edits, _rig.Out("HcWpVerifyOut.esp"), extend: false);
         Assert.True(o.Success, o.Error);
         return o;
     }
@@ -171,7 +169,7 @@ public sealed class WritePatchVerifyTests : IClassFixture<WritePathCorpus>, IDis
         var path = _rig.Out("HcWpVerifyTwo.esp");
         patch.BeginWrite.ToPath(path).WithLoadOrder(_master).Write();
 
-        var o = WritePatchBuilder.Apply(_order, _corpus.Rulebook(),
+        var o = WritePatchBuilder.Apply(_order, TestCorpus.Rulebook(),
             new[] { Edit(_axe, "BasicStats.Damage", "Set", "42") }, path, extend: true);
 
         Assert.True(o.Success, o.Error);

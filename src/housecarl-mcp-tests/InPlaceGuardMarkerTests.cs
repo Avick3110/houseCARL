@@ -13,7 +13,7 @@ namespace HousecarlMcpTests;
 public sealed class InPlaceGuardMarkerTests
 {
     readonly W _w;
-    public InPlaceGuardMarkerTests(W w) { _w = w; _w.UseCorpus(); }
+    public InPlaceGuardMarkerTests(W w) { _w = w; }
 
     // I editedInPlace marker + into= boundary + create+remove-lane share (never generated=true)
     [Fact]

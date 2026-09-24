@@ -7,7 +7,7 @@ namespace HousecarlMcpTests;
 /// <summary>apply-guard arm 1: the ops grammar — op=, the @file spelling, and the strict element reader's named
 /// refusals, down into the compose recursion.</summary>
 [Trait("tier", "integration")]
-public sealed class ApplyGuardOpsGrammarTests : IClassFixture<ApplyGuardCorpus>, IDisposable
+public sealed class ApplyGuardOpsGrammarTests : IDisposable
 {
     readonly ApplyGuardWorld W = new();
     public void Dispose() => W.Dispose();

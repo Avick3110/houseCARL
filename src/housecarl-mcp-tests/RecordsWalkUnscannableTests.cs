@@ -68,11 +68,9 @@ public sealed class WalkUnscannableWorld : IDisposable
         File.WriteAllBytes(path, bytes[..(sub + 6 + Keep)].Concat(bytes[(sub + 6 + len)..]).ToArray());
     }
 
-    readonly string _priorCorpusPath;
 
     public WalkUnscannableWorld()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         Root = Path.Combine(Path.GetTempPath(), "hc-walk-unscannable-tests-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
         var profiles = Path.Combine(instance, "profiles", "Default");
@@ -146,9 +144,6 @@ public sealed class WalkUnscannableWorld : IDisposable
             Assert.ThrowsAny<Exception>(() => cut.Configuration.TemplateFlags);
         }
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + MasterName + "\r\n");
@@ -159,7 +154,6 @@ public sealed class WalkUnscannableWorld : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }

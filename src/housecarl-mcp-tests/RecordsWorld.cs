@@ -86,20 +86,11 @@ public sealed class RecordsWorld : IDisposable
 
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
-    /// <summary>What <c>CorpusRulebook.CorpusPath</c> named before this world repointed it.</summary>
-    readonly string _priorCorpusPath;
-    readonly ResultsDirScope _results;
 
     public RecordsWorld()
     {
-        // CorpusRulebook.CorpusPath is a process-global this world repoints at its own generated corpus.
-        // Capture the prior value here so Dispose can put it back: Dispose deletes Root, and a static left
-        // naming a path under Root would name a directory that no longer exists.
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
-
         Root = Path.Combine(Path.GetTempPath(), "hc-records-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
-        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var masterKey = new ModKey("HcRecMaster", ModType.Master);
         var ovKey = new ModKey("HcRecOverride", ModType.Plugin);
@@ -253,9 +244,6 @@ public sealed class RecordsWorld : IDisposable
         File.WriteAllText(Path.Combine(ModsDir, "MasterMod", "SKSE", "Plugins", "SkyPatcher.ini"),
             "[Patcher]\r\niEnable" + ToggledOffSkyPatcherType + "Patching=0\r\n");
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -285,10 +273,7 @@ public sealed class RecordsWorld : IDisposable
 
     public void Dispose()
     {
-        // Before the delete, never after: the static must not be left naming a directory this line removes.
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
-        _results.Dispose();   // before the delete below: the static must not name a removed directory
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }
@@ -317,8 +302,7 @@ public sealed class RecordsFixture : IDisposable
 }
 
 /// <summary>
-/// Every records test runs in one collection: <c>CorpusRulebook.CorpusPath</c> is a process-wide mutable
-/// static, so two worlds built in parallel would point the rulebook at each other's corpus.
+/// Every records test runs in one collection, which shares one <see cref="RecordsWorld"/>.
 /// </summary>
 [CollectionDefinition("records")]
 public sealed class RecordsCollection : ICollectionFixture<RecordsFixture> { }

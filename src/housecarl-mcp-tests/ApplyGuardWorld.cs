@@ -8,28 +8,6 @@ using HousecarlMcp;
 
 namespace HousecarlMcpTests;
 
-/// <summary>Generates the write corpus once per test class and points <c>CorpusRulebook.CorpusPath</c> at it; the
-/// apply-guard tests build a fresh <see cref="ApplyGuardWorld"/> per test on top of it.</summary>
-public sealed class ApplyGuardCorpus : IDisposable
-{
-    readonly string _root = Path.Combine(Path.GetTempPath(), "hc-applyguard-corpus-" + Guid.NewGuid().ToString("N"));
-    readonly string _prior;
-
-    public ApplyGuardCorpus()
-    {
-        _prior = CorpusRulebook.CorpusPath;
-        var genDir = Path.Combine(_root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
-    }
-
-    public void Dispose()
-    {
-        CorpusRulebook.CorpusPath = _prior;
-        try { Directory.Delete(_root, true); } catch { }
-    }
-}
-
 /// <summary>The apply-guard probe's synthetic order, one per test: a master, a replacer that wins the subject weapon
 /// (Damage 99, no keywords) and overrides the donor weapon (Damage 7; the master's is 42), two potions and a faction
 /// the replacer owns, and an armor for the cross-type refusal.</summary>

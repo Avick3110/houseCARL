@@ -498,7 +498,6 @@ public sealed class RuntimeFormIdTests
 
         readonly string _root;
         readonly string _profileDir;
-        readonly string _priorCorpusPath;
 
         public LoadOrderService Svc { get; }
 
@@ -527,8 +526,6 @@ public sealed class RuntimeFormIdTests
 
         public World()
         {
-            // CorpusRulebook.CorpusPath is a process-global: capture before repointing, restore on dispose.
-            _priorCorpusPath = CorpusRulebook.CorpusPath;
             _root = Path.Combine(Path.GetTempPath(), "hc-runtime-formid-tests-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
 
@@ -593,9 +590,6 @@ public sealed class RuntimeFormIdTests
             File.WriteAllText(Path.Combine(_profileDir, "modlist.txt"),
                 "# header\r\n+WideMod\r\n+SpareMod\r\n+LightMod\r\n+FullMod\r\n+MasterMod\r\n");
 
-            var genDir = Path.Combine(_root, "corpus-gen");
-            CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
-            CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
             ModsDir = mods;
             ModFolders = Directory.GetDirectories(mods).Length;
@@ -626,7 +620,6 @@ public sealed class RuntimeFormIdTests
 
         public void Dispose()
         {
-            CorpusRulebook.CorpusPath = _priorCorpusPath;
             Svc.Dispose();
             try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
         }

@@ -7,7 +7,7 @@ namespace HousecarlMcpTests;
 /// <summary>apply-guard arm 4: CopyFrom on the in-place lane — from another plugin, from the target's own file
 /// (source read from the mutable mod, not a released overlay), with no element aliasing, and reading pre-call state.</summary>
 [Trait("tier", "integration")]
-public sealed class ApplyGuardInPlaceCopyTests : IClassFixture<ApplyGuardCorpus>, IDisposable
+public sealed class ApplyGuardInPlaceCopyTests : IDisposable
 {
     readonly ApplyGuardWorld W = new();
     public void Dispose() => W.Dispose();

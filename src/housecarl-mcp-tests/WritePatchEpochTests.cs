@@ -11,19 +11,17 @@ namespace HousecarlMcpTests;
 /// forward and create. Stryker row T40 (dev/plans/STRYKER_WRITE_PATH_2026-09-23.md).
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class WritePatchEpochTests : IClassFixture<WritePathCorpus>, IDisposable
+public sealed class WritePatchEpochTests : IDisposable
 {
     const string TargetName = "HcWpEpochTarget.esp";
 
-    readonly WritePathCorpus _corpus;
     readonly WritePathRig _rig = new();
     readonly LoadOrderResolver _order;
     readonly string _targetPath;
     readonly FormKey _weapon, _ownWeapon;
 
-    public WritePatchEpochTests(WritePathCorpus corpus)
+    public WritePatchEpochTests()
     {
-        _corpus = corpus;
         var master = new SkyrimMod(new ModKey("HcWpEpochMaster", ModType.Master), SkyrimRelease.SkyrimSE);
         var w = master.Weapons.AddNew();
         w.EditorID = "HcWpEpochSword";
@@ -43,7 +41,7 @@ public sealed class WritePatchEpochTests : IClassFixture<WritePathCorpus>, IDisp
 
     string Epoch => _order.Capture().Stamp.Epoch;
 
-    WritePatchBuilder.CreateOutcome CreateSword(string path) => WritePatchBuilder.CreateRecords(_order, _corpus.Rulebook(), new[]
+    WritePatchBuilder.CreateOutcome CreateSword(string path) => WritePatchBuilder.CreateRecords(_order, TestCorpus.Rulebook(), new[]
     {
         new WritePatchBuilder.CreateSpec { RecordType = "Weapon", EditorId = "HcWpEpochNew", Edits = Array.Empty<WriteRequest>() },
     }, path, extend: false);
@@ -71,7 +69,7 @@ public sealed class WritePatchEpochTests : IClassFixture<WritePathCorpus>, IDisp
     [Fact]
     public void AnInPlaceApplyCarriesTheEpoch()
     {
-        var o = WritePatchBuilder.ApplyInPlace(_order, _corpus.Rulebook(),
+        var o = WritePatchBuilder.ApplyInPlace(_order, TestCorpus.Rulebook(),
             new[] { WritePathRig.Set(_ownWeapon, "BasicStats.Damage", "42") }, _targetPath, TargetName);
         Assert.True(o.Success, o.Error);
         Assert.Equal(Epoch, o.Epoch);

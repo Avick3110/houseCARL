@@ -31,13 +31,8 @@ public sealed class WinnerScanCoverageTests
         public FormKey Quest { get; }
         public LoadOrderService Svc { get; }
 
-        /// <summary>What <c>CorpusRulebook.CorpusPath</c> named before this world repointed it — restored on
-        /// Dispose, which deletes the directory the repointed path names.</summary>
-        readonly string _priorCorpusPath;
-
         public ScanWorld()
         {
-            _priorCorpusPath = CorpusRulebook.CorpusPath;
             Root = Path.Combine(Path.GetTempPath(), "hc-winner-scan-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
             var inst = Path.Combine(Root, "inst");
@@ -76,9 +71,6 @@ public sealed class WinnerScanCoverageTests
             Directory.CreateDirectory(iniDir);
             File.WriteAllText(Path.Combine(iniDir, "hcws.ini"), "filterByWeapons=HcWsHeldWeapon:attackDamage=20\r\n");
 
-            var genDir = Path.Combine(Root, "corpus-gen");
-            CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-            CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
             File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
                 "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -96,7 +88,6 @@ public sealed class WinnerScanCoverageTests
         public void Dispose()
         {
             Svc.Dispose();
-            CorpusRulebook.CorpusPath = _priorCorpusPath;
             try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
         }
     }

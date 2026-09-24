@@ -109,7 +109,6 @@ public sealed class OwnedChildLifecycleDrivenTests
     [Fact]
     public void TheFieldLaneRemoveRefusalSaysToNameTheRecordsUnderTheChild()
     {
-        using var w = new OwnedChildWorld();   // stands up the generated corpus this rulebook loads
         var refusal = CorpusRulebook.Load().Validate(new WriteRequest
         {
             RecordType = "Worldspace", Path = new[] { "TopCell" }, Verb = "Remove",

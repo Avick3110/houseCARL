@@ -9,16 +9,10 @@ namespace HousecarlMcpTests;
 /// The two pre-flight refusals a caller hits when editing one element of a POLYMORPHIC collection — an AI
 /// package's <c>Data</c> dict of <c>APackageData</c> arms is the reported shape (#319). Both were correct and both
 /// dead-ended: neither named the call that works, so landing one edit took four tries.
-///
-/// <para>Corpus-only, so it needs no records — the world is here for the generated corpus
-/// <c>CorpusRulebook.CorpusPath</c> points at.</para>
 /// </summary>
 [Trait("tier", "integration")]
-[Collection("bulk-records")]
-public sealed class ElementRefusalRemedyTests : BulkRecordsTestBase
+public sealed class ElementRefusalRemedyTests
 {
-    public ElementRefusalRemedyTests(BulkRecordsFixture f) : base(f) { }
-
     static CorpusRulebook Book() => CorpusRulebook.Load();
 
     static string Refusal(string[] path, string verb, string? key = null, string? value = null)

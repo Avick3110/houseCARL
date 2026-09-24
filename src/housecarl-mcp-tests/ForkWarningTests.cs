@@ -26,13 +26,11 @@ public sealed class ForkWarningTests : IDisposable
     const string ForeignName = "HcForkForeign.esp";
 
     readonly string _root;
-    readonly string _priorCorpusPath;
     readonly LoadOrderService _svc;
     readonly FormKey _list, _foreignList, _bothList, _topic, _info, _swordA, _swordB;
 
     public ForkWarningTests()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         _root = Path.Combine(Path.GetTempPath(), "hc-fork-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
 
@@ -102,9 +100,6 @@ public sealed class ForkWarningTests : IDisposable
         // The foreign folder gets none, which is what makes it foreign.
         File.WriteAllText(Path.Combine(patchFolder, "meta.ini"), HousecarlOwnerMeta.Section + "\r\ngenerated=true\r\n");
 
-        var genDir = Path.Combine(_root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -286,7 +281,6 @@ public sealed class ForkWarningTests : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         _svc.Dispose();
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }

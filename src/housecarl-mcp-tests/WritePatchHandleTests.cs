@@ -12,19 +12,17 @@ namespace HousecarlMcpTests;
 /// row T35 (dev/plans/STRYKER_WRITE_PATH_2026-09-23.md).
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class WritePatchHandleTests : IClassFixture<WritePathCorpus>, IDisposable
+public sealed class WritePatchHandleTests : IDisposable
 {
     const string TargetName = "HcWpHoldTarget.esp";
 
-    readonly WritePathCorpus _corpus;
     readonly WritePathRig _rig = new();
     readonly SkyrimMod _master, _second;
     readonly string _masterPath, _secondPath, _targetPath;
     readonly FormKey _sword, _keyword, _secondKeyword, _ownSword;
 
-    public WritePatchHandleTests(WritePathCorpus corpus)
+    public WritePatchHandleTests()
     {
-        _corpus = corpus;
         _master = new SkyrimMod(ModKey.FromFileName("HcWpHoldMaster.esm"), SkyrimRelease.SkyrimSE);
         var k = _master.Keywords.AddNew();
         k.EditorID = "HcWpHoldKeyword";
@@ -82,7 +80,7 @@ public sealed class WritePatchHandleTests : IClassFixture<WritePathCorpus>, IDis
     public void ApplyReleasesItsOutput()
     {
         var path = _rig.Out("HcWpHoldApply.esp");
-        var o = WritePatchBuilder.Apply(Order(), _corpus.Rulebook(), new[] { WritePathRig.Set(_sword, "BasicStats.Damage", "42") }, path, extend: false);
+        var o = WritePatchBuilder.Apply(Order(), TestCorpus.Rulebook(), new[] { WritePathRig.Set(_sword, "BasicStats.Damage", "42") }, path, extend: false);
         Assert.True(o.Success, o.Error);
         NoneHeld(path, _masterPath);
     }
@@ -90,7 +88,7 @@ public sealed class WritePatchHandleTests : IClassFixture<WritePathCorpus>, IDis
     [Fact]
     public void InPlaceApplyReleasesItsTarget()
     {
-        var o = WritePatchBuilder.ApplyInPlace(Order(), _corpus.Rulebook(),
+        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook(),
             new[] { WritePathRig.Set(_ownSword, "BasicStats.Damage", "42") }, _targetPath, TargetName);
         Assert.True(o.Success, o.Error);
         NoneHeld(_targetPath, _masterPath);
@@ -101,7 +99,7 @@ public sealed class WritePatchHandleTests : IClassFixture<WritePathCorpus>, IDis
     {
         var order = Order();
         var path = _rig.Out("HcWpHoldRemove.esp");
-        var created = WritePatchBuilder.CreateRecords(order, _corpus.Rulebook(), new[]
+        var created = WritePatchBuilder.CreateRecords(order, TestCorpus.Rulebook(), new[]
         {
             new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcWpHoldGone", Edits = Array.Empty<WriteRequest>() },
             new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcWpHoldKept", Edits = Array.Empty<WriteRequest>() },

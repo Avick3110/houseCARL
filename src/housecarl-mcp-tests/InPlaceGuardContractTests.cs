@@ -16,7 +16,7 @@ namespace HousecarlMcpTests;
 public sealed class InPlaceGuardContractTests
 {
     readonly W _w;
-    public InPlaceGuardContractTests(W w) { _w = w; _w.UseCorpus(); }
+    public InPlaceGuardContractTests(W w) { _w = w; }
 
     /// <summary>A service over [master, a fresh user copy, high]; disposing it disposes the resolver.</summary>
     LoadOrderService Service()
