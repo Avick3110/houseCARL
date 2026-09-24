@@ -78,24 +78,23 @@ public sealed partial class LoadOrderService
         /// <summary>Plugins an EditorID sweep could not open during this call.</summary>
         internal IReadOnlyList<PluginUnreadableException> Unreadable => _formResolver.Unreadable;
 
-        /// <summary>Replay one record's winner through the layer; Error is the named reason it cannot be replayed, Unpatchable says that reason is a type the layer cannot touch.</summary>
-        internal (string? TypeName, string? WinnerPlugin, string? EditorId, List<SkyPatcherFolderOutcome> Folders, string? Error, IMajorRecord? Copy, bool Unpatchable)
-            Replay(FormKey fk)
+        /// <summary>Replay one record's winner through the layer: the patched copy, the winner itself for a type the layer cannot touch, or the named reason it cannot be replayed.</summary>
+        internal SkyPatcherReplayResult Replay(FormKey fk)
         {
-            var none = new List<SkyPatcherFolderOutcome>();
             var winner = _view.ResolveWinner(fk);
             if (winner is null)
-                return (null, null, null, none, _host.UnresolvedFormId(_view, fk), null, false);
+                return SkyPatcherReplayResult.Fail(_host.UnresolvedFormId(_view, fk));
 
             var body = _view.GetRecord(_session, winner.Value.WinnerPlugin, fk);
             if (body is null)
-                return (null, winner.Value.WinnerPlugin, null, none, $"Winner '{winner.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch — a load-order inconsistency.", null, false);
+                return SkyPatcherReplayResult.Fail($"Winner '{winner.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch — a load-order inconsistency.",
+                                                   winnerPlugin: winner.Value.WinnerPlugin);
 
             var typeName = ReadEngine.ReadFields(body, new[] { "EditorID" }).Type;   // the same type naming every read tool reports
             var maps = FieldMap.ForRecordType(typeName);
+            // The layer cannot touch this type, so its post state is the winner itself.
             if (maps.Count == 0)
-                return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
-                    $"Record type '{typeName}' is not a SkyPatcher-patchable type (or has no field map) — the SkyPatcher layer cannot touch {FormIdToken.Of(fk)}.", null, true);
+                return SkyPatcherReplayResult.Unpatchable(typeName, winner.Value.WinnerPlugin, body);
 
             // The running copy: the winner overridden into an in-memory scratch mod. Nested-group types need the source link cache, or they throw instead of failing by name.
             IMajorRecord copy;
@@ -107,8 +106,9 @@ public sealed partial class LoadOrderService
             }
             catch (Exception ex)
             {
-                return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
-                    $"Could not materialize a mutable copy of {FormIdToken.Of(fk)} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}", null, false);
+                return SkyPatcherReplayResult.Fail(
+                    $"Could not materialize a mutable copy of {FormIdToken.Of(fk)} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}",
+                    typeName, winner.Value.WinnerPlugin, body.EditorID);
             }
 
             // Watch this record's own EditorID lookups: a record addressed purely by FormID answers normally.
@@ -134,12 +134,43 @@ public sealed partial class LoadOrderService
 
             // A plugin an EditorID sweep could not read leaves its EditorIDs out of the table, so this replay would report a state the layer does not produce. Named, not answered wrong.
             if (_formResolver.ConsumedIncompleteTable)
-                return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
+                return SkyPatcherReplayResult.Fail(
                     $"the SkyPatcher replay of {FormIdToken.Of(fk)} resolved an EditorID against the load order, and "
-                    + string.Join(" ", _formResolver.Unreadable.Select(u => u.Message).Distinct()), null, false);
+                    + string.Join(" ", _formResolver.Unreadable.Select(u => u.Message).Distinct()),
+                    typeName, winner.Value.WinnerPlugin, body.EditorID);
 
-            return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null, copy, false);
+            return SkyPatcherReplayResult.Ok(typeName, winner.Value.WinnerPlugin, body.EditorID, folders, copy);
         }
+    }
+
+    /// <summary>One replay's outcome, built only through its factories so a failure cannot be marked unpatchable by mistake.</summary>
+    internal sealed record SkyPatcherReplayResult
+    {
+        internal string? TypeName { get; private init; }
+        internal string? WinnerPlugin { get; private init; }
+        internal string? EditorId { get; private init; }
+        internal IReadOnlyList<SkyPatcherFolderOutcome> Folders { get; private init; } = Array.Empty<SkyPatcherFolderOutcome>();
+
+        /// <summary>The post-state body: the patched copy, or the winner itself for an unpatchable type; null exactly when Error is set.</summary>
+        internal IMajorRecordGetter? Copy { get; private init; }
+
+        /// <summary>The named reason the record cannot be replayed; null when Copy is set.</summary>
+        internal string? Error { get; private init; }
+
+        /// <summary>The type has no SkyPatcher field map, so Copy is the untouched winner.</summary>
+        internal bool IsUnpatchable { get; private init; }
+
+        SkyPatcherReplayResult() { }
+
+        internal static SkyPatcherReplayResult Ok(string typeName, string winnerPlugin, string? editorId,
+                                                  IReadOnlyList<SkyPatcherFolderOutcome> folders, IMajorRecord copy)
+            => new() { TypeName = typeName, WinnerPlugin = winnerPlugin, EditorId = editorId, Folders = folders, Copy = copy };
+
+        internal static SkyPatcherReplayResult Unpatchable(string typeName, string winnerPlugin, IMajorRecordGetter body)
+            => new() { TypeName = typeName, WinnerPlugin = winnerPlugin, EditorId = body.EditorID, Copy = body, IsUnpatchable = true };
+
+        internal static SkyPatcherReplayResult Fail(string error, string? typeName = null, string? winnerPlugin = null, string? editorId = null)
+            => new() { Error = error, TypeName = typeName, WinnerPlugin = winnerPlugin, EditorId = editorId };
     }
 
     /// <summary>The live-load-order lookups the overlay needs, off the ONE pinned view and session the call holds.

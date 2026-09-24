@@ -1085,21 +1085,13 @@ public sealed partial class LoadOrderService
             if (setupError is not null) return new PoleReading(null, null, null, setupError);
             var r = replay!.Replay(fk);
             CollectOverlayWarnings(r.Folders, overlayWarnings);
-            if (r.Error is not null)
-            {
-                // An unpatchable type is an answer, not a failure: the layer cannot touch it, so post IS pre.
-                if (r.Unpatchable)
-                {
-                    var w = view.ResolveWinner(fk);
-                    var body = w is null ? null : view.GetRecord(session, w.Value.WinnerPlugin, fk);
-                    if (body is not null)
-                        return postMemo[fk] = new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop),
-                                               new DiffPole(w!.Value.WinnerPlugin,
-                                                            "skypatcher overlay (post) = winner — type not SkyPatcher-patchable, the layer cannot touch it",
-                                                            true, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
-                }
-                return postMemo[fk] = new PoleReading(null, null, null, r.Error);
-            }
+            if (r.Error is not null) return postMemo[fk] = new PoleReading(null, null, null, r.Error);
+            // An unpatchable type is an answer, not a failure: the layer cannot touch it, so post IS pre.
+            if (r.IsUnpatchable)
+                return postMemo[fk] = new PoleReading(ReadEngine.ReadFields(r.Copy!, fields, ConflictDiffDepth, parentOf: hop),
+                                       new DiffPole(r.WinnerPlugin!,
+                                                    "skypatcher overlay (post) = winner — type not SkyPatcher-patchable, the layer cannot touch it",
+                                                    true, RecordNaming.StripOverlay(r.Copy!.GetType().Name), r.EditorId), null, null);
             int applied = r.Folders.Where(f => f.Result is not null).Sum(f => f.Result!.Applied.Count);
             var post = ReadEngine.ReadFields(r.Copy!, fields, ConflictDiffDepth, parentOf: hop);
             return postMemo[fk] = new PoleReading(post,
@@ -1216,19 +1208,14 @@ public sealed partial class LoadOrderService
             }
             var r = replay.Replay(fk);
             CollectOverlayWarnings(r.Folders, overlayWarnings);
-            IMajorRecordGetter? bodyToRead = r.Copy;
             if (r.Error is not null)
             {
-                if (r.Unpatchable)
-                    bodyToRead = view.GetRecord(session, winner.Value.WinnerPlugin, fk);   // post IS pre for an unpatchable type
-                if (bodyToRead is null)
-                {
-                    var fail = ReadOutcome.Fail(fk, r.Error) with { Stamp = view.Stamp, Pin = pin };
-                    replayMemo[fk] = fail; outcomes.Add(fail);
-                    continue;
-                }
+                var fail = ReadOutcome.Fail(fk, r.Error) with { Stamp = view.Stamp, Pin = pin };
+                replayMemo[fk] = fail; outcomes.Add(fail);
+                continue;
             }
-            var record = ReadEngine.ReadFields(bodyToRead!, fields, depth, containerHint, ContainmentIndex.ReadHop(view, session), depths);
+            // For an unpatchable type the copy is the winner itself: post IS pre.
+            var record = ReadEngine.ReadFields(r.Copy!, fields, depth, containerHint, ContainmentIndex.ReadHop(view, session), depths);
             if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new LinkMemo());
             var ok = (new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
                                       winner.Value.OverrideDepth, null, null)
