@@ -661,7 +661,8 @@ public sealed partial class LoadOrderService
             foreach (var fk in targets)
             {
                 var r = replay.Replay(fk);
-                if (r.Error is not null) { failedReplays++; continue; }
+                // An unpatchable type has nothing to replay, so it counts with the failures as it always has.
+                if (r.Error is not null || r.IsUnpatchable) { failedReplays++; continue; }
                 foreach (var fo in r.Folders)
                 {
                     if (fo.Result is not { } res) continue;
