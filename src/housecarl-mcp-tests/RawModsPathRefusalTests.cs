@@ -7,6 +7,7 @@ namespace HousecarlMcpTests;
 /// nif_inspect refuse it and hand back the address form instead — the mod folder NAMED in source_provider=, with the
 /// Data-relative path (#617). Nothing is placed by any of these arms, so the shared world is untouched.</summary>
 [Trait("tier", "integration")]
+[Collection(SerialCollection.Name)]   // sets the process working directory, #903
 public sealed class RawModsPathRefusalTests : IClassFixture<AssetSelectWorld>
 {
     readonly AssetSelectWorld _w;
