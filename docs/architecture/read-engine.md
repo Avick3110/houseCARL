@@ -72,7 +72,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 `PathFold.cs`, `PluginFile.cs`, `FieldsDiff.cs` (the deep comparison behind `project={"form":"tree"}`).
 `src/housecarl-mcp/`: `RecordReads.cs` (resolve, batch, poles, delta/tree, walk, scan, the type lookup),
 `TreeFold.cs`, `FieldFold.cs`, `ReverseWalkBatch.cs`, `ScanDetailReader.cs`, `ReadSentences.cs`
-(the read surface's prose; the check families' own sentences in that file belong to
+(the read surface's prose; the check families' own sentences now live in `CheckSentences.cs`, under
 `docs/architecture/check-families.md` and
 `docs/architecture/check-scripts-and-dialogue-families.md`).
 Tool: `housecarl_records`.
