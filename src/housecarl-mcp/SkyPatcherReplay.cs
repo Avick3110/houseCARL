@@ -78,24 +78,24 @@ public sealed partial class LoadOrderService
         /// <summary>Plugins an EditorID sweep could not open during this call.</summary>
         internal IReadOnlyList<PluginUnreadableException> Unreadable => _formResolver.Unreadable;
 
-        /// <summary>Replay one record's winner through the layer; Error is the named reason it cannot be replayed.</summary>
-        internal (string? TypeName, string? WinnerPlugin, string? EditorId, List<SkyPatcherFolderOutcome> Folders, string? Error, IMajorRecord? Copy)
+        /// <summary>Replay one record's winner through the layer; Error is the named reason it cannot be replayed, Unpatchable says that reason is a type the layer cannot touch.</summary>
+        internal (string? TypeName, string? WinnerPlugin, string? EditorId, List<SkyPatcherFolderOutcome> Folders, string? Error, IMajorRecord? Copy, bool Unpatchable)
             Replay(FormKey fk)
         {
             var none = new List<SkyPatcherFolderOutcome>();
             var winner = _view.ResolveWinner(fk);
             if (winner is null)
-                return (null, null, null, none, _host.UnresolvedFormId(_view, fk), null);
+                return (null, null, null, none, _host.UnresolvedFormId(_view, fk), null, false);
 
             var body = _view.GetRecord(_session, winner.Value.WinnerPlugin, fk);
             if (body is null)
-                return (null, winner.Value.WinnerPlugin, null, none, $"Winner '{winner.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch — a load-order inconsistency.", null);
+                return (null, winner.Value.WinnerPlugin, null, none, $"Winner '{winner.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch — a load-order inconsistency.", null, false);
 
             var typeName = ReadEngine.ReadFields(body, new[] { "EditorID" }).Type;   // the same type naming every read tool reports
             var maps = FieldMap.ForRecordType(typeName);
             if (maps.Count == 0)
                 return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
-                    $"Record type '{typeName}' is not a SkyPatcher-patchable type (or has no field map) — the SkyPatcher layer cannot touch {FormIdToken.Of(fk)}.", null);
+                    $"Record type '{typeName}' is not a SkyPatcher-patchable type (or has no field map) — the SkyPatcher layer cannot touch {FormIdToken.Of(fk)}.", null, true);
 
             // The running copy: the winner overridden into an in-memory scratch mod. Nested-group types need the source link cache, or they throw instead of failing by name.
             IMajorRecord copy;
@@ -108,7 +108,7 @@ public sealed partial class LoadOrderService
             catch (Exception ex)
             {
                 return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
-                    $"Could not materialize a mutable copy of {FormIdToken.Of(fk)} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}", null);
+                    $"Could not materialize a mutable copy of {FormIdToken.Of(fk)} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}", null, false);
             }
 
             // Watch this record's own EditorID lookups: a record addressed purely by FormID answers normally.
@@ -136,9 +136,9 @@ public sealed partial class LoadOrderService
             if (_formResolver.ConsumedIncompleteTable)
                 return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
                     $"the SkyPatcher replay of {FormIdToken.Of(fk)} resolved an EditorID against the load order, and "
-                    + string.Join(" ", _formResolver.Unreadable.Select(u => u.Message).Distinct()), null);
+                    + string.Join(" ", _formResolver.Unreadable.Select(u => u.Message).Distinct()), null, false);
 
-            return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null, copy);
+            return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null, copy, false);
         }
     }
 
