@@ -146,7 +146,7 @@ public sealed class SkyPatcherLayerFilterTests
         Assert.Contains("BlockedMod01", text);
         Assert.Contains("BlockedMod03", text);
         Assert.DoesNotContain("showing 0 of 3 loose root read failure(s)", text);
-        // Paid for INSIDE max_chars, not appended past it: the trailer the render always writes is the only overrun.
+        // Paid for inside max_chars, not appended past it.
         Assert.True(text.Length <= 4_000,
                     $"{text.Length} chars against max_chars=4000 — the caveat block was not reserved.");
     }
@@ -157,9 +157,7 @@ public sealed class SkyPatcherLayerFilterTests
                   Files: Enumerable.Range(1, 50).Select(i => Ini($"type{k}", $"Mod{i:D3}.ini", $"Provider Number {i:D3}")).ToArray()))
               .ToArray());
 
-    /// <summary>The closing hint is charged before the body and each line is admitted by the width it writes, so the
-    /// render stays inside max_chars. Before, the hint (~330 chars) and the line crossing the cap plus its cut notice
-    /// landed past it: 8,436 chars for the eight-folder layer with 200 warnings, 8,327 for the 400-INI layer.</summary>
+    /// <summary>A cut layer render, closing hint included, is no longer than the max_chars it was given.</summary>
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -201,9 +199,7 @@ public sealed class SkyPatcherLayerFilterTests
         };
     }
 
-    /// <summary>Every body line is admitted by the width it writes and every cut notice's room is held back, so no cap
-    /// lands a render past it — whether the cut falls in the folder listing, inside an expanded file's lines, or inside a
-    /// report section. Swept over caps and three filters, since each cut site needs a cap that bites exactly there.</summary>
+    /// <summary>Over a sweep of caps and filters, every render fits its cap or, below its fixed part, states its true length.</summary>
     [Fact]
     public void NoCapLandsTheRenderPastItWithReportSectionsAndExpandedLines()
     {
@@ -211,18 +207,35 @@ public sealed class SkyPatcherLayerFilterTests
         var over = new List<string>();
         var reached = new HashSet<string>();
         string[] sites = { "remaining folders omitted", "  ... [cut at max_chars]", "lines cut at max_chars",
-                           "entries cut at max_chars", "of 25; raise max_chars", "of 25 finding(s)", "report section(s) omitted" };
-        foreach (var filter in new string?[] { null, "Mod003", "type3" })
-            for (int cap = 1_500; cap <= 20_000; cap += 7)
+                           "entries cut at max_chars", "of 25; raise max_chars", "of 25 finding(s)", "section(s) omitted at max_chars=",
+                           "over the max_chars=" };
+        foreach (var filter in new string?[] { null, "Mod003", "type3", "nosuchthing" })
+            for (int cap = 200; cap <= 20_000; cap += 7)
             {
                 var text = SkyPatcherWire.RenderLayer(d, filter, cap);
-                if (text.Length > cap) over.Add($"filter={filter ?? "none"} cap={cap}: {text.Length}");
                 reached.UnionWith(sites.Where(text.Contains));
+                // The omitted-sections line names exactly the report sections whose heading is missing.
+                var omitted = text.Split('\n').FirstOrDefault(l => l.Contains("section(s) omitted at max_chars=")) ?? "";
+                foreach (var (name, heading) in filter == "nosuchthing" ? [] : Reports)
+                    if (text.Contains(heading) == omitted.Contains(name))
+                        over.Add($"filter={filter ?? "none"} cap={cap}: '{name}' heading shown={text.Contains(heading)}, named={omitted.Contains(name)}");
+                if (text.Length <= cap) continue;
+                // Over the cap only below the fixed part, listing nothing optional and stating its own length.
+                bool stated = cap < 1_500 && text.Contains($"this response is {text.Length} chars, over the max_chars={cap}")
+                              && !text.Contains("  - Mod") && !text.Contains("→ housecarl_records");
+                if (!stated) over.Add($"filter={filter ?? "none"} cap={cap}: {text.Length}");
             }
 
-        Assert.True(over.Count == 0, $"{over.Count} renders over the cap, first: {over.FirstOrDefault()}");
+        Assert.True(over.Count == 0, $"{over.Count} failures, first: {over.FirstOrDefault()}");
         Assert.Equal(sites.OrderBy(s => s), reached.OrderBy(s => s));   // the sweep does reach every cut site it is for
     }
+
+    /// <summary>Each report section's name in the omitted-sections line, beside its heading.</summary>
+    static readonly (string Name, string Heading)[] Reports =
+    {
+        ("set conflicts", "\nINI-vs-INI set conflicts ("), ("dead writes", "\nintra-file dead writes ("),
+        ("cross-INI duplicates", "\ncross-INI duplicate writes ("), ("no-op writes", "\nno-op writes ("),
+    };
 
     static SkyPatcherLayerData OneNpcFolder() =>
         Layer(new SkyPatcherDiscovery.FolderScan("npc", Catalog: null, PatchingEnabled: true,
@@ -327,10 +340,15 @@ public sealed class SkyPatcherLayerFilterTests
     /// <summary>The widest cap at which the unfiltered render still cuts before the second folder.</summary>
     static int CapAtTheWeaponFolder()
     {
-        for (int cap = 1; cap < 100_000; cap++)
-            if (SkyPatcherWire.RenderLayer(LateMatchLayer(), null, cap + 1).Contains("\nweapon:", StringComparison.Ordinal)) return cap;
-        Assert.Fail("the unfiltered render never lists the weapon folder");
-        return 0;
+        static bool Lists(int cap) => SkyPatcherWire.RenderLayer(LateMatchLayer(), null, cap).Contains("\nweapon:", StringComparison.Ordinal);
+        int lo = 1, hi = 100_000;   // the smallest cap that lists the folder lies in (lo, hi]
+        Assert.True(Lists(hi) && !Lists(lo), "the unfiltered render never lists the weapon folder");
+        while (hi - lo > 1)
+        {
+            int mid = lo + (hi - lo) / 2;
+            if (Lists(mid)) hi = mid; else lo = mid;
+        }
+        return lo;
     }
 
     [Fact]
