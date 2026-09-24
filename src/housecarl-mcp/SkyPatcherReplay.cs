@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlMcp;
 
 // The SkyPatcher replay: one record's winner run through the INI layer, and the one door that opens its context.
-public sealed partial class LoadOrderService
+internal sealed partial class AssetLayers
 {
     /// <summary>Cross-call INI parse cache, FileStamp keyed: repeat calls over an untouched layer skip every read and parse.</summary>
     readonly SkyPatcherDiscovery.ParseCache _skyPatcherParseCache = new();
@@ -18,7 +18,7 @@ public sealed partial class LoadOrderService
                                                     out string? draftRefusal, SkyPatcherDraft.Plan? draft = null,
                                                     SkyPatcherOverlay.WarningSink? draftWarnings = null)
     {
-        return OpenSkyPatcherReplay(Host.CaptureAssets(), view, session, out draftRefusal, draft, draftWarnings);
+        return OpenSkyPatcherReplay(_host.CaptureAssets(), view, session, out draftRefusal, draft, draftWarnings);
     }
 
     /// <summary>The same door over assets the caller took in its own capture hold, for a lane that pins the index in that hold.</summary>
@@ -62,14 +62,14 @@ public sealed partial class LoadOrderService
         internal SkyPatcherFieldMap FieldMap { get; }
         internal SkyPatcherDiscovery.LayerScan Scan { get; }
 
-        internal SkyPatcherReplay(LoadOrderService svc, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+        internal SkyPatcherReplay(AssetLayers layers, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                   AssetResolver.AssetView assets, IReadOnlyList<string> assetWarnings, string profileName,
                                   SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap, SkyPatcherDiscovery.LayerScan scan)
         {
-            _host = svc.Host; _view = view; _session = session;
+            _host = layers._host; _view = view; _session = session;
             Assets = assets; AssetWarnings = assetWarnings; ProfileName = profileName;
             Catalog = catalog; FieldMap = fieldMap; Scan = scan;
-            _formResolver = new SkyPatcherServiceResolver(svc, view, session);
+            _formResolver = new SkyPatcherServiceResolver(layers, view, session);
         }
 
         /// <summary>An EditorID of one type to its winning FormKey; null on a miss.</summary>
@@ -177,7 +177,7 @@ public sealed partial class LoadOrderService
     /// EditorID resolution sweeps a type's winners once into a table; a miss is null, reported loudly upstream.</summary>
     sealed class SkyPatcherServiceResolver : SkyPatcherOverlay.IFormResolver
     {
-        readonly LoadOrderService _svc;
+        readonly AssetLayers _layers;
         readonly LoadOrderResolver.IndexView _view;
         readonly LoadOrderResolver.OverlaySession _session;
         readonly Dictionary<string, Dictionary<string, FormKey>> _eidsByType = new(StringComparer.OrdinalIgnoreCase);
@@ -193,8 +193,8 @@ public sealed partial class LoadOrderService
 
         public void WatchLookups() => _consumedIncomplete = false;
 
-        public SkyPatcherServiceResolver(LoadOrderService svc, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session)
-        { _svc = svc; _view = view; _session = session; }
+        public SkyPatcherServiceResolver(AssetLayers layers, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session)
+        { _layers = layers; _view = view; _session = session; }
 
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
         {
@@ -202,7 +202,7 @@ public sealed partial class LoadOrderService
             if (!_eidsByType.TryGetValue(mutagenType, out var eids))
             {
                 eids = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
-                var types = _svc.ResolveFormScope(mutagenType);
+                var types = _layers.ResolveFormScope(mutagenType);
                 if (types is not null)
                 {
                     int before = _unreadable.Count;

@@ -211,12 +211,12 @@ internal static class SksePeekProbe
             Check(warn.Count > 0, "…and the read SURFACES why (the warning the peek path must not discard)");
             // THE REAL PRODUCER, not a copy of its rule — the whole reason the original bug survived arm I is that the
             // arm hand-built the null instead of exercising the code that has to emit one.
-            Check(LoadOrderService.PeekPluginSet(comp) is null,
+            Check(AssetLayers.PeekPluginSet(comp) is null,
                   "…so the peek path hands the renderer NULL, never an empty set that would flag every name ABSENT (Q3)");
             // …and the healthy direction still resolves, including a force-loaded master absent from plugins.txt.
             var healthy = new Mo2Composition([], [], ["Skyrim.esm", "Dawnguard.esm"],
                 new HashSet<string>(["Skyrim.esm"], StringComparer.OrdinalIgnoreCase), [], ["Dawnguard.esm"]);
-            var got = LoadOrderService.PeekPluginSet(healthy);
+            var got = AssetLayers.PeekPluginSet(healthy);
             Check(got is not null && got.Contains("Skyrim.esm") && got.Contains("Dawnguard.esm"),
                   "a real composition resolves, implicit force-loaded masters included (Dawnguard.esm is never ABSENT)");
 
@@ -227,7 +227,7 @@ internal static class SksePeekProbe
             // comes FROM. This arm fails against `set.Count > 0`.
             var noOrderFile = new Mo2Composition([], [], [],                       // ordered: [] — no loadorder.txt
                 new HashSet<string>(["SomeMod.esp"], StringComparer.OrdinalIgnoreCase), [], []);
-            Check(LoadOrderService.PeekPluginSet(noOrderFile) is null,
+            Check(AssetLayers.PeekPluginSet(noOrderFile) is null,
                   "no loadorder.txt + a NON-EMPTY plugins.txt ⇒ still null — the implicit masters are UNKNOWABLE, not absent");
         }
         finally { try { Directory.Delete(prof, true); } catch { /* temp scratch */ } }

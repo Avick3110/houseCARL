@@ -139,7 +139,7 @@ public static class PlaceTools
         var src = NullIfBlank(t.Source);
         // The set-level pole fills in only where it CAN apply: fanning it onto an on-disk source would refuse the member over input the caller never wrote there.
         var ownProv = NullIfBlank(t.SourceProvider);
-        bool setApplies = LoadOrderService.SourceTakesAProvider(src);
+        bool setApplies = AssetLayers.SourceTakesAProvider(src);
         poleWithheld = ownProv is null && !setApplies && NullIfBlank(setProvider) is not null;
         var prov = ownProv ?? (setApplies ? NullIfBlank(setProvider) : null);
 

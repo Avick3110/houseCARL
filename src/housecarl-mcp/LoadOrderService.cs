@@ -18,6 +18,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
     readonly int _maxPlugins;
     readonly object _gate = new();
+    readonly AssetLayers _assetLayers;             // the assets area; built in the constructor over this head
     // Serializes every plugin write's resolve, stage and commit; contract in docs/architecture/load-order-service.md.
     readonly object _writeGate = new();
     object ILoadOrderHost.WriteGate => _writeGate;
@@ -49,6 +50,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
         _configured = configured;
         _maxPlugins = maxPlugins;
         _store = store;
+        _assetLayers = new AssetLayers(this);
     }
 
     /// <summary>INSTANCE mode (product default): derive the roots and active profile from ONE MO2 instance folder; a null or blank path is UNCONFIGURED.</summary>
@@ -212,6 +214,35 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
     string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
     Dictionary<string, List<Type>> IAssetHost.TypeLookup => TypeLookup;
     string IAssetHost.UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk) => UnresolvedFormId(view, fk);
+
+    // The assets area's tool-facing surface; the bodies are in AssetLayers.cs and SkyPatcherReplay.cs.
+    public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under = null, int limit = 0, int offset = 0,
+                                       IReadOnlyList<FaceGenSeed>? seeds = null, bool wholeSelection = false)
+        => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection);
+    public SkseInventoryData SkseInventory(string? peekFilter = null) => _assetLayers.SkseInventory(peekFilter);
+    public SkseConfigAuditData SkseConfigAudit() => _assetLayers.SkseConfigAudit();
+    public NativePairingAuditData NativePairingAudit() => _assetLayers.NativePairingAudit();
+    public SkyPatcherLayerData SkyPatcherLayer() => _assetLayers.SkyPatcherLayer();
+    public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider) => _assetLayers.NifInspect(relPaths, sourceProvider);
+    public NifSetResult NifSet(string relPath, IReadOnlyList<NifSetOp> ops, string? sourceProvider, string? patchName, string? into, bool inPlace, bool acknowledge)
+        => _assetLayers.NifSet(relPath, ops, sourceProvider, patchName, into, inPlace, acknowledge);
+    public PlaceOutcome PlaceAssets(IReadOnlyList<PlaceRequest> requests, string? patchName, string? into) => _assetLayers.PlaceAssets(requests, patchName, into);
+
+    internal AssetLayers.SkyPatcherReplay? OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                                                                out string? draftRefusal, SkyPatcherDraft.Plan? draft = null,
+                                                                SkyPatcherOverlay.WarningSink? draftWarnings = null)
+        => _assetLayers.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, draftWarnings);
+    internal AssetLayers.SkyPatcherReplay? OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
+                                                                LoadOrderResolver.OverlaySession session, out string? draftRefusal,
+                                                                SkyPatcherDraft.Plan? draft = null, SkyPatcherOverlay.WarningSink? draftWarnings = null)
+        => _assetLayers.OpenSkyPatcherReplay(captured, view, session, out draftRefusal, draft, draftWarnings);
+
+    /// <summary>Test seam: runs in <see cref="SkyPatcherLayer"/> after the pin and before the asset capture; null in the product.</summary>
+    internal Action? AfterSkyPatcherPinForGuard
+    {
+        get => _assetLayers.AfterSkyPatcherPinForGuard;
+        set => _assetLayers.AfterSkyPatcherPinForGuard = value;
+    }
 
     internal int AbsenceExplanations;   // how many times the explainer has parsed the profile — a test seam for the memo
 
