@@ -5,8 +5,63 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
+/// <summary>One asset build with its warnings, profile and roots, all taken in one <c>_gate</c> hold.</summary>
+internal readonly record struct AssetCapture(AssetResolver.AssetView View, IReadOnlyList<string> Warnings, string ProfileName,
+                                             string ProfileDir, string DataDir, string ModsDir, string OverwriteDir,
+                                             IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> EnabledMods);
+
+/// <summary>The head members more than one area takes; contract in docs/architecture/load-order-service.md.</summary>
+internal interface ILoadOrderHost
+{
+    /// <summary>The live load-order resolver, built on first access and kept fresh on each later one.</summary>
+    LoadOrderResolver Resolver { get; }
+
+    /// <summary>One asset build with its warnings, profile and roots, in one <c>_gate</c> hold.</summary>
+    AssetCapture CaptureAssets();
+
+    /// <summary>The write gate; lock it before any capture, never inside one.</summary>
+    object WriteGate { get; }
+}
+
+/// <summary>Everything the assets area takes from outside itself.</summary>
+internal interface IAssetHost : ILoadOrderHost
+{
+    /// <summary>An asset capture and an index capture in one <c>_gate</c> hold, so neither is from a later build than the other.</summary>
+    (AssetCapture Assets, LoadOrderResolver.IndexView Index) CaptureAssetsAndIndex();
+
+    /// <summary>A pinned index and the asset build that pairs with it, in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between the two.</summary>
+    (LoadOrderService.ViewPin Pin, LoadOrderService.SkyPatcherAssets Assets) CapturePinAndAssets(Action? afterPin);
+
+    /// <summary>MO2's mods root, or null when there is none yet.</summary>
+    string? ModsRootOrNull { get; }
+
+    /// <summary>The installed game runtime version, or null.</summary>
+    string? InstalledGameRuntime();
+
+    // Relayed from output until it is its own class (W4 plan ledger).
+    LoadOrderService.RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, LoadOrderService.RiderNaming? naming);
+
+    // Relayed from output until it is its own class (W4 plan ledger).
+    string? RemoveOrNameRiderResidue(LoadOrderService.RiderFolder folder);
+
+    // Relayed from writes (the consent store) until in-place consent is its own type (W4 plan ledger).
+    bool IsInPlaceAcknowledged(string path);
+
+    // Relayed from writes until in-place consent is its own type (W4 plan ledger).
+    string? PersistInPlaceConsent(bool owed, string targetPath, string what, string subject = "plugin");
+
+    // Relayed from reads until it is its own class (W4 plan ledger).
+    Dictionary<string, List<Type>> TypeLookup { get; }
+
+    // Relayed from reads until it is its own class (W4 plan ledger).
+    string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk);
+}
+
 public sealed partial class LoadOrderService
 {
+    /// <summary>Every head member this area takes, and nothing else.</summary>
+    IAssetHost Host => this;
+
     /// <summary>Resolve a batch of Data-relative asset paths through the MO2 VFS (housecarl_asset_status): which
     /// source provides each, and which copy wins. ONE <see cref="AssetResolver.Capture"/> for the batch, so every
     /// path and the build-level caveats describe a single build; a bad path is a per-path error, never a batch
@@ -20,8 +75,7 @@ public sealed partial class LoadOrderService
         IReadOnlyList<FaceGenSeed>? seeds = null,
         bool wholeSelection = false)
     {
-        AssetResolver.AssetView view; IReadOnlyList<string> warnings; string profileName;
-        lock (_gate) { view = Assets.Capture(); warnings = AssetWarningsLocked(); profileName = _profileName; }   // the view is pinned and handle-free, so the body runs outside the gate
+        var (view, warnings, profileName, _, _, _, _, _, _) = Host.CaptureAssets();   // the view is pinned and handle-free, so the body runs outside the gate
         var notes = new List<string>();
         var selected = new List<Selection>(relPaths.Count);
         foreach (var p in relPaths) selected.Add(new Selection(p ?? "", null, null, null));   // explicit paths first, in the order given, never deduped
@@ -142,17 +196,7 @@ public sealed partial class LoadOrderService
     /// <param name="peekFilter">When non-null, a matching DLL entry is also string-scanned; per-DLL, because the scan reads the whole image.</param>
     public SkseInventoryData SkseInventory(string? peekFilter = null)
     {
-        AssetResolver.AssetView view;
-        IReadOnlyList<string> warnings;
-        string profileName, profileDir;
-        lock (_gate)
-        {
-            EnsurePathsDerived();
-            view = Assets.Capture();                              // build/refresh the asset resolver under the gate, ONCE
-            warnings = AssetWarningsLocked();
-            profileName = _profileName;
-            profileDir = _profileDir;
-        }
+        var (view, warnings, profileName, profileDir, _, _, _, _, _) = Host.CaptureAssets();   // build/refresh the asset resolver under the gate, ONCE
         // The plugin names a peek's cross-check adjudicates against, skipped entirely without peek=. The set is what
         // the game loads: plugins.txt entries plus the force-loaded base and CC masters, which never appear there.
         IReadOnlySet<string>? activePlugins = null;
@@ -212,7 +256,7 @@ public sealed partial class LoadOrderService
             else
                 configs.Add(new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, null, null));
         }
-        return new SkseInventoryData(dlls, configs, otherFiles, InstalledGameRuntime(), view.BsaFailures, view.RootFailures,
+        return new SkseInventoryData(dlls, configs, otherFiles, Host.InstalledGameRuntime(), view.BsaFailures, view.RootFailures,
             view.ReadIncomplete, warnings, profileName, activePlugins, peekFilter is { Length: > 0 });
     }
 
@@ -251,18 +295,8 @@ public sealed partial class LoadOrderService
     /// plugin gates it declares, and resolve each into a verdict. Framework-agnostic; two captures pin the scan.</summary>
     public SkseConfigAuditData SkseConfigAudit()
     {
-        AssetResolver.AssetView view;
-        LoadOrderResolver.IndexView index;
-        IReadOnlyList<string> warnings;
-        string profileName;
         // One gate hold for both captures, so a rebuild cannot pair a config read from one build against an index from the next.
-        lock (_gate)
-        {
-            view = Assets.Capture();
-            index = Resolver.Capture();   // pure snapshot: ContainsPlugin / ResolveWinner read only this build
-            warnings = AssetWarningsLocked();
-            profileName = _profileName;
-        }
+        var ((view, warnings, profileName, _, _, _, _, _, _), index) = Host.CaptureAssetsAndIndex();   // the index is a pure snapshot: ContainsPlugin / ResolveWinner read only this build
 
         const string pre = "SKSE\\Plugins\\";
         var files = new List<SkseConfigFileAudit>();
@@ -342,22 +376,8 @@ public sealed partial class LoadOrderService
     /// whose winning provider also provides an ENGINE class is SKSE CORE. An unreadable .pex is a named entry.</summary>
     public NativePairingAuditData NativePairingAudit()
     {
-        AssetResolver.AssetView view;
-        IReadOnlyList<ActiveArchive> archives;
-        IReadOnlyList<string> enabledMods;
-        IReadOnlyList<string> warnings;
-        string profileName, dataDir, modsDir, overwriteDir;
-        lock (_gate)
-        {
-            view = Assets.Capture();
-            archives = _activeArchives;         // the same build as the view (both swapped under _gate)
-            enabledMods = _enabledModsAtBuild;  // ditto — the loader scan below walks the mod set the view describes, never a second unpinned profile read
-            warnings = AssetWarningsLocked();
-            profileName = _profileName;
-            dataDir = _dataDir;
-            modsDir = _modsDir;
-            overwriteDir = _overwriteDir;
-        }
+        // Archives and enabled mods are the same build as the view, so the loader scan below walks the mod set the view describes, never a second unpinned profile read.
+        var (view, warnings, profileName, _, dataDir, modsDir, overwriteDir, archives, enabledMods) = Host.CaptureAssets();
 
         // ---- the official-archive set: the ENGINE anchor. Keyed by filename, because a BSA provider's name IS the archive filename. ----
         var officialArchives = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -520,7 +540,7 @@ public sealed partial class LoadOrderService
 
         return new NativePairingAuditData(classes, pexPaths.Count,
             unreadable.OrderBy(u => u.RelPath, StringComparer.OrdinalIgnoreCase).ToList(),
-            loaderSeen, InstalledGameRuntime(),
+            loaderSeen, Host.InstalledGameRuntime(),
             view.BsaFailures, view.RootFailures, view.ReadIncomplete, warnings, profileName);
     }
 
@@ -612,14 +632,8 @@ public sealed partial class LoadOrderService
     public SkyPatcherLayerData SkyPatcherLayer()
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
-        ViewPin pin;
-        SkyPatcherAssets captured;
-        lock (_gate)                            // one hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself
-        {
-            pin = CapturePin();
-            AfterSkyPatcherPinForGuard?.Invoke();                        // test seam; null in the product
-            captured = new SkyPatcherAssets(AssetsNoProfileRefreshLocked().Capture(), AssetWarningsLocked(), _profileName);
-        }
+        // One hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself.
+        var (pin, captured) = Host.CapturePinAndAssets(AfterSkyPatcherPinForGuard);   // the seam is null in the product
 
         var view = pin.View;
         using var session = pin.Resolver.OpenSession();
@@ -697,10 +711,10 @@ public sealed partial class LoadOrderService
     internal IReadOnlyList<Type>? ResolveFormScope(string type)
     {
         var t = type.Trim();
-        if (TypeLookup.TryGetValue(t, out var types)) return types;
+        if (Host.TypeLookup.TryGetValue(t, out var types)) return types;
         var iface = typeof(SkyrimMod).Assembly.GetType($"Mutagen.Bethesda.Skyrim.I{t}Getter");
         if (iface is null) return null;
-        var matches = TypeLookup.Values.SelectMany(v => v).Distinct().Where(iface.IsAssignableFrom).ToList();
+        var matches = Host.TypeLookup.Values.SelectMany(v => v).Distinct().Where(iface.IsAssignableFrom).ToList();
         return matches.Count > 0 ? matches : null;
     }
 
@@ -712,17 +726,9 @@ public sealed partial class LoadOrderService
     /// <see cref="NifService.Inspect"/>. A per-path failure never aborts the batch; the build-level caveats ride it.</summary>
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider)
     {
-        AssetResolver.AssetView view;
-        IReadOnlyList<string> warnings;
-        string profileName;
-        lock (_gate)
-        {
-            view = Assets.Capture();                              // build/refresh the asset resolver under the gate, once per batch
-            warnings = AssetWarningsLocked();
-            profileName = _profileName;
-        }
+        var (view, warnings, profileName, _, _, _, _, _, _) = Host.CaptureAssets();   // build/refresh the asset resolver under the gate, once per batch
 
-        var modsRoot = ModsRootOrNull;
+        var modsRoot = Host.ModsRootOrNull;
         var results = new List<NifInspectData>(relPaths.Count);
         foreach (var raw in relPaths)
         {
@@ -825,11 +831,11 @@ public sealed partial class LoadOrderService
         if (inPlace && !string.IsNullOrWhiteSpace(into))
             return NifSetResult.Fail("in_place and into are mutually exclusive — in_place overwrites the winning file where it sits; into= names a NEW houseCARL folder.");
 
-        // Lock order is _writeGate then _gate; contract in docs/architecture/load-order-service.md.
-        lock (_writeGate)
+        // Lock order is the write gate, then the capture's hold; contract in docs/architecture/load-order-service.md.
+        lock (Host.WriteGate)
         {
             AssetResolver.AssetView view; IReadOnlyList<string> warnings; string profileName;
-            try { lock (_gate) { view = Assets.Capture(); warnings = AssetWarningsLocked(); profileName = _profileName; } }
+            try { (view, warnings, profileName, _, _, _, _, _, _) = Host.CaptureAssets(); }
             catch (Exception ex) { return NifSetResult.Fail($"could not resolve the asset layer (the MO2 instance may not be readable): {ex.Message}"); }
 
             // Every answer built off the view carries the roots it could not read, so no refusal arm has to remember them.
@@ -838,7 +844,7 @@ public sealed partial class LoadOrderService
         }
     }
 
-    /// <summary>nif_set once the asset view is captured: resolve, pick, apply, verify and write. Caller holds _writeGate.</summary>
+    /// <summary>nif_set once the asset view is captured: resolve, pick, apply, verify and write. Caller holds the write gate.</summary>
     NifSetResult NifSetOn(AssetResolver.AssetView view, IReadOnlyList<string> warnings, string profileName, string rel,
                           IReadOnlyList<NifSetOp> ops, string? sourceProvider, string? patchName, string? into,
                           bool inPlace, bool acknowledge)
@@ -902,7 +908,7 @@ public sealed partial class LoadOrderService
             var meshName = Path.GetFileName(targetPath);
 
             // The acknowledgement is recorded only once the overwrite has landed and verified, so neither the pre-flight nor a failed write spends the caller's one-time confirmation.
-            bool already = _store.IsInPlaceAcknowledged(targetPath);
+            bool already = Host.IsInPlaceAcknowledged(targetPath);
             if (!already && !acknowledge)
                 return NifSetResult.NeedsAck(NifInPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
             bool owesConsent = !already && acknowledge;
@@ -914,28 +920,28 @@ public sealed partial class LoadOrderService
             if (sz != editedBytes.Length)
                 return NifSetResult.Fail($"wrote '{meshName}' but its on-disk size ({sz}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
 
-            var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "edit", subject: "file");
+            var ackNote = Host.PersistInPlaceConsent(owesConsent, targetPath, "edit", subject: "file");
             return NifSetResult.OkInPlace(rel, chosenProv, providers, place.Ambiguous, editedIsWinner, report, targetPath,
                 MergeWarnings(report.Warnings, warnings, ackNote), profileName);
         }
 
         // ---- DEFAULT (new-folder) lane ----
         RiderFolder rf;
-        try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new RiderNaming("patch")); }
+        try { rf = Host.ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new RiderNaming("patch")); }
         catch (InvalidOperationException ex) { return NifSetResult.Fail(ex.Message, providers, profileName); }
 
         var dest = Path.Combine(rf.OutputDir, rel);
         try { Directory.CreateDirectory(Path.GetDirectoryName(dest)!); AtomicFile.WriteAllBytes(dest, editedBytes); }
         catch (Exception ex)
         {
-            var residue = RemoveOrNameRiderResidue(rf);
+            var residue = Host.RemoveOrNameRiderResidue(rf);
             return NifSetResult.Fail($"could not write '{rel}' into the patch folder: {ex.Message}"
                 + (residue is null ? "" : $" The freshly created mod folder was left at '{residue}'."), providers, profileName);
         }
         long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
         if (size != editedBytes.Length)
         {
-            RemoveOrNameRiderResidue(rf);
+            Host.RemoveOrNameRiderResidue(rf);
             return NifSetResult.Fail($"wrote '{rel}' but its on-disk size ({size}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
         }
 
@@ -984,19 +990,19 @@ public sealed partial class LoadOrderService
     {
         if (requests is null || requests.Count == 0) return PlaceOutcome.Fail("no assets to place.");
 
-        lock (_writeGate)                                                 // one placement batch at a time: resolve, stage, commit
+        lock (Host.WriteGate)                                             // one placement batch at a time: resolve, stage, commit
         {
-            // Precondition: _writeGate is held for the WHOLE method, which straddles two _gate sections. Do not call PlaceOne or Assets outside that hold.
+            // Precondition: the write gate is held for the WHOLE method, which straddles two gate holds. Do not call PlaceOne or capture assets outside that hold.
             RiderFolder rf;
-            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new RiderNaming("patch")); }   // neutral default stem; a caller with a better name passes patch
+            try { rf = Host.ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new RiderNaming("patch")); }   // neutral default stem; a caller with a better name passes patch
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
 
             // One asset build for the whole batch, captured rather than live, so no two placements describe two builds.
             AssetResolver.AssetView view; IReadOnlyList<string> warnings;
-            try { lock (_gate) { view = Assets.Capture(); warnings = AssetWarningsLocked(); } }
+            try { (view, warnings, _, _, _, _, _, _, _) = Host.CaptureAssets(); }
             catch (Exception ex)
             {
-                var residue = RemoveOrNameRiderResidue(rf);              // nothing placed yet → a fresh folder is an orphan
+                var residue = Host.RemoveOrNameRiderResidue(rf);              // nothing placed yet → a fresh folder is an orphan
                 return PlaceOutcome.Fail($"could not resolve the asset layer (the MO2 instance may not be readable): {ex.Message}"
                     + (residue is null ? "" : $" The freshly created mod folder was left at '{residue}'."));
             }
@@ -1011,7 +1017,7 @@ public sealed partial class LoadOrderService
             }
 
             // Nothing placed into a fresh folder means an orphan to remove; a reused into= folder is never touched.
-            string? leftover = placed == 0 ? RemoveOrNameRiderResidue(rf) : null;
+            string? leftover = placed == 0 ? Host.RemoveOrNameRiderResidue(rf) : null;
             // Taken AFTER the rows, because the view names a root only once a lookup has asked about it.
             return new PlaceOutcome(results, placed > 0 ? rf.ModFolder : null, warnings, leftover, null)
                 { FreshFolder = rf.CreatedFresh, RootFailures = view.RootFailures };
@@ -1024,7 +1030,7 @@ public sealed partial class LoadOrderService
     {
         var v = source.Trim().Trim('"');
         int pipe = v.IndexOf('|');
-        if (ModsPathAddress.Split(pipe >= 0 ? v.Substring(0, pipe) : v, ModsRootOrNull) is not { } hit) return null;
+        if (ModsPathAddress.Split(pipe >= 0 ? v.Substring(0, pipe) : v, Host.ModsRootOrNull) is not { } hit) return null;
         var remedy = bothSlots
             ? $"Address that archive instead with source_provider='{Path.GetFileName(hit.RelPath ?? v)}' and no source= — a BSA filename is a provider name, and each FaceGen slot then derives its own entry from that archive."
             : ModsPathAddress.Address(hit.ModFolder, hit.RelPath is null || pipe < 0 ? hit.RelPath : hit.RelPath + v.Substring(pipe),
