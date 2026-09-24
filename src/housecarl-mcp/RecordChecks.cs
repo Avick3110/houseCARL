@@ -210,7 +210,7 @@ public sealed partial class LoadOrderService
 
     /// <summary>Sweep the active order, or the given <paramref name="plugins"/> scope, for VMAD script properties
     /// declared in the attached script's .pex chain but left unbound on the record. Thin wiring over the core
-    /// <see cref="ScriptPropertyCheck.Run"/>, passing the live <see cref="Assets"/> resolver. Read-only. The knobs are
+    /// <see cref="ScriptPropertyCheck.Run"/>, passing the asset build captured with the view. Read-only. The knobs are
     /// parsed here, before any sweep runs, and a named plugin the active order does not hold is swept OFF-ORDER
     /// through the same split <see cref="CheckErrors"/> uses.</summary>
     public ScriptCheckResult ValidateScripts(IReadOnlyList<string>? plugins, int limit,
@@ -224,31 +224,30 @@ public sealed partial class LoadOrderService
         if (scopeErr is not null) return ScriptCheckResult.Fail(scopeErr);
         if (!SweepFindings.TryParseScriptClasses(findings, out var classes, out var classErr))
             return ScriptCheckResult.Fail(classErr!);
-        // One resolver and view threaded through, same contract as CheckErrors.
-        var resolver = Resolver;
+        // One resolver, view, asset build and set of roots threaded through, taken in one hold.
+        var (pin, captured) = CaptureCheckPinAndAssets();
+        var resolver = pin.Resolver;
+        var view = pin.View;
         // The exclusion resolves here, where the MO2 composition lives, exactly as it does for CheckErrors.
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
         var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames() : (Array.Empty<string>(), null);
         if (implicitErr is not null) return ScriptCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return ScriptCheckResult.Fail(excludeErr);
-        var view = resolver.Capture();
 
         // The off-order lane, resolved exactly as CheckErrors resolves it.
         if (plugins is { Count: > 0 })
         {
-            string modsDir, dataDir, overwriteDir, profileDir;
-            lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
-            if (SweepOffOrderScope.Split(view, plugins, modsDir, dataDir, overwriteDir, profileDir,
+            if (SweepOffOrderScope.Split(view, plugins, captured.ModsDir, captured.DataDir, captured.OverwriteDir, captured.ProfileDir,
                                          out var active, out var offOrder, offOrderMemo) is { } splitErr)
                 return splitErr.Stamped
                     ? ScriptCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
                     : ScriptCheckResult.Fail(splitErr.Message);
-            return ScriptPropertyCheck.Run(resolver, view, Assets, active, limit, recordScope,
+            return ScriptPropertyCheck.Run(resolver, view, captured.View, active, limit, recordScope,
                                            propertyContains, classes, countsOnly, excluded,
                                            offOrder.Count > 0 ? offOrder : null);
         }
-        return ScriptPropertyCheck.Run(resolver, view, Assets, plugins, limit, recordScope,
+        return ScriptPropertyCheck.Run(resolver, view, captured.View, plugins, limit, recordScope,
                                        propertyContains, classes, countsOnly, excluded);
     }
 
