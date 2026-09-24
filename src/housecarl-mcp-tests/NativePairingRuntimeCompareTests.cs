@@ -1,4 +1,5 @@
 using Xunit;
+using static HousecarlMcpTests.NativePairingRenderFixtures;
 
 namespace HousecarlMcpTests;
 
@@ -7,12 +8,6 @@ namespace HousecarlMcpTests;
 [Trait("tier", "unit")]
 public sealed class NativePairingRuntimeCompareTests
 {
-    static SksePluginReader.SkseVersionInfo Ver(bool independent, params string[] compat) =>
-        new("Test Plugin", "tester", "", "1.0.0",
-            UsesAddressLibrary: independent, UsesSignatureScanning: false,
-            UsesUpdatedStructs: false, DeclaresNoStructs: false,
-            CompatibleVersions: compat, MinimumXseVersion: null);
-
     [Fact] // probe: "versions equal under zero-padding: 1.6.1170 == 1.6.1170.0"
     public void VersionsAreEqualUnderZeroPadding() => Assert.True(SksePluginReader.VersionsEqual("1.6.1170", "1.6.1170.0"));
 
