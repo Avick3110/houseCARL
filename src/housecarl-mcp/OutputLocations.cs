@@ -252,7 +252,7 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                // one write at a time: build, resolve, commit
         {
             if (ConfigPromptOrNull() is { } cfgPrompt) return SeqOutcome.Fail(cfgPrompt);   // need ModsDir for the output folder
-            lock (_gate) EnsurePathsDerived();                          // derive ModsDir for the owned-folder check; lock order is _writeGate then _gate
+            lock (_gate) EnsurePathsDerived();                          // derive ModsDir for the owned-folder check
 
             // Build the .seq from the plugin: a read-only overlay, disposed inside, so no handle is held at rest.
             SeqFile.SeqBuild built;
