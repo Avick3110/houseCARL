@@ -101,7 +101,7 @@ static class SkseConfigAuditWire
                               Files: g.Select(h => h.File.RelPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
                               Example: g.First().File.RelPath))
                 .OrderByDescending(g => g.Refs).ThenBy(g => g.Plugin, StringComparer.OrdinalIgnoreCase).ToList();
-            int byPluginCut = SkseRenderParts.CutRoom(byPlugin.Count, "plugins", " or use filter=");
+            int byPluginCut = SkseRenderParts.CutRoom(byPlugin.Count, "plugins", SkseRenderParts.NarrowHint);
             if (!SkseRenderParts.Head(sb, budget - byPluginCut, "\nPLUGIN MISSING — target plugin not in the load order (inert; often a config shipping optional support for a mod you don't have) — by plugin (" +
                     byPlugin.Count + " plugins, " + missingToks.Count + " refs):\n")) missed++;
             else
@@ -114,7 +114,7 @@ static class SkseConfigAuditWire
                 sb.Append("  - ").Append(g.Plugin).Append(": ").Append(g.Refs).Append(" ref(s)");
                 if (g.Files.Count > 1) sb.Append(" across ").Append(g.Files.Count).Append(" file(s)");
                 sb.Append("  (e.g. ").Append(g.Example).Append(")\n");
-                if (sb.Length > rows2) { sb.Length = mark; sb.Append(SkseRenderParts.Showing(shown, byPlugin.Count, "plugins", " or use filter=")); break; }
+                if (sb.Length > rows2) { sb.Length = mark; sb.Append(SkseRenderParts.Showing(shown, byPlugin.Count, "plugins", SkseRenderParts.NarrowHint)); break; }
                 shown++;
                 foreach (var f in g.Files) tally.Mark(f);
             }
@@ -188,7 +188,7 @@ static class SkseConfigAuditWire
         var hits = window.Apply(allHits);
         int reserve = TransportAccounting.Reserve(allHits.Count, hits.Count, window, notes, RowNoun);
         // cap stays the caller's max_chars; budget is the room the file blocks have once the tail is charged.
-        string FilesCut(int shown) => "\n  ... [showing " + shown + " of " + hits.Count + " files; raise max_chars]\n";
+        string FilesCut(int shown) => "\n" + SkseRenderParts.Showing(shown, hits.Count, "files");
         // The caveats close this view too, charged like the pairing family's, so a filtered audit hedges what it must.
         var tail = "\n" + Caveats(d, cap);
         int budget = Math.Max(1, cap - trailer - reserve - FilesCut(hits.Count).Length - tail.Length);
@@ -253,13 +253,13 @@ static class SkseConfigAuditWire
     {
         if (items.Count == 0) return true;
         // Heading and rows both leave room for the cut notice this list may end on.
-        int room = cap - SkseRenderParts.CutRoom(items.Count, hint: " or use filter=");
+        int room = cap - SkseRenderParts.CutRoom(items.Count, hint: SkseRenderParts.NarrowHint);
         if (!SkseRenderParts.Head(sb, room, "\n" + label + " (" + items.Count + "):\n")) return false;
         int shown = 0;
         foreach (var h in items)
         {
             var row = line(h) + "\n";
-            if (sb.Length + row.Length > room) { sb.Append(SkseRenderParts.Showing(shown, items.Count, hint: " or use filter=")); break; }
+            if (sb.Length + row.Length > room) { sb.Append(SkseRenderParts.Showing(shown, items.Count, hint: SkseRenderParts.NarrowHint)); break; }
             sb.Append(row); shown++; tally?.Mark(h.File.RelPath);
         }
         return true;

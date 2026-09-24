@@ -217,6 +217,6 @@ number describes a wider set than the rows beside it.
 `SkseConfigReferenceExtractor.cs` extracts config references. `src/housecarl-mcp/AssetLayers.cs` holds the service
 lanes and the blocker string (`LooseDllBlocker`); `src/housecarl-mcp/SkseTools.cs` holds the tool and the family
 dispatch. Each family's text and json render is in its own file: `SkseInventoryWire.cs`, `SkseConfigAuditWire.cs`
-and `NativePairingWire.cs`, the last with the pairing verdict; the pieces all three share (the section heading, the
-cut notices and the room they hold back, and a plugin's version text) are in `SkseRenderParts.cs`.
+and `NativePairingWire.cs`, the last with the pairing verdict. `SkseRenderParts.cs` holds the section heading and
+the cut notices all three use, and the plugin version text the inventory and pairing renders use.
 `src/housecarl-mcp/SkseJsonDoc.cs` writes the family documents. Tool: `housecarl_skse`.
