@@ -109,10 +109,11 @@ public sealed class NativePairingProvenanceTests
     public void ClassifyEngineShortCircuitsEverything() =>
         Assert.Equal(NativeProvenance.Engine, AssetLayers.Classify(true, new[] { "PapyrusUtil AE" }, ModDlls, EnginePool).Provenance);
 
-    [Fact] // probe: "Classify: pairing evidence beats the rescue"
+    [Fact] // probe: "Classify: pairing evidence beats the rescue" (the winner is put in the pool here, so the rescue is on offer)
     public void ClassifyPairingEvidenceBeatsTheSkseCoreRescue()
     {
-        var c = AssetLayers.Classify(false, new[] { "PapyrusUtil AE" }, ModDlls, EnginePool);
+        var pool = new HashSet<string>(EnginePool, StringComparer.OrdinalIgnoreCase) { "PapyrusUtil AE" };
+        var c = AssetLayers.Classify(false, new[] { "PapyrusUtil AE" }, ModDlls, pool);
         Assert.Equal(NativeProvenance.ThirdParty, c.Provenance);
         Assert.Equal(NativePairingRung.SameMod, c.Rung);
     }
