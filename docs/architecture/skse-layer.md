@@ -187,9 +187,10 @@ number describes a wider set than the rows beside it.
   and a null never becomes a Debug-CRT claim or blocker; `SksePeekRenderTests` pins both Debug-CRT wordings.
 - *The static-load rule*: `NativePairingRuntimeCompareTests` — the runtime compare that decides the version lock,
   where garbage never passes.
-- *The PE manifest read*: the map is pinned by `SkseReaderProbe` (`skse-reader-guard`) arms A and F, which fail the
-  instant email is "fixed" to 256 and both flag fields shift; the rest of the probe — the flag decode, and a
-  non-SKSE or unreadable image classified by kind rather than thrown.
+- *The PE manifest read*: the map is pinned by `SkseVersionBlobDecodeTests` (`ViExAlone_SetsNoStructsOnly`,
+  `ViAlone_SetsAddressLibraryOnly`), which fail the instant email is "fixed" to 256 and both flag fields shift; the
+  rest of that class — the flag decode, the zero-terminated runtime list, the REL::Version unpack — and
+  `SkseReadFromDiskTests`, a non-SKSE or unreadable image classified by kind rather than thrown.
 - *The PE manifest read*: `SkseDirectoryReadTests` — a zero directory Size beside a declared RVA: the export walk
   reads it, the import walk answers unknown rather than a short list.
 - *The PE manifest read*: `SkseVersionSourceTests` pins the row separator the composed text may not use
