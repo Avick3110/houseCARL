@@ -201,7 +201,7 @@ grammar guard that harvests one rendered notice covers the wording of all of the
 - *Which lanes assemble it*: `RecordsOwnedChildTests.AScanStatesTheIndexOnlyNote_NotTheUnionItWouldPayPerRowFor` and
   `AScansClauseIsTheIndexOnlyOneAndNamesTheFormidsLane` — a scan annotates with the index-only note and names the
   formids lane; `TheSameCellNamedByFormidIsUnioned` — the formids lane assembles the union.
-- *One overlay cache per call, not per record*: `RecordsOwnedChildTests` pins the count via
+- *One overlay cache per call, not per record*: `RecordsOwnedChildOpenCountTests` pins the count via
   `LoadOrderResolver.SessionOverlayOpens`; nothing else reads it
   (`ABatchOpensEachPluginOnce_NotOncePerRecordItUnions`).
 - *The tree form still names WHICH*: `RecordsOwnedChildTests.ThePreciseTierNamesEveryProviderDeclaringInACollectionField`
