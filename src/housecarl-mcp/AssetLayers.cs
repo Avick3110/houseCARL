@@ -48,7 +48,7 @@ internal interface IAssetHost : ILoadOrderHost
     bool IsInPlaceAcknowledged(string path);
 
     // Relayed from writes until in-place consent is its own type (W4 plan ledger).
-    string? PersistInPlaceConsent(bool owed, string targetPath, string what, string subject = "plugin");
+    string? PersistInPlaceConsent(bool owed, string targetPath, string what, string subject);
 
     // Relayed from reads until it is its own class (W4 plan ledger).
     Dictionary<string, List<Type>> TypeLookup { get; }
