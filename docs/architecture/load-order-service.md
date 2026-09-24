@@ -20,7 +20,7 @@ the config file.
 
 ### The shared head door
 - `ILoadOrderHost` is how an area reaches the head members areas share. It carries only members some area actually takes through it: today `CaptureAssets()` and `WriteGate`. The head implements each member once, explicitly, next to what it wraps.
-- `CaptureAssets()` takes one `_gate` hold: it derives the roots, captures the asset build, and reads the warnings, profile name, four roots, active archives and enabled mods of that same build. The caller works on the capture outside the hold.
+- `CaptureAssets()` takes one `_gate` hold: it captures the asset build through the `Assets` getter, which checks the service is configured and derives the roots first, then reads the warnings, profile name, four roots, active archives and enabled mods of that same build. The caller works on the capture outside the hold.
 - `WriteGate` is the same object as `_writeGate`, so the lock order above holds through it: take the write gate first, then capture.
 - Each area's own interface extends `ILoadOrderHost` with the members only that area takes, plus rows relayed from areas that are not their own classes yet. The first is `IAssetHost`, in `src/housecarl-mcp/AssetLayers.cs`.
 

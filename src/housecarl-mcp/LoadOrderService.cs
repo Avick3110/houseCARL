@@ -189,14 +189,13 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
 
     AssetCapture ILoadOrderHost.CaptureAssets()
     {
-        lock (_gate) { EnsurePathsDerived(); return AssetCaptureLocked(Assets.Capture()); }
+        lock (_gate) { return AssetCaptureLocked(Assets.Capture()); }
     }
 
     (AssetCapture Assets, LoadOrderResolver.IndexView Index) IAssetHost.CaptureAssetsAndIndex()
     {
         lock (_gate)
         {
-            EnsurePathsDerived();
             var view = Assets.Capture();
             var index = Resolver.Capture();   // before the warnings: a first index build can clear the held-profile note they carry
             return (AssetCaptureLocked(view), index);
