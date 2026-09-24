@@ -306,7 +306,11 @@ public sealed partial class LoadOrderService : IDisposable
     string? _classParentsNote;
     bool _classParentsToppedUp;
     string? _classParentsTopUpMissing;
+    int _classParentsGen;                                        // bumped by every invalidate; a scan publishes only if it still matches
     readonly object _classParentsLock = new();
+
+    /// <summary>Test seam: invoked in <see cref="ClassParentsForDecompile"/> after the gate is released and before the cache lock is taken; null in the product.</summary>
+    internal Action? BeforeClassParentsPublishForGuard;
 
     /// <summary>Drop the cached hierarchy whenever <see cref="_modsDir"/> can have changed, since a stale tree's edges could suppress a cast the new order does not justify. Rebuilds lazily.</summary>
     void InvalidateClassParents()
@@ -315,6 +319,7 @@ public sealed partial class LoadOrderService : IDisposable
         {
             _classParents = null; _classParentsNote = null;
             _classParentsToppedUp = false; _classParentsTopUpMissing = null;
+            _classParentsGen++;
         }
     }
 
@@ -322,7 +327,9 @@ public sealed partial class LoadOrderService : IDisposable
     public ClassParents ClassParentsForDecompile()
     {
         bool configured;
-        string? deriveError = null, modsDir;
+        string? deriveError = null;
+        string modsDir;
+        int gen;
         lock (_gate)
         {
             configured = _configured;
@@ -331,7 +338,9 @@ public sealed partial class LoadOrderService : IDisposable
                 try { EnsurePathsDerived(); }
                 catch (Exception ex) { deriveError = ex.Message; }
             modsDir = _modsDir;
+            lock (_classParentsLock) gen = _classParentsGen;     // taken with modsDir: every write of _modsDir invalidates under the gate
         }
+        BeforeClassParentsPublishForGuard?.Invoke();             // test seam; null in the product
         lock (_classParentsLock)
         {
             if (_classParents is null)
@@ -344,7 +353,9 @@ public sealed partial class LoadOrderService : IDisposable
             if (!_classParentsToppedUp)
             {
                 string? missing =
-                    !configured ? "no MO2 instance is configured"
+                    // An invalidate since the snapshot: configured, deriveError and modsDir may all be stale, so nothing is scanned or published.
+                    gen != _classParentsGen ? "the MO2 instance changed during this call; decompile again to read the new mods folder"
+                    : !configured ? "no MO2 instance is configured"
                     : deriveError is not null ? $"the MO2 instance does not resolve ({deriveError})"
                     : string.IsNullOrEmpty(modsDir) ? "the instance has no mods folder"
                     : !Directory.Exists(modsDir) ? $"the mods folder '{modsDir}' does not exist"
