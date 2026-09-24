@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-23
-covers: [src/housecarl-core/DeletedRecordRule.cs, src/housecarl-core/ErrorCheck.cs, src/housecarl-core/SweepExclusion.cs, src/housecarl-core/SweepFamilies.cs, src/housecarl-core/SweepScope.cs, src/housecarl-mcp/CheckOutcome.cs, src/housecarl-mcp/RecordChecks.cs, src/housecarl-mcp/CheckTools.cs, src/housecarl-mcp/CheckAccounting.cs, src/housecarl-mcp/CheckArtifact.cs]
+updated: 2026-09-24
+covers: [src/housecarl-core/DeletedRecordRule.cs, src/housecarl-core/ErrorCheck.cs, src/housecarl-core/SweepExclusion.cs, src/housecarl-core/SweepFamilies.cs, src/housecarl-core/SweepScope.cs, src/housecarl-mcp/CheckOutcome.cs, src/housecarl-mcp/RecordChecks.cs, src/housecarl-mcp/CheckTools.cs, src/housecarl-mcp/CheckAccounting.cs, src/housecarl-mcp/CheckArtifact.cs, src/housecarl-mcp/CheckTextRender.cs, src/housecarl-mcp/CheckSentences.cs, src/housecarl-mcp/CheckSweep.cs]
 ---
 # The check families' contracts
 
@@ -210,7 +210,9 @@ accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_def
 - `src/housecarl-core/SweepExclusion.cs` — `exclude=`: `SweepExclusion.Resolve` and its tokens.
 - `src/housecarl-core/SweepFamilies.cs` — `SweepFamilySelection` and `SweepFamilySelection.Registered`.
 - `src/housecarl-mcp/RecordChecks.cs` — the service lanes: `CheckErrors`, `ValidateScripts`, `CheckDialogue`,
-  `ValidateDialogue`.
+  `ValidateDialogue`, `CheckFaceGen`.
+- `src/housecarl-mcp/CheckTextRender.cs`, `CheckSentences.cs` and `CheckSweep.cs` — the check text render (`Wire`), the
+  check sentences (`ReadSentences`), and the `CheckSweep` record the renders take.
 - `src/housecarl-mcp/CheckOutcome.cs` — `CheckOutcome`, and `DialogueOutcome`, whose four seed words are in
   [`check-scripts-and-dialogue-families.md`](check-scripts-and-dialogue-families.md).
 - `src/housecarl-mcp/CheckAccounting.cs` and `CheckArtifact.cs` — the response's omission accounting and the
