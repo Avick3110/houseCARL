@@ -754,9 +754,9 @@ public static class CheckMergeProbe
         }
 
         // ---- DIALOGUE-CLASS-8-ABSENT ---------------------------------------------------------------
-        // The split (SPEC §6.1): the effective merged INFO order is records' surface, not this one. The fixture's
-        // topics carry an InfoOrder, so a render that forgot the gate would print it — and the boundary has to say
-        // where the answer went, or a caller reads a clean dialogue section as having looked.
+        // The split (SPEC §6.1): the effective merged INFO order is records' surface, not this one. This guards a
+        // render that starts printing the order — and the boundary has to say where the answer went, or a caller
+        // reads a clean dialogue section as having looked.
         Check("DIALOGUE-CLASS-8-ABSENT: no effective-INFO-order render in the dialogue section, and the boundary names the surface that carries it",
             !dlgText.Contains("effective INFO order", StringComparison.Ordinal)
             && !dlgText.Contains("INFO order:", StringComparison.Ordinal)
@@ -1757,9 +1757,7 @@ public static class CheckMergeProbe
                Array.Empty<TopicValidation>()) { InputIssues = issues };
 
     /// <summary>One quest report whose numbers this file KNOWS: <see cref="Topics"/> topics, each carrying
-    /// <see cref="IssuesPerTopic"/> graph issues and <see cref="SilentPerTopic"/> silent voiced line. Each topic also
-    /// carries an INFO ORDER, so a render that forgot to gate class 8 would print one and DIALOGUE-CLASS-8-ABSENT
-    /// goes red — the arm proves the gate rather than the absence of data to gate.</summary>
+    /// <see cref="IssuesPerTopic"/> graph issues and <see cref="SilentPerTopic"/> silent voiced line.</summary>
     static DialogueValidationReport QuestReport(FormKey seed)
     {
         var topics = new List<TopicValidation>();
@@ -1782,13 +1780,7 @@ public static class CheckMergeProbe
                 Category: "Topic", Subtype: "CUST", SubtypeName: "Custom",
                 Issues: issues, VoiceLines: voice,
                 VoiceUndetermined: Array.Empty<VoiceUndetermined>(),
-                ScriptFindings: Array.Empty<ScriptBindingFinding>())
-            {
-                InfoOrder = new InfoOrderView(
-                    new[] { new InfoOrderEntry(infoFk, 0, "HcCm.esp", InfoPlacement.Tail, 0, false, false) },
-                    new[] { "HcCm.esp", "HcCmOther.esp" },
-                    Array.Empty<InfoOrderEntry>(), null),
-            });
+                ScriptFindings: Array.Empty<ScriptBindingFinding>()));
         }
         return new DialogueValidationReport(seed, "quest", "HcCmQuest", "HcCm.esp", topics);
     }

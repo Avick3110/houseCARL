@@ -28,9 +28,6 @@ public sealed record TopicValidation(
     IReadOnlyList<VoiceUndetermined> VoiceUndetermined,
     IReadOnlyList<ScriptBindingFinding> ScriptFindings)
 {
-    /// <summary>The effective, merged INFO order for this topic — see <see cref="DialogueInfoOrder"/>.</summary>
-    public InfoOrderView? InfoOrder { get; init; }
-
     /// <summary>True when the numeric <see cref="Subtype"/> and the SNAM marker name different subtypes.</summary>
     public bool SubtypeDisagreesWithMarker { get; init; }
 
@@ -161,7 +158,7 @@ public static class DialogueValidate
                     unread.Add(p);                  // the index says it TOUCHES this topic — see below
             }
 
-            // Built UNCONDITIONALLY: gating on groups.Count would leave InfoOrder null on a total drop. Safe
+            // Built UNCONDITIONALLY: gating on groups.Count would leave the topic with no order on a total drop. Safe
             // because no groups implies Complete is false, and the incomplete render branch reads only counts —
             // it never indexes ContributingPlugins. The move baseline is the first contributing group with a
             // NON-EMPTY list; the fold goes in by SlotIndex.
@@ -250,12 +247,6 @@ public static class DialogueValidate
                 return g;
             }
 
-
-            // ONE typed DIAL pass per plugin; view.GetRecord per (topic, plugin) is an unindexed overlay scan.
-            Dictionary<FormKey, InfoOrderView> OrdersFor(IReadOnlyCollection<FormKey> topicFks)
-                => InfoOrders(view, session, topicFks, fold);
-
-
             var win = view.ResolveWinner(fk);
             // The seed's provider under the projection; the fold's own body only where the fold WINS it.
             var seedFoldBody = FoldWins(fk) ? fold!.Record(fk) : null;
@@ -273,7 +264,7 @@ public static class DialogueValidate
             if (body is IDialogTopicGetter topic)
             {
                 var tv = ValidateTopic(topic, provider, InOrder, Resolve, av, BaseCopy, forceLoaded)
-                    with { InfoOrder = OrdersFor(new[] { fk }).GetValueOrDefault(fk), WinnerIsFolded = FoldProvides(fk) };
+                    with { WinnerIsFolded = FoldProvides(fk) };
                 return new DialogueValidationReport(fk, "topic", topic.EditorID ?? "", provider, new[] { tv })
                     { ReadIncomplete = av.ReadIncomplete, RootFailures = av.RootFailures,
                       InputWinnerIsFolded = FoldProvides(fk) };
@@ -315,11 +306,7 @@ public static class DialogueValidate
                         else { topicAt[ft.FormKey] = topics.Count; topics.Add(tv); }
                     }
 
-                // Built AFTER the winner scan closes, which owns its overlay; a view holds no overlay-backed body.
                 var kept = topics.Where(t => t is not null).Select(t => t!).ToList();
-                var orders = OrdersFor(kept.Select(t => t.Topic).ToList());
-                for (int i = 0; i < kept.Count; i++)
-                    kept[i] = kept[i] with { InfoOrder = orders.GetValueOrDefault(kept[i].Topic) };
 
                 // Quest-level CK-parity gaps, checked ONCE. PRESENCE only: it never judges the ANAM VALUE.
                 var questGaps = DialogueCkParity.MissingQuestDefaults(quest)

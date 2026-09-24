@@ -14,7 +14,7 @@ namespace HousecarlGenerator;
 /// live evidence falsifies (a topic whose winner lists ONE INFO plays EIGHT).
 ///
 /// Self-contained: synthesizes ON DISK a 3-plugin order (master &lt; mid &lt; last) reproducing the reported
-/// HirelingQuestTopic1 shape, then drives the REAL product path — <see cref="DialogueValidate.Run"/> →
+/// HirelingQuestTopic1 shape, then drives the REAL product path — <see cref="DialogueValidate.InfoOrders"/> →
 /// <see cref="DialogueInfoOrder.Compute"/> → <see cref="DialogueWire.AppendInfoOrderView"/> — and asserts
 /// (the whole-report <c>DialogueWire.Render</c> this chain used to end in was deleted with #486's render halves;
 /// the arms marked MOVED below went to <c>DialogueFamilyTests</c> with it):
@@ -252,19 +252,19 @@ public static class DialogueInfoOrderProbe
 
         last.BeginWrite.ToPath(lastPath).WithLoadOrder(new ISkyrimModGetter[] { master, mid }).Write();
 
-        var dataDir = Path.Combine(dir, "data"); Directory.CreateDirectory(dataDir);
         using var resolver = LoadOrderResolver.Build(new[] { mPath, midPath, lastPath, zeroPath });
-        using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
         Console.WriteLine($"-- synthesized {masterName} < {midName} < {lastName}; tOrder=8 lines, mid re-lists 6 (PNAM-chained), last re-lists 1 (no PNAM) --");
         Console.WriteLine();
 
         bool all = true;
 
-        InfoOrderView? Order(FormKey topic)
+        // The shipped path: records project=info_order reads the order through InfoOrders, not through Run.
+        Dictionary<FormKey, InfoOrderView> Orders(params FormKey[] topics)
         {
-            var rep = DialogueValidate.Run(resolver, assets, topic);
-            return rep.Topics.Count == 1 ? rep.Topics[0].InfoOrder : null;
+            using var session = resolver.OpenSession();
+            return DialogueValidate.InfoOrders(resolver.Capture(), session, topics);
         }
+        InfoOrderView? Order(FormKey topic) => Orders(topic).GetValueOrDefault(topic);
 
         // ---------- MERGE-FILE-ORDER / NO-FALSE-MOVE ----------
         {
@@ -335,11 +335,11 @@ public static class DialogueInfoOrderProbe
                 : $"patched={zeroed} reader-distinguishes={measured} (placement={e.Placement}, index={e.Index}), product flag={DialogueInfoOrder.PnamZeroIsDistinguishable}");
         }
 
-        // ---------- BATCH-FAN-IN: one quest, two topics, DIFFERENT contributing plugins each ----------
+        // ---------- BATCH-FAN-IN: one batch, one quest's two topics, DIFFERENT contributing plugins each ----------
         {
-            var rep = DialogueValidate.Run(resolver, assets, qFan.FormKey);
-            var a = rep.Topics.FirstOrDefault(t => t.Topic == fanA)?.InfoOrder;
-            var b = rep.Topics.FirstOrDefault(t => t.Topic == fanB)?.InfoOrder;
+            var orders = Orders(fanA, fanB);
+            var a = orders.GetValueOrDefault(fanA);
+            var b = orders.GetValueOrDefault(fanB);
 
             // A carries the mid plugin's extra line, B does not — so a cross-wired or first-topic-only batch
             // shows up as the wrong contributor set or the wrong line count, not merely a different order.
