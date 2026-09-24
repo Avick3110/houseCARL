@@ -123,7 +123,7 @@ public sealed partial class LoadOrderService
             }
             catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message, null, sel.FormId)); }   // bad path → per-path note, never a batch failure
         }
-        // The caveats are read AFTER the reads that fill them: a root that would not walk or list is named here.
+        // Root failures are read AFTER the reads that fill them; warnings and profile name are the capture's, pinned with the view.
         return new AssetStatusData(results, view.BsaFailures, view.RootFailures, view.ReadIncomplete,
                                    warnings, profileName,
                                    notes, total, Math.Max(offset, 0),    // the offset ASKED for, so a past-the-end page can say so
