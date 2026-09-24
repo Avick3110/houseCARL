@@ -210,7 +210,8 @@ accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_def
 - `src/housecarl-core/SweepExclusion.cs` — `exclude=`: `SweepExclusion.Resolve` and its tokens.
 - `src/housecarl-core/SweepFamilies.cs` — `SweepFamilySelection` and `SweepFamilySelection.Registered`.
 - `src/housecarl-mcp/RecordChecks.cs` — the service lanes: `CheckErrors`, `ValidateScripts`, `CheckDialogue`,
-  `ValidateDialogue`, `CheckFaceGen`.
+  `ValidateDialogue`, `CheckFaceGen`. `CheckFaceGen` lists which plugins a mod folder ships and resolves `plugins=`
+  and `exclude=` here, not in `FaceGenCheck`, because core cannot see the MO2 composition.
 - `src/housecarl-mcp/CheckTextRender.cs`, `CheckSentences.cs` and `CheckSweep.cs` — the check text render (`Wire`), the
   check sentences (`ReadSentences`), and the `CheckSweep` record the renders take.
 - `src/housecarl-mcp/CheckOutcome.cs` — `CheckOutcome`, and `DialogueOutcome`, whose four seed words are in
