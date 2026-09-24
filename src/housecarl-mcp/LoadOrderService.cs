@@ -232,10 +232,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
                                                                 out string? draftRefusal, SkyPatcherDraft.Plan? draft = null,
                                                                 SkyPatcherOverlay.WarningSink? draftWarnings = null)
         => _assetLayers.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, draftWarnings);
-    internal AssetLayers.SkyPatcherReplay? OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
-                                                                LoadOrderResolver.OverlaySession session, out string? draftRefusal,
-                                                                SkyPatcherDraft.Plan? draft = null, SkyPatcherOverlay.WarningSink? draftWarnings = null)
-        => _assetLayers.OpenSkyPatcherReplay(captured, view, session, out draftRefusal, draft, draftWarnings);
 
     /// <summary>Test seam: runs in <see cref="SkyPatcherLayer"/> after the pin and before the asset capture; null in the product.</summary>
     internal Action? AfterSkyPatcherPinForGuard
