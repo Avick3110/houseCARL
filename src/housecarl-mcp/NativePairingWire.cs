@@ -278,7 +278,7 @@ static class NativePairingWire
         // The caveats close this view too, so they are charged with the accounting rather than appended past the cap.
         var tail = "\n" + Caveats(d, cap);
         // cap stays the caller's max_chars; budget is the room the class blocks have once the tail is charged.
-        string ClassesCut(int shown) => "\n  ... [showing " + shown + " of " + hits.Count + " classes; raise max_chars]\n";
+        string ClassesCut(int shown) => "\n" + SkseRenderParts.Showing(shown, hits.Count, "classes");
         int budget = Math.Max(1, cap - trailer - reserve - tail.Length - ClassesCut(hits.Count).Length);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(

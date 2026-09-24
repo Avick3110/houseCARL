@@ -3,8 +3,7 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>The render pieces all three housecarl_skse families share: the section heading, the cut notices and
-/// the room they hold back, and a plugin's version text. Contract in docs/architecture/skse-layer.md.</summary>
+/// <summary>The heading and cut notices all three housecarl_skse renders use; the version text inventory and pairing use.</summary>
 static class SkseRenderParts
 {
     /// <summary>A section heading, laid whole; false means the budget had no room to start the section at all.</summary>
@@ -21,6 +20,9 @@ static class SkseRenderParts
 
     /// <summary>The advice a cut row list carries where narrowing the answer is the other way out.</summary>
     internal const string FilterHint = " or use filter= to see all";
+
+    /// <summary>The shorter spelling of that advice, which names filter= without promising it lists everything.</summary>
+    internal const string NarrowHint = " or use filter=";
 
     /// <summary>The one cut notice a capped row list ends on, spelled once so its widest form can be charged up front.</summary>
     internal static string Showing(int shown, int total, string noun = "", string hint = "") =>
