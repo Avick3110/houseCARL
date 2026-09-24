@@ -353,13 +353,18 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     static RecordsTools.RecordsProject Everything => new() { form = "everything" };
 
     string Read(FormKey fk, RecordsTools.RecordsProject? project = null, string? format = null, int maxChars = 0,
-                string? source = null, string? toFile = null) =>
-        RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(fk) },
+                string? source = null, string? toFile = null) => Read(_w, fk, project, format, maxChars, source, toFile);
+
+    internal static string Read(OwnedChildWorld w, FormKey fk, RecordsTools.RecordsProject? project = null, string? format = null,
+                                int maxChars = 0, string? source = null, string? toFile = null) =>
+        RecordsTools.Records(w.Svc, formids: new[] { OwnedChildWorld.Fid(fk) },
                              source: source is null ? null : JsonDocument.Parse("\"" + source + "\"").RootElement.Clone(),
                              project: project ?? Everything, format: format, max_chars: maxChars, to_file: toFile);
 
-    string ReadBoth(FormKey a, FormKey b, string? format = null, int maxChars = 0) =>
-        RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(a), OwnedChildWorld.Fid(b) },
+    string ReadBoth(FormKey a, FormKey b, string? format = null, int maxChars = 0) => ReadBoth(_w, a, b, format, maxChars);
+
+    internal static string ReadBoth(OwnedChildWorld w, FormKey a, FormKey b, string? format = null, int maxChars = 0) =>
+        RecordsTools.Records(w.Svc, formids: new[] { OwnedChildWorld.Fid(a), OwnedChildWorld.Fid(b) },
                              project: Everything, format: format, max_chars: maxChars);
 
     // ---- the fixture's own premise ---------------------------------------------------------------
@@ -1706,12 +1711,6 @@ public sealed class RecordsOwnedChildOpenCountTests : IClassFixture<OwnedChildFi
     readonly OwnedChildWorld _w;
     public RecordsOwnedChildOpenCountTests(OwnedChildFixture f) => _w = f.W;
 
-    string Read(FormKey fk) =>
-        RecordsTools.Records(_w.Svc, formids: new[] { OwnedChildWorld.Fid(fk) }, project: new() { form = "everything" });
-
-    string ReadBoth(FormKey a, FormKey b) =>
-        RecordsTools.Records(_w.Svc, formids: new[] { OwnedChildWorld.Fid(a), OwnedChildWorld.Fid(b) }, project: new() { form = "everything" });
-
     /// <summary>The union opens a body per touching plugin, so a `formids=` batch used to re-mmap every toucher
     /// once per row — the session that caches overlays died with each record, and the union memo dedupes a
     /// repeated FormID, not a repeated plugin. One session for the call bounds the opens by the ORDER's size
@@ -1720,13 +1719,13 @@ public sealed class RecordsOwnedChildOpenCountTests : IClassFixture<OwnedChildFi
     public void ABatchOpensEachPluginOnce_NotOncePerRecordItUnions()
     {
         var before = LoadOrderResolver.SessionOverlayOpens;
-        ReadBoth(_w.CellA, _w.CellF);           // two cells whose touchers overlap; three plugins in the order
+        RecordsOwnedChildTests.ReadBoth(_w, _w.CellA, _w.CellF);   // two cells whose touchers overlap; three plugins in the order
         var opens = LoadOrderResolver.SessionOverlayOpens - before;
 
         Assert.True(opens <= 3, $"a two-record batch paid {opens} overlay opens over a three-plugin order — " +
                                 "the session is not shared across the batch's records");
         // And the answers are the ones the per-record sessions gave: a shared overlay cache is a cost change.
-        Assert.Contains(ReadSentences.UnionLabel, RecordsOwnedChildTests.FieldLine(ReadBoth(_w.CellA, _w.CellF), "Temporary"));
+        Assert.Contains(ReadSentences.UnionLabel, RecordsOwnedChildTests.FieldLine(RecordsOwnedChildTests.ReadBoth(_w, _w.CellA, _w.CellF), "Temporary"));
     }
 
     /// <summary>A single named record still opens its own session and closes it — the batch's cache is the
@@ -1735,7 +1734,7 @@ public sealed class RecordsOwnedChildOpenCountTests : IClassFixture<OwnedChildFi
     public void ASingleReadStillPaysItsOwnOpens()
     {
         var before = LoadOrderResolver.SessionOverlayOpens;
-        Read(_w.CellF);
+        RecordsOwnedChildTests.Read(_w, _w.CellF);
         Assert.True(LoadOrderResolver.SessionOverlayOpens > before,
                     "a read that unions three touchers opened no overlay at all");
     }
