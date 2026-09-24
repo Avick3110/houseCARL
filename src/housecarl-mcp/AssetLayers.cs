@@ -17,22 +17,22 @@ internal interface IAssetHost : ILoadOrderHost
     /// <summary>The installed game runtime version, or null.</summary>
     string? InstalledGameRuntime();
 
-    // Relayed from output until it is its own class (W4 plan ledger).
+    // Relayed from output until output is its own class.
     LoadOrderService.RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, LoadOrderService.RiderNaming? naming);
 
-    // Relayed from output until it is its own class (W4 plan ledger).
+    // Relayed from output until output is its own class.
     string? RemoveOrNameRiderResidue(LoadOrderService.RiderFolder folder);
 
-    // Relayed from writes (the consent store) until in-place consent is its own type (W4 plan ledger).
+    // Relayed from writes (the consent store) until in-place consent is its own type.
     bool IsInPlaceAcknowledged(string path);
 
-    // Relayed from writes until in-place consent is its own type (W4 plan ledger).
+    // Relayed from writes until in-place consent is its own type.
     string? PersistInPlaceConsent(bool owed, string targetPath, string what, string subject);
 
-    // Relayed from reads until it is its own class (W4 plan ledger).
+    // Relayed from reads until reads is its own class.
     Dictionary<string, List<Type>> TypeLookup { get; }
 
-    // Relayed from reads until it is its own class (W4 plan ledger).
+    // Relayed from reads until reads is its own class.
     string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk);
 }
 

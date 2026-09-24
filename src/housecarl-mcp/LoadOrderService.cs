@@ -206,7 +206,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
     AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
         new(view, AssetWarningsLocked(), _profileName, _profileDir, _dataDir, _modsDir, _overwriteDir, _activeArchives, _enabledModsAtBuild);
 
-    // Rows the assets area takes from output, writes and reads, relayed here until those areas are classes (W4 plan ledger).
+    // Rows the assets area takes from output, writes and reads, relayed here until those areas are their own classes.
     RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);
     string? IAssetHost.RemoveOrNameRiderResidue(RiderFolder folder) => RemoveOrNameRiderResidue(folder);
     string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
