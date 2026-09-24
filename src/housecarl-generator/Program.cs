@@ -242,7 +242,7 @@ if (args.Length > 0 && args[0] == "skse-inventory-real") return SkseInventoryPro
 if (args.Length > 0 && args[0] == "skse-config-audit-real") return SkseConfigAuditReal.RunReal(args[1..]);
 
 // Native-function pairing audit, MANUAL real-data harness: the whole audit against a live MO2 instance, with timing.
-if (args.Length > 0 && args[0] == "native-pairing-real") return NativePairingProbe.RunReal(args[1..]);
+if (args.Length > 0 && args[0] == "native-pairing-real") return NativePairingReal.RunReal(args[1..]);
 
 // UNKNOWN MODE — refused, never silently taken as an output directory. Every dispatch above matched nothing, and
 // the corpus fallthrough below reads args[0] as the OUTPUT DIRECTORY, so a mistyped probe name would generate the
