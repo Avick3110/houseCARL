@@ -3024,7 +3024,7 @@ public sealed partial class LoadOrderService
         types is { Count: > 0 } ? types.Select(t => RecordNaming.StripGetterInterface(t.Name)).Distinct(StringComparer.Ordinal).ToList() : null;
 
     /// <summary>The same resolution, also spelling each entry with the arms it expanded to — the label a response needs to name the types sharing one listing, since an entry like <c>GMST</c> names none of them itself.</summary>
-    internal IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types, out string? armLabel)
+    IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types, out string? armLabel)
     {
         armLabel = null;
         if (types is not { Count: > 0 }) return null;
