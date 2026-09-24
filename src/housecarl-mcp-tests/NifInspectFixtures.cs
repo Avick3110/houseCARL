@@ -87,6 +87,39 @@ static class NifInspectFixtures
         return ms.ToArray();
     }
 
+    /// <summary>A minimal SE mesh whose one shape is a BSDynamicTriShape (no flag default of its own in nif.xml),
+    /// carrying the facegen hairline's alpha: flags 0x12EE (test on, blend off), threshold 180.</summary>
+    public static byte[] BuildDynamicShapeMesh()
+    {
+        var ver = new NiVersion { FileVersion = NiVersion.ToFile("20.2.0.7"), UserVersion = 12, StreamVersion = 100 };
+        var f = new NifFile();
+        f.Create(ver, withRootNode: true);
+        var root = f.GetRootNodes().First();
+        root.Name = new NiStringRef("DynRoot");
+        root.Flags_ui = 0xE;
+
+        var shape = new BSDynamicTriShape { Name = new NiStringRef("DynShape"), Flags_ui = 0x400000E, Scale = 1f };
+        root.Children.AddBlockRef(f.AddBlock(shape));
+
+        var alpha = new NiAlphaProperty { Threshold = 180 };
+        alpha.Flags.Value = 0x12EE;
+        shape.AlphaPropertyRef = new NiBlockRef<NiAlphaProperty>(f.AddBlock(alpha));
+
+        using var ms = new MemoryStream();
+        if (f.Save(ms) != 0) throw new InvalidOperationException("authoring the synthetic dynamic-shape mesh failed to save");
+        return ms.ToArray();
+    }
+
+    /// <summary>The authored SE mesh with byte 193 set to 0x02, which makes NiflySharp's Load throw rather than return
+    /// an error code. Byte 193 is the high byte of block 4's type index in the header's block-type-index array, so the
+    /// index lands far past the type table; re-aim this if NiflySharp's header layout or block order changes.</summary>
+    public static byte[] BuildMeshWhoseLoadThrows()
+    {
+        var bytes = BuildSyntheticSe();
+        bytes[193] = 0x02;
+        return bytes;
+    }
+
     /// <summary>A minimal SK-layout mesh whose one shape carries a BSEffectShaderProperty, a block NiflySharp answers
     /// every lighting value on from the interface stub.</summary>
     public static byte[] BuildSyntheticEffectShader()

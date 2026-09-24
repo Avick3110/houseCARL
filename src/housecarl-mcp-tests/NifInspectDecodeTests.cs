@@ -163,4 +163,36 @@ public sealed class NifInspectDecodeTests
         Assert.Null(o.Inspect);
         Assert.False(string.IsNullOrWhiteSpace(o.Error));
     }
+
+    // review of #924: a mesh whose Load THROWS (not returns an error code) is still a named error, not a throw
+    [Fact]
+    public void AMeshWhoseLoadThrowsReturnsANamedErrorNotAThrow()
+    {
+        var o = NifService.Inspect(NifInspectFixtures.BuildMeshWhoseLoadThrows());
+        Assert.Null(o.Inspect);
+        Assert.Contains("threw", o.Error);
+    }
+
+    static NifShape DynShape => NifService.Inspect(NifInspectFixtures.BuildDynamicShapeMesh()).Inspect!.Shapes.Single(s => s.Name == "DynShape");
+
+    // probe (corpus smoke): "a real BSDynamicTriShape inherits the BSTriShape flag default 0x8000E"
+    [Fact]
+    public void ABsDynamicTriShapeInheritsTheBsTriShapeFlagDefault()
+    {
+        Assert.Equal("BSDynamicTriShape", DynShape.BlockType);
+        Assert.Equal(0x8000Eu, DynShape.FlagsDefault);
+        Assert.Equal("BSTriShape", DynShape.FlagsDefaultType);
+    }
+
+    // probe (corpus smoke): "LucienHairLine alpha 0x12EE blend=false test=true thr180"
+    [Fact]
+    public void AHairlineAlphaDecodesTestOnBlendOffThreshold180()
+    {
+        var a = DynShape.Alpha;
+        Assert.NotNull(a);
+        Assert.Equal(0x12EE, (int)a!.Flags);
+        Assert.False(a.Blend);
+        Assert.True(a.Test);
+        Assert.Equal(180, (int)a.Threshold);
+    }
 }
