@@ -259,7 +259,8 @@ public sealed class ToolSurfaceCensusTests
     /// <summary>Real offender sites, with the spelling each carried — a fixture to hold any change to the
     /// reading against. Two rows are the same file and name and report as one, so the assertion counts sites
     /// rather than rows. Type names are stored, not whole expressions: this file is scanned like any other, so
-    /// a literal <c>typeof(X).Assembly</c> here would be an offender in it.</summary>
+    /// a literal <c>typeof(X).Assembly</c> here would be an offender in it. The two probe files have since been
+    /// deleted; a row's path is read only for the project that owns it, never opened, so those rows still hold.</summary>
     static readonly (string File, string TypeName)[] TheRepointedSites =
     {
         ("src/housecarl-generator/RegisteredTools.cs",                 "WriteTools"),

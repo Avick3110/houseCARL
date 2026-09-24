@@ -1548,7 +1548,7 @@ static class DescriptionVocabularyScan
     /// appends after a full stop.</para>
     /// <para>Since #468 the one glued site is NOT a shipped schema: <c>housecarl_bulk_apply</c> was the only tool
     /// binding <c>BulkOp</c> off the wire, and its deletion left the type in
-    /// <c>WireNamesProbe.NonInputWireTypes</c>, so this arm currently pins a description no caller is served. It is
+    /// <c>WireNamesScan.NonInputWireTypes</c>, so this arm currently pins a description no caller is served. It is
     /// kept rather than deleted because the collapse of <c>BulkOp</c> into <c>ApplyOp</c> — the follow-up that
     /// exemption names — carries the glued gloss onto a description that IS shipped. Whether an arm asserting about
     /// an unshipped description should be re-pointed or deleted is that change's call, and the coverage line below
