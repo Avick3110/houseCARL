@@ -45,9 +45,10 @@ public sealed class SkseVersionBlobDecodeTests
     [Fact]
     public void AddressLibraryIsBit0OfVi() => Assert.True(AddressLibraryPlugin().UsesAddressLibrary);
 
-    // Probe A: "DeclaresNoStructs true (viEx bit0 @ 0x304 — proves email is 252, not 256)".
+    // Probe A: "DeclaresNoStructs true (viEx bit0 @ 0x304)"; both flag fields are 1 here, so the 0x304 offset
+    // (email is 252, not 256) is carried by ViExAlone_SetsNoStructsOnly, not by this test.
     [Fact]
-    public void NoStructsIsBit0OfViExAt0x304() => Assert.True(AddressLibraryPlugin().DeclaresNoStructs);
+    public void NoStructsIsBit0OfViEx() => Assert.True(AddressLibraryPlugin().DeclaresNoStructs);
 
     // Probe A: "VersionIndependent true (Address Library ⇒ not runtime-locked)".
     [Fact]

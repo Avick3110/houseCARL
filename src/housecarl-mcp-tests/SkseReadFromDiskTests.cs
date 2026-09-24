@@ -5,7 +5,8 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary><see cref="SksePluginReader.Read"/> off disk, moved from the skse-reader-guard probe (arms G and H): a real
-/// managed PE classifies as NotSkse without throwing, and a non-PE file or a missing path degrades to Unreadable with
+/// managed PE with no SKSE export carries a note, no manifest and a known bitness (its NotSkse kind is pinned by
+/// SkseImportWalkTests.ASystemDllIsClassifiedNotSkse), and a non-PE file or a missing path degrades to Unreadable with
 /// bitness unknown, never a throw and never a fabricated 32-bit claim.</summary>
 [Trait("tier", "unit")]
 public sealed class SkseReadFromDiskTests : IDisposable
@@ -28,10 +29,6 @@ public sealed class SkseReadFromDiskTests : IDisposable
     }
 
     SksePluginReader.SksePluginInfo MissingFile() => SksePluginReader.Read(Path.Combine(_dir, "does-not-exist.dll"));
-
-    // Probe G: "a managed assembly with no SKSE export classifies NotSkse".
-    [Fact]
-    public void AManagedAssemblyClassifiesNotSkse() => Assert.Equal(SksePluginReader.SksePluginKind.NotSkse, ManagedAssembly().Kind);
 
     // Probe G: "NotSkse carries a Q3 note explaining why".
     [Fact]
