@@ -20,8 +20,7 @@ internal static class DialogueWire
         return true;
     }
 
-    /// <summary>One topic's block. The effective merged INFO order is not in it; that lives on
-    /// <c>records project=info_order</c> (contract in docs/architecture/dialogue-validation.md).</summary>
+    /// <summary>One topic's block, without the merged INFO order (<c>records project=info_order</c> has it).</summary>
     internal static void AppendTopic(StringBuilder sb, TopicValidation t, bool indent, int cap)
     {
         string pad = indent ? "  " : "";
@@ -68,8 +67,7 @@ internal static class DialogueWire
     /// <summary>How many order rows are listed in full before the render lists only the MOVED lines.</summary>
     const int MaxOrderRows = 25;
 
-    /// <summary>The effective merged INFO order, as the <c>records project=info_order</c> form renders it; contract in
-    /// docs/architecture/dialogue.md.</summary>
+    /// <summary>The effective merged INFO order, as the <c>records project=info_order</c> form renders it.</summary>
     internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, string pad, int cap, bool indent)
     {
         // An empty order says nothing, unless it is empty because nothing could be read — never render that as silence.
