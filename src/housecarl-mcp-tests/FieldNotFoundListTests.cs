@@ -8,16 +8,10 @@ namespace HousecarlMcpTests;
 /// the load order, so its pre-flight refusal for an unknown field must not cut the list short with nowhere to look
 /// for the rest (#688). It now lists every field up to a cap plus a slack, and past that names the
 /// mutagen-reference skill.
-///
-/// <para>Corpus-only, so it needs no records — the world is here for the generated corpus
-/// <c>CorpusRulebook.CorpusPath</c> points at.</para>
 /// </summary>
 [Trait("tier", "integration")]
-[Collection("bulk-records")]
-public sealed class FieldNotFoundListTests : BulkRecordsTestBase
+public sealed class FieldNotFoundListTests
 {
-    public FieldNotFoundListTests(BulkRecordsFixture f) : base(f) { }
-
     static string Refusal(string recordType, string field)
     {
         var r = CorpusRulebook.Load().Validate(new WriteRequest

@@ -15,7 +15,7 @@ public sealed class InPlaceGuardLocalizedPreflightTests
 {
     const string Lead = "houseCARL did not write";
     readonly W _w;
-    public InPlaceGuardLocalizedPreflightTests(W w) { _w = w; _w.UseCorpus(); }
+    public InPlaceGuardLocalizedPreflightTests(W w) { _w = w; }
 
     LoadOrderService Service(string store, params string[] order)
     {

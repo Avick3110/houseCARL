@@ -15,7 +15,7 @@ namespace HousecarlMcpTests;
 public sealed class InPlaceGuardCreateTests
 {
     readonly W _w;
-    public InPlaceGuardCreateTests(W w) { _w = w; _w.UseCorpus(); }
+    public InPlaceGuardCreateTests(W w) { _w = w; }
 
     WritePatchBuilder.CreateOutcome Create(string target, string targetName, WritePatchBuilder.CreateSpec[] specs, params string[] order)
     {

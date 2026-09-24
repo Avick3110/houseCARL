@@ -32,11 +32,9 @@ public sealed class WinnerSourceWorld : IDisposable
     /// cover every wanted key.</summary>
     public IReadOnlyList<FormKey> ArmorKeys { get; }
 
-    readonly string _priorCorpusPath;
 
     public WinnerSourceWorld()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         Root = Path.Combine(Path.GetTempPath(), "hc-winner-source-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
         var profiles = Path.Combine(instance, "profiles", "Default");
@@ -90,9 +88,6 @@ public sealed class WinnerSourceWorld : IDisposable
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), string.Concat(order.Select(n => "*" + n + "\r\n")));
         File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+MidMod\r\n+LowMod\r\n+BaseMod\r\n");
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
         Svc.Stats();
@@ -115,7 +110,6 @@ public sealed class WinnerSourceWorld : IDisposable
     public void Dispose()
     {
         Svc.Dispose();
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }

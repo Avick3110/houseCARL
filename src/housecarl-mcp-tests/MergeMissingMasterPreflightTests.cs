@@ -9,6 +9,7 @@ namespace HousecarlMcpTests;
 /// <summary>A donor whose master is not active in the load order is refused from the donor HEADERS (#729), before the
 /// whole-order identify pass the merge would otherwise run first.</summary>
 [Trait("tier", "integration")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class MergeMissingMasterPreflightTests : IClassFixture<MergeMissingMasterWorld>
 {
     readonly MergeMissingMasterWorld _w;

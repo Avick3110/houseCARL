@@ -13,6 +13,7 @@ namespace HousecarlMcpTests;
 /// declared-cost bound. Before this, a whole-order pairing sweep was two calls per NPC and broke the character budget
 /// past a few dozen paths.</summary>
 [Trait("tier", "unit")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
 {
     readonly AssetSelectWorld _w;

@@ -38,14 +38,9 @@ public sealed class TruncatedSubFieldWorld : IDisposable
         return -1;
     }
 
-    readonly string _priorCorpusPath;
 
     public TruncatedSubFieldWorld()
     {
-        // CorpusRulebook.CorpusPath is a process-global: capture before repointing, and restore before the
-        // directory the new value names is deleted.
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
-
         Root = Path.Combine(Path.GetTempPath(), "hc-truncated-subfield-tests-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
         var profiles = Path.Combine(instance, "profiles", "Default");
@@ -102,9 +97,6 @@ public sealed class TruncatedSubFieldWorld : IDisposable
         BitConverter.GetBytes(BitConverter.ToUInt32(bytes, grup + 4) - (uint)cut).CopyTo(bytes, grup + 4);
         File.WriteAllBytes(path, bytes[..(sub + 6 + Keep)].Concat(bytes[(sub + 6 + len)..]).ToArray());
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + cleanKey.FileName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + cleanKey.FileName + "\r\n");
@@ -116,7 +108,6 @@ public sealed class TruncatedSubFieldWorld : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }

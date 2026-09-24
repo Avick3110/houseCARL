@@ -14,18 +14,16 @@ namespace HousecarlMcpTests;
 /// reports. Stryker rows T30, T31, T33, T37 and T38 (dev/plans/STRYKER_WRITE_PATH_2026-09-23.md).
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class WritePatchApplyTests : IClassFixture<WritePathCorpus>, IDisposable
+public sealed class WritePatchApplyTests : IDisposable
 {
     const string TargetName = "HcWpApplyTarget.esp";
 
-    readonly WritePathCorpus _corpus;
     readonly WritePathRig _rig = new();
     readonly string _masterPath, _targetPath;
     readonly FormKey _weapon, _keyword, _ownWeapon;
 
-    public WritePatchApplyTests(WritePathCorpus corpus)
+    public WritePatchApplyTests()
     {
-        _corpus = corpus;
         var master = new SkyrimMod(new ModKey("HcWpApplyMaster", ModType.Master), SkyrimRelease.SkyrimSE);
         var w = master.Weapons.AddNew();
         w.EditorID = "HcWpApplySword";
@@ -55,14 +53,14 @@ public sealed class WritePatchApplyTests : IClassFixture<WritePathCorpus>, IDisp
     {
         var order = Order();
         var path = _rig.Out("HcWpApplyExtend.esp");
-        var created = WritePatchBuilder.CreateRecords(order, _corpus.Rulebook(), new[]
+        var created = WritePatchBuilder.CreateRecords(order, TestCorpus.Rulebook(), new[]
         {
             new WritePatchBuilder.CreateSpec { RecordType = "Weapon", EditorId = "HcWpApplyNewSword", Edits = Array.Empty<WriteRequest>() },
         }, path, extend: false);
         Assert.True(created.Success, created.Error);
         var fk = created.Created[0].FormKey;
 
-        var o = WritePatchBuilder.Apply(order, _corpus.Rulebook(), new[] { WritePathRig.Set(fk, "BasicStats.Damage", "77") }, path, extend: true);
+        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), new[] { WritePathRig.Set(fk, "BasicStats.Damage", "77") }, path, extend: true);
 
         Assert.True(o.Success, o.Error);
         Assert.Equal(77, _rig.Open(path).Weapons.Single(x => x.FormKey == fk).BasicStats!.Damage);
@@ -72,7 +70,7 @@ public sealed class WritePatchApplyTests : IClassFixture<WritePathCorpus>, IDisp
     [Fact]
     public void APatchRefusalListsItsProblemsInEditOrder()
     {
-        var o = WritePatchBuilder.Apply(Order(), _corpus.Rulebook(), new[]
+        var o = WritePatchBuilder.Apply(Order(), TestCorpus.Rulebook(), new[]
         {
             WritePathRig.Set(_weapon, "NoSuchField", "1"),
             WritePathRig.Set(NotInOrder, "BasicStats.Damage", "1"),
@@ -85,7 +83,7 @@ public sealed class WritePatchApplyTests : IClassFixture<WritePathCorpus>, IDisp
     [Fact]
     public void AnInPlaceRefusalListsItsProblemsInEditOrder()
     {
-        var o = WritePatchBuilder.ApplyInPlace(Order(), _corpus.Rulebook(), new[]
+        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook(), new[]
         {
             WritePathRig.Set(_ownWeapon, "NoSuchField", "1"),
             WritePathRig.Set(_weapon, "BasicStats.Damage", "1"),        // a master record the target does not carry
@@ -105,7 +103,7 @@ public sealed class WritePatchApplyTests : IClassFixture<WritePathCorpus>, IDisp
     [Fact]
     public void TheJsonApplyResultMarksEveryOpApplied()
     {
-        var o = WritePatchBuilder.Apply(Order(), _corpus.Rulebook(), new[]
+        var o = WritePatchBuilder.Apply(Order(), TestCorpus.Rulebook(), new[]
         {
             WritePathRig.Set(_weapon, "BasicStats.Damage", "42"),
             WritePathRig.Set(_weapon, "BasicStats.Weight", "2"),
@@ -118,7 +116,7 @@ public sealed class WritePatchApplyTests : IClassFixture<WritePathCorpus>, IDisp
     [Fact]
     public void TheJsonInPlaceApplyResultMarksEveryOpApplied()
     {
-        var o = WritePatchBuilder.ApplyInPlace(Order(), _corpus.Rulebook(),
+        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook(),
             new[] { WritePathRig.Set(_ownWeapon, "BasicStats.Damage", "42") }, _targetPath, TargetName);
         Assert.True(o.Success, o.Error);
 
@@ -129,7 +127,7 @@ public sealed class WritePatchApplyTests : IClassFixture<WritePathCorpus>, IDisp
     [Fact]
     public void TheJsonCreateResultMarksEveryOpAppliedFillsIncluded()
     {
-        var o = WritePatchBuilder.CreateRecords(Order(), _corpus.Rulebook(), new[]
+        var o = WritePatchBuilder.CreateRecords(Order(), TestCorpus.Rulebook(), new[]
         {
             new WritePatchBuilder.CreateSpec
             {
@@ -154,7 +152,7 @@ public sealed class WritePatchApplyTests : IClassFixture<WritePathCorpus>, IDisp
     [Fact]
     public void AnInPlaceLinkToAWrongTypeRecordIsRefused()
     {
-        var o = WritePatchBuilder.ApplyInPlace(Order(), _corpus.Rulebook(),
+        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook(),
             new[] { WritePathRig.Set(_ownWeapon, "EquipmentType", _keyword.ToString()) }, _targetPath, TargetName);
 
         Assert.False(o.Success);
@@ -165,7 +163,7 @@ public sealed class WritePatchApplyTests : IClassFixture<WritePathCorpus>, IDisp
     [Fact]
     public void ALandedInPlaceApplyReportsSuccessNotAnExtend()
     {
-        var o = WritePatchBuilder.ApplyInPlace(Order(), _corpus.Rulebook(),
+        var o = WritePatchBuilder.ApplyInPlace(Order(), TestCorpus.Rulebook(),
             new[] { WritePathRig.Set(_ownWeapon, "BasicStats.Damage", "42") }, _targetPath, TargetName);
 
         Assert.True(o.Success, o.Error);

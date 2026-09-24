@@ -8,7 +8,7 @@ namespace HousecarlMcpTests;
 
 /// <summary>The unbounded reverse question — <c>references=</c> with no <c>types=</c>/<c>plugins=</c> scope —
 /// answered off the reverse-reference index, driven through the tool.</summary>
-[Collection("records")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
 [Trait("tier", "integration")]
 public sealed class RecordsReverseIndexTests : RecordsTestBase
 {

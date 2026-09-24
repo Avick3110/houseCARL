@@ -13,7 +13,7 @@ namespace HousecarlMcpTests;
 /// count-neutral keyed exemption covers SetAtIndex but not InsertAtIndex. Every test edits the faction's Ranks in
 /// the replacer, in place.</summary>
 [Trait("tier", "integration")]
-public sealed class ApplyGuardVerifyTests : IClassFixture<ApplyGuardCorpus>, IDisposable
+public sealed class ApplyGuardVerifyTests : IDisposable
 {
     readonly ApplyGuardWorld W = new();
     public void Dispose() => W.Dispose();

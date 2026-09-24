@@ -32,9 +32,7 @@ namespace HousecarlMcpTests;
 /// baseline; one missing master; one unparseable plugin.</para>
 ///
 /// <para><b>The world is frozen</b>: tests take those totals from it, so a later need builds its own world
-/// instead of editing this one. It does not repoint <c>CorpusRulebook.CorpusPath</c> — the errors sweep reads
-/// master tables and FormLinks, never the record rulebook — so it generates no corpus and touches no
-/// process-global.</para>
+/// instead of editing this one.</para>
 /// </summary>
 public sealed class CheckErrorsWorld : IDisposable
 {

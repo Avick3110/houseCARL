@@ -12,18 +12,16 @@ namespace HousecarlMcpTests;
 /// it set. Stryker rows T48, T49, T52 and T53 (dev/plans/STRYKER_WRITE_PATH_2026-09-23.md).
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class WritePatchCreateTests : IClassFixture<WritePathCorpus>, IDisposable
+public sealed class WritePatchCreateTests : IDisposable
 {
     const string TargetName = "HcWpCreateTarget.esp";
 
-    readonly WritePathCorpus _corpus;
     readonly WritePathRig _rig = new();
     readonly LoadOrderResolver _order;
     readonly string _targetPath;
 
-    public WritePatchCreateTests(WritePathCorpus corpus)
+    public WritePatchCreateTests()
     {
-        _corpus = corpus;
         var master = new SkyrimMod(new ModKey("HcWpCreateMaster", ModType.Master), SkyrimRelease.SkyrimSE);
         master.Keywords.AddNew().EditorID = "HcWpCreateMasterKeyword";
         var masterPath = _rig.Write(master);
@@ -37,13 +35,13 @@ public sealed class WritePatchCreateTests : IClassFixture<WritePathCorpus>, IDis
         => new() { RecordType = type, EditorId = edid, Edits = edits };
 
     WritePatchBuilder.CreateOutcome Create(string outName, params WritePatchBuilder.CreateSpec[] specs)
-        => WritePatchBuilder.CreateRecords(_order, _corpus.Rulebook(), specs, _rig.Out(outName), extend: false);
+        => WritePatchBuilder.CreateRecords(_order, TestCorpus.Rulebook(), specs, _rig.Out(outName), extend: false);
 
     // T48
     [Fact]
     public void AnInPlaceCreateIsNotMarkedExtended()
     {
-        var o = WritePatchBuilder.CreateRecordsInPlace(_order, _corpus.Rulebook(),
+        var o = WritePatchBuilder.CreateRecordsInPlace(_order, TestCorpus.Rulebook(),
             new[] { Spec("Keyword", "HcWpCreateInPlace") }, _targetPath, TargetName);
         Assert.True(o.Success, o.Error);
         Assert.True(o.InPlace);

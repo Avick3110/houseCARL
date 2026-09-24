@@ -41,14 +41,10 @@ public sealed class WriteSurfaceWorld : IDisposable
     public string ReplacerPath => Path.Combine(ModsDir, "W2Repl", ReplacerName);
     public string MasterPath => Path.Combine(ModsDir, "W2Master", MasterName);
 
-    readonly string _priorCorpusPath;
-    readonly ResultsDirScope _results;
 
     public WriteSurfaceWorld()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         Root = Path.Combine(Path.GetTempPath(), "hc-write-surface-" + Guid.NewGuid().ToString("N"));
-        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         string instance = Path.Combine(Root, "instance");
         string profiles = Path.Combine(instance, "profiles", "Default");
@@ -157,9 +153,6 @@ public sealed class WriteSurfaceWorld : IDisposable
         File.WriteAllText(Path.Combine(profiles, "modlist.txt"),
             "# header\r\n-W2AmbB\r\n-W2AmbA\r\n-W2OffChain\r\n-W2OffDep\r\n-W2Off\r\n+W2Repl\r\n+W2Master\r\n");
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
         Svc.Stats();
@@ -189,9 +182,7 @@ public sealed class WriteSurfaceWorld : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
-        _results.Dispose();
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }

@@ -12,9 +12,7 @@ namespace HousecarlMcpTests;
 /// with both folders named rather than one of them guessed, and <c>mod=</c> says which copy to read.
 ///
 /// <para>Its own instance — the shared records world has one plugin per mod folder, so there is no filename in it
-/// for two folders to disagree about. It joins the records collection all the same, for the corpus that fixture
-/// generates and points <c>CorpusRulebook.CorpusPath</c> at.</para></summary>
-[Collection("records")]
+/// for two folders to disagree about.</para></summary>
 [Trait("tier", "integration")]
 public sealed class RecordsDuplicateFilenameSourceTests : IDisposable
 {
@@ -24,10 +22,8 @@ public sealed class RecordsDuplicateFilenameSourceTests : IDisposable
     readonly string _root;
     readonly LoadOrderService _svc;
 
-    public RecordsDuplicateFilenameSourceTests(RecordsFixture corpus)
+    public RecordsDuplicateFilenameSourceTests()
     {
-        _ = corpus;   // taken for the corpus it generates, not for its world
-
         _root = Path.Combine(Path.GetTempPath(), "hc-dupe-source-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
 

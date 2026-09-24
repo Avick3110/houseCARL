@@ -7,7 +7,7 @@ namespace HousecarlMcpTests;
 /// <summary>apply-guard arm 3: bundle= x assignments= copies fields between records. The donor's winner (the
 /// replacer) has Damage 7 and two keywords; the master's donor has 42; the subject's winner has 99 and none.</summary>
 [Trait("tier", "integration")]
-public sealed class ApplyGuardZipTests : IClassFixture<ApplyGuardCorpus>, IDisposable
+public sealed class ApplyGuardZipTests : IDisposable
 {
     readonly ApplyGuardWorld W = new();
     public void Dispose() => W.Dispose();

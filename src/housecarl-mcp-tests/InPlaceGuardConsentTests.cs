@@ -14,7 +14,7 @@ namespace HousecarlMcpTests;
 public sealed class InPlaceGuardConsentTests
 {
     readonly W _w;
-    public InPlaceGuardConsentTests(W w) { _w = w; _w.UseCorpus(); }
+    public InPlaceGuardConsentTests(W w) { _w = w; }
 
     LoadOrderService Service(string store, params string[] order) =>
         LoadOrderService.ForGuard(LoadOrderResolver.Build(order), new UserConfigStore(store));

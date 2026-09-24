@@ -12,19 +12,17 @@ namespace HousecarlMcpTests;
 /// T34 (dev/plans/STRYKER_WRITE_PATH_2026-09-23.md).
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class WritePatchDryRunTests : IClassFixture<WritePathCorpus>, IDisposable
+public sealed class WritePatchDryRunTests : IDisposable
 {
     const string Linked = "HcWpDryLinked.esm";
     const string Master = "HcWpDryMaster.esm";
 
-    readonly WritePathCorpus _corpus;
     readonly WritePathRig _rig = new();
     readonly LoadOrderResolver _order;
     readonly FormKey _weapon, _keyword;
 
-    public WritePatchDryRunTests(WritePathCorpus corpus)
+    public WritePatchDryRunTests()
     {
-        _corpus = corpus;
         // The linked plugin loads FIRST, so load order and the order the edit meets them in differ.
         var linked = new SkyrimMod(ModKey.FromFileName(Linked), SkyrimRelease.SkyrimSE);
         var k = linked.Keywords.AddNew();
@@ -41,7 +39,7 @@ public sealed class WritePatchDryRunTests : IClassFixture<WritePathCorpus>, IDis
     }
 
     WritePatchBuilder.PatchOutcome DryRun(bool fullReadback, params WritePatchBuilder.PatchEdit[] edits)
-        => WritePatchBuilder.Apply(_order, _corpus.Rulebook(), edits, _rig.Out("HcWpDryOut.esp"), extend: false,
+        => WritePatchBuilder.Apply(_order, TestCorpus.Rulebook(), edits, _rig.Out("HcWpDryOut.esp"), extend: false,
             fullReadback: fullReadback, dryRun: true);
 
     WritePatchBuilder.PatchEdit Damage() => WritePathRig.Set(_weapon, "BasicStats.Damage", "42");

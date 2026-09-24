@@ -9,7 +9,7 @@ namespace HousecarlMcpTests;
 /// is invisible) and a mistyped name both used to read as a bare "(no field X)", and they need opposite next
 /// moves: nothing to fix in the path, versus fix the spelling.
 /// </summary>
-[Collection("records")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
 [Trait("tier", "integration")]
 public sealed class RecordsNoFieldNoteTests : RecordsTestBase
 {

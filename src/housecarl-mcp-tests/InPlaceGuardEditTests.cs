@@ -11,7 +11,7 @@ namespace HousecarlMcpTests;
 public sealed class InPlaceGuardEditTests
 {
     readonly W _w;
-    public InPlaceGuardEditTests(W w) { _w = w; _w.UseCorpus(); }
+    public InPlaceGuardEditTests(W w) { _w = w; }
 
     WritePatchBuilder.PatchOutcome Edit(string target, string targetName, string[] path, string verb, string value, params string[] order)
     {

@@ -7,7 +7,7 @@ namespace HousecarlMcpTests;
 /// <summary>The records surface's wording and remedy repairs: a summary row's own label, the aggregate scope
 /// pre-check, the form-scoped field selector, the walk's carrier bound, and the two refusals that used to state a
 /// negative they could have qualified. Every one is a sentence a caller reads, so each is driven, not derived.</summary>
-[Collection("records")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
 [Trait("tier", "integration")]
 public sealed class RecordsRemedyRepairTests : RecordsTestBase
 {

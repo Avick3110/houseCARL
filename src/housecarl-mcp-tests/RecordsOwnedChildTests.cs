@@ -93,24 +93,14 @@ public sealed class OwnedChildWorld : IDisposable
 
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
-    /// <summary>What <c>CorpusRulebook.CorpusPath</c> named before this world repointed it.</summary>
-    readonly string _priorCorpusPath;
-
-    readonly ResultsDirScope _results;
 
     public OwnedChildWorld()
     {
-        // CorpusRulebook.CorpusPath is a process-global this world repoints at its own generated corpus.
-        // Capture the prior value here so Dispose can put it back: Dispose deletes Root, and a static left
-        // naming a path under Root would name a directory that no longer exists.
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
-
         Root = Path.Combine(Path.GetTempPath(), "hc-owned-child-tests-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
         var profiles = Path.Combine(instance, "profiles", "Default");
         var mods = Path.Combine(instance, "mods");
         foreach (var d in new[] { profiles, mods, Path.Combine(Root, "game", "Data") }) Directory.CreateDirectory(d);
-        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
@@ -307,12 +297,6 @@ public sealed class OwnedChildWorld : IDisposable
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + BaseName + "\r\n*" + MidName + "\r\n*" + TopName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+TopMod\r\n+MidMod\r\n+BaseMod\r\n");
 
-        // The scan lanes validate against the corpus rulebook and the write lanes resolve a record_type
-        // through it, so this world generates one — the same by-construction catalog the other worlds build.
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
-
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
         Svc.Stats();
     }
@@ -340,8 +324,6 @@ public sealed class OwnedChildWorld : IDisposable
     public void Dispose()
     {
         Svc.Dispose();
-        CorpusRulebook.CorpusPath = _priorCorpusPath;   // before the delete below takes the path it named
-        _results.Dispose();   // same: the static must not name a deleted path
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }
@@ -619,34 +601,6 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     }
 
     // ---- what a batch of named records opens ------------------------------------------------------
-
-    /// <summary>The union opens a body per touching plugin, so a `formids=` batch used to re-mmap every toucher
-    /// once per row — the session that caches overlays died with each record, and the union memo dedupes a
-    /// repeated FormID, not a repeated plugin. One session for the call bounds the opens by the ORDER's size
-    /// instead of by the row count.</summary>
-    [Fact]
-    public void ABatchOpensEachPluginOnce_NotOncePerRecordItUnions()
-    {
-        var before = LoadOrderResolver.SessionOverlayOpens;
-        ReadBoth(_w.CellA, _w.CellF);           // two cells whose touchers overlap; three plugins in the order
-        var opens = LoadOrderResolver.SessionOverlayOpens - before;
-
-        Assert.True(opens <= 3, $"a two-record batch paid {opens} overlay opens over a three-plugin order — " +
-                                "the session is not shared across the batch's records");
-        // And the answers are the ones the per-record sessions gave: a shared overlay cache is a cost change.
-        Assert.Contains(ReadSentences.UnionLabel, FieldLine(ReadBoth(_w.CellA, _w.CellF), "Temporary"));
-    }
-
-    /// <summary>A single named record still opens its own session and closes it — the batch's cache is the
-    /// batch's, and nothing is held between calls.</summary>
-    [Fact]
-    public void ASingleReadStillPaysItsOwnOpens()
-    {
-        var before = LoadOrderResolver.SessionOverlayOpens;
-        Read(_w.CellF);
-        Assert.True(LoadOrderResolver.SessionOverlayOpens > before,
-                    "a read that unions three touchers opened no overlay at all");
-    }
 
     [Fact]
     public void AtDepthTwoTheContainersOwnSummaryLineStillCarriesTheAnnotation() =>
@@ -1669,7 +1623,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // ---- helpers ---------------------------------------------------------------------------------
 
     /// <summary>The text lane's rendered "  Path = value   (annotation)" line, trimmed.</summary>
-    static string FieldLine(string render, string path)
+    internal static string FieldLine(string render, string path)
     {
         foreach (var line in render.Split('\n'))
         {
@@ -1743,3 +1697,46 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     }
 }
 
+/// <summary>How many overlays a read opens, off the process-wide <c>LoadOrderResolver.SessionOverlayOpens</c> counter,
+/// so these run where nothing else opens one at the same time.</summary>
+[Trait("tier", "integration")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
+public sealed class RecordsOwnedChildOpenCountTests : IClassFixture<OwnedChildFixture>
+{
+    readonly OwnedChildWorld _w;
+    public RecordsOwnedChildOpenCountTests(OwnedChildFixture f) => _w = f.W;
+
+    string Read(FormKey fk) =>
+        RecordsTools.Records(_w.Svc, formids: new[] { OwnedChildWorld.Fid(fk) }, project: new() { form = "everything" });
+
+    string ReadBoth(FormKey a, FormKey b) =>
+        RecordsTools.Records(_w.Svc, formids: new[] { OwnedChildWorld.Fid(a), OwnedChildWorld.Fid(b) }, project: new() { form = "everything" });
+
+    /// <summary>The union opens a body per touching plugin, so a `formids=` batch used to re-mmap every toucher
+    /// once per row — the session that caches overlays died with each record, and the union memo dedupes a
+    /// repeated FormID, not a repeated plugin. One session for the call bounds the opens by the ORDER's size
+    /// instead of by the row count.</summary>
+    [Fact]
+    public void ABatchOpensEachPluginOnce_NotOncePerRecordItUnions()
+    {
+        var before = LoadOrderResolver.SessionOverlayOpens;
+        ReadBoth(_w.CellA, _w.CellF);           // two cells whose touchers overlap; three plugins in the order
+        var opens = LoadOrderResolver.SessionOverlayOpens - before;
+
+        Assert.True(opens <= 3, $"a two-record batch paid {opens} overlay opens over a three-plugin order — " +
+                                "the session is not shared across the batch's records");
+        // And the answers are the ones the per-record sessions gave: a shared overlay cache is a cost change.
+        Assert.Contains(ReadSentences.UnionLabel, RecordsOwnedChildTests.FieldLine(ReadBoth(_w.CellA, _w.CellF), "Temporary"));
+    }
+
+    /// <summary>A single named record still opens its own session and closes it — the batch's cache is the
+    /// batch's, and nothing is held between calls.</summary>
+    [Fact]
+    public void ASingleReadStillPaysItsOwnOpens()
+    {
+        var before = LoadOrderResolver.SessionOverlayOpens;
+        Read(_w.CellF);
+        Assert.True(LoadOrderResolver.SessionOverlayOpens > before,
+                    "a read that unions three touchers opened no overlay at all");
+    }
+}

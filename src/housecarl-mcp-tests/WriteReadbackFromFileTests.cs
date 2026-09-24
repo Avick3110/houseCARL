@@ -22,13 +22,12 @@ public sealed class WriteReadbackFromFileTests : IDisposable
     const string PatchName = "HcRbPatch.esp";
     const string PatchFolder = "houseCARL - HcRbPatch";
 
-    readonly string _root, _priorCorpusPath, _patchPath;
+    readonly string _root, _patchPath;
     readonly LoadOrderService _svc;
     readonly FormKey _weapon, _lvli, _topic;
 
     public WriteReadbackFromFileTests()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         _root = Path.Combine(Path.GetTempPath(), "hc-readback-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
 
@@ -68,9 +67,6 @@ public sealed class WriteReadbackFromFileTests : IDisposable
         File.WriteAllText(Path.Combine(mods, PatchFolder, "meta.ini"),
             "[General]\r\ngameName=skyrimse\r\n\r\n[houseCARL]\r\ngenerated=true\r\nplugin=" + PatchName + "\r\n");
 
-        var genDir = Path.Combine(_root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -184,7 +180,6 @@ public sealed class WriteReadbackFromFileTests : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         _svc.Dispose();
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }

@@ -12,16 +12,14 @@ namespace HousecarlMcpTests;
 /// join it with. Stryker rows T28, T36 and T39 (dev/plans/STRYKER_WRITE_PATH_2026-09-23.md).
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class WritePatchNoteTests : IClassFixture<WritePathCorpus>, IDisposable
+public sealed class WritePatchNoteTests : IDisposable
 {
-    readonly WritePathCorpus _corpus;
     readonly WritePathRig _rig = new();
     readonly string _masterPath, _linkedPath;
     readonly FormKey _weapon, _keyword;
 
-    public WritePatchNoteTests(WritePathCorpus corpus)
+    public WritePatchNoteTests()
     {
-        _corpus = corpus;
         var master = new SkyrimMod(new ModKey("HcWpNoteMaster", ModType.Master), SkyrimRelease.SkyrimSE);
         var w = master.Weapons.AddNew();
         w.EditorID = "HcWpNoteSword";
@@ -52,7 +50,7 @@ public sealed class WritePatchNoteTests : IClassFixture<WritePathCorpus>, IDispo
     public void AFreshApplyCarriesNoMasterAddedNote()
     {
         var order = _rig.Order(_masterPath);
-        var o = WritePatchBuilder.Apply(order, _corpus.Rulebook(), Damage(), _rig.Out("HcWpNoteFresh.esp"), extend: false);
+        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), Damage(), _rig.Out("HcWpNoteFresh.esp"), extend: false);
         Assert.True(o.Success, o.Error);
         Assert.Null(o.Note);
     }
@@ -61,7 +59,7 @@ public sealed class WritePatchNoteTests : IClassFixture<WritePathCorpus>, IDispo
     public void AFreshApplyDryRunCarriesNoMasterAddedNote()
     {
         var order = _rig.Order(_masterPath);
-        var o = WritePatchBuilder.Apply(order, _corpus.Rulebook(), Damage(), _rig.Out("HcWpNoteDry.esp"), extend: false, dryRun: true);
+        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), Damage(), _rig.Out("HcWpNoteDry.esp"), extend: false, dryRun: true);
         Assert.True(o.Success, o.Error);
         Assert.Null(o.Note);
     }
@@ -86,7 +84,7 @@ public sealed class WritePatchNoteTests : IClassFixture<WritePathCorpus>, IDispo
     {
         var order = _rig.Order(_masterPath);
         var path = EmptyPatch("HcWpNoteGrow.esp");
-        var o = WritePatchBuilder.Apply(order, _corpus.Rulebook(), Damage(), path, extend: true);
+        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), Damage(), path, extend: true);
         Assert.True(o.Success, o.Error);
         Assert.Contains("re-sort your load order", o.Note);
     }
@@ -96,7 +94,7 @@ public sealed class WritePatchNoteTests : IClassFixture<WritePathCorpus>, IDispo
     {
         var order = _rig.Order(_masterPath);
         var path = EmptyPatch("HcWpNoteGrowDry.esp");
-        var o = WritePatchBuilder.Apply(order, _corpus.Rulebook(), Damage(), path, extend: true, dryRun: true);
+        var o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), Damage(), path, extend: true, dryRun: true);
         Assert.True(o.Success, o.Error);
         Assert.Contains("re-sort your load order", o.Note);
     }
@@ -112,7 +110,7 @@ public sealed class WritePatchNoteTests : IClassFixture<WritePathCorpus>, IDispo
         };
         WritePatchBuilder.PatchOutcome o;
         using (HeldOpen.Hold(_linkedPath))
-            o = WritePatchBuilder.Apply(order, _corpus.Rulebook(), new[] { edit }, _rig.Out("HcWpNoteLink.esp"),
+            o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook(), new[] { edit }, _rig.Out("HcWpNoteLink.esp"),
                 extend: false, dryRun: true);
         Assert.True(o.Success, o.Error);
         Assert.Contains("HcWpNoteLinked.esm", o.Note);

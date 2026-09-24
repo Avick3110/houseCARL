@@ -11,11 +11,11 @@ namespace HousecarlMcpTests;
 /// parameters as the fields to add.
 /// </summary>
 [Trait("tier", "integration")]
-public sealed class ComposeFromConstructorTests : IClassFixture<OwnCorpusFixture>
+public sealed class ComposeFromConstructorTests
 {
     readonly CorpusRulebook _rulebook;
 
-    public ComposeFromConstructorTests(OwnCorpusFixture f) => _rulebook = f.Rulebook;
+    public ComposeFromConstructorTests() => _rulebook = TestCorpus.Rulebook();
 
     string? SetArchetype(StructSpec arm) => _rulebook.Validate(new WriteRequest
     {

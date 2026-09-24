@@ -14,6 +14,7 @@ namespace HousecarlMcpTests;
 /// <summary>to_file, auto-spill, re-entry, the store's refusals, and error-row identity — everything that
 /// reads one stable build.</summary>
 [Trait("tier", "integration")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<ArtifactFixture>
 {
     public RecordsArtifactTests(ArtifactFixture f) : base(f) { }
@@ -710,7 +711,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 
     [Fact]
     public void ToFileIntoTheServersResultsDirectoryIsRefusedNamingThePruneHazard() =>
-        Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: Path.Combine(ResultsDir, "mine.jsonl")),
+        Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: Path.Combine(ResultsStore.Dir, "mine.jsonl")),
                 "pruned by age");
 
     // ---- error rows are not identity-bearing -------------------------------------------------------
@@ -1060,6 +1061,7 @@ public sealed class RecordsArtifactRoundTripTests : IDisposable
 
 /// <summary>The results store's own contracts: reservation, disposal, and the write-time age prune.</summary>
 [Trait("tier", "unit")]
+[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class RecordsArtifactResultsStoreTests : IDisposable
 {
     readonly string _dir = Path.Combine(Path.GetTempPath(), "hc-artifact-store-" + Guid.NewGuid().ToString("N"));

@@ -60,15 +60,11 @@ public sealed class RenderCostWorld : IDisposable
 
     public LoadOrderService Svc { get; }
 
-    readonly string _priorCorpusPath;
-    readonly ResultsDirScope _results;
 
     public RenderCostWorld()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         Root = Path.Combine(Path.GetTempPath(), "hc-rendercost-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
-        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var masterKey = new ModKey("HcCostMaster", ModType.Master);
         MasterName = masterKey.FileName.String;
@@ -172,9 +168,6 @@ public sealed class RenderCostWorld : IDisposable
         off.BeginWrite.ToPath(Path.Combine(mods, "CostOffMod", OffOrderName))
            .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -211,8 +204,6 @@ public sealed class RenderCostWorld : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
-        _results.Dispose();   // both statics go back before the delete below takes the paths they name
         Svc.Dispose();
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
@@ -225,9 +216,8 @@ public sealed class RenderCostFixture : IDisposable
     public void Dispose() => W.Dispose();
 }
 
-/// <summary>Its own collection, for the reason every world here has one: <c>CorpusRulebook.CorpusPath</c> is a
-/// process-global and only one world may own it at a time.</summary>
-[CollectionDefinition("render-cost")]
+/// <summary>One collection, sharing one <see cref="RenderCostWorld"/>. Serial for the reason <see cref="SerialCollection"/> is (#903).</summary>
+[CollectionDefinition("render-cost", DisableParallelization = true)]
 public sealed class RenderCostCollection : ICollectionFixture<RenderCostFixture> { }
 
 /// <summary>
@@ -1143,8 +1133,9 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void ACancelledCallLeavesNothingInTheResultsDirectory()
     {
-        var dir = ResultsStore.Dir;   // the world's own, so the claim is "empty", not "no bigger than it was"
-        Assert.Empty(Directory.Exists(dir) ? Directory.GetFiles(dir) : Array.Empty<string>());
+        using var results = new ResultsDirScope(_w.Scratch("cancel-results"));   // its own, so the claim is "empty"
+        var dir = results.Dir;
+        Assert.Empty(Directory.GetFiles(dir));
 
         using var cts = new CancellationTokenSource();
         cts.Cancel();
@@ -1152,7 +1143,7 @@ public sealed class RecordsRenderCostTests
             RecordsTools.Records(Svc, types: Weap, limit: RenderCostWorld.Weapons, project: Fields(),
                                  max_chars: 600, ct: cts.Token));
 
-        Assert.Empty(Directory.Exists(dir) ? Directory.GetFiles(dir) : Array.Empty<string>());
+        Assert.Empty(Directory.GetFiles(dir));
     }
 
     /// <summary>The tool body's own guard hands a real cancellation on rather than naming it an internal failure —

@@ -25,13 +25,11 @@ public sealed class WriteSilentAddAndMasterGrowTests : IDisposable
     const string UserName = "HcDupUser.esp";
 
     readonly string _root;
-    readonly string _priorCorpusPath;
     readonly LoadOrderService _svc;
     readonly FormKey _weapon, _kwA, _kwB, _lvli;
 
     public WriteSilentAddAndMasterGrowTests()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         _root = Path.Combine(Path.GetTempPath(), "hc-dupadd-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
 
@@ -67,9 +65,6 @@ public sealed class WriteSilentAddAndMasterGrowTests : IDisposable
         user.BeginWrite.ToPath(Path.Combine(mods, "DupUserMod", UserName))
             .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        var genDir = Path.Combine(_root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(_root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -320,7 +315,6 @@ public sealed class WriteSilentAddAndMasterGrowTests : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         _svc.Dispose();
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }

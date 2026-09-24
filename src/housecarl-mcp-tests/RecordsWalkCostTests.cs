@@ -32,11 +32,9 @@ public sealed class WalkCostWorld : IDisposable
     /// at one terminal of their own, so hop 2's frontier is half revisits and half records still to reach.</summary>
     public string RevisitSeed { get; }
 
-    readonly string _priorCorpusPath;
 
     public WalkCostWorld()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         Root = Path.Combine(Path.GetTempPath(), "hc-walkcost-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
 
@@ -93,9 +91,6 @@ public sealed class WalkCostWorld : IDisposable
         master.BeginWrite.ToPath(Path.Combine(mods, "WalkCostMod", MasterName))
               .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -111,7 +106,6 @@ public sealed class WalkCostWorld : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
@@ -124,8 +118,8 @@ public sealed class WalkCostFixture : IDisposable
     public void Dispose() => W.Dispose();
 }
 
-/// <summary>Its own collection: <c>CorpusRulebook.CorpusPath</c> is a process-global and one world owns it at a time.</summary>
-[CollectionDefinition("walk-cost")]
+/// <summary>One collection, sharing one walk-cost world. Serial for the reason <see cref="SerialCollection"/> is (#903).</summary>
+[CollectionDefinition("walk-cost", DisableParallelization = true)]
 public sealed class WalkCostCollection : ICollectionFixture<WalkCostFixture> { }
 
 /// <summary>

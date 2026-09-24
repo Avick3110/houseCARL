@@ -8,34 +8,6 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>One generated corpus for a test class of write-path tests, pointed at by <see cref="CorpusRulebook.CorpusPath"/>
-/// while the class runs and restored after.</summary>
-public sealed class WritePathCorpus : IDisposable
-{
-    readonly string _dir;
-    readonly string _prior;
-
-    public string CorpusPath { get; }
-
-    public WritePathCorpus()
-    {
-        _prior = CorpusRulebook.CorpusPath;
-        _dir = Path.Combine(Path.GetTempPath(), "hc-wp-corpus-" + Guid.NewGuid().ToString("N"));
-        var gen = Path.Combine(_dir, "gen");
-        CorpusGenerator.GenerateAll(gen, Path.Combine(_dir, "ref"));
-        CorpusPath = Path.Combine(gen, "corpus.json");
-        CorpusRulebook.CorpusPath = CorpusPath;
-    }
-
-    public CorpusRulebook Rulebook() => CorpusRulebook.Load(CorpusPath);
-
-    public void Dispose()
-    {
-        CorpusRulebook.CorpusPath = _prior;
-        try { Directory.Delete(_dir, true); } catch { /* temp cleanup best-effort */ }
-    }
-}
-
 /// <summary>A temp folder for one write-path test: plugins written by Mutagen, a load order over them, and the output
 /// paths the write lanes are pointed at. Everything it opened or built is released on dispose.</summary>
 public sealed class WritePathRig : IDisposable

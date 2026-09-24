@@ -101,15 +101,11 @@ public sealed class FormLinkNullGuardApplyTests
 
 /// <summary>
 /// The pre-flight half of <c>formlink-null-guard</c>: a malformed FormLink value is refused at the gate instead of
-/// passing and then throwing at apply. Corpus-only; the world is here for the corpus
-/// <c>CorpusRulebook.CorpusPath</c> points at.
+/// passing and then throwing at apply.
 /// </summary>
 [Trait("tier", "integration")]
-[Collection("bulk-records")]
-public sealed class FormLinkNullGuardPreflightTests : BulkRecordsTestBase
+public sealed class FormLinkNullGuardPreflightTests
 {
-    public FormLinkNullGuardPreflightTests(BulkRecordsFixture f) : base(f) { }
-
     // C1: "pre-flight REJECTS a malformed FormLink value (was accept-then-throw)".
     [Fact]
     public void AMalformedFormLinkValueIsRefusedBeforeTheWrite()

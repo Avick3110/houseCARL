@@ -65,18 +65,11 @@ public sealed class BulkRecordsWorld : IDisposable
 
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
-    readonly string _priorCorpusPath;
-    readonly ResultsDirScope _results;
 
     public BulkRecordsWorld()
     {
-        // CorpusRulebook.CorpusPath is a process-global: capture before repointing, and restore before the
-        // directory the new value names is deleted.
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
-
         Root = Path.Combine(Path.GetTempPath(), "hc-bulk-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
-        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var masterKey = new ModKey("HcBulkMaster", ModType.Master);
         var replKey = new ModKey("HcBulkRepl", ModType.Plugin);
@@ -147,10 +140,6 @@ public sealed class BulkRecordsWorld : IDisposable
         repl.BeginWrite.ToPath(replFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
         off.BeginWrite.ToPath(Path.Combine(mods, "BulkOffMod", OffName)).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
-
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
@@ -174,9 +163,7 @@ public sealed class BulkRecordsWorld : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
-        _results.Dispose();   // before the delete below: the static must not name a removed directory
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }
@@ -200,15 +187,11 @@ public sealed class EngineImplicitLinkWorld : IDisposable
     public const string PlayerRefToken = "000014:Skyrim.esm";
     public const string ControlToken = "000015:Skyrim.esm";
 
-    readonly string _priorCorpusPath;
-    readonly ResultsDirScope _results;
 
     public EngineImplicitLinkWorld()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         Root = Path.Combine(Path.GetTempPath(), "hc-engineimplicit-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
-        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var instance = Path.Combine(Root, "inst");
         var mods = Path.Combine(instance, "mods");
@@ -232,10 +215,6 @@ public sealed class EngineImplicitLinkWorld : IDisposable
         Carrier = w.FormKey;
         ei.BeginWrite.ToPath(Path.Combine(mods, "EiMod", eiKey.FileName)).WithLoadOrder(new ISkyrimModGetter[] { stub }).Write();
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
-
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
@@ -251,9 +230,7 @@ public sealed class EngineImplicitLinkWorld : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
-        _results.Dispose();   // before the delete below: the static must not name a removed directory
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }
@@ -266,9 +243,7 @@ public sealed class BulkRecordsFixture : IDisposable
 }
 
 /// <summary>
-/// Its own collection for the same reason the records one exists: <c>CorpusRulebook.CorpusPath</c> is a
-/// process-global, and only one world may own it at a time. Assembly-wide parallelisation is off, so the
-/// collections run one after another.
+/// Every bulk-records test runs in one collection, which shares one <see cref="BulkRecordsWorld"/>.
 /// </summary>
 [CollectionDefinition("bulk-records")]
 public sealed class BulkRecordsCollection : ICollectionFixture<BulkRecordsFixture> { }

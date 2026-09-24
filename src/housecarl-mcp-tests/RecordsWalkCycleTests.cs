@@ -34,15 +34,11 @@ public sealed class WalkCycleWorld : IDisposable
     /// is set past what it takes to trip the per-seed cycle-search cap.</summary>
     public const int Hubs = 22;
 
-    readonly string _priorCorpusPath;
-    readonly ResultsDirScope _results;
 
     public WalkCycleWorld()
     {
-        _priorCorpusPath = CorpusRulebook.CorpusPath;
         Root = Path.Combine(Path.GetTempPath(), "hc-walkcycle-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
-        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var masterKey = new ModKey("HcWalkCycleMaster", ModType.Master);
         MasterName = masterKey.FileName.String;
@@ -107,9 +103,6 @@ public sealed class WalkCycleWorld : IDisposable
         master.BeginWrite.ToPath(Path.Combine(mods, "WalkCycleMod", MasterName))
               .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        var genDir = Path.Combine(Root, "corpus-gen");
-        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
-        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -125,9 +118,7 @@ public sealed class WalkCycleWorld : IDisposable
 
     public void Dispose()
     {
-        CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
-        _results.Dispose();   // before the delete below: the static must not name a removed directory
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }
@@ -139,7 +130,7 @@ public sealed class WalkCycleFixture : IDisposable
     public void Dispose() => W.Dispose();
 }
 
-/// <summary>Its own collection: <c>CorpusRulebook.CorpusPath</c> is a process-global and one world owns it at a time.</summary>
+/// <summary>One collection, sharing one walk-cycle world.</summary>
 [CollectionDefinition("walk-cycle")]
 public sealed class WalkCycleCollection : ICollectionFixture<WalkCycleFixture> { }
 

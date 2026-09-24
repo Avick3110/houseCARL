@@ -11,13 +11,10 @@ namespace HousecarlMcpTests;
 
 /// <summary>The engine half of #324 and #335, driven directly: the child-group capture/restore gate and its three
 /// refusals, the reflected child-bearing property set, and how every write verb answers at an owned child record
-/// (Cell.Landscape, Worldspace.TopCell). Migrated from write-surface-guard's child-group arm. The world is only here for
-/// its generated corpus, which the pre-flight gate reads.</summary>
+/// (Cell.Landscape, Worldspace.TopCell). Migrated from write-surface-guard's child-group arm.</summary>
 [Trait("tier", "integration")]
-public sealed class WriteSurfaceOwnedChildEngineTests : IClassFixture<WriteSurfaceWorld>
+public sealed class WriteSurfaceOwnedChildEngineTests
 {
-    public WriteSurfaceOwnedChildEngineTests(WriteSurfaceWorld w) => _ = w;
-
     static CorpusRulebook Rules => CorpusRulebook.Load();
 
     static string? Throws(Action act)
