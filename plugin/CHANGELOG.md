@@ -11,8 +11,8 @@ made the change.
 
 ## Unreleased
 
-- **`housecarl_skypatcher_layer` now stays inside the `max_chars` it is given, closing hint and cut notices
-  included.** Pass `max_chars=8000` on a large layer: the answer is 8,000 characters or fewer.
+- **`housecarl_skypatcher_layer` now stays inside the `max_chars` it is given, or says it ran over when
+  that cap cannot hold its header and warnings.** Pass `max_chars=8000` on a large layer: the answer is 8,000 characters or fewer.
 
 ## 2.0.3 — 2026-09-23
 
