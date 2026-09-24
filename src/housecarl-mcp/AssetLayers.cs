@@ -57,11 +57,11 @@ internal sealed partial class AssetLayers
     /// <paramref name="seeds"/> the FaceGen one, and <paramref name="wholeSelection"/> <see cref="AssetArtifact"/>'s never-a-window <c>to_file=</c> disposition.</summary>
     public AssetStatusData AssetStatus(
         IReadOnlyList<string> relPaths,
-        IReadOnlyList<string>? under = null,
-        int limit = 0,
-        int offset = 0,
-        IReadOnlyList<FaceGenSeed>? seeds = null,
-        bool wholeSelection = false)
+        IReadOnlyList<string>? under,
+        int limit,
+        int offset,
+        IReadOnlyList<FaceGenSeed>? seeds,
+        bool wholeSelection)
     {
         var captured = _host.CaptureAssets();   // the view is pinned and handle-free, so the body runs outside the gate
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
@@ -183,7 +183,7 @@ internal sealed partial class AssetLayers
     /// accounted for and the subfolder group is derived, never a hardcoded framework list; what stops a DLL loading
     /// is the static-load rule in docs/architecture/skse-layer.md.</summary>
     /// <param name="peekFilter">When non-null, a matching DLL entry is also string-scanned; per-DLL, because the scan reads the whole image.</param>
-    public SkseInventoryData SkseInventory(string? peekFilter = null)
+    public SkseInventoryData SkseInventory(string? peekFilter)
     {
         var captured = _host.CaptureAssets();   // build/refresh the asset resolver under the gate, ONCE
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName; var profileDir = captured.ProfileDir;

@@ -15,8 +15,8 @@ internal sealed partial class AssetLayers
 
     /// <summary>Open one call's replay context, folding in the draft if given; null with the refusal when the draft cannot be folded.</summary>
     internal SkyPatcherReplay? OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                                                    out string? draftRefusal, SkyPatcherDraft.Plan? draft = null,
-                                                    SkyPatcherOverlay.WarningSink? draftWarnings = null)
+                                                    out string? draftRefusal, SkyPatcherDraft.Plan? draft,
+                                                    SkyPatcherOverlay.WarningSink? draftWarnings)
     {
         return OpenSkyPatcherReplay(_host.CaptureAssets(), view, session, out draftRefusal, draft, draftWarnings);
     }
