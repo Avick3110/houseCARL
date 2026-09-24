@@ -35,7 +35,8 @@ Code comments call the first two of these the cornerstones. A design question th
 |---|---|
 | `src/housecarl-mcp/` | The MCP server and tool surface |
 | `src/housecarl-mcp/LoadOrderService.cs` | The service's head, fields, and the instance, status, config, and Papyrus source-root lanes |
-| `src/housecarl-mcp/AssetLayers.cs` | Assets, the SKSE layer, NIF, SkyPatcher, place |
+| `src/housecarl-mcp/AssetLayers.cs` | Assets, the SKSE layer, NIF, the SkyPatcher layer scan, place |
+| `src/housecarl-mcp/SkyPatcherReplay.cs` | The SkyPatcher replay and the one door that opens its context |
 | `src/housecarl-mcp/RecordReads.cs` | Read, resolve, query, type lookup |
 | `src/housecarl-mcp/RecordChecks.cs` | The check lanes |
 | `src/housecarl-mcp/RecordWrites.cs` | The write lanes |
