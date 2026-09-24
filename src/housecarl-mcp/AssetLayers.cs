@@ -73,7 +73,8 @@ public sealed partial class LoadOrderService
         IReadOnlyList<FaceGenSeed>? seeds = null,
         bool wholeSelection = false)
     {
-        var (view, warnings, profileName, _, _, _, _, _, _) = Host.CaptureAssets();   // the view is pinned and handle-free, so the body runs outside the gate
+        var captured = Host.CaptureAssets();   // the view is pinned and handle-free, so the body runs outside the gate
+        var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
         var notes = new List<string>();
         var selected = new List<Selection>(relPaths.Count);
         foreach (var p in relPaths) selected.Add(new Selection(p ?? "", null, null, null));   // explicit paths first, in the order given, never deduped
@@ -194,7 +195,8 @@ public sealed partial class LoadOrderService
     /// <param name="peekFilter">When non-null, a matching DLL entry is also string-scanned; per-DLL, because the scan reads the whole image.</param>
     public SkseInventoryData SkseInventory(string? peekFilter = null)
     {
-        var (view, warnings, profileName, profileDir, _, _, _, _, _) = Host.CaptureAssets();   // build/refresh the asset resolver under the gate, ONCE
+        var captured = Host.CaptureAssets();   // build/refresh the asset resolver under the gate, ONCE
+        var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName; var profileDir = captured.ProfileDir;
         // The plugin names a peek's cross-check adjudicates against, skipped entirely without peek=. The set is what
         // the game loads: plugins.txt entries plus the force-loaded base and CC masters, which never appear there.
         IReadOnlySet<string>? activePlugins = null;
@@ -294,7 +296,8 @@ public sealed partial class LoadOrderService
     public SkseConfigAuditData SkseConfigAudit()
     {
         // One gate hold for both captures, so a rebuild cannot pair a config read from one build against an index from the next.
-        var ((view, warnings, profileName, _, _, _, _, _, _), index) = Host.CaptureAssetsAndIndex();   // the index is a pure snapshot: ContainsPlugin / ResolveWinner read only this build
+        var (captured, index) = Host.CaptureAssetsAndIndex();   // the index is a pure snapshot: ContainsPlugin / ResolveWinner read only this build
+        var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
 
         const string pre = "SKSE\\Plugins\\";
         var files = new List<SkseConfigFileAudit>();
@@ -375,7 +378,10 @@ public sealed partial class LoadOrderService
     public NativePairingAuditData NativePairingAudit()
     {
         // Archives and enabled mods are the same build as the view, so the loader scan below walks the mod set the view describes, never a second unpinned profile read.
-        var (view, warnings, profileName, _, dataDir, modsDir, overwriteDir, archives, enabledMods) = Host.CaptureAssets();
+        var captured = Host.CaptureAssets();
+        var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
+        var dataDir = captured.DataDir; var modsDir = captured.ModsDir; var overwriteDir = captured.OverwriteDir;
+        var archives = captured.Archives; var enabledMods = captured.EnabledMods;
 
         // ---- the official-archive set: the ENGINE anchor. Keyed by filename, because a BSA provider's name IS the archive filename. ----
         var officialArchives = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -725,7 +731,7 @@ public sealed partial class LoadOrderService
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider)
     {
         var captured = Host.CaptureAssets();   // build/refresh the asset resolver under the gate, once per batch
-        var (view, warnings, profileName, _, _, _, _, _, _) = captured;
+        var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
 
         var modsRoot = captured.ModsRootOrNull;   // the same build as the view, so a raw mods path is judged against the tree the view describes
         var results = new List<NifInspectData>(relPaths.Count);
@@ -833,13 +839,13 @@ public sealed partial class LoadOrderService
         // Lock order is the write gate, then the capture's hold; contract in docs/architecture/load-order-service.md.
         lock (Host.WriteGate)
         {
-            AssetResolver.AssetView view; IReadOnlyList<string> warnings; string profileName;
-            try { (view, warnings, profileName, _, _, _, _, _, _) = Host.CaptureAssets(); }
+            AssetCapture captured;
+            try { captured = Host.CaptureAssets(); }
             catch (Exception ex) { return NifSetResult.Fail($"could not resolve the asset layer (the MO2 instance may not be readable): {ex.Message}"); }
 
             // Every answer built off the view carries the roots it could not read, so no refusal arm has to remember them.
-            return NifSetOn(view, warnings, profileName, rel, ops, sourceProvider, patchName, into, inPlace, acknowledge)
-                   with { RootFailures = view.RootFailures };
+            return NifSetOn(captured.View, captured.Warnings, captured.ProfileName, rel, ops, sourceProvider, patchName, into, inPlace, acknowledge)
+                   with { RootFailures = captured.View.RootFailures };
         }
     }
 
