@@ -155,18 +155,24 @@ public sealed partial class LoadOrderService : IDisposable
                     try { RefreshOnProfileChange(); }
                     finally { Monitor.Exit(_writeGate); }
                 }
-                if (_assetResolver is null)
-                {
-                    _assetResolver = BuildAssetResolverLocked();
-                }
-                else if (Monitor.TryEnter(_writeGate))
-                {
-                    try { _assetResolver.RefreshIfStale(); }       // BSA-byte / warmed-loose-subtree content freshness
-                    finally { Monitor.Exit(_writeGate); }
-                }
-                return _assetResolver;
+                return AssetsNoProfileRefreshLocked();
             }
         }
+    }
+
+    /// <summary>The asset resolver for the profile already resolved, with no profile re-read; caller holds <see cref="_gate"/>.</summary>
+    AssetResolver AssetsNoProfileRefreshLocked()
+    {
+        if (_assetResolver is null)
+        {
+            _assetResolver = BuildAssetResolverLocked();
+        }
+        else if (Monitor.TryEnter(_writeGate))
+        {
+            try { _assetResolver.RefreshIfStale(); }       // BSA-byte / warmed-loose-subtree content freshness
+            finally { Monitor.Exit(_writeGate); }
+        }
+        return _assetResolver;
     }
 
     internal int AbsenceExplanations;   // how many times the explainer has parsed the profile — a test seam for the memo
