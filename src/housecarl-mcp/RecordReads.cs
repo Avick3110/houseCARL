@@ -1088,7 +1088,7 @@ public sealed partial class LoadOrderService
             if (r.Error is not null)
             {
                 // An unpatchable type is an answer, not a failure: the layer cannot touch it, so post IS pre.
-                if (r.TypeName is not null && r.Copy is null && r.Error.Contains("not a SkyPatcher-patchable type"))
+                if (r.Unpatchable)
                 {
                     var w = view.ResolveWinner(fk);
                     var body = w is null ? null : view.GetRecord(session, w.Value.WinnerPlugin, fk);
@@ -1219,7 +1219,7 @@ public sealed partial class LoadOrderService
             IMajorRecordGetter? bodyToRead = r.Copy;
             if (r.Error is not null)
             {
-                if (r.Error.Contains("not a SkyPatcher-patchable type"))
+                if (r.Unpatchable)
                     bodyToRead = view.GetRecord(session, winner.Value.WinnerPlugin, fk);   // post IS pre for an unpatchable type
                 if (bodyToRead is null)
                 {
