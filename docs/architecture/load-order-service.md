@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-24
-covers: [src/housecarl-mcp/LoadOrderService.cs]
+covers: [src/housecarl-mcp/LoadOrderService.cs, src/housecarl-mcp/LoadOrderHost.cs]
 ---
 # The load-order service
 
@@ -19,7 +19,7 @@ the config file.
 - Lock order is `_gate` then `_classParentsLock`. Nothing pins it.
 
 ### The shared head door
-- `ILoadOrderHost` is how an area reaches the head members areas share. It carries only members some area actually takes through it: today `CaptureAssets()` and `WriteGate`. The head implements each member once, explicitly, next to what it wraps.
+- `ILoadOrderHost`, in `src/housecarl-mcp/LoadOrderHost.cs` with the `AssetCapture` it returns, is how an area reaches the head members areas share. It carries only members some area actually takes through it: today `CaptureAssets()` and `WriteGate`. The head implements each member once, explicitly, next to what it wraps; rows relayed from other areas sit together in one block of the head.
 - `CaptureAssets()` takes one `_gate` hold: it captures the asset build through the `Assets` getter, which checks the service is configured and derives the roots first, then reads the warnings, profile name, four roots, active archives and enabled mods of that same build. The caller works on the capture outside the hold.
 - `WriteGate` is the same object as `_writeGate`, so the lock order above holds through it: take the write gate first, then capture.
 - Each area's own interface extends `ILoadOrderHost` with the members only that area takes, plus rows relayed from areas that are not their own classes yet. The first is `IAssetHost`, in `src/housecarl-mcp/AssetLayers.cs`.
@@ -48,6 +48,6 @@ the config file.
 `RefreshOnProfileChange`, `ReResolve`, `EnsurePathsDerived`, `StatusData`, `Stats`, `UpdateCache`,
 `NamedProfileComposition`, `PapyrusSourceImportDirs`, `Dispose`, the class-parent cache
 (`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, and the explicit
-`ILoadOrderHost` and `IAssetHost` members. The two interfaces and `AssetCapture` are declared at the top of
-`src/housecarl-mcp/AssetLayers.cs`.
+`ILoadOrderHost` and `IAssetHost` members. `src/housecarl-mcp/LoadOrderHost.cs` declares `ILoadOrderHost` and
+`AssetCapture`; `IAssetHost` is at the top of `src/housecarl-mcp/AssetLayers.cs`.
 Tools: `housecarl_load_order_status`, `housecarl_set_mo2_instance`, `housecarl_update_status`.
