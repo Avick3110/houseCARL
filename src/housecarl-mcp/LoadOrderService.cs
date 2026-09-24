@@ -150,8 +150,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
         }
     }
 
-    LoadOrderResolver ILoadOrderHost.Resolver => Resolver;
-
     // ---- VFS asset resolution (housecarl_asset_status) --------------------------------------------------
 
     /// <summary>The VFS-aware asset resolver, built on first asset query and kept fresh after — the asset twin of <see cref="Resolver"/>, which it never forces. Takes <see cref="_gate"/>.</summary>

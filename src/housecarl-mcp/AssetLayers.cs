@@ -17,9 +17,6 @@ internal readonly record struct AssetCapture(AssetResolver.AssetView View, IRead
 /// <summary>The head members more than one area takes; contract in docs/architecture/load-order-service.md.</summary>
 internal interface ILoadOrderHost
 {
-    /// <summary>The live load-order resolver, built on first access and kept fresh on each later one.</summary>
-    LoadOrderResolver Resolver { get; }
-
     /// <summary>One asset build with its warnings, profile and roots, in one <c>_gate</c> hold.</summary>
     AssetCapture CaptureAssets();
 
