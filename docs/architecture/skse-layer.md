@@ -185,8 +185,8 @@ number describes a wider set than the rows beside it.
   answered by its own family's render and footer, through the real renders.
 - *The static-load rule*: `SkseImportWalkTests` — a failed import walk leaves `Imports` null, never a genuine empty,
   and a null never becomes a Debug-CRT claim or blocker; `SksePeekRenderTests` pins both Debug-CRT wordings.
-- *The static-load rule*: `NativePairingProbe` (`native-pairing-guard`) part 2 — the runtime compare that decides the
-  version lock, where garbage never passes.
+- *The static-load rule*: `NativePairingRuntimeCompareTests` — the runtime compare that decides the version lock,
+  where garbage never passes.
 - *The PE manifest read*: the map is pinned by `SkseReaderProbe` (`skse-reader-guard`) arms A and F, which fail the
   instant email is "fixed" to 256 and both flag fields shift; the rest of the probe — the flag decode, and a
   non-SKSE or unreadable image classified by kind rather than thrown.
@@ -197,8 +197,9 @@ number describes a wider set than the rows beside it.
   its source and shown only where they disagree, and a modder's tag not a disagreement.
 - *The peek*: `SksePeekScanTests` pins the UTF-16 arm and the negative classification arms; `SksePeekRenderTests`
   pins the load-order cross-check, including no ABSENT verdict when the order is unknown.
-- *Native pairing*: `NativePairingProbe` part 1 pins the raw bit1 native flag; part 2 — an official archive's class is
-  the ENGINE's even under a winning loose override; part 3 — UNPAIRED is framed a verify flag, never "broken".
+- *Native pairing*: `NativePairingExtractTests` pins the raw bit1 native flag; `NativePairingProvenanceTests` — an
+  official archive's class is the ENGINE's even under a winning loose override; `NativePairingRenderVerdictTests` —
+  UNPAIRED is framed a verify flag, never "broken".
 - *Config references*: both charset directions are pinned by `SkseConfigReferenceShapeTests`
   (`APluginNameWithAnApostropheIsNotCutAtTheApostrophe`, `AnOpeningParenthesisBoundsThePluginNameInProse`); the rest
   of that class pins the extractor against every reference shape the evidence sample established, because a false
