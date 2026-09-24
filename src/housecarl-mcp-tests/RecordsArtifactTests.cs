@@ -801,6 +801,12 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         return p;
     }
 
+    /// <summary>A private auto-spill directory; it repoints a process-wide seam, so only this serial class takes one (#903).</summary>
+    ResultsDirScope OwnResults(string name) => new(W.Scratch("spills", name, "dir"));
+
+    /// <summary>The one artifact a spilling call left in its own results directory.</summary>
+    static string TheSpill(ResultsDirScope d) => Assert.Single(Directory.GetFiles(d.Dir, "*.jsonl"));
+
     /// <summary>An auto-spill directory that CANNOT be created: its parent is a file.</summary>
     ResultsDirScope UncreatableResults(string name)
     {
