@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-24
-covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs, src/housecarl-core/SkseConfigReferenceExtractor.cs, src/housecarl-core/NativePairing.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkseInventoryWire.cs, src/housecarl-mcp/SkseConfigAuditWire.cs, src/housecarl-mcp/NativePairingWire.cs, src/housecarl-mcp/SkseRenderParts.cs, src/housecarl-mcp/SkseJsonDoc.cs, src/housecarl-mcp/AssetResults.cs]
+covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs, src/housecarl-core/SkseConfigReferenceExtractor.cs, src/housecarl-core/NativePairing.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkseInventoryWire.cs, src/housecarl-mcp/SkseConfigAuditWire.cs, src/housecarl-mcp/NativePairingWire.cs, src/housecarl-mcp/SkseRenderParts.cs, src/housecarl-mcp/SkseJsonDoc.cs]
 ---
 # The SKSE layer: what a DLL declares, and the static-load rule
 
@@ -220,3 +220,4 @@ and `NativePairingWire.cs`, the last with the pairing verdict. `SkseRenderParts.
 the cut notices all three use, and the plugin version text the inventory and pairing renders use.
 `src/housecarl-mcp/SkseJsonDoc.cs` writes the family documents. Tool: `housecarl_skse`.
 The service code, the three lanes and the blocker string (`LooseDllBlocker`), is in `src/housecarl-mcp/AssetLayers.cs` ([`assets.md`](assets.md)).
+The result records are in `src/housecarl-mcp/AssetResults.cs` ([`assets.md`](assets.md)).
