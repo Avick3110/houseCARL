@@ -50,15 +50,15 @@ static class SkyPatcherWire
 {
     // ---- housecarl_skypatcher_layer ------------------------------------------------------------------
 
-    public static string RenderLayer(SkyPatcherLayerData d, string? filter, int cap)
+    /// <summary>The layer render, inside max_chars; a cap too small for its header, owed notices and caveats says so.</summary>
+    public static string RenderLayer(SkyPatcherLayerData d, string? filter, int cap) => RenderCap.Settle(Render(d, filter, cap), cap);
+
+    static string Render(SkyPatcherLayerData d, string? filter, int maxChars)
     {
         var sb = new StringBuilder();
-        // The caveats are composed FIRST and their room held back, because they CLOSE the render: appended last
-        // against a cap the body has already spent, the one thing the reader has to know is the first thing cut.
-        var caveats = Caveats(d, cap);
-        cap = Math.Max(1, cap - caveats.Length);
-        // The closing hint and the omitted-sections line are written whatever the body costs, so both are charged first.
-        int budget = Math.Max(1, cap - Hint.Length - SectionsMissed(4).Length);
+        // The caveats close the render, so their room is held back before the body is laid.
+        var caveats = Caveats(d, maxChars);
+        int cap = maxChars - caveats.Length;
         var folders = d.Scan.Folders;
         filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();   // a blank filter is no filter, never a match-everything
         // A filter matching nothing must never fall through to the unfiltered overview — that reads as the whole layer.
@@ -90,18 +90,22 @@ static class SkyPatcherWire
               .Append(" type folder(s); only those folders are listed below, each in full apply order with the matching " +
                       "files expanded to their lines (the counts above are the whole layer).\n");
 
-        // Every line below is admitted by the width it is about to write, and each cut notice's room is held back
-        // before the first line it could follow, so a cut lands inside the budget rather than one line past it.
         string folderCut = filter is null
             ? "... [remaining folders omitted at max_chars — raise it or pass filter=]\n"
             : "... [remaining matching folders omitted at max_chars — raise it or narrow filter=]\n";
-        int listRoom = budget - folderCut.Length - FileCut.Length - LineCut.Length;
+        // The header above is already in sb; the hint is advice, so it is written only where it fits beside what is owed.
+        int owed = SectionsMissed(ReportNames, maxChars).Length + (folders.Count > 0 ? folderCut.Length : 0);
+        string hint = sb.Length + owed + Hint.Length <= cap ? Hint : "";
+        int budget = cap - hint.Length - SectionsMissed(ReportNames, maxChars).Length;
+        // Each line is admitted by the width it writes, with its cut notice's room held back.
+        int listRoom = budget - folderCut.Length - FileCut.Length - (filter is null ? 0 : LineCut.Length);
         bool listCut = false;
         foreach (var f in folders)
         {
             if (filter is { } sel && !f.Files.Any(x => Matches(sel, f, x))) continue;
+            if (listCut) { sb.Append(folderCut); break; }
             var head = FolderHead(f, filter);
-            if (listCut || sb.Length + head.Length > listRoom) { sb.Append(folderCut); break; }
+            if (sb.Length + head.Length > listRoom) { sb.Append(folderCut); break; }
             sb.Append(head);
             foreach (var file in f.Files)
             {
@@ -123,7 +127,7 @@ static class SkyPatcherWire
             }
         }
 
-        int missed = 0;
+        var missed = new List<string>();
         if (d.Conflicts.Count > 0 && !Section(sb, budget,
                 "\nINI-vs-INI set conflicts (" + d.Conflicts.Count + ") — same field, same target, different values; the LAST write wins:\n",
                 "  (report-only: which value SHOULD win is a merge decision — resolve by authoring a later-sorted INI via the skypatcher-authoring skill, then re-run this tool to confirm.)\n",
@@ -132,7 +136,7 @@ static class SkyPatcherWire
                 c => c.Entries.Select((e, i) => "      " + Path.GetFileName(e.File) + ":" + e.Line + "  " + e.Op + "=" + e.Value
                     + (i == c.Entries.Count - 1 ? "   ← WINS (last in apply order)" : "")   // by index: value-equal entries must not both claim the win
                     + (e.Conditional ? "   [conditional — the line carries further filters]" : "") + "\n")))
-            missed++;
+            missed.Add(ReportNames[0]);
 
         if (deadWrites > 0 && !Section(sb, budget,
                 "\nintra-file dead writes (" + deadWrites + ") — ITM-class: later line(s) of the SAME file unconditionally re-cover EVERY target of the write, so it is dead weight regardless of value:\n",
@@ -143,7 +147,7 @@ static class SkyPatcherWire
                     + "   ← DEAD (overwritten by "
                     + string.Join(", ", e.KillerLines.Select(k => k == e.Line ? $":{k} (a later op on the same line)" : $":{k}")) + ")"
                     + (e.Conditional ? "   [carries further filters — dead regardless: the overwrite is unconditional]" : "") + "\n")))
-            missed++;
+            missed.Add(ReportNames[1]);
 
         if (d.Duplicates.Count > 0 && !Section(sb, budget,
                 "\ncross-INI duplicate writes (" + d.Duplicates.Count + ") — ITM-class: two or more files set the same field of the same target to the SAME value; one copy is redundant (keep either — the LAST would win if they ever diverge):\n",
@@ -152,7 +156,7 @@ static class SkyPatcherWire
                 c => "  - [" + c.Subfolder + "] " + c.Field + " @ " + c.Target + ":\n",
                 c => c.Entries.Select(e => "      " + Path.GetFileName(e.File) + ":" + e.Line + "  " + e.Op + "=" + e.Value
                     + (e.Conditional ? "   [conditional — the line carries further filters]" : "") + "\n")))
-            missed++;
+            missed.Add(ReportNames[2]);
 
         if (d.NoOps.Count > 0 && !Section(sb, budget,
                 "\nno-op writes (" + d.NoOps.Count + ") — true ITM: the SET writes the value the record already has at that point in the replay, so the op changes nothing:\n",
@@ -161,11 +165,10 @@ static class SkyPatcherWire
                 n => "  - [" + n.Subfolder + "] " + Path.GetFileName(n.File) + ":" + n.Line + "  " + n.Op + "=" + n.Value
                     + " @ " + n.FormKey + (n.EditorId is null ? "" : $" ({n.EditorId})")
                     + " — " + n.FieldPath + " is already " + n.Already + "\n"))
-            missed++;
-        if (missed > 0) sb.Append(SectionsMissed(missed));
+            missed.Add(ReportNames[3]);
+        if (missed.Count > 0) sb.Append(SectionsMissed(missed, maxChars));
 
-        // The omitted-sections room is spent or free by now, so the notes may use it.
-        int noteRoom = cap - Hint.Length;
+        int noteRoom = cap - hint.Length;
         foreach (var note in d.NoOpNotes.Concat(d.Scan.Notes))
         {
             var line = "[!] " + note + "\n";
@@ -173,7 +176,7 @@ static class SkyPatcherWire
             sb.Append(line);
         }
         sb.Append(caveats);
-        sb.Append(Hint);
+        sb.Append(hint);
         return sb.ToString().TrimEnd('\n');
     }
 
@@ -184,9 +187,12 @@ static class SkyPatcherWire
     const string LineCut = "      ... [lines cut at max_chars]\n";
     const string EntryCut = "      ... [entries cut at max_chars]\n";
 
-    /// <summary>The line naming how many report sections the budget could not start.</summary>
-    static string SectionsMissed(int missed) =>
-        "... [" + missed + " report section(s) omitted at max_chars; raise it to see them]\n";
+    /// <summary>The four report sections, in render order, as the omitted-sections line names them.</summary>
+    static readonly string[] ReportNames = { "set conflicts", "dead writes", "cross-INI duplicates", "no-op writes" };
+
+    /// <summary>The line naming the report sections the budget could not start, and the max_chars the caller passed.</summary>
+    static string SectionsMissed(IReadOnlyList<string> missed, int cap) =>
+        "  ... [" + missed.Count + " section(s) omitted at max_chars=" + cap + " (" + string.Join(", ", missed) + "); raise max_chars to see them]\n";
 
     /// <summary>A type folder's heading line, with its counts and flags.</summary>
     static string FolderHead(SkyPatcherDiscovery.FolderScan f, string? filter)
@@ -214,8 +220,7 @@ static class SkyPatcherWire
         return sb.Append('\n').ToString();
     }
 
-    /// <summary>One report section: its heading, its items and their entries admitted by width, and its closing line.
-    /// The section starts only where its heading, its widest cut notices and its closing line all fit; false means it did not.</summary>
+    /// <summary>One report section, started only where its heading, cut notices and closing line fit; false if it did not start.</summary>
     static bool Section<T>(StringBuilder sb, int budget, string head, string close, IReadOnlyList<T> items, string noun,
                            Func<T, string> item, Func<T, IEnumerable<string>>? entries = null)
     {
