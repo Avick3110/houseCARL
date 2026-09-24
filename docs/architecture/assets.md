@@ -299,8 +299,8 @@ path, and `AssetArtifact.cs` is `asset_status`'s `to_file=` artifact. `AssetResu
 return. The tool fronts here are `AssetTools.cs`, `PlaceTools.cs` and `BsaTools.cs`. The other families' fronts and
 renders are in their own notes: NIF in [`nif.md`](nif.md), SKSE in [`skse-layer.md`](skse-layer.md), SkyPatcher in
 [`skypatcher-layer.md`](skypatcher-layer.md). Tools:
-`housecarl_asset_status`, `housecarl_place`, `housecarl_bsa_list`, `housecarl_bsa_extract`, `housecarl_bsa_repack`,
-`housecarl_nif_inspect`, `housecarl_nif_set`, `housecarl_skse`, `housecarl_skypatcher_layer`.
+`housecarl_asset_status`, `housecarl_place`, `housecarl_bsa_list`, `housecarl_bsa_extract`, `housecarl_bsa_repack`; the
+NIF, SKSE and SkyPatcher tools are listed in their family notes.
 
 What the area needs from outside itself is the members of `IAssetHost`, declared at the top of `AssetLayers.cs`. The
 members every area shares come through the door it extends, `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs`
