@@ -252,6 +252,16 @@ public sealed partial class LoadOrderService
                                        propertyContains, classes, countsOnly, excluded);
     }
 
+    /// <summary>The index view, the asset build and the roots from one hold, so a profile switch cannot split them; the checks door takes this over in the next PR.</summary>
+    (ViewPin Pin, AssetCapture Assets) CaptureCheckPinAndAssets()
+    {
+        lock (_gate)
+        {
+            var pin = CapturePin();
+            return (pin, AssetCaptureLocked(AssetsNoProfileRefreshLocked().Capture()));
+        }
+    }
+
     /// <summary>Sweep the facegen join. <paramref name="plugins"/> takes the same active/off-order split the errors and scripts families take, through the same memo.</summary>
     public FaceGenCheckResult CheckFaceGen(IReadOnlyList<string>? plugins, int limit,
                                            IReadOnlyList<string>? formids = null, string? editoridContains = null,
@@ -264,22 +274,17 @@ public sealed partial class LoadOrderService
         if (!TryParseFaceGenClasses(findings, out var classes, out var classErr))
             return FaceGenCheckResult.Fail(classErr!);
 
-        var resolver = Resolver;
-        var view = resolver.Capture();
+        var (pin, captured) = CaptureCheckPinAndAssets();   // one VFS build for every path this sweep resolves
+        var resolver = pin.Resolver;
+        var view = pin.View;
+        var assets = captured.View;
+        string modsDir = captured.ModsDir, dataDir = captured.DataDir, overwriteDir = captured.OverwriteDir, profileDir = captured.ProfileDir;
 
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
         var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames() : (Array.Empty<string>(), null);
         if (implicitErr is not null) return FaceGenCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return FaceGenCheckResult.Fail(excludeErr);
-
-        string modsDir, dataDir, overwriteDir, profileDir;
-        AssetResolver.AssetView assets;
-        lock (_gate)
-        {
-            assets = Assets.Capture();                 // one VFS build for every path this sweep resolves
-            modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir;
-        }
 
         List<(string Name, string Path)> offOrder = new();
         if (plugins is { Count: > 0 })
