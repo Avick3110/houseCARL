@@ -277,9 +277,8 @@ public sealed partial class LoadOrderService
         AssetResolver.AssetView assets;
         lock (_gate)
         {
-            EnsurePathsDerived();
-            modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir;
             assets = Assets.Capture();                 // one VFS build for every path this sweep resolves
+            modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir;
         }
 
         List<(string Name, string Path)> offOrder = new();
