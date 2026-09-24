@@ -703,7 +703,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     Mo2Roots ILoadOrderHost.CaptureRoots()
     {
-        lock (_gate) { EnsurePathsDerived(); return new(_modsDir, _dataDir, _overwriteDir, _profileDir); }
+        lock (_gate) { EnsurePathsDerived(); return new(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir); }
     }
 
     static bool PathEq(string a, string b) =>

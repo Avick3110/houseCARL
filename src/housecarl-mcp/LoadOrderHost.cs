@@ -11,7 +11,7 @@ internal readonly record struct AssetCapture(AssetResolver.AssetView View, IRead
 }
 
 /// <summary>The four MO2 roots, taken in one <c>_gate</c> hold after the roots are derived.</summary>
-internal readonly record struct Mo2Roots(string ModsDir, string DataDir, string OverwriteDir, string ProfileDir);
+internal readonly record struct Mo2Roots(string ProfileDir, string DataDir, string ModsDir, string OverwriteDir);
 
 /// <summary>The head members areas share; contract in docs/architecture/load-order-service.md.</summary>
 internal interface ILoadOrderHost
