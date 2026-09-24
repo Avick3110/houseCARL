@@ -1062,15 +1062,8 @@ public sealed partial class LoadOrderService
             if (replay is not null || setupError is not null) return;
             try
             {
-                AssetResolver.AssetView assets;
-                lock (_gate) { assets = Assets.Capture(); }
-                var opened = OpenSkyPatcherReplay(assets, view, session);
-                if (spec.Draft is not null)
-                {
-                    var draftRefusal = opened.FoldDraft(spec.Draft, overlayWarnings);
-                    if (draftRefusal is not null) { setupError = draftRefusal; return; }
-                }
-                replay = opened;
+                replay = OpenSkyPatcherReplay(view, session, out var draftRefusal, spec.Draft, overlayWarnings);
+                if (draftRefusal is not null) setupError = draftRefusal;
             }
             catch (Exception ex)
             {
@@ -1187,12 +1180,11 @@ public sealed partial class LoadOrderService
         var pin = new ViewPin(resolver, view);
         using var session = resolver.OpenSession();
 
-        SkyPatcherReplay replay;
+        SkyPatcherReplay? replay;
+        string? draftRefusal;
         try
         {
-            AssetResolver.AssetView assets;
-            lock (_gate) { assets = Assets.Capture(); }
-            replay = OpenSkyPatcherReplay(assets, view, session);
+            replay = OpenSkyPatcherReplay(view, session, out draftRefusal, draft, overlayWarnings);
         }
         catch (Exception ex)
         {
@@ -1200,11 +1192,7 @@ public sealed partial class LoadOrderService
             refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
-        if (draft is not null)
-        {
-            var draftRefusal = replay.FoldDraft(draft, overlayWarnings);
-            if (draftRefusal is not null) { refusal = draftRefusal; refusalEpoch = view.Stamp; return Array.Empty<ReadOutcome>(); }
-        }
+        if (replay is null) { refusal = draftRefusal; refusalEpoch = view.Stamp; return Array.Empty<ReadOutcome>(); }
 
         // Per-batch replay memo: the scratch mod is shared, so a duplicated key's second replay would run every
         // INI line onto the already-mutated copy. One replay per key.

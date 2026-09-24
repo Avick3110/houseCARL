@@ -602,13 +602,7 @@ public sealed partial class LoadOrderService
         return (NativeProvenance.ThirdParty, rung, pairedMod, dlls);
     }
 
-    // ---- SkyPatcher distributor: the per-record true post-SkyPatcher state. Read-only. ----
-
-    /// <summary>Cross-call INI parse cache, FileStamp keyed: repeat calls over an untouched layer skip every read and parse.</summary>
-    readonly SkyPatcherDiscovery.ParseCache _skyPatcherParseCache = new();
-
-    /// <summary>The in-memory scratch mod the replay copy is overridden into — never written to disk.</summary>
-    static readonly ModKey SkyPatcherScratchKey = new("HousecarlSkyPatcherScratch", ModType.Plugin);
+    // ---- SkyPatcher distributor: the whole-layer scan. Read-only. The per-record replay is in SkyPatcherReplay.cs. ----
 
     /// <summary>Test seam: invoked in <see cref="SkyPatcherLayer"/> after the pin and before the asset capture; null in the product.</summary>
     internal Action? AfterSkyPatcherPinForGuard;
@@ -619,22 +613,21 @@ public sealed partial class LoadOrderService
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
         ViewPin pin;
-        AssetResolver.AssetView assets;
-        IReadOnlyList<string> assetWarnings;
-        string profileName;
+        SkyPatcherAssets captured;
         lock (_gate)                            // one hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself
         {
             pin = CapturePin();
             AfterSkyPatcherPinForGuard?.Invoke();                        // test seam; null in the product
-            assets = AssetsNoProfileRefreshLocked().Capture();
-            assetWarnings = AssetWarningsLocked();
-            profileName = _profileName;
+            captured = new SkyPatcherAssets(AssetsNoProfileRefreshLocked().Capture(), AssetWarningsLocked(), _profileName);
         }
 
         var view = pin.View;
-        var catalog = SkyPatcherCatalog.Load();
-        var fieldMap = SkyPatcherFieldMap.Load();
-        var scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
+        using var session = pin.Resolver.OpenSession();
+        var replay = OpenSkyPatcherReplay(captured, view, session, out _)!;   // no draft, so never refused
+        var assets = replay.Assets;
+        var catalog = replay.Catalog;
+        var fieldMap = replay.FieldMap;
+        var scan = replay.Scan;
         var conflicts = new List<SkyPatcherConflicts.SkyPatcherConflict>();
         var itms = new List<SkyPatcherConflicts.SkyPatcherItm>();
         var duplicates = new List<SkyPatcherConflicts.SkyPatcherDuplicate>();
@@ -651,10 +644,6 @@ public sealed partial class LoadOrderService
         var noOps = new List<SkyPatcherNoOpWrite>();
         var noOpNotes = new List<string>();
         {
-            using var session = pin.Resolver.OpenSession();
-            var formResolver = new SkyPatcherServiceResolver(this, view, session);
-            var scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
-            var linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
             var targets = new HashSet<FormKey>();
             int broadLines = 0, unresolvedTargets = 0, failedReplays = 0;
             foreach (var folder in scan.Folders)
@@ -666,13 +655,13 @@ public sealed partial class LoadOrderService
                 var folderTypes = fieldMap.ForSubfolder(folder.Subfolder).Select(m => m.RecordType).ToList();
                 foreach (var eid in eids)
                 {
-                    var rfk = folderTypes.Select(t => formResolver.ResolveEditorId(eid, t)).FirstOrDefault(x => x is not null);
+                    var rfk = folderTypes.Select(t => replay.ResolveEditorId(eid, t)).FirstOrDefault(x => x is not null);
                     if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
                 }
             }
             foreach (var fk in targets)
             {
-                var r = ReplaySkyPatcher(view, session, scan, catalog, fieldMap, scratch, formResolver, fk, linesCache);
+                var r = replay.Replay(fk);
                 if (r.Error is not null) { failedReplays++; continue; }
                 foreach (var fo in r.Folders)
                 {
@@ -696,12 +685,12 @@ public sealed partial class LoadOrderService
             if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them; read one with {ToolNames.Records} formids=[\"<FormID>\"] source={{\"overlay\": \"skypatcher\", \"state\": \"post\"}}).");
             if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure / an EditorID lookup that could not be completed).");
             // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs.
-            foreach (var msg in formResolver.Unreadable.Select(u => u.Message).Distinct())
+            foreach (var msg in replay.Unreadable.Select(u => u.Message).Distinct())
                 noOpNotes.Add($"no-op scan: {msg} Lines naming a record it defines could not be resolved.");
         }
 
         return new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
-            scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
+            scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName);
     }
 
     /// <summary>A form-scope string to getter Types: a catalog name or signature via the type lookup, or a Mutagen link-interface group name resolved as every corpus record getter assignable to <c>I{name}Getter</c>, derived from the real interfaces rather than a hand-kept list. Null means it names neither, which the caller surfaces loudly.</summary>
