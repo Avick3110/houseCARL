@@ -9,7 +9,7 @@ public sealed record NativeClassDecl(string ClassName, IReadOnlyList<string> Nat
 
 public static class NativePairing
 {
-    /// <summary>The native flag: raw bit1 (bit0 = Global), because Mutagen's enum names sit one off; pinned by NativePairingProbe part 1.</summary>
+    /// <summary>The native flag: raw bit1 (bit0 = Global), because Mutagen's enum names sit one off; pinned by NativePairingExtractTests.TheNativeFlagIsRawBit1AndGlobalAloneIsNotNative.</summary>
     const uint NativeFlagBit = 0x2;
 
     /// <summary>Every script object in <paramref name="pex"/> that declares native functions; pure, never throws on a parsed model.</summary>

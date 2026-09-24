@@ -180,7 +180,8 @@ public static class SksePluginReader
     }
 
     /// <summary>The DEBUG C-runtime DLLs — the exact Microsoft family, CURATED because the d-suffix is a convention and
-    /// not a loader rule; pinned by SksePeekProbe part 2 (which also pins the innocents it must not sweep in).</summary>
+    /// not a loader rule; pinned by SkseImportWalkTests.TheDebugCrtListCarriesTheModernDebugFamily, and the innocents it
+    /// must not sweep in by SkseImportWalkTests.TheDebugCrtListLeavesOutReleaseTwinsAndDSuffixedInnocents.</summary>
     public static readonly IReadOnlyList<string> DebugCrtDlls =
     [
         "ucrtbased.dll",                                                   // the debug universal CRT
@@ -201,7 +202,8 @@ public static class SksePluginReader
 
     /// <summary>The Debug-CRT arm of the static-load rule (docs/architecture/skse-layer.md): the blocker reason when
     /// this is a debug build whose runtime is absent here, else null. <paramref name="resolvable"/> is injected so both
-    /// outcomes are reachable on one machine; pinned by SksePeekProbe G2.</summary>
+    /// outcomes are reachable on one machine; pinned by SkseImportWalkTests.AnAbsentDebugRuntimeIsABlockerNamingTheDllAndError126
+    /// and SkseImportWalkTests.APresentDebugRuntimeIsNoBlocker.</summary>
     public static string? DebugCrtBlocker(SksePluginInfo info, Func<string, bool> resolvable)
     {
         if (info.Imports is null) return null;
@@ -275,7 +277,8 @@ public static class SksePluginReader
 
     /// <summary>Walk the PE IMPORT + DELAY-LOAD directories for the imported DLL names; an absent directory yields an
     /// empty list, a present-but-corrupt one <c>null</c> = UNKNOWN. Never throws. Contract in
-    /// docs/architecture/skse-layer.md; pinned by SksePeekProbe part 2.</summary>
+    /// docs/architecture/skse-layer.md; pinned by SkseImportWalkTests.AManagedAssemblyWalksEmptyNotUnknown and
+    /// SkseImportWalkTests.AnUnresolvableImportNameFailsTheWholeWalk.</summary>
     static List<string>? ReadImportNames(PEReader pe)
     {
         var names = new List<string>();
