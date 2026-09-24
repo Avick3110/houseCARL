@@ -8,7 +8,11 @@ namespace HousecarlMcp;
 /// <summary>One asset build with its warnings, profile and roots, all taken in one <c>_gate</c> hold.</summary>
 internal readonly record struct AssetCapture(AssetResolver.AssetView View, IReadOnlyList<string> Warnings, string ProfileName,
                                              string ProfileDir, string DataDir, string ModsDir, string OverwriteDir,
-                                             IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> EnabledMods);
+                                             IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> EnabledMods)
+{
+    /// <summary>The captured mods root, or null when there is none.</summary>
+    public string? ModsRootOrNull => string.IsNullOrWhiteSpace(ModsDir) ? null : ModsDir;
+}
 
 /// <summary>The head members more than one area takes; contract in docs/architecture/load-order-service.md.</summary>
 internal interface ILoadOrderHost
@@ -31,9 +35,6 @@ internal interface IAssetHost : ILoadOrderHost
 
     /// <summary>A pinned index and the asset build that pairs with it, in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between the two.</summary>
     (LoadOrderService.ViewPin Pin, LoadOrderService.SkyPatcherAssets Assets) CapturePinAndAssets(Action? afterPin);
-
-    /// <summary>MO2's mods root, or null when there is none yet.</summary>
-    string? ModsRootOrNull { get; }
 
     /// <summary>The installed game runtime version, or null.</summary>
     string? InstalledGameRuntime();
@@ -726,9 +727,10 @@ public sealed partial class LoadOrderService
     /// <see cref="NifService.Inspect"/>. A per-path failure never aborts the batch; the build-level caveats ride it.</summary>
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider)
     {
-        var (view, warnings, profileName, _, _, _, _, _, _) = Host.CaptureAssets();   // build/refresh the asset resolver under the gate, once per batch
+        var captured = Host.CaptureAssets();   // build/refresh the asset resolver under the gate, once per batch
+        var (view, warnings, profileName, _, _, _, _, _, _) = captured;
 
-        var modsRoot = Host.ModsRootOrNull;
+        var modsRoot = captured.ModsRootOrNull;   // the same build as the view, so a raw mods path is judged against the tree the view describes
         var results = new List<NifInspectData>(relPaths.Count);
         foreach (var raw in relPaths)
         {
@@ -998,8 +1000,8 @@ public sealed partial class LoadOrderService
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
 
             // One asset build for the whole batch, captured rather than live, so no two placements describe two builds.
-            AssetResolver.AssetView view; IReadOnlyList<string> warnings;
-            try { (view, warnings, _, _, _, _, _, _, _) = Host.CaptureAssets(); }
+            AssetCapture captured;
+            try { captured = Host.CaptureAssets(); }
             catch (Exception ex)
             {
                 var residue = Host.RemoveOrNameRiderResidue(rf);              // nothing placed yet → a fresh folder is an orphan
@@ -1007,11 +1009,12 @@ public sealed partial class LoadOrderService
                     + (residue is null ? "" : $" The freshly created mod folder was left at '{residue}'."));
             }
 
+            var view = captured.View;
             var results = new List<PlaceResult>(requests.Count);
             int placed = 0;
             foreach (var req in requests)
             {
-                var r = PlaceOne(req, view, rf.OutputDir);
+                var r = PlaceOne(req, view, captured.ModsRootOrNull, rf.OutputDir);
                 results.Add(r);
                 if (r.Placed) placed++;
             }
@@ -1019,18 +1022,18 @@ public sealed partial class LoadOrderService
             // Nothing placed into a fresh folder means an orphan to remove; a reused into= folder is never touched.
             string? leftover = placed == 0 ? Host.RemoveOrNameRiderResidue(rf) : null;
             // Taken AFTER the rows, because the view names a root only once a lookup has asked about it.
-            return new PlaceOutcome(results, placed > 0 ? rf.ModFolder : null, warnings, leftover, null)
+            return new PlaceOutcome(results, placed > 0 ? rf.ModFolder : null, captured.Warnings, leftover, null)
                 { FreshFolder = rf.CreatedFresh, RootFailures = view.RootFailures };
         }
     }
 
     /// <summary>The refusal for a <c>source=</c> that reaches into MO2's mods tree, or null. An archive-plus-entry pair
     /// is judged on the archive's path and keeps its entry in the remedy, as a both-slots member keeps the archive.</summary>
-    string? RawModsSourceRefusal(string source, bool bothSlots)
+    static string? RawModsSourceRefusal(string source, bool bothSlots, string? modsRoot)
     {
         var v = source.Trim().Trim('"');
         int pipe = v.IndexOf('|');
-        if (ModsPathAddress.Split(pipe >= 0 ? v.Substring(0, pipe) : v, Host.ModsRootOrNull) is not { } hit) return null;
+        if (ModsPathAddress.Split(pipe >= 0 ? v.Substring(0, pipe) : v, modsRoot) is not { } hit) return null;
         var remedy = bothSlots
             ? $"Address that archive instead with source_provider='{Path.GetFileName(hit.RelPath ?? v)}' and no source= — a BSA filename is a provider name, and each FaceGen slot then derives its own entry from that archive."
             : ModsPathAddress.Address(hit.ModFolder, hit.RelPath is null || pipe < 0 ? hit.RelPath : hit.RelPath + v.Substring(pipe),
@@ -1039,8 +1042,9 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>Place one asset: validate the destination rel-path, get the source bytes, and write them atomically
-    /// under <paramref name="outDir"/>. Reports the CURRENT winner, because the placed file does not win until enabled.</summary>
-    PlaceResult PlaceOne(PlaceRequest req, AssetResolver.AssetView view, string outDir)
+    /// under <paramref name="outDir"/>. Reports the CURRENT winner, because the placed file does not win until enabled.
+    /// <paramref name="modsRoot"/> is from the same capture as <paramref name="view"/>.</summary>
+    PlaceResult PlaceOne(PlaceRequest req, AssetResolver.AssetView view, string? modsRoot, string outDir)
     {
         string rel;
         try { rel = AssetResolver.ValidateRelPath(req.AssetPath); }
@@ -1072,7 +1076,7 @@ public sealed partial class LoadOrderService
         if (!string.IsNullOrEmpty(explicitSrc) && !IsVfsSource(explicitSrc!))
         {
             // A raw path into the mods tree reads past the VFS, judged on the ARCHIVE's own path for a pair source.
-            if (RawModsSourceRefusal(explicitSrc!, req.BothSlots) is { } rawErr)
+            if (RawModsSourceRefusal(explicitSrc!, req.BothSlots, modsRoot) is { } rawErr)
                 return PlaceResult.Fail(rel, rawErr, winner);
             // An on-disk source already IS one exact copy, so a pole cannot apply to it — said, never dropped.
             if (!string.IsNullOrEmpty(providerSel))

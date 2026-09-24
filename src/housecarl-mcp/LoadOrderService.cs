@@ -232,8 +232,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost
         }
     }
 
-    string? IAssetHost.ModsRootOrNull => ModsRootOrNull;
-
     /// <summary>The injected answer to "why is this plugin filename not in the active order?": the profile and the roots
     /// are read FRESH on each call rather than captured, and the count of those reads is <see cref="AbsenceExplanations"/>,
     /// which <c>AbsentMasterLinkTests.ResolveNamesExplainsAnAbsentMasterOncePerPluginNotOncePerDanglingLink</c> holds the
