@@ -200,7 +200,7 @@ public static class NifService
 
     /// <summary>Whether <paramref name="blockType"/> REALLY reads <paramref name="property"/> or merely inherits
     /// <see cref="INiShader"/>'s stub, off the interface map; contract in docs/architecture/nif.md, pinned by
-    /// NifServiceGuardProbe (both branches).</summary>
+    /// NifShaderDecodeTests.EveryLightingValueRoundTripsItsAuthoredValue and .EveryLightingValueABlockOnlyStubsIsReportedUnread.</summary>
     static bool ReallyReads(Type blockType, string property)
     {
         var real = RealReads.GetOrAdd(blockType, static t =>
@@ -319,7 +319,7 @@ public static class NifService
 
     /// <summary>The SEMANTIC name of a BSShaderTextureSet slot, from the shader TYPE and FLAGS rather than the index,
     /// or null rather than a best guess. SKYRIM LAYOUT ONLY, and that gate is load-bearing: contract in
-    /// docs/architecture/nif.md, pinned by NifServiceGuardProbe's FO4 arm.</summary>
+    /// docs/architecture/nif.md, pinned by NifShaderDecodeTests.EverySlotIsUnnamedOnANonSkyrimLayout.</summary>
     internal static string? SlotName(int slot, INiShader shader) =>
         shader.Type != ShaderHelper.ShaderGameType.SK ? null : slot switch
     {
