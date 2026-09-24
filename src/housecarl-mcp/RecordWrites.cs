@@ -291,7 +291,7 @@ public sealed partial class LoadOrderService
             try
             {
                 lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
-                return view.PluginPath(pluginName) is { } p ? InstallLayerOfPath(p, modsDir, overwriteDir, dataDir) : null;
+                return view.PluginPath(pluginName) is { } p ? AssetLayers.InstallLayerOfPath(p, modsDir, overwriteDir, dataDir) : null;
             }
             catch { return null; }
         }
@@ -392,7 +392,7 @@ public sealed partial class LoadOrderService
             var cache = ov.ToImmutableLinkCache();
             var where = $"file '{Path.GetFileName(loc.Path!)}' ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
             // The layer this file sits in, read off the path by the shared rule rather than parsed back out of `where`.
-            var layer = InstallLayerOfPath(loc.Path!, modsDir, overwriteDir, dataDir);
+            var layer = AssetLayers.InstallLayerOfPath(loc.Path!, modsDir, overwriteDir, dataDir);
             // A mod folder the profile is not loading travels as such, and both off standings are carried.
             if (layer is { Kind: SourceLayerKind.ModFolder })
                 layer = loc.Served switch
@@ -605,7 +605,7 @@ public sealed partial class LoadOrderService
 
     /// <summary>The opening claims both first-touch prompts make: the prompt is shown until an in-place write LANDS,
     /// and the file claim is direction-neutral. Contract in docs/architecture/write-path.md.</summary>
-    static string InPlaceHandshakeLead(string name, string path, string subject, string verb) =>
+    internal static string InPlaceHandshakeLead(string name, string path, string subject, string verb) =>
         $"in-place edit of '{name}' — first-time confirmation (shown until an in-place write to this {subject} LANDS; " +
         "a call that is refused records nothing, so you may see this again):\n" +
         $"  • This {verb} your ORIGINAL file ({path}) — not a copy. houseCARL keeps NO backup or undo and cannot " +
@@ -634,7 +634,7 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>Writable-parent pre-flight for the in-place swap, probed with a sibling temp; true, with a named <paramref name="why"/>, means refuse.</summary>
-    static bool InPlaceParentUnwritable(string targetPath, out string why)
+    internal static bool InPlaceParentUnwritable(string targetPath, out string why)
     {
         why = "";
         var dir = Path.GetDirectoryName(targetPath);

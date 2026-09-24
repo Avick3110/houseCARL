@@ -148,7 +148,7 @@ public static class SkseConfigAuditProbe
         }
 
         // ══ Part 2 — VERDICTS against a real (synthetic) load order: extract → resolve → OK/MISSING/DANGLING/UNPARSEABLE.
-        //    Drives the SERVICE adjudicator (LoadOrderService.Adjudicate) over a LoadOrderResolver.IndexView, so the whole
+        //    Drives the SERVICE adjudicator (AssetLayers.Adjudicate) over a LoadOrderResolver.IndexView, so the whole
         //    chain (extractor mask → ContainsPlugin → ResolveWinner) is proven, not just the pure extractor. ══
         Console.WriteLine();
         Console.WriteLine("-- verdicts vs a synthetic order (hcAudit.esp full + hcAuditEsl.esl light) --");
@@ -164,7 +164,7 @@ public static class SkseConfigAuditProbe
     }
 
     /// <summary>Build a synthetic order with a full plugin and a LIGHT plugin, then adjudicate hand-shaped references
-    /// through the REAL service adjudicator (<see cref="LoadOrderService.Adjudicate"/>) over a real
+    /// through the REAL service adjudicator (<see cref="AssetLayers.Adjudicate"/>) over a real
     /// <see cref="LoadOrderResolver.IndexView"/> — pinning OK / PLUGIN MISSING / DANGLING / UNPARSEABLE and the ESL
     /// FE-prefix masking end-to-end (the DSD FExxxYYY shape must resolve to the light record). Reports via <paramref name="check"/>.</summary>
     static void VerdictArms(Action<string, bool> check)
@@ -194,7 +194,7 @@ public static class SkseConfigAuditProbe
             SkseRefVerdict V(string relPath, string text)
             {
                 var refs = SkseConfigReferenceExtractor.Extract(relPath, text);
-                return refs.Count == 1 ? LoadOrderService.Adjudicate(refs[0], index).Verdict : SkseRefVerdict.Unparseable;
+                return refs.Count == 1 ? AssetLayers.Adjudicate(refs[0], index).Verdict : SkseRefVerdict.Unparseable;
             }
 
             check("OK: 0x<real>|hcAudit.esp → OK",

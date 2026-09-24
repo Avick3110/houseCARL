@@ -1052,7 +1052,7 @@ public sealed partial class LoadOrderService
         armStatement = "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
                      + (spec.Draft is null ? "" : $", with {spec.Draft.Arm}");
         // The replay context is built lazily once for the whole batch.
-        SkyPatcherReplay? replay = null;
+        AssetLayers.SkyPatcherReplay? replay = null;
         // Per-key memo: the scratch mod is shared across the reader's lifetime, so a repeated key's second replay
         // would re-apply every INI line onto the already-mutated copy.
         var postMemo = new Dictionary<FormKey, PoleReading>();
@@ -1172,7 +1172,7 @@ public sealed partial class LoadOrderService
         var pin = new ViewPin(resolver, view);
         using var session = resolver.OpenSession();
 
-        SkyPatcherReplay? replay;
+        AssetLayers.SkyPatcherReplay? replay;
         string? draftRefusal;
         try
         {

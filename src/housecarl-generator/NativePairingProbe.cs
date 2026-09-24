@@ -83,11 +83,11 @@ public static class NativePairingProbe
         {
             var baseMasters = Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters;
             Check("ini-base archive (Skyrim - Misc.bsa) is OFFICIAL",
-                LoadOrderService.IsOfficialArchive(new ActiveArchive(@"D:\g\Data\Skyrim - Misc.bsa", ArchiveDiscovery.IniArchiveOwner, 0), baseMasters));
+                AssetLayers.IsOfficialArchive(new ActiveArchive(@"D:\g\Data\Skyrim - Misc.bsa", ArchiveDiscovery.IniArchiveOwner, 0), baseMasters));
             Check("Dawnguard.esm-owned archive is OFFICIAL (BaseMasters, by construction)",
-                LoadOrderService.IsOfficialArchive(new ActiveArchive(@"D:\g\Data\Dawnguard.bsa", "Dawnguard.esm", 5), baseMasters));
+                AssetLayers.IsOfficialArchive(new ActiveArchive(@"D:\g\Data\Dawnguard.bsa", "Dawnguard.esm", 5), baseMasters));
             Check("a mod plugin's archive is NOT official",
-                !LoadOrderService.IsOfficialArchive(new ActiveArchive(@"D:\m\Campfire.bsa", "Campfire.esm", 40), baseMasters));
+                !AssetLayers.IsOfficialArchive(new ActiveArchive(@"D:\m\Campfire.bsa", "Campfire.esm", 40), baseMasters));
 
             var official = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Skyrim - Misc.bsa" };
             static PlacementSource Loose(string mod) => new(mod, AssetKind.Loose, @"D:\x", null, "");
@@ -95,19 +95,19 @@ public static class NativePairingProbe
             // THE fixture: SKSE's loose Actor.pex WINS over the vanilla archive copy — still ENGINE. Keys on the
             // AssetKind ENUM, never the render label (review finding).
             Check("loose override winning over an official BSA copy → still ENGINE (chain presence)",
-                LoadOrderService.HasOfficialSource(new[] { Loose("Skyrim Script Extender (SKSE64)"), Bsa("Skyrim - Misc.bsa") }, official));
+                AssetLayers.HasOfficialSource(new[] { Loose("Skyrim Script Extender (SKSE64)"), Bsa("Skyrim - Misc.bsa") }, official));
             Check("loose-only chain (StringUtil.pex) → NOT engine",
-                !LoadOrderService.HasOfficialSource(new[] { Loose("Skyrim Script Extender (SKSE64)") }, official));
+                !AssetLayers.HasOfficialSource(new[] { Loose("Skyrim Script Extender (SKSE64)") }, official));
             Check("a mod BSA in the chain is not mistaken for official",
-                !LoadOrderService.HasOfficialSource(new[] { Bsa("Campfire.bsa") }, official));
+                !AssetLayers.HasOfficialSource(new[] { Bsa("Campfire.bsa") }, official));
 
             var shipper = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["AHZmoreHUD.bsa"] = "moreHUD SE" };
             Check("BSA source translates to its shipping mod (pairing identity)",
-                LoadOrderService.PairingIdentity(Bsa("AHZmoreHUD.bsa"), shipper) == "moreHUD SE");
+                AssetLayers.PairingIdentity(Bsa("AHZmoreHUD.bsa"), shipper) == "moreHUD SE");
             Check("loose source's identity is its provider name",
-                LoadOrderService.PairingIdentity(Loose("PapyrusUtil AE"), shipper) == "PapyrusUtil AE");
+                AssetLayers.PairingIdentity(Loose("PapyrusUtil AE"), shipper) == "PapyrusUtil AE");
             Check("an untranslatable archive keeps its own name",
-                LoadOrderService.PairingIdentity(Bsa("Unknown.bsa"), shipper) == "Unknown.bsa");
+                AssetLayers.PairingIdentity(Bsa("Unknown.bsa"), shipper) == "Unknown.bsa");
         }
         {
             var okDll = new NativePairedDll(@"SKSE\Plugins\PapyrusUtil.dll", "PapyrusUtil.dll", "", "PapyrusUtil AE", null, null);
@@ -116,24 +116,24 @@ public static class NativePairingProbe
             var modDlls = new Dictionary<string, List<NativePairedDll>>(StringComparer.OrdinalIgnoreCase)
             { ["PapyrusUtil AE"] = new() { okDll }, ["Bundler"] = new() { deadDll } };
 
-            var (r1, m1, d1) = LoadOrderService.Ladder(new[] { "PapyrusUtil AE" }, modDlls);
+            var (r1, m1, d1) = AssetLayers.Ladder(new[] { "PapyrusUtil AE" }, modDlls);
             Check("rung 1: winning identity ships the DLL → SameMod",
                 r1 == NativePairingRung.SameMod && m1 == "PapyrusUtil AE" && d1.Count == 1);
 
-            var (r2, m2, _) = LoadOrderService.Ladder(new[] { "Campfire", "PapyrusUtil AE" }, modDlls);
+            var (r2, m2, _) = AssetLayers.Ladder(new[] { "Campfire", "PapyrusUtil AE" }, modDlls);
             Check("rung 2: framework beneath the winner in the chain → ChainMod (the bundling case)",
                 r2 == NativePairingRung.ChainMod && m2 == "PapyrusUtil AE");
 
-            var (r3, m3, d3) = LoadOrderService.Ladder(new[] { "Some Scripts-Only Mod" }, modDlls);
+            var (r3, m3, d3) = AssetLayers.Ladder(new[] { "Some Scripts-Only Mod" }, modDlls);
             Check("rung 3: nobody in the chain ships a DLL → Unpaired",
                 r3 == NativePairingRung.Unpaired && m3 is null && d3.Count == 0);
 
             // Review finding: a bundler whose only candidate is statically DEAD must not mask the loadable framework
             // beneath it (the false PAIRED-BUT-DEAD class); with no loadable candidate anywhere, the shallowest pairs.
-            var (r4, m4, _) = LoadOrderService.Ladder(new[] { "Bundler", "PapyrusUtil AE" }, modDlls);
+            var (r4, m4, _) = AssetLayers.Ladder(new[] { "Bundler", "PapyrusUtil AE" }, modDlls);
             Check("dead-candidate bundler does NOT mask the loadable framework beneath → ChainMod to the framework",
                 r4 == NativePairingRung.ChainMod && m4 == "PapyrusUtil AE");
-            var (r5, m5, _) = LoadOrderService.Ladder(new[] { "Bundler", "Scriptless" }, modDlls);
+            var (r5, m5, _) = AssetLayers.Ladder(new[] { "Bundler", "Scriptless" }, modDlls);
             Check("no loadable candidate anywhere → the shallowest with ANY candidate pairs (its deadness is the finding)",
                 r5 == NativePairingRung.SameMod && m5 == "Bundler");
 
@@ -141,25 +141,25 @@ public static class NativePairingProbe
             // an UNPAIRED class whose WINNING identity ships an engine-class copy; a non-pool winner stays third-party.
             var pool = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Skyrim Script Extender (SKSE64)" };
             Check("Classify: engine short-circuits everything",
-                LoadOrderService.Classify(true, new[] { "PapyrusUtil AE" }, modDlls, pool).Provenance == NativeProvenance.Engine);
+                AssetLayers.Classify(true, new[] { "PapyrusUtil AE" }, modDlls, pool).Provenance == NativeProvenance.Engine);
             Check("Classify: pairing evidence beats the rescue",
-                LoadOrderService.Classify(false, new[] { "PapyrusUtil AE" }, modDlls, pool) is { Provenance: NativeProvenance.ThirdParty, Rung: NativePairingRung.SameMod });
+                AssetLayers.Classify(false, new[] { "PapyrusUtil AE" }, modDlls, pool) is { Provenance: NativeProvenance.ThirdParty, Rung: NativePairingRung.SameMod });
             Check("Classify: unpaired + winner in the engine-provider pool → SKSE CORE (the StringUtil rescue)",
-                LoadOrderService.Classify(false, new[] { "Skyrim Script Extender (SKSE64)" }, modDlls, pool).Provenance == NativeProvenance.SkseCore);
+                AssetLayers.Classify(false, new[] { "Skyrim Script Extender (SKSE64)" }, modDlls, pool).Provenance == NativeProvenance.SkseCore);
             Check("Classify: unpaired + winner NOT in the pool → stays UNPAIRED third-party",
-                LoadOrderService.Classify(false, new[] { "Scripts Only Mod" }, modDlls, pool) is { Provenance: NativeProvenance.ThirdParty, Rung: NativePairingRung.Unpaired });
+                AssetLayers.Classify(false, new[] { "Scripts Only Mod" }, modDlls, pool) is { Provenance: NativeProvenance.ThirdParty, Rung: NativePairingRung.Unpaired });
         }
         {
             // BSA→shipper translation (live-gate finding: moreHUD's scripts ride its BSA while the DLL is loose in
             // the SAME mod — the archive filename must translate to the mod for pairing identity).
             Check("archive under mods\\<mod>\\ → that mod",
-                LoadOrderService.LayerOfInstallPath(@"E:\mo2\mods\moreHUD SE\AHZmoreHUD.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") == "moreHUD SE");
+                AssetLayers.LayerOfInstallPath(@"E:\mo2\mods\moreHUD SE\AHZmoreHUD.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") == "moreHUD SE");
             Check("archive in the overwrite layer → 'overwrite'",
-                LoadOrderService.LayerOfInstallPath(@"E:\mo2\overwrite\X.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") == "overwrite");
+                AssetLayers.LayerOfInstallPath(@"E:\mo2\overwrite\X.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") == "overwrite");
             Check("archive in game Data → 'Data'",
-                LoadOrderService.LayerOfInstallPath(@"D:\g\Data\Skyrim - Misc.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") == "Data");
+                AssetLayers.LayerOfInstallPath(@"D:\g\Data\Skyrim - Misc.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") == "Data");
             Check("archive nowhere under the roots → null (no translation)",
-                LoadOrderService.LayerOfInstallPath(@"C:\elsewhere\X.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") is null);
+                AssetLayers.LayerOfInstallPath(@"C:\elsewhere\X.bsa", @"E:\mo2\mods", @"E:\mo2\overwrite", @"D:\g\Data") is null);
         }
         {
             Check("versions equal under zero-padding: 1.6.1170 == 1.6.1170.0",
@@ -217,17 +217,17 @@ public static class NativePairingProbe
             // read as healthy. This DLL is loose, top-level, x64, readable and version-INDEPENDENT: every other check
             // passes it, so before this the audit rendered [LOADS] while the inventory family called the same DLL broken.
             // The blocker rides LoadBlocker, so it lands in PAIRED-BUT-DEAD by construction — no Judge arm needed.
-            // Drives the REAL service chain (LoadOrderService.LooseDllBlocker), not a hand-built blocker — the wiring is
+            // Drives the REAL service chain (AssetLayers.LooseDllBlocker), not a hand-built blocker — the wiring is
             // the one link no live gate can reach here (ARR has zero debug plugins; the dev box HAS the debug runtime,
             // so it can't produce the dead path either), and a hand-built fixture would pin the render while leaving
             // the production line uncovered. The probe is injected because no single machine exercises both halves.
             var dbgInfo = new SksePluginReader.SksePluginInfo("Dbg.dll", SksePluginReader.SksePluginKind.Modern, true,
                 Ver(independent: true, compat: Array.Empty<string>()), null, new[] { "kernel32.dll", "vcruntime140d.dll" });
-            var crtBlocker = LoadOrderService.LooseDllBlocker(dbgInfo, _ => false);
+            var crtBlocker = AssetLayers.LooseDllBlocker(dbgInfo, _ => false);
             Check("A2a: the service's loose-DLL chain blocks a debug build (the production wiring, not a fixture)",
                 crtBlocker is { Length: > 0 });
             Check("A2b: …and on a box WITH the debug runtime the same chain blocks nothing (it truly loads there)",
-                LoadOrderService.LooseDllBlocker(dbgInfo, _ => true) is null);
+                AssetLayers.LooseDllBlocker(dbgInfo, _ => true) is null);
             // dbgInfo, NOT indepInfo: the rendered candidate must carry the SAME info the blocker was derived from.
             // They are equivalent today (both version-independent) and the verdict reads LoadBlocker, so the arm passes
             // either way — but if Judge ever re-derived from Info instead of trusting the blocker, an indepInfo fixture
@@ -246,7 +246,7 @@ public static class NativePairingProbe
             var dbgInfo = new SksePluginReader.SksePluginInfo("Dbg.dll", SksePluginReader.SksePluginKind.Modern, true,
                 Ver(independent: true, compat: Array.Empty<string>()), null, new[] { "kernel32.dll", "vcruntime140d.dll" });
             Check("A3a: on a box WITH the debug runtime the DLL has no blocker (the author's own machine)",
-                LoadOrderService.LooseDllBlocker(dbgInfo, _ => true) is null);
+                AssetLayers.LooseDllBlocker(dbgInfo, _ => true) is null);
             var dbgDll = new NativePairedDll(@"SKSE\Plugins\Dbg.dll", "Dbg.dll", "", "DbgMod", dbgInfo, null);
             var data = Data(new[] { Cls("DbgUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "DbgMod", new[] { dbgDll }) }, "1.6.1170.0");
             var s = Render(data, filter: "DbgUtil");
