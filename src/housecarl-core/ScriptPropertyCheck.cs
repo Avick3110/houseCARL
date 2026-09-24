@@ -28,13 +28,13 @@ public static class ScriptPropertyCheck
                                         ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false,
                                         SweepExclusion.Resolved? exclude = null,
                                         IReadOnlyList<(string Name, string Path)>? offOrder = null)
-        => Run(resolver, resolver.Capture(), assets, scope, limit, recordScope, propertyContains, classes, countsOnly,
+        => Run(resolver, resolver.Capture(), assets.Capture(), scope, limit, recordScope, propertyContains, classes, countsOnly,
                exclude, offOrder);
 
     /// <summary>The view-threaded body: the caller's captured view decides membership, drives the sweep and stamps
-    /// success and refusals alike. The ASSET capture stays internal, and
+    /// success and refusals alike. The caller's asset capture <paramref name="av"/> resolves every .pex, and
     /// <see cref="ScriptCheckResult.ReadIncomplete"/> carries its caveat separately.</summary>
-    public static ScriptCheckResult Run(LoadOrderResolver resolver, LoadOrderResolver.IndexView view, AssetResolver assets,
+    public static ScriptCheckResult Run(LoadOrderResolver resolver, LoadOrderResolver.IndexView view, AssetResolver.AssetView av,
                                         IReadOnlyList<string>? scope, int limit,
                                         SweepScope? recordScope = null, string? propertyContains = null,
                                         ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false,
@@ -44,7 +44,6 @@ public static class ScriptPropertyCheck
         var propFilter = string.IsNullOrWhiteSpace(propertyContains) ? null : propertyContains.Trim();
         bool PropOk(string name) => propFilter is null || name.Contains(propFilter, StringComparison.OrdinalIgnoreCase);
         int excludedFromScope = 0;
-        var av = assets.Capture();          // ONE asset build → every .pex lookup + ReadIncomplete describe the same build
 
         // --- resolve the plugin set to scan; a bad or excluded explicit scope name fails loud, never a silent skip ---
         List<string> targets;
