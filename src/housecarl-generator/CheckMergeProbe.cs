@@ -1833,7 +1833,7 @@ public static class CheckMergeProbe
     static int TopicBlockWidth(DialogueCheckResult r)
     {
         var sb = new System.Text.StringBuilder();
-        DialogueWire.AppendTopic(sb, r.Topics.First().Topic, indent: true, int.MaxValue, includeInfoOrder: false);
+        DialogueWire.AppendTopic(sb, r.Topics.First().Topic, indent: true, int.MaxValue);
         return sb.Length;
     }
 
