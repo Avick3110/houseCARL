@@ -124,7 +124,7 @@ swallows the note turns a recoverable state into a silent loss.
   held profile file is a named transient, not an internal failure.
 - *The Qt/QSettings value grammar*: `Mo2IniEscapeTests` — the quoted wrapper, the greedy hex runs, the named escapes,
   and a value with a lone backslash left as it stands (`HandWrittenPathsAreLeftAlone`).
-- *The Qt/QSettings value grammar*: `Mo2ModMetaProbe` (`mo2-modmeta-guard`) — the `[General]` Nexus cache fields read
+- *The Qt/QSettings value grammar*: `Mo2ModMetaReadTests` — the `[General]` Nexus cache fields read
   raw, and the `[installedFiles]` file ids.
 - *houseCARL's own config file*: all four are pinned. `tool-bridge` (`ToolBridgeProbe`) writes a corrupt file and
   asserts the load comes back blank with a note naming the backup, that the backup is byte-identical, and that two
