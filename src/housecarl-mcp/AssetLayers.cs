@@ -29,6 +29,12 @@ internal interface IAssetHost : ILoadOrderHost
     // Relayed from writes until in-place consent is its own type.
     string? PersistInPlaceConsent(bool owed, string targetPath, string what, string subject);
 
+    // Relayed from writes until in-place consent is its own type.
+    bool InPlaceParentUnwritable(string targetPath, out string why);
+
+    // Relayed from writes until in-place consent is its own type.
+    string InPlaceHandshakeLead(string name, string path, string subject, string verb);
+
     // Relayed from reads until reads is its own class.
     Dictionary<string, List<Type>> TypeLookup { get; }
 
@@ -903,7 +909,7 @@ internal sealed partial class AssetLayers
                 return NifSetResult.NeedsAck(NifInPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
             bool owesConsent = !already && acknowledge;
 
-            if (LoadOrderService.InPlaceParentUnwritable(targetPath, out var why)) return NifSetResult.Fail(why, providers, profileName);
+            if (_host.InPlaceParentUnwritable(targetPath, out var why)) return NifSetResult.Fail(why, providers, profileName);
             try { AtomicFile.WriteAllBytes(targetPath, editedBytes); }
             catch (Exception ex) { return NifSetResult.Fail($"could not overwrite '{targetPath}' in place: {ex.Message}. Nothing was written.", providers, profileName); }
             long sz; try { sz = new FileInfo(targetPath).Length; } catch { sz = -1; }
@@ -964,8 +970,8 @@ internal sealed partial class AssetLayers
     }
 
     /// <summary>The mesh-specific in-place consent prompt: it shares its lead with the plugin handshake and diverges after it, because a mesh write is a whole-file re-serialization.</summary>
-    static string NifInPlaceHandshakeText(string meshName, string path) =>
-        LoadOrderService.InPlaceHandshakeLead(meshName, path, "mesh", "overwrites") +
+    string NifInPlaceHandshakeText(string meshName, string path) =>
+        _host.InPlaceHandshakeLead(meshName, path, "mesh", "overwrites") +
         "  • The written mesh is a WHOLE-FILE re-serialization through NiflySharp's canonical writer (the way NifSkope / BodySlide rewrite a mesh on save), NOT a byte-surgical patch — then VERIFIED (only the value you edited changed; it reloads as a valid SE mesh).\n" +
         "  • It still refuses if the mesh can't be parsed or isn't a Skyrim SE stream.\n" +
         "  • The default lane (a NEW mod folder, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
