@@ -3,7 +3,7 @@ using System.Text;
 namespace HousecarlGenerator;
 
 /// <summary>Authors byte-exact uncompressed BSA archives in memory, so a probe or a test can exercise the real read
-/// path without BSArch and without a checked-in binary. Shared by bsa-extract-guard and the pack read-back tests.</summary>
+/// path without BSArch and without a checked-in binary. Shared by BsaExtractTests and the pack read-back tests.</summary>
 public static class BsaBuilder
 {
     public const uint HasFolderNames = 0x0001;

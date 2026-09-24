@@ -6,7 +6,7 @@ namespace HousecarlGenerator;
 /// BSA PACK contract guard — self-contained (a copy of Windows' own where.exe stands in for a failing BSArch: it runs,
 /// errors, exits non-zero, and writes NOTHING). Locks the pack-provenance + format contracts the 2026-06-12 adversarial
 /// hunt proved broken. (The unpack/list provenance arms this guard used to carry are gone: reads now go through Mutagen's
-/// in-process reader, not BSArch, so there is no external-tool success to misread — bsa-extract-guard covers the read
+/// in-process reader, not BSArch, so there is no external-tool success to misread — BsaExtractTests covers the read
 /// path, and bsa-probe covers real-BSArch pack + Mutagen/BSArch byte parity.)
 ///
 /// What it locks:

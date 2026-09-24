@@ -275,8 +275,8 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   orphans, a record with nothing to carry is not a failure, and voice found by scanning disk.
 - *Archives*: the reader's byte parity with BSArch, and its reading of archives BSArch rejects, are pinned by the
   opt-in `bsa-probe` (`BsaProbe`).
-- *Archives*: `BsaExtractProbe` (`bsa-extract-guard`) — unpack refuses an entry resolving outside the destination and
-  skips a byte-identical file.
+- *Archives*: `BsaExtractTests.AnEntryResolvingOutsideTheDestinationIsRefused` — unpack refuses an entry resolving outside
+  the destination; `ASecondUnpackIntoTheSameFolderWritesNothing` in the same class — it skips a byte-identical file.
 - *Archives*: `bsa-contract-guard` (`BsaContractProbe`) locks both halves of the pack contract — a stuck stale scratch
   refuses up front and a failing pack leaves the prior archive untouched — and the unknown format token refusal.
 - *Archives*: `BsaPackReadBackTests.PackRefusesAScratchFromANonZeroExit` — a non-zero exit is a failed pack whatever it
