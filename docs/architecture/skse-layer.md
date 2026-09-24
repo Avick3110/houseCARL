@@ -199,9 +199,11 @@ number describes a wider set than the rows beside it.
   pins the load-order cross-check, including no ABSENT verdict when the order is unknown.
 - *Native pairing*: `NativePairingProbe` part 1 pins the raw bit1 native flag; part 2 — an official archive's class is
   the ENGINE's even under a winning loose override; part 3 — UNPAIRED is framed a verify flag, never "broken".
-- *Config references*: both charset directions are pinned by `SkseConfigAuditProbe` (`skse-config-audit-guard`) arms
-  2b and 2d; `SkseConfigAuditProbe` pins the extractor against every reference shape the evidence sample established,
-  because a false DANGLING is this family's worst failure mode; its renderer part pins the BROKEN / INERT headline.
+- *Config references*: both charset directions are pinned by `SkseConfigReferenceShapeTests`
+  (`APluginNameWithAnApostropheIsNotCutAtTheApostrophe`, `AnOpeningParenthesisBoundsThePluginNameInProse`); the rest
+  of that class pins the extractor against every reference shape the evidence sample established, because a false
+  DANGLING is this family's worst failure mode; `SkseConfigVerdictTests` pins each verdict against a synthetic order,
+  and `SkseConfigRenderFramingTests` pins the BROKEN / INERT headline.
 - *Transport*: `SkseTransportTests.EachFamilysTextRenderFilledPastItsCapAnswersInsideIt` and
   `TheJsonTailIsPaidForInsideMaxCharsRatherThanAppendedPastIt` — the tail is charged before a row is laid, and a row
   that crossed is taken back out; `ACapTooSmallForTheFixedPartSaysSoInsteadOfOverrunningSilently` — the one arm that
