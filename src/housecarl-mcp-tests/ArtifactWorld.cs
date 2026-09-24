@@ -4,8 +4,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The artifact family's fixture: a <see cref="RecordsWorld"/>. A test that needs to see EXACTLY the
-/// file its own call wrote takes a private results directory via <see cref="ArtifactTestBase.OwnResults"/>.</summary>
+/// <summary>The artifact family's fixture: a <see cref="RecordsWorld"/>.</summary>
 public sealed class ArtifactFixture : IDisposable
 {
     public RecordsWorld W { get; } = new();
@@ -58,11 +57,6 @@ public abstract class ArtifactTestBase
         Assert.Null(err);
         return tokens!;
     }
-
-    protected ResultsDirScope OwnResults(string name) => new(W.Scratch("spills", name, "dir"));
-
-    /// <summary>The one artifact a spilling call left in its own results directory.</summary>
-    protected static string TheSpill(ResultsDirScope d) => Assert.Single(Directory.GetFiles(d.Dir, "*.jsonl"));
 
     /// <summary>The wire spellings of <c>format=</c>, derived from the product's own transport enum — a
     /// hand-typed list would be short by exactly whatever a later transport adds.</summary>
