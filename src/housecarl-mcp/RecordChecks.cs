@@ -251,12 +251,16 @@ public sealed partial class LoadOrderService
                                        propertyContains, classes, countsOnly, excluded);
     }
 
+    /// <summary>Test seam: invoked in the facegen and script sweeps after the pin and before the asset capture; null in the product.</summary>
+    internal Action? AfterCheckPinForGuard;
+
     /// <summary>The index view, the asset build and the roots from one hold, so a profile switch cannot split them; the checks door takes this over in the next PR.</summary>
     (ViewPin Pin, AssetCapture Assets) CaptureCheckPinAndAssets()
     {
         lock (_gate)
         {
             var pin = CapturePin();
+            AfterCheckPinForGuard?.Invoke();
             return (pin, AssetCaptureLocked(AssetsNoProfileRefreshLocked().Capture()));
         }
     }
