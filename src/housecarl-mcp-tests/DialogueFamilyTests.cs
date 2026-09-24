@@ -167,6 +167,7 @@ public sealed class DialogueFamilyTests
     // defining plugin as a master, so opening the override REQUIRES the definer, and the fetch throws before
     // any order code runs.
 
+    // Since #915 the check family never reads the definer here; the fact moved to the shipping info_order path.
     [Fact]
     public void FactD4a_DefinerLockIsLoud()
     {
@@ -174,17 +175,14 @@ public sealed class DialogueFamilyTests
         w.Svc.Stats();
 
         using var hold = HeldOpen.Hold(w.MasterPath);
-        var result = w.Svc.CheckDialogue(new[] { Fid(w.Topic) }, 1000);
-        var text = Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
+        var r = RecordsTools.Records(w.Svc, formids: new[] { Fid(w.Topic) },
+                                     project: new RecordsTools.RecordsProject { form = "info_order" });
 
-        Assert.NotNull(result.Error);
-        // Read PAST the seed. The sweep composes the refusal as "{seed}: {refusal}." and the seed is
-        // "<id>:HcDvMaster.esp" because the topic is DEFINED in the master, so a whole-response
-        // Contains(MasterName) is satisfied by the seed's own echo whichever plugin actually failed. The
-        // refusal itself has to name the locked plugin, and only the locked one.
-        var refusal = AfterSeed(text, Fid(w.Topic));
-        Assert.Contains("the check did not finish", refusal);
-        Assert.Contains("IOException", refusal);
+        // Read from the exception on: the refusal has to name the locked plugin, and only the locked one.
+        int i = r.IndexOf("IOException", StringComparison.Ordinal);
+        Assert.True(i >= 0, $"no IOException in the response: {r}");
+        var refusal = r[i..];
+        Assert.StartsWith("error: housecarl_records failed", r);
         Assert.Contains(DialogueWorld.MasterName, refusal);
         Assert.DoesNotContain(DialogueWorld.LastName, refusal);
         Assert.DoesNotContain(DialogueWorld.MidName, refusal);

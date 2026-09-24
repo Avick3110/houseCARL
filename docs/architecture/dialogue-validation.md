@@ -118,8 +118,9 @@ substrate throughout and the stamp caveats nothing.
   `AnOverrideInheritingAStaleSubtypeIsNotWarnedAbout` — the subtype-disagreement ownership gate and its second
   exemption; `TheJsonSweepFlagsAStaleSubtype` and `TheJsonSweepNamesTheSubtypeTheMarkerGives` — the ungated
   `subtype_stale` and `subtype_from_marker` fields.
-- `DialogueFamilyTests.FactD4a_DefinerLockIsLoud` and `FactD4b_WinnerLockIsLoud` — the whole run is wrapped:
-  a locked definer or winner comes back as the named error, not swallowed.
+- `DialogueFamilyTests.FactD4b_WinnerLockIsLoud` — the whole run is wrapped: a locked winner comes back as the
+  named error, not swallowed. `FactD4a_DefinerLockIsLoud` — a locked definer makes `records project=info_order`
+  refuse and name it (the check family does not read the definer for that fixture).
 - `DialogueFamilyTests.FactV2_TheStampDeclaresItsBound` — a topic seed's stamp names the verdict classes it does
   not cover, on both transports, and an empty seed list is a refusal. The all-DLVW-or-DLBR arm is not asserted
   there.
