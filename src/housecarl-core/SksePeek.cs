@@ -46,7 +46,7 @@ public static class SksePeek
         }
     }
 
-    /// <summary>The pure scan over image bytes, in ASCII AND UTF-16LE; pinned by SksePeekProbe part 1.</summary>
+    /// <summary>The pure scan over image bytes, in ASCII AND UTF-16LE; pinned by SksePeekScanTests.</summary>
     public static SksePeekResult ScanBytes(ReadOnlySpan<byte> bytes)
     {
         var configs = new List<string>();
