@@ -61,6 +61,9 @@ public sealed class RecordsWorld : IDisposable
     /// EditorID at all — the near-miss case where there is no name to re-ask for.</summary>
     public FormKey DroppedEidArmor { get; }
     public const string DroppedEidArmorOldEid = "HcRecArmoDroppedName";
+
+    /// <summary>A keyword: a type with no SkyPatcher field map, so the layer cannot touch it.</summary>
+    public FormKey Keyword { get; }
     public FormKey MgefA { get; }
     public FormKey MgefB { get; }
     public FormKey SpellA { get; }
@@ -191,6 +194,8 @@ public sealed class RecordsWorld : IDisposable
         // pins a literal FormID off this world, and a record inserted earlier would shift it.
         var renamed = master.Armors.AddNew(); renamed.EditorID = RenamedArmorOldEid; RenamedArmor = renamed.FormKey;
         var dropped = master.Armors.AddNew(); dropped.EditorID = DroppedEidArmorOldEid; DroppedEidArmor = dropped.FormKey;
+        // Added after the pair so no earlier FormID shifts.
+        var keyword = master.Keywords.AddNew(); keyword.EditorID = "HcRecKeyword"; Keyword = keyword.FormKey;
 
         var ovMod = new SkyrimMod(ovKey, SkyrimRelease.SkyrimSE);
         WriteEngine.GenericGetOrAddAsOverride(ovMod, bigList);   // identical copy — no field changed
