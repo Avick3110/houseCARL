@@ -6,7 +6,7 @@ namespace HousecarlGenerator;
 /// <summary>
 /// BSA read/write round-trip proof on a REAL archive: list → unpack (both via Mutagen's in-process reader) → pack (via
 /// BSArch) → re-list, plus the load-bearing gate — Mutagen's unpack is BYTE-FOR-BYTE identical to BSArch's own unpack of
-/// the same archive (the independent-implementation check that the self-contained bsa-extract-guard can't give).
+/// the same archive (the independent-implementation check that the self-contained BsaExtractTests can't give).
 /// Skipped (not failed) if BSArch or the test archive isn't present; provide both via args or the HOUSECARL_BSARCH /
 /// HOUSECARL_TEST_BSA env vars. BSArch is needed only for the pack step + the parity oracle — reads no longer use it.
 ///
