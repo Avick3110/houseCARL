@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-23
-covers: [src/housecarl-core/CorpusRulebook.cs, src/housecarl-core/WriteEngine.cs]
+covers: [src/housecarl-core/CorpusRulebook.cs, src/housecarl-core/WriteEngine.cs, src/housecarl-mcp/TypeLookup.cs]
 ---
 # The corpus rulebook: what pre-flight decides, and why it can never disagree with apply
 
@@ -175,6 +175,9 @@ rulebooks `WithLinkHarvest` and `WithLinkTargets`. `src/housecarl-core/WriteEngi
 recognisers the gate shares with it (`IsValidListIndexValue`, `IsValidFormLinkValue`, `IsFormLinkOrIndex`,
 `TryRecognizeCtorArgs`, `TryRecognizeInstantiable`). No tool of its own: it is the pre-flight of the write lanes in
 `src/housecarl-mcp/RecordWrites.cs`, reached through `housecarl_apply` and `housecarl_create`.
+`src/housecarl-mcp/TypeLookup.cs` holds the corpus-backed type lookup (a `type=` string to its getter types)
+that the read, check, write and asset lanes resolve types through. It is still a `LoadOrderService` partial:
+that is transitional, for the one step until RD-4 of #452 makes it its own shared type.
 
 ## Related
 
