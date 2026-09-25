@@ -50,7 +50,8 @@ the config file.
 `src/housecarl-mcp/LoadOrderService.cs`: the `Resolver` and `Assets` getters, `SetInstance`,
 `RefreshOnProfileChange`, `ReResolve`, `EnsurePathsDerived`, `StatusData`, `Stats`, `UpdateCache`,
 `NamedProfileComposition`, `PapyrusSourceImportDirs`, `Dispose`, `CapturePin()` and the `ViewPin` record it
-returns (nested in the service), the class-parent cache
+returns (nested in the service), `CapturePinAndRoots` (the pin and the four roots in one `_gate` hold, for the
+read area's pole lanes) and its test seam `AfterReadPinForGuard`, the class-parent cache
 (`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, and the explicit
 `ILoadOrderHost`, `IAssetHost` and `ICheckHost` members. `src/housecarl-mcp/LoadOrderHost.cs` declares `ILoadOrderHost` and
 `AssetCapture`; `IAssetHost` is at the top of `src/housecarl-mcp/AssetLayers.cs`.
