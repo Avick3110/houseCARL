@@ -81,6 +81,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>One captured index build, for a <see cref="FormIdDoor"/> resolving a runtime FormID.</summary>
     internal LoadOrderResolver.IndexView CaptureView() => Resolver.Capture();
 
+    /// <summary>A pinned (resolver, view) pair, carried on the outcome so the render-time fills a response makes
+    /// read the build the outcome's epoch names. Pure data, no handles.</summary>
+    internal sealed record ViewPin(LoadOrderResolver Resolver, LoadOrderResolver.IndexView View);
+
     /// <summary>One captured build plus the resolver it came from, for a lane that opens an overlay session against it.</summary>
     internal ViewPin CapturePin()
     {
