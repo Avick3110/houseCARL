@@ -696,16 +696,8 @@ internal sealed partial class AssetLayers
             scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName);
     }
 
-    /// <summary>A form-scope string to getter Types: a catalog name or signature via the type lookup, or a Mutagen link-interface group name resolved as every corpus record getter assignable to <c>I{name}Getter</c>, derived from the real interfaces rather than a hand-kept list. Null means it names neither, which the caller surfaces loudly.</summary>
-    internal IReadOnlyList<Type>? ResolveFormScope(string type)
-    {
-        var t = type.Trim();
-        if (_host.Types.TryGetValue(t, out var types)) return types;
-        var iface = typeof(SkyrimMod).Assembly.GetType($"Mutagen.Bethesda.Skyrim.I{t}Getter");
-        if (iface is null) return null;
-        var matches = _host.Types.Values.SelectMany(v => v).Distinct().Where(iface.IsAssignableFrom).ToList();
-        return matches.Count > 0 ? matches : null;
-    }
+    /// <summary>A form-scope string to getter Types, or null when it names neither a type nor a link-interface group; see <see cref="TypeLookup.ResolveScope"/>.</summary>
+    internal IReadOnlyList<Type>? ResolveFormScope(string type) => _host.Types.ResolveScope(type);
 
     // ---- NIF layer: read the data values inside one or many meshes (housecarl_nif_inspect) ----
 
