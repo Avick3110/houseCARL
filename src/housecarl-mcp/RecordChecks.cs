@@ -26,22 +26,14 @@ public sealed partial class LoadOrderService
     /// mid-run failure rides <see cref="DialogueValidationReport.CheckError"/>, a bad input is a named
     /// <see cref="DialogueValidationReport.Error"/>.</summary>
     public DialogueValidationReport ValidateDialogue(FormKey fk)
-        => DialogueValidate.Run(CheckHost.Resolver, CheckHost.Assets, fk, null, ForceLoadedPluginNames(ProfileDirOrNull()));
+        => DialogueValidate.Run(CheckHost.Resolver, CheckHost.Assets, fk, null, ForceLoadedPluginNames(CheckHost.CaptureRoots().ProfileDir));
 
     /// <summary>The force-loaded plugin names in <paramref name="profileDir"/>, for a check that must not blame a modder
-    /// for content they did not author. Null, never an empty set, when there is no profile folder or it cannot be read.</summary>
-    IReadOnlyCollection<string>? ForceLoadedPluginNames(string? profileDir)
+    /// for content they did not author. Null, never an empty set, when the MO2 profile cannot be read.</summary>
+    IReadOnlyCollection<string>? ForceLoadedPluginNames(string profileDir)
     {
-        if (profileDir is null) return null;
         var (names, err) = ImplicitPluginNames(profileDir);
         return err is null ? names : null;
-    }
-
-    /// <summary>The profile folder from one roots capture, or null when the roots cannot be derived, so the dialogue family gets the louder no-force-loaded answer instead of a throw.</summary>
-    string? ProfileDirOrNull()
-    {
-        try { return CheckHost.CaptureRoots().ProfileDir; }
-        catch (Exception) { return null; }
     }
 
     /// <summary>The merged <c>check</c> surface's dialogue family: <see cref="ValidateDialogue"/> over a seed list,
@@ -61,7 +53,7 @@ public sealed partial class LoadOrderService
             var assets = CheckHost.Assets;
             var view = resolver.Capture();
             // The seed door is pinned to that same view, so the seeds cannot name records from another build.
-            var forceLoaded = ForceLoadedPluginNames(ProfileDirOrNull());
+            var forceLoaded = ForceLoadedPluginNames(CheckHost.CaptureRoots().ProfileDir);
             // The fold is opened ONCE for the whole sweep and the sweep closes it; a file that will not open is the
             // family's own named refusal.
             DialogueFold? fold = null;
