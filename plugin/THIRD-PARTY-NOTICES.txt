@@ -42,25 +42,31 @@ GPL-3.0-only   (copyleft — the same license as houseCARL; see the LICENSE file
 ===============================================================================
 
   --- generated: GPL-3.0-only components ---
-  GameFinder.Common                4.9.0    github.com/erri120/GameFinder
-  GameFinder.RegistryUtils         4.9.0    github.com/erri120/GameFinder
-  GameFinder.StoreHandlers.GOG     4.9.0    github.com/erri120/GameFinder
-  GameFinder.StoreHandlers.Steam   4.9.0    github.com/erri120/GameFinder
-  GameFinder.StoreHandlers.Xbox    4.9.0    github.com/erri120/GameFinder
-  GameFinder.Wine                  4.9.0    github.com/erri120/GameFinder
-  Loqui                            3.7.0    github.com/Noggog/Loqui
-  Mutagen.Bethesda.Core            0.54.4   github.com/Mutagen-Modding/Mutagen
-  Mutagen.Bethesda.Kernel          0.54.4   github.com/Mutagen-Modding/Mutagen
-  Mutagen.Bethesda.Skyrim          0.54.4   github.com/Mutagen-Modding/Mutagen
-  NexusMods.Paths                  0.19.1   github.com/Nexus-Mods/NexusMods.Paths
-  NiflySharp                       1.1.0    github.com/ousnius/NiflySharp
-  Noggog.CSharpExt                 4.3.0    github.com/Noggog/CSharpExt
-  Reloaded.Memory                  9.4.2    github.com/Reloaded-Project/Reloaded.Memory
+  GameFinder.Common                         4.9.0               github.com/erri120/GameFinder
+  GameFinder.RegistryUtils                  4.9.0               github.com/erri120/GameFinder
+  GameFinder.StoreHandlers.GOG              4.9.0               github.com/erri120/GameFinder
+  GameFinder.StoreHandlers.Steam            4.9.0               github.com/erri120/GameFinder
+  GameFinder.StoreHandlers.Xbox             4.9.0               github.com/erri120/GameFinder
+  GameFinder.Wine                           4.9.0               github.com/erri120/GameFinder
+  Loqui                                     3.7.0               github.com/Noggog/Loqui
+  Mutagen.Bethesda.Core                     0.54.4              github.com/Mutagen-Modding/Mutagen
+  Mutagen.Bethesda.Kernel                   0.54.4              github.com/Mutagen-Modding/Mutagen
+  Mutagen.Bethesda.Skyrim                   0.54.4              github.com/Mutagen-Modding/Mutagen
+  NexusMods.Paths                           0.19.1              github.com/Nexus-Mods/NexusMods.Paths
+  NiflySharp (fork of ousnius/NiflySharp)   1.1.0-housecarl.1   github.com/Avick3110/NiflySharp
+  Noggog.CSharpExt                          4.3.0               github.com/Noggog/CSharpExt
+  Reloaded.Memory                           9.4.2               github.com/Reloaded-Project/Reloaded.Memory
   --- end generated ---
 
   NiflySharp (NuGet package "Nifly", by ousnius / the nifly project) is the
   asset-internal mesh reader the NIF layer is built on — pure C#, source-generated
-  from nifxml. It is GPL-3.0-only, the same license as houseCARL.
+  from nifxml. It is GPL-3.0-only, the same license as houseCARL. houseCARL ships
+  its own build of a fork, github.com/Avick3110/NiflySharp (branch
+  fix/bounded-counts): upstream github.com/ousnius/NiflySharp at commit
+  7b55e88a749fd6b6b5ca23a1c18f4b1aed207634, the commit Nifly 1.1.0 was built
+  from, plus one change that checks a malformed mesh's counts and sizes against
+  the file before reading them. The package's own metadata records the fork
+  commit it was built from.
 
   These components are distributed under the GPL-3.0-only terms reproduced in the
   LICENSE file. One copy of the GPLv3 text covers all of them.
