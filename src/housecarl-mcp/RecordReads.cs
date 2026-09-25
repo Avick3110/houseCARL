@@ -546,8 +546,7 @@ public sealed partial class LoadOrderService
         /// <see cref="Where"/>.</summary>
         internal string? Layer { get; init; }
 
-        /// <summary>The game Data folder of the roots the off-order copy was located under, for its localized
-        /// strings.</summary>
+        /// <summary>The Data folder of the roots the off-order copy was located under, for its localized strings.</summary>
         internal string? DataDir { get; init; }
 
         /// <summary>The epoch of the build the arm was judged against, so a load-order change between probe and
@@ -601,7 +600,7 @@ public sealed partial class LoadOrderService
     /// <summary>The tool-layer probe: WHICH arm would this source= pole resolve to.</summary>
     public PoleInfo? ProbeSourceArm(string plugin, string? mod, out string? error)
     {
-        var (pin, roots) = CapturePinAndRoots(AfterReadPinForGuard);
+        var (pin, roots) = CapturePinAndRoots();
         var view = pin.View;
         var (pole, err) = ResolvePoleArm(view, roots, plugin, mod);
         error = err;
@@ -623,7 +622,7 @@ public sealed partial class LoadOrderService
         IReadOnlyCollection<string>? countFields = null)
     {
         pole = null; refusal = null; refusalEpoch = null;
-        var (pin, roots) = CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for the pole test and every read
+        var (pin, roots) = CapturePinAndRoots();   // one build and one set of roots for the pole test and every read
         var resolver = pin.Resolver;
         var view = pin.View;
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)

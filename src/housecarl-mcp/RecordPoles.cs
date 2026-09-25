@@ -41,7 +41,7 @@ public sealed partial class LoadOrderService
         out string? refusal, out OrderStamp? epoch, SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
-        var (pin, roots) = CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for every pole of every record
+        var (pin, roots) = CapturePinAndRoots();   // one build and one set of roots for every pole of every record
         var resolver = pin.Resolver;
         var view = pin.View;
         epoch = view.Stamp;
@@ -488,7 +488,7 @@ public sealed partial class LoadOrderService
         SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         referenceArm = null; epochCoversAll = true; refusal = null;
-        var (pin, roots) = CapturePinAndRoots(AfterReadPinForGuard);
+        var (pin, roots) = CapturePinAndRoots();
         var resolver = pin.Resolver;
         var view = pin.View;
         epoch = view.Stamp;
