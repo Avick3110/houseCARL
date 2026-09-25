@@ -13,7 +13,6 @@ internal interface ICheckHost : ILoadOrderHost
 
     // Relayed from reads until reads is its own class.
     IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types, out string? armLabel);
-    DialogueFold? OpenDialogueFold(LoadOrderService.PoleInfo arm, out string? error, string? label, bool withRecords);
 }
 
 /// <summary>The checks area: the errors, scripts, facegen and dialogue sweeps.</summary>
@@ -63,7 +62,7 @@ internal sealed class RecordChecks
             string? foldError = null;
             if (foldArm is not null)
             {
-                fold = _host.OpenDialogueFold(foldArm, out foldError, LoadOrderService.FoldLabel(foldArm), withRecords: true);
+                fold = LoadOrderService.OpenDialogueFold(foldArm, out foldError, LoadOrderService.FoldLabel(foldArm), withRecords: true);
                 // Placed HERE, where the file is opened and the build is in hand: a fold that reaches a render
                 // unplaced would print the field's default position, which is a guess.
                 fold?.PlaceIn(view);
