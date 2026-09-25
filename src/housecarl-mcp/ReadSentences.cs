@@ -4,7 +4,7 @@ namespace HousecarlMcp;
 
 /// <summary>One source per sentence for the read surface's user-facing prose, the <see cref="WriteSentences"/>
 /// pattern on the other surface.</summary>
-internal static partial class ReadSentences
+internal static class ReadSentences
 {
     // ---- what the game assembles: the additive union across every touching plugin --------------------
 
