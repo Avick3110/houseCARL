@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-25
-covers: [src/housecarl-core/DeletedRecordRule.cs, src/housecarl-core/ErrorCheck.cs, src/housecarl-core/SweepExclusion.cs, src/housecarl-core/SweepFamilies.cs, src/housecarl-core/SweepScope.cs, src/housecarl-mcp/CheckOutcome.cs, src/housecarl-mcp/RecordChecks.cs, src/housecarl-mcp/CheckTools.cs, src/housecarl-mcp/CheckAccounting.cs, src/housecarl-mcp/CheckArtifact.cs, src/housecarl-mcp/CheckTextRender.cs, src/housecarl-mcp/CheckSentences.cs, src/housecarl-mcp/CheckSweep.cs, src/housecarl-mcp/SweepSharedInput.cs, src/housecarl-mcp/SweepOffOrderScope.cs, src/housecarl-mcp/FaceGenSweepRender.cs, src/housecarl-mcp/SweepDemand.cs]
+covers: [src/housecarl-core/DeletedRecordRule.cs, src/housecarl-core/ErrorCheck.cs, src/housecarl-core/SweepExclusion.cs, src/housecarl-core/SweepFamilies.cs, src/housecarl-core/SweepScope.cs, src/housecarl-mcp/CheckOutcome.cs, src/housecarl-mcp/RecordChecks.cs, src/housecarl-mcp/CheckTools.cs, src/housecarl-mcp/CheckAccounting.cs, src/housecarl-mcp/CheckArtifact.cs, src/housecarl-mcp/CheckTextRender.cs, src/housecarl-mcp/CheckSentences.cs, src/housecarl-mcp/CheckSweep.cs, src/housecarl-mcp/SweepSharedInput.cs, src/housecarl-mcp/SweepOffOrderScope.cs, src/housecarl-mcp/FaceGenSweepRender.cs]
 ---
 # The check families' contracts
 
@@ -219,8 +219,8 @@ accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_def
   response; `SweepOffOrderScope.cs` — the `plugins=` split into active and off-order names, and its per-call memo
   `SweepOffOrderMemo`.
 - `src/housecarl-mcp/FaceGenSweepRender.cs` — the facegen family's render in both transports.
-- `src/housecarl-mcp/SweepDemand.cs` — what each subject of a merged response wants, measured before the render; the
-  budget it feeds is in [`render-budget.md`](render-budget.md).
+- `src/housecarl-mcp/SweepDemand.cs` — what each subject of a merged response wants, measured before the render. Its
+  contract is in [`render-budget.md`](render-budget.md), which covers the file.
 - `src/housecarl-mcp/CheckOutcome.cs` — `CheckOutcome`, and `DialogueOutcome`, whose four seed words are in
   [`check-scripts-and-dialogue-families.md`](check-scripts-and-dialogue-families.md).
 - `src/housecarl-mcp/CheckAccounting.cs` and `CheckArtifact.cs` — the response's omission accounting and the
