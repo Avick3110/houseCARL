@@ -19,12 +19,13 @@ the config file.
 - Lock order is `_gate` then `_classParentsLock`. Nothing pins it.
 
 ### The shared head door
-- `ILoadOrderHost`, in `src/housecarl-mcp/LoadOrderHost.cs` with the `AssetCapture` it returns, is how an area reaches the head members areas share. It carries the head members the area split assigned to it from the start (`Resolver`, `Assets`, `CaptureRoots()`, `CaptureAssets()`, `WriteGate`), plus any head member two areas take (`CapturePinAndAssets`), and each only once some area actually takes it through the door: today `Resolver`, `Assets`, `CaptureRoots()`, `CaptureAssets()`, `CapturePinAndAssets(afterPin)` and `WriteGate`. The head implements each member once, explicitly, next to what it wraps; rows relayed from other areas sit together in one block of the head.
+- `ILoadOrderHost`, in `src/housecarl-mcp/LoadOrderHost.cs` with the `AssetCapture` it returns, is how an area reaches the head members areas share. It carries the head members the area split assigned to it from the start (`Resolver`, `Assets`, `CaptureRoots()`, `CaptureAssets()`, `WriteGate`), plus any head member two areas take (`CapturePinAndAssets`, `Types`), and each only once some area actually takes it through the door: today `Resolver`, `Assets`, `CaptureRoots()`, `CaptureAssets()`, `CapturePinAndAssets(afterPin)`, `WriteGate` and `Types`. The head implements each member once, explicitly, next to what it wraps; rows relayed from other areas sit together in one block of the head.
 - `Resolver` and `Assets` are the head's own getters, with their freshness and lock behaviour above. `Assets` is the live asset resolver, for a core check that captures it itself per seed.
 - `CaptureRoots()` returns `Mo2Roots` (profile, data, mods and overwrite folders) from one `_gate` hold: it derives the roots first and throws whatever derivation throws. It takes no configured check: an unconfigured service yields four empty roots, and explicit mode always yields an empty overwrite root. Callers that need a configured instance have already gone through `Resolver` in the same call.
 - `CaptureAssets()` takes one `_gate` hold: it captures the asset build through the `Assets` getter, which checks the service is configured and derives the roots first, then reads the warnings, profile name, four roots, active archives and enabled mods of that same build. The caller works on the capture outside the hold.
 - `CapturePinAndAssets(afterPin)` is the one-hold pin-plus-assets capture two areas take (the SkyPatcher layer scan and the facegen and script sweeps): one `_gate` hold pins the index view with its resolver, runs `afterPin` (a test seam, null in the product), then captures the asset build without a second profile refresh, so a profile switch cannot split the pin from the assets.
 - `WriteGate` is the same object as `_writeGate`, so the lock order above holds through it: take the write gate first, then capture.
+- `Types` is the service's `TypeLookup` (a `type=` string to its getter types), built from the corpus on first use and kept for the service's life, so a `CorpusRulebook.CorpusPath` set before a service's first type resolution governs that service. It is never process-wide. The read, check, write and asset lanes resolve types through it.
 - Each area's own interface extends `ILoadOrderHost` and carries the rest: the head members only that area takes, plus rows relayed from areas that are not their own classes yet. The first is `IAssetHost`, in `src/housecarl-mcp/AssetLayers.cs`; the second is `ICheckHost`, in `src/housecarl-mcp/RecordChecks.cs`.
 
 ### The service's answers
@@ -56,7 +57,8 @@ the config file.
 returns (nested in the service), `CapturePinAnd<T>` (one `_gate` hold: the pin, a seam, then a second capture),
 over which `CapturePinAndAssets` and `CapturePinAndRoots` (the pin and the four roots, for the read area's pole
 lanes, with its test seam `AfterReadPinForGuard`) are one-liners, the class-parent cache
-(`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, and the explicit
+(`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, `Types` (the lazily built
+`TypeLookup`, the door member) and `TypeDisplayNames` (its one-line delegator for the `records` tool), and the explicit
 `ILoadOrderHost`, `IAssetHost` and `ICheckHost` members. `src/housecarl-mcp/LoadOrderHost.cs` declares `ILoadOrderHost` and
 `AssetCapture`; `IAssetHost` is at the top of `src/housecarl-mcp/AssetLayers.cs`.
 The head's asset-facing surface is one-line delegators to `_assetLayers`, the `AssetLayers` it builds over itself in
