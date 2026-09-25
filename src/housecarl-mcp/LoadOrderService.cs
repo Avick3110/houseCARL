@@ -85,9 +85,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     internal TypeLookup Types => _typeLookup.Value;
     TypeLookup ILoadOrderHost.Types => Types;
 
-    /// <summary>The display names a type SET resolves to; see <see cref="TypeLookup.DisplayNames(IReadOnlyList{string})"/>.</summary>
-    public IReadOnlyList<string>? TypeDisplayNames(IReadOnlyList<string>? types) => Types.DisplayNames(types);
-
     /// <summary>One captured index build, for a <see cref="FormIdDoor"/> resolving a runtime FormID.</summary>
     internal LoadOrderResolver.IndexView CaptureView() => Resolver.Capture();
 

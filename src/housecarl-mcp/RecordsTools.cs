@@ -725,7 +725,7 @@ public static partial class RecordsTools
 
             if (form == "aggregate")
                 return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2, headerLine, envelope, listCost,
-                                           max_chars, svc.TypeDisplayNames(types), TableRowLimit(limit));
+                                           max_chars, svc.Types.DisplayNames(types), TableRowLimit(limit));
 
             if (counts_only)
             {
