@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-23
-covers: [src/housecarl-mcp/RecordsTools.cs, src/housecarl-mcp/ReadTools.cs]
+covers: [src/housecarl-mcp/RecordsTools.cs, src/housecarl-mcp/RecordsTextRender.cs, src/housecarl-mcp/ReadTools.cs]
 ---
 # The records tool front
 
@@ -40,7 +40,8 @@ the json twin of the same responses is `docs/architecture/json-wire.md`.
 
 ## Where
 `src/housecarl-mcp/`: `RecordsTools.cs` (the tool front: the four axes, the lane decision, the response
-envelope, and the delta/tree/chain/info_order/summary/aggregate text renders), `ReadTools.cs` (`Wire` — the
+envelope), `RecordsTextRender.cs` (the same `RecordsTools` class: the delta/tree/chain/effect-chain/info_order/
+summary/aggregate text renders), `ReadTools.cs` (`Wire` — the
 shared text render: the epoch stamp, the resolve, batch and scan renders, and the owned-child clause bookkeeping;
 the check families' render now lives in `CheckTextRender.cs`, under `docs/architecture/check-families.md`).
 Tool: `housecarl_records`.
