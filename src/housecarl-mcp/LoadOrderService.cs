@@ -19,6 +19,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     readonly int _maxPlugins;
     readonly object _gate = new();
     readonly AssetLayers _assetLayers;             // the assets area; built in the constructor over this head
+    readonly RecordChecks _checks;                 // the checks area; built in the constructor over this head
     // Serializes every plugin write's resolve, stage and commit; contract in docs/architecture/load-order-service.md.
     readonly object _writeGate = new();
     object ILoadOrderHost.WriteGate => _writeGate;
@@ -51,6 +52,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         _maxPlugins = maxPlugins;
         _store = store;
         _assetLayers = new AssetLayers(this);
+        _checks = new RecordChecks(this);
     }
 
     /// <summary>INSTANCE mode (product default): derive the roots and active profile from ONE MO2 instance folder; a null or blank path is UNCONFIGURED.</summary>
@@ -247,6 +249,33 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         => _assetLayers.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, draftWarnings);
 
     internal AssetLayers AssetArea => _assetLayers;   // the assets area instance, for tests that set its seams
+
+    // The checks area's tool-facing surface; the bodies are in RecordChecks.cs.
+    public DialogueValidationReport ValidateDialogue(FormKey fk) => _checks.ValidateDialogue(fk);
+    public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false, PoleInfo? foldArm = null)
+        => _checks.CheckDialogue(seeds, limit, countsOnly, foldArm);
+    public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit,
+                                        IReadOnlyList<string>? formids = null, string? editoridContains = null,
+                                        IReadOnlyList<string>? types = null, IReadOnlyList<string>? findings = null,
+                                        bool countsOnly = false, IReadOnlyList<string>? exclude = null,
+                                        SweepOffOrderMemo? offOrderMemo = null)
+        => _checks.CheckErrors(plugins, limit, formids, editoridContains, types, findings, countsOnly, exclude, offOrderMemo);
+    public ScriptCheckResult ValidateScripts(IReadOnlyList<string>? plugins, int limit,
+                                             IReadOnlyList<string>? formids = null, string? editoridContains = null,
+                                             IReadOnlyList<string>? types = null, string? propertyContains = null,
+                                             IReadOnlyList<string>? findings = null, bool countsOnly = false,
+                                             IReadOnlyList<string>? exclude = null, SweepOffOrderMemo? offOrderMemo = null)
+        => _checks.ValidateScripts(plugins, limit, formids, editoridContains, types, propertyContains, findings, countsOnly, exclude, offOrderMemo);
+    public FaceGenCheckResult CheckFaceGen(IReadOnlyList<string>? plugins, int limit,
+                                           IReadOnlyList<string>? formids = null, string? editoridContains = null,
+                                           IReadOnlyList<string>? types = null, IReadOnlyList<string>? findings = null,
+                                           bool countsOnly = false, IReadOnlyList<string>? exclude = null,
+                                           SweepOffOrderMemo? offOrderMemo = null)
+        => _checks.CheckFaceGen(plugins, limit, formids, editoridContains, types, findings, countsOnly, exclude, offOrderMemo);
+    internal string? SweepScopeError(IReadOnlyList<string>? formids, string? editoridContains, IReadOnlyList<string>? types)
+        => _checks.SweepScopeError(formids, editoridContains, types);
+
+    internal RecordChecks CheckArea => _checks;   // the checks area instance, for tests that set its seams
 
     internal int AbsenceExplanations;   // how many times the explainer has parsed the profile — a test seam for the memo
 
