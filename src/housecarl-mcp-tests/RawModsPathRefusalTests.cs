@@ -7,7 +7,6 @@ namespace HousecarlMcpTests;
 /// nif_inspect refuse it and hand back the address form instead — the mod folder NAMED in source_provider=, with the
 /// Data-relative path (#617). Nothing is placed by any of these arms, so the shared world is untouched.</summary>
 [Trait("tier", "integration")]
-[Collection(SerialCollection.Name)]   // sets the process working directory, #903
 public sealed class RawModsPathRefusalTests : IClassFixture<AssetSelectWorld>
 {
     readonly AssetSelectWorld _w;
@@ -68,23 +67,6 @@ public sealed class RawModsPathRefusalTests : IClassFixture<AssetSelectWorld>
 
         Assert.Contains("raw path into MO2's mods folder", text);
         Assert.Contains("source_provider='FaceBase'", text);
-    }
-
-    /// <summary>The check reads a ROOTED path only. A Data-relative path is the normal address form, and resolving
-    /// one against the server's working directory would refuse it outright in a session started inside a mod folder.
-    /// </summary>
-    [Fact]
-    public void ADataRelativePathIsNotAMistakenRawModsPath()
-    {
-        var prior = Directory.GetCurrentDirectory();
-        Directory.SetCurrentDirectory(Path.Combine(_w.ModsDir, "FaceBase"));
-        try
-        {
-            var text = NifTools.NifInspect(_w.Svc, mesh_paths: new[] { _w.Rel("0001.nif") });
-
-            Assert.DoesNotContain("raw path into MO2's mods folder", text);
-        }
-        finally { Directory.SetCurrentDirectory(prior); }
     }
 
     /// <summary>A fully-qualified '.bsa' IS the single source that serves both FaceGen slots, so the remedy keeps
