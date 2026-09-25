@@ -680,11 +680,8 @@ public sealed partial class LoadOrderService
         try { fileKey = ModKey.FromFileName(pole.Plugin); }
         catch (Exception ex) { return CrossQueryOutcome.Fail($"'{pole.Plugin}' is not a valid plugin filename: {ex.Message}"); }
 
-        string dataDir;
-        try { lock (_gate) { EnsurePathsDerived(); dataDir = _dataDir; } }
-        catch (Exception ex) { return CrossQueryOutcome.Fail($"the MO2 roots couldn't be derived to open '{pole.Plugin}': {ex.Message}") with { Stamp = view.Stamp }; }
         ISkyrimModGetter ov;
-        try { ov = LoadOrderResolver.OpenOverlay(pole.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+        try { ov = LoadOrderResolver.OpenOverlay(pole.Path!, string.IsNullOrEmpty(pole.DataDir) ? null : pole.DataDir); }
         catch (Exception ex) { return CrossQueryOutcome.Fail($"could not open '{pole.Path}' as a Skyrim plugin: {ex.Message}") with { Stamp = view.Stamp }; }
 
         var refSet = references is { Count: > 0 } ? new HashSet<FormKey>(references) : null;

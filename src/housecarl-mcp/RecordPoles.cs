@@ -41,8 +41,9 @@ public sealed partial class LoadOrderService
         out string? refusal, out OrderStamp? epoch, SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
-        var resolver = Resolver;
-        var view = resolver.Capture();          // one build for every pole of every record
+        var (pin, roots) = CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for every pole of every record
+        var resolver = pin.Resolver;
+        var view = pin.View;
         epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)
         {
@@ -63,9 +64,9 @@ public sealed partial class LoadOrderService
         // Resolve the uniform arms once; winner and overlay are per-record but uniform in statement.
         var sGather = new PoleGather();
         var rGather = new PoleGather();
-        var sReader = MakePoleReader(view, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr, out var sOffOrder, overlayWarnings, sGather);
+        var sReader = MakePoleReader(view, roots, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr, out var sOffOrder, overlayWarnings, sGather);
         if (sErr is not null) { refusal = "source: " + sErr; return Array.Empty<DeltaRow>(); }
-        var rReader = MakePoleReader(view, session, reference, fields, wanted, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings, rGather);
+        var rReader = MakePoleReader(view, roots, session, reference, fields, wanted, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings, rGather);
         if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<DeltaRow>(); }
         epochCoversAll = sCovers && rCovers;
 
@@ -125,7 +126,7 @@ public sealed partial class LoadOrderService
 
     /// <summary>Build the per-record reader for one pole against the shared captured view and session; uniform arm
     /// resolution happens here once and per-record work stays in the returned reader.</summary>
-    PoleReader MakePoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+    PoleReader MakePoleReader(LoadOrderResolver.IndexView view, Mo2Roots roots, LoadOrderResolver.OverlaySession session,
                               PoleSpec spec, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted,
                               out string? armStatement, out bool covers, out string? error, out PoleInfo? offOrderArm,
                               SkyPatcherOverlay.WarningSink? overlayWarnings = null, PoleGather? gather = null)
@@ -195,7 +196,7 @@ public sealed partial class LoadOrderService
                 return MakeOverlayPoleReader(view, session, spec, fields, out armStatement, out covers, out error, overlayWarnings, gather);
 
             default:   // Named — the one-pole rule: active in the order, else an on-disk file.
-                var (arm, armErr) = ResolvePoleArm(view, spec.Plugin!, spec.Mod);
+                var (arm, armErr) = ResolvePoleArm(view, roots, spec.Plugin!, spec.Mod);
                 if (armErr is not null) { armStatement = null; error = armErr; return (_, _) => new PoleReading(null, null, null, armErr); }
                 armStatement = $"{arm!.Plugin} — {arm.Where}";
                 if (arm.InOrder)
@@ -229,7 +230,7 @@ public sealed partial class LoadOrderService
                 // memoise every record seen, so one enumeration pass serves the whole batch.
                 covers = false;   // the file's content sits outside the epoch fingerprint
                 offOrderArm = arm;
-                var lazy = new OffOrderPoleCache(this, arm, fields, wanted);
+                var lazy = new OffOrderPoleCache(arm, fields, wanted);
                 return (fk, _) =>
                 {
                     var (rec, oerr) = lazy.Find(fk);
@@ -340,16 +341,14 @@ public sealed partial class LoadOrderService
     /// once, materialising every wanted record's deep fields as a value snapshot.</summary>
     sealed class OffOrderPoleCache
     {
-        readonly LoadOrderService _svc;
         readonly PoleInfo _arm;
         readonly IReadOnlyList<string>? _fields;
         readonly HashSet<FormKey>? _wanted;   // materialize only the requested keys, never the whole file
         Dictionary<FormKey, RecordFields>? _all;
         string? _error;
 
-        public OffOrderPoleCache(LoadOrderService svc, PoleInfo arm, IReadOnlyList<string>? fields,
-                                 IReadOnlyCollection<FormKey>? wanted)
-        { _svc = svc; _arm = arm; _fields = fields; _wanted = wanted is null ? null : new HashSet<FormKey>(wanted); }
+        public OffOrderPoleCache(PoleInfo arm, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted)
+        { _arm = arm; _fields = fields; _wanted = wanted is null ? null : new HashSet<FormKey>(wanted); }
 
         public (RecordFields? Fields, string? Error) Find(FormKey fk)
         {
@@ -360,11 +359,8 @@ public sealed partial class LoadOrderService
 
         string? Sweep()
         {
-            string dataDir;
-            try { lock (_svc._gate) { _svc.EnsurePathsDerived(); dataDir = _svc._dataDir; } }
-            catch (Exception ex) { return $"the MO2 roots couldn't be derived to open '{_arm.Plugin}': {ex.Message}"; }
             ISkyrimModGetter ov;
-            try { ov = LoadOrderResolver.OpenOverlay(_arm.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+            try { ov = LoadOrderResolver.OpenOverlay(_arm.Path!, string.IsNullOrEmpty(_arm.DataDir) ? null : _arm.DataDir); }
             catch (Exception ex) { return $"could not open '{_arm.Path}' as a Skyrim plugin: {ex.Message}"; }
             try
             {
@@ -492,8 +488,9 @@ public sealed partial class LoadOrderService
         SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         referenceArm = null; epochCoversAll = true; refusal = null;
-        var resolver = Resolver;
-        var view = resolver.Capture();
+        var (pin, roots) = CapturePinAndRoots(AfterReadPinForGuard);
+        var resolver = pin.Resolver;
+        var view = pin.View;
         epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)
         {
@@ -518,7 +515,7 @@ public sealed partial class LoadOrderService
         PoleReader? refReader = null;
         if (reference.Kind is not PoleKind.Winner)
         {
-            refReader = MakePoleReader(view, session, reference, fields, wantedT, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings, refGather);
+            refReader = MakePoleReader(view, roots, session, reference, fields, wantedT, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings, refGather);
             if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<TreeRow>(); }
             epochCoversAll = rCovers;
         }

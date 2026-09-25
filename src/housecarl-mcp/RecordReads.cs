@@ -546,6 +546,10 @@ public sealed partial class LoadOrderService
         /// <see cref="Where"/>.</summary>
         internal string? Layer { get; init; }
 
+        /// <summary>The game Data folder of the roots the off-order copy was located under, for its localized
+        /// strings.</summary>
+        internal string? DataDir { get; init; }
+
         /// <summary>The epoch of the build the arm was judged against, so a load-order change between probe and
         /// dispatch surfaces as a loud retry refusal.</summary>
         public OrderStamp? Stamp { get; init; }
@@ -559,8 +563,8 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>Resolve a `records` source= pole against ONE captured view: active in the order, else located on disk
-    /// across the whole install.</summary>
-    (PoleInfo? Pole, string? Error) ResolvePoleArm(LoadOrderResolver.IndexView view, string plugin, string? mod)
+    /// across the whole install under <paramref name="roots"/>, taken in the view's hold.</summary>
+    (PoleInfo? Pole, string? Error) ResolvePoleArm(LoadOrderResolver.IndexView view, Mo2Roots roots, string plugin, string? mod)
     {
         // Judged on the argument as given: the rewrite below turns a path into a bare filename, which would flip
         // a path pole into the mod= lane.
@@ -573,16 +577,8 @@ public sealed partial class LoadOrderService
         if (!namesMod && activeFilename)
             return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
 
-        string modsDir, dataDir, overwriteDir, profileDir;
-        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
-        catch (Exception ex)
-        {
-            return (null, activeFilename
-                ? $"source '{plugin}' names mod folder '{mod!.Trim()}', and the MO2 roots couldn't be derived to read that folder's copy: {ex.Message}"
-                : $"source '{plugin}' is not active in the load order, and the MO2 roots couldn't be derived to search for it on disk: {ex.Message}");
-        }
-        var comp = Mo2LoadOrder.ReadComposition(profileDir);
-        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, mod);
+        var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
+        var loc = LocatePluginFileOnDisk(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, plugin, mod);
         if (loc.Error is not null)
             // A pole found in neither place names both places searched; when the filename IS active, the named
             // mod folder is the only place searched.
@@ -599,14 +595,15 @@ public sealed partial class LoadOrderService
             return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
         var poleWhere = $"OUT-OF-LOAD-ORDER ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
         return (new PoleInfo(plugin, poleWhere, InOrder: false, EpochCoversPole: false)
-                { Path = loc.Path, Layer = loc.WhereNamesLayer ? loc.Where : null, NameActive = activeFilename }, null);
+                { Path = loc.Path, Layer = loc.WhereNamesLayer ? loc.Where : null, DataDir = roots.DataDir, NameActive = activeFilename }, null);
     }
 
     /// <summary>The tool-layer probe: WHICH arm would this source= pole resolve to.</summary>
     public PoleInfo? ProbeSourceArm(string plugin, string? mod, out string? error)
     {
-        var view = Resolver.Capture();
-        var (pole, err) = ResolvePoleArm(view, plugin, mod);
+        var (pin, roots) = CapturePinAndRoots(AfterReadPinForGuard);
+        var view = pin.View;
+        var (pole, err) = ResolvePoleArm(view, roots, plugin, mod);
         error = err;
         return pole is null ? null : pole with { Stamp = view.Stamp };
     }
@@ -626,17 +623,17 @@ public sealed partial class LoadOrderService
         IReadOnlyCollection<string>? countFields = null)
     {
         pole = null; refusal = null; refusalEpoch = null;
-        var resolver = Resolver;
-        var view = resolver.Capture();          // one build for the pole test and every read
+        var (pin, roots) = CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for the pole test and every read
+        var resolver = pin.Resolver;
+        var view = pin.View;
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
         {
             refusal = ArtifactEpochMismatch(artifactDemand, view.Epoch);
             refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
-        var pin = new ViewPin(resolver, view);
 
-        var (arm, armErr) = ResolvePoleArm(view, plugin, mod);
+        var (arm, armErr) = ResolvePoleArm(view, roots, plugin, mod);
         if (armErr is not null)
         {
             refusal = armErr;
@@ -684,14 +681,6 @@ public sealed partial class LoadOrderService
 
         // Off-order arm: the locate already ran in ResolvePoleArm, so open the overlay once and pick every
         // requested record in a single enumeration pass.
-        string dataDirForOverlay;
-        try { lock (_gate) { EnsurePathsDerived(); dataDirForOverlay = _dataDir; } }
-        catch (Exception ex)
-        {
-            refusal = $"the MO2 roots couldn't be derived to open '{plugin}': {ex.Message}";
-            refusalEpoch = view.Stamp;
-            return Array.Empty<ReadOutcome>();
-        }
         var poleWhere = arm.Where;
 
         // Parse every FormID first (per-item errors keep their input positions), then one enumeration pass.
@@ -704,7 +693,7 @@ public sealed partial class LoadOrderService
         }
 
         ISkyrimModGetter ov;
-        try { ov = LoadOrderResolver.OpenOverlay(arm.Path!, string.IsNullOrEmpty(dataDirForOverlay) ? null : dataDirForOverlay); }
+        try { ov = LoadOrderResolver.OpenOverlay(arm.Path!, string.IsNullOrEmpty(arm.DataDir) ? null : arm.DataDir); }
         catch (Exception ex)
         {
             refusal = $"could not open '{arm.Path}' as a Skyrim plugin: {ex.Message}";
@@ -892,22 +881,15 @@ public sealed partial class LoadOrderService
 
     /// <summary>Read an already-probed OFF-ORDER pole's DIAL content once, for a dialogue lane to fold at the end
     /// of the order. Every failure is a named refusal, never a fold that silently contributes nothing.</summary>
-    internal DialogueFold? OpenDialogueFold(PoleInfo arm, out string? error, string? label = null,
-                                            bool withRecords = false)
+    internal static DialogueFold? OpenDialogueFold(PoleInfo arm, out string? error, string? label = null,
+                                                   bool withRecords = false)
     {
         error = null;
-        string dataDir;
-        try { lock (_gate) { EnsurePathsDerived(); dataDir = _dataDir; } }
-        catch (Exception ex)
-        {
-            error = $"the MO2 roots couldn't be derived to open '{arm.Plugin}': {ex.Message}";
-            return null;
-        }
         try
         {
             return withRecords
-                ? DialogueFold.Open(arm.Plugin, arm.Where, arm.Path!, dataDir, label)
-                : DialogueFold.Read(arm.Plugin, arm.Where, arm.Path!, dataDir, label);
+                ? DialogueFold.Open(arm.Plugin, arm.Where, arm.Path!, arm.DataDir, label)
+                : DialogueFold.Read(arm.Plugin, arm.Where, arm.Path!, arm.DataDir, label);
         }
         catch (Exception ex)
         {

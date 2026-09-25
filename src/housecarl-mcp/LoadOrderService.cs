@@ -104,6 +104,20 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         }
     }
 
+    /// <summary>Test seam: invoked in the pole lanes after the pin and before the roots; null in the product.</summary>
+    internal Action? AfterReadPinForGuard;
+
+    /// <summary>A pinned index and the four MO2 roots, in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between the two.</summary>
+    (ViewPin Pin, Mo2Roots Roots) CapturePinAndRoots(Action? afterPin = null)
+    {
+        lock (_gate)
+        {
+            var pin = CapturePin();
+            afterPin?.Invoke();
+            return (pin, ((ILoadOrderHost)this).CaptureRoots());
+        }
+    }
+
     /// <summary>A FormID door for a tool body with no captured view of its own — see <see cref="FormIdDoor"/>.</summary>
     internal FormIdDoor OpenFormIdDoor() => FormIdDoor.For(this);
     FormIdDoor ICheckHost.OpenFormIdDoor() => OpenFormIdDoor();
