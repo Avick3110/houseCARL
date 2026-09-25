@@ -25,7 +25,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     object ILoadOrderHost.WriteGate => _writeGate;
     LoadOrderResolver? _resolver;
     CorpusRulebook? _rulebook;
-    TypeLookup? _typeLookup;
+    readonly Lazy<TypeLookup> _typeLookup = new(() => new TypeLookup());   // one per service; construction reads nothing
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
     // The VFS-aware asset resolver, built lazily on an asset query and dropped when the active profile changes.
     AssetResolver? _assetResolver;
@@ -81,8 +81,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>The write pre-flight rulebook (corpus.json), loaded once from an absolute CorpusPath.</summary>
     CorpusRulebook Rulebook => _rulebook ??= CorpusRulebook.Load();
 
-    /// <summary>The type lookup, built from the corpus on first use and kept for this service.</summary>
-    TypeLookup Types => _typeLookup ??= new TypeLookup();
+    /// <summary>The type lookup, one per service; its map is built from the corpus on the first resolution that needs it.</summary>
+    internal TypeLookup Types => _typeLookup.Value;
     TypeLookup ILoadOrderHost.Types => Types;
 
     /// <summary>The display names a type SET resolves to; see <see cref="TypeLookup.DisplayNames(IReadOnlyList{string})"/>.</summary>
