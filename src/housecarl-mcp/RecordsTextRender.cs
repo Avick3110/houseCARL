@@ -584,13 +584,6 @@ static partial class RecordsTools
         return RenderCap.Settle(sb.ToString(), cap);
     }
 
-    /// <summary>A caller's limit= turned into a count TABLE's row cap, reading an unset limit exactly as every ROW
-    /// lane on this tool reads it — <c>limit &lt;= 0</c> is the 500 default, which is what the parameter description
-    /// promises the table too. The asset tool's <c>RowLimit</c> maps the same input to "uncapped" because its own
-    /// limit= parameter defaults to 0; this one defaults to 500, so one rule per TOOL is the rule, not one
-    /// expression across both (#810, Aaron 2026-09-22).</summary>
-    internal static int TableRowLimit(int limit) => limit <= 0 ? DefaultLimit : limit;
-
     /// <summary>The list-lane aggregate render: the resolved rows counted by winner, type or defined_in — the batch twin of the scan lane's count table — with per-item errors in their own named bucket and the same response envelope every other form carries.</summary>
     /// <param name="requestedTypes">The display names of the types the call NAMED, or null when it named none; under group_by=type each one gets a row, so a requested type with no records reads as 0.</param>
     /// <param name="rowLimit">the caller's limit= as the TABLE's row cap (0 = uncapped): a count table caps with
