@@ -32,6 +32,7 @@ the config file.
 - A refresh that lands in MO2's own profile-rewrite window keeps the snapshot already built and does NOT advance the baseline, so the next call re-checks and follows the new profile.
 - A profile change that could not be RE-READ is remembered: the asset lane keeps answering and says so in its warnings, and the record lane refuses, because the record index IS the load order.
 - A mid-write read that resolves no paths keeps the last good snapshot and does not advance the baseline, so the next call recovers once MO2 finishes writing.
+- A profile switch publishes the new roots only together with the order read from them: when the new profile's read is held or empty, the old roots, resolver and ini stamp all stay, and the next call retries. So a pin and the roots taken beside it always describe one profile.
 - The asset resolver is built only on an asset query, never forces the record index build, and is dropped whenever the active mod or archive SET changes.
 - A record build that lands while an asset build was KEPT across a profile change drops that asset build instead of advancing the baseline past it, so the next asset call rebuilds rather than silently serving the old answer.
 
@@ -44,14 +45,16 @@ the config file.
 - `write-mutex-guard` (`ci-all`) — concurrent same-default-name writes each allocate their own folder and commit their own bytes: the serialized resolve, stage and commit, not the rest of that bullet.
 - Nothing pins the lock order, the getters' `TryEnter` exception to it, or `SetInstance` taking `_writeGate`.
 - `ProfileRewriteTests.AWarmAssetCallAnswersOffTheKeptBuildSaysSoAndFollowsTheProfileOnceItIsFree`, `TheRecordIndexRefusesRatherThanAnswerOffASupersededBuild` and `AColdRecordBuildAfterAHoldDoesNotStrandTheKeptAssetBuild` — the held-profile split between the two lanes.
+- `ReadPinTests.ASwitchToAProfileWithNoActivePluginsKeepsTheOldRootsWithTheOldView` — a switch to a profile whose order reads empty publishes neither its roots nor its order, and the next call takes both once it reads.
 - `freshness-capture-guard` (`ci-all`), arm 5 — a read while a write holds `_writeGate` completes without waiting, serves the last good snapshot, and the next call refreshes: the deferred-refresh sentence, not the mapped-plugin reason it gives.
 
 ## Where
 `src/housecarl-mcp/LoadOrderService.cs`: the `Resolver` and `Assets` getters, `SetInstance`,
-`RefreshOnProfileChange`, `ReResolve`, `EnsurePathsDerived`, `StatusData`, `Stats`, `UpdateCache`,
+`RefreshOnProfileChange`, `RederiveIfIniChanged`, `ReResolve`, `EnsurePathsDerived`, `StatusData`, `Stats`, `UpdateCache`,
 `NamedProfileComposition`, `PapyrusSourceImportDirs`, `Dispose`, `CapturePin()` and the `ViewPin` record it
-returns (nested in the service), `CapturePinAndRoots` (the pin and the four roots in one `_gate` hold, for the
-read area's pole lanes) and its test seam `AfterReadPinForGuard`, the class-parent cache
+returns (nested in the service), `CapturePinAnd<T>` (one `_gate` hold: the pin, a seam, then a second capture),
+over which `CapturePinAndAssets` and `CapturePinAndRoots` (the pin and the four roots, for the read area's pole
+lanes, with its test seam `AfterReadPinForGuard`) are one-liners, the class-parent cache
 (`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, and the explicit
 `ILoadOrderHost`, `IAssetHost` and `ICheckHost` members. `src/housecarl-mcp/LoadOrderHost.cs` declares `ILoadOrderHost` and
 `AssetCapture`; `IAssetHost` is at the top of `src/housecarl-mcp/AssetLayers.cs`.
