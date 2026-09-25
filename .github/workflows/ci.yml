@@ -32,13 +32,14 @@ jobs:
           dotnet-version: '9.0.x'
 
       # Cache the NuGet package restore across runs (keyed on the project files, which pin the
-      # package versions). Trims the restore inside the build step below; the build itself still
-      # compiles the whole solution fresh every run.
+      # package versions, and on the vendored packages nuget.config adds from packages/local, since a
+      # rebuilt local package can keep its version). Trims the restore inside the build step below; the
+      # build itself still compiles the whole solution fresh every run.
       - name: Cache NuGet packages
         uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'nuget.config', 'packages/local/*.nupkg') }}
           restore-keys: |
             nuget-${{ runner.os }}-
 
