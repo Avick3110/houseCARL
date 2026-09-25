@@ -238,7 +238,7 @@ public sealed class CheckMasterRemedyTests : IClassFixture<CheckMasterRemedyFixt
         var unclassified = new PluginErrors(W.PatchName, Array.Empty<DanglingRef>(),
                                             new[] { W.AbsentName, W.GhostName }, 0, Array.Empty<string>(), null);
 
-        var section = Wire.ComposeErrorSection(unclassified);
+        var section = CheckTextRender.ComposeErrorSection(unclassified);
 
         Assert.Contains(UnionRemedy, section);
         Assert.DoesNotContain(InstallRemedy, section);

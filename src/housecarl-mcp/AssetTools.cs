@@ -449,7 +449,7 @@ static class AssetCensus
 
         // The one bounded emission path: the budget is the whole cap, because Outstanding reads the live builder.
         var body = new BoundedBody(acct: null, budget: cap, () => sb.Length);
-        Wire.AppendHistogramAxes(sb, body, RowLimit(limit), Axis(c));
+        CheckTextRender.AppendHistogramAxes(sb, body, RowLimit(limit), Axis(c));
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 }

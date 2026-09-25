@@ -5,7 +5,7 @@ namespace HousecarlMcp;
 
 // The check text render: the errors and scripts families, the shared sweep-render pieces and the merged check response.
 
-static partial class Wire
+static class CheckTextRender
 {
     // ---- the errors family ----
     /// <summary>The errors family's own head: what it swept and what it found, above the first thing a budget can refuse and below the response title, which belongs to the caller.</summary>
@@ -22,8 +22,8 @@ static partial class Wire
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)
-            sb.Append(string.Format(ReadSentences.SweepOffOrderScanned, string.Join(", ", off),
-                                    ReadSentences.SweepOffOrderErrorsCoverage)).Append('\n');
+            sb.Append(string.Format(CheckSentences.SweepOffOrderScanned, string.Join(", ", off),
+                                    CheckSentences.SweepOffOrderErrorsCoverage)).Append('\n');
         AppendBaselineSplit(sb, r, acct);   // how much of the dangling total is vanilla baseline
     }
 
@@ -225,6 +225,8 @@ static partial class Wire
     }
 
     // ---- the merged, multi-family check response ----
+    static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+
     /// <summary>The merged sweep: one header, one section per selected family with its own accounting, one boundary block, and the excluded-plugin roster once; the body budget is divided rather than spent in series, per docs/architecture/render-budget.md.</summary>
     public static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit = 1000)
         => RenderCheck(s, maxChars, histogramLimit, out _);
@@ -248,7 +250,7 @@ static partial class Wire
         for (int i = 0; i < accts.Count; i++)
             reserve += accts[i].TextAccountingReserve
                      + accts[i].Boundary.Length
-                     + string.Format(ReadSentences.SweepBoundaryLabelFor,
+                     + string.Format(CheckSentences.SweepBoundaryLabelFor,
                                      SweepFamilySelection.Token(sections[i])).Length + BoundaryWrap;
         int budget = Math.Max(0, cap - reserve);
 
@@ -288,7 +290,7 @@ static partial class Wire
                         IReadOnlyList<CheckAccounting> accts, BoundedBody body, int histogramLimit, int cap)
     {
         var s = o.Sweep;
-        sb.Append(ReadSentences.SweepMergedTitle).Append('\n');
+        sb.Append(CheckSentences.SweepMergedTitle).Append('\n');
         // The scope sentence, above everything a budget can refuse: which families answered, which refused, and which registered ones were never asked.
         sb.Append(o.ScopeSentence()).Append('\n');
         // A short order is a response-level fact, stated here once rather than left to whichever families ran.
@@ -304,7 +306,7 @@ static partial class Wire
         for (int i = 0; i < sections.Count; i++)
         {
             var f = sections[i];
-            sb.Append('\n').Append(string.Format(ReadSentences.SweepFamilySectionHead,
+            sb.Append('\n').Append(string.Format(CheckSentences.SweepFamilySectionHead,
                                                  SweepFamilySelection.Token(f), SweepFamilySelection.Title(f)))
               .Append('\n');
             // A family that refused fills its OWN section with the refusal, never the whole response.
@@ -345,7 +347,7 @@ static partial class Wire
         {
             int at = i;
             body.Reserved(() => sb.Append('\n')
-                                  .Append(string.Format(ReadSentences.SweepBoundaryLabelFor,
+                                  .Append(string.Format(CheckSentences.SweepBoundaryLabelFor,
                                                         SweepFamilySelection.Token(sections[at])))
                                   .Append(accts[at].Boundary).Append('\n'));
         }
@@ -365,19 +367,19 @@ static partial class Wire
         sb.Append("scanned ").Append(r.PluginsScanned).Append(r.PluginsScanned == 1 ? " plugin · " : " plugins · ")
           .Append(r.RecordsWithScripts).Append(" record(s) with scripts · ")
           // A class the caller excluded reads as NOT CHECKED, never as 0.
-          .Append(ReadSentences.ScriptUnboundTotal(r, didObject, didScalar))
+          .Append(CheckSentences.ScriptUnboundTotal(r, didObject, didScalar))
           .Append(" · ")
-          .Append(ReadSentences.ScriptNullTotal(r, didNull))
+          .Append(CheckSentences.ScriptNullTotal(r, didNull))
           .Append(" · ")
           .Append(r.TotalUnverifiable).Append(" unverifiable");
         if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(OrderDegraded.Clause(r.ExcludedPlugins.Count)).Append(EpochOffOrderQualifier(r.OffOrderScanned));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)
-            sb.Append(string.Format(ReadSentences.SweepOffOrderScanned, string.Join(", ", off),
-                                    ReadSentences.SweepOffOrderScriptsCoverage)).Append('\n');
+            sb.Append(string.Format(CheckSentences.SweepOffOrderScanned, string.Join(", ", off),
+                                    CheckSentences.SweepOffOrderScriptsCoverage)).Append('\n');
         if (r.UnverifiableCollapsed > 0)
-            sb.Append(string.Format(ReadSentences.SweepScriptUnverifiableCollapsed, r.UnverifiableCollapsed)).Append('\n');
+            sb.Append(string.Format(CheckSentences.SweepScriptUnverifiableCollapsed, r.UnverifiableCollapsed)).Append('\n');
         if (r.ReadIncomplete)
             sb.Append("note: a BSA or a loose mod folder failed to read this build — a '.pex not on disk' below may merely be unscanned, not truly absent (Q3).\n");
     }

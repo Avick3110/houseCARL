@@ -38,7 +38,7 @@ public sealed class DialogueFamilyTests
     }
 
     string CheckDialogue(LoadOrderService svc, params Mutagen.Bethesda.Plugins.FormKey[] seeds) =>
-        Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: svc.CheckDialogue(seeds.Select(Fid).ToArray(), 1000)), 20000);
+        CheckTextRender.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: svc.CheckDialogue(seeds.Select(Fid).ToArray(), 1000)), 20000);
 
     // ---- fact D1 --------------------------------------------------------------------------------------
     // The shipped INFO-order render states the merge model (effective INFO order, per-row MOVED from #N) and
@@ -199,7 +199,7 @@ public sealed class DialogueFamilyTests
 
         using var hold = HeldOpen.Hold(w.LastPath);
         var result = w.Svc.CheckDialogue(new[] { Fid(w.Topic) }, 1000);
-        var text = Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
+        var text = CheckTextRender.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
 
         Assert.NotNull(result.Error);
         // Read past the seed: the sweep echoes it before the refusal, and here it names a DIFFERENT plugin from the
@@ -229,7 +229,7 @@ public sealed class DialogueFamilyTests
 
         using var hold = HeldOpen.Hold(vanillaPath);
         var result = w.Svc.CheckDialogue(new[] { seed }, 1000);
-        var text = Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
+        var text = CheckTextRender.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
 
         Assert.NotNull(result.Error);
         // The seed is "<id>:Skyrim.esm", so the refusal is read past its echo.
@@ -290,7 +290,7 @@ public sealed class DialogueFamilyTests
         Assert.Null(result.Error);
         Assert.False(string.IsNullOrEmpty(result.Epoch));
 
-        var text = Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
+        var text = CheckTextRender.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
         Served(text, $"epoch={result.Epoch}", "does not cover");
         foreach (var cls in DialogueSweepRender.EpochUncovered) Assert.Contains(cls, text);
 
@@ -309,7 +309,7 @@ public sealed class DialogueFamilyTests
         Assert.NotNull(refused.Error);
         Assert.Equal(result.Epoch, refused.Epoch);
         Assert.Contains($"epoch={refused.Epoch}",
-                        Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: refused), 20000));
+                        CheckTextRender.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: refused), 20000));
         var refusedJson = JsonWire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: refused), 20000);
         Assert.Equal(refused.Epoch, JsonDocument.Parse(refusedJson).RootElement.GetProperty("epoch").GetString());
         Assert.DoesNotContain("epoch_covers_all_inputs", refusedJson);
@@ -319,7 +319,7 @@ public sealed class DialogueFamilyTests
         var unseeded = Svc.CheckDialogue(Array.Empty<string>(), 1000);
         Assert.NotNull(unseeded.Error);
         Assert.Null(unseeded.Epoch);
-        Assert.DoesNotContain("epoch=", Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: unseeded), 20000));
+        Assert.DoesNotContain("epoch=", CheckTextRender.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: unseeded), 20000));
     }
 
     // ---- Subtype vs SNAM (#660) -------------------------------------------------------------------------
@@ -449,7 +449,7 @@ public sealed class DialogueFamilyTests
         var result = Svc.CheckDialogue(new[] { Fid(W.FvdlMarkerTopic) }, 1000);
         Assert.Null(result.Error);
         Assert.Contains("buckets as FVDL", SeedBlock(
-            Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000), Fid(W.FvdlMarkerTopic)));
+            CheckTextRender.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000), Fid(W.FvdlMarkerTopic)));
 
         var json = JsonDocument.Parse(JsonWire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000));
         var row = json.RootElement.GetProperty("families")
@@ -485,7 +485,7 @@ public sealed class DialogueFamilyTests
     /// under it, stopping at the NEXT seed's head — or at the family's accounting or boundary, whichever comes first.
     ///
     /// <para>The terminator must be the next head, not the next blank line: the seed heads are contiguous
-    /// (<c>ReadSentences.DialogueSeedHead</c> ends in one newline and the next head follows it directly), so the
+    /// (<c>CheckSentences.DialogueSeedHead</c> ends in one newline and the next head follows it directly), so the
     /// first blank line comes after the LAST seed and every block would span every seed below it — a seed's
     /// verdict could then be satisfied by a sibling's.</para>
     ///

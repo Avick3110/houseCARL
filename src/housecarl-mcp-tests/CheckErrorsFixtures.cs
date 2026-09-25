@@ -45,11 +45,11 @@ internal static class CheckErrorsFixtures
     /// <summary>The text render of one errors result — through the merged renderer a surviving tool calls, with its
     /// <see cref="CheckSweep"/> wrapper.</summary>
     internal static string Text(ErrorCheckResult r, int maxChars, params string[] tokens) =>
-        Wire.RenderCheck(new CheckSweep(Sel(tokens), Errors: r), maxChars);
+        CheckTextRender.RenderCheck(new CheckSweep(Sel(tokens), Errors: r), maxChars);
 
     /// <summary>The text render with an explicit histogram row budget — the <c>limit=</c> the axes are cut by.</summary>
     internal static string Text(ErrorCheckResult r, int maxChars, int histogramLimit, params string[] tokens) =>
-        Wire.RenderCheck(new CheckSweep(Sel(tokens), Errors: r), maxChars, histogramLimit);
+        CheckTextRender.RenderCheck(new CheckSweep(Sel(tokens), Errors: r), maxChars, histogramLimit);
 
     /// <summary>The json render of the same.</summary>
     internal static string Json(ErrorCheckResult r, int maxChars, params string[] tokens) =>

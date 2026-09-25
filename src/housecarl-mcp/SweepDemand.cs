@@ -41,13 +41,13 @@ internal static class SweepDemand
         var s = o.Sweep;
         var t = new Tally(room);
         int reserved = 0;
-        Roster(t, o, n => Wire.ComposeExcludedRow(o.ExcludedPlugins, n).Length);
+        Roster(t, o, n => CheckTextRender.ComposeExcludedRow(o.ExcludedPlugins, n).Length);
 
         if (s.Errors is { Error: null } e)
         {
             if (e.CountsOnly)
             {
-                foreach (var a in Wire.ErrorsAxes(e))
+                foreach (var a in CheckTextRender.ErrorsAxes(e))
                 {
                     reserved += a.TextFixed;
                     Rows(t, a, histogramLimit);
@@ -56,7 +56,7 @@ internal static class SweepDemand
                 foreach (var p in e.Reports)
                 {
                     if (t.Done(SweepSubject.UnreadRows)) break;
-                    t.Add(SweepSubject.UnreadRows, Wire.ComposeUnreadRow(p).Length);
+                    t.Add(SweepSubject.UnreadRows, CheckTextRender.ComposeUnreadRow(p).Length);
                 }
             }
             else
@@ -66,12 +66,12 @@ internal static class SweepDemand
                 foreach (var p in e.Reports)
                 {
                     if (!t.Done(SweepSubject.PluginSections))
-                        t.Add(SweepSubject.PluginSections, Wire.ComposeErrorSection(p).Length);
+                        t.Add(SweepSubject.PluginSections, CheckTextRender.ComposeErrorSection(p).Length);
                     if (t.Done(SweepSubject.DanglingEntries)) continue;
                     foreach (var d in p.Dangling)
                     {
                         if (t.Done(SweepSubject.DanglingEntries)) break;
-                        t.Add(SweepSubject.DanglingEntries, Wire.ComposeDanglingLine(d).Length);
+                        t.Add(SweepSubject.DanglingEntries, CheckTextRender.ComposeDanglingLine(d).Length);
                     }
                 }
             }
@@ -81,7 +81,7 @@ internal static class SweepDemand
         {
             if (sc.CountsOnly)
             {
-                foreach (var a in Wire.ScriptsAxes(sc))
+                foreach (var a in CheckTextRender.ScriptsAxes(sc))
                 {
                     reserved += a.TextFixed;
                     Rows(t, a, histogramLimit);
@@ -91,7 +91,7 @@ internal static class SweepDemand
                 {
                     if (rec.ScanError is null) continue;
                     if (t.Done(SweepSubject.ScriptScanRows)) break;
-                    t.Add(SweepSubject.ScriptScanRows, Wire.ComposeScriptRecordUnit(rec).Length);
+                    t.Add(SweepSubject.ScriptScanRows, CheckTextRender.ComposeScriptRecordUnit(rec).Length);
                 }
             }
             else
@@ -100,7 +100,7 @@ internal static class SweepDemand
                 foreach (var rec in sc.Reports)
                 {
                     if (t.Done(SweepSubject.ScriptRecords)) break;
-                    t.Add(SweepSubject.ScriptRecords, Wire.ComposeScriptRecordUnit(rec).Length);
+                    t.Add(SweepSubject.ScriptRecords, CheckTextRender.ComposeScriptRecordUnit(rec).Length);
                 }
             }
         }
@@ -161,7 +161,7 @@ internal static class SweepDemand
         for (int i = 0; i < rows.Count && i < rowLimit; i++)
         {
             if (t.Done(a.Subject)) break;
-            t.Add(a.Subject, Wire.ComposeHistogramRow(a, rows[i], i == 0).Length);
+            t.Add(a.Subject, CheckTextRender.ComposeHistogramRow(a, rows[i], i == 0).Length);
         }
     }
 
@@ -196,7 +196,7 @@ internal static class SweepDemand
             if (e.CountsOnly)
             {
                 // Gated the way the render gates it: a frame only where `a.Rows is not null`.
-                foreach (var a in Wire.ErrorsAxes(e))
+                foreach (var a in CheckTextRender.ErrorsAxes(e))
                 {
                     if (a.Rows is not null) reserved += JsonWire.HistogramFrameCostFor(a, depths.AxisFrame);
                     JsonRows(t, a, histogramLimit, depths);
@@ -241,7 +241,7 @@ internal static class SweepDemand
         {
             if (sc.CountsOnly)
             {
-                foreach (var a in Wire.ScriptsAxes(sc))
+                foreach (var a in CheckTextRender.ScriptsAxes(sc))
                 {
                     if (a.Rows is not null) reserved += JsonWire.HistogramFrameCostFor(a, depths.AxisFrame);
                     JsonRows(t, a, histogramLimit, depths);

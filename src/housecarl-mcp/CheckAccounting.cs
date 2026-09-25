@@ -47,7 +47,7 @@ internal sealed class CheckAccounting
         _cap = cap;
         _jsonDepth = jsonDepth;
         _limit = r.Limit;
-        _boundary = ReadSentences.SweepBoundary;
+        _boundary = CheckSentences.SweepBoundary;
         _bySource = r.DanglingBySource ?? Array.Empty<SweepCount>();
         _typeScope = r.TypeScopeLabel;
         _budgetListed = r.Reports.Sum(p => p.Dangling.Count);
@@ -68,13 +68,13 @@ internal sealed class CheckAccounting
         _cap = cap;
         _jsonDepth = jsonDepth;
         _limit = r.Limit;
-        _boundary = ReadSentences.SweepScriptBoundary;
+        _boundary = CheckSentences.SweepScriptBoundary;
         _bySource = Array.Empty<SweepCount>();
         _typeScope = r.TypeScopeLabel;
         // Both measured off the result: the totals the sweep counted, and the findings the reports carry.
         _scriptFindingsFound = r.CountsOnly ? 0 : r.TotalUnbound + r.TotalNullObject;
         _scriptFindingsListed = r.CountsOnly ? 0 : r.Reports.Sum(x => x.Unbound.Count + x.NullObjects.Count);
-        _scriptTotals = ReadSentences.ScriptTotals(r);
+        _scriptTotals = CheckSentences.ScriptTotals(r);
         if (!r.Success) return;   // see the errors ctor: a refused family declares nothing
 
         if (!r.CountsOnly) Declare(SweepSubject.ScriptRecords, r.Reports.Count);
@@ -89,7 +89,7 @@ internal sealed class CheckAccounting
         _cap = cap;
         _jsonDepth = jsonDepth;
         _limit = r.Limit;
-        _boundary = ReadSentences.SweepFaceGenBoundary;
+        _boundary = CheckSentences.SweepFaceGenBoundary;
         _bySource = Array.Empty<SweepCount>();
         _faceGenFound = r.CountsOnly ? 0 : r.ListableFound;
         if (!r.Success) return;   // see the errors ctor: a refused family declares nothing
@@ -114,9 +114,9 @@ internal sealed class CheckAccounting
         var ran = outcome?.ChecksRun ?? DialogueChecks.None;
         bool recordLevelOnly = ran.HasFlag(DialogueChecks.RecordParity) && !ran.HasFlag(DialogueChecks.TopicGraph);
         _boundary = string.Format(
-            recordLevelOnly ? ReadSentences.DialogueBoundaryRecordLevel : ReadSentences.DialogueBoundary,
-            r.ConditionedInfos > 0 ? string.Format(ReadSentences.DialogueConditioned, r.ConditionedInfos) : "",
-            r.ReadIncomplete ? ReadSentences.DialogueReadIncomplete : "");
+            recordLevelOnly ? CheckSentences.DialogueBoundaryRecordLevel : CheckSentences.DialogueBoundary,
+            r.ConditionedInfos > 0 ? string.Format(CheckSentences.DialogueConditioned, r.ConditionedInfos) : "",
+            r.ReadIncomplete ? CheckSentences.DialogueReadIncomplete : "");
         // Held whether or not this lane lists topics: seeds named and seeds reached are facts of the call.
         _dialogue = outcome;
 
@@ -227,7 +227,7 @@ internal sealed class CheckAccounting
         // The roster is the dangling subject's, so a lane without that subject reserves nothing for it.
         var longest = Has(SweepSubject.DanglingEntries)
             ? _bySource.OrderByDescending(c => escaped ? JsonEncodedText.Encode(c.Key, JsonWire.WriterOptions.Encoder).Value.Length : c.Key.Length)
-                       .Take(ReadSentences.SweepRosterRows)
+                       .Take(CheckSentences.SweepRosterRows)
                        .Select(c => new SweepCount(c.Key, danglingFound))
                        .ToList()
             : new List<SweepCount>();
@@ -272,8 +272,8 @@ internal sealed class CheckAccounting
     /// <summary>The knob the type-scope rule tells the caller to raise: the one that actually cut this listing, or
     /// both where both did. The worst case takes the both-spelling, which is the longest.</summary>
     string ShortKnob(Values v)
-        => v.Worst || (ShortByBudget(v) && ShortByCut(v)) ? ReadSentences.SweepKnobBoth
-           : ShortByBudget(v) ? ReadSentences.SweepKnobLimit : ReadSentences.SweepKnobMaxChars;
+        => v.Worst || (ShortByBudget(v) && ShortByCut(v)) ? CheckSentences.SweepKnobBoth
+           : ShortByBudget(v) ? CheckSentences.SweepKnobLimit : CheckSentences.SweepKnobMaxChars;
 
     // ---- the text lane ------------------------------------------------------------------------------
 
@@ -291,19 +291,19 @@ internal sealed class CheckAccounting
     string Compose(Values v)
     {
         // The opener and the closer sit outside every subject gate: they are not about any subject.
-        var sb = new StringBuilder(ReadSentences.SweepAccountingLead);
+        var sb = new StringBuilder(CheckSentences.SweepAccountingLead);
 
         if (Has(SweepSubject.DanglingEntries))
         {
             int found = Found(SweepSubject.DanglingEntries);
             int omitted = v.ByBudget + v.ByCut;
             sb.Append(omitted > 0 || v.Worst
-                ? string.Format(ReadSentences.SweepVisible, v.Visible, found)
-                : string.Format(ReadSentences.SweepAllVisible, found));
+                ? string.Format(CheckSentences.SweepVisible, v.Visible, found)
+                : string.Format(CheckSentences.SweepAllVisible, found));
 
             var causes = new List<string>();
-            if (v.ByBudget > 0 || v.Worst) causes.Add(string.Format(ReadSentences.SweepOmittedByBudget, v.ByBudget, _limit));
-            if (v.ByCut > 0 || v.Worst) causes.Add(string.Format(ReadSentences.SweepOmittedByCut, v.ByCut, _cap));
+            if (v.ByBudget > 0 || v.Worst) causes.Add(string.Format(CheckSentences.SweepOmittedByBudget, v.ByBudget, _limit));
+            if (v.ByCut > 0 || v.Worst) causes.Add(string.Format(CheckSentences.SweepOmittedByCut, v.ByCut, _cap));
             if (causes.Count > 0) sb.Append(string.Join(",", causes)).Append('.');
         }
 
@@ -311,11 +311,11 @@ internal sealed class CheckAccounting
         if (Has(SweepSubject.ScriptRecords))
         {
             sb.Append(Short(v, SweepSubject.ScriptRecords)
-                ? string.Format(ReadSentences.SweepScriptVisible, Shown(v, SweepSubject.ScriptRecords),
+                ? string.Format(CheckSentences.SweepScriptVisible, Shown(v, SweepSubject.ScriptRecords),
                                 Found(SweepSubject.ScriptRecords))
-                : string.Format(ReadSentences.SweepScriptAllVisible, Found(SweepSubject.ScriptRecords)));
+                : string.Format(CheckSentences.SweepScriptAllVisible, Found(SweepSubject.ScriptRecords)));
             if (ScriptOmittedByBudget > 0 || v.Worst)
-                sb.Append(string.Format(ReadSentences.SweepScriptFindings, _scriptFindingsListed,
+                sb.Append(string.Format(CheckSentences.SweepScriptFindings, _scriptFindingsListed,
                                         _scriptFindingsFound, _limit, _scriptTotals));
         }
         // The same two-part shape in a seeded family's units, as separate clauses: a topic that did not fit is a
@@ -323,24 +323,24 @@ internal sealed class CheckAccounting
         if (Has(SweepSubject.DialogueTopics))
         {
             sb.Append(Short(v, SweepSubject.DialogueTopics)
-                ? string.Format(ReadSentences.SweepDialogueVisible, Shown(v, SweepSubject.DialogueTopics),
+                ? string.Format(CheckSentences.SweepDialogueVisible, Shown(v, SweepSubject.DialogueTopics),
                                 Found(SweepSubject.DialogueTopics))
-                : string.Format(ReadSentences.SweepDialogueAllVisible, Found(SweepSubject.DialogueTopics)));
+                : string.Format(CheckSentences.SweepDialogueAllVisible, Found(SweepSubject.DialogueTopics)));
         }
         // Reached against named, in the outcome's own words — the same two quantities the scope sentence states.
         if (_dialogue is { } dlg && (DialogueSeedsUnreached > 0 || (v.Worst && Has(SweepSubject.DialogueSeedRefusals))))
-            sb.Append(string.Format(ReadSentences.SweepDialogueSeedsCut, dlg.SeedsReached, dlg.SeedsNamed,
+            sb.Append(string.Format(CheckSentences.SweepDialogueSeedsCut, dlg.SeedsReached, dlg.SeedsNamed,
                                     dlg.SeedsNotReached, _limit));
         // The totals, restated wherever this family's listing is short, because they are never capped.
         if (_dialogue is { } dlgT && Has(SweepSubject.DialogueTopics)
             && (Short(v, SweepSubject.DialogueTopics) || DialogueSeedsUnreached > 0 || v.Worst))
-            sb.Append(string.Format(ReadSentences.SweepDialogueProblems, dlgT.FindingsFound,
+            sb.Append(string.Format(CheckSentences.SweepDialogueProblems, dlgT.FindingsFound,
                                     Found(SweepSubject.DialogueTopics)));
         if (Short(v, SweepSubject.DialogueSeeds))
-            sb.Append(string.Format(ReadSentences.SweepDialogueSeedSections, Shown(v, SweepSubject.DialogueSeeds),
+            sb.Append(string.Format(CheckSentences.SweepDialogueSeedSections, Shown(v, SweepSubject.DialogueSeeds),
                                     Found(SweepSubject.DialogueSeeds)));
         if (Short(v, SweepSubject.DialogueSeedRefusals))
-            sb.Append(string.Format(ReadSentences.SweepDialogueRefusalsCut, Shown(v, SweepSubject.DialogueSeedRefusals),
+            sb.Append(string.Format(CheckSentences.SweepDialogueRefusalsCut, Shown(v, SweepSubject.DialogueSeedRefusals),
                                     Found(SweepSubject.DialogueSeedRefusals)));
 
         // The facegen family's own two-part shape: what this response carries against what the sweep found, then the
@@ -348,65 +348,65 @@ internal sealed class CheckAccounting
         if (Has(SweepSubject.FaceGenRows))
         {
             sb.Append(Short(v, SweepSubject.FaceGenRows)
-                ? string.Format(ReadSentences.SweepFaceGenVisible, Shown(v, SweepSubject.FaceGenRows),
+                ? string.Format(CheckSentences.SweepFaceGenVisible, Shown(v, SweepSubject.FaceGenRows),
                                 Found(SweepSubject.FaceGenRows))
-                : string.Format(ReadSentences.SweepFaceGenAllVisible, Found(SweepSubject.FaceGenRows)));
+                : string.Format(CheckSentences.SweepFaceGenAllVisible, Found(SweepSubject.FaceGenRows)));
             if (_faceGenFound > Found(SweepSubject.FaceGenRows) || v.Worst)
-                sb.Append(string.Format(ReadSentences.SweepFaceGenFindings,
+                sb.Append(string.Format(CheckSentences.SweepFaceGenFindings,
                                         Found(SweepSubject.FaceGenRows), _faceGenFound, _limit));
         }
 
         // The scripts family's counts_only honesty layer: the plugins whose record enumeration faulted.
         if (Short(v, SweepSubject.ScriptScanRows))
-            sb.Append(string.Format(ReadSentences.SweepUnreadCut, Shown(v, SweepSubject.ScriptScanRows),
+            sb.Append(string.Format(CheckSentences.SweepUnreadCut, Shown(v, SweepSubject.ScriptScanRows),
                                     Found(SweepSubject.ScriptScanRows)));
 
         // One clause per short subject, computed from the subject it names.
         if (Short(v, SweepSubject.PluginSections))
-            sb.Append(string.Format(ReadSentences.SweepSections, Shown(v, SweepSubject.PluginSections),
+            sb.Append(string.Format(CheckSentences.SweepSections, Shown(v, SweepSubject.PluginSections),
                                     Found(SweepSubject.PluginSections)));
         // The two honesty-layer rosters: their rows are what houseCARL could NOT read, so a silent cut there hides
         // the boundary of the answer.
         if (Short(v, SweepSubject.ExcludedRows))
-            sb.Append(string.Format(ReadSentences.SweepExcludedCut, Shown(v, SweepSubject.ExcludedRows),
+            sb.Append(string.Format(CheckSentences.SweepExcludedCut, Shown(v, SweepSubject.ExcludedRows),
                                     Found(SweepSubject.ExcludedRows)));
         if (Short(v, SweepSubject.UnreadRows))
-            sb.Append(string.Format(ReadSentences.SweepUnreadCut, Shown(v, SweepSubject.UnreadRows),
+            sb.Append(string.Format(CheckSentences.SweepUnreadCut, Shown(v, SweepSubject.UnreadRows),
                                     Found(SweepSubject.UnreadRows)));
 
         // The type-scope rule, wherever this listing came out short under a scope covering more than one type, naming
         // which knob cut it. Stated as a rule, not a count, because the sweep never tallies by type.
-        if (TypeScopeShort(v)) sb.Append(string.Format(ReadSentences.SweepTypeScopeRule, _typeScope, ShortKnob(v)));
+        if (TypeScopeShort(v)) sb.Append(string.Format(CheckSentences.SweepTypeScopeRule, _typeScope, ShortKnob(v)));
 
         if (v.Roster.Count > 0)
         {
-            sb.Append(ReadSentences.SweepRosterLead);
-            for (int i = 0; i < v.Roster.Count && i < ReadSentences.SweepRosterRows; i++)
+            sb.Append(CheckSentences.SweepRosterLead);
+            for (int i = 0; i < v.Roster.Count && i < CheckSentences.SweepRosterRows; i++)
             {
                 if (i > 0) sb.Append(", ");
                 sb.Append(v.Roster[i].Key).Append(" (").Append(v.Roster[i].Count).Append(')');
             }
-            if (v.RosterTotal > ReadSentences.SweepRosterRows || v.Worst)
-                sb.Append(string.Format(ReadSentences.SweepRosterCut, ReadSentences.SweepRosterRows, v.RosterTotal));
+            if (v.RosterTotal > CheckSentences.SweepRosterRows || v.Worst)
+                sb.Append(string.Format(CheckSentences.SweepRosterCut, CheckSentences.SweepRosterRows, v.RosterTotal));
             sb.Append('.');
             // The rule belongs to the roster — it explains what the roster is for, so it is stated where one exists.
-            sb.Append(ReadSentences.SweepNoSectionRule);
+            sb.Append(CheckSentences.SweepNoSectionRule);
         }
 
         if (Missing(v))
         {
             if (v.ByBudget > 0 || ScriptOmittedByBudget > 0 || DialogueSeedsUnreached > 0 || v.Worst)
-                sb.Append(ReadSentences.SweepRemedyLimit);
+                sb.Append(CheckSentences.SweepRemedyLimit);
             // max_chars is the knob for every subject except the listing budget's own share.
             if (v.ByCut > 0 || v.Worst || Short(v, SweepSubject.PluginSections)
                 || Short(v, SweepSubject.ExcludedRows) || Short(v, SweepSubject.UnreadRows)
                 || Short(v, SweepSubject.ScriptRecords) || Short(v, SweepSubject.ScriptScanRows)
                 || Short(v, SweepSubject.DialogueSeeds) || Short(v, SweepSubject.DialogueTopics)
                 || Short(v, SweepSubject.DialogueSeedRefusals))
-                sb.Append(ReadSentences.SweepRemedyMaxChars);
-            if (v.Roster.Count > 0) sb.Append(ReadSentences.SweepRemedyScope).Append(ReadSentences.SweepRemedyCountsOnly);
+                sb.Append(CheckSentences.SweepRemedyMaxChars);
+            if (v.Roster.Count > 0) sb.Append(CheckSentences.SweepRemedyScope).Append(CheckSentences.SweepRemedyCountsOnly);
         }
-        sb.Append(ReadSentences.SweepClose);
+        sb.Append(CheckSentences.SweepClose);
         return sb.ToString();
     }
 
@@ -530,7 +530,7 @@ internal sealed class CheckAccounting
         if (dangling)
         {
             w.WriteStartArray("dangling_missing_by_source");
-            for (int i = 0; i < v.Roster.Count && i < ReadSentences.SweepRosterRows; i++)
+            for (int i = 0; i < v.Roster.Count && i < CheckSentences.SweepRosterRows; i++)
             {
                 w.WriteStartObject();
                 w.WriteString("plugin", v.Roster[i].Key);
@@ -603,7 +603,7 @@ internal sealed class CheckAccounting
     {
         if (contentLength <= _cap) return null;
         // Which overrun this is, told apart with no added state: needed IS the fixed part's size.
-        var sentence = needed > _cap ? ReadSentences.SweepCapTooSmall : ReadSentences.SweepCapOvershot;
+        var sentence = needed > _cap ? CheckSentences.SweepCapTooSmall : CheckSentences.SweepCapOvershot;
         // The cap this response would need to stop seeing this: its length without the notice, plus what the raise
         // itself adds back, taken at one more digit than the floor needs rather than iterated.
         int floor = Math.Max(needed, contentLength - noticeLength);

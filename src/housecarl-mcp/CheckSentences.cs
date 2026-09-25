@@ -4,7 +4,7 @@ namespace HousecarlMcp;
 
 // The check sentences: the sweep accounting, the family and merged-response prose, and the scripts, facegen and dialogue families.
 
-internal static partial class ReadSentences
+internal static class CheckSentences
 {
     // ---- the sweep response's omission accounting ---- The prose half of CheckAccounting; the arithmetic is there,
     // and every number below arrives already computed from what the render emitted.
@@ -203,7 +203,7 @@ internal static partial class ReadSentences
         "the render: it cannot read a .dds's pixels, cannot bake geometry (that is the Creation Kit's Ctrl+F4), " +
         "and a clean row is not a promise the face looks right. NOT this family: a purple or white face (a missing " +
         "texture), player-only grey (RaceMenu/SKEE runtime state), a brown weight face (save-baked weight), or an " +
-        "appearance distributed at runtime by SPID. See " + FaceGenDocUrl + " for the causes behind each class.";
+        "appearance distributed at runtime by SPID. See " + ReadSentences.FaceGenDocUrl + " for the causes behind each class.";
 
     /// <summary>Which families this response answers for, composed from the outcome rather than the
     /// selection.</summary>

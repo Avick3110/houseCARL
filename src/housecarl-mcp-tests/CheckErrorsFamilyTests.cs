@@ -8,7 +8,7 @@ using static HousecarlMcpTests.CheckErrorsFixtures;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The errors family's facts, asserted against the merged <c>Wire.RenderCheck</c> /
+/// <summary>The errors family's facts, asserted against the merged <c>CheckTextRender.RenderCheck</c> /
 /// <c>JsonWire.RenderCheck</c> that <c>housecarl_check</c> calls. Why some facts are driven at the DTO and others
 /// live is in <c>docs/architecture/check-family-tests.md</c>.</summary>
 [Trait("tier", "integration")]

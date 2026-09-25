@@ -1469,7 +1469,7 @@ static class JsonWire
         if (didMasters) w.WriteNumber("missing_masters", r.TotalMissingMasters); else w.WriteNull("missing_masters");
         WriteStringArray(w, "classes_checked", ClassNames(r.Classes));
         WriteNullable(w, "filter_note", r.FilterNote);
-        WriteOffOrder(w, r.OffOrderScanned, ReadSentences.SweepOffOrderErrorsCoverage);
+        WriteOffOrder(w, r.OffOrderScanned, CheckSentences.SweepOffOrderErrorsCoverage);
         w.WriteBoolean("counts_only", r.CountsOnly);
 
         // The baseline split as DATA: base_masters is the set counted (Mutagen's, which excludes Creation Club).
@@ -1951,7 +1951,7 @@ static class JsonWire
         // The property filter rides as DATA: records_with_scripts and unverifiable are plugin-wide regardless of it.
         WriteNullable(w, "property_contains", r.PropertyContains);
         WriteNullable(w, "filter_note", r.FilterNote);
-        WriteOffOrder(w, r.OffOrderScanned, ReadSentences.SweepOffOrderScriptsCoverage);
+        WriteOffOrder(w, r.OffOrderScanned, CheckSentences.SweepOffOrderScriptsCoverage);
         w.WriteNumber("unverifiable_collapsed", r.UnverifiableCollapsed);
         w.WriteBoolean("read_incomplete", r.ReadIncomplete);
         w.WriteBoolean("counts_only", r.CountsOnly);

@@ -128,16 +128,16 @@ internal sealed class CheckOutcome
         // A response with no family answering at all is reachable only where several families refused for different
         // grounds, which is also why this branch cannot be a defaulted call.
         string lead =
-            Ran.Count == 0 ? ReadSentences.SweepFamiliesNoneAnswered
-          : Defaulted ? string.Format(ReadSentences.SweepFamiliesDefaulted, Describe(Ran))
+            Ran.Count == 0 ? CheckSentences.SweepFamiliesNoneAnswered
+          : Defaulted ? string.Format(CheckSentences.SweepFamiliesDefaulted, Describe(Ran))
           : Refused.Count == 0 && NotSelected.Count == 0
-                ? string.Format(ReadSentences.SweepFamiliesAll, Describe(Ran))
-                : string.Format(ReadSentences.SweepFamiliesChosen, Describe(Ran));
+                ? string.Format(CheckSentences.SweepFamiliesAll, Describe(Ran))
+                : string.Format(CheckSentences.SweepFamiliesChosen, Describe(Ran));
 
-        if (Refused.Count > 0) lead += string.Format(ReadSentences.SweepFamiliesRefused, Describe(Refused));
+        if (Refused.Count > 0) lead += string.Format(CheckSentences.SweepFamiliesRefused, Describe(Refused));
         if (NotSelected.Count > 0)
-            lead += string.Format(ReadSentences.SweepFamiliesAbsent,
-                string.Join(", ", NotSelected.Select(f => string.Format(ReadSentences.SweepFamilyNotRun,
+            lead += string.Format(CheckSentences.SweepFamiliesAbsent,
+                string.Join(", ", NotSelected.Select(f => string.Format(CheckSentences.SweepFamilyNotRun,
                     SweepFamilySelection.Describe(f), SweepFamilySelection.Spelling(f)))));
         return lead;
     }

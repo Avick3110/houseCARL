@@ -244,7 +244,7 @@ internal static class EpochGuardProbe
                 // sweep frame's excluded-plugin refusal, scripts' not-in-order refusal), and the off-order
                 // coverage qualifier all went through the deleted 1.x single-family renderers
                 // (Wire/JsonWire.RenderCheckErrors, .RenderScriptCheck). Fresh facts, on the merged
-                // Wire.RenderCheck / JsonWire.RenderCheck a surviving tool calls: EpochCheckSweepTests —
+                // CheckTextRender.RenderCheck / JsonWire.RenderCheck a surviving tool calls: EpochCheckSweepTests —
                 // FactE4 (sweep stamps), FactE5_6 (every refusal shape, no coverage claim on a refusal),
                 // FactE7/FactE8 (the off-order qualifier, text and json).
                 //

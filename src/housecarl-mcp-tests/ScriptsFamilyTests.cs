@@ -6,7 +6,7 @@ using static HousecarlMcpTests.ScriptsFixtures;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The scripts family's 13 facts (S1-S13) against <c>Wire.RenderCheck</c> /
+/// <summary>The scripts family's 13 facts (S1-S13) against <c>CheckTextRender.RenderCheck</c> /
 /// <c>JsonWire.RenderCheck</c>, the renderers <c>housecarl_check</c> calls. Facts drivable on the shared,
 /// frozen <see cref="ScriptsWorld"/> go through <c>LoadOrderService.ValidateScripts</c>; facts needing a scan
 /// error, an excluded-plugin roster, or a cap band that world cannot produce are driven DTO-level through
@@ -29,7 +29,7 @@ public sealed class ScriptsFamilyTests
     {
         var r = Svc.ValidateScripts(null, 1000, findings: new[] { "unbound_object" });
 
-        var text = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
+        var text = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
         Assert.Contains("(object only — unbound_scalar NOT CHECKED)", text);
         Assert.Contains("bound-but-null NOT CHECKED (findings= excluded 'bound_null')", text);
         Assert.DoesNotContain("0 bound-but-null", text);
@@ -45,7 +45,7 @@ public sealed class ScriptsFamilyTests
     {
         var r = Svc.ValidateScripts(null, 1000, findings: new[] { "bound_null" });
 
-        var text = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
+        var text = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
         Assert.Contains("unbound NOT CHECKED (findings= excluded both unbound classes)", text);
         Assert.DoesNotContain("0 unbound", text);
 
@@ -84,7 +84,7 @@ public sealed class ScriptsFamilyTests
     {
         var r = Svc.ValidateScripts(null, 1000, findings: new[] { "bound_null" }, countsOnly: true);
 
-        var text = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
+        var text = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
         Assert.Contains("no unbound histogram — findings= excluded both unbound classes, so nothing was tallied.", text);
         Assert.DoesNotContain("nothing to tally", text);
 
@@ -100,14 +100,14 @@ public sealed class ScriptsFamilyTests
     public void FactS4_CappedTailRestatesClassAwareTotals_NeverReintroducesTheDroppedZero()
     {
         var cappedNull = Svc.ValidateScripts(null, 0, findings: new[] { "bound_null" });   // 1 bound-but-null, limit=0
-        var nullText = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: cappedNull), 20000);
+        var nullText = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: cappedNull), 20000);
         Assert.Contains(
             "True totals: unbound NOT CHECKED (findings= excluded both unbound classes) + 1 bound-but-null.",
             nullText);
         Assert.DoesNotContain("0 unbound", nullText);
 
         var cappedObj = Svc.ValidateScripts(null, 1, findings: new[] { "unbound_object" });   // 7 unbound, limit=1
-        var objText = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: cappedObj), 20000);
+        var objText = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: cappedObj), 20000);
         Assert.Contains(
             "True totals: 7 unbound (object only — unbound_scalar NOT CHECKED) + bound-but-null NOT CHECKED (findings= excluded 'bound_null').",
             objText);
@@ -124,7 +124,7 @@ public sealed class ScriptsFamilyTests
         var full = Svc.ValidateScripts(null, 1000);
         var byProp = Svc.ValidateScripts(null, 1000, propertyContains: "myspell");
 
-        var text = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: byProp), 20000);
+        var text = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: byProp), 20000);
         Assert.Contains("2 unbound matching 'myspell' · 0 bound-but-null matching 'myspell'", text);
         Assert.DoesNotContain("record(s) with scripts matching", text);
         Assert.DoesNotContain("unverifiable matching", text);
@@ -215,7 +215,7 @@ public sealed class ScriptsFamilyTests
         bool sawCut = false;
         foreach (var cap in new[] { 200, 1850, 2040, 2910 })
         {
-            var t = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: full), cap);
+            var t = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: full), cap);
             int sections = t.Split('\n').Count(l => l.StartsWith("[UNBOUND] ", StringComparison.Ordinal)
                                                   || l.StartsWith("[CHECK] ", StringComparison.Ordinal));
             if (sections < full.Reports.Count)
@@ -244,7 +244,7 @@ public sealed class ScriptsFamilyTests
         bool sawCut = false;
         for (int cap = 300; cap <= 1400; cap += 20)
         {
-            var t = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: counts), cap);
+            var t = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: counts), cap);
             Assert.Contains("unbound properties by NAME", t);
             var m = System.Text.RegularExpressions.Regex.Match(t, @"\[(\d+) more row\(s\) — raise max_chars= to see them\]");
             if (m.Success) { sawCut = true; Assert.True(int.Parse(m.Groups[1].Value) <= distinct); }
@@ -324,11 +324,11 @@ public sealed class ScriptsFamilyTests
         foreach (var fixture in new[] { listing, counts, withExcluded })
         {
             var sweep = new CheckSweep(Sel("scripts"), Scripts: fixture);
-            int textFloor = Wire.RenderCheck(sweep, 1).Length;
+            int textFloor = CheckTextRender.RenderCheck(sweep, 1).Length;
             int jsonFloor = JsonWire.RenderCheck(sweep, 1).Length;
             foreach (int cap in Enumerable.Range(1, 12000).Append(40000))
             {
-                var t = Wire.RenderCheck(sweep, cap);
+                var t = CheckTextRender.RenderCheck(sweep, cap);
                 var j = JsonWire.RenderCheck(sweep, cap);
                 int slack = 8 * cap.ToString().Length;
                 if (t.Length > Math.Max(cap, textFloor + slack))

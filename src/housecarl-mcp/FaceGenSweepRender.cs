@@ -57,7 +57,7 @@ internal static class FaceGenSweepRender
     {
         if (r.CountsOnly)
         {
-            Wire.AppendHistogramAxes(sb, body, histogramLimit, Axes(r));
+            CheckTextRender.AppendHistogramAxes(sb, body, histogramLimit, Axes(r));
             return;
         }
         if (r.Findings.Count == 0)

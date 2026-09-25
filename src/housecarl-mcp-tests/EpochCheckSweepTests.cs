@@ -6,7 +6,7 @@ using static HousecarlMcpTests.CheckErrorsFixtures;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The epoch-stamp facts of <c>Wire.RenderCheck</c> / <c>JsonWire.RenderCheck</c> and
+/// <summary>The epoch-stamp facts of <c>CheckTextRender.RenderCheck</c> / <c>JsonWire.RenderCheck</c> and
 /// <c>housecarl_records</c>. Driven on <see cref="EpochWorld"/> rather than a shared world because the off-order
 /// tests need an OFF-ORDER plugin and the refusal test an ENABLED-but-unparseable one, which no other fixture
 /// carries.</summary>
@@ -47,14 +47,14 @@ public sealed class EpochCheckSweepTests
 
         var errors = Svc.CheckErrors(null, 1000);
         Assert.Equal(current, errors.Epoch);
-        var errText = Wire.RenderCheck(new CheckSweep(Sel("errors"), Errors: errors), 20000);
+        var errText = CheckTextRender.RenderCheck(new CheckSweep(Sel("errors"), Errors: errors), 20000);
         var errJson = JsonWire.RenderCheck(new CheckSweep(Sel("errors"), Errors: errors), 20000);
         Assert.Contains($"epoch={current}", errText);
         Assert.Equal(current, ErrorsFamily(errJson).GetProperty("epoch").GetString());
 
         var scripts = Svc.ValidateScripts(null, 1000);
         Assert.Equal(current, scripts.Epoch);
-        var scrText = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: scripts), 20000);
+        var scrText = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: scripts), 20000);
         var scrJson = JsonWire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: scripts), 20000);
         Assert.Contains($"epoch={current}", scrText);
         Assert.Equal(current,
@@ -92,13 +92,13 @@ public sealed class EpochCheckSweepTests
                          "parsed", excluded.Error);
         Assert.Contains("fix or remove it upstream; it cannot be checked.", excluded.Error);
         Assert.Equal(current, excluded.Epoch);
-        var excludedText = Wire.RenderCheck(new CheckSweep(Sel("errors"), Errors: excluded), 20000);
+        var excludedText = CheckTextRender.RenderCheck(new CheckSweep(Sel("errors"), Errors: excluded), 20000);
         Assert.Contains($"epoch={current}", excludedText);
 
         var scriptsRefusal = Svc.ValidateScripts(new[] { "Nope.esp" }, 1000);
         Assert.NotNull(scriptsRefusal.Error);
         Assert.Equal(current, scriptsRefusal.Epoch);
-        var scriptsText = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: scriptsRefusal), 20000);
+        var scriptsText = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: scriptsRefusal), 20000);
         var scriptsJson = JsonWire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: scriptsRefusal), 20000);
         Assert.Contains($"epoch={current}", scriptsText);
         Assert.Equal(current, JsonDocument.Parse(scriptsJson).RootElement.GetProperty("epoch").GetString());
@@ -113,12 +113,12 @@ public sealed class EpochCheckSweepTests
     {
         var offOrder = Svc.CheckErrors(new[] { EpochWorld.OldName }, 1000);
         Assert.True(offOrder.Error is null && offOrder.OffOrderScanned is { Count: > 0 });
-        var offOrderText = Wire.RenderCheck(new CheckSweep(Sel("errors"), Errors: offOrder), 20000);
+        var offOrderText = CheckTextRender.RenderCheck(new CheckSweep(Sel("errors"), Errors: offOrder), 20000);
         // The WHOLE qualifier: a prefix of it leaves the half saying what the qualifier MEANS unpinned.
         Assert.Contains("(indexed plugins only — off-order file content is outside the fingerprint)", offOrderText);
 
         var allIndexed = Svc.CheckErrors(null, 1000);
-        var allIndexedText = Wire.RenderCheck(new CheckSweep(Sel("errors"), Errors: allIndexed), 20000);
+        var allIndexedText = CheckTextRender.RenderCheck(new CheckSweep(Sel("errors"), Errors: allIndexed), 20000);
         // The negative stays on the SHORT needle: a longer one would pass over a reworded qualifier.
         Assert.DoesNotContain("(indexed plugins only", allIndexedText);
     }
@@ -153,7 +153,7 @@ public sealed class EpochCheckSweepTests
                             "describe two builds. Retry the call.";
         var torn = new CheckSweep(Sel("errors"), Errors: errors, OrderSeamError: seam);
 
-        Assert.Contains(seam, Wire.RenderCheck(torn, 20000));
+        Assert.Contains(seam, CheckTextRender.RenderCheck(torn, 20000));
 
         var doc = JsonDocument.Parse(JsonWire.RenderCheck(torn, 20000)).RootElement;
         Assert.Equal(seam, doc.GetProperty("error").GetString());

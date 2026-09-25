@@ -26,7 +26,7 @@ internal static class DialogueSweep
                                             IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
     {
         var named = (seeds ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
-        if (named.Length == 0) return DialogueCheckResult.Fail(ReadSentences.DialogueNeedsSeeds);
+        if (named.Length == 0) return DialogueCheckResult.Fail(CheckSentences.DialogueNeedsSeeds);
 
         var (validate, parseFormId, epoch, fold, foldError) = bind();
         using var _ = fold;                                   // the sweep owns the folded file for its own run
@@ -72,15 +72,15 @@ internal static class DialogueSweep
 
         // The placement is the FOLD's own spelling, shared with the info_order form.
         string? folded = fold is null ? null
-                       : string.Format(ReadSentences.DialogueFolded, fold.Plugin, fold.Where, fold.Placement)
+                       : string.Format(CheckSentences.DialogueFolded, fold.Plugin, fold.Where, fold.Placement)
                          + (fold.PlacementKind == DialogueFold.Where3.ActiveSlot
-                                ? ReadSentences.DialogueFoldedShadowBound : "");
+                                ? CheckSentences.DialogueFoldedShadowBound : "");
 
         // Every seed was malformed or unresolvable: one refusal rather than a section of nothing.
         if (results.Count > 0 && results.All(r => r.Report is null))
-            return DialogueCheckResult.Fail(string.Format(ReadSentences.DialogueNoSeedResolved, results.Count,
+            return DialogueCheckResult.Fail(string.Format(CheckSentences.DialogueNoSeedResolved, results.Count,
                 string.Join(" ", results.Select(r => $"{r.Seed}: {r.Refusal}.")),
-                fold is null ? ReadSentences.DialogueNoSeedResolvedPlain : ReadSentences.DialogueNoSeedResolvedFolded),
+                fold is null ? CheckSentences.DialogueNoSeedResolvedPlain : CheckSentences.DialogueNoSeedResolvedFolded),
                 epoch) with { Folded = folded };
 
         return new DialogueCheckResult(results, topics, problems, readIncomplete, Limit: limit,
