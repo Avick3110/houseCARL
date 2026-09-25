@@ -70,8 +70,9 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 `src/housecarl-core/`: `ReadEngine.cs` (leaf read, emit, deep walk), `BodyGather.cs` /
 `WinnerBodies.cs` (bulk bodies), `RecordLinks.cs`, `RecordArms.cs`, `RecordNaming.cs`,
 `PathFold.cs`, `PluginFile.cs`, `FieldsDiff.cs` (the deep comparison behind `project={"form":"tree"}`).
-`src/housecarl-mcp/`: `RecordReads.cs` (resolve, batch, the one-pole batch, info order, the dialogue fold),
-`RecordPoles.cs` (comparison poles, the delta/tree batches), `RecordWalk.cs` (walk), `RecordQuery.cs`
+`src/housecarl-mcp/`: `RecordReads.cs` (resolve, the pinned per-match fills `ResolveReadOn`, `ResolveRefs` and
+`ArtifactEpochMismatch`, the pairwise record diff `DiffPole`, batch, the one-pole batch, info order, the dialogue
+fold), `RecordPoles.cs` (comparison poles, the delta/tree batches), `RecordWalk.cs` (walk), `RecordQuery.cs`
 (cross-plugin query, off-order scan, effect chain), `ScopeSplit.cs` (the scan's `plugins=` split),
 `BodyPrefetch.cs` and `PoleGather.cs` (bulk bodies for a chunk of rows and of pole reads),
 `TreeFold.cs`, `FieldFold.cs`, `ReverseWalkBatch.cs`, `ScanDetailReader.cs`, `ReadSentences.cs`
