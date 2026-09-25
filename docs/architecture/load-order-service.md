@@ -52,11 +52,14 @@ the config file.
 `NamedProfileComposition`, `PapyrusSourceImportDirs`, `Dispose`, `CapturePin()` and the `ViewPin` record it
 returns (nested in the service), the class-parent cache
 (`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, and the explicit
-`ILoadOrderHost` and `IAssetHost` members. `src/housecarl-mcp/LoadOrderHost.cs` declares `ILoadOrderHost` and
+`ILoadOrderHost`, `IAssetHost` and `ICheckHost` members. `src/housecarl-mcp/LoadOrderHost.cs` declares `ILoadOrderHost` and
 `AssetCapture`; `IAssetHost` is at the top of `src/housecarl-mcp/AssetLayers.cs`.
 The head's asset-facing surface is one-line delegators to `_assetLayers`, the `AssetLayers` it builds over itself in
 its constructor: `AssetStatus`, `SkseInventory`, `SkseConfigAudit`, `NativePairingAudit`, `SkyPatcherLayer`,
 `NifInspect`, `NifSet`, `PlaceAssets`, the self-capturing `OpenSkyPatcherReplay` overload. `AssetArea` hands tests the instance, to set its seams.
+The checks-facing surface is the same shape over `_checks`, the `RecordChecks` it builds after `_assetLayers`:
+`ValidateDialogue`, `CheckDialogue`, `CheckErrors`, `ValidateScripts`, `CheckFaceGen`, `SweepScopeError`, with
+`CheckArea` for tests; `ICheckHost` is at the top of `src/housecarl-mcp/RecordChecks.cs`.
 `src/housecarl-mcp/ServiceResults.cs` holds the result records the head's lanes and the other areas' lanes return;
 the asset records are in `AssetResults.cs`.
 Tools: `housecarl_load_order_status`, `housecarl_set_mo2_instance`, `housecarl_update_status`.

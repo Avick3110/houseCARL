@@ -39,7 +39,7 @@ Code comments call the first two of these the cornerstones. A design question th
 | `src/housecarl-mcp/AssetLayers.cs` | The assets area: asset status, the SKSE layer, NIF, the SkyPatcher layer scan, place; its own class, `AssetLayers(IAssetHost)` |
 | `src/housecarl-mcp/SkyPatcherReplay.cs` | The SkyPatcher replay and the one door that opens its context |
 | `src/housecarl-mcp/RecordReads.cs` | Read, resolve, query, type lookup |
-| `src/housecarl-mcp/RecordChecks.cs` | The check lanes |
+| `src/housecarl-mcp/RecordChecks.cs` | The checks area: the errors, scripts, facegen and dialogue sweeps; its own class, `RecordChecks(ICheckHost)` |
 | `src/housecarl-mcp/RecordWrites.cs` | The write lanes |
 | `src/housecarl-mcp/OutputLocations.cs` | Output folders, plugin locate, `.seq` |
 | `src/housecarl-mcp/ServiceResults.cs` | The result records and enums those lanes return |

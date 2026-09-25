@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-24
-covers: [src/housecarl-core/DeletedRecordRule.cs, src/housecarl-core/ErrorCheck.cs, src/housecarl-core/SweepExclusion.cs, src/housecarl-core/SweepFamilies.cs, src/housecarl-core/SweepScope.cs, src/housecarl-mcp/CheckOutcome.cs, src/housecarl-mcp/RecordChecks.cs, src/housecarl-mcp/CheckTools.cs, src/housecarl-mcp/CheckAccounting.cs, src/housecarl-mcp/CheckArtifact.cs, src/housecarl-mcp/CheckTextRender.cs, src/housecarl-mcp/CheckSentences.cs, src/housecarl-mcp/CheckSweep.cs]
+updated: 2026-09-25
+covers: [src/housecarl-core/DeletedRecordRule.cs, src/housecarl-core/ErrorCheck.cs, src/housecarl-core/SweepExclusion.cs, src/housecarl-core/SweepFamilies.cs, src/housecarl-core/SweepScope.cs, src/housecarl-mcp/CheckOutcome.cs, src/housecarl-mcp/RecordChecks.cs, src/housecarl-mcp/CheckTools.cs, src/housecarl-mcp/CheckAccounting.cs, src/housecarl-mcp/CheckArtifact.cs, src/housecarl-mcp/CheckTextRender.cs, src/housecarl-mcp/CheckSentences.cs, src/housecarl-mcp/CheckSweep.cs, src/housecarl-mcp/SweepSharedInput.cs, src/housecarl-mcp/SweepOffOrderScope.cs, src/housecarl-mcp/FaceGenSweepRender.cs, src/housecarl-mcp/SweepDemand.cs]
 ---
 # The check families' contracts
 
@@ -209,16 +209,28 @@ accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_def
 - `src/housecarl-core/SweepScope.cs` — the record scope, the class parsers (`SweepFindings`) and `FilterNote`.
 - `src/housecarl-core/SweepExclusion.cs` — `exclude=`: `SweepExclusion.Resolve` and its tokens.
 - `src/housecarl-core/SweepFamilies.cs` — `SweepFamilySelection` and `SweepFamilySelection.Registered`.
-- `src/housecarl-mcp/RecordChecks.cs` — the service lanes: `CheckErrors`, `ValidateScripts`, `CheckDialogue`,
-  `ValidateDialogue`, `CheckFaceGen`. `CheckFaceGen` lists which plugins a mod folder ships and resolves `plugins=`
-  and `exclude=` here, not in `FaceGenCheck`, because core cannot see the MO2 composition.
-- `src/housecarl-mcp/CheckTextRender.cs`, `CheckSentences.cs` and `CheckSweep.cs` — the check text render (`Wire`), the
-  check sentences (`ReadSentences`), and the `CheckSweep` record the renders take.
+- `src/housecarl-mcp/RecordChecks.cs` — the service lanes, in the class `RecordChecks`, which the head builds over
+  itself and reaches through one-line delegators: `CheckErrors`, `ValidateScripts`, `CheckDialogue`,
+  `ValidateDialogue`, `CheckFaceGen`, `SweepScopeError`. `CheckFaceGen` lists which plugins a mod folder ships and
+  resolves `plugins=` and `exclude=` here, not in `FaceGenCheck`, because core cannot see the MO2 composition.
+- `src/housecarl-mcp/CheckTextRender.cs`, `CheckSentences.cs` and `CheckSweep.cs` — the check text render
+  (`CheckTextRender`), the check sentences (`CheckSentences`), and the `CheckSweep` record the renders take.
+- `src/housecarl-mcp/SweepSharedInput.cs` — the input refusals every family shares, checked once before the merged
+  response; `SweepOffOrderScope.cs` — the `plugins=` split into active and off-order names, and its per-call memo
+  `SweepOffOrderMemo`.
+- `src/housecarl-mcp/FaceGenSweepRender.cs` — the facegen family's render in both transports.
+- `src/housecarl-mcp/SweepDemand.cs` — what each subject of a merged response wants, measured before the render; the
+  budget it feeds is in [`render-budget.md`](render-budget.md).
 - `src/housecarl-mcp/CheckOutcome.cs` — `CheckOutcome`, and `DialogueOutcome`, whose four seed words are in
   [`check-scripts-and-dialogue-families.md`](check-scripts-and-dialogue-families.md).
 - `src/housecarl-mcp/CheckAccounting.cs` and `CheckArtifact.cs` — the response's omission accounting and the
   `to_file=` artifact; their budget contracts are in [`render-budget.md`](render-budget.md).
 - `src/housecarl-mcp/CheckTools.cs` — `CheckTools.CheckTool`. Tool: `housecarl_check`.
+
+What the area needs from outside itself is the members of `ICheckHost`, declared at the top of `RecordChecks.cs`:
+the FormID door from the head, and two rows relayed from reads until reads is its own class. The members every area
+shares come through the door it extends, `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs`
+([`load-order-service.md`](load-order-service.md)).
 
 ## Related
 
