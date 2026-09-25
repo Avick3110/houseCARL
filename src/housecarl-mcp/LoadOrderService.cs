@@ -136,7 +136,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                 if (_resolver is null)
                 {
                     EnsurePathsDerived();                         // instance mode: derive ProfileDir/ModsDir/DataDir + active profile from ModOrganizer.ini
-                    var profileStamps = StatProfileFiles();      // stat BEFORE the read: a profile write during the build is caught next call, not missed
+                    var profileStamps = StatProfileFiles(_profileDir);   // stat BEFORE the read: a profile write during the build is caught next call, not missed
                     var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
                     _orderWarnings = order.Warnings;
                     var paths = order.OrderedPaths;
@@ -661,22 +661,22 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     }
 
     /// <summary>The three profile files' stamps in <see cref="ProfileFileNames"/> order — a build's baseline, statted before the read it baselines. Caller holds <see cref="_gate"/>.</summary>
-    FileStamp[] StatProfileFiles()
+    FileStamp[] StatProfileFiles(string profileDir)
     {
         var s = new FileStamp[ProfileFileNames.Length];
-        for (int i = 0; i < ProfileFileNames.Length; i++) s[i] = FileStamp.Of(Path.Combine(_profileDir, ProfileFileNames[i]));
+        for (int i = 0; i < ProfileFileNames.Length; i++) s[i] = FileStamp.Of(Path.Combine(profileDir, ProfileFileNames[i]));
         return s;
     }
 
     /// <summary>Lazy freshness, run on each tool call once the snapshot exists: a profile switch in instance mode, else the active profile's own files. Caller holds <see cref="_gate"/>.</summary>
     void RefreshOnProfileChange()
     {
-        if (RederiveIfIniChanged()) return;                      // instance mode: a profile switch already re-derived and re-resolved
+        if (RederiveIfIniChanged()) return;                      // instance mode: a profile switch was published, or held for the next call
         if (!ProfileFilesChanged()) { _profileHeld = null; return; }   // matches its baseline again → nothing pending, nothing to say
-        ReResolve();
+        ReResolve(new(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir));
     }
 
-    /// <summary>Instance mode only: re-derive the roots and re-resolve when ModOrganizer.ini changed AND something this resolves from moved; true iff it handled a switch. Caller holds the gate.</summary>
+    /// <summary>Instance mode only: when ModOrganizer.ini moved the roots, re-resolve under the new ones and publish them only with that order; true iff it saw a switch. Caller holds the gate.</summary>
     bool RederiveIfIniChanged()
     {
         if (_instanceDir is null) return false;                  // explicit/override mode — no ini to watch
@@ -685,26 +685,27 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var iniStamp = FileStamp.Of(ini);                         // stat BEFORE the read: an ini write during/after TryResolve is caught next call
         if (iniStamp == _iniStamp) return false;                  // compared by value — a restored-backup ini carries an older mtime and is a change too
         if (!Mo2Instance.TryResolve(_instanceDir, out var p) || p is null) return false;   // mid-write/invalid → keep last good, retry next call
-        _iniStamp = iniStamp;                                     // advance only on a clean read
         bool switched = !PathEq(p.ProfileDir, _profileDir) || !PathEq(p.ModsDir, _modsDir) || !PathEq(p.DataDir, _dataDir)
                         || !PathEq(p.OverwriteDir, _overwriteDir);
-        if (!switched) return false;                             // ini touched but nothing we resolve from changed
+        if (!switched) { _iniStamp = iniStamp; return false; }   // ini touched but nothing we resolve from changed
+        // A new profile's order that is held or empty keeps the old roots, resolver and ini stamp, so the next call retries.
+        if (!ReResolve(new(ProfileDir: p.ProfileDir, DataDir: p.DataDir, ModsDir: p.ModsDir, OverwriteDir: p.OverwriteDir))) return true;
+        _iniStamp = iniStamp;                                     // advance only once the new roots are published
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName; _overwriteDir = p.OverwriteDir;
         System.Threading.Interlocked.Increment(ref _gameRootsGen);   // the game roots moved → the runtime memo re-probes
         InvalidateClassParents();                                // the mods tree may have moved — drop the cached hierarchy with it
-        ReResolve();                                             // a new profile ⇒ the order differs ⇒ ReResolve deep-re-indexes
         return true;
     }
 
-    /// <summary>The cheap re-read against the current roots: re-list the winning paths, deep-re-index only when the set or order changed. Caller holds the gate.</summary>
-    void ReResolve()
+    /// <summary>The cheap re-read under <paramref name="roots"/>: re-list the winning paths, deep-re-index only when the set or order changed; false when the read was held or empty and nothing moved. Caller holds the gate.</summary>
+    bool ReResolve(Mo2Roots roots)
     {
-        var profileStamps = StatProfileFiles();                  // stat BEFORE the read: a write during the re-read is caught next call, not missed
+        var profileStamps = StatProfileFiles(roots.ProfileDir);  // stat BEFORE the read: a write during the re-read is caught next call, not missed
         Mo2OrderResult order;
         // A refresh landing in MO2's profile-rewrite window keeps the built snapshot and does not advance the baseline;
         // contract in docs/architecture/load-order-service.md.
-        try { order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir); }
-        catch (ProfileUnreadableException ex) { _profileHeld = ex; return; }
+        try { order = Mo2LoadOrder.Build(roots.ProfileDir, roots.ModsDir, roots.DataDir, roots.OverwriteDir); }
+        catch (ProfileUnreadableException ex) { _profileHeld = ex; return false; }
         _profileHeld = null;                                     // the re-read got through — nothing is pending any more
         var paths = order.OrderedPaths;
         if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
@@ -725,15 +726,18 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             _resolvedPaths = paths;
             _orderWarnings = order.Warnings;
             _profileStamps = profileStamps;
+            return true;
         }
-        else if (paths.Count > 0)
+        if (paths.Count > 0)
         {
             // The profile was touched but the resolved order is identical, so no deep re-index; the asset resolver still drops and the baseline advances.
             InvalidateAssetResolver();
             _orderWarnings = order.Warnings;
             _profileStamps = profileStamps;
+            return true;
         }
         // paths.Count == 0 is almost certainly a transient mid-write read: keep the last good snapshot and do not advance.
+        return false;
     }
 
     /// <summary>Instance mode: on the first build, derive the roots and active profile from ModOrganizer.ini, throwing a message naming what is missing. Caller holds the gate.</summary>
