@@ -37,8 +37,8 @@ public sealed class ServerTransportTests
             }
         }
 
-        // Opens the gate so a pump still parked on it can finish if the test failed before opening it.
-        protected override void Dispose(bool disposing) { _gate.Set(); base.Dispose(disposing); }
+        protected override void Dispose(bool disposing)
+        { if (disposing) _gate.Dispose(); base.Dispose(disposing); }
     }
 
     /// <summary>
