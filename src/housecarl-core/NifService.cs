@@ -404,7 +404,7 @@ public static class NifService
             if (nif.Load(ms) != 0)
                 return NifSetOutcome.Fail("NiflySharp could not parse this mesh — it may be truncated, not a NIF, or a format the library rejects. Nothing was written.");
         }
-        catch (Exception ex) { return NifSetOutcome.Fail(DescribeLoadException(ex)); }
+        catch (Exception ex) { return NifSetOutcome.Fail(DescribeLoadException(ex) + " Nothing was written."); }
 
         NifInspect pre;
         try { pre = Build(nif); }
