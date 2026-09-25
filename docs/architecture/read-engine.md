@@ -65,6 +65,8 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 - `BodyGatherEquivalenceTests.AGatheredBodyIsTheBodyTheSingleFetchReturns` and `AFaultedPluginIsNamedAndFallsBackToTheSingleFetch` — a gathered body equals the one-at-a-time body, and a faulted plugin's fallback raises the same exception type and message the direct fetch does.
 - `PresentNullLinkDiffTests.ACarriedHeadMarkerDeltasAgainstASideCarryingNothing` — the diff's
   present-null-link split, and `TwoAbsentSidesStillCollapse` the two-absent case.
+- `ReadPinTests.AProfileSwitchAfterThePinDoesNotSplitThePoleFromItsRoots` — a source= pole is located under the
+  roots taken in its view's hold and opens with that hold's Data folder, across a mid-call profile switch.
 
 ## Where
 `src/housecarl-core/`: `ReadEngine.cs` (leaf read, emit, deep walk), `BodyGather.cs` /
@@ -79,5 +81,7 @@ fold), `RecordPoles.cs` (comparison poles, the delta/tree batches), `RecordWalk.
 (the read surface's prose; the check families' own sentences now live in `CheckSentences.cs`, under
 `docs/architecture/check-families.md` and
 `docs/architecture/check-scripts-and-dialogue-families.md`). The type lookup is in `TypeLookup.cs`,
-under `docs/architecture/corpus-rulebook.md`.
+under `docs/architecture/corpus-rulebook.md`. The pole lanes (`ProbeSourceArm`, `ResolveBatchFromPole`,
+`DeltaBatch`, `TreeBatch`) take the view and the MO2 roots in one hold through the head's `CapturePinAndRoots`,
+and an off-order `PoleInfo` carries the `DataDir` it was located under.
 Tool: `housecarl_records`.
