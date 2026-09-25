@@ -239,7 +239,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     Dictionary<string, List<Type>> IAssetHost.TypeLookup => TypeLookup;
     string IAssetHost.UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk) => UnresolvedFormId(view, fk);
     IReadOnlyList<Type>? ICheckHost.ResolveTypeFilterSet(IReadOnlyList<string>? types, out string? armLabel) => ResolveTypeFilterSet(types, out armLabel);
-    DialogueFold? ICheckHost.OpenDialogueFold(PoleInfo arm, out string? error, string? label, bool withRecords) => OpenDialogueFold(arm, out error, label, withRecords);
 
     // The assets area's tool-facing surface; the bodies are in AssetLayers.cs and SkyPatcherReplay.cs.
     public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under = null, int limit = 0, int offset = 0,

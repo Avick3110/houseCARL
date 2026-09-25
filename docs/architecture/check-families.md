@@ -228,7 +228,8 @@ accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_def
 - `src/housecarl-mcp/CheckTools.cs` — `CheckTools.CheckTool`. Tool: `housecarl_check`.
 
 What the area needs from outside itself is the members of `ICheckHost`, declared at the top of `RecordChecks.cs`:
-the FormID door from the head, and two rows relayed from reads until reads is its own class. The members every area
+the FormID door from the head, and the type filter relayed from reads until reads is its own class. The dialogue fold
+is a static, `LoadOrderService.OpenDialogueFold`, so it is called directly. The members every area
 shares come through the door it extends, `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs`
 ([`load-order-service.md`](load-order-service.md)).
 
