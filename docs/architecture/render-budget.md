@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-23
-covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/housecarl-mcp/SweepEmission.cs, src/housecarl-mcp/SweepDemand.cs, src/housecarl-mcp/BodyAllocation.cs, src/housecarl-mcp/BatchRender.cs, src/housecarl-mcp/TransportAccounting.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-core/CharCountedStream.cs, src/housecarl-core/JsonTextEncoder.cs]
+updated: 2026-09-25
+covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/housecarl-mcp/SweepEmission.cs, src/housecarl-mcp/BodyAllocation.cs, src/housecarl-mcp/BatchRender.cs, src/housecarl-mcp/TransportAccounting.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-core/CharCountedStream.cs, src/housecarl-core/JsonTextEncoder.cs]
 ---
 # The render budget: what `max_chars` counts, and who gets to spend it
 
@@ -214,7 +214,8 @@ settable so a test can drive the seam; production never assigns them. `Accountin
 ## Where
 
 `src/housecarl-mcp/RenderCap.cs` holds `Cap`, `Budget` and `RenderCap.Settle`; `RenderBudget.cs` is the render bound;
-`SweepDemand.cs` is the demand pass and `BodyAllocation.cs` the max-min fill; `SweepEmission.cs` holds `SweepSubject`
+`BodyAllocation.cs` is the max-min fill over the check response's demand pass, which is `SweepDemand.cs`
+([`check-families.md`](check-families.md)); `SweepEmission.cs` holds `SweepSubject`
 and `BoundedBody`; `BatchRender.cs` is the write-and-retract batch render; `TransportAccounting.cs` is the four-cause
 omission block; `RowProjection.cs` is the `rows` project form. `src/housecarl-core/CharCountedStream.cs` is where the
 json lane takes its length from, and `src/housecarl-core/JsonTextEncoder.cs` is the one encoder. Entry points:

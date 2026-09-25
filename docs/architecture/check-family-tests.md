@@ -16,12 +16,12 @@ terse because the knowledge has a public home).
 
 **LIVE — a real service call over a synthetic MO2 world.** `Svc.CheckErrors(...)` /
 `Svc.ValidateScripts(...)` / `Svc.CheckDialogue(...)` against `CheckErrorsWorld`, `ScriptsWorld`, `EpochWorld`
-or `DialogueWorld`, rendered through `Wire.RenderCheck` / `JsonWire.RenderCheck` — byte-identically the entry
+or `DialogueWorld`, rendered through `CheckTextRender.RenderCheck` / `JsonWire.RenderCheck` — byte-identically the entry
 point `CheckTools` calls. This is the default, and most facts use it.
 
 **DTO — a hand-shaped result rendered through the same renderer.** `CheckErrorsFixtures.Result(...)` /
 `ScriptsFixtures.Result(...)` build an `ErrorCheckResult` / `ScriptCheckResult` directly and hand it to the
-same `Wire.RenderCheck` / `JsonWire.RenderCheck`. The renderer under test is identical; only the input's
+same `CheckTextRender.RenderCheck` / `JsonWire.RenderCheck`. The renderer under test is identical; only the input's
 provenance differs.
 
 ### The rule

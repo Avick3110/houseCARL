@@ -70,7 +70,7 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 
 | Note | What it covers |
 |---|---|
-| [`architecture/check-families.md`](architecture/check-families.md) | The contracts the check families share: the DELETED rule, the integrity sweep's boundary, the narrowing and exclusion axes, family selection, and selection versus outcome. |
+| [`architecture/check-families.md`](architecture/check-families.md) | The checks area, `RecordChecks` and its files, and the contracts the check families share: the DELETED rule, the integrity sweep's boundary, the narrowing and exclusion axes, family selection, and selection versus outcome. |
 | [`architecture/check-scripts-and-dialogue-families.md`](architecture/check-scripts-and-dialogue-families.md) | The script-property sweep's boundary and its unverifiable ride-through, the dialogue family's four seed words, and the EditorID near-miss hint. |
 
 ### Writes
