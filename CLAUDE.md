@@ -4,7 +4,7 @@ houseCARL is an MCP server that gives Claude direct, data-layer access to a Skyr
 
 It is one C# process built on Mutagen. Users start at [README.md](README.md). This file is for whoever is changing the code.
 
-> `dev/` is a private working corpus (product PRFAQ, tool-surface spec, backlog, decisions). It is gitignored, so links into it do not resolve in a clone.
+> `dev/` is a private working corpus (product PRFAQ, tool-surface spec, backlog, decisions). It is gitignored, so links into it do not resolve in a clone. A session opened as the advisor boots from `dev/advisor.md` before anything else in `dev/`.
 
 ## Design
 
