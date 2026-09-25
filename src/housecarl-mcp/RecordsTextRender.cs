@@ -478,7 +478,8 @@ static partial class RecordsTools
     }
 
     /// <summary>The info_order form's text render: per topic its identity, then the merged-order body from the shared <see cref="Wire.AppendInfoOrderView"/>, bounded by what this render has left rather than by the whole cap.</summary>
-    static string RenderRecordsInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int total, int contested,
+    /// <remarks>Internal so a test can drive a topic wider than the auto-spill block, which no fixture has.</remarks>
+    internal static string RenderRecordsInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int total, int contested,
                                          int errors, string headerLine, OrderStamp? epoch, int maxChars,
                                          SpillState? spill, out bool truncated, bool unreserved = false)
     {
@@ -505,6 +506,7 @@ static partial class RecordsTools
         {
             if (manifestOnly) break;
             int mark = sb.Length;
+            bool cut = false;
             sb.Append('\n').Append(row.Formid);
             if (row.Error is not null)
             {
@@ -520,12 +522,14 @@ static partial class RecordsTools
                 sb.Append("  [!] the merge could not be computed for this topic (its key did not resolve in the touching index).\n");
             else if (row.Order.Order.Count == 0 && row.Order.Complete)
                 sb.Append("  no INFO lines — every touching plugin's child list is empty.\n");
-            // The view's own stop signal is kept rather than re-derived from Crossed, whose agreement depends on
-            // where the view appends its marker — the view's business, not this render's.
+            // The view lays what fits inside the budget and says it cut, so a cut topic stays and the render stops after it.
             else if (!Wire.AppendInfoOrderView(sb, row.Order, budget))
-                truncated = true;
+                cut = true;
             if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
             rendered++;
+            if (!cut) continue;
+            Stopped(sb, Notice(rendered), rendered, rows.Count, ref truncated);
+            break;
         }
         sb.Append(spillText);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);

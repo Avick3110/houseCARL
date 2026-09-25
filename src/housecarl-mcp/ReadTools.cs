@@ -492,8 +492,6 @@ static partial class Wire
             if (io.Order.Count == 0) { AppendOrderNote(sb, io); return true; }
         }
 
-        var moved = io.Moved;
-
         // Plugins that TOUCH the topic, not the ones read; the folded file is not in the order, so it is named apart.
         int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count - (io.FoldContributed ? 1 : 0);
         sb.Append("  effective INFO order — merged across ").Append(touching)
@@ -503,26 +501,44 @@ static partial class Wire
         sb.Append("; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
         AppendFoldNote(sb, io);
 
-        foreach (var e in io.Order)
+        // The moved lead and the note close the listing, cut or not, so every row is laid with room left for them.
+        var tail = new StringBuilder();
+        AppendMovedLead(tail, io);
+        AppendOrderNote(tail, io);
+        const string cut = "    ... [truncated at max_chars]\n";
+        var row = new StringBuilder();
+        for (int i = 0; i < io.Order.Count; i++)
         {
-            if (sb.Length >= cap) { sb.Append("    ... [truncated at max_chars]\n"); return false; }
-            sb.Append("    #").Append(e.Index + 1).Append("  ").Append(FormIdToken.Of(e.Info));
-            if (e.Deleted) sb.Append("  (deleted)");
-            if (e.Moved) sb.Append("  MOVED from #").Append(e.OriginIndex!.Value + 1);
+            var e = io.Order[i];
+            row.Clear();
+            row.Append("    #").Append(e.Index + 1).Append("  ").Append(FormIdToken.Of(e.Info));
+            if (e.Deleted) row.Append("  (deleted)");
+            if (e.Moved) row.Append("  MOVED from #").Append(e.OriginIndex!.Value + 1);
             // Gated on BaselineTrusted: a shifted baseline would call the definer's own lines late additions.
-            else if (e.OriginIndex is null && io.BaselineTrusted) sb.Append("  (added by a later plugin)");
-            sb.Append("  placed by ").Append(e.PlacedBy);
+            else if (e.OriginIndex is null && io.BaselineTrusted) row.Append("  (added by a later plugin)");
+            row.Append("  placed by ").Append(e.PlacedBy);
             // Every row the folded file placed says so, so a projected position can never be read as a live one.
             if (io.FoldedPlugin is { } fp && e.PlacedBy.Equals(fp, StringComparison.OrdinalIgnoreCase))
-                sb.Append("  [FOLDED — that file is NOT active; this position is a projection]");
+                row.Append("  [FOLDED — that file is NOT active; this position is a projection]");
             // The zero "I am first" marker and a broken link both land at the head, but only one is a fault.
             if (e.Placement == InfoPlacement.HeadFirstMarker)
-                sb.Append("  [pinned first by its own PNAM marker — deliberate, not a fault]");
+                row.Append("  [pinned first by its own PNAM marker — deliberate, not a fault]");
             else if (e.Placement == InfoPlacement.HeadUnresolvable)
-                sb.Append("  [PNAM names no reachable line — forced to the top; worth a look]");
-            sb.Append('\n');
+                row.Append("  [PNAM names no reachable line — forced to the top; worth a look]");
+            row.Append('\n');
+            // A row that is not the last needs the cut marker's room too, in case the next one does not fit.
+            int after = i == io.Order.Count - 1 ? 0 : cut.Length;
+            if (sb.Length + row.Length + after + tail.Length > cap) { sb.Append(cut).Append(tail); return false; }
+            sb.Append(row);
         }
+        sb.Append(tail);
+        return true;
+    }
 
+    /// <summary>The lead naming the biggest shift, when any line sits at a different position than the definer laid it down.</summary>
+    static void AppendMovedLead(StringBuilder sb, InfoOrderView io)
+    {
+        var moved = io.Moved;
         if (moved.Count > 0)
         {
             var w = moved[0];
@@ -534,9 +550,6 @@ static partial class Wire
               .Append(", moved there by ").Append(w.PlacedBy)
               .Append(". Re-listing a line appends it to the BOTTOM unless the plugin also carries that line's PNAM. Nothing is dropped — but a line the game now reaches later can be pre-empted by any earlier line whose conditions also pass, so the wrong line answers.\n");
         }
-
-        AppendOrderNote(sb, io);
-        return true;
     }
 
     /// <summary>Which off-order file was folded into THIS topic's merge, and whether it placed anything here.</summary>
