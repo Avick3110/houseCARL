@@ -225,8 +225,6 @@ static class CheckTextRender
     }
 
     // ---- the merged, multi-family check response ----
-    static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
-
     /// <summary>The merged sweep: one header, one section per selected family with its own accounting, one boundary block, and the excluded-plugin roster once; the body budget is divided rather than spent in series, per docs/architecture/render-budget.md.</summary>
     public static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit = 1000)
         => RenderCheck(s, maxChars, histogramLimit, out _);
@@ -242,7 +240,7 @@ static class CheckTextRender
             return (s.Dialogue?.Folded is { } errFrame ? errFrame : "")
                    + "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "")
                    + (o.OrderExcluded.Count > 0 ? "\n" + OrderDegraded.Sentence(o.OrderExcluded) : "");
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         var sections = o.Sections;
         var accts = o.Accountings(cap);
         // The reserve: one accounting line and one boundary line per family, held back before anything renders.

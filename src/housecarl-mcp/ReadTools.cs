@@ -24,7 +24,7 @@ static partial class Wire
     /// <summary>How many distinct contested parent hosts a create render names before it says "and N further"; shared with the json twin, which publishes the full count beside the capped list.</summary>
     public const int ContestedHostsShown = 10;
 
-    static int Cap(int maxChars) => maxChars > 0 ? maxChars : DefaultMaxChars;
+    internal static int Cap(int maxChars) => maxChars > 0 ? maxChars : DefaultMaxChars;
 
     /// <summary>Parse the shared format= param: null or "text" is text, "json" is json, and anything else is a named error rather than a fall-through to text.</summary>
     public static bool WantsJson(string? format, out string? error)
