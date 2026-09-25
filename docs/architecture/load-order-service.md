@@ -57,8 +57,8 @@ the config file.
 returns (nested in the service), `CapturePinAnd<T>` (one `_gate` hold: the pin, a seam, then a second capture),
 over which `CapturePinAndAssets` and `CapturePinAndRoots` (the pin and the four roots, for the read area's pole
 lanes, with its test seam `AfterReadPinForGuard`) are one-liners, the class-parent cache
-(`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, `Types` (the lazily built
-`TypeLookup`, the door member) and `TypeDisplayNames` (its one-line delegator for the `records` tool), and the explicit
+(`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, `Types` (the
+`TypeLookup`, the door member, whose map is built on the first type resolution), and the explicit
 `ILoadOrderHost`, `IAssetHost` and `ICheckHost` members. `src/housecarl-mcp/LoadOrderHost.cs` declares `ILoadOrderHost` and
 `AssetCapture`; `IAssetHost` is at the top of `src/housecarl-mcp/AssetLayers.cs`.
 The head's asset-facing surface is one-line delegators to `_assetLayers`, the `AssetLayers` it builds over itself in
