@@ -482,7 +482,7 @@ internal static class CheckShapeMatrix
     /// one lane vouches for nothing about the other — the two measure their units in different ways.</summary>
     static readonly Lane[] Lanes =
     {
-        new("text", (CheckSweep s, int cap, out BoundedBody? b) => Wire.RenderCheck(s, cap, 1000, out b), TextNotice),
+        new("text", (CheckSweep s, int cap, out BoundedBody? b) => CheckTextRender.RenderCheck(s, cap, 1000, out b), TextNotice),
         new("json", (CheckSweep s, int cap, out BoundedBody? b) => JsonWire.RenderCheck(s, cap, 1000, out b), JsonNotice),
     };
 
@@ -503,7 +503,7 @@ internal static class CheckShapeMatrix
     /// constant rather than spelled again here, so a reworded lead moves this marker with it instead of leaving
     /// the matrix quietly unable to find a notice that is being printed.</summary>
     static readonly string NoticeOpener =
-        ReadSentences.SweepFixedPartLead[..ReadSentences.SweepFixedPartLead.IndexOf('{')];
+        CheckSentences.SweepFixedPartLead[..CheckSentences.SweepFixedPartLead.IndexOf('{')];
 
     /// <summary>The json lane carries the SAME sentence as a <c>max_chars_overrun</c> member.</summary>
     static string? JsonNotice(string response)

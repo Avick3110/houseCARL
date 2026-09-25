@@ -173,7 +173,7 @@ internal static class CheckArtifact
             return System.Text.Encoding.UTF8.GetString(ms.ToArray());
         }
         var sb = new System.Text.StringBuilder();
-        sb.Append(ReadSentences.SweepMergedTitle).Append('\n').Append(o.ScopeSentence()).Append('\n');
+        sb.Append(CheckSentences.SweepMergedTitle).Append('\n').Append(o.ScopeSentence()).Append('\n');
         if (s.Dialogue?.Folded is { } foldedText) sb.Append(foldedText.Trim()).Append('\n');
         if (o.Epoch is not null) sb.Append("epoch=").Append(o.Epoch).Append('\n');
         var accts = o.Accountings(0);
@@ -181,11 +181,11 @@ internal static class CheckArtifact
         {
             sb.Append('\n');
             if (o.Refusal(o.Sections[i]) is { } refusal)
-                sb.Append(string.Format(ReadSentences.SweepFamilySectionHead,
+                sb.Append(string.Format(CheckSentences.SweepFamilySectionHead,
                                         SweepFamilySelection.Token(o.Sections[i]),
                                         SweepFamilySelection.Title(o.Sections[i])))
                   .Append('\n').Append(refusal).Append('\n');
-            sb.Append(string.Format(ReadSentences.SweepBoundaryLabelFor,
+            sb.Append(string.Format(CheckSentences.SweepBoundaryLabelFor,
                                     SweepFamilySelection.Token(o.Sections[i])))
               .Append(accts[i].Boundary).Append('\n');
         }

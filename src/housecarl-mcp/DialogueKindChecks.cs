@@ -42,9 +42,9 @@ internal static class DialogueKindChecks
     /// <summary>This kind's verdict line for a passing record-level parity check, or null where it has none.</summary>
     internal static string? ParityOkLine(string inputKind) => inputKind switch
     {
-        "quest" => ReadSentences.DialogueQuestParityOk,
-        "view" => ReadSentences.DialogueViewParityOk,
-        "branch" => ReadSentences.DialogueBranchParityOk,
+        "quest" => CheckSentences.DialogueQuestParityOk,
+        "view" => CheckSentences.DialogueViewParityOk,
+        "branch" => CheckSentences.DialogueBranchParityOk,
         _ => null,
     };
 }

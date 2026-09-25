@@ -50,7 +50,7 @@ internal static class ScriptsFixtures
     /// <summary>The text render of one scripts result — through the merged renderer a surviving tool calls, with its
     /// <see cref="CheckSweep"/> wrapper.</summary>
     internal static string Text(ScriptCheckResult r, int maxChars, params string[] tokens) =>
-        Wire.RenderCheck(new CheckSweep(Sel(tokens), Scripts: r), maxChars);
+        CheckTextRender.RenderCheck(new CheckSweep(Sel(tokens), Scripts: r), maxChars);
 
     /// <summary>The json render of the same.</summary>
     internal static string Json(ScriptCheckResult r, int maxChars, params string[] tokens) =>

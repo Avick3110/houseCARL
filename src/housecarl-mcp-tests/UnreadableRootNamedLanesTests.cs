@@ -309,7 +309,7 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
             Scripts: ScriptsFixtures.Result(rootFailures: new[] { scriptsRoot }),
             FaceGen: FaceGenResult(new[] { facegenRoot }));
 
-        var text = Wire.RenderCheck(sweep, 60000);
+        var text = CheckTextRender.RenderCheck(sweep, 60000);
         var json = JsonWire.RenderCheck(sweep, 60000);
 
         Assert.Contains(Named("ModA"), text, StringComparison.Ordinal);

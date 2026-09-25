@@ -231,7 +231,7 @@ public static class CheckTools
         if (SweepSharedInput.Error(svc, plugins, types, formids, editorid_contains, exclude) is { } inputErr)
         {
             var refusal = new CheckSweep(selection, SharedInputError: inputErr);
-            return json ? JsonWire.RenderCheck(refusal, max_chars, lim) : Wire.RenderCheck(refusal, max_chars, lim);
+            return json ? JsonWire.RenderCheck(refusal, max_chars, lim) : CheckTextRender.RenderCheck(refusal, max_chars, lim);
         }
 
         // ---- the dialogue family's off-order fold ------------------------------------------------------
@@ -296,7 +296,7 @@ public static class CheckTools
              ?? Seam(facegen?.Epoch, "facegen") ?? Seam(dialogue?.Epoch, "dialogue") ?? foldSeam) is { } seam)
         {
             var torn = new CheckSweep(selection, OrderSeamError: seam);
-            return json ? JsonWire.RenderCheck(torn, max_chars, lim) : Wire.RenderCheck(torn, max_chars, lim);
+            return json ? JsonWire.RenderCheck(torn, max_chars, lim) : CheckTextRender.RenderCheck(torn, max_chars, lim);
         }
 
         var sweep = new CheckSweep(selection, errors, scripts, dialogue, facegen, Order: order);
@@ -320,13 +320,13 @@ public static class CheckTools
             // No family answered, so nothing is written and the sweep renders as it would without to_file=, which is
             // where every refusal's ground is already stated.
             if (CheckOutcome.For(sweep).Ran.Count == 0)
-                return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : Wire.RenderCheck(sweep, max_chars, lim);
+                return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : CheckTextRender.RenderCheck(sweep, max_chars, lim);
             var (spill, artErr) = CheckArtifact.Write(sweep, path, query);
             if (artErr is not null) return Wire.Refuse(json, "error: " + artErr);
             return CheckArtifact.RenderManifestOnly(sweep, spill!, json);
         }
 
-        return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : Wire.RenderCheck(sweep, max_chars, lim);
+        return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : CheckTextRender.RenderCheck(sweep, max_chars, lim);
     });
 
     /// <summary>Parse the dialogue fold's address — the off-order half of the <c>records</c> pole grammar, which is

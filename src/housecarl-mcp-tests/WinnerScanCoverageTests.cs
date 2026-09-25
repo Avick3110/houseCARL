@@ -214,7 +214,7 @@ public sealed class WinnerScanCoverageTests
         using var hold = HeldOpen.Hold(world.HeldPath);
 
         var sweep = new CheckSweep(DialogueSel(), Dialogue: world.Svc.CheckDialogue(new[] { Fid(world.Quest) }, 1000));
-        string text = Wire.RenderCheck(sweep, 40_000);
+        string text = CheckTextRender.RenderCheck(sweep, 40_000);
 
         Assert.DoesNotContain("owns NO dialogue topics", text);
         Assert.Contains("could read", text);
@@ -234,7 +234,7 @@ public sealed class WinnerScanCoverageTests
         Assert.Contains(locked.ScanGaps, g => g.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
 
         var sweep = new CheckSweep(DialogueSel(), Dialogue: world.Svc.CheckDialogue(new[] { Fid(world.Quest) }, 1000));
-        Assert.Contains("quest CK-parity: OK", Wire.RenderCheck(sweep, 40_000));
+        Assert.Contains("quest CK-parity: OK", CheckTextRender.RenderCheck(sweep, 40_000));
         using var doc = JsonDocument.Parse(JsonWire.RenderCheck(sweep, 40_000));
         var seedObj = FindSeed(doc.RootElement);
         Assert.Empty(seedObj.GetProperty("input_issues").EnumerateArray());

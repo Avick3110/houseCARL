@@ -17,7 +17,7 @@ internal static class DialogueSweepRender
         // The bracket is a TEXT annotation on the name, never part of it (see TopicValidation.WinnerIsFolded).
         var winner = (report.InputWinnerPlugin ?? "<unknown>")
                    + (report.InputWinnerIsFolded ? " [the folded off-order copy]" : "");
-        return string.Format(ReadSentences.DialogueSeedHead, seed.Seed, KindLabel(report.InputKind),
+        return string.Format(CheckSentences.DialogueSeedHead, seed.Seed, KindLabel(report.InputKind),
                              Edid(report.InputEditorId), winner,
                              report.Topics.Count)
              + ComposeSeedBody(report);
@@ -34,7 +34,7 @@ internal static class DialogueSweepRender
 
     /// <summary>One unreachable-seed row.</summary>
     internal static string ComposeRefusalRow(DialogueSeedResult seed)
-        => string.Format(ReadSentences.DialogueSeedRefused, seed.Seed, seed.Refusal);
+        => string.Format(CheckSentences.DialogueSeedRefused, seed.Seed, seed.Refusal);
 
     /// <summary>The family's head, which a budget may never refuse: scope note, counts, outright refusal.</summary>
     internal static void AppendHead(StringBuilder sb, CheckOutcome o)
@@ -45,25 +45,25 @@ internal static class DialogueSweepRender
         // The scope note sits above this family's own counts and inside its own section.
         sb.Append(ScopeNote(d)).Append('\n');
         // Every number here comes off the outcome, so the counts and the scope sentence cannot disagree.
-        sb.Append(string.Format(ReadSentences.DialogueCounts, d.SeedsValidated, d.SeedsReached, d.TopicsFound,
+        sb.Append(string.Format(CheckSentences.DialogueCounts, d.SeedsValidated, d.SeedsReached, d.TopicsFound,
                                 d.FindingsFound));
         if (o.Sweep.Dialogue?.Epoch is { } epoch)
         {
             // The degraded clause sits beside the stamp exactly as the sibling families print it.
             var clause = OrderDegraded.Clause(o.Sweep.OrderExcluded.Count);
             sb.Append(UncoveredBy(d) is { Length: > 0 } unc
-                          ? string.Format(ReadSentences.DialogueEpochBound, epoch, clause, string.Join(", ", unc))
-                          : string.Format(ReadSentences.DialogueEpochWhole, epoch, clause));
+                          ? string.Format(CheckSentences.DialogueEpochBound, epoch, clause, string.Join(", ", unc))
+                          : string.Format(CheckSentences.DialogueEpochWhole, epoch, clause));
         }
-        if (d.CountsOnly) sb.Append(ReadSentences.DialogueCountsOnly);
+        if (d.CountsOnly) sb.Append(CheckSentences.DialogueCountsOnly);
     }
 
     /// <summary>The verdict classes the record fingerprint does not describe, read by both transports.</summary>
     internal static readonly string[] EpochUncovered =
     {
-        ReadSentences.DialogueUncoveredVoice,
-        ReadSentences.DialogueUncoveredScripts,
-        ReadSentences.DialogueUncoveredSeq,
+        CheckSentences.DialogueUncoveredVoice,
+        CheckSentences.DialogueUncoveredScripts,
+        CheckSentences.DialogueUncoveredSeq,
     };
 
     /// <summary>Which of those classes THIS response carried, off the same per-kind table the boundary reads.</summary>
@@ -108,8 +108,8 @@ internal static class DialogueSweepRender
         var checks = DialogueKindChecks.For(r.InputKind);
         // "owns none" is a claim a fan-out that lost a plugin cannot make; it says what it covered instead.
         if (r.InputKind == "quest" && r.Topics.Count == 0)
-            sb.Append(r.ScanGaps.Count > 0 ? ReadSentences.DialogueSeedNoTopicsRead : ReadSentences.DialogueSeedNoTopics);
-        foreach (var gap in r.ScanGaps) sb.Append(string.Format(ReadSentences.DialogueSeedScanGap, gap));
+            sb.Append(r.ScanGaps.Count > 0 ? CheckSentences.DialogueSeedNoTopicsRead : CheckSentences.DialogueSeedNoTopics);
+        foreach (var gap in r.ScanGaps) sb.Append(string.Format(CheckSentences.DialogueSeedScanGap, gap));
         DialogueWire.AppendSeq(sb, r.SeqLint);
         // The seed record's own CK parity, stated pass or fail, for every kind DialogueKindChecks gives one.
         if (checks.HasFlag(DialogueChecks.RecordParity) && r.InputIssues.Count == 0
@@ -117,7 +117,7 @@ internal static class DialogueSweepRender
         DialogueWire.AppendIssues(sb, r.InputIssues, "  ", int.MaxValue);
         // On a seed that owns no INFO list, say what this verdict does not cover.
         if (!checks.HasFlag(DialogueChecks.TopicGraph) && checks != DialogueChecks.None)
-            sb.Append("  ").Append(ReadSentences.DialogueRecordLevelScope).Append('\n');
+            sb.Append("  ").Append(CheckSentences.DialogueRecordLevelScope).Append('\n');
         return sb.ToString();
     }
 
@@ -126,9 +126,9 @@ internal static class DialogueSweepRender
     {
         // The reached count comes off the outcome: a seed that produced a named refusal is not a validated one.
         var howMany = d.SeedsReached < d.SeedsNamed
-            ? string.Format(ReadSentences.DialogueScopeSomeSeeds, d.SeedsReached, d.SeedsNamed)
-            : string.Format(ReadSentences.DialogueScopeAllSeeds, d.SeedsNamed);
-        return string.Format(ReadSentences.DialogueScopeNote, howMany);
+            ? string.Format(CheckSentences.DialogueScopeSomeSeeds, d.SeedsReached, d.SeedsNamed)
+            : string.Format(CheckSentences.DialogueScopeAllSeeds, d.SeedsNamed);
+        return string.Format(CheckSentences.DialogueScopeNote, howMany);
     }
 
     static string KindLabel(string kind) => kind switch

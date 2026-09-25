@@ -30,7 +30,7 @@ namespace HousecarlGenerator;
 ///   UNREADABLE   — a declarer that stops being openable leaves the ORDER, and the load-order layer NAMES the
 ///                  failure rather than swallowing it; and <c>DeclaresChild</c> keeps "I could not look" (null)
 ///                  distinct from "nothing there" (false).
-///   SENTENCE     — the content net over <see cref="ReadSentences"/>, consts AND the composed per-field note.
+///   SENTENCE     — the content net over <see cref="ReadSentences"/> and <see cref="CheckSentences"/>, consts AND the composed per-field note.
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator -- owned-child-content-guard</c>
 /// </summary>
@@ -244,9 +244,9 @@ public static class OwnedChildContentProbe
             // ---- UNREADABLE: a toucher whose body cannot be read is NAMED, not dropped ----
             CheckUnreadable(root, mods, baseDir, baseKey, topKey, cellA);
 
-            // ---- SENTENCE: the content net over ReadSentences, consts AND the composed note ----
+            // ---- SENTENCE: the content net over ReadSentences and CheckSentences, consts AND the composed note ----
             var sentenceBad = SentenceViolations();
-            Check("SENTENCE: every ReadSentences const decides ([MustState] phrases or [NoClaims] with a reason) and states them",
+            Check("SENTENCE: every ReadSentences and CheckSentences const decides ([MustState] phrases or [NoClaims] with a reason) and states them",
                 sentenceBad.Count == 0, string.Join(" | ", sentenceBad));
             // The composed note, at the branches a three-plugin fixture cannot reach: the name cap, the count
             // form, the empty answer, and the unreadable tail. The wire-level arms (which providers a real tree
@@ -375,14 +375,15 @@ public static class OwnedChildContentProbe
     // FieldLine / JsonStrings / ClauseHead / ClauseLine / NamedFields / Occurrences stood here: helpers that
     // parsed a RENDERED response. Every arm that read one drove a deleted tool, so they went with those arms.
 
-    /// <summary>The content half of the response-layer net, over <see cref="ReadSentences"/>: every const must
+    /// <summary>The content half of the response-layer net, over <see cref="ReadSentences"/> and <see cref="CheckSentences"/>: every const must
     /// DECIDE — declared phrases, or a stated reason there are none — and a sentence that declares a phrase must
     /// still contain it. The write surface's own arm is the model; this owner is the read surface's, and an
     /// undecorated const FAILS by name rather than passing in silence.</summary>
     static List<string> SentenceViolations()
     {
         var bad = new List<string>();
-        foreach (var f in typeof(ReadSentences).GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+        foreach (var f in new[] { typeof(ReadSentences), typeof(CheckSentences) }
+                              .SelectMany(t => t.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)))
         {
             if (!f.IsLiteral) { bad.Add($"{f.Name}: not a const (unreadable to this net)"); continue; }
             if (f.FieldType != typeof(string)) continue;   // a non-prose const (a cap) carries no sentence to check

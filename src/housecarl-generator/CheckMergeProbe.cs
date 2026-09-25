@@ -10,7 +10,7 @@ namespace HousecarlGenerator;
 
 /// <summary>
 /// SELF-CONTAINED CI REGRESSION GUARD for the MERGED derived-findings sweep (housecarl_check — SPEC §6.1). Drives
-/// the real renders (<see cref="Wire.RenderCheck"/> / <see cref="JsonWire.RenderCheck"/>) over a synthesized order
+/// the real renders (<see cref="CheckTextRender.RenderCheck"/> / <see cref="JsonWire.RenderCheck"/>) over a synthesized order
 /// whose one plugin carries BOTH sweep families' findings at once: NPCs whose Race links into an absent master
 /// (dangling), and weapons whose VMAD binds none of the properties their .pex declares (unbound). The DIALOGUE
 /// family's fixture is a result rather than a plugin, built through the real <c>DialogueSweep.Run</c> with a stub
@@ -183,11 +183,11 @@ public static class CheckMergeProbe
         var facegen = FaceGenFixture();
 
         var both = new CheckSweep(Sel("errors", "scripts"), errors, scripts);
-        var text = Wire.RenderCheck(both, 0);
+        var text = CheckTextRender.RenderCheck(both, 0);
         var json = JsonWire.RenderCheck(both, 0);
         // Every registered family at once — what the ALL sentence and the cap ladder are asked about.
         var all = new CheckSweep(Sel("errors", "scripts", "dialogue", "facegen"), errors, scripts, dialogue, facegen);
-        var allText = Wire.RenderCheck(all, 0);
+        var allText = CheckTextRender.RenderCheck(all, 0);
         var allJson = JsonWire.RenderCheck(all, 0);
 
         // ---- SECTION-PER-FAMILY -------------------------------------------------------------------
@@ -196,16 +196,16 @@ public static class CheckMergeProbe
             && Count(text, "\n[scripts] VMAD script-property binding sweep\n") == 1
             && text.IndexOf("[errors]", StringComparison.Ordinal) < text.IndexOf("[scripts]", StringComparison.Ordinal)
             && Count(text, "boundary (errors): ") == 1 && Count(text, "boundary (scripts): ") == 1
-            && Count(text, ReadSentences.SweepMergedTitle) == 1,
+            && Count(text, CheckSentences.SweepMergedTitle) == 1,
             $"errorsHead={Count(text, "[errors] ")} scriptsHead={Count(text, "[scripts] ")} boundaries={Count(text, "boundary (")}");
 
         // ---- ACCOUNTING-PER-FAMILY ----------------------------------------------------------------
         // Each family's accounting states ITS OWN family's totals — the fixture knows both.
         Check($"ACCOUNTING-PER-FAMILY: two accounting lines, each stating its own family's totals ({Npcs} dangling, {Weapons} record sections)",
-            Count(text, ReadSentences.SweepAccountingLead) == 2
+            Count(text, CheckSentences.SweepAccountingLead) == 2
             && text.Contains($"all {Npcs} dangling ref(s) found by this sweep appear above.", StringComparison.Ordinal)
             && text.Contains($"all {Weapons} record section(s) found by this sweep appear above.", StringComparison.Ordinal),
-            $"accountings={Count(text, ReadSentences.SweepAccountingLead)}");
+            $"accountings={Count(text, CheckSentences.SweepAccountingLead)}");
 
         using (var doc = JsonDocument.Parse(json))
         {
@@ -232,7 +232,7 @@ public static class CheckMergeProbe
         };
         var withRoster = new CheckSweep(Sel("errors", "scripts"),
                                         errors with { ExcludedPlugins = roster }, scripts with { ExcludedPlugins = roster });
-        var rosterText = Wire.RenderCheck(withRoster, 0);
+        var rosterText = CheckTextRender.RenderCheck(withRoster, 0);
         Check($"EXCLUDED-ROSTER-ONCE: the roster is a SCOPE fact — each of its {roster.Count} rows appears once, under ONE head, however many families ran",
             Count(rosterText, "  HcCmBroken.esp: header could not be parsed\n") == 1
             && Count(rosterText, "  HcCmAlsoBroken.esp: header could not be parsed\n") == 1
@@ -245,7 +245,7 @@ public static class CheckMergeProbe
         bool sawRosterCut = false;
         for (int cap = 300; cap <= 8000; cap += 20)
         {
-            var t = Wire.RenderCheck(withRoster, cap);
+            var t = CheckTextRender.RenderCheck(withRoster, cap);
             int stated = Count(t, " plugin(s) that could not be parsed are named above.");
             if (stated > 0) sawRosterCut = true;
             if (stated > 1) doubleCounted.Add($"@{cap}: {stated} accountings state the roster cut");
@@ -262,7 +262,7 @@ public static class CheckMergeProbe
         // be parsed are named above" was a CUT, and set truncated on a response carrying the whole roster — in both
         // transports, on every merged call with an unparseable plugin (round-1 review, found by two reviewers).
         // Asked at a cap nothing can bite at, so a claim here is false by construction rather than arguable.
-        var rosterWhole = Wire.RenderCheck(withRoster, 0);
+        var rosterWhole = CheckTextRender.RenderCheck(withRoster, 0);
         var rosterWholeJson = JsonWire.RenderCheck(withRoster, 0);
         var rosterLies = new List<string>();
         if (Count(rosterWhole, "  HcCmBroken.esp: header could not be parsed\n") != 1)
@@ -297,18 +297,18 @@ public static class CheckMergeProbe
         // That is the rule working. What #394 IS, is the second family waiting for the first to finish — so the
         // claim is about WHEN the scripts family first renders anything, held against what a serial walk would have
         // needed. Both quantities are measured off this fixture.
-        int mergedFloor = Wire.RenderCheck(both, 1).Length;                       // the response with no body at all
+        int mergedFloor = CheckTextRender.RenderCheck(both, 1).Length;                       // the response with no body at all
         // #486: Wire.RenderCheckErrors (the deleted 1.x single-family renderer) is gone. Re-derived with no loss
         // through the merged renderer over an ERRORS-ONLY sweep — arguably the better baseline, since the number
         // is now measured through the SAME renderer it is compared against.
         var errorsOnly = new CheckSweep(Sel("errors"), errors);
-        int errorsWholeBody = Wire.RenderCheck(errorsOnly, 0).Length              // what the errors family's body
-                            - Wire.RenderCheck(errorsOnly, 1).Length;             // comes to when nothing is cut
+        int errorsWholeBody = CheckTextRender.RenderCheck(errorsOnly, 0).Length              // what the errors family's body
+                            - CheckTextRender.RenderCheck(errorsOnly, 1).Length;             // comes to when nothing is cut
         int firstScriptsCap = -1;
         var asymmetric = new List<string>();
         for (int cap = mergedFloor; cap <= 20000; cap += 20)
         {
-            var t = Wire.RenderCheck(both, cap);
+            var t = CheckTextRender.RenderCheck(both, cap);
             int dangling = StatedPair(t, " dangling ref(s) found by this sweep appear above.");
             int recs = StatedPair(t, " record section(s) found by this sweep appear above.");
             if (dangling < 0 || recs < 0) { asymmetric.Add($"@{cap}: an accounting states no count (dangling={dangling} records={recs})"); continue; }
@@ -362,7 +362,7 @@ public static class CheckMergeProbe
 
         // ---- SCOPE-SENTENCE ------------------------------------------------------------------------
         var defaulted = new CheckSweep(Sel(), errors);
-        var defText = Wire.RenderCheck(defaulted, 0);
+        var defText = CheckTextRender.RenderCheck(defaulted, 0);
         var defJson = JsonWire.RenderCheck(defaulted, 0);
         string spelling = SweepFamilySelection.Spelling(SweepFamily.Scripts);
         string describes = SweepFamilySelection.Describe(SweepFamily.Scripts);
@@ -401,7 +401,7 @@ public static class CheckMergeProbe
         }
 
         var chosen = new CheckSweep(Sel("errors"), errors);
-        var chosenText = Wire.RenderCheck(chosen, 0);
+        var chosenText = CheckTextRender.RenderCheck(chosen, 0);
         Check("SCOPE-SENTENCE-CHOSEN: a caller who NAMED the family is not told they omitted findings= — the two are different sentences",
             chosenText.Contains("findings= selected, and this response answers for:", StringComparison.Ordinal)
             && !chosenText.Contains("findings= was not given", StringComparison.Ordinal)
@@ -422,7 +422,7 @@ public static class CheckMergeProbe
         // cover a plugin the order does not hold with nothing saying so.
         var offOrder = new CheckSweep(Sel("errors", "scripts"), errors,
                                       scripts with { OffOrderScanned = new[] { "FreshPatch.esp" } });
-        var offText = Wire.RenderCheck(offOrder, 0);
+        var offText = CheckTextRender.RenderCheck(offOrder, 0);
         var offJson = JsonWire.RenderCheck(offOrder, 0);
         int scriptsHeadAt = offText.IndexOf("[scripts] ", StringComparison.Ordinal);
         int sweptAt = offText.IndexOf("swept OFF-ORDER (on disk, not in the active load order): FreshPatch.esp",
@@ -492,7 +492,7 @@ public static class CheckMergeProbe
         // answered. Driven through DialogueSweep.Run, the real parse path, not a hand-built result.
         var unseeded = DialogueSweep_Run(null, 1000);
         var mixed = new CheckSweep(Sel("errors", "dialogue"), errors, null, unseeded);
-        var mixedText = Wire.RenderCheck(mixed, 0);
+        var mixedText = CheckTextRender.RenderCheck(mixed, 0);
         var mixedJson = JsonWire.RenderCheck(mixed, 0);
         if (Environment.GetEnvironmentVariable("HC_DUMP") is not null)
             Console.WriteLine("=== MIXED ===\n" + mixedText + "\n=== END ===");
@@ -564,7 +564,7 @@ public static class CheckMergeProbe
         // counts do not have.
         var offOneSided = new CheckSweep(Sel("errors", "scripts"),
                                          errors with { OffOrderScanned = new[] { "FreshPatch.esp" } }, scripts);
-        var offOneSidedText = Wire.RenderCheck(offOneSided, 0);
+        var offOneSidedText = CheckTextRender.RenderCheck(offOneSided, 0);
         var offOneSidedJson = JsonWire.RenderCheck(offOneSided, 0);
         int oneSidedScriptsAt = offOneSidedText.IndexOf("[scripts] ", StringComparison.Ordinal);
         bool oneSidedJson;
@@ -591,12 +591,12 @@ public static class CheckMergeProbe
         // with no special case for a single selected family: one family has one ground, so it collapses.
         var errRefused = ErrorCheckResult.Fail("errors-ground: exclude= removed every plugin this sweep would have covered.");
         var distinct = new CheckSweep(Sel("errors", "dialogue"), errRefused, null, unseeded);
-        var distinctText = Wire.RenderCheck(distinct, 0);
+        var distinctText = CheckTextRender.RenderCheck(distinct, 0);
         var distinctJson = JsonWire.RenderCheck(distinct, 0);
         // The CONTROL, in the same shape: both families refusing on the SAME ground is one answer, and one error is
         // what it must return. Without this half the arm would pass on a render that had simply stopped collapsing.
         var sameGround = new CheckSweep(Sel("errors", "dialogue"), ErrorCheckResult.Fail(unseeded.Error!), null, unseeded);
-        var sameText = Wire.RenderCheck(sameGround, 0);
+        var sameText = CheckTextRender.RenderCheck(sameGround, 0);
         var groundsBad = new List<string>();
         if (!distinctText.Contains("errors-ground:", StringComparison.Ordinal))
             groundsBad.Add("the errors family's ground is not in the response at all");
@@ -647,7 +647,7 @@ public static class CheckMergeProbe
                                                    ErrorCheckResult.Fail(sharedScopeGround),
                                                    ScriptCheckResult.Fail(sharedScopeGround),
                                                    DialogueFixture());
-        var twoRefusedText = Wire.RenderCheck(twoRefusedOneAnswered, 0);
+        var twoRefusedText = CheckTextRender.RenderCheck(twoRefusedOneAnswered, 0);
         var twoRefusedJson = JsonWire.RenderCheck(twoRefusedOneAnswered, 0);
         var twoRefusedBad = new List<string>();
         if (twoRefusedText.StartsWith("error:", StringComparison.Ordinal))
@@ -719,14 +719,14 @@ public static class CheckMergeProbe
                 && errAcct.TryGetProperty("dangling_missing_by_source_total", out _)
                 && Num(errAcct, "dangling_found") == Npcs
                 // The transports agree: one accounting line for the family that can state one, none for the other.
-                && Count(mixedText, ReadSentences.SweepAccountingLead) == 1,
-                merged ? $"dialogueAcct={Trim(dlgAcct.GetRawText())} textAccountingLines={Count(mixedText, ReadSentences.SweepAccountingLead)}"
+                && Count(mixedText, CheckSentences.SweepAccountingLead) == 1,
+                merged ? $"dialogueAcct={Trim(dlgAcct.GetRawText())} textAccountingLines={Count(mixedText, CheckSentences.SweepAccountingLead)}"
                        : $"the response is not a merged document: {Trim(mixedJson)}");
         }
 
         // ---- DIALOGUE-NOT-PLUGIN-SCOPED ------------------------------------------------------------
         var dlgOnly = new CheckSweep(Sel("dialogue"), null, null, dialogue);
-        var dlgText = Wire.RenderCheck(dlgOnly, 0);
+        var dlgText = CheckTextRender.RenderCheck(dlgOnly, 0);
         var dlgJson = JsonWire.RenderCheck(dlgOnly, 0);
         using (var doc = JsonDocument.Parse(dlgJson))
         {
@@ -767,7 +767,7 @@ public static class CheckMergeProbe
 
         // ---- DIALOGUE-UNREACHABLE-SEEDS-NAMED ------------------------------------------------------
         var dlgCounts = dialogue with { CountsOnly = true };
-        var countsText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, dlgCounts), 0);
+        var countsText = CheckTextRender.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, dlgCounts), 0);
         Check($"DIALOGUE-UNREACHABLE-SEEDS-NAMED: all {UnreachableSeeds} seeds that resolved to nothing are named with why — in the listing lane AND under counts_only, which silences the blocks and not the boundary of the answer",
             Count(dlgText, "NOT validated:") == UnreachableSeeds
             && Count(countsText, "NOT validated:") == UnreachableSeeds
@@ -780,7 +780,7 @@ public static class CheckMergeProbe
         // limit= means SEEDS for this family. The arm asserts the fixture's own arithmetic: five named, two
         // expanded, three never reached — and the accounting has to say so rather than let them read as clean.
         var budgeted = DialogueSweep_Run(new[] { "000001:A.esp", "000002:A.esp", "000003:A.esp", "000004:A.esp", "000005:A.esp" }, 2);
-        var budgetText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, budgeted), 0);
+        var budgetText = CheckTextRender.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, budgeted), 0);
         Check("DIALOGUE-SEED-BUDGET: limit= caps how many SEEDS a call expands, and the accounting names how many it never reached and which knob moves them",
             budgeted.SeedsNamed == 5 && budgeted.Seeds.Count == 2
             && budgetText.Contains("2 of the 5 seed(s) named were reached; 3 were NOT reached", StringComparison.Ordinal)
@@ -821,7 +821,7 @@ public static class CheckMergeProbe
         bool sawSeedCut = false;
         for (int cap = 400; cap <= 6000; cap += 20)
         {
-            var t = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, budgeted), cap);
+            var t = CheckTextRender.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, budgeted), cap);
             if (t.Contains("seed section(s) were rendered", StringComparison.Ordinal)) sawSeedCut = true;
             if (t.Contains("plugin section(s) were rendered", StringComparison.Ordinal))
                 seedCutBad.Add($"@{cap}: the dialogue family reports its cut in plugin sections");
@@ -839,7 +839,7 @@ public static class CheckMergeProbe
         // seeds that produced a REPORT at family level, the seeds the budget REACHED in the accounting.
         var budgetCounts = budgeted with { CountsOnly = true };
         var budgetCountsSweep = new CheckSweep(Sel("dialogue"), null, null, budgetCounts);
-        var budgetCountsText = Wire.RenderCheck(budgetCountsSweep, 0);
+        var budgetCountsText = CheckTextRender.RenderCheck(budgetCountsSweep, 0);
         var budgetCountsJson = JsonWire.RenderCheck(budgetCountsSweep, 0);
         var seedFacts = new List<string>();
         // The text lane is the control: it has always stated the seed cut under counts_only.
@@ -885,7 +885,7 @@ public static class CheckMergeProbe
         var fourPop = DialogueSweep_Run(new[] { "000A01:A.esp", "000B02:B.esp", "000C03:A.esp",
                                                 "000D04:A.esp", "000E05:A.esp" }, 2);
         var fourPopSweep = new CheckSweep(Sel("dialogue"), null, null, fourPop);
-        var fourText = Wire.RenderCheck(fourPopSweep, 0);
+        var fourText = CheckTextRender.RenderCheck(fourPopSweep, 0);
         var fourJson = JsonWire.RenderCheck(fourPopSweep, 0);
         var pops = new List<string>();
         if (fourPop.SeedsNamed != 5 || fourPop.Seeds.Count != 2
@@ -976,10 +976,10 @@ public static class CheckMergeProbe
         // overrun sentence is part of what it returns, so a floor taken there overstates this response's fixed
         // part by the length of a sentence the cap under test does not print — which made shareCap wider than it
         // was meant to be and the arm easier than it looked (round-2 finding C8).
-        int floor = QuietFloor(oneSeedSweep, (x, c, h) => Wire.RenderCheck(x, c, h), "  topic ");
+        int floor = QuietFloor(oneSeedSweep, (x, c, h) => CheckTextRender.RenderCheck(x, c, h), "  topic ");
         int blockWidth = TopicBlockWidth(oneSeed);
         int shareCap = floor + blockWidth * (Topics * 2 / 3);
-        int atShareCap = Count(Wire.RenderCheck(oneSeedSweep, shareCap), "  topic ");
+        int atShareCap = Count(CheckTextRender.RenderCheck(oneSeedSweep, shareCap), "  topic ");
         // AND THE CLAIM IS STATED AS ITSELF: the topic blocks spent MORE THAN HALF the row budget this cap left.
         // It used to be written as `atShareCap > (shareCap - floor) / (2 * blockWidth)`, which reduces
         // algebraically to Topics/3 — a constant wearing a measurement's clothes, and one whose terms cancelled
@@ -1012,9 +1012,9 @@ public static class CheckMergeProbe
         // cannot spend the room the second seed's head needs, however tight the cap. The cap is sized from the
         // fixture's own floor and block width, so the cut is real and this file knows it.
         var twoSeedSweep = new CheckSweep(Sel("dialogue"), null, null, twoSeeds);
-        int twoFloor = Wire.RenderCheck(twoSeedSweep, 1).Length;
+        int twoFloor = CheckTextRender.RenderCheck(twoSeedSweep, 1).Length;
         int twoCap = twoFloor + TopicBlockWidth(twoSeeds) * (Topics * 2 / 3);
-        var twoText = Wire.RenderCheck(twoSeedSweep, twoCap);
+        var twoText = CheckTextRender.RenderCheck(twoSeedSweep, twoCap);
         int twoSeedTopics = Count(twoText, "  topic ");
         Check($"DIALOGUE-BOTH-SEED-HEADS-KEEP-THEIR-SHARE: at a cap that cuts the topic blocks, a two-seed call still writes BOTH seed heads — the seed subject's share is its own, so one seed's blocks cannot spend the room the other seed's head needs",
             Count(twoText, "\nseed ") == 2
@@ -1028,7 +1028,7 @@ public static class CheckMergeProbe
         var boundaryMissing = new List<int>();
         foreach (int cap in new[] { 1, 2, 5, 10, 50, 200, 800, 2000, 6000, 12000, 40000 })
         {
-            if (!Wire.RenderCheck(dlgOnly, cap).Contains("does NOT mean the dialogue will play as intended", StringComparison.Ordinal))
+            if (!CheckTextRender.RenderCheck(dlgOnly, cap).Contains("does NOT mean the dialogue will play as intended", StringComparison.Ordinal))
                 boundaryMissing.Add(cap);
         }
         Check("DIALOGUE-BOUNDARY-UNREFUSABLE: the standing-limits claim is this family's boundary, so it is written at every cap — including the ones that admit no findings at all",
@@ -1042,7 +1042,7 @@ public static class CheckMergeProbe
         var allWithRoster = new CheckSweep(Sel("errors", "scripts", "dialogue"),
                                            errors with { ExcludedPlugins = roster },
                                            scripts with { ExcludedPlugins = roster }, dialogue);
-        var allRosterText = Wire.RenderCheck(allWithRoster, 0);
+        var allRosterText = CheckTextRender.RenderCheck(allWithRoster, 0);
         Check("ROSTER-STILL-ONE-WITH-THREE-FAMILIES: with all three families running over a build that DID exclude a plugin, the roster is emitted once and owned by the first family that has one — the dialogue family reports none of its own, because a seeded validation produces no such list",
             CheckOutcome.For(allWithRoster).RosterOwner == SweepFamily.Errors
             && Count(allRosterText, "excluded plugins (could not be parsed") == 1
@@ -1077,10 +1077,10 @@ public static class CheckMergeProbe
             JsonWire.RenderCheck(sweep, 0, 1000, out var jsonBody);
             if (jsonBody is not null && jsonBody.ReservedWritten > jsonReserve)
                 reserveBad.Add($"json/{label}: wrote {jsonBody.ReservedWritten} through a reserve of {jsonReserve}");
-            int textReserve = probeAccts.Sum(a => a.TextAccountingReserve + a.Boundary.Length + Wire.BoundaryWrap)
-                            + oc.Sections.Sum(f => string.Format(ReadSentences.SweepBoundaryLabelFor,
+            int textReserve = probeAccts.Sum(a => a.TextAccountingReserve + a.Boundary.Length + CheckTextRender.BoundaryWrap)
+                            + oc.Sections.Sum(f => string.Format(CheckSentences.SweepBoundaryLabelFor,
                                                                  SweepFamilySelection.Token(f)).Length);
-            Wire.RenderCheck(sweep, 0, 1000, out var textBody);
+            CheckTextRender.RenderCheck(sweep, 0, 1000, out var textBody);
             if (textBody is not null && textBody.ReservedWritten > textReserve)
                 reserveBad.Add($"text/{label}: wrote {textBody.ReservedWritten} through a reserve of {textReserve}");
         }
@@ -1136,7 +1136,7 @@ public static class CheckMergeProbe
             JsonWire.RenderCheck(sweep, 0, 1000, out var jb);
             if (jb is not null && jb.ReserveDeclared != jb.ReserveDemanded)
                 reserveMismatch.Add($"json/{label}: the demand pass held back {jb.ReserveDemanded}, the render reserved {jb.ReserveDeclared}");
-            Wire.RenderCheck(sweep, 0, 1000, out var tb);
+            CheckTextRender.RenderCheck(sweep, 0, 1000, out var tb);
             if (tb is not null && tb.ReserveDeclared != tb.ReserveDemanded)
                 reserveMismatch.Add($"text/{label}: the demand pass held back {tb.ReserveDemanded}, the render reserved {tb.ReserveDeclared}");
         }
@@ -1523,10 +1523,10 @@ public static class CheckMergeProbe
         var rlSweep = new CheckSweep(Sel("dialogue"), null, null, RecordLevelFixture());
         var rlFail = new CheckSweep(Sel("dialogue"), null, null, RecordLevelFailingFixture());
         var mixed = new CheckSweep(Sel("dialogue"), null, null, MixedKindFixture());
-        var rlText = Wire.RenderCheck(rlSweep, 0);
-        var rlFailText = Wire.RenderCheck(rlFail, 0);
-        var mixedText = Wire.RenderCheck(mixed, 0);
-        var questText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, DialogueFixture()), 0);
+        var rlText = CheckTextRender.RenderCheck(rlSweep, 0);
+        var rlFailText = CheckTextRender.RenderCheck(rlFail, 0);
+        var mixedText = CheckTextRender.RenderCheck(mixed, 0);
+        var questText = CheckTextRender.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, DialogueFixture()), 0);
 
         Arm("DIALOGUE-A-RECORD-LEVEL-SEED-STATES-ITS-VERDICT: a PASSING DLVW and a PASSING DLBR each carry their own CK-parity OK line, naming the subrecords their kind is checked for — and a FAILING one carries the issue instead, so the arm cannot pass on a sentence printed either way. The two kinds get different sentences because what the check looked at IS the answer",
             rlText.Contains("CK-parity: OK — the DNAM and ENAM byte subrecords", StringComparison.Ordinal)
@@ -1661,11 +1661,11 @@ public static class CheckMergeProbe
     static bool CapSweep(CheckSweep s, out string detail)
     {
         var bad = new List<string>();
-        int textFloor = Wire.RenderCheck(s, 1).Length;
+        int textFloor = CheckTextRender.RenderCheck(s, 1).Length;
         int jsonFloor = JsonWire.RenderCheck(s, 1).Length;
         foreach (int cap in CapLadder)
         {
-            var text = Wire.RenderCheck(s, cap);
+            var text = CheckTextRender.RenderCheck(s, cap);
             var json = JsonWire.RenderCheck(s, cap);
             int textAllowed = Math.Max(cap, textFloor + FloorSlack(cap));
             int jsonAllowed = Math.Max(cap, jsonFloor + FloorSlack(cap));
@@ -1676,7 +1676,7 @@ public static class CheckMergeProbe
             // …AND IT IS STILL A MERGED DOCUMENT. Without this, every cap above is satisfied by a response that is
             // a bare error string: short, valid json, under any cap. A sweep whose whole claim is "the render
             // honours max_chars" passes most loudly on a render that stopped rendering (round-2 finding C9).
-            if (!text.Contains(ReadSentences.SweepMergedTitle, StringComparison.Ordinal))
+            if (!text.Contains(CheckSentences.SweepMergedTitle, StringComparison.Ordinal))
                 bad.Add($"text@{cap} is not a merged response: {Trim(text)}");
             try
             {
@@ -1842,7 +1842,7 @@ public static class CheckMergeProbe
             for (int cap = 1; cap <= 9000; cap++)
             {
                 BoundedBody? body;
-                if (lane == "text") Wire.RenderCheck(s, cap, 1000, out body);
+                if (lane == "text") CheckTextRender.RenderCheck(s, cap, 1000, out body);
                 else JsonWire.RenderCheck(s, cap, 1000, out body);
                 if (body is null) { bad.Add($"{lane}@{cap}: the render built no allocation"); break; }
                 foreach (var subject in subjects)
@@ -1880,8 +1880,8 @@ public static class CheckMergeProbe
         const int JsonSlack = 1500;
         var bad = new List<string>();
 
-        string uncapped = Wire.RenderCheck(s, 0);
-        string capped = Wire.RenderCheck(s, Default, 1000, out var body);
+        string uncapped = CheckTextRender.RenderCheck(s, 0);
+        string capped = CheckTextRender.RenderCheck(s, Default, 1000, out var body);
         // The fixture has to FIT, or the arm is asking nothing.
         if (uncapped.Length >= Default) bad.Add($"the uncapped response is {uncapped.Length} chars — the fixture no longer fits the default and this arm proves nothing");
         // The dangling entry's marker is the composer's OWN text. "  dangling ref " is a string
@@ -1913,7 +1913,7 @@ public static class CheckMergeProbe
                 bad.Add($"json {family} reports truncated:true inside a cap its whole answer fits");
 
         // THE TIGHT FIT. Monotone in max_chars (pin 3(i)), so the threshold can be found by bisection.
-        int textFloor = SmallestWholeCap(c => TextUnits(Wire.RenderCheck(s, c)), TextUnits(uncapped), uncapped.Length);
+        int textFloor = SmallestWholeCap(c => TextUnits(CheckTextRender.RenderCheck(s, c)), TextUnits(uncapped), uncapped.Length);
         string jsonUncapped = JsonWire.RenderCheck(s, 0);
         int jsonFloor = SmallestWholeCap(c => JsonUnits(JsonWire.RenderCheck(s, c)), JsonUnits(jsonUncapped), jsonUncapped.Length);
         if (textFloor < 0) bad.Add("text: no cap up to three times the response renders it whole");
@@ -1971,7 +1971,7 @@ public static class CheckMergeProbe
         foreach (var lane in new[] { "text", "json" })
         {
             BoundedBody? body;
-            if (lane == "text") Wire.RenderCheck(s, 4000000, 1000, out body);
+            if (lane == "text") CheckTextRender.RenderCheck(s, 4000000, 1000, out body);
             else JsonWire.RenderCheck(s, 4000000, 1000, out body);
             if (body is null) { bad.Add($"{lane}: the render built no allocation"); continue; }
             foreach (var subject in CheckOutcome.For(s).Plan().SelectMany(p => p.Subjects).Distinct())

@@ -154,7 +154,7 @@ public sealed class ScriptsOffOrderTests : IDisposable
     {
         var r = _svc.ValidateScripts(new[] { PendingName }, 1000);
 
-        var text = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
+        var text = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
         Assert.Contains("swept OFF-ORDER (on disk, not in the active load order): " + PendingName, text);
         Assert.Contains("(indexed plugins only — off-order file content is outside the fingerprint)", text);
 
@@ -200,7 +200,7 @@ public sealed class ScriptsOffOrderTests : IDisposable
         // ONE record that carried the note first.
         Assert.Equal(PendingUnbound + 1, r.Reports.Count);
 
-        var text = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
+        var text = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
         Assert.Contains($"{PendingUnverifiable - 1} further record(s) carry a note already reported", text);
 
         var fam = ScriptsFamily(JsonWire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000));
@@ -263,7 +263,7 @@ public sealed class ScriptsOffOrderTests : IDisposable
         var r = _svc.ValidateScripts(new[] { ActiveName }, 1000);
 
         Assert.Empty(r.OffOrderScanned ?? Array.Empty<string>());
-        var text = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
+        var text = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
         Assert.DoesNotContain("(indexed plugins only", text);
         var fam = ScriptsFamily(JsonWire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000));
         Assert.True(fam.GetProperty("epoch_covers_all_inputs").GetBoolean());
