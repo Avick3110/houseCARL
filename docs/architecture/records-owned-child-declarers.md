@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-23
-covers: [src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/OwnedChildContent.cs, src/housecarl-core/OwnedChildLifecycle.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RecordsTools.cs, src/housecarl-mcp/Artifacts.cs]
+covers: [src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/OwnedChildContent.cs, src/housecarl-core/OwnedChildLifecycle.cs, src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RecordsTools.cs, src/housecarl-mcp/Artifacts.cs]
 ---
 # Owned-child content: the additive union, and one sentence source
 

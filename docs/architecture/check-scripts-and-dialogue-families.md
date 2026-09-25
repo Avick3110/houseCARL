@@ -77,7 +77,7 @@ out of.
 - `src/housecarl-core/ScriptPropertyCheck.cs` — the scripts family: `ScriptPropertyCheck.Run`,
   `ScriptCheckResult`, `ScriptUnverifiable`.
 - `src/housecarl-core/EditorIdNearMiss.cs` — `EditorIdNearMiss.Sentence`, called from the scan lane in
-  `src/housecarl-mcp/RecordReads.cs`.
+  `src/housecarl-mcp/RecordQuery.cs`.
 - `DialogueOutcome` in `src/housecarl-mcp/CheckOutcome.cs` (covered by [`check-families.md`](check-families.md))
   — the four seed words as fields.
 - Tools: `housecarl_check` (`findings=["scripts"]`, `findings=["dialogue"]`), `housecarl_records` (the scan).

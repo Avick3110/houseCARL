@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-23
-covers: [src/housecarl-core/ReadEngine.cs, src/housecarl-core/BodyGather.cs, src/housecarl-core/WinnerBodies.cs, src/housecarl-core/RecordLinks.cs, src/housecarl-core/RecordArms.cs, src/housecarl-core/RecordNaming.cs, src/housecarl-core/PathFold.cs, src/housecarl-core/PluginFile.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/TreeFold.cs, src/housecarl-mcp/FieldFold.cs, src/housecarl-mcp/ReverseWalkBatch.cs, src/housecarl-mcp/ScanDetailReader.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-core/FieldsDiff.cs]
+covers: [src/housecarl-core/ReadEngine.cs, src/housecarl-core/BodyGather.cs, src/housecarl-core/WinnerBodies.cs, src/housecarl-core/RecordLinks.cs, src/housecarl-core/RecordArms.cs, src/housecarl-core/RecordNaming.cs, src/housecarl-core/PathFold.cs, src/housecarl-core/PluginFile.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/RecordPoles.cs, src/housecarl-mcp/RecordWalk.cs, src/housecarl-mcp/RecordQuery.cs, src/housecarl-mcp/TreeFold.cs, src/housecarl-mcp/FieldFold.cs, src/housecarl-mcp/ReverseWalkBatch.cs, src/housecarl-mcp/ScanDetailReader.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/ScopeSplit.cs, src/housecarl-mcp/BodyPrefetch.cs, src/housecarl-mcp/PoleGather.cs, src/housecarl-core/FieldsDiff.cs]
 ---
 # The read engine
 
@@ -70,9 +70,13 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 `src/housecarl-core/`: `ReadEngine.cs` (leaf read, emit, deep walk), `BodyGather.cs` /
 `WinnerBodies.cs` (bulk bodies), `RecordLinks.cs`, `RecordArms.cs`, `RecordNaming.cs`,
 `PathFold.cs`, `PluginFile.cs`, `FieldsDiff.cs` (the deep comparison behind `project={"form":"tree"}`).
-`src/housecarl-mcp/`: `RecordReads.cs` (resolve, batch, poles, delta/tree, walk, scan, the type lookup),
+`src/housecarl-mcp/`: `RecordReads.cs` (resolve, batch, the one-pole batch, info order, the dialogue fold),
+`RecordPoles.cs` (comparison poles, the delta/tree batches), `RecordWalk.cs` (walk), `RecordQuery.cs`
+(cross-plugin query, off-order scan, effect chain), `ScopeSplit.cs` (the scan's `plugins=` split),
+`BodyPrefetch.cs` and `PoleGather.cs` (bulk bodies for a chunk of rows and of pole reads),
 `TreeFold.cs`, `FieldFold.cs`, `ReverseWalkBatch.cs`, `ScanDetailReader.cs`, `ReadSentences.cs`
 (the read surface's prose; the check families' own sentences now live in `CheckSentences.cs`, under
 `docs/architecture/check-families.md` and
-`docs/architecture/check-scripts-and-dialogue-families.md`).
+`docs/architecture/check-scripts-and-dialogue-families.md`). The type lookup is in `TypeLookup.cs`,
+under `docs/architecture/corpus-rulebook.md`.
 Tool: `housecarl_records`.
