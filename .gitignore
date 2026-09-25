@@ -26,6 +26,11 @@ x86/
 *.snupkg
 packages/
 .nuget/
+## ...except the vendored package source nuget.config adds (packages/local: the NiflySharp fork, issue #926)
+!/packages/
+/packages/*
+!/packages/local/
+!/packages/local/*.nupkg
 
 ## Test / coverage results
 [Tt]est[Rr]esult*/
