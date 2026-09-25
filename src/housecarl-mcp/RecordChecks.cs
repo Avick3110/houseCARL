@@ -16,17 +16,20 @@ internal interface ICheckHost : ILoadOrderHost
     DialogueFold? OpenDialogueFold(LoadOrderService.PoleInfo arm, out string? error, string? label, bool withRecords);
 }
 
-public sealed partial class LoadOrderService
+/// <summary>The checks area: the errors, scripts, facegen and dialogue sweeps.</summary>
+internal sealed class RecordChecks
 {
     /// <summary>Every head member the checks area takes, and nothing else.</summary>
-    ICheckHost CheckHost => this;
+    readonly ICheckHost _host;
+
+    internal RecordChecks(ICheckHost host) => _host = host;
 
     /// <summary>The on-demand whole-topic dialogue-graph validator: a DIAL validates its own graph, a QUST fans out to
     /// every topic it owns, everything judged against the resolved winners. Never throws over a verify step — a
     /// mid-run failure rides <see cref="DialogueValidationReport.CheckError"/>, a bad input is a named
     /// <see cref="DialogueValidationReport.Error"/>.</summary>
     public DialogueValidationReport ValidateDialogue(FormKey fk)
-        => DialogueValidate.Run(CheckHost.Resolver, CheckHost.Assets, fk, null, ForceLoadedPluginNames(CheckHost.CaptureRoots().ProfileDir));
+        => DialogueValidate.Run(_host.Resolver, _host.Assets, fk, null, ForceLoadedPluginNames(_host.CaptureRoots().ProfileDir));
 
     /// <summary>The force-loaded plugin names in <paramref name="profileDir"/>, for a check that must not blame a modder
     /// for content they did not author. Null, never an empty set, when the MO2 profile cannot be read.</summary>
@@ -41,26 +44,26 @@ public sealed partial class LoadOrderService
     /// cost refusal, seed budget, tally) lives in <see cref="DialogueSweep"/> rather than in this file.</summary>
     /// <param name="foldArm">an already-probed OFF-ORDER plugin, folded in at the END of the order, opened once for
     /// the whole sweep and closed when it ends.</param>
-    public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false,
-                                             PoleInfo? foldArm = null)
+    public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly,
+                                             LoadOrderService.PoleInfo? foldArm)
         // Bound LAZILY: the sweep calls this only once it has seeds, so a call with no seeds= refuses without
         // building the index.
         => DialogueSweep.Run(() =>
         {
             // One resolver, one asset resolver, one view and one composition read for the whole call, so every seed
             // is validated against the same build and the stamp names it.
-            var resolver = CheckHost.Resolver;
-            var assets = CheckHost.Assets;
+            var resolver = _host.Resolver;
+            var assets = _host.Assets;
             var view = resolver.Capture();
             // The seed door is pinned to that same view, so the seeds cannot name records from another build.
-            var forceLoaded = ForceLoadedPluginNames(CheckHost.CaptureRoots().ProfileDir);
+            var forceLoaded = ForceLoadedPluginNames(_host.CaptureRoots().ProfileDir);
             // The fold is opened ONCE for the whole sweep and the sweep closes it; a file that will not open is the
             // family's own named refusal.
             DialogueFold? fold = null;
             string? foldError = null;
             if (foldArm is not null)
             {
-                fold = CheckHost.OpenDialogueFold(foldArm, out foldError, FoldLabel(foldArm), withRecords: true);
+                fold = _host.OpenDialogueFold(foldArm, out foldError, LoadOrderService.FoldLabel(foldArm), withRecords: true);
                 // Placed HERE, where the file is opened and the build is in hand: a fold that reaches a render
                 // unplaced would print the field's default position, which is a guess.
                 fold?.PlaceIn(view);
@@ -86,10 +89,10 @@ public sealed partial class LoadOrderService
     /// off-order — the pre-enable verify lane; a name found nowhere, or in several folders, still fails loudly. The
     /// record-scope, class-filter and counts-only knobs are parsed here, before any sweep runs.</summary>
     public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit,
-                                        IReadOnlyList<string>? formids = null, string? editoridContains = null,
-                                        IReadOnlyList<string>? types = null, IReadOnlyList<string>? findings = null,
-                                        bool countsOnly = false, IReadOnlyList<string>? exclude = null,
-                                        SweepOffOrderMemo? offOrderMemo = null)
+                                        IReadOnlyList<string>? formids, string? editoridContains,
+                                        IReadOnlyList<string>? types, IReadOnlyList<string>? findings,
+                                        bool countsOnly, IReadOnlyList<string>? exclude,
+                                        SweepOffOrderMemo? offOrderMemo)
     {
         var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, types);
         if (scopeErr is not null) return ErrorCheckResult.Fail(scopeErr);
@@ -98,9 +101,9 @@ public sealed partial class LoadOrderService
 
         // One resolver and one view for the whole call: the scope check, the refusal stamps and the sweep all name
         // the same build.
-        var resolver = CheckHost.Resolver;
+        var resolver = _host.Resolver;
         var viewAll = resolver.Capture();
-        var roots = CheckHost.CaptureRoots();
+        var roots = _host.CaptureRoots();
 
         // The exclude= axis. The `implicit` group is a fact about the MO2 composition, so it is read here and the
         // core sweep receives plain filenames, before anything is swept. Gated on the caller having written the
@@ -189,7 +192,7 @@ public sealed partial class LoadOrderService
         if (formids is { Count: > 0 })
         {
             keys = new HashSet<FormKey>();
-            var door = CheckHost.OpenFormIdDoor();
+            var door = _host.OpenFormIdDoor();
             foreach (var raw in formids)
             {
                 var t = raw?.Trim() ?? "";
@@ -205,7 +208,7 @@ public sealed partial class LoadOrderService
         string? armLabel = null;
         if (typeSet is { Count: > 0 })
         {
-            try { types = CheckHost.ResolveTypeFilterSet(typeSet, out armLabel); }
+            try { types = _host.ResolveTypeFilterSet(typeSet, out armLabel); }
             catch (ArgumentException ex) { return (null, ex.Message); }
             typeLabel = string.Join(", ", typeSet.Select(t => (t ?? "").Trim()));
         }
@@ -222,18 +225,18 @@ public sealed partial class LoadOrderService
     /// parsed here, before any sweep runs, and a named plugin the active order does not hold is swept OFF-ORDER
     /// through the same split <see cref="CheckErrors"/> uses.</summary>
     public ScriptCheckResult ValidateScripts(IReadOnlyList<string>? plugins, int limit,
-                                             IReadOnlyList<string>? formids = null, string? editoridContains = null,
-                                             IReadOnlyList<string>? types = null, string? propertyContains = null,
-                                             IReadOnlyList<string>? findings = null, bool countsOnly = false,
-                                             IReadOnlyList<string>? exclude = null,
-                                             SweepOffOrderMemo? offOrderMemo = null)
+                                             IReadOnlyList<string>? formids, string? editoridContains,
+                                             IReadOnlyList<string>? types, string? propertyContains,
+                                             IReadOnlyList<string>? findings, bool countsOnly,
+                                             IReadOnlyList<string>? exclude,
+                                             SweepOffOrderMemo? offOrderMemo)
     {
         var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, types);
         if (scopeErr is not null) return ScriptCheckResult.Fail(scopeErr);
         if (!SweepFindings.TryParseScriptClasses(findings, out var classes, out var classErr))
             return ScriptCheckResult.Fail(classErr!);
         // One resolver, view, asset build and set of roots threaded through, taken in one hold.
-        var (pin, captured) = CheckHost.CapturePinAndAssets(AfterCheckPinForGuard);
+        var (pin, captured) = _host.CapturePinAndAssets(AfterCheckPinForGuard);
         var resolver = pin.Resolver;
         var view = pin.View;
         // The exclusion resolves here, where the MO2 composition lives, exactly as it does for CheckErrors.
@@ -264,17 +267,17 @@ public sealed partial class LoadOrderService
 
     /// <summary>Sweep the facegen join. <paramref name="plugins"/> takes the same active/off-order split the errors and scripts families take, through the same memo.</summary>
     public FaceGenCheckResult CheckFaceGen(IReadOnlyList<string>? plugins, int limit,
-                                           IReadOnlyList<string>? formids = null, string? editoridContains = null,
-                                           IReadOnlyList<string>? types = null, IReadOnlyList<string>? findings = null,
-                                           bool countsOnly = false, IReadOnlyList<string>? exclude = null,
-                                           SweepOffOrderMemo? offOrderMemo = null)
+                                           IReadOnlyList<string>? formids, string? editoridContains,
+                                           IReadOnlyList<string>? types, IReadOnlyList<string>? findings,
+                                           bool countsOnly, IReadOnlyList<string>? exclude,
+                                           SweepOffOrderMemo? offOrderMemo)
     {
         var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, types);
         if (scopeErr is not null) return FaceGenCheckResult.Fail(scopeErr);
         if (!TryParseFaceGenClasses(findings, out var classes, out var classErr))
             return FaceGenCheckResult.Fail(classErr!);
 
-        var (pin, captured) = CheckHost.CapturePinAndAssets(AfterCheckPinForGuard);   // one VFS build for every path this sweep resolves
+        var (pin, captured) = _host.CapturePinAndAssets(AfterCheckPinForGuard);   // one VFS build for every path this sweep resolves
         var resolver = pin.Resolver;
         var view = pin.View;
         var assets = captured.View;

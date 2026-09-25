@@ -48,10 +48,10 @@ public sealed class ScriptsCheckPinTests : IDisposable
         var before = Footgun(_w.Svc.ValidateScripts(null, 1000));             // warms the index and the asset build
         Assert.Empty(before.Unverifiable);
         Assert.NotEmpty(before.Unbound);
-        _w.Svc.AfterCheckPinForGuard = SelectOtherProfile;
+        _w.Svc.CheckArea.AfterCheckPinForGuard = SelectOtherProfile;
 
         var during = Footgun(_w.Svc.ValidateScripts(null, 1000));
-        _w.Svc.AfterCheckPinForGuard = null;
+        _w.Svc.CheckArea.AfterCheckPinForGuard = null;
 
         // The Default profile's files: the footgun's script still reads from ScriptsMod's good .pex.
         Assert.Empty(during.Unverifiable);

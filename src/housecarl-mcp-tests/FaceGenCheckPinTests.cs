@@ -51,10 +51,10 @@ public sealed class FaceGenCheckPinTests : IDisposable
         var before = Sweep();                                                   // warms the index and the asset build
         Assert.Equal("split_bake", ClassOf(before, "HcFgSplit"));
         Assert.Equal("stale_bake", ClassOf(before, "HcFgStale"));
-        _w.Svc.AfterCheckPinForGuard = SelectOtherProfile;
+        _w.Svc.CheckArea.AfterCheckPinForGuard = SelectOtherProfile;
 
         var during = Sweep();
-        _w.Svc.AfterCheckPinForGuard = null;
+        _w.Svc.CheckArea.AfterCheckPinForGuard = null;
 
         // The Default profile's records and files: HcFgSplit's tint still comes from FgOther, not a missing half.
         Assert.Equal("split_bake", ClassOf(during, "HcFgSplit"));
