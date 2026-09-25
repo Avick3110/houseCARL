@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-24
-covers: [src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RenderCap.cs]
+updated: 2026-09-25
+covers: [src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/ToolFrontWire.cs]
 ---
 # The json wire: the shape a machine-readable response is allowed to take
 
@@ -211,7 +211,10 @@ own lane can survive.
 `src/housecarl-mcp/JsonWire.cs` holds the json renderers and their shared writers (`WriteRefusal`, `WriteNullable`,
 `WriteNullableStringArray`, `WriteCapOverrun`, `MeasureUnit`); `src/housecarl-mcp/RenderCap.cs` holds
 `RenderCap.Overran`, the sentence the overrun member carries; `src/housecarl-mcp/SkseJsonDoc.cs` holds
-`SkseJsonDoc.Write`, `Fits` and `TailReserve` for the `housecarl_skse` family documents. Entry point:
+`SkseJsonDoc.Write`, `Fits` and `TailReserve` for the `housecarl_skse` family documents; `src/housecarl-mcp/ToolFrontWire.cs`
+holds the transport helpers every tool front shares on `Wire`: the `format=` switch (`WantsJson`), the one refusal
+render (`Refuse`, `RefusalPrefix`), the epoch stamp (`EpochLine`, `EpochInline`) and the char budgets
+(`DefaultMaxChars`, `ReadbackMaxChars`, `ContestedHostsShown`). Entry point:
 `format="json"` on every tool that takes it.
 
 ## Related
