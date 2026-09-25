@@ -176,8 +176,8 @@ recognisers the gate shares with it (`IsValidListIndexValue`, `IsValidFormLinkVa
 `TryRecognizeCtorArgs`, `TryRecognizeInstantiable`). No tool of its own: it is the pre-flight of the write lanes in
 `src/housecarl-mcp/RecordWrites.cs`, reached through `housecarl_apply` and `housecarl_create`.
 `src/housecarl-mcp/TypeLookup.cs` holds the corpus-backed type lookup (a `type=` string to its getter types)
-that the read, check, write and asset lanes resolve types through. It is still a `LoadOrderService` partial:
-that is transitional, for the one step until RD-4 of #452 makes it its own shared type.
+that the read, check, write and asset lanes resolve types through. It is its own shared type, `TypeLookup`, built
+from the corpus on first use; the head holds one per service and hands it to every area as `Types`.
 
 ## Related
 
