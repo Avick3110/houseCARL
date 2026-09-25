@@ -1,3 +1,4 @@
+using System.Reflection;
 using HousecarlCore;
 using HousecarlMcp;
 using Mutagen.Bethesda;
@@ -8,8 +9,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>A source= pole is located under the roots taken in the same hold as its view, and its overlay opens with
-/// the Data folder of those roots, even when MO2 switches profile and game folder mid-call.</summary>
+/// <summary>A source= pole's view, MO2 roots and Data folder all come from one profile across a profile switch.</summary>
 [Trait("tier", "integration")]
 public sealed class ReadPinTests : IDisposable
 {
@@ -18,33 +18,36 @@ public sealed class ReadPinTests : IDisposable
     const string OffMod = "OffMod";
     const string NameA = "HcRpNameA";
     const string NameB = "HcRpNameB";
+    static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
     readonly string _root;
+    readonly string _instance;
     readonly string _ini;
     readonly string _dataA;
     readonly string _dataB;
     readonly string _weapon;
     readonly LoadOrderService _svc;
-    Thread? _switcher;
+    readonly ManualResetEventSlim _switcherReady = new();
+    readonly ManualResetEventSlim _switcherInGate = new();
+    Task? _switcher;
 
     public ReadPinTests()
     {
         _root = Path.Combine(Path.GetTempPath(), "hc-read-pin-" + Guid.NewGuid().ToString("N"));
-        var instance = Path.Combine(_root, "instance");
-        var mods = Path.Combine(instance, "mods");
+        _instance = Path.Combine(_root, "instance");
+        var mods = Path.Combine(_instance, "mods");
         _dataA = Path.Combine(_root, "gameA", "Data");
         _dataB = Path.Combine(_root, "gameB", "Data");
         foreach (var d in new[] { _dataA, _dataB, Path.Combine(mods, "BaseMod"), Path.Combine(mods, OffMod) })
             Directory.CreateDirectory(d);
-        _ini = Path.Combine(instance, "ModOrganizer.ini");
+        _ini = Path.Combine(_instance, "ModOrganizer.ini");
         File.WriteAllText(_ini, IniFor("Default", Path.GetDirectoryName(_dataA)!));
 
         var baseMod = new SkyrimMod(ModKey.FromFileName(BaseName), SkyrimRelease.SkyrimSE);
         baseMod.Weapons.AddNew().EditorID = "HcRpBaseWeap";
         baseMod.BeginWrite.ToPath(Path.Combine(mods, "BaseMod", BaseName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        // The off-order copy is localized and its folder carries no tables, so its name comes from the Data folder's
-        // Strings: game A's table says NameA, game B's says NameB.
+        // The localized off-order copy has no tables beside it: game A's Strings name it NameA, game B's NameB.
         var offKey = ModKey.FromFileName(OffName);
         var off = new SkyrimMod(offKey, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
         var weap = new Weapon(new FormKey(offKey, 0x800), SkyrimRelease.SkyrimSE)
@@ -57,17 +60,16 @@ public sealed class ReadPinTests : IDisposable
         Directory.CreateDirectory(scratch);
         WriteWithTablesIn(off, scratch, _dataB);
 
-        // Default: OffMod is disabled. Other: OffMod is enabled and the plugin unchecked. The active order is the
-        // same in both, so the switch re-derives the roots without swapping the resolver.
-        WriteProfile(instance, "Default", "*" + BaseName + "\r\n", "+BaseMod\r\n-" + OffMod + "\r\n");
-        WriteProfile(instance, "Other", "*" + BaseName + "\r\n" + OffName + "\r\n", "+" + OffMod + "\r\n+BaseMod\r\n");
+        // Default disables OffMod; Other enables it with the plugin unticked, so both profiles have the same active order.
+        WriteProfile("Default", "*" + BaseName + "\r\n", "+BaseMod\r\n-" + OffMod + "\r\n");
+        WriteProfile("Other", "*" + BaseName + "\r\n" + OffName + "\r\n", "+" + OffMod + "\r\n+BaseMod\r\n");
 
-        _svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(_root, "houseCARL.user.json")));
+        _svc = LoadOrderService.WithInstance(_instance, 0, new UserConfigStore(Path.Combine(_root, "houseCARL.user.json")));
     }
 
     public void Dispose()
     {
-        _switcher?.Join();
+        try { _switcher?.Wait(); } catch (AggregateException) { /* a joined test already rethrew it */ }
         _svc.Dispose();
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }
@@ -76,9 +78,9 @@ public sealed class ReadPinTests : IDisposable
         => "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(" + profile + ")\r\ngamePath=@ByteArray("
            + game.Replace(@"\", @"\\") + ")\r\n";
 
-    static void WriteProfile(string instance, string name, string plugins, string modlist)
+    void WriteProfile(string name, string plugins, string modlist)
     {
-        var dir = Path.Combine(instance, "profiles", name);
+        var dir = Path.Combine(_instance, "profiles", name);
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "loadorder.txt"), "# header\r\n" + BaseName + "\r\n" + OffName + "\r\n");
         File.WriteAllText(Path.Combine(dir, "plugins.txt"), plugins);
@@ -92,16 +94,24 @@ public sealed class ReadPinTests : IDisposable
         Directory.Move(Path.Combine(dir, "Strings"), Path.Combine(data, "Strings"));
     }
 
-    /// <summary>Points MO2 at the Other profile and game B, then re-derives the roots on another thread, which waits
-    /// for the gate. Inside the pole lane's hold it is still waiting when the roots are read; outside it, it has run.</summary>
+    object Gate() => typeof(LoadOrderService).GetField("_gate", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(_svc)!;
+
+    void SelectOtherProfileAndGameB() => File.WriteAllText(_ini, IniFor("Other", Path.GetDirectoryName(_dataB)!));
+
+    /// <summary>Selects Other and game B, then starts a switcher that takes the service's gate and re-derives the roots.</summary>
     void SwitchFromAnotherThread()
     {
         _svc.AfterReadPinForGuard = null;
-        File.WriteAllText(_ini, IniFor("Other", Path.GetDirectoryName(_dataB)!));
-        _switcher = new Thread(() => _svc.CaptureView());
-        _switcher.Start();
-        SpinWait.SpinUntil(() => !_switcher.IsAlive || _switcher.ThreadState.HasFlag(ThreadState.WaitSleepJoin),
-                           TimeSpan.FromSeconds(30));
+        SelectOtherProfileAndGameB();
+        var gate = Gate();
+        _switcher = Task.Run(() =>
+        {
+            _switcherReady.Set();
+            lock (gate) { _switcherInGate.Set(); _svc.CaptureView(); }
+        });
+        Assert.True(_switcherReady.Wait(Timeout), "the switcher never started");
+        // Held by this thread, the gate stops the switcher until the hold ends; not held, the switcher must be past it.
+        Assert.True(Monitor.IsEntered(gate) || _switcherInGate.Wait(Timeout), "the switcher never took the free gate");
     }
 
     (LoadOrderService.PoleInfo Pole, string Name) Read(IReadOnlyList<string> formids)
@@ -114,6 +124,13 @@ public sealed class ReadPinTests : IDisposable
         return (pole!, o.Record!.Fields.Single(f => f.Path == "Name").Token!);
     }
 
+    LoadOrderService.PoleInfo Probe()
+    {
+        var pole = _svc.ProbeSourceArm(OffName, OffMod, out var error);
+        Assert.Null(error);
+        return pole!;
+    }
+
     [Fact]
     public void AProfileSwitchAfterThePinDoesNotSplitThePoleFromItsRoots()
     {
@@ -123,9 +140,8 @@ public sealed class ReadPinTests : IDisposable
         Assert.Equal(NameA, before.Name);
         _svc.AfterReadPinForGuard = SwitchFromAnotherThread;
 
-        // The switcher has re-derived the roots by the time the FormIDs are read, which is after the locate and
-        // before the overlay opens.
-        var during = Read(new JoinOnFirstRead(_weapon, () => _switcher!.Join()));
+        // The FormIDs are read after the locate and before the overlay opens; the switch has landed by then.
+        var during = Read(new JoinOnFirstRead(_weapon, () => _switcher!.GetAwaiter().GetResult()));
 
         // Located under the Default profile's roots, as the view is, and opened with game A's Data folder.
         Assert.Equal(before.Pole.Where, during.Pole.Where);
@@ -137,6 +153,31 @@ public sealed class ReadPinTests : IDisposable
         Assert.NotEqual(before.Pole.Where, after.Pole.Where);
         Assert.Equal(_dataB, after.Pole.DataDir);
         Assert.Equal(NameB, after.Name);
+    }
+
+    [Fact]
+    public void ASwitchToAProfileWithNoActivePluginsKeepsTheOldRootsWithTheOldView()
+    {
+        var before = Probe();                                                   // warms the index on the Default profile
+        Assert.Equal(_dataA, before.DataDir);
+
+        // Other's order files are empty, the shape of MO2 mid-write, so its order is empty and the old build is kept.
+        var other = Path.Combine(_instance, "profiles", "Other");
+        File.WriteAllText(Path.Combine(other, "loadorder.txt"), "");
+        File.WriteAllText(Path.Combine(other, "plugins.txt"), "");
+        SelectOtherProfileAndGameB();
+        var during = Probe();
+        Assert.Equal(before.Epoch, during.Epoch);
+        Assert.Equal(before.Where, during.Where);
+        Assert.Equal(_dataA, during.DataDir);
+
+        // Once Other lists its plugins, the next call takes its order and its roots together.
+        File.WriteAllText(Path.Combine(other, "loadorder.txt"), "# header\r\n" + BaseName + "\r\n" + OffName + "\r\n");
+        File.WriteAllText(Path.Combine(other, "plugins.txt"), "*" + BaseName + "\r\n*" + OffName + "\r\n");
+        var after = Probe();
+        Assert.True(after.InOrder);
+        Assert.NotEqual(before.Epoch, after.Epoch);
+        Assert.Equal(_dataB, ((ILoadOrderHost)_svc).CaptureRoots().DataDir);
     }
 
     /// <summary>A one-item list that runs <paramref name="onFirstRead"/> the first time its item is read.</summary>
