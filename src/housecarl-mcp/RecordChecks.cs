@@ -10,9 +10,6 @@ internal interface ICheckHost : ILoadOrderHost
 {
     /// <summary>A FormID door for a sweep's <c>formids=</c> tokens, with no captured view of its own.</summary>
     FormIdDoor OpenFormIdDoor();
-
-    // Relayed from reads until reads is its own class.
-    IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types, out string? armLabel);
 }
 
 /// <summary>The checks area: the errors, scripts, facegen and dialogue sweeps.</summary>
@@ -207,7 +204,7 @@ internal sealed class RecordChecks
         string? armLabel = null;
         if (typeSet is { Count: > 0 })
         {
-            try { types = _host.ResolveTypeFilterSet(typeSet, out armLabel); }
+            try { types = _host.Types.ResolveSet(typeSet, out armLabel); }
             catch (ArgumentException ex) { return (null, ex.Message); }
             typeLabel = string.Join(", ", typeSet.Select(t => (t ?? "").Trim()));
         }

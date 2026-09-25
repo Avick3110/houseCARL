@@ -228,7 +228,7 @@ public static class PerkRefsProbe
         var corpus = f.GetValueOrDefault("corpus");
         if (instanceDir is null || corpus is null) { Console.WriteLine("SKIP: needs --mo2 <instanceDir> and --corpus <corpus.json>"); return 0; }
         if (!Directory.Exists(instanceDir) || !File.Exists(corpus)) { Console.WriteLine($"SKIP: --mo2 or --corpus path not found"); return 0; }
-        CorpusRulebook.CorpusPath = corpus;                                   // ResolveTypeFilter("Perk") reads the type catalog
+        CorpusRulebook.CorpusPath = corpus;                                   // Types.Resolve("Perk") reads the type catalog
         var refRaw = f.GetValueOrDefault("references") ?? "01CEAD:Skyrim.esm";   // the report's row-1 repro (KYWD MagicDamageFire)
         var refFk = FormKey.Factory(refRaw);
 

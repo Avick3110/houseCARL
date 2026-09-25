@@ -35,12 +35,12 @@ namespace HousecarlGenerator;
 ///   G6  BASEREFUSE   — create RecordType='Global' (the bare abstract base) is REFUSED loud, the message NAMES the
 ///                      concrete arms, NOTHING written. (Green today as a regression guard, not a fix-proof — it keeps
 ///                      the loud-fail boundary loud after the fix opened the concrete-arm path beside it.)
-///   G7  READMAP      — the READ-SIDE base→arm mapping (LoadOrderService.BuildTypeLookup): a records scan with
+///   G7  READMAP      — the READ-SIDE base→arm mapping (the TypeLookup constructor): a records scan with
 ///                      types=['Global'] over an order holding a GlobalFloat AND a GlobalInt resolves (no "unknown type")
 ///                      and returns BOTH — proving the abstract base NAME unions its concrete arms (the read-side twin
 ///                      of the create branch). The union spanning two DISTINCT arms is the observable form of the
 ///                      "4 arms" by-construction claim. types=['GameSetting'] returns its GameSettingFloat (generality).
-///                      RED before the fix (BuildTypeLookup skipped polymorphic-base names → "unknown record type").
+///                      RED before the fix (the type lookup build skipped polymorphic-base names → "unknown record type").
 /// </summary>
 public static class CreateGlobalProbe
 {
@@ -197,7 +197,7 @@ public static class CreateGlobalProbe
             Console.WriteLine($"   G6 bare abstract base 'Global' refused, arms named : {(g6 ? "PASS — refused loud, arms named, no file" : $"FAIL — refused={refused} namesArms={namesArms} noFile={noFile} error=[{error}]")}");
         }
 
-        // --- G7: the READ-SIDE base→arm mapping (LoadOrderService.BuildTypeLookup, driven through the real CrossQuery).
+        // --- G7: the READ-SIDE base→arm mapping (the TypeLookup constructor, driven through the real CrossQuery).
         //     A synthetic MO2 instance (the bulk-create-guard synth pattern) holding a master with a GlobalFloat, a
         //     GlobalInt, and a GameSettingFloat. type='Global' must RESOLVE (not "unknown record type") and return BOTH
         //     globals — proving the abstract base NAME unions its concrete arms (two distinct arms = the observable form
@@ -231,7 +231,7 @@ public static class CreateGlobalProbe
             File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + mapKey.FileName + "\r\n");
             File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+ReadMapMod\r\n");
 
-            // BuildTypeLookup reads the corpus via CorpusRulebook.CorpusPath (the same one the rulebook loaded from).
+            // The TypeLookup constructor reads the corpus via CorpusRulebook.CorpusPath (the same one the rulebook loaded from).
             CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
             var store = new UserConfigStore(Path.Combine(g7Root, "houseCARL.user.json"));
 

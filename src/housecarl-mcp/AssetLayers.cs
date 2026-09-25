@@ -33,9 +33,6 @@ internal interface IAssetHost : ILoadOrderHost
     string InPlaceHandshakeLead(string name, string path, string subject, string verb);
 
     // Relayed from reads until reads is its own class.
-    Dictionary<string, List<Type>> TypeLookup { get; }
-
-    // Relayed from reads until reads is its own class.
     string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk);
 }
 
@@ -703,10 +700,10 @@ internal sealed partial class AssetLayers
     internal IReadOnlyList<Type>? ResolveFormScope(string type)
     {
         var t = type.Trim();
-        if (_host.TypeLookup.TryGetValue(t, out var types)) return types;
+        if (_host.Types.TryGetValue(t, out var types)) return types;
         var iface = typeof(SkyrimMod).Assembly.GetType($"Mutagen.Bethesda.Skyrim.I{t}Getter");
         if (iface is null) return null;
-        var matches = _host.TypeLookup.Values.SelectMany(v => v).Distinct().Where(iface.IsAssignableFrom).ToList();
+        var matches = _host.Types.Values.SelectMany(v => v).Distinct().Where(iface.IsAssignableFrom).ToList();
         return matches.Count > 0 ? matches : null;
     }
 

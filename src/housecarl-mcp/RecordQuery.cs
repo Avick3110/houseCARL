@@ -25,7 +25,7 @@ public sealed partial class LoadOrderService
     /// explicit identity set.</summary>
 
     /// <summary>The set-valued-types overload: each entry resolves through the same
-    /// <see cref="ResolveTypeFilter"/>, and the scan streams the union of the resolved type groups.</summary>
+    /// <see cref="TypeLookup.Resolve"/>, and the scan streams the union of the resolved type groups.</summary>
     public CrossQueryOutcome CrossQuery(IReadOnlyList<string>? typeSet, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
                                         bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
@@ -156,7 +156,7 @@ public sealed partial class LoadOrderService
                 return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
 
         IReadOnlyList<Type>? types;
-        try { types = ResolveTypeFilterSet(hasType ? typeSet : null); }
+        try { types = Types.ResolveSet(hasType ? typeSet : null); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
         if (predicate is not null && hasType && QuantifierShapeRefusal(typeSet!, predicate) is { } qerr)
@@ -652,7 +652,7 @@ public sealed partial class LoadOrderService
                 return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
 
         IReadOnlyList<Type>? types;
-        try { types = ResolveTypeFilterSet(typeSet); }
+        try { types = Types.ResolveSet(typeSet); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }
 
         if (predicate is not null && typeSet is { Count: > 0 } && QuantifierShapeRefusal(typeSet, predicate) is { } qerr)
@@ -807,7 +807,7 @@ public sealed partial class LoadOrderService
     static void SeedRequestedTypes(Dictionary<string, int>? groups, string? groupBy, IReadOnlyList<Type>? types)
     {
         if (groups is null || groupBy != "type") return;
-        foreach (var name in TypeDisplayNames(types) ?? Array.Empty<string>()) groups.TryAdd(name, 0);
+        foreach (var name in TypeLookup.DisplayNames(types) ?? Array.Empty<string>()) groups.TryAdd(name, 0);
     }
 
     // ---- effect-chain resolver -------------------------------------------------------------------------
@@ -823,7 +823,7 @@ public sealed partial class LoadOrderService
             foreach (var ts in typesNarrow)
             {
                 IReadOnlyList<Type> resolved;
-                try { resolved = ResolveTypeFilter(ts.Trim()); }              // unknown type → named error, as on the scan
+                try { resolved = Types.Resolve(ts.Trim()); }              // unknown type → named error, as on the scan
                 catch (ArgumentException ex) { return EffectChainResult.Fail(ex.Message); }
                 foreach (var t in resolved)
                 {

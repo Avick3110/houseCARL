@@ -1712,7 +1712,7 @@ public sealed partial class LoadOrderService
         {
             try
             {
-                var types = ResolveTypeFilter(recordType.Trim());
+                var types = Types.Resolve(recordType.Trim());
                 if (types.Count != 1)
                     problems.Add($"{prefix}record_type '{recordType}' is ambiguous ({types.Count} matches) — use a specific catalog name (e.g. one of: {string.Join(", ", types.Select(t => RecordNaming.StripGetterInterface(t.Name)))}).");
                 else catalogName = RecordNaming.StripGetterInterface(types[0].Name);
