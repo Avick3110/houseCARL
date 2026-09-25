@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-25
 covers: [src/housecarl-core/DialogueInfoOrder.cs, src/housecarl-core/DialogueFold.cs, src/housecarl-core/DialogueSubtype.cs, src/housecarl-mcp/DialogueTools.cs]
 ---
 # Dialogue: the merged INFO order, the fold, and the SNAM marker
@@ -123,6 +123,6 @@ off the countless vanilla topics whose number is legitimately noisy.
 - `src/housecarl-core/DialogueInfoOrder.cs` — the merge over `InfoLine` data, and the view with its gates.
 - `src/housecarl-core/DialogueFold.cs` — `DialogueFold`: `PlaceIn`, the `Read` and `Open` depths, `Label`.
 - `src/housecarl-core/DialogueSubtype.cs` — the SNAM marker table and `MarkerDisagreesWithSubtype`.
-- `src/housecarl-mcp/DialogueTools.cs` — `DialogueWire`, the composers a dialogue report is rendered from,
-  including `AppendInfoOrderView`.
+- `src/housecarl-mcp/DialogueTools.cs` — `DialogueWire`, the composers a dialogue report is rendered from.
+- `src/housecarl-mcp/ReadTools.cs` — `Wire.AppendInfoOrderView`, the merged-order render (reads; `records-tool-front.md`).
 - Tool: `housecarl_records project=info_order`.

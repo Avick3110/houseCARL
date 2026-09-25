@@ -96,7 +96,7 @@ list and a discarded seed silently narrows it.
 The effective merged INFO order is deliberately absent from this family. It is an ordered sequence over the
 touching-plugin stack rather than a findings list, so it belongs to `records project=info_order`. The family's topic
 block does not carry it, and `records project=info_order` is the only surface that computes it
-(`DialogueValidate.InfoOrders`) and renders it (`DialogueWire.AppendInfoOrderView`).
+(`DialogueValidate.InfoOrders`) and renders it (`Wire.AppendInfoOrderView`).
 
 Which checks a seed's kind runs comes from one table, `DialogueKindChecks`, read both by the seed's own verdict line
 and by the family's boundary claim, so the two cannot disagree. An unrecognised kind claims nothing rather than
