@@ -13,6 +13,8 @@ made the change.
 
 - **`housecarl_skypatcher_layer` now stays inside the `max_chars` it is given, or says it ran over when
   that cap cannot hold its header and warnings.** Pass `max_chars=8000` on a large layer: the answer is 8,000 characters or fewer.
+- **`housecarl_records project=info_order` now lists as many lines of a topic as fit in `max_chars` and marks the cut,
+  instead of dropping a topic too big for the cap.** A topic of 60 lines at `max_chars=3000` lists its first lines.
 
 ## 2.0.3 — 2026-09-23
 
