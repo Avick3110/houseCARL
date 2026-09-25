@@ -8,10 +8,14 @@ namespace HousecarlMcp;
 /// <summary>Corpus-backed type resolution (signature "WEAP" / catalog name "Weapon" → getter Type(s)); the head holds one per service as <c>Types</c>.</summary>
 internal sealed class TypeLookup
 {
-    readonly Dictionary<string, List<Type>> _lookup;
+    // Built on the first resolution that needs it, never at construction; a failed build is not kept, so the next call retries.
+    Dictionary<string, List<Type>>? _lookup;
+    object? _lookupLock;
+
+    Dictionary<string, List<Type>> Lookup => LazyInitializer.EnsureInitialized(ref _lookup, ref _lookupLock, BuildLookup);
 
     /// <summary>Build the type-string to getter-Type map from the corpus, keyed by both catalog name and signature, with a many-to-one signature and an abstract-group base name each accumulating their variants. A corpus type that will not load is skipped and surfaces as "unknown type" at query time, never as a silently wrong one.</summary>
-    internal TypeLookup()
+    static Dictionary<string, List<Type>> BuildLookup()
     {
         var lookup = new Dictionary<string, List<Type>>(StringComparer.OrdinalIgnoreCase);
         void Add(string? key, Type t)
@@ -38,14 +42,14 @@ internal sealed class TypeLookup
                     && Type.GetType(arm.GetterInterfaceAssemblyQualified) is { } at)
                     Add(ts.Name, at);
         }
-        _lookup = lookup;
+        return lookup;
     }
 
     /// <summary>The getter Types one exact key (catalog name or signature, case-insensitive) maps to.</summary>
-    internal bool TryGetValue(string key, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out List<Type> types) => _lookup.TryGetValue(key, out types);
+    internal bool TryGetValue(string key, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out List<Type> types) => Lookup.TryGetValue(key, out types);
 
     /// <summary>Every key's getter Types, one list per key.</summary>
-    internal IEnumerable<List<Type>> Values => _lookup.Values;
+    internal IEnumerable<List<Type>> Values => Lookup.Values;
 
     /// <summary>A user type SET to its getter Types: each entry's resolution unioned in order and deduped, through the same <see cref="Resolve"/> the singular form uses. Null for an absent or empty set.</summary>
     internal IReadOnlyList<Type>? ResolveSet(IReadOnlyList<string>? types) => ResolveSet(types, out _);
@@ -87,7 +91,7 @@ internal sealed class TypeLookup
             throw new ArgumentException(
                 "a blank record type — pass a 4-char signature (e.g. 'WEAP') or a catalog name (e.g. 'Weapon'), " +
                 "or omit the parameter to leave the types unnarrowed.");
-        if (_lookup.TryGetValue(type.Trim(), out var types)) return types;
+        if (Lookup.TryGetValue(type.Trim(), out var types)) return types;
         throw new ArgumentException(
             $"unknown record type '{type}'. Expected a 4-char signature (e.g. 'WEAP') or a catalog name (e.g. 'Weapon').");
     }
