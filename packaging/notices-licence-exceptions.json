@@ -12,7 +12,7 @@
     "why": "No licence element of any kind in the nuspec. github.com/Noggog/CSharpExt is GPL-3.0-only, as is the rest of the Mutagen first-party ecosystem it belongs to."
   },
   "Nifly": {
-    "version": "1.1.0-housecarl.2",
+    "version": "1.1.0-housecarl.3",
     "licence": "GPL-3.0-only",
     "why": "houseCARL's own build of the NiflySharp fork github.com/Avick3110/NiflySharp (issue #926), vendored in packages/local. The nuspec embeds the licence as a file rather than an expression, as upstream's does. The bundled LICENSE, the fork and upstream github.com/ousnius/NiflySharp are GPL-3.0-only."
   },

@@ -53,7 +53,7 @@ GPL-3.0-only   (copyleft — the same license as houseCARL; see the LICENSE file
   Mutagen.Bethesda.Kernel                   0.54.4              github.com/Mutagen-Modding/Mutagen
   Mutagen.Bethesda.Skyrim                   0.54.4              github.com/Mutagen-Modding/Mutagen
   NexusMods.Paths                           0.19.1              github.com/Nexus-Mods/NexusMods.Paths
-  NiflySharp (fork of ousnius/NiflySharp)   1.1.0-housecarl.2   github.com/Avick3110/NiflySharp
+  NiflySharp (fork of ousnius/NiflySharp)   1.1.0-housecarl.3   github.com/Avick3110/NiflySharp
   Noggog.CSharpExt                          4.3.0               github.com/Noggog/CSharpExt
   Reloaded.Memory                           9.4.2               github.com/Reloaded-Project/Reloaded.Memory
   --- end generated ---
