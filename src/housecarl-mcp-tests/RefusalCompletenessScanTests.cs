@@ -119,7 +119,7 @@ static class RefusalCompletenessScan
     /// verb through a local helper of that name, and the shape a refusal gets does not depend on how the call
     /// spells its receiver. Matching the verb rather than the receiver is what lets the population stay derived
     /// — a surface that renders refusals correctly through its own helper is not a hole.</para></summary>
-    internal static readonly string[] ApprovedRenderers = { "Wire.Refuse", "JsonWire.Render", "Wire.Render", "Refuse" };
+    internal static readonly string[] ApprovedRenderers = { "Wire.Refuse", "JsonWire.Render", "Wire.Render", "CheckTextRender.RenderCheck", "Refuse" };
 
     /// <summary>The refusals that stay bare inside a policed scope, each with the settled decision that rules it
     /// correct. Keyed <c>file:kind:fragment</c> rather than by line, so ordinary edits above a site do not rot the
