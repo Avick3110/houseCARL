@@ -28,15 +28,26 @@
     <!-- The reflection target the extracted cores bind against. Pinned, matching both consumers; the pin moves for all three together on a bump. -->
     <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.54.4" />
     <!-- The NIF layer's asset-internal reader/writer. Pure C#, GPL-3.0 (compatible with our GPL-3.0-only), source-
-         generated from nifxml = coverage by construction. Pinned 1.1.0 (2026-07-26, issue #287): carries the shader
-         accessors 1.0.0 only stubbed, a settable TextureSetRef, and the upstream code-audit crash/corruption fixes.
-         RE-PROVEN on bump, not assumed to carry over — 1.0.0 and 1.1.0 scanned back to back over the same 72,739
-         loose + 18,862 vanilla meshes and diffed FILE BY FILE (spike-nif `scan` + diff_ab.py, ~35 min/leg): 12 loose
-         meshes 1.0.0 could not fully read now read, 1 refuses cleanly instead of throwing, vanilla verdict-identical,
-         zero regressions. A percentage matching is NOT the check — two runs can hit the same totals while disagreeing
-         about which files. Bump deliberately, and re-run that diff when you do.
+         generated from nifxml = coverage by construction.
+         Pinned 1.1.0-housecarl.1 (2026-09-25, issue #926): houseCARL's own build of a fork, vendored in packages/local
+         (nuget.config adds it). Fork: https://github.com/Avick3110/NiflySharp branch fix/bounded-counts, commit
+         2fb5d048637f56b01d96369f03639d53539b5fe0, one commit on upstream ousnius/NiflySharp 7b55e88a (the commit Nifly
+         1.1.0 was built from). The change: every list count, header count, string length and unknown-block size is
+         checked against the bytes left before anything is allocated for it, and Load throws when a block reads past
+         its stored size; each throws InvalidDataException naming the block and the number. On 1.1.0 one corrupted
+         byte could make Load allocate 13 GB. Same assembly (NiflySharp 1.1.0.0) and the same public surface as 1.1.0.
+         Packed with: dotnet pack NiflySharp/NiflySharp.csproj -c Release -p:Version=1.1.0-housecarl.1
+         -p:RepositoryUrl=https://github.com/Avick3110/NiflySharp -p:PackageProjectUrl=https://github.com/Avick3110/NiflySharp
+         RE-PROVEN on bump, not assumed to carry over. 1.1.0 and the fork scanned back to back over the same 72,861 loose
+         (every mod folder of the live instance) + 22,047 vanilla (Skyrim - Meshes0/1.bsa) meshes, loaded, round-tripped
+         and diffed FILE BY FILE (spike-nif `scan` + diff_ab.py, ~24 min per loose leg): 0 files changed verdict, both
+         legs 100% loaded clean. The #926 harness (random corruption of the authored test mesh): 137 + 38 runaways
+         past 2 GB on 1.1.0 all come back as named errors, 0 runaways in 23,111 fork seeds (max 91 ms, 28 MB).
+         Earlier: 1.0.0 to 1.1.0 (2026-07-26, #287) read 12 more loose meshes, same method. A percentage matching is NOT
+         the check; two runs can hit the same totals while disagreeing about which files. Bump deliberately, and re-run
+         that diff when you do.
          Notices: THIRD-PARTY-NOTICES.txt (GPL-3.0 block). -->
-    <PackageReference Include="Nifly" Version="1.1.0" />
+    <PackageReference Include="Nifly" Version="1.1.0-housecarl.1" />
   </ItemGroup>
 
   <ItemGroup>
