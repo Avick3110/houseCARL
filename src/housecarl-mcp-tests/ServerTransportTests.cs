@@ -14,27 +14,31 @@ namespace HousecarlMcpTests;
 public sealed class ServerTransportTests
 {
     /// <summary>
-    /// A stream whose first line arrives late, with every reader serialised behind it — the shape a real
-    /// stdio stream has when one response is slow: the late line is not lost, it is merely late.
+    /// A stream that yields nothing until the test opens its gate, with every reader serialised behind it — the
+    /// shape a real stdio stream has when one response is slow: the late line is not lost, it is merely late.
     /// </summary>
     sealed class GatedReader : TextReader
     {
-        readonly object _gate = new();
+        readonly object _lock = new();
+        readonly ManualResetEventSlim _gate;
         readonly Queue<string> _lines;
-        readonly TimeSpan _firstDelay;
-        bool _first = true;
 
-        public GatedReader(TimeSpan firstDelay, params string[] lines)
-        { _firstDelay = firstDelay; _lines = new Queue<string>(lines); }
+        public GatedReader(bool open, params string[] lines)
+        { _gate = new ManualResetEventSlim(open); _lines = new Queue<string>(lines); }
+
+        public void Open() => _gate.Set();
 
         public override string? ReadLine()
         {
-            lock (_gate)
+            lock (_lock)
             {
-                if (_first) { _first = false; Thread.Sleep(_firstDelay); }
+                _gate.Wait();
                 return _lines.Count > 0 ? _lines.Dequeue() : null;
             }
         }
+
+        // Opens the gate so a pump still parked on it can finish if the test failed before opening it.
+        protected override void Dispose(bool disposing) { _gate.Set(); base.Dispose(disposing); }
     }
 
     /// <summary>
@@ -45,12 +49,13 @@ public sealed class ServerTransportTests
     [Trait("tier", "unit")]
     public void ALineArrivingAfterItsCallerGaveUpIsQueued_NotEatenByAnAbandonedRead()
     {
-        using var reader = new GatedReader(TimeSpan.FromMilliseconds(400), "A", "B");
+        using var reader = new GatedReader(open: false, "A", "B");
         using var pump = new LinePump(reader);
 
-        // Caller 1 runs out of budget while the first line is still in flight.
-        Assert.False(pump.TryTake(TimeSpan.FromMilliseconds(50), out _),
-                     "the gated reader answered inside 50ms, so this arm never reached the case it exists for");
+        // Caller 1 runs out of budget while the first line is still held back: the gate is closed.
+        Assert.False(pump.TryTake(TimeSpan.FromMilliseconds(50), out _));
+
+        reader.Open();
 
         // Caller 2 gets the LATE line, then the one after it. Nothing was consumed by caller 1.
         Assert.True(pump.TryTake(TimeSpan.FromSeconds(5), out var first));
@@ -67,7 +72,7 @@ public sealed class ServerTransportTests
     [Trait("tier", "unit")]
     public void OnceTheStreamHasEndedATakeReturnsAtOnceRatherThanBurningItsDeadline()
     {
-        using var reader = new GatedReader(TimeSpan.Zero, "only");
+        using var reader = new GatedReader(open: true, "only");
         using var pump = new LinePump(reader);
 
         Assert.True(pump.TryTake(TimeSpan.FromSeconds(5), out var only));
