@@ -498,6 +498,134 @@ static partial class Wire
         return sb.ToString().TrimEnd('\n');
     }
 
+    // ---- the info_order form ----
+    /// <summary>How many order rows are listed in full before the render lists only the MOVED lines.</summary>
+    const int MaxOrderRows = 25;
+
+    /// <summary>The effective merged INFO order, as the <c>records project=info_order</c> form renders it.</summary>
+    internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, string pad, int cap, bool indent)
+    {
+        // An empty order says nothing, unless it is empty because nothing could be read — never render that as silence.
+        if (view is not { } io || (io.Order.Count == 0 && io.Complete)) return true;
+
+        // "Nothing merges here" holds only if every touching plugin's list was read — hence the gate on Complete,
+        // which is also what keeps this arm's ContributingPlugins[0] off a view built from nothing.
+        if (!io.Contested && io.Complete)
+        {
+            sb.Append(pad).Append("  INFO order: ").Append(io.Order.Count)
+              .Append(io.Order.Count == 1 ? " line, from a single plugin (" : " lines, from a single plugin (")
+              .Append(io.ContributingPlugins[0])
+              .Append(") — nothing merges here, so the effective order IS that plugin's own list.\n");
+            AppendFoldNote(sb, io, pad);
+            AppendOrderNote(sb, io, pad);          // a degraded merge is degraded whether or not anything contests it
+            return true;
+        }
+
+        if (!io.Complete)
+        {
+            // Both halves count plugins that TOUCH the topic in the order, so the folded file is out of both.
+            int foldRead = io.FoldContributed ? 1 : 0;
+            int total = io.ContributingPlugins.Count + io.UnreadContributors.Count - foldRead;
+            sb.Append(pad).Append("  INFO order: INCOMPLETE — read from ").Append(io.ContributingPlugins.Count - foldRead)
+              .Append(" of ").Append(total).Append(" plugin(s) that touch this topic.");
+            sb.Append(io.Order.Count == 0
+                ? " NOTHING could be read, so no order is shown at all — this is a read failure, NOT an empty topic.\n"
+                : " The sequence below is NOT authoritative — lines are missing and positions may be wrong.\n");
+            if (io.Order.Count == 0) { AppendOrderNote(sb, io, pad); return true; }
+        }
+
+        var moved = io.Moved;
+        // The row cap keeps a big quest from burying findings; a single-topic report has nothing to bury.
+        bool listAll = !indent || io.Order.Count <= MaxOrderRows;
+
+        // Plugins that TOUCH the topic, not the ones read; the folded file is not in the order, so it is named apart.
+        int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count - (io.FoldContributed ? 1 : 0);
+        sb.Append(pad).Append("  effective INFO order — merged across ").Append(touching)
+          .Append(touching == 1 ? " plugin that touches" : " plugins that touch")
+          .Append(" this topic");
+        if (io.FoldContributed) sb.Append(", plus the folded file below");
+        sb.Append("; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
+        AppendFoldNote(sb, io, pad);
+
+        // Over the cap and nothing moved: say so — an empty moved set means nothing unless both gates held.
+        bool movesKnown = io.MovesComputed && io.Complete;
+        if (!listAll && moved.Count == 0)
+        {
+            sb.Append(pad).Append("    ").Append(io.Order.Count).Append(movesKnown
+                ? " lines, none of which changed position — the merged order matches the defining plugin's own list."
+                : " lines. Which lines moved is NOT known here (see the note below), so this is not a statement that none did.")
+              .Append(" Validate this topic's DIAL on its own to see every line.\n");
+            AppendOrderNote(sb, io, pad);
+            return true;
+        }
+
+        // Same gate: "the rest keep their original relative order" is a claim about rows this branch withholds.
+        if (!listAll)
+            sb.Append(pad).Append("    (").Append(io.Order.Count).Append(" lines; listing only the ")
+              .Append(moved.Count).Append(movesKnown
+                  ? " that MOVED — the rest keep their original relative order."
+                  : " found to have MOVED — whether the rest held position is NOT known here (see the note below).")
+              .Append(" Validate this topic's DIAL on its own to see every line.)\n");
+
+        foreach (var e in listAll ? io.Order : moved)
+        {
+            if (sb.Length >= cap) { sb.Append(pad).Append("    ... [truncated at max_chars]\n"); return false; }
+            sb.Append(pad).Append("    #").Append(e.Index + 1).Append("  ").Append(FormIdToken.Of(e.Info));
+            if (e.Deleted) sb.Append("  (deleted)");
+            if (e.Moved) sb.Append("  MOVED from #").Append(e.OriginIndex!.Value + 1);
+            // Gated on BaselineTrusted: a shifted baseline would call the definer's own lines late additions.
+            else if (e.OriginIndex is null && io.BaselineTrusted) sb.Append("  (added by a later plugin)");
+            sb.Append("  placed by ").Append(e.PlacedBy);
+            // Every row the folded file placed says so, so a projected position can never be read as a live one.
+            if (io.FoldedPlugin is { } fp && e.PlacedBy.Equals(fp, StringComparison.OrdinalIgnoreCase))
+                sb.Append("  [FOLDED — that file is NOT active; this position is a projection]");
+            // The zero "I am first" marker and a broken link both land at the head, but only one is a fault.
+            if (e.Placement == InfoPlacement.HeadFirstMarker)
+                sb.Append("  [pinned first by its own PNAM marker — deliberate, not a fault]");
+            else if (e.Placement == InfoPlacement.HeadUnresolvable)
+                sb.Append("  [PNAM names no reachable line — forced to the top; worth a look]");
+            sb.Append('\n');
+        }
+
+        if (moved.Count > 0)
+        {
+            var w = moved[0];
+            // Qualified rather than gated on an incomplete read: a positive lead says how far the evidence reaches.
+            sb.Append(pad).Append("  [!] ").Append(io.Complete ? "" : "as far as could be read, ").Append(moved.Count)
+              .Append(moved.Count == 1 ? " line sits" : " lines sit")
+              .Append(" at a different position than this topic's defining plugin laid down — the biggest shift is ")
+              .Append(FormIdToken.Of(w.Info)).Append(" #").Append(w.OriginIndex!.Value + 1).Append(" -> #").Append(w.Index + 1)
+              .Append(", moved there by ").Append(w.PlacedBy)
+              .Append(". Re-listing a line appends it to the BOTTOM unless the plugin also carries that line's PNAM. Nothing is dropped — but a line the game now reaches later can be pre-empted by any earlier line whose conditions also pass, so the wrong line answers.\n");
+        }
+
+        AppendOrderNote(sb, io, pad);
+        return true;
+    }
+
+    /// <summary>Which off-order file was folded into THIS topic's merge, and whether it placed anything here.</summary>
+    static void AppendFoldNote(StringBuilder sb, InfoOrderView io, string pad)
+    {
+        if (io.FoldedPlugin is not { } fp) return;
+        sb.Append(pad).Append("  [folded] '").Append(fp).Append("' is NOT active and is ")
+          .Append(io.FoldedPlacement ?? "folded in LAST, where MO2 puts a newly enabled regular plugin");
+        // "The only plugin listing lines here" is a claim about every contributor, so it needs every one READ.
+        sb.Append(!io.FoldContributed
+            ? " — but it lists no line in this topic, so the order here is the live one.\n"
+            : io.Contested || !io.Complete
+                ? " — the lines it places are marked below.\n"
+                : " — and it is the only plugin listing lines here, so the whole order shown is its own list.\n");
+    }
+
+    /// <summary>The per-topic degradation note — a malformed PNAM, a cycle, a truncated chain, an unread contributor,
+    /// skipped move analysis. There is deliberately no standing PNAM-zero caveat here or in the footer, because
+    /// <c>DialogueInfoOrder.PnamZeroIsDistinguishable</c> holds; do not add one.</summary>
+    static void AppendOrderNote(StringBuilder sb, InfoOrderView io, string pad)
+    {
+        if (io.Note is { } note)
+            sb.Append(pad).Append("  [!] INFO order — ").Append(note).Append(".\n");
+    }
+
     // ---- shared building blocks ---------------------------------------------------------------------
 
     /// <summary>The runtime-FormID token every text lane prints beside a record's identity: the eight-hex form, the parenthetical sentence saying why there is none, or nothing at all.</summary>
