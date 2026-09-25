@@ -68,6 +68,10 @@ public static class NifService
     static string DescribeLoadException(Exception ex)
     {
         var m = ex.Message ?? "";
+        // NiflySharp's bound on a count, size or block end that cannot fit in the file; the message names the block or field and the number.
+        if (ex is InvalidDataException)
+            return $"the mesh is malformed and was not read ({m.TrimEnd('.')}) — the file is damaged or cut short, " +
+                   "so reinstall the mod that ships it or open it in NifSkope to see where it breaks.";
         if (m.Contains("boolean", StringComparison.OrdinalIgnoreCase))
             return "NiflySharp refused this mesh: a boolean field holds a non-0/1 byte, which the library rejects strictly " +
                    "(some exporters write it). The file is otherwise a valid SE mesh — NifSkope can open it — and houseCARL " +
