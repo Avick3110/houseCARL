@@ -68,7 +68,12 @@ public static class NifService
     static string DescribeLoadException(Exception ex)
     {
         var m = ex.Message ?? "";
-        // NiflySharp's bound on a count, size or block end that cannot fit in the file; the message names the block or field and the number.
+        // NiflySharp's block-end check: the header's stored size for a block is smaller than what the block reads.
+        if (ex is InvalidDataException && m.Contains("past its stored size", StringComparison.Ordinal))
+            return $"the mesh is malformed and was not read ({m.TrimEnd('.')}) — the header's size for that block disagrees " +
+                   "with what the block holds, so either the size table or the block is wrong and houseCARL will not guess which; " +
+                   "open it in NifSkope, and if that block reads correctly there, saving the mesh from NifSkope rewrites the size table.";
+        // NiflySharp's bound on a count, length or size that cannot fit in the bytes left in the file.
         if (ex is InvalidDataException)
             return $"the mesh is malformed and was not read ({m.TrimEnd('.')}) — the file is damaged or cut short, " +
                    "so reinstall the mod that ships it or open it in NifSkope to see where it breaks.";
