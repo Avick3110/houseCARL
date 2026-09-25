@@ -14,6 +14,13 @@ public static partial class RecordsTools
     /// count TABLE read an unset limit the same way (#810).</summary>
     internal const int DefaultLimit = 500;
 
+    /// <summary>A caller's limit= turned into a count TABLE's row cap, reading an unset limit exactly as every ROW
+    /// lane on this tool reads it — <c>limit &lt;= 0</c> is the 500 default, which is what the parameter description
+    /// promises the table too. The asset tool's <c>RowLimit</c> maps the same input to "uncapped" because its own
+    /// limit= parameter defaults to 0; this one defaults to 500, so one rule per TOOL is the rule, not one
+    /// expression across both (#810, Aaron 2026-09-22).</summary>
+    internal static int TableRowLimit(int limit) => limit <= 0 ? DefaultLimit : limit;
+
     /// <summary>The plugins= SELECT scope: which records are considered, as against source=, which decides whose version is read.</summary>
     public sealed class RecordsScope
     {
