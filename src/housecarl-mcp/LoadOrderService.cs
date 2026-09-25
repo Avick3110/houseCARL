@@ -94,29 +94,26 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         return new ViewPin(r, r.Capture());
     }
 
-    (ViewPin Pin, AssetCapture Assets) ILoadOrderHost.CapturePinAndAssets(Action? afterPin)
+    /// <summary>A pinned index and <paramref name="second"/>'s capture in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between them.</summary>
+    (ViewPin Pin, T Second) CapturePinAnd<T>(Func<T> second, Action? afterPin)
     {
         lock (_gate)
         {
             var pin = CapturePin();
             afterPin?.Invoke();
-            return (pin, AssetCaptureLocked(AssetsNoProfileRefreshLocked().Capture()));
+            return (pin, second());
         }
     }
+
+    (ViewPin Pin, AssetCapture Assets) ILoadOrderHost.CapturePinAndAssets(Action? afterPin)
+        => CapturePinAnd(() => AssetCaptureLocked(AssetsNoProfileRefreshLocked().Capture()), afterPin);
 
     /// <summary>Test seam: invoked in the pole lanes after the pin and before the roots; null in the product.</summary>
     internal Action? AfterReadPinForGuard;
 
-    /// <summary>A pinned index and the four MO2 roots, in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between the two.</summary>
-    (ViewPin Pin, Mo2Roots Roots) CapturePinAndRoots(Action? afterPin = null)
-    {
-        lock (_gate)
-        {
-            var pin = CapturePin();
-            afterPin?.Invoke();
-            return (pin, ((ILoadOrderHost)this).CaptureRoots());
-        }
-    }
+    /// <summary>A pinned index and the four MO2 roots in one <c>_gate</c> hold, with <see cref="AfterReadPinForGuard"/> between them.</summary>
+    (ViewPin Pin, Mo2Roots Roots) CapturePinAndRoots()
+        => CapturePinAnd(() => ((ILoadOrderHost)this).CaptureRoots(), AfterReadPinForGuard);
 
     /// <summary>A FormID door for a tool body with no captured view of its own — see <see cref="FormIdDoor"/>.</summary>
     internal FormIdDoor OpenFormIdDoor() => FormIdDoor.For(this);
