@@ -522,7 +522,7 @@ static partial class RecordsTools
                 sb.Append("  no INFO lines — every touching plugin's child list is empty.\n");
             // The view's own stop signal is kept rather than re-derived from Crossed, whose agreement depends on
             // where the view appends its marker — the view's business, not this render's.
-            else if (!Wire.AppendInfoOrderView(sb, row.Order, "", budget, indent: false))
+            else if (!Wire.AppendInfoOrderView(sb, row.Order, "", budget))
                 truncated = true;
             if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
             rendered++;

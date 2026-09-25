@@ -72,8 +72,8 @@ namespace HousecarlGenerator;
 ///   CYCLE-PREPLACED  — a PNAM cycle whose members were BOTH already placed by an earlier plugin, so no recursion
 ///                      occurs. The shape post-hoc CountPnamCycles was written for, and the one the old
 ///                      placement-time signal could never see; without it CountPnamCycles could return 0 unnoticed.
-///   RENDER-BIG-TOPIC — over the row cap with nothing moved must not print an EMPTY list, and a SINGLE-topic
-///                      report must ignore the cap (it counts rows, so max_chars could not lift it).
+///   RENDER-BIG-TOPIC — a big order with nothing moved must not print an EMPTY list: every line is listed
+///                      (the row cap that once collapsed it had no product caller and is gone, #920).
 ///   RENDER-CLAIM-GATES — aggregate claims stated unconditionally: the header counted plugins successfully READ
 ///                      while calling them the plugins that TOUCH the topic (a different number from the banner
 ///                      directly above it), and "none of which changed position" was asserted whenever the moved
@@ -470,33 +470,27 @@ public static class DialogueInfoOrderProbe
         // #915), and .FactD4b_WinnerLockIsLoud / .FactD4c_DefinerLockIsLoudOnTheCheck on the check's
         // "the check did not finish — {CheckError}" sentence.
 
-        // ---------- RENDER-BIG-TOPIC: over the row cap with nothing moved must not print an EMPTY list ----------
+        // ---------- RENDER-BIG-TOPIC: a big order with nothing moved must not print an EMPTY list ----------
         // Found by running the shipped build over a real quest: a 37-line topic with 0 moved rendered the
-        // "effective INFO order" header, then "listing only the 0 that moved", then nothing at all. Also pins
-        // that a SINGLE-topic report ignores the row cap — the cap counts rows, so max_chars could not lift it
-        // and the full order was simply unobtainable.
+        // "effective INFO order" header, then "listing only the 0 that moved", then nothing at all. The row cap
+        // behind that is gone (#920), so the render lists every line, and this pins that it does.
         {
             var many = new List<InfoLine>();
             for (int i = 1; i <= 40; i++) many.Add(new InfoLine(FormKey.Factory($"{i:X6}:big.esp"), null, false));
             var io = DialogueInfoOrder.Compute(
                 new List<(string, IReadOnlyList<InfoLine>)> { ("big.esp", many), ("patch.esp", many) }, _ => null);
 
-            string quest = RenderOrderOnly(io, asQuest: true);      // indented -> the row cap applies
-            string solo = RenderOrderOnly(io, asQuest: false);      // single topic -> always in full
-
-            bool questOk = io.Moved.Count == 0
-                           && quest.Contains("none of which changed position", StringComparison.Ordinal)
-                           && !quest.Contains("listing only the 0", StringComparison.Ordinal);
-            bool soloOk = solo.Contains("#40", StringComparison.Ordinal);   // full list, cap ignored
-            all &= Pass("RENDER-BIG-TOPIC", questOk && soloOk,
-                $"moved={io.Moved.Count} questSaysNoMoves={questOk} soloListsAll={soloOk}");
+            string rendered = RenderOrderOnly(io);
+            bool listsAll = io.Moved.Count == 0 && rendered.Contains("#40", StringComparison.Ordinal);
+            all &= Pass("RENDER-BIG-TOPIC", listsAll, $"moved={io.Moved.Count} listsAll={listsAll}");
         }
 
         // ---------- RENDER-CLAIM-GATES: two aggregate claims that were stated unconditionally ----------
         // (a) the header counted plugins successfully READ while calling them the plugins that TOUCH the topic,
         //     printing a different number from the INCOMPLETE banner directly above it; (b) "none of which
         //     changed position" was asserted whenever the moved set was empty — including when move analysis
-        //     never ran, contradicting the note two lines below it.
+        //     never ran, contradicting the note two lines below it. That sentence left with the row cap (#920); the
+        //     full listing says the same through the SKIPPED note and the INCOMPLETE banner, asserted below.
         {
             var lines = new List<InfoLine>();
             for (int i = 1; i <= 40; i++) lines.Add(new InfoLine(FormKey.Factory($"{i:X6}:big.esp"), null, false));
@@ -504,18 +498,17 @@ public static class DialogueInfoOrderProbe
             // One list read, one plugin unread -> the header must say 2 touching, not 1, and not "1 plugins".
             var partial = DialogueInfoOrder.Compute(
                 new List<(string, IReadOnlyList<InfoLine>)> { ("read.esp", lines) }, _ => null, new[] { "locked.esp" });
-            string rPartial = RenderOrderOnly(partial, asQuest: true);
+            string rPartial = RenderOrderOnly(partial);
             bool countOk = rPartial.Contains("merged across 2 plugins that touch", StringComparison.Ordinal)
                            && !rPartial.Contains("merged across 1 plugins", StringComparison.Ordinal);
 
-            // Move analysis skipped (baseline untrusted) -> must NOT claim nothing moved.
+            // Move analysis skipped (baseline untrusted) -> must say so rather than let an empty moved set pass as none.
             var skipped = DialogueInfoOrder.Compute(
                 new List<(string, IReadOnlyList<InfoLine>)> { ("read.esp", lines) }, _ => null,
                 new[] { "definer.esp" }, originIsDefiningPlugin: false);
-            string rSkipped = RenderOrderOnly(skipped, asQuest: true);
+            string rSkipped = RenderOrderOnly(skipped);
             bool claimOk = !skipped.MovesComputed
-                           && !rSkipped.Contains("none of which changed position", StringComparison.Ordinal)
-                           && rSkipped.Contains("is NOT known here", StringComparison.Ordinal);
+                           && rSkipped.Contains("move analysis was SKIPPED", StringComparison.Ordinal);
 
             // The OTHER axis, and the one actually reported: an unread plugin AFTER the definer leaves the
             // baseline trusted, so MovesComputed stays TRUE while lines are missing. Gating on MovesComputed
@@ -524,13 +517,11 @@ public static class DialogueInfoOrderProbe
             var incomplete = DialogueInfoOrder.Compute(
                 new List<(string, IReadOnlyList<InfoLine>)> { ("read.esp", lines) }, _ => null,
                 new[] { "locked.esp" });                       // definer read, a LATER plugin unread
-            string rIncomplete = RenderOrderOnly(incomplete, asQuest: true);
+            string rIncomplete = RenderOrderOnly(incomplete);
             bool completeGateOk = incomplete.MovesComputed && !incomplete.Complete
-                                  && !rIncomplete.Contains("none of which changed position", StringComparison.Ordinal);
+                                  && rIncomplete.Contains("The sequence below is NOT authoritative", StringComparison.Ordinal);
 
-            // The SIBLING branch, six lines below the one above: "the rest keep their original relative order"
-            // is a claim about rows that branch WITHHOLDS, so a reader cannot check it. Needs a moved line to
-            // reach that branch at all, plus an unread contributor so the claim is unsafe.
+            // A moved line plus an unread contributor: the moved lead must not state the shift as settled.
             var withMove = new List<InfoLine>(lines);
             var movedGroups = new List<(string, IReadOnlyList<InfoLine>)>
             {
@@ -538,10 +529,8 @@ public static class DialogueInfoOrderProbe
                 ("patch.esp",   new[] { withMove[0] }),        // re-lists line 1, no PNAM -> it goes to the tail
             };
             var siblingIncomplete = DialogueInfoOrder.Compute(movedGroups, _ => null, new[] { "locked.esp" });
-            string rSibling = RenderOrderOnly(siblingIncomplete, asQuest: true);
+            string rSibling = RenderOrderOnly(siblingIncomplete);
             bool siblingOk = siblingIncomplete.Moved.Count > 0 && !siblingIncomplete.Complete
-                             && !rSibling.Contains("the rest keep their original relative order",
-                                                   StringComparison.Ordinal)
                              // …and the POSITIVE moved claim is qualified rather than suppressed: an unread
                              // plugin could re-list the same line WITH its PNAM and put it back, so the lead
                              // must say how far the evidence reaches instead of asserting the shift outright.
@@ -635,7 +624,7 @@ public static class DialogueInfoOrderProbe
     /// <summary>Render just the INFO-order block for a synthesised view, by wrapping it in the minimum report the
     /// real renderer consumes — so the arms above pin the SHIPPED render path (the gated "nothing merges here"
     /// claim, the INCOMPLETE banner) rather than a re-implementation of it.</summary>
-    static string RenderOrderOnly(InfoOrderView io, bool asQuest = false)
+    static string RenderOrderOnly(InfoOrderView io)
     {
         // #486: DialogueWire.Render (the deleted 1.x whole-report renderer) is gone; the INFO-order BLOCK it
         // wrapped survives as Wire.AppendInfoOrderView, called directly here rather than through a
@@ -644,10 +633,10 @@ public static class DialogueInfoOrderProbe
         // The cap is Wire.DefaultMaxChars because that is what the old call resolved to: Render(report, 0) went
         // through Wire.Cap, which turns 0 into the default. AppendInfoOrderView takes the cap raw, so the port
         // has to spell it. It was written as a bare 8000 first — a silent 10x cut to the budget the eight arms
-        // below render at, RENDER-BIG-TOPIC among them, whose whole subject is what a large order does at the
-        // row cap (round-2 finding B-LOW-2; ci-all is ALL PASS at both values, so this was latent, not live).
+        // below render at, RENDER-BIG-TOPIC among them, whose whole subject is what a large order renders
+        // (round-2 finding B-LOW-2; ci-all is ALL PASS at both values, so this was latent, not live).
         var sb = new System.Text.StringBuilder();
-        Wire.AppendInfoOrderView(sb, io, "", Wire.DefaultMaxChars, indent: asQuest);
+        Wire.AppendInfoOrderView(sb, io, "", Wire.DefaultMaxChars);
         return sb.ToString();
     }
 
