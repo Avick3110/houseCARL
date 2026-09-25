@@ -14,7 +14,7 @@ writes DATA VALUES.
 ## Contracts
 
 Reads ride NiflySharp, source-generated from `nif.xml`, as houseCARL's own build of a fork: NuGet `Nifly`
-1.1.0-housecarl.1, vendored in `packages/local` and added by the root `nuget.config`. The fork is upstream 1.1.0's
+1.1.0-housecarl.2, vendored in `packages/local` and added by the root `nuget.config`. The fork is upstream 1.1.0's
 commit plus one change: every count, string length and unknown-block size is checked against the bytes left before
 anything is allocated for it, and a block that reads past its stored size stops the load. Both throw
 `InvalidDataException` naming the block and the number, where 1.1.0 could allocate gigabytes for one corrupted count

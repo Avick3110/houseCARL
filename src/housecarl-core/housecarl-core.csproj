@@ -29,15 +29,22 @@
     <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.54.4" />
     <!-- The NIF layer's asset-internal reader/writer. Pure C#, GPL-3.0 (compatible with our GPL-3.0-only), source-
          generated from nifxml = coverage by construction.
-         Pinned 1.1.0-housecarl.1 (2026-09-25, issue #926): houseCARL's own build of a fork, vendored in packages/local
+         Pinned 1.1.0-housecarl.2 (2026-09-25, issue #926): houseCARL's own build of a fork, vendored in packages/local
          (nuget.config adds it). Fork: https://github.com/Avick3110/NiflySharp branch fix/bounded-counts, commit
          2fb5d048637f56b01d96369f03639d53539b5fe0, one commit on upstream ousnius/NiflySharp 7b55e88a (the commit Nifly
          1.1.0 was built from). The change: every list count, header count, string length and unknown-block size is
          checked against the bytes left before anything is allocated for it, and Load throws when a block reads past
          its stored size; each throws InvalidDataException naming the block and the number. On 1.1.0 one corrupted
          byte could make Load allocate 13 GB. Same assembly (NiflySharp 1.1.0.0) and the same public surface as 1.1.0.
-         Packed with: dotnet pack NiflySharp/NiflySharp.csproj -c Release -p:Version=1.1.0-housecarl.1
-         -p:RepositoryUrl=https://github.com/Avick3110/NiflySharp -p:PackageProjectUrl=https://github.com/Avick3110/NiflySharp
+         Built from a clean clone (git clone the fork, checkout the commit, git submodule update init for nifxml at
+         292bb940; .NET 10 SDK) with: dotnet build NiflySharp/NiflySharp.csproj -c Release -p:Version=1.1.0-housecarl.2
+         -p:ContinuousIntegrationBuild=true -p:RepositoryUrl=https://github.com/Avick3110/NiflySharp
+         -p:PackageProjectUrl=https://github.com/Avick3110/NiflySharp
+         The csproj's GeneratePackageOnBuild writes NiflySharp/bin/Release/Nifly.1.1.0-housecarl.2.nupkg; a bare dotnet
+         pack fails NU5026 on a clean clone. ContinuousIntegrationBuild keeps the local path out of the DLLs, so two
+         clones at different paths give byte-identical DLLs (and every package entry but the zip timestamps).
+         housecarl.1 was the same commit built without it; bump the suffix on any repack, since a machine that restored
+         a version keeps its cached copy.
          RE-PROVEN on bump, not assumed to carry over. 1.1.0 and the fork scanned back to back over the same 72,861 loose
          (every mod folder of the live instance) + 22,047 vanilla (Skyrim - Meshes0/1.bsa) meshes, loaded, round-tripped
          and diffed FILE BY FILE (spike-nif `scan` + diff_ab.py, ~24 min per loose leg): 0 files changed verdict, both
@@ -47,7 +54,7 @@
          the check; two runs can hit the same totals while disagreeing about which files. Bump deliberately, and re-run
          that diff when you do.
          Notices: THIRD-PARTY-NOTICES.txt (GPL-3.0 block). -->
-    <PackageReference Include="Nifly" Version="1.1.0-housecarl.1" />
+    <PackageReference Include="Nifly" Version="1.1.0-housecarl.2" />
   </ItemGroup>
 
   <ItemGroup>
