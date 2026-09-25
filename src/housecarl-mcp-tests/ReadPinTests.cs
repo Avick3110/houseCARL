@@ -180,6 +180,28 @@ public sealed class ReadPinTests : IDisposable
         Assert.Equal(_dataB, ((ILoadOrderHost)_svc).CaptureRoots().DataDir);
     }
 
+    [Fact]
+    public void ASwitchToAProfileHeldOpenKeepsTheOldRoots()
+    {
+        _svc.CaptureView();                                                     // warms the index on the Default profile
+        var roots = (ILoadOrderHost)_svc;
+        var otherPlugins = Path.Combine(_instance, "profiles", "Other", "plugins.txt");
+
+        // MO2 holding Other's plugins.txt makes its read throw ProfileUnreadableException, so the record lane refuses.
+        using (new FileStream(otherPlugins, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            SelectOtherProfileAndGameB();
+            Assert.ThrowsAny<ProfileUnreadableException>(() => _svc.CaptureView());
+            Assert.Equal("Default", _svc.ProfileName);
+            Assert.Equal(_dataA, roots.CaptureRoots().DataDir);
+        }
+
+        // Released, the next call takes Other's order and its roots together.
+        _svc.CaptureView();
+        Assert.Equal("Other", _svc.ProfileName);
+        Assert.Equal(_dataB, roots.CaptureRoots().DataDir);
+    }
+
     /// <summary>A one-item list that runs <paramref name="onFirstRead"/> the first time its item is read.</summary>
     sealed class JoinOnFirstRead(string item, Action onFirstRead) : IReadOnlyList<string>
     {

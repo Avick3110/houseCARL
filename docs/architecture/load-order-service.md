@@ -46,6 +46,7 @@ the config file.
 - Nothing pins the lock order, the getters' `TryEnter` exception to it, or `SetInstance` taking `_writeGate`.
 - `ProfileRewriteTests.AWarmAssetCallAnswersOffTheKeptBuildSaysSoAndFollowsTheProfileOnceItIsFree`, `TheRecordIndexRefusesRatherThanAnswerOffASupersededBuild` and `AColdRecordBuildAfterAHoldDoesNotStrandTheKeptAssetBuild` — the held-profile split between the two lanes.
 - `ReadPinTests.ASwitchToAProfileWithNoActivePluginsKeepsTheOldRootsWithTheOldView` — a switch to a profile whose order reads empty publishes neither its roots nor its order, and the next call takes both once it reads.
+- `ReadPinTests.ASwitchToAProfileHeldOpenKeepsTheOldRoots` — a switch to a profile MO2 holds open keeps the old profile name and roots while the record lane refuses, and takes the new ones once it is released.
 - `freshness-capture-guard` (`ci-all`), arm 5 — a read while a write holds `_writeGate` completes without waiting, serves the last good snapshot, and the next call refreshes: the deferred-refresh sentence, not the mapped-plugin reason it gives.
 
 ## Where
