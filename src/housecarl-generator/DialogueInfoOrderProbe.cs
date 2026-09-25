@@ -72,15 +72,11 @@ namespace HousecarlGenerator;
 ///   CYCLE-PREPLACED  — a PNAM cycle whose members were BOTH already placed by an earlier plugin, so no recursion
 ///                      occurs. The shape post-hoc CountPnamCycles was written for, and the one the old
 ///                      placement-time signal could never see; without it CountPnamCycles could return 0 unnoticed.
-///   RENDER-BIG-TOPIC — a big order with nothing moved must not print an EMPTY list: every line is listed
-///                      (the row cap that once collapsed it had no product caller and is gone, #920).
-///   RENDER-CLAIM-GATES — aggregate claims stated unconditionally: the header counted plugins successfully READ
-///                      while calling them the plugins that TOUCH the topic (a different number from the banner
-///                      directly above it), and "none of which changed position" was asserted whenever the moved
-///                      set was empty. Gated on BOTH axes — the analysis having RUN and having run over COMPLETE
-///                      input; an unread plugin AFTER the definer keeps MovesComputed true while lines are
-///                      missing, and this arm's first cut covered only the other axis and stayed green with the
-///                      Complete gate deleted.
+///   RENDER-BIG-TOPIC — a big order with nothing moved lists every line.
+///   RENDER-CLAIM-GATES — the header counts the plugins that TOUCH the topic, not the ones read; a skipped move
+///                      analysis says so in its note, listed in full or cut by its cap, with no line between the
+///                      header and the first row; an unread plugin after the definer gets the INCOMPLETE banner;
+///                      a moved lead over an incomplete read says how far the evidence reaches.
 ///   RENDER-HEAD-SPLIT — the HeadFirstMarker/HeadUnresolvable split asserted where a USER meets it. Pinned only
 ///                      at the enum level, collapsing the two render branches back to one shared string would
 ///                      restore the whole user-visible defect with the suite green — the fourth-pass lesson
@@ -470,10 +466,7 @@ public static class DialogueInfoOrderProbe
         // #915), and .FactD4b_WinnerLockIsLoud / .FactD4c_DefinerLockIsLoudOnTheCheck on the check's
         // "the check did not finish — {CheckError}" sentence.
 
-        // ---------- RENDER-BIG-TOPIC: a big order with nothing moved must not print an EMPTY list ----------
-        // Found by running the shipped build over a real quest: a 37-line topic with 0 moved rendered the
-        // "effective INFO order" header, then "listing only the 0 that moved", then nothing at all. The row cap
-        // behind that is gone (#920), so the render lists every line, and this pins that it does.
+        // ---------- RENDER-BIG-TOPIC: a big order with nothing moved lists every line ----------
         {
             var many = new List<InfoLine>();
             for (int i = 1; i <= 40; i++) many.Add(new InfoLine(FormKey.Factory($"{i:X6}:big.esp"), null, false));
@@ -485,12 +478,7 @@ public static class DialogueInfoOrderProbe
             all &= Pass("RENDER-BIG-TOPIC", listsAll, $"moved={io.Moved.Count} listsAll={listsAll}");
         }
 
-        // ---------- RENDER-CLAIM-GATES: two aggregate claims that were stated unconditionally ----------
-        // (a) the header counted plugins successfully READ while calling them the plugins that TOUCH the topic,
-        //     printing a different number from the INCOMPLETE banner directly above it; (b) "none of which
-        //     changed position" was asserted whenever the moved set was empty — including when move analysis
-        //     never ran, contradicting the note two lines below it. That sentence left with the row cap (#920); the
-        //     full listing says the same through the SKIPPED note and the INCOMPLETE banner, asserted below.
+        // ---------- RENDER-CLAIM-GATES: the header count, the skipped-analysis note, the banner, the qualified lead ----------
         {
             var lines = new List<InfoLine>();
             for (int i = 1; i <= 40; i++) lines.Add(new InfoLine(FormKey.Factory($"{i:X6}:big.esp"), null, false));
@@ -502,18 +490,27 @@ public static class DialogueInfoOrderProbe
             bool countOk = rPartial.Contains("merged across 2 plugins that touch", StringComparison.Ordinal)
                            && !rPartial.Contains("merged across 1 plugins", StringComparison.Ordinal);
 
-            // Move analysis skipped (baseline untrusted) -> must say so rather than let an empty moved set pass as none.
+            // Move analysis skipped (baseline untrusted): every row, then the SKIPPED note, and no line claiming anything before row #1.
             var skipped = DialogueInfoOrder.Compute(
                 new List<(string, IReadOnlyList<InfoLine>)> { ("read.esp", lines) }, _ => null,
                 new[] { "definer.esp" }, originIsDefiningPlugin: false);
             string rSkipped = RenderOrderOnly(skipped);
+            var skippedLines = rSkipped.Split('\n');
+            int header = Array.FindIndex(skippedLines, l => l.Contains("effective INFO order", StringComparison.Ordinal));
             bool claimOk = !skipped.MovesComputed
+                           && header >= 0 && skippedLines[header + 1].StartsWith("    #1  ", StringComparison.Ordinal)
+                           && rSkipped.Contains("    #40  ", StringComparison.Ordinal)
                            && rSkipped.Contains("move analysis was SKIPPED", StringComparison.Ordinal);
 
-            // The OTHER axis, and the one actually reported: an unread plugin AFTER the definer leaves the
-            // baseline trusted, so MovesComputed stays TRUE while lines are missing. Gating on MovesComputed
-            // alone passes here — measured: this arm's first cut used only the untrusted-baseline fixture and
-            // stayed green with the Complete gate deleted, the same vacuity the review found in it.
+            // The same order cut by its cap still closes on the SKIPPED note, inside the cap.
+            const int skippedCap = 1_200;
+            string rSkippedCut = RenderOrderOnly(skipped, skippedCap);
+            bool cutOk = rSkippedCut.Length <= skippedCap
+                         && rSkippedCut.Contains("    ... [truncated at max_chars]", StringComparison.Ordinal)
+                         && !rSkippedCut.Contains("    #40  ", StringComparison.Ordinal)
+                         && rSkippedCut.Contains("move analysis was SKIPPED", StringComparison.Ordinal);
+
+            // An unread plugin AFTER the definer keeps MovesComputed true while lines are missing: the banner says so.
             var incomplete = DialogueInfoOrder.Compute(
                 new List<(string, IReadOnlyList<InfoLine>)> { ("read.esp", lines) }, _ => null,
                 new[] { "locked.esp" });                       // definer read, a LATER plugin unread
@@ -536,8 +533,8 @@ public static class DialogueInfoOrderProbe
                              // must say how far the evidence reaches instead of asserting the shift outright.
                              && rSibling.Contains("as far as could be read", StringComparison.Ordinal);
 
-            all &= Pass("RENDER-CLAIM-GATES", countOk && claimOk && completeGateOk && siblingOk,
-                $"touchingCount={countOk} skippedGated={claimOk} incompleteGated={completeGateOk} " +
+            all &= Pass("RENDER-CLAIM-GATES", countOk && claimOk && cutOk && completeGateOk && siblingOk,
+                $"touchingCount={countOk} skippedGated={claimOk} skippedCut={cutOk} incompleteGated={completeGateOk} " +
                 $"siblingGated={siblingOk} (movesComputed={incomplete.MovesComputed}, complete={incomplete.Complete})");
         }
 
@@ -624,7 +621,7 @@ public static class DialogueInfoOrderProbe
     /// <summary>Render just the INFO-order block for a synthesised view, by wrapping it in the minimum report the
     /// real renderer consumes — so the arms above pin the SHIPPED render path (the gated "nothing merges here"
     /// claim, the INCOMPLETE banner) rather than a re-implementation of it.</summary>
-    static string RenderOrderOnly(InfoOrderView io)
+    static string RenderOrderOnly(InfoOrderView io, int cap = Wire.DefaultMaxChars)
     {
         // #486: DialogueWire.Render (the deleted 1.x whole-report renderer) is gone; the INFO-order BLOCK it
         // wrapped survives as Wire.AppendInfoOrderView, called directly here rather than through a
@@ -636,7 +633,7 @@ public static class DialogueInfoOrderProbe
         // below render at, RENDER-BIG-TOPIC among them, whose whole subject is what a large order renders
         // (round-2 finding B-LOW-2; ci-all is ALL PASS at both values, so this was latent, not live).
         var sb = new System.Text.StringBuilder();
-        Wire.AppendInfoOrderView(sb, io, Wire.DefaultMaxChars);
+        Wire.AppendInfoOrderView(sb, io, cap);
         return sb.ToString();
     }
 
