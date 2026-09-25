@@ -84,7 +84,7 @@ static class JsonWire
                                        (int RowsRead, long Millis)? bodyCost = null)
     {
         truncated = false;
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -143,8 +143,6 @@ static class JsonWire
         WriteNullable(w, "editorid", p.EditorId);
         w.WriteEndObject();
     }
-
-    static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
 
     /// <summary>A whole-call refusal document: <c>{ok:false, error, epoch}</c>, for tool-layer refusals with no
     /// outcome object to render; the read surface's <c>ok</c> asymmetry is in docs/architecture/json-wire.md.</summary>
@@ -410,7 +408,7 @@ static class JsonWire
                                      IReadOnlyList<string?>? matches = null)
     {
         truncated = false;
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -459,7 +457,7 @@ static class JsonWire
     public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, OrderStamp? epoch,
                                       int maxChars)
     {
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -481,7 +479,7 @@ static class JsonWire
                                            IReadOnlyList<KeyValuePair<string, int>> counts, OrderStamp? epoch,
                                            int maxChars)
     {
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -501,7 +499,7 @@ static class JsonWire
                                               SpillState? spill, (int RowsRead, long Millis) bodyCost, out bool truncated)
     {
         truncated = false;
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -566,7 +564,7 @@ static class JsonWire
                                              IReadOnlyList<string>? emptyGroups = null,
                                              int rowLimit = 0)
     {
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -657,7 +655,7 @@ static class JsonWire
                                      SpillState? spill, out bool truncated)
     {
         truncated = false;
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -771,7 +769,7 @@ static class JsonWire
                                     SpillState? spill, out bool truncated, LeverNames? levers = null)
     {
         truncated = false;
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -890,7 +888,7 @@ static class JsonWire
                                      SpillState? spill, out bool truncated)
     {
         truncated = false;
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -928,7 +926,7 @@ static class JsonWire
                                             SpillState? spill, out bool outTruncated)
     {
         outTruncated = false;
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -1049,7 +1047,7 @@ static class JsonWire
                                          SpillState? spill, out bool truncated)
     {
         truncated = false;
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -1095,7 +1093,7 @@ static class JsonWire
                                           CancellationToken ct = default, int rowLimit = 0)
     {
         truncated = false;
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -1232,7 +1230,7 @@ static class JsonWire
                                                FoldPlan? fold = null, CancellationToken ct = default)
     {
         truncated = false;
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -1775,7 +1773,7 @@ static class JsonWire
         measured = null;
         // WHAT THIS RESPONSE ACTUALLY DID, composed ONCE and handed to everything below — see the text lane.
         var o = CheckOutcome.For(s);
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         var sections = o.Sections;
         var accts = o.Accountings(cap);
         // One accounting + boundary reserve per family, and ONE entry slack for the response.
@@ -2724,7 +2722,7 @@ static class JsonWire
     /// <param name="truncated">whether max_chars cut paths out of the window — what the caller auto-spills on.</param>
     public static string RenderAssetStatus(AssetStatusData d, int maxChars, SpillState? spill, out bool truncated)
     {
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         // The accounting and the advice after it are priced INSIDE max_chars, as the text twin prices its line.
         int budget = Math.Max(cap - AssetTailReserve(d, cap, spill), 1);
         using var ms = new CharCountedStream();
@@ -2768,7 +2766,7 @@ static class JsonWire
     /// <summary>The <c>counts_only=</c> twin of <see cref="RenderAssetStatus"/>: no path rows, and the layer table is the shared axis.</summary>
     public static string RenderAssetCensus(AssetStatusData d, int maxChars, int limit)
     {
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         var c = AssetCensus.Tally(d);
         // What this document writes whatever the budget says comes out of max_chars before the caveats.
         int budget = Math.Max(cap - AssetCensusFixedReserve(d, c), 1);
@@ -2835,7 +2833,7 @@ static class JsonWire
     /// depends on, and the spilled marker. No rows, because the rows ARE the file.</summary>
     public static string RenderAssetStatusManifestOnly(AssetStatusData d, SpillInfo spill, int maxChars)
     {
-        int cap = Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
