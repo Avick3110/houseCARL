@@ -62,14 +62,13 @@ namespace HousecarlGenerator;
 ///                      call Compute directly, which is precisely why they all passed while the production wiring
 ///                      was absent (PR #293 fourth pass): a guard that never drives the shipped path cannot catch
 ///                      an unwired one. Drop the argument at the call site and THIS arm goes red.
-///   DEFINER-LOCK-LOUD / WINNER-LOCK-LOUD [MOVED → DialogueFamilyTests.FactD4a/.FactD4b] — the REACHABILITY facts the defensive branches rest on, measured
-///                      rather than assumed. A plugin can only override a record by declaring the definer as a
-///                      master, so an unreadable definer breaks opening its overrides too; and the winner body is
-///                      fetched through GetRecord, which throws. Both therefore surface as a named CheckError
-///                      BEFORE any order code runs — which is why the total-drop and shifted-baseline states are
-///                      defence in depth, not live silent paths, and why their logic is covered synthetically.
-///                      If a future change makes either fetch swallow its failure, the silent path opens and
-///                      these go red instead of the report going quiet.
+///   DEFINER-LOCK-LOUD / WINNER-LOCK-LOUD [MOVED → DialogueFamilyTests.FactD4a/.FactD4b/.FactD4c] — a locked plugin
+///                      is loud, never silent. Since #915 the check family no longer computes the order; the
+///                      order lives on records project=info_order, where an unreadable definer IS reachable: the
+///                      merge's PNAM-target fetch throws and the call refuses naming the file (D4a), and where no
+///                      fetch lands in it the view says INCOMPLETE with move analysis SKIPPED (UNREAD-BASELINE's
+///                      state, covered synthetically above). On the check path a locked winner (D4b) or a locked
+///                      definer the SNAM gate reads (D4c) surfaces as a named CheckError.
 ///   CYCLE-PREPLACED  — a PNAM cycle whose members were BOTH already placed by an earlier plugin, so no recursion
 ///                      occurs. The shape post-hoc CountPnamCycles was written for, and the one the old
 ///                      placement-time signal could never see; without it CountPnamCycles could return 0 unnoticed.
@@ -466,10 +465,10 @@ public static class DialogueInfoOrderProbe
         // All three drove DialogueWire.Render (the deleted 1.x whole-report renderer) on a HELD file — MO2/xEdit
         // holding a plugin exclusively, this project's own no-handles-at-rest scenario. They move onto a
         // dedicated DialogueWorld the test constructs itself (never the shared one — a held file is unreadable
-        // to anything else in the process): DialogueFamilyTests.FactD3_UnreadWired,
-        // .FactD4a_DefinerLockIsLoud, .FactD4b_WinnerLockIsLoud, using the ported HeldOpen harness and
-        // asserting on CheckError / the merged "the check did not finish — {CheckError}" sentence
-        // (DialogueSweep.cs:57-59) rather than the retired "could NOT complete" wording.
+        // to anything else in the process), using the ported HeldOpen harness: DialogueFamilyTests.FactD3_UnreadWired
+        // and .FactD4a_DefinerLockIsLoud on records project=info_order (the only surface computing the order since
+        // #915), and .FactD4b_WinnerLockIsLoud / .FactD4c_DefinerLockIsLoudOnTheCheck on the check's
+        // "the check did not finish — {CheckError}" sentence.
 
         // ---------- RENDER-BIG-TOPIC: over the row cap with nothing moved must not print an EMPTY list ----------
         // Found by running the shipped build over a real quest: a 37-line topic with 0 moved rendered the

@@ -9,10 +9,10 @@ namespace HousecarlMcpTests;
 
 /// <summary>
 /// The dialogue family's facts, driven against the surfaces that render them: <c>housecarl_records
-/// project=info_order</c> for D1-D3, and <c>housecarl_check findings=["dialogue"]</c> for D4/V1.
+/// project=info_order</c> for D1-D3 and D4a, and <c>housecarl_check findings=["dialogue"]</c> for D4b, D4c and V1.
 ///
-/// <para>D1/D2 and V1 are driven on the shared <see cref="DialogueWorld"/>. The three lock facts (D3, D4a,
-/// D4b) each construct their OWN world via <c>new()</c> — never the shared one, per <see cref="DialogueWorld"/>'s
+/// <para>D1/D2 and V1 are driven on the shared <see cref="DialogueWorld"/>. The four lock facts (D3, D4a,
+/// D4b, D4c) each construct their OWN world via <c>new()</c> — never the shared one, per <see cref="DialogueWorld"/>'s
 /// own doc and the <see cref="HeldOpen"/> harness's contract (a held file is unreadable to anything else in
 /// the process).</para>
 /// </summary>
@@ -163,9 +163,8 @@ public sealed class DialogueFamilyTests
     }
 
     // ---- fact D4 (a) ------------------------------------------------------------------------------------
-    // DEFINER-LOCK-LOUD: an unreadable definer is loud — a plugin can only override a record by declaring the
-    // defining plugin as a master, so opening the override REQUIRES the definer, and the fetch throws before
-    // any order code runs.
+    // DEFINER-LOCK-LOUD on the order: the merge reads the definer (the PNAM-target fetch inside the order code),
+    // so a locked definer makes records project=info_order refuse, naming it.
 
     // Since #915 the check family never reads the definer here; the fact moved to the shipping info_order path.
     [Fact]
@@ -203,13 +202,43 @@ public sealed class DialogueFamilyTests
         var text = Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
 
         Assert.NotNull(result.Error);
-        // Read past the seed for the same reason as D4a, though here the seed names a DIFFERENT plugin from the
+        // Read past the seed: the sweep echoes it before the refusal, and here it names a DIFFERENT plugin from the
         // locked one.
         var refusal = AfterSeed(text, Fid(w.Topic));
         Assert.Contains("the check did not finish", refusal);
         Assert.Contains("IOException", refusal);
         Assert.Contains(DialogueWorld.LastName, refusal);
         Assert.DoesNotContain(DialogueWorld.MidName, refusal);
+    }
+
+    // ---- fact D4 (c) ------------------------------------------------------------------------------------
+    // DEFINER-LOCK-LOUD on the check: for an overridden topic the SNAM ownership gate reads the definer's own
+    // copy, so a locked definer must stop the check with a named error, never answer from a missing base pair.
+
+    [Fact]
+    public void FactD4c_DefinerLockIsLoudOnTheCheck()
+    {
+        using var w = new DialogueWorld();
+        w.Svc.Stats();
+        var seed = Fid(w.VanillaStaleOverriddenTopic);
+        var vanillaPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(w.MasterPath))!,
+                                       "VanillaStub", DialogueWorld.VanillaName);
+
+        // Control: unlocked, the same seed finishes.
+        Assert.Null(w.Svc.CheckDialogue(new[] { seed }, 1000).Error);
+
+        using var hold = HeldOpen.Hold(vanillaPath);
+        var result = w.Svc.CheckDialogue(new[] { seed }, 1000);
+        var text = Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
+
+        Assert.NotNull(result.Error);
+        // The seed is "<id>:Skyrim.esm", so the refusal is read past its echo.
+        var refusal = AfterSeed(text, seed);
+        Assert.Contains("the check did not finish", refusal);
+        Assert.Contains("IOException", refusal);
+        Assert.Contains(DialogueWorld.VanillaName, refusal);
+        Assert.DoesNotContain(DialogueWorld.LastName, refusal);
+        Assert.DoesNotContain(DialogueWorld.MasterName, refusal);
     }
 
     // ---- fact V1 --------------------------------------------------------------------------------------
