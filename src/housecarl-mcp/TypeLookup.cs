@@ -11,8 +11,14 @@ internal sealed class TypeLookup
     // Built on the first resolution that needs it, never at construction; a failed build is not kept, so the next call retries.
     Dictionary<string, List<Type>>? _lookup;
     object? _lookupLock;
+    IReadOnlyList<Type>? _allTypes;
+    object? _allTypesLock;
 
     Dictionary<string, List<Type>> Lookup => LazyInitializer.EnsureInitialized(ref _lookup, ref _lookupLock, BuildLookup);
+
+    /// <summary>Every getter Type the map holds, once each, in map order.</summary>
+    IReadOnlyList<Type> AllTypes =>
+        LazyInitializer.EnsureInitialized(ref _allTypes, ref _allTypesLock, () => Lookup.Values.SelectMany(v => v).Distinct().ToList());
 
     /// <summary>Build the type-string to getter-Type map from the corpus, keyed by both catalog name and signature, with a many-to-one signature and an abstract-group base name each accumulating their variants. A corpus type that will not load is skipped and surfaces as "unknown type" at query time, never as a silently wrong one.</summary>
     static Dictionary<string, List<Type>> BuildLookup()
@@ -45,11 +51,16 @@ internal sealed class TypeLookup
         return lookup;
     }
 
-    /// <summary>The getter Types one exact key (catalog name or signature, case-insensitive) maps to.</summary>
-    internal bool TryGetValue(string key, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out List<Type> types) => Lookup.TryGetValue(key, out types);
-
-    /// <summary>Every key's getter Types, one list per key.</summary>
-    internal IEnumerable<List<Type>> Values => Lookup.Values;
+    /// <summary>A form-scope string to getter Types: a catalog name or signature via the lookup, or a Mutagen link-interface group name resolved as every corpus record getter assignable to <c>I{name}Getter</c>, derived from the real interfaces rather than a hand-kept list. Null means it names neither, which the caller surfaces loudly.</summary>
+    internal IReadOnlyList<Type>? ResolveScope(string type)
+    {
+        var t = type.Trim();
+        if (Lookup.TryGetValue(t, out var types)) return types;
+        var iface = typeof(SkyrimMod).Assembly.GetType($"Mutagen.Bethesda.Skyrim.I{t}Getter");
+        if (iface is null) return null;
+        var matches = AllTypes.Where(iface.IsAssignableFrom).ToList();
+        return matches.Count > 0 ? matches : null;
+    }
 
     /// <summary>A user type SET to its getter Types: each entry's resolution unioned in order and deduped, through the same <see cref="Resolve"/> the singular form uses. Null for an absent or empty set.</summary>
     internal IReadOnlyList<Type>? ResolveSet(IReadOnlyList<string>? types) => ResolveSet(types, out _);
