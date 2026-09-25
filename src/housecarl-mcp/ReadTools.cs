@@ -461,7 +461,7 @@ static partial class Wire
 
     // ---- the info_order form ----
     /// <summary>The effective merged INFO order, as the <c>records project=info_order</c> form renders it.</summary>
-    internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, string pad, int cap)
+    internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, int cap)
     {
         // An empty order says nothing, unless it is empty because nothing could be read — never render that as silence.
         if (view is not { } io || (io.Order.Count == 0 && io.Complete)) return true;
@@ -470,12 +470,12 @@ static partial class Wire
         // which is also what keeps this arm's ContributingPlugins[0] off a view built from nothing.
         if (!io.Contested && io.Complete)
         {
-            sb.Append(pad).Append("  INFO order: ").Append(io.Order.Count)
+            sb.Append("  INFO order: ").Append(io.Order.Count)
               .Append(io.Order.Count == 1 ? " line, from a single plugin (" : " lines, from a single plugin (")
               .Append(io.ContributingPlugins[0])
               .Append(") — nothing merges here, so the effective order IS that plugin's own list.\n");
-            AppendFoldNote(sb, io, pad);
-            AppendOrderNote(sb, io, pad);          // a degraded merge is degraded whether or not anything contests it
+            AppendFoldNote(sb, io);
+            AppendOrderNote(sb, io);          // a degraded merge is degraded whether or not anything contests it
             return true;
         }
 
@@ -484,29 +484,29 @@ static partial class Wire
             // Both halves count plugins that TOUCH the topic in the order, so the folded file is out of both.
             int foldRead = io.FoldContributed ? 1 : 0;
             int total = io.ContributingPlugins.Count + io.UnreadContributors.Count - foldRead;
-            sb.Append(pad).Append("  INFO order: INCOMPLETE — read from ").Append(io.ContributingPlugins.Count - foldRead)
+            sb.Append("  INFO order: INCOMPLETE — read from ").Append(io.ContributingPlugins.Count - foldRead)
               .Append(" of ").Append(total).Append(" plugin(s) that touch this topic.");
             sb.Append(io.Order.Count == 0
                 ? " NOTHING could be read, so no order is shown at all — this is a read failure, NOT an empty topic.\n"
                 : " The sequence below is NOT authoritative — lines are missing and positions may be wrong.\n");
-            if (io.Order.Count == 0) { AppendOrderNote(sb, io, pad); return true; }
+            if (io.Order.Count == 0) { AppendOrderNote(sb, io); return true; }
         }
 
         var moved = io.Moved;
 
         // Plugins that TOUCH the topic, not the ones read; the folded file is not in the order, so it is named apart.
         int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count - (io.FoldContributed ? 1 : 0);
-        sb.Append(pad).Append("  effective INFO order — merged across ").Append(touching)
+        sb.Append("  effective INFO order — merged across ").Append(touching)
           .Append(touching == 1 ? " plugin that touches" : " plugins that touch")
           .Append(" this topic");
         if (io.FoldContributed) sb.Append(", plus the folded file below");
         sb.Append("; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
-        AppendFoldNote(sb, io, pad);
+        AppendFoldNote(sb, io);
 
         foreach (var e in io.Order)
         {
-            if (sb.Length >= cap) { sb.Append(pad).Append("    ... [truncated at max_chars]\n"); return false; }
-            sb.Append(pad).Append("    #").Append(e.Index + 1).Append("  ").Append(FormIdToken.Of(e.Info));
+            if (sb.Length >= cap) { sb.Append("    ... [truncated at max_chars]\n"); return false; }
+            sb.Append("    #").Append(e.Index + 1).Append("  ").Append(FormIdToken.Of(e.Info));
             if (e.Deleted) sb.Append("  (deleted)");
             if (e.Moved) sb.Append("  MOVED from #").Append(e.OriginIndex!.Value + 1);
             // Gated on BaselineTrusted: a shifted baseline would call the definer's own lines late additions.
@@ -527,7 +527,7 @@ static partial class Wire
         {
             var w = moved[0];
             // Qualified rather than gated on an incomplete read: a positive lead says how far the evidence reaches.
-            sb.Append(pad).Append("  [!] ").Append(io.Complete ? "" : "as far as could be read, ").Append(moved.Count)
+            sb.Append("  [!] ").Append(io.Complete ? "" : "as far as could be read, ").Append(moved.Count)
               .Append(moved.Count == 1 ? " line sits" : " lines sit")
               .Append(" at a different position than this topic's defining plugin laid down — the biggest shift is ")
               .Append(FormIdToken.Of(w.Info)).Append(" #").Append(w.OriginIndex!.Value + 1).Append(" -> #").Append(w.Index + 1)
@@ -535,15 +535,15 @@ static partial class Wire
               .Append(". Re-listing a line appends it to the BOTTOM unless the plugin also carries that line's PNAM. Nothing is dropped — but a line the game now reaches later can be pre-empted by any earlier line whose conditions also pass, so the wrong line answers.\n");
         }
 
-        AppendOrderNote(sb, io, pad);
+        AppendOrderNote(sb, io);
         return true;
     }
 
     /// <summary>Which off-order file was folded into THIS topic's merge, and whether it placed anything here.</summary>
-    static void AppendFoldNote(StringBuilder sb, InfoOrderView io, string pad)
+    static void AppendFoldNote(StringBuilder sb, InfoOrderView io)
     {
         if (io.FoldedPlugin is not { } fp) return;
-        sb.Append(pad).Append("  [folded] '").Append(fp).Append("' is NOT active and is ")
+        sb.Append("  [folded] '").Append(fp).Append("' is NOT active and is ")
           .Append(io.FoldedPlacement ?? "folded in LAST, where MO2 puts a newly enabled regular plugin");
         // "The only plugin listing lines here" is a claim about every contributor, so it needs every one READ.
         sb.Append(!io.FoldContributed
@@ -556,10 +556,10 @@ static partial class Wire
     /// <summary>The per-topic degradation note — a malformed PNAM, a cycle, a truncated chain, an unread contributor,
     /// skipped move analysis. There is deliberately no standing PNAM-zero caveat here or in the footer, because
     /// <c>DialogueInfoOrder.PnamZeroIsDistinguishable</c> holds; do not add one.</summary>
-    static void AppendOrderNote(StringBuilder sb, InfoOrderView io, string pad)
+    static void AppendOrderNote(StringBuilder sb, InfoOrderView io)
     {
         if (io.Note is { } note)
-            sb.Append(pad).Append("  [!] INFO order — ").Append(note).Append(".\n");
+            sb.Append("  [!] INFO order — ").Append(note).Append(".\n");
     }
 
     // ---- shared building blocks ---------------------------------------------------------------------

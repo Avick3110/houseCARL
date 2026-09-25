@@ -636,7 +636,7 @@ public static class DialogueInfoOrderProbe
         // below render at, RENDER-BIG-TOPIC among them, whose whole subject is what a large order renders
         // (round-2 finding B-LOW-2; ci-all is ALL PASS at both values, so this was latent, not live).
         var sb = new System.Text.StringBuilder();
-        Wire.AppendInfoOrderView(sb, io, "", Wire.DefaultMaxChars);
+        Wire.AppendInfoOrderView(sb, io, Wire.DefaultMaxChars);
         return sb.ToString();
     }
 
