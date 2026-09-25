@@ -33,4 +33,7 @@ internal interface ILoadOrderHost
 
     /// <summary>The write gate; lock it before any capture, never inside one.</summary>
     object WriteGate { get; }
+
+    /// <summary>The type lookup, one per service, built from the corpus on first use.</summary>
+    TypeLookup Types { get; }
 }

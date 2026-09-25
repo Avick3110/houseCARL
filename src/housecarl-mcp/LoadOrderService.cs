@@ -25,6 +25,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     object ILoadOrderHost.WriteGate => _writeGate;
     LoadOrderResolver? _resolver;
     CorpusRulebook? _rulebook;
+    TypeLookup? _typeLookup;
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
     // The VFS-aware asset resolver, built lazily on an asset query and dropped when the active profile changes.
     AssetResolver? _assetResolver;
@@ -79,6 +80,13 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     /// <summary>The write pre-flight rulebook (corpus.json), loaded once from an absolute CorpusPath.</summary>
     CorpusRulebook Rulebook => _rulebook ??= CorpusRulebook.Load();
+
+    /// <summary>The type lookup, built from the corpus on first use and kept for this service.</summary>
+    TypeLookup Types => _typeLookup ??= new TypeLookup();
+    TypeLookup ILoadOrderHost.Types => Types;
+
+    /// <summary>The display names a type SET resolves to; see <see cref="TypeLookup.DisplayNames(IReadOnlyList{string})"/>.</summary>
+    public IReadOnlyList<string>? TypeDisplayNames(IReadOnlyList<string>? types) => Types.DisplayNames(types);
 
     /// <summary>One captured index build, for a <see cref="FormIdDoor"/> resolving a runtime FormID.</summary>
     internal LoadOrderResolver.IndexView CaptureView() => Resolver.Capture();
@@ -236,9 +244,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
     bool IAssetHost.InPlaceParentUnwritable(string targetPath, out string why) => InPlaceParentUnwritable(targetPath, out why);
     string IAssetHost.InPlaceHandshakeLead(string name, string path, string subject, string verb) => InPlaceHandshakeLead(name, path, subject, verb);
-    Dictionary<string, List<Type>> IAssetHost.TypeLookup => TypeLookup;
     string IAssetHost.UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk) => UnresolvedFormId(view, fk);
-    IReadOnlyList<Type>? ICheckHost.ResolveTypeFilterSet(IReadOnlyList<string>? types, out string? armLabel) => ResolveTypeFilterSet(types, out armLabel);
 
     // The assets area's tool-facing surface; the bodies are in AssetLayers.cs and SkyPatcherReplay.cs.
     public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under = null, int limit = 0, int offset = 0,
