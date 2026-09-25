@@ -34,7 +34,7 @@ jobs:
       # Cache the NuGet package restore across runs (keyed on the project files, which pin the
       # package versions). Trims the restore inside the build step below; the build itself still
       # compiles the whole solution fresh every run.
-      # A repacked local package takes a new version suffix, so the fallback cannot serve a stale one.
+      # The local Nifly package and why its version suffix is the cache's guard: docs/architecture/nif.md.
       - name: Cache NuGet packages
         uses: actions/cache@v6
         with:
