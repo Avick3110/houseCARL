@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-24
+updated: 2026-09-25
 covers: [src/housecarl-core/NifService.cs, src/housecarl-mcp/NifTools.cs]
 ---
 # The NIF layer: reading mesh values, and the two write gates
@@ -13,13 +13,19 @@ writes DATA VALUES.
 
 ## Contracts
 
-Reads ride NiflySharp (NuGet `Nifly`), source-generated from `nif.xml`. One library quirk binds every read: the
+Reads ride NiflySharp, source-generated from `nif.xml`, as houseCARL's own build of a fork: NuGet `Nifly`
+1.1.0-housecarl.1, vendored in `packages/local` and added by the root `nuget.config`. The fork is upstream 1.1.0's
+commit plus one change: every count, string length and unknown-block size is checked against the bytes left before
+anything is allocated for it, and a block that reads past its stored size stops the load. Both throw
+`InvalidDataException` naming the block and the number, where 1.1.0 could allocate gigabytes for one corrupted count
+(#926). The csproj comment names the fork commit and the re-proof a bump needs. One library quirk binds every read: the
 alpha / shader / skin refs are read DIRECTLY off `INiShape`, never via `NifFile.GetPropertyOfType<T>`, which NREs on
 SE-style shapes whose legacy `Properties` list is null.
 
 A parse failure is a named, recoverable outcome (`NifInspectOutcome.Error`), never a throw and never a half-built
-model. A file that loaded but threw while its structure was read is a real defect and fails loud with the type and
-message. Unknown blocks are preserved byte-for-byte and reported by their REAL on-disk type from the header's
+model. The fork's `InvalidDataException` renders as "the mesh is malformed and was not read", carrying the block or
+field and the number from its message. A file that loaded but threw while its structure was read is a real defect
+and fails loud with the type and message. Unknown blocks are preserved byte-for-byte and reported by their REAL on-disk type from the header's
 block-type table — `GetType().Name` would flatten every one of them to `NiUnknown`.
 
 ### Coverage comes from the library, never a hand list
@@ -125,7 +131,8 @@ and the final render stay unseen, so a rewritten path or a renamed shape still n
 ## Pinned by
 
 - *Contracts*, the parse-failure paragraph: `NifInspectDecodeTests` — empty bytes and non-NIF garbage each return a
-  named error, never a throw or a half-model (`EmptyBytesReturnANamedError`, `NonNifGarbageReturnsANamedErrorNotAThrow`).
+  named error, never a throw or a half-model (`EmptyBytesReturnANamedError`, `NonNifGarbageReturnsANamedErrorNotAThrow`);
+  `NifInspectMalformedTests` — a corrupted count that ran 1.1.0 out of memory returns the malformed error inside 10 s.
 - *Coverage comes from the library, never a hand list*: `NifShaderDecodeTests` and `NifInspectRenderTests` pin both
   branches of `ReallyReads`, `NifSetGuardProbe` (`nif-set-guard`) pins all three `ReallyWrites` states including the
   unmarshalable one via a stand-in type, and the flag decode's gap and combo-peel behaviour is pinned rather than
