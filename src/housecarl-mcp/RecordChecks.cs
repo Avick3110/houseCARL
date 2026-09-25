@@ -33,7 +33,7 @@ internal sealed class RecordChecks
 
     /// <summary>The force-loaded plugin names in <paramref name="profileDir"/>, for a check that must not blame a modder
     /// for content they did not author. Null, never an empty set, when the MO2 profile cannot be read.</summary>
-    IReadOnlyCollection<string>? ForceLoadedPluginNames(string profileDir)
+    static IReadOnlyCollection<string>? ForceLoadedPluginNames(string profileDir)
     {
         var (names, err) = ImplicitPluginNames(profileDir);
         return err is null ? names : null;
@@ -164,7 +164,7 @@ internal sealed class RecordChecks
     /// <summary>The force-loaded plugin names — in the order, absent from plugins.txt — for
     /// <see cref="SweepExclusion.ImplicitToken"/>, or the reason they could not be read. A read that did not happen
     /// is not a set that is empty.</summary>
-    (IReadOnlyList<string> Names, string? Error) ImplicitPluginNames(string profileDir)
+    static (IReadOnlyList<string> Names, string? Error) ImplicitPluginNames(string profileDir)
     {
         try { return (Mo2LoadOrder.ReadComposition(profileDir).ImplicitPluginNames, null); }
         catch (Exception ex)
