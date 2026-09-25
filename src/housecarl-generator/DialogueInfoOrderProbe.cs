@@ -15,7 +15,7 @@ namespace HousecarlGenerator;
 ///
 /// Self-contained: synthesizes ON DISK a 3-plugin order (master &lt; mid &lt; last) reproducing the reported
 /// HirelingQuestTopic1 shape, then drives the REAL product path — <see cref="DialogueValidate.InfoOrders"/> →
-/// <see cref="DialogueInfoOrder.Compute"/> → <see cref="DialogueWire.AppendInfoOrderView"/> — and asserts
+/// <see cref="DialogueInfoOrder.Compute"/> → <see cref="Wire.AppendInfoOrderView"/> — and asserts
 /// (the whole-report <c>DialogueWire.Render</c> this chain used to end in was deleted with #486's render halves;
 /// the arms marked MOVED below went to <c>DialogueFamilyTests</c> with it):
 ///
@@ -638,7 +638,7 @@ public static class DialogueInfoOrderProbe
     static string RenderOrderOnly(InfoOrderView io, bool asQuest = false)
     {
         // #486: DialogueWire.Render (the deleted 1.x whole-report renderer) is gone; the INFO-order BLOCK it
-        // wrapped survives as DialogueWire.AppendInfoOrderView, called directly here rather than through a
+        // wrapped survives as Wire.AppendInfoOrderView, called directly here rather than through a
         // synthetic TopicValidation/DialogueValidationReport shell.
         //
         // The cap is Wire.DefaultMaxChars because that is what the old call resolved to: Render(report, 0) went
@@ -647,7 +647,7 @@ public static class DialogueInfoOrderProbe
         // below render at, RENDER-BIG-TOPIC among them, whose whole subject is what a large order does at the
         // row cap (round-2 finding B-LOW-2; ci-all is ALL PASS at both values, so this was latent, not live).
         var sb = new System.Text.StringBuilder();
-        DialogueWire.AppendInfoOrderView(sb, io, "", Wire.DefaultMaxChars, indent: asQuest);
+        Wire.AppendInfoOrderView(sb, io, "", Wire.DefaultMaxChars, indent: asQuest);
         return sb.ToString();
     }
 

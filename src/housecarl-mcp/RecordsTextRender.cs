@@ -477,7 +477,7 @@ static partial class RecordsTools
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
-    /// <summary>The info_order form's text render: per topic its identity, then the merged-order body from the shared <see cref="DialogueWire.AppendInfoOrderView"/>, bounded by what this render has left rather than by the whole cap.</summary>
+    /// <summary>The info_order form's text render: per topic its identity, then the merged-order body from the shared <see cref="Wire.AppendInfoOrderView"/>, bounded by what this render has left rather than by the whole cap.</summary>
     static string RenderRecordsInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int total, int contested,
                                          int errors, string headerLine, OrderStamp? epoch, int maxChars,
                                          SpillState? spill, out bool truncated, bool unreserved = false)
@@ -522,7 +522,7 @@ static partial class RecordsTools
                 sb.Append("  no INFO lines — every touching plugin's child list is empty.\n");
             // The view's own stop signal is kept rather than re-derived from Crossed, whose agreement depends on
             // where the view appends its marker — the view's business, not this render's.
-            else if (!DialogueWire.AppendInfoOrderView(sb, row.Order, "", budget, indent: false))
+            else if (!Wire.AppendInfoOrderView(sb, row.Order, "", budget, indent: false))
                 truncated = true;
             if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
             rendered++;
