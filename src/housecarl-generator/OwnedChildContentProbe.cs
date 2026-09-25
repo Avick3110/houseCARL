@@ -377,7 +377,7 @@ public static class OwnedChildContentProbe
 
     /// <summary>The content half of the response-layer net, over <see cref="ReadSentences"/> and <see cref="CheckSentences"/>: every const must
     /// DECIDE — declared phrases, or a stated reason there are none — and a sentence that declares a phrase must
-    /// still contain it. The write surface's own arm is the model; this owner is the read surface's, and an
+    /// still contain it. The write surface's own arm is the model; this owner is the read and check surfaces', and an
     /// undecorated const FAILS by name rather than passing in silence.</summary>
     static List<string> SentenceViolations()
     {
