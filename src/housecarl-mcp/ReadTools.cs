@@ -499,11 +499,8 @@ static partial class Wire
     }
 
     // ---- the info_order form ----
-    /// <summary>How many order rows are listed in full before the render lists only the MOVED lines.</summary>
-    const int MaxOrderRows = 25;
-
     /// <summary>The effective merged INFO order, as the <c>records project=info_order</c> form renders it.</summary>
-    internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, string pad, int cap, bool indent)
+    internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, string pad, int cap)
     {
         // An empty order says nothing, unless it is empty because nothing could be read — never render that as silence.
         if (view is not { } io || (io.Order.Count == 0 && io.Complete)) return true;
@@ -535,8 +532,6 @@ static partial class Wire
         }
 
         var moved = io.Moved;
-        // The row cap keeps a big quest from burying findings; a single-topic report has nothing to bury.
-        bool listAll = !indent || io.Order.Count <= MaxOrderRows;
 
         // Plugins that TOUCH the topic, not the ones read; the folded file is not in the order, so it is named apart.
         int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count - (io.FoldContributed ? 1 : 0);
@@ -547,27 +542,7 @@ static partial class Wire
         sb.Append("; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
         AppendFoldNote(sb, io, pad);
 
-        // Over the cap and nothing moved: say so — an empty moved set means nothing unless both gates held.
-        bool movesKnown = io.MovesComputed && io.Complete;
-        if (!listAll && moved.Count == 0)
-        {
-            sb.Append(pad).Append("    ").Append(io.Order.Count).Append(movesKnown
-                ? " lines, none of which changed position — the merged order matches the defining plugin's own list."
-                : " lines. Which lines moved is NOT known here (see the note below), so this is not a statement that none did.")
-              .Append(" Validate this topic's DIAL on its own to see every line.\n");
-            AppendOrderNote(sb, io, pad);
-            return true;
-        }
-
-        // Same gate: "the rest keep their original relative order" is a claim about rows this branch withholds.
-        if (!listAll)
-            sb.Append(pad).Append("    (").Append(io.Order.Count).Append(" lines; listing only the ")
-              .Append(moved.Count).Append(movesKnown
-                  ? " that MOVED — the rest keep their original relative order."
-                  : " found to have MOVED — whether the rest held position is NOT known here (see the note below).")
-              .Append(" Validate this topic's DIAL on its own to see every line.)\n");
-
-        foreach (var e in listAll ? io.Order : moved)
+        foreach (var e in io.Order)
         {
             if (sb.Length >= cap) { sb.Append(pad).Append("    ... [truncated at max_chars]\n"); return false; }
             sb.Append(pad).Append("    #").Append(e.Index + 1).Append("  ").Append(FormIdToken.Of(e.Info));
