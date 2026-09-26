@@ -54,7 +54,7 @@ public static class SkyPatcherHarness
 
         return WithCorpus(() =>
         {
-            var store = new UserConfigStore(Path.Combine(Path.GetTempPath(), $"hc-sp-harness-{Guid.NewGuid():N}.json"));
+            var store = new UserConfigStore(Path.Combine(Path.GetTempPath(), $"hc-sp-harness-{Guid.NewGuid():N}", "user.json"));
             var svc = LoadOrderService.WithInstance(instance, maxPlugins: 0, store);
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var data = svc.SkyPatcherLayer();

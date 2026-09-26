@@ -305,7 +305,7 @@ public static class ConflictDiffProbe
         var order = Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir, p.OverwriteDir);
         using var resolver = LoadOrderResolver.Build(order.OrderedPaths.ToList());
         Console.WriteLine($"   resolver: {resolver.PluginCount} plugins, {resolver.RecordCount:N0} records");
-        var svc = LoadOrderService.ForGuard(resolver, new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-conflictdiff-proof.user.json")));
+        var svc = LoadOrderService.ForGuard(resolver, new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-conflictdiff-proof", "houseCARL.user.json")));
 
         bool pass = true;
         foreach (var subject in new[] { "E495A3:Ashe - Fire and Blood.esp", "000DB1:Skyrim.esm" })
