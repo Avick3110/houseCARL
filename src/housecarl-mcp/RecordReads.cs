@@ -5,8 +5,21 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
+/// <summary>Everything the reads area takes from outside itself.</summary>
+internal interface IReadHost : ILoadOrderHost
+{
+    /// <summary>A pinned index and the four MO2 roots in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between the two.</summary>
+    (LoadOrderService.ViewPin Pin, Mo2Roots Roots) CapturePinAndRoots(Action? afterPin);
+
+    /// <summary>The assets area instance, for the SkyPatcher replay a pole reads through.</summary>
+    AssetLayers AssetArea { get; }
+}
+
 public sealed partial class LoadOrderService
 {
+    /// <summary>Every head member the reads area takes, and nothing else.</summary>
+    IReadHost Host => this;
+
     /// <summary>Resolve + read one record: the WINNER's body by default, or a named <paramref name="plugin"/>'s
     /// override; with <paramref name="conflictTree"/> also the ordered touching-plugin list. Every failure is a
     /// recoverable NAMED error, never a silent empty result; contracts in docs/architecture/read-engine.md.</summary>
@@ -16,7 +29,7 @@ public sealed partial class LoadOrderService
                                    IReadOnlyList<int>? depths = null,
                                    IReadOnlyCollection<string>? countFields = null)
     {
-        var resolver = Resolver;
+        var resolver = Host.Resolver;
         var view = resolver.Capture();
         return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
                            new ChildUnionMemo(), depths: depths, countFields: countFields)   // one named record: the union lane
@@ -271,7 +284,7 @@ public sealed partial class LoadOrderService
     /// uses by default. One winner-body fetch; holds nothing.</summary>
     public RecordSummary ResolveSummary(FormKey fk)
     {
-        var resolver = Resolver;
+        var resolver = Host.Resolver;
         return ResolveSummary(resolver, resolver.Capture(), fk);   // one capture per summary: winner, depth and fetch from one build
     }
 
@@ -406,7 +419,7 @@ public sealed partial class LoadOrderService
                                                   out OrderStamp epoch, out string? artifactRefusal)
     {
         artifactRefusal = null;
-        var resolver = Resolver;
+        var resolver = Host.Resolver;
         var view = resolver.Capture();                  // one build for the whole batch
         epoch = view.Stamp;
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
@@ -488,7 +501,7 @@ public sealed partial class LoadOrderService
                                                    IReadOnlyCollection<string>? countFields = null)
     {
         artifactRefusal = null; refusalEpoch = null;
-        var resolver = Resolver;                // build/refresh once for the batch
+        var resolver = Host.Resolver;                // build/refresh once for the batch
         var view = resolver.Capture();          // one build for every item — the whole batch is one logical operation
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
         {
@@ -600,7 +613,7 @@ public sealed partial class LoadOrderService
     /// <summary>The tool-layer probe: WHICH arm would this source= pole resolve to.</summary>
     public PoleInfo? ProbeSourceArm(string plugin, string? mod, out string? error)
     {
-        var (pin, roots) = CapturePinAndRoots();
+        var (pin, roots) = Host.CapturePinAndRoots(AfterReadPinForGuard);
         var view = pin.View;
         var (pole, err) = ResolvePoleArm(view, roots, plugin, mod);
         error = err;
@@ -622,7 +635,7 @@ public sealed partial class LoadOrderService
         IReadOnlyCollection<string>? countFields = null)
     {
         pole = null; refusal = null; refusalEpoch = null;
-        var (pin, roots) = CapturePinAndRoots();   // one build and one set of roots for the pole test and every read
+        var (pin, roots) = Host.CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for the pole test and every read
         var resolver = pin.Resolver;
         var view = pin.View;
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
@@ -770,7 +783,7 @@ public sealed partial class LoadOrderService
                                                       PoleInfo? foldArm = null, FoldFacts? foldFacts = null)
     {
         refusal = null;
-        var resolver = Resolver;
+        var resolver = Host.Resolver;
         var view = resolver.Capture();
         epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)

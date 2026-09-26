@@ -35,7 +35,7 @@ public sealed partial class LoadOrderService
                                         IReadOnlyList<FormKey>? referencesNone = null,
                                         CancellationToken ct = default)
     {
-        var resolver = Resolver;
+        var resolver = Host.Resolver;
         // The caller's own build when its FormID door already captured one, so the tokens it parsed and the
         // records this scan matches come from ONE build.
         var view = pinnedView ?? resolver.Capture();
@@ -156,7 +156,7 @@ public sealed partial class LoadOrderService
                 return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
 
         IReadOnlyList<Type>? types;
-        try { types = Types.ResolveSet(hasType ? typeSet : null); }
+        try { types = Host.Types.ResolveSet(hasType ? typeSet : null); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
         if (predicate is not null && hasType && QuantifierShapeRefusal(typeSet!, predicate) is { } qerr)
@@ -522,7 +522,7 @@ public sealed partial class LoadOrderService
     {
         var schemas = new List<TypeSchema>();
         foreach (var token in typeTokens)
-            foreach (var ts in Rulebook.RecordTypesNamed(token))
+            foreach (var ts in Host.Rulebook.RecordTypesNamed(token))
                 if (!schemas.Contains(ts)) schemas.Add(ts);
         if (schemas.Count == 0) return null;
 
@@ -534,7 +534,7 @@ public sealed partial class LoadOrderService
             bool unanswered = false;
             foreach (var ts in schemas)
             {
-                var card = Rulebook.StepCardinality(ts, step.Path, step.Index);
+                var card = Host.Rulebook.StepCardinality(ts, step.Path, step.Index);
                 // The schema cannot say for this type, so this STEP goes to the runtime accounting.
                 if (card is null) { unanswered = true; break; }
                 if (card == "list") { whatItIs.Clear(); break; }
@@ -615,7 +615,7 @@ public sealed partial class LoadOrderService
         IReadOnlyList<FormKey>? referencesNone = null,
         CancellationToken ct = default)
     {
-        var resolver = Resolver;
+        var resolver = Host.Resolver;
         var view = pinnedView ?? resolver.Capture();   // the caller's door build when it captured one — see CrossQuery
 
         if (groupBy is not null)
@@ -652,7 +652,7 @@ public sealed partial class LoadOrderService
                 return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
 
         IReadOnlyList<Type>? types;
-        try { types = Types.ResolveSet(typeSet); }
+        try { types = Host.Types.ResolveSet(typeSet); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }
 
         if (predicate is not null && typeSet is { Count: > 0 } && QuantifierShapeRefusal(typeSet, predicate) is { } qerr)
@@ -823,7 +823,7 @@ public sealed partial class LoadOrderService
             foreach (var ts in typesNarrow)
             {
                 IReadOnlyList<Type> resolved;
-                try { resolved = Types.Resolve(ts.Trim()); }              // unknown type → named error, as on the scan
+                try { resolved = Host.Types.Resolve(ts.Trim()); }         // unknown type → named error, as on the scan
                 catch (ArgumentException ex) { return EffectChainResult.Fail(ex.Message); }
                 foreach (var t in resolved)
                 {
@@ -838,6 +838,6 @@ public sealed partial class LoadOrderService
         }
         else scope = EffectChain.CarrierTypes;
 
-        return EffectChain.Resolve(Resolver, mgef, scope, limit);
+        return EffectChain.Resolve(Host.Resolver, mgef, scope, limit);
     }
 }

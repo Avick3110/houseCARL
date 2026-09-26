@@ -154,7 +154,7 @@ public sealed partial class LoadOrderService
         bool wantCycles = false)
     {
         refusal = null;
-        var resolver = Resolver;
+        var resolver = Host.Resolver;
         var view = resolver.Capture();
         epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)
