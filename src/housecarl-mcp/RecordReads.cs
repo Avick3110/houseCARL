@@ -31,11 +31,11 @@ internal sealed partial class RecordReads
     /// <summary>Resolve + read one record: the WINNER's body by default, or a named <paramref name="plugin"/>'s
     /// override; with <paramref name="conflictTree"/> also the ordered touching-plugin list. Every failure is a
     /// recoverable NAMED error, never a silent empty result; contracts in docs/architecture/read-engine.md.</summary>
-    public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
-                                   bool resolveNames, LinkMemo? linkMemo,
-                                   string? containerHint,
-                                   IReadOnlyList<int>? depths,
-                                   IReadOnlyCollection<string>? countFields)
+    public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
+                                   bool resolveNames = false, LinkMemo? linkMemo = null,
+                                   string? containerHint = ReadEngine.DepthExpandHint,
+                                   IReadOnlyList<int>? depths = null,
+                                   IReadOnlyCollection<string>? countFields = null)
     {
         var resolver = _host.Resolver;
         var view = resolver.Capture();

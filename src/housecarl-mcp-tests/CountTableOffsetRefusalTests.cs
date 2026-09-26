@@ -56,7 +56,7 @@ public sealed class RecordsCountTableOffsetTests : RecordsTestBase
     [Fact]
     public void TheScansGroupByRefusesOffsetWithTheSharedSentence()
     {
-        var outcome = Svc.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "winner", offset: 5);
+        var outcome = Svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "winner", offset: 5);
         Assert.NotNull(outcome.Error);
         CountTableRefusal.SaysTheOneSentence(outcome.Error!, "group_by=");
     }

@@ -75,7 +75,7 @@ public static class VerifyLoopProbe
             Console.WriteLine();
 
             // ============ (a) ERROR TAXONOMY — the REAL service ResolveRead ============
-            var miss = svc.ResolveRead(w1Fk, ghostName, null, conflictTree: false);
+            var miss = svc.ReadArea.ResolveRead(w1Fk, ghostName, null, conflictTree: false);
             Check("TAXONOMY MISS: plugin= naming a not-in-order plugin FAILS (no silent winner fallback)",
                   miss.Error is not null);
             Check("TAXONOMY MISS: the error names the TRUE condition ('not in the load order')",
@@ -85,7 +85,7 @@ public static class VerifyLoopProbe
             Check("TAXONOMY MISS: the error points at the pre-enable verify path (readback) — actionable, not a dead end",
                   miss.Error is not null && miss.Error.Contains("readback", StringComparison.OrdinalIgnoreCase));
 
-            var noDefine = svc.ResolveRead(w2Fk, ovrName, null, conflictTree: false);
+            var noDefine = svc.ReadArea.ResolveRead(w2Fk, ovrName, null, conflictTree: false);
             // W2 UPDATE (SPEC §4.2): the true message is now "does not touch {fk}" + the ACTUAL TOUCHERS named
             // (load order, winner last) — still unmistakably distinct from the not-in-order taxonomy above.
             Check("TAXONOMY CONTROL: an IN-ORDER plugin that doesn't define the record keeps the true does-not-touch message, touchers named",
@@ -93,7 +93,7 @@ public static class VerifyLoopProbe
                   && noDefine.Error.Contains("does not touch", StringComparison.OrdinalIgnoreCase)
                   && noDefine.Error.Contains("Touched by", StringComparison.OrdinalIgnoreCase));
 
-            var defines = svc.ResolveRead(w1Fk, ovrName, null, conflictTree: false);
+            var defines = svc.ReadArea.ResolveRead(w1Fk, ovrName, null, conflictTree: false);
             Check("TAXONOMY CONTROL: an in-order plugin that DOES define the record still reads clean (source = the named plugin)",
                   defines.Error is null && string.Equals(defines.SourcePlugin, ovrName, StringComparison.OrdinalIgnoreCase));
             Console.WriteLine();

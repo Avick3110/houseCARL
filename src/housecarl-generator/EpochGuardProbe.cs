@@ -202,15 +202,15 @@ internal static class EpochGuardProbe
                 Check(svc.StatusData().Epoch == current, "StatusData carries the same epoch (the status line's source)");
 
                 // the records scan — outcome stamp + all three renders + the Fail path
-                var q = svc.CrossQuery("WEAP", null, null, false, null, null, 500);
+                var q = svc.ReadArea.CrossQuery("WEAP", null, null, false, null, null, 500);
                 Check(q.Epoch == current, "cross_plugin_query outcome stamps the scanned build");
                 Check(Wire.RenderCrossQuery(svc, q, null, 0).Contains($"epoch={current}"), "…text render carries epoch=<hex> in the header");
                 Check(JsonWire.RenderCrossQuery(svc, q, null, 0, false, false).Contains($"\"epoch\": \"{current}\""), "…json render carries the epoch field");
                 Check(JsonWire.RenderCrossQueryDense(svc, q, null, 0, false, false).Contains($"\"epoch\": \"{current}\""), "…dense render carries it too");
-                var g = svc.CrossQuery("WEAP", null, null, false, null, null, 500, groupBy: "winner");
+                var g = svc.ReadArea.CrossQuery("WEAP", null, null, false, null, null, 500, groupBy: "winner");
                 Check(g.Epoch == current && Wire.RenderCrossQuery(svc, g, null, 0).Contains($"epoch={current}"),
                       "…group_by count table carries it");
-                Check(svc.CrossQuery((string?)null, null, null, false, null, null, 500).Epoch is null,
+                Check(svc.ReadArea.CrossQuery((string?)null, null, null, false, null, null, 500).Epoch is null,
                       "…a REFUSED query (no filter) stays unstamped — a refusal that consulted no build invents none");
 
                 // batch — ONE epoch for the whole batch; refusal rows answered off the build carry it; parse failures don't
@@ -227,11 +227,11 @@ internal static class EpochGuardProbe
                 // #486's render-halves cut; the fact moved to housecarl_records, its live surface today
                 // (RecordsListLaneTests.IdentityForm_LabelsTheListStatesTheFormAndStampsTheEpoch for text,
                 // EpochCheckSweepTests.FactE2_ASingleRecordReadsJsonRenderCarriesTheCapturesEpoch for json).
-                var one = svc.ResolveRead(FormKey.Factory(Fid(weapons[0])), null, null, false);
+                var one = svc.ReadArea.ResolveRead(FormKey.Factory(Fid(weapons[0])), null, null, false);
                 Check(one.Epoch == current, "read_record outcome stamps its capture");
 
                 // resolve — the out-epoch overload feeds both renders
-                var rows = svc.ResolveRefs(new[] { Fid(weapons[0]), Fid(mgef.FormKey) }, out var resolveEpoch);
+                var rows = svc.ReadArea.ResolveRefs(new[] { Fid(weapons[0]), Fid(mgef.FormKey) }, out var resolveEpoch);
                 Check(resolveEpoch.Epoch == current, "resolve hands back the batch's epoch");
                 Check(Wire.RenderResolve(rows, 0, resolveEpoch).Contains($"epoch={current}"), "…text render carries it");
                 Check(JsonWire.RenderResolve(rows, 0, resolveEpoch).Contains($"\"epoch\": \"{current}\""), "…json render carries it");
@@ -266,13 +266,13 @@ internal static class EpochGuardProbe
                 // pinned render must fill its rows off the SCANNED build (override wins exactly ONE record); the
                 // pre-fold code re-captured per row, so the rewrite's build leaked into rows under a header
                 // stamped with the old epoch — the affirmative single-build claim the response didn't satisfy.
-                var qPin = svc.CrossQuery("WEAP", null, null, false, null, null, 500);
+                var qPin = svc.ReadArea.CrossQuery("WEAP", null, null, false, null, null, 500);
                 Check(qPin.Epoch == current, "pin arm: scan stamped at the current build");
                 // Re-review finding 3 (structural): every ReadOutcome carries the ViewPin its epoch names, so the
                 // conflict-tree fill on single reads / batch items reads the stamped build through the SAME
                 // ResolveTreePinned path the behavioural arm below exercises for the scan.
                 Check(qPin.Pin is not null
-                      && svc.ResolveRead(FormKey.Factory(Fid(weapons[0])), null, null, true).Pin is not null
+                      && svc.ReadArea.ResolveRead(FormKey.Factory(Fid(weapons[0])), null, null, true).Pin is not null
                       && svc.ResolveBatch(new[] { Fid(weapons[0]) }, null, true)[0].Pin is not null,
                       "scan, single read, and batch outcomes all carry the ViewPin their stamp names (tree fills read it)");
                 var ovMod2 = new SkyrimMod(ovKey, SkyrimRelease.SkyrimSE);
@@ -287,7 +287,7 @@ internal static class EpochGuardProbe
                     pinned, "\"winner\": \"" + System.Text.RegularExpressions.Regex.Escape(ovName) + "\"").Count;
                 Check(ovWins == 1,
                       $"…and its fills read the SCANNED build's winners — the override wins exactly its one record ({ovWins}/1), not the mid-render rewrite's two");
-                var q2 = svc.CrossQuery("WEAP", null, null, false, null, null, 500);
+                var q2 = svc.ReadArea.CrossQuery("WEAP", null, null, false, null, null, 500);
                 Check(q2.Epoch is not null && q2.Epoch != current,
                       $"the NEXT query re-stamps ({current} → {q2.Epoch}) — cross-page drift visible");
                 Check(svc.Stats().epoch == q2.Epoch, "…and status agrees with the new build");

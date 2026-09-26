@@ -325,7 +325,7 @@ public static class BulkPrimitivesWave3Probe
         BulkOp Copy(string path) => new() { Formid = wFid, FieldPath = path, Verb = "CopyFrom", FromPlugin = masterName };
 
         // sanity: the REPLACER wins W (Damage 99) — so a copy from the master genuinely changes the value
-        var winner = svc.ResolveRefs(new[] { wFid });
+        var winner = svc.ReadArea.ResolveRefs(new[] { wFid });
         Check($"fixture: the replacer WINS W (winner={winner[0].Winner})", winner[0].Winner == replName);
 
         // scalar-in-substruct: BasicStats.Damage  (winner 99 → master 10)
@@ -664,7 +664,7 @@ public static class BulkPrimitivesWave3Probe
         //      plugin (correctly — Q3: a plugin the game does not load must never masquerade as load-order truth), but
         //      the refusal has to say WHY. This is a second mechanism from the flag above: these paths never call the
         //      locate contract at all, they just miss the index's name table. ----
-        var readUnticked = svc.ResolveRead(uwFk, unKey.FileName.String, null, false);
+        var readUnticked = svc.ReadArea.ResolveRead(uwFk, unKey.FileName.String, null, false);
         Check("#271 refusal: read_record on an UNTICKED plugin explains it is installed-but-unticked, not 'not found'",
               readUnticked.Error is { } eU && eU.Contains("not in the load order") && eU.Contains("UNTICKED")
               && eU.Contains("plugins.txt"));
@@ -673,12 +673,12 @@ public static class BulkPrimitivesWave3Probe
         // of the tool rather than a spelling somebody remembered to update here.
         Check("#271 refusal: and points at the raw-read escape hatch rather than leaving a dead end",
               readUnticked.Error is { } eU2 && eU2.Contains(ToolNames.Records) && eU2.Contains("source="));
-        var readDisabledMod = svc.ResolveRead(wFk, dKey.FileName.String, null, false);
+        var readDisabledMod = svc.ReadArea.ResolveRead(wFk, dKey.FileName.String, null, false);
         Check("#271 refusal: a plugin whose MOD is switched off says so — a different cause, a different remedy",
               readDisabledMod.Error is { } eD && eD.Contains("DiffDonor") && eD.Contains("not active"));
         // The fallback must survive: a name that explains nothing still gets the did-you-mean it always got. The
         // explainer REPLACES the suggester only when it has something real to say.
-        var readTypo = svc.ResolveRead(wFk, "HcW3DiffRep.esp", null, false);   // a real near-miss: one character dropped
+        var readTypo = svc.ReadArea.ResolveRead(wFk, "HcW3DiffRep.esp", null, false);   // a real near-miss: one character dropped
         Check("#271 refusal: a genuine typo still gets the did-you-mean (the explainer adds, never removes)",
               readTypo.Error is { } eT && eT.Contains("Did you mean") && eT.Contains(replName));
         // Once a concrete cause IS stated, the legacy "houseCARL does not open disabled plugins off disk" tail
@@ -695,7 +695,7 @@ public static class BulkPrimitivesWave3Probe
               && !wR.Contains("which the game does not load"));
         // The explainer's stale-profile branch: TICKED, but no layer provides the file. "Unticked" would be a lie and
         // "not on disk anywhere" is the actual remedy-bearing fact.
-        var readGhost = svc.ResolveRead(wFk, ghostName, null, false);
+        var readGhost = svc.ReadArea.ResolveRead(wFk, ghostName, null, false);
         Check("#271 refusal: a ticked-but-missing plugin is called stale-profile, never unticked",
               readGhost.Error is { } eG && eG.Contains("ticked in plugins.txt") && eG.Contains("stale")
               && !eG.Contains("UNTICKED"));
@@ -742,7 +742,7 @@ public static class BulkPrimitivesWave3Probe
         // a real session hits most, and the explainer now answers it — which is exactly why the "cause stated ⇒ drop
         // the legacy tail" rule silently took the readback verify path away from it. That guidance is a fact about
         // the tool, not a guess about the cause, so it must survive whether or not a cause was stated.
-        var readFreshPatch = svc.ResolveRead(ulwFk, unlKey.FileName.String, null, false);
+        var readFreshPatch = svc.ReadArea.ResolveRead(ulwFk, unlKey.FileName.String, null, false);
         Check("#271 refusal: a just-written (unlisted) patch keeps the readback verify path",
               readFreshPatch.Error is { } eF && eF.Contains("readback=true"));
         Check("#271 refusal: ...and is told to REFRESH MO2, not to switch on a mod MO2 has never listed",

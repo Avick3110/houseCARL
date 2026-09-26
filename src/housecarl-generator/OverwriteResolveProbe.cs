@@ -144,7 +144,7 @@ internal static class OverwriteResolveProbe
                 Check(status.Warnings.Count == 0,
                       $"no warning raised for it ({status.Warnings.Count} warning(s): {string.Join(" | ", status.Warnings)})");
 
-                var read = svc.ResolveRead(toolFk, null, null, conflictTree: false);
+                var read = svc.ReadArea.ResolveRead(toolFk, null, null, conflictTree: false);
                 Check(read.Error is null && read.Record is not null && read.WinnerPlugin == tKey.FileName,
                       $"a record inside the overwrite plugin reads end-to-end — winner={read.WinnerPlugin ?? "?"}, err={read.Error ?? "none"}");
 

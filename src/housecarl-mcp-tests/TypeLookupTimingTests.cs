@@ -48,12 +48,12 @@ public sealed class TypeLookupTimingTests : IDisposable
 
             // A typed resolution does read the corpus, and says which file is missing.
             var ex = Assert.Throws<FileNotFoundException>(
-                () => svc.CrossQuery("WEAP", null, null, false, null, null, 10));
+                () => svc.ReadArea.CrossQuery("WEAP", null, null, false, null, null, 10));
             Assert.Contains("corpus.json not found at " + Path.GetFullPath(missing), ex.Message);
 
             // The failed build is not kept: with the corpus back, the same service resolves the type.
             CorpusRulebook.CorpusPath = saved;
-            var typed = svc.CrossQuery("WEAP", null, null, false, null, null, 500);
+            var typed = svc.ReadArea.CrossQuery("WEAP", null, null, false, null, null, 500);
             Assert.Null(typed.Error);
             Assert.Equal(RenderCostWorld.Weapons, typed.Total);
         }

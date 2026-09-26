@@ -242,7 +242,7 @@ public static class CreateGlobalProbe
                 using var svc = LoadOrderService.WithInstance(instance, 0, store);
                 svc.Stats();   // warm the lazy index once
 
-                var glob = svc.CrossQuery("Global", null, null, false, null, null, 50);
+                var glob = svc.ReadArea.CrossQuery("Global", null, null, false, null, null, 50);
                 globErr = glob.Error;
                 globResolved = glob.Error is null;
                 if (globResolved)
@@ -252,7 +252,7 @@ public static class CreateGlobalProbe
                     globBothArms = keys.Contains(globFloatFk) && keys.Contains(globIntFk);
                 }
 
-                var gmst = svc.CrossQuery("GameSetting", null, null, false, null, null, 50);
+                var gmst = svc.ReadArea.CrossQuery("GameSetting", null, null, false, null, null, 50);
                 gmstErr = gmst.Error;
                 gmstResolved = gmst.Error is null;
                 if (gmstResolved) gmstArm = gmst.Keys.Contains(gmstFloatFk);
