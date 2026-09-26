@@ -168,12 +168,12 @@ internal static class RenderBudget
 
     /// <summary>The refusal for an <c>asset_status</c> call over <paramref name="bound"/>, or null when it fits;
     /// <paramref name="atLeast"/> is the lane whose enumeration stopped at the bound, so the count is a floor.</summary>
-    internal static string? RefuseAssetPaths(int bound, int paths, bool wholeSelection, bool atLeast = false)
+    internal static string? RefuseAssetPaths(AssetPathBound bound, int paths, bool wholeSelection, bool atLeast = false)
     {
-        if (paths <= bound) return null;
+        if (paths <= bound.Paths) return null;
         return $"error: this call resolves {(atLeast ? "at least " : "")}{paths:N0} asset path(s) through the VFS, each one a lookup in every " +
                $"active archive plus a loose-directory warm across every mod folder — {(atLeast ? "over " : "")}{ProjectedAt(paths, MillisPerAssetPath)}, " +
-               $"past the {bound:N0}-path bound one call is given (a client stops waiting at 30 minutes). " +
+               $"past the {bound.Paths:N0}-path bound one call is given (a client stops waiting at 30 minutes). " +
                (atLeast ? "The sweep stopped counting there, so nothing was walked past the bound and nothing was resolved. " : "") +
                (wholeSelection
                    ? "this call resolves the COMPLETE selection — to_file= and counts_only= both do — so limit= " +
