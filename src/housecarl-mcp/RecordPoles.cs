@@ -18,7 +18,9 @@ internal sealed partial class RecordReads
     {
         public static readonly PoleSpec Winner = new(PoleKind.Winner);
         /// <summary>The overlay in its post state, the one pole that replays the INI layer and so needs the asset build.</summary>
-        public bool ReplaysOverlay => Kind == PoleKind.Overlay && (OverlayState ?? "post").Trim().ToLowerInvariant() == "post";
+        public bool ReplaysOverlay => State == "post";
+        /// <summary>The overlay state trimmed and lower-cased, post by default; null on any other pole.</summary>
+        public string? State => Kind == PoleKind.Overlay ? (OverlayState ?? "post").Trim().ToLowerInvariant() : null;
         /// <summary>The arm statement a render leads with when the pole is uniform across the batch.</summary>
         public string Label => Kind switch
         {
@@ -285,8 +287,7 @@ internal sealed partial class RecordReads
     {
         error = null;
         var hop = ContainmentIndex.ReadHop(view, session);   // both overlay arms read through the order's own index
-        var state = (spec.OverlayState ?? "post").Trim().ToLowerInvariant();
-        if (state is not ("pre" or "post"))
+        if (spec.State is not ("pre" or "post"))
         {
             armStatement = null; covers = true;
             error = $"overlay state '{spec.OverlayState}' is not recognized — use \"pre\" (the winner before the INI layer) or \"post\" (after it; the default).";
@@ -294,7 +295,7 @@ internal sealed partial class RecordReads
             return (_, _) => new PoleReading(null, null, null, msg);
         }
 
-        if (state == "pre")
+        if (!spec.ReplaysOverlay)
         {
             covers = true;
             armStatement = "skypatcher overlay (pre) — the plain load-order winner, before the INI layer";
@@ -312,7 +313,6 @@ internal sealed partial class RecordReads
             };
         }
 
-        var build = assets ?? throw new InvalidOperationException();   // a post pole always arrives with the asset build
         covers = false;   // the INI layer's files are outside the index fingerprint (a draft INI likewise)
         armStatement = "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
                      + (spec.Draft is null ? "" : $", with {spec.Draft.Arm}");
@@ -327,7 +327,8 @@ internal sealed partial class RecordReads
             if (replay is not null || setupError is not null) return;
             try
             {
-                replay = _host.OpenSkyPatcherReplay(build(), view, session, out var draftRefusal, spec.Draft, overlayWarnings);
+                // The batch took the asset hold on the same ReplaysOverlay test that chose this branch.
+                replay = _host.OpenSkyPatcherReplay(assets!(), view, session, out var draftRefusal, spec.Draft, overlayWarnings);
                 if (draftRefusal is not null) setupError = draftRefusal;
             }
             catch (Exception ex)

@@ -674,7 +674,7 @@ public static partial class RecordsTools
             RecordReads.PoleInfo? pole = null;
             // Clocked like the scan's body lane, over the BODIES READ; docs/architecture/records-tool-front.md.
             var listClock = System.Diagnostics.Stopwatch.StartNew();
-            if (srcOverlay && !string.Equals(srcSpec.OverlayState ?? "post", "pre", StringComparison.OrdinalIgnoreCase))
+            if (srcSpec.ReplaysOverlay)
             {
                 // The overlay post source: every winner replayed through the SkyPatcher INI layer, read at the
                 // caller's own depth.
