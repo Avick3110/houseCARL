@@ -7,8 +7,8 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The errors sweep takes its view and its roots in one hold, the off-order memo answers only for its roots,
-/// and one call reads the profile's composition once.</summary>
+/// <summary>The errors and dialogue sweeps take their view and their roots in one hold, the off-order memo answers only
+/// for its roots, and one errors call reads the profile's composition once.</summary>
 [Trait("tier", "integration")]
 public sealed class ErrorsCheckPinTests : IDisposable
 {
@@ -20,6 +20,7 @@ public sealed class ErrorsCheckPinTests : IDisposable
 
     readonly string _root;
     readonly string _ini;
+    readonly string _topicSeed;
     readonly string _gameA;
     readonly string _gameB;
     readonly LoadOrderService _svc;
@@ -52,6 +53,9 @@ public sealed class ErrorsCheckPinTests : IDisposable
 
         var patch = new SkyrimMod(new ModKey("HcEpPatch", ModType.Plugin), SkyrimRelease.SkyrimSE);
         var npc = patch.Npcs.AddNew(); npc.EditorID = "HcEpPatchNpc"; npc.Race.SetTo(race.FormKey);
+        // A topic whose unmodeled SNAM marker is warned about only where the patch is not force-loaded.
+        var topic = patch.DialogTopics.AddNew(); topic.EditorID = "HcEpTopic"; topic.SubtypeName = new RecordType("ZZZZ");
+        _topicSeed = $"{topic.FormKey.ID:X6}:{PatchName}";
         patch.BeginWrite.ToPath(Path.Combine(patchDir, PatchName)).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
         // A plugin with no masters and nothing to report: a sweep of it alone needs no composition.
@@ -157,6 +161,26 @@ public sealed class ErrorsCheckPinTests : IDisposable
 
         // The switch landed for the next call: the other profile force-loads the patch, so it is excluded.
         Assert.DoesNotContain(_svc.CheckErrors(null, 1000, exclude: exclude).Reports, IsPatch);
+    }
+
+    static bool WarnsOfTheMarker(DialogueCheckResult r)
+        => r.Topics.Any(t => t.Topic.Issues.Any(i => i.Message.Contains("not a marker houseCARL models")));
+
+    [Fact]
+    public void TheDialogueForceLoadedSetUsesTheProfilePinnedWithTheView()
+    {
+        var seeds = new[] { _topicSeed };
+        Assert.True(WarnsOfTheMarker(_svc.CheckDialogue(seeds, 1000)));        // warms; not force-loaded here
+
+        _svc.CheckArea.AfterCheckPinForGuard = () => RederiveFromAnotherCall(IniFor(_gameA, OtherProfile));
+        var during = _svc.CheckDialogue(seeds, 1000);
+        _svc.CheckArea.AfterCheckPinForGuard = null;
+        _mover!.Join();
+        Assert.Null(during.Error);
+        Assert.True(WarnsOfTheMarker(during));
+
+        // The switch landed for the next call: the other profile force-loads the patch, so the warning is not its author's.
+        Assert.False(WarnsOfTheMarker(_svc.CheckDialogue(seeds, 1000)));
     }
 
     [Fact]
