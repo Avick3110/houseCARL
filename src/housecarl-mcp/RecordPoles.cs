@@ -43,14 +43,8 @@ internal sealed partial class RecordReads
         out string? refusal, out OrderStamp? epoch, SkyPatcherOverlay.WarningSink? overlayWarnings)
     {
         subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
-        // One build and one set of roots for every pole of every record; the asset build only when a pole replays the overlay.
-        LoadOrderService.ViewPin pin; Mo2Roots roots; AssetCapture? captured = null;
-        if (subject.ReplaysOverlay || reference.ReplaysOverlay)
-        {
-            (pin, var assets) = _host.CapturePinAndAssets(AfterReadPinForGuard);   // the overlay replays over this build
-            roots = assets.Roots; captured = assets;
-        }
-        else (pin, roots) = _host.CapturePinAndRoots(AfterReadPinForGuard);
+        // One build and one set of roots for every pole of every record.
+        var (pin, roots, captured) = CapturePolePin(subject.ReplaysOverlay || reference.ReplaysOverlay);
         var resolver = pin.Resolver;
         var view = pin.View;
         epoch = view.Stamp;
@@ -125,6 +119,18 @@ internal sealed partial class RecordReads
             }
         }
         return rows;
+    }
+
+    /// <summary>A comparison batch's one hold: the pin and roots, plus the asset build when a pole replays the overlay.</summary>
+    (LoadOrderService.ViewPin Pin, Mo2Roots Roots, AssetCapture? Captured) CapturePolePin(bool replaysOverlay)
+    {
+        if (!replaysOverlay)
+        {
+            var (p, r) = _host.CapturePinAndRoots(AfterReadPinForGuard);
+            return (p, r, null);
+        }
+        var (pin, captured) = _host.CapturePinAndAssets(AfterReadPinForGuard);   // the overlay replays over this build
+        return (pin, captured.Roots, captured);
     }
 
     /// <summary>A pole reader's per-record result: the deep-read fields plus the pole identity for the render, or
@@ -498,14 +504,7 @@ internal sealed partial class RecordReads
         SkyPatcherOverlay.WarningSink? overlayWarnings)
     {
         referenceArm = null; epochCoversAll = true; refusal = null;
-        // The asset build only when the reference replays the overlay, as in DeltaBatch.
-        LoadOrderService.ViewPin pin; Mo2Roots roots; AssetCapture? captured = null;
-        if (reference.ReplaysOverlay)
-        {
-            (pin, var assets) = _host.CapturePinAndAssets(AfterReadPinForGuard);   // the overlay replays over this build
-            roots = assets.Roots; captured = assets;
-        }
-        else (pin, roots) = _host.CapturePinAndRoots(AfterReadPinForGuard);
+        var (pin, roots, captured) = CapturePolePin(reference.ReplaysOverlay);
         var resolver = pin.Resolver;
         var view = pin.View;
         epoch = view.Stamp;
