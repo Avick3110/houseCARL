@@ -16,9 +16,11 @@ public sealed class ErrorsCheckPinTests : IDisposable
     const string PatchName = "HcEpPatch.esp";
     const string OffName = "HcEpOff.esp";
     const string CleanName = "HcEpClean.esp";
+    const string OtherProfile = "Other";
 
     readonly string _root;
     readonly string _ini;
+    readonly string _gameA;
     readonly string _gameB;
     readonly LoadOrderService _svc;
     Thread? _mover;
@@ -29,7 +31,7 @@ public sealed class ErrorsCheckPinTests : IDisposable
         var instance = Path.Combine(_root, "instance");
         var profileDir = Path.Combine(instance, "profiles", "Default");
         var patchDir = Path.Combine(instance, "mods", "PatchMod");
-        var gameA = Path.Combine(_root, "gameA");
+        var gameA = _gameA = Path.Combine(_root, "gameA");
         _gameB = Path.Combine(_root, "gameB");
         Directory.CreateDirectory(profileDir);
         Directory.CreateDirectory(patchDir);
@@ -38,7 +40,8 @@ public sealed class ErrorsCheckPinTests : IDisposable
         _ini = Path.Combine(instance, "ModOrganizer.ini");
         File.WriteAllText(_ini, IniFor(gameA));
 
-        // Game A's Data holds the unchecked master and a plugin in no list; the order holds only mod-folder plugins, so moving the game folder moves the roots and leaves the order and its epoch unchanged.
+        // Game A's Data holds the unchecked master and a plugin in no list; the order holds only mod-folder plugins,
+        // so moving the game folder moves the roots and leaves the order and its epoch unchanged.
         var master = new SkyrimMod(new ModKey("HcEpMaster", ModType.Master), SkyrimRelease.SkyrimSE);
         var race = master.Races.AddNew(); race.EditorID = "HcEpMasterRace";
         master.BeginWrite.ToPath(Path.Combine(gameA, "Data", MasterName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
@@ -60,6 +63,13 @@ public sealed class ErrorsCheckPinTests : IDisposable
         File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), MasterName + "\r\n*" + CleanName + "\r\n*" + PatchName + "\r\n");
         File.WriteAllText(Path.Combine(profileDir, "modlist.txt"), "# header\r\n+PatchMod\r\n");
 
+        // The second profile: the same order, but plugins.txt does not list the patch, so there it is force-loaded.
+        var otherDir = Path.Combine(instance, "profiles", OtherProfile);
+        Directory.CreateDirectory(otherDir);
+        File.WriteAllText(Path.Combine(otherDir, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + CleanName + "\r\n" + PatchName + "\r\n");
+        File.WriteAllText(Path.Combine(otherDir, "plugins.txt"), MasterName + "\r\n*" + CleanName + "\r\n");
+        File.WriteAllText(Path.Combine(otherDir, "modlist.txt"), "# header\r\n+PatchMod\r\n");
+
         _svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(_root, "houseCARL.user.json")));
     }
 
@@ -70,15 +80,15 @@ public sealed class ErrorsCheckPinTests : IDisposable
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }
 
-    static string IniFor(string game)
-        => "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+    static string IniFor(string game, string profile = "Default")
+        => "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(" + profile + ")\r\ngamePath=@ByteArray("
            + game.Replace(@"\", @"\\") + ")\r\n";
 
-    /// <summary>Points MO2 at game B and lets another call re-derive the roots. Inside the sweep's hold that call waits
+    /// <summary>Rewrites the ini and lets another call re-derive the roots. Inside the sweep's hold that call waits
     /// for the hold; with the roots taken outside it, it lands before them.</summary>
-    void MoveGameFolderFromAnotherCall()
+    void RederiveFromAnotherCall(string ini)
     {
-        File.WriteAllText(_ini, IniFor(_gameB));
+        File.WriteAllText(_ini, ini);
         _mover = new Thread(() => _svc.CaptureView());
         _mover.Start();
         _mover.Join(TimeSpan.FromSeconds(1));
@@ -86,12 +96,23 @@ public sealed class ErrorsCheckPinTests : IDisposable
 
     ErrorCheckResult SweepWithMoveAfterPin(IReadOnlyList<string>? plugins)
     {
-        _svc.CheckArea.AfterCheckPinForGuard = MoveGameFolderFromAnotherCall;
+        _svc.CheckArea.AfterCheckPinForGuard = () => RederiveFromAnotherCall(IniFor(_gameB));
         var r = _svc.CheckErrors(plugins, 1000);
         _svc.CheckArea.AfterCheckPinForGuard = null;
         _mover!.Join();
         return r;
     }
+
+    ErrorCheckResult SweepImplicitWithProfileSwitchAfterPin()
+    {
+        _svc.CheckArea.AfterCheckPinForGuard = () => RederiveFromAnotherCall(IniFor(_gameA, OtherProfile));
+        var r = _svc.CheckErrors(null, 1000, exclude: new[] { SweepExclusion.ImplicitToken });
+        _svc.CheckArea.AfterCheckPinForGuard = null;
+        _mover!.Join();
+        return r;
+    }
+
+    static bool IsPatch(PluginErrors p) => p.Plugin.Equals(PatchName, StringComparison.OrdinalIgnoreCase);
 
     static IReadOnlyList<string>? InstalledButInactive(ErrorCheckResult r)
         => r.Reports.Single(p => p.Plugin.Equals(PatchName, StringComparison.OrdinalIgnoreCase)).InstalledButInactiveMasters;
@@ -122,6 +143,20 @@ public sealed class ErrorsCheckPinTests : IDisposable
 
         // The move landed for the next call: the master is no longer installed.
         Assert.Empty(InstalledButInactive(_svc.CheckErrors(null, 1000))!);
+    }
+
+    [Fact]
+    public void TheImplicitGroupUsesTheProfilePinnedWithTheView()
+    {
+        var exclude = new[] { SweepExclusion.ImplicitToken };
+        Assert.Contains(_svc.CheckErrors(null, 1000, exclude: exclude).Reports, IsPatch);   // warms; not force-loaded here
+
+        var during = SweepImplicitWithProfileSwitchAfterPin();
+        Assert.Null(during.Error);
+        Assert.Contains(during.Reports, IsPatch);
+
+        // The switch landed for the next call: the other profile force-loads the patch, so it is excluded.
+        Assert.DoesNotContain(_svc.CheckErrors(null, 1000, exclude: exclude).Reports, IsPatch);
     }
 
     [Fact]
