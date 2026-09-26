@@ -68,8 +68,8 @@ public static class NifService
     static string DescribeLoadException(Exception ex)
     {
         var m = ex.Message ?? "";
-        // NiflySharp's block-end check: the header's stored size for a block is smaller than what the block reads.
-        if (ex is InvalidDataException && m.Contains("past its stored size", StringComparison.Ordinal))
+        // A block and its stored size in the header disagree: a count inside it, or the block itself, runs past that size.
+        if (NifLoadErrors.IsBlockSizeMismatch(ex))
             return $"the mesh is malformed and was not read ({m.TrimEnd('.')}) — the header's size for that block disagrees " +
                    "with what the block holds, so either the size table or the block is wrong and houseCARL will not guess which; " +
                    "open it in NifSkope, and if that block reads correctly there, saving the mesh from NifSkope rewrites the size table.";
