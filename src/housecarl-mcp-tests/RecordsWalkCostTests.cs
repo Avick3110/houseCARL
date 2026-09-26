@@ -412,7 +412,7 @@ public sealed class RecordsWalkCostTests
     [Fact]
     public void AReachedSetTooBigToRenderRefusesNamingTheChainFormAndNarrowerSeeds()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, types: Npc, plugins: Scope(), walk: TemplateWalk(), project: Fields()));
 
         Assert.StartsWith("error:", response);
@@ -431,7 +431,7 @@ public sealed class RecordsWalkCostTests
     [InlineData("aggregate")]
     public void EveryReadingFormOverTheReachedSetIsHeldToTheBound(string form)
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, types: Npc, plugins: Scope(), walk: TemplateWalk(),
                                  project: new RecordsTools.RecordsProject
                                  { form = form, group_by = form == "aggregate" ? "type" : null }));
@@ -446,7 +446,7 @@ public sealed class RecordsWalkCostTests
     [Fact]
     public void AFormidsSeededWalkIsRefusedWithoutNamingTheScanTerms()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, formids: new[] { _w.RevisitSeed },
                                  walk: new RecordsTools.RecordsWalk { depth = 2 }, project: Fields()));
 
@@ -464,7 +464,7 @@ public sealed class RecordsWalkCostTests
     [Fact]
     public void TheChainFormIsNotHeldToTheBodyRenderBound()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, types: Npc, plugins: Scope(), walk: TemplateWalk(),
                                  project: Chain(), counts_only: true));
 
@@ -476,7 +476,7 @@ public sealed class RecordsWalkCostTests
     [Fact]
     public void AReachedSetUnderTheBoundRendersAsBefore()
     {
-        var response = WithBound(WalkCostWorld.Seeds * 4, () =>
+        var response = Svc.WithBounds(b => b with { Rows = WalkCostWorld.Seeds * 4 }, () =>
             RecordsTools.Records(Svc, types: Npc, plugins: Scope(), walk: TemplateWalk(), project: Fields()));
 
         Assert.DoesNotContain("error:", response);
@@ -515,16 +515,6 @@ public sealed class RecordsWalkCostTests
     }
 
     // ---- helpers -----------------------------------------------------------------------------------
-
-    /// <summary>Run one call with the named-fields render bound moved, restored whatever happens — building
-    /// 300,000 reachable records to meet the real one is not a test.</summary>
-    string WithBound(int rows, Func<string> call)
-    {
-        var prior = Svc.Bounds;
-        Svc.Bounds = prior with { Rows = rows };
-        try { return call(); }
-        finally { Svc.Bounds = prior; }
-    }
 
     /// <summary>Run one call with the walk's gather pass shrunk, restored whatever happens.</summary>
     string WithPassRows(int rows, Func<string> call)
