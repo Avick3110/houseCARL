@@ -120,7 +120,7 @@ public static class AssetTools
         if (wantFile)
         {
             // The same validator the records surface runs: absolute, .jsonl, and outside the pruned results directory.
-            if (Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
+            if (Artifacts.ValidateToFile(toFile!, svc.ResultsDir) is { } verr) return Wire.Refuse(json, verr);
             // The same pair the records lanes refuse, in the same words: one returns the census, the other writes the rows.
             if (counts_only) return Wire.Refuse(json, Artifacts.CountsOnlyWithToFile);
             if (offset > 0)
@@ -219,7 +219,7 @@ public static class AssetTools
                 try { order = svc.CaptureView().Stamp; }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
                 { noEpochBecause = Guard.Flatten(ex.Message); }
-            using var reservation = ResultsStore.Reserve(ToolNames.AssetStatus, order?.Epoch ?? "none");
+            using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? "none");
             var (auto, autoErr) = AssetArtifact.Write(data, reservation, "ceiling", order, Echo(), noEpochBecause);
             return Inline(autoErr is null ? SpillState.Spilled(auto!, manifestOnly: false) : SpillState.WriteFailed(autoErr), out _);
         }

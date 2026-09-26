@@ -52,6 +52,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         _configured = configured;
         _maxPlugins = maxPlugins;
         _store = store;
+        ResultsDir = Path.Combine(Path.GetDirectoryName(store.FilePath)!, "results");
         _assetLayers = new AssetLayers(this);
         _checks = new RecordChecks(this);
     }
@@ -262,6 +263,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         => _assetLayers.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, draftWarnings);
 
     internal AssetLayers AssetArea => _assetLayers;   // the assets area instance, for tests that set its seams
+
+    /// <summary>The auto-spill results directory: <c>results</c> beside houseCARL.user.json; a test points it at its own folder.</summary>
+    internal string ResultsDir { get; set; }
 
     // The checks area's tool-facing surface; the bodies are in RecordChecks.cs.
     public DialogueValidationReport ValidateDialogue(FormKey fk) => _checks.ValidateDialogue(fk);

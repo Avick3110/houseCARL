@@ -487,7 +487,7 @@ internal static class Artifacts
         "error: counts_only= returns the census with no rows, and to_file= writes the rows — the two contradict; drop one.";
 
     /// <summary>Validate a caller-named <c>to_file=</c> target: absolute, .jsonl-suffixed, and not inside the auto-spill results directory the server prunes by age. Null means fine; else the named refusal.</summary>
-    public static string? ValidateToFile(string toFile)
+    public static string? ValidateToFile(string toFile, string resultsDir)
     {
         var p = toFile.Trim();
         if (p.Length == 0) return "error: to_file= is empty — give the ABSOLUTE path the artifact should be written to (e.g. 'C:\\work\\weapons.jsonl').";
@@ -498,7 +498,7 @@ internal static class Artifacts
         try
         {
             var dir = Path.GetFullPath(Path.GetDirectoryName(p) ?? "");
-            var results = Path.GetFullPath(ResultsStore.Dir);
+            var results = Path.GetFullPath(resultsDir);
             if (string.Equals(dir.TrimEnd('\\', '/'), results.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
                 return $"error: to_file='{toFile}' points into the server's auto-spill results directory ('{results}'), " +
                        $"which is pruned by age after {ResultsStore.PruneAfterDays} days — your artifact would be silently deleted by that hygiene. " +

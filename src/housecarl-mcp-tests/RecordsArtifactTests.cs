@@ -14,7 +14,6 @@ namespace HousecarlMcpTests;
 /// <summary>to_file, auto-spill, re-entry, the store's refusals, and error-row identity — everything that
 /// reads one stable build.</summary>
 [Trait("tier", "integration")]
-[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<ArtifactFixture>
 {
     public RecordsArtifactTests(ArtifactFixture f) : base(f) { }
@@ -711,7 +710,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 
     [Fact]
     public void ToFileIntoTheServersResultsDirectoryIsRefusedNamingThePruneHazard() =>
-        Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: Path.Combine(ResultsStore.Dir, "mine.jsonl")),
+        Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: Path.Combine(Svc.ResultsDir, "mine.jsonl")),
                 "pruned by age");
 
     // ---- error rows are not identity-bearing -------------------------------------------------------
@@ -801,18 +800,35 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         return p;
     }
 
-    /// <summary>A private auto-spill directory; it repoints a process-wide seam, so only this serial class takes one (#903).</summary>
-    ResultsDirScope OwnResults(string name) => new(W.Scratch("spills", name, "dir"));
+    /// <summary>This world's results directory, pointed at a private one until disposed, then put back.</summary>
+    sealed class SpillDir : IDisposable
+    {
+        readonly LoadOrderService _svc;
+        readonly string _prior;
+        public string Dir { get; }
+
+        public SpillDir(LoadOrderService svc, string dir, bool create = true)
+        {
+            if (create) Directory.CreateDirectory(dir);
+            (_svc, _prior, Dir) = (svc, svc.ResultsDir, dir);
+            svc.ResultsDir = dir;
+        }
+
+        public void Dispose() => _svc.ResultsDir = _prior;
+    }
+
+    /// <summary>A private auto-spill directory, so the one file a call spilled is the only file in it.</summary>
+    SpillDir OwnResults(string name) => new(Svc, W.Scratch("spills", name, "dir"));
 
     /// <summary>The one artifact a spilling call left in its own results directory.</summary>
-    static string TheSpill(ResultsDirScope d) => Assert.Single(Directory.GetFiles(d.Dir, "*.jsonl"));
+    static string TheSpill(SpillDir d) => Assert.Single(Directory.GetFiles(d.Dir, "*.jsonl"));
 
     /// <summary>An auto-spill directory that CANNOT be created: its parent is a file.</summary>
-    ResultsDirScope UncreatableResults(string name)
+    SpillDir UncreatableResults(string name)
     {
         var blocker = W.Scratch("blockers", name);
         File.WriteAllText(blocker, "a file where the results directory should be");
-        return new ResultsDirScope(Path.Combine(blocker, "sub"), create: false);
+        return new SpillDir(Svc, Path.Combine(blocker, "sub"), create: false);
     }
 
     /// <summary>A to_file target that passes validation and then cannot be written: its parent is a file.</summary>
@@ -1067,17 +1083,14 @@ public sealed class RecordsArtifactRoundTripTests : IDisposable
 
 /// <summary>The results store's own contracts: reservation, disposal, and the write-time age prune.</summary>
 [Trait("tier", "unit")]
-[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class RecordsArtifactResultsStoreTests : IDisposable
 {
     readonly string _dir = Path.Combine(Path.GetTempPath(), "hc-artifact-store-" + Guid.NewGuid().ToString("N"));
-    readonly ResultsDirScope _results;
 
-    public RecordsArtifactResultsStoreTests() => _results = new ResultsDirScope(_dir);
+    public RecordsArtifactResultsStoreTests() => Directory.CreateDirectory(_dir);
 
     public void Dispose()
     {
-        _results.Dispose();
         try { Directory.Delete(_dir, true); } catch (Exception) { /* temp cleanup */ }
     }
 
@@ -1093,7 +1106,7 @@ public sealed class RecordsArtifactResultsStoreTests : IDisposable
     public void ASpillOlderThanThePruneWindowIsDeletedAtTheNextWrite()
     {
         var old = Aged("stale-spill.jsonl", ResultsStore.PruneAfterDays + 1);
-        using var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
+        using var r = ResultsStore.Reserve(_dir, ToolNames.Records, "0123456789abcdef");
         Assert.False(File.Exists(old));
     }
 
@@ -1101,15 +1114,15 @@ public sealed class RecordsArtifactResultsStoreTests : IDisposable
     public void AFreshSpillSurvivesTheSameWriteTimePrune()
     {
         var fresh = Aged("fresh-spill.jsonl", 0);
-        using var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
+        using var r = ResultsStore.Reserve(_dir, ToolNames.Records, "0123456789abcdef");
         Assert.True(File.Exists(fresh));
     }
 
     [Fact]
     public void SameSecondReservationsGetDistinctNamesBecauseReservingCreatesTheFile()
     {
-        using var r1 = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
-        using var r2 = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
+        using var r1 = ResultsStore.Reserve(_dir, ToolNames.Records, "0123456789abcdef");
+        using var r2 = ResultsStore.Reserve(_dir, ToolNames.Records, "0123456789abcdef");
         Assert.NotEqual(r1.Path, r2.Path);
         Assert.True(File.Exists(r1.Path));
         Assert.True(File.Exists(r2.Path));
@@ -1119,7 +1132,7 @@ public sealed class RecordsArtifactResultsStoreTests : IDisposable
     public void AnOldOrphanedWriterTempIsPrunedLikeAnyStaleSpill()
     {
         var orphan = Aged("half-written.jsonl.tmp-deadbeef", ResultsStore.PruneAfterDays + 1);
-        using var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
+        using var r = ResultsStore.Reserve(_dir, ToolNames.Records, "0123456789abcdef");
         Assert.False(File.Exists(orphan));
     }
 
@@ -1127,7 +1140,7 @@ public sealed class RecordsArtifactResultsStoreTests : IDisposable
     public void AReservationNoSpillWroteIsDeletedWhenItIsDisposed()
     {
         string p;
-        using (var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef")) p = r.Path;
+        using (var r = ResultsStore.Reserve(_dir, ToolNames.Records, "0123456789abcdef")) p = r.Path;
         Assert.False(File.Exists(p));
     }
 
@@ -1136,7 +1149,7 @@ public sealed class RecordsArtifactResultsStoreTests : IDisposable
     [Fact]
     public void NothingElseCanOpenAReservedFileWhileTheSpillIsBeingWritten()
     {
-        using var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
+        using var r = ResultsStore.Reserve(_dir, ToolNames.Records, "0123456789abcdef");
         Assert.Throws<IOException>(() => new FileStream(r.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
 
         using var w = new ResultArtifact.Writer();
@@ -1153,7 +1166,7 @@ public sealed class RecordsArtifactResultsStoreTests : IDisposable
     [Fact]
     public void AnArtifactTargetRefusesASecondWriteRatherThanLosingTheFirst()
     {
-        using var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
+        using var r = ResultsStore.Reserve(_dir, ToolNames.Records, "0123456789abcdef");
         using var w = new ResultArtifact.Writer();
         w.WriteRow((jw, _) => { jw.WriteStartObject(); jw.WriteString("formid", "000001:A.esp"); jw.WriteEndObject(); });
         var (_, err) = w.Save(r, ToolNames.Records, Array.Empty<KeyValuePair<string, string>>(), "formid",
