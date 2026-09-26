@@ -37,7 +37,7 @@ internal static class CompileErgonomicsProbe
         int fail = 0;
         void Check(bool c, string label) { Console.WriteLine((c ? "  PASS  " : "  FAIL  ") + label); if (!c) fail++; }
 
-        var tmpStore = Path.Combine(Path.GetTempPath(), "hc-comperg-store-" + Guid.NewGuid().ToString("N") + ".json");
+        var tmpStore = Path.Combine(Path.GetTempPath(), "hc-comperg-store-" + Guid.NewGuid().ToString("N"), "user.json");
         try
         {
             var store = new UserConfigStore(tmpStore);
@@ -76,7 +76,7 @@ internal static class CompileErgonomicsProbe
             Check(!unconfHintsThrew && unconfHints is not null,
                   "CompilerGameDirHints on an unconfigured service returns a list (no load-order hint; locator-only), never throws");
         }
-        finally { try { File.Delete(tmpStore); } catch { /* non-fatal */ } }
+        finally { try { Directory.Delete(Path.GetDirectoryName(tmpStore)!, recursive: true); } catch { /* non-fatal */ } }
 
         // ---------------------------------------------------------- B) out_path= contract (6.3): pure double-Scripts guard
         Console.WriteLine();
