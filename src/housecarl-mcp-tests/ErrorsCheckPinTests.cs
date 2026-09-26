@@ -136,11 +136,12 @@ public sealed class ErrorsCheckPinTests : IDisposable
         Assert.Contains("no on-disk copy", refusal?.Message);
     }
 
+    // Counted at the parse itself, on this thread: a consumer that parses for itself is counted too.
     [Fact]
     public void OneErrorsCallReadsTheCompositionOnce()
     {
         _svc.CheckErrors(null, 1000);                                           // warms the index
-        var before = _svc.CheckArea.CompositionReads;
+        var before = Mo2LoadOrder.CompositionReadsOnThisThread;
 
         // An off-order name, the implicit group and a missing master: three consumers of the composition.
         var r = _svc.CheckErrors(new[] { PatchName, OffName }, 1000, exclude: new[] { SweepExclusion.ImplicitToken });
@@ -148,6 +149,6 @@ public sealed class ErrorsCheckPinTests : IDisposable
         Assert.Equal(new[] { OffName }, r.OffOrderScanned);
         Assert.Equal(new[] { MasterName }, InstalledButInactive(r));
 
-        Assert.Equal(1, _svc.CheckArea.CompositionReads - before);
+        Assert.Equal(1, Mo2LoadOrder.CompositionReadsOnThisThread - before);
     }
 }
