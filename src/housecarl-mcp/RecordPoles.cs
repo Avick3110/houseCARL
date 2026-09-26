@@ -17,6 +17,8 @@ internal sealed partial class RecordReads
                                   SkyPatcherDraft.Plan? Draft = null)
     {
         public static readonly PoleSpec Winner = new(PoleKind.Winner);
+        /// <summary>The overlay in its post state, the one pole that replays the INI layer and so needs the asset build.</summary>
+        public bool ReplaysOverlay => Kind == PoleKind.Overlay && (OverlayState ?? "post").Trim().ToLowerInvariant() == "post";
         /// <summary>The arm statement a render leads with when the pole is uniform across the batch.</summary>
         public string Label => Kind switch
         {
@@ -41,9 +43,9 @@ internal sealed partial class RecordReads
         out string? refusal, out OrderStamp? epoch, SkyPatcherOverlay.WarningSink? overlayWarnings)
     {
         subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
-        // One build and one set of roots for every pole of every record; the asset build only when a pole is the overlay.
+        // One build and one set of roots for every pole of every record; the asset build only when a pole replays the overlay.
         LoadOrderService.ViewPin pin; Mo2Roots roots; AssetCapture? captured = null;
-        if (subject.Kind == PoleKind.Overlay || reference.Kind == PoleKind.Overlay)
+        if (subject.ReplaysOverlay || reference.ReplaysOverlay)
         {
             (pin, var assets) = _host.CapturePinAndAssets(AfterReadPinForGuard);   // the overlay replays over this build
             roots = assets.Roots; captured = assets;
@@ -200,7 +202,7 @@ internal sealed partial class RecordReads
                 };
 
             case PoleKind.Overlay:
-                return MakeOverlayPoleReader(view, captured ?? throw new InvalidOperationException(), session, spec, fields, out armStatement, out covers, out error, overlayWarnings, gather);
+                return MakeOverlayPoleReader(view, captured, session, spec, fields, out armStatement, out covers, out error, overlayWarnings, gather);
 
             default:   // Named — the one-pole rule: active in the order, else an on-disk file.
                 var (arm, armErr) = ResolvePoleArm(view, roots, spec.Plugin!, spec.Mod);
@@ -258,7 +260,7 @@ internal sealed partial class RecordReads
     }
 
     /// <summary>The SkyPatcher-overlay pole.</summary>
-    PoleReader MakeOverlayPoleReader(LoadOrderResolver.IndexView view, AssetCapture captured, LoadOrderResolver.OverlaySession session,
+    PoleReader MakeOverlayPoleReader(LoadOrderResolver.IndexView view, AssetCapture? captured, LoadOrderResolver.OverlaySession session,
                                      PoleSpec spec, IReadOnlyList<string>? fields,
                                      out string? armStatement, out bool covers, out string? error,
                                      SkyPatcherOverlay.WarningSink? overlayWarnings = null, PoleGather? gather = null)
@@ -292,6 +294,7 @@ internal sealed partial class RecordReads
             };
         }
 
+        var assets = captured ?? throw new InvalidOperationException();   // a post pole always arrives with the asset build
         covers = false;   // the INI layer's files are outside the index fingerprint (a draft INI likewise)
         armStatement = "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
                      + (spec.Draft is null ? "" : $", with {spec.Draft.Arm}");
@@ -306,7 +309,7 @@ internal sealed partial class RecordReads
             if (replay is not null || setupError is not null) return;
             try
             {
-                replay = _host.OpenSkyPatcherReplay(captured, view, session, out var draftRefusal, spec.Draft, overlayWarnings);
+                replay = _host.OpenSkyPatcherReplay(assets, view, session, out var draftRefusal, spec.Draft, overlayWarnings);
                 if (draftRefusal is not null) setupError = draftRefusal;
             }
             catch (Exception ex)
@@ -495,9 +498,9 @@ internal sealed partial class RecordReads
         SkyPatcherOverlay.WarningSink? overlayWarnings)
     {
         referenceArm = null; epochCoversAll = true; refusal = null;
-        // The asset build only when the reference is the overlay, as in DeltaBatch.
+        // The asset build only when the reference replays the overlay, as in DeltaBatch.
         LoadOrderService.ViewPin pin; Mo2Roots roots; AssetCapture? captured = null;
-        if (reference.Kind == PoleKind.Overlay)
+        if (reference.ReplaysOverlay)
         {
             (pin, var assets) = _host.CapturePinAndAssets(AfterReadPinForGuard);   // the overlay replays over this build
             roots = assets.Roots; captured = assets;
