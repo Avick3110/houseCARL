@@ -64,14 +64,14 @@ the `Traits` flag inherits its appearance and has no bake of its own — recompu
 FormID if you need it. An NPC whose race lacks the `FaceGenHead` flag (a horse, a dragon, a draugr shell) has no
 baked head at all.
 
-The Creation Kit never bakes four kinds of NPC (measured on the vanilla masters, 2026-09-26): a Traits-templated
-NPC, one on a race without `FaceGenHead`, a CharGen face preset (the `IsCharGenFacePreset` flag in `ACBS`; 0 of 201
-baked), and the Player (`000007:Skyrim.esm`). The first two are the exclusions above. A preset or the Player with
+The Creation Kit does not bake four kinds of NPC (measured on the vanilla masters, 2026-09-26): a Traits-templated
+NPC (2 of 2,464 baked), one on a race without `FaceGenHead` (1 of 1,940), a CharGen face preset (the
+`IsCharGenFacePreset` flag in `ACBS`; 0 of 201), and the Player (`000007:Skyrim.esm`). The first two are the exclusions above. A preset or the Player with
 neither half on disk is `never_baked`, not `bake_absent`: counted in the header, listed only when named, like
 `family_split`, and carried in every `to_file=` artifact. A preset duplicated into a placed follower and never baked
 lands there too, so list the class when auditing followers. An NPC with no head parts (`PNAM`) is not on that list:
-the CK bakes it from the race's default head (146 of the 178 vanilla ones that also lack face data are baked), and a
-placed one without a bake shows dark. It reports `bake_absent`. When it also has no `FaceMorph`, `FaceParts` or
+the CK bakes it from the race's default head (146 of the 178 untemplated vanilla ones on a race that bakes, with no
+face data either, are baked), and a placed one without a bake shows dark. It reports `bake_absent`. When it also has no `FaceMorph`, `FaceParts` or
 `TintLayers`, the row says so and asks whether it is placed, because the unbaked vanilla ones are voice and dummy
 actors (`InvisibleNPC`, the `VoiceType*` speakers). Any NPC of these kinds with a half on disk classifies like every
 other NPC.
