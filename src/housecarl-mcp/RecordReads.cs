@@ -8,9 +8,6 @@ namespace HousecarlMcp;
 /// <summary>Everything the reads area takes from outside itself.</summary>
 internal interface IReadHost : ILoadOrderHost
 {
-    /// <summary>A pinned index and the four MO2 roots in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between the two.</summary>
-    (LoadOrderService.ViewPin Pin, Mo2Roots Roots) CapturePinAndRoots(Action? afterPin);
-
     // Relayed from assets: the SkyPatcher replay door that takes its own asset capture, for the SkyPatcher overlay source.
     AssetLayers.SkyPatcherReplay? OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                                        out string? draftRefusal, SkyPatcherDraft.Plan? draft,
