@@ -70,11 +70,36 @@ public sealed class MalformedMeshWorld : IDisposable
     public MalformedMeshWorld()
     {
         _root = Path.Combine(Path.GetTempPath(), "hc-malformed-" + Guid.NewGuid().ToString("N"));
-        var instance = Path.Combine(_root, "instance");
+        ServerFixture? server = null;
+        // xUnit does not dispose a fixture whose constructor threw, so a failure here stops the server and removes the tree itself.
+        try
+        {
+            var instance = Stage(_root);
+            // 2 GB of GC heap: a runaway allocation fails inside the server, never in the test host.
+            server = new ServerFixture(new Dictionary<string, string> { ["DOTNET_GCHeapHardLimit"] = "0x80000000" })
+            {
+                RpcTimeout = TimeSpan.FromSeconds(30),
+            };
+            var set = server.Call(ToolNames.SetMo2Instance, $$"""{"path": {{JsonSerializer.Serialize(instance)}}}""");
+            Assert.Contains("configured houseCARL -> MO2 instance", set.Text, StringComparison.Ordinal);
+            _server = server;
+        }
+        catch
+        {
+            server?.Dispose();
+            try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
+            throw;
+        }
+    }
+
+    // Writes the instance under root: two masters and one mod holding the malformed meshes; returns the instance folder.
+    static string Stage(string root)
+    {
+        var instance = Path.Combine(root, "instance");
         var profile = Path.Combine(instance, "profiles", "Default");
         var pluginMod = Path.Combine(instance, "mods", "PluginMod");
         var meshMod = Path.Combine(instance, "mods", "MalformedMod");
-        foreach (var d in new[] { profile, Path.Combine(_root, "game", "Data"), pluginMod })
+        foreach (var d in new[] { profile, Path.Combine(root, "game", "Data"), pluginMod })
             Directory.CreateDirectory(d);
 
         // Two masters, so the order resolves: an instance with no active plugin answers differently.
@@ -96,19 +121,12 @@ public sealed class MalformedMeshWorld : IDisposable
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
-            + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
+            + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n");
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\nHcMalformedOne.esm\r\nHcMalformedTwo.esm\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*HcMalformedOne.esm\r\n*HcMalformedTwo.esm\r\n");
         File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+MalformedMod\r\n+PluginMod\r\n");
         File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
-
-        // 2 GB of GC heap: a runaway allocation fails inside the server, never in the test host.
-        _server = new ServerFixture(new Dictionary<string, string> { ["DOTNET_GCHeapHardLimit"] = "0x80000000" })
-        {
-            RpcTimeout = TimeSpan.FromSeconds(30),
-        };
-        var set = _server.Call(ToolNames.SetMo2Instance, $$"""{"path": {{JsonSerializer.Serialize(instance)}}}""");
-        Assert.Contains("configured houseCARL -> MO2 instance", set.Text, StringComparison.Ordinal);
+        return instance;
     }
 
     public string Inspect(string meshPath)
