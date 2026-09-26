@@ -82,6 +82,13 @@ fold), `RecordPoles.cs` (comparison poles, the delta/tree batches), `RecordWalk.
 `docs/architecture/check-families.md` and
 `docs/architecture/check-scripts-and-dialogue-families.md`). The type lookup is in `TypeLookup.cs`,
 under `docs/architecture/corpus-rulebook.md`. The pole lanes (`ProbeSourceArm`, `ResolveBatchFromPole`,
-`DeltaBatch`, `TreeBatch`) take the view and the MO2 roots in one hold through the head's `CapturePinAndRoots`,
+`DeltaBatch`, `TreeBatch`) take the view and the MO2 roots in one hold through `IReadHost.CapturePinAndRoots`,
 and an off-order `PoleInfo` carries the `DataDir` it was located under.
 Tool: `housecarl_records`.
+
+What the area needs from outside itself is the members of `IReadHost`, declared at the top of `RecordReads.cs`:
+`CapturePinAndRoots(afterPin)`, the pin and the four MO2 roots in one hold, from the head; and `AssetArea`, the
+assets area instance, whose self-capturing `OpenSkyPatcherReplay` the SkyPatcher overlay pole reads through. The
+resolver, the type lookup and the corpus rulebook are `Resolver`, `Types` and `Rulebook` on the shared door. The
+members every area shares come through the door it extends, `ILoadOrderHost` in
+`src/housecarl-mcp/LoadOrderHost.cs` ([`load-order-service.md`](load-order-service.md)).
