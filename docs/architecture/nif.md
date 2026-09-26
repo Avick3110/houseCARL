@@ -156,9 +156,9 @@ The project builds the package itself, into `NiflySharp/bin/Release/`. A bare `d
 fresh clone, because it packs before the builds exist. `ContinuousIntegrationBuild` keeps the build folder's path out
 of the DLLs, so two clones at different paths give the same DLLs byte for byte.
 
-Give every rebuild a new version suffix. NuGet keeps each version it has restored in `~/.nuget/packages` and never
-reads the local source again for that version. CI's package cache can fall back to an older cache, so it relies on the
-same rule.
+NuGet keeps each version it has restored in `~/.nuget/packages` and does not read the local source again for that
+version. CI leaves `~/.nuget/packages/nifly` out of its package cache, so every CI run restores the fork from
+`packages/local`.
 
 Before a new build replaces the vendored one, check it the way each earlier version was checked:
 
