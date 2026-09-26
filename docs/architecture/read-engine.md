@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-26
 covers: [src/housecarl-core/ReadEngine.cs, src/housecarl-core/BodyGather.cs, src/housecarl-core/WinnerBodies.cs, src/housecarl-core/RecordLinks.cs, src/housecarl-core/RecordArms.cs, src/housecarl-core/RecordNaming.cs, src/housecarl-core/PathFold.cs, src/housecarl-core/PluginFile.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/RecordPoles.cs, src/housecarl-mcp/RecordWalk.cs, src/housecarl-mcp/RecordQuery.cs, src/housecarl-mcp/TreeFold.cs, src/housecarl-mcp/FieldFold.cs, src/housecarl-mcp/ReverseWalkBatch.cs, src/housecarl-mcp/ScanDetailReader.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/ScopeSplit.cs, src/housecarl-mcp/BodyPrefetch.cs, src/housecarl-mcp/PoleGather.cs, src/housecarl-core/FieldsDiff.cs]
 ---
 # The read engine
@@ -86,12 +86,21 @@ under `docs/architecture/corpus-rulebook.md`. The pole lanes (`ProbeSourceArm`, 
 and an off-order `PoleInfo` carries the `DataDir` it was located under.
 Tool: `housecarl_records`.
 
-What the area needs from outside itself is the members of `IReadHost`, declared at the top of `RecordReads.cs`:
+The five service files are one class, `RecordReads`, which the head builds over itself as `_reads` and reaches
+through one-line delegators with the old names, signatures and defaults: `ResolveRead`, `ResolveReadOn`,
+`ResolveSummaryOn`, `ResolveTreePinned`, `ResolveRefs`, `ResolveBatch`, `ResolveBatchFromPole`, `ProbeSourceArm`,
+`DeltaBatch`, `TreeBatch`, `OverlayPostBatch`, `WalkForwardBatch`, `InfoOrderBatch`, `CrossQuery`, `OffOrderQuery`,
+`ResolveEffectChain`. `ReadArea` hands tests the instance, to set the pole lanes' seam `AfterReadPinForGuard`. The
+statics and nested types (`PoleInfo`, `PoleSpec`, `DeltaRow`, `TreeRow`, `WalkSeedResult`, `InfoOrderRow`,
+`LinkMemo`, `ArtifactEpochMismatch`, `UnresolvedFormId`, `OpenDialogueFold`, `FoldLabel` and the rest) are
+addressed as `RecordReads.X`.
+
+What the class needs from outside itself is the members of `IReadHost`, declared at the top of `RecordReads.cs`:
 `CapturePinAndRoots(afterPin)`, the pin and the four MO2 roots in one hold, from the head; and
 `OpenSkyPatcherReplay`, relayed from the assets area (the overload that takes its own asset capture), which the
 SkyPatcher overlay pole reads through. The resolver, the type lookup and the corpus rulebook are `Resolver`,
 `Types` and `Rulebook` on the shared door. The members every area shares come through the door it extends,
 `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs` ([`load-order-service.md`](load-order-service.md)).
-Four reaches still sit outside the interface, and the change that makes reads its own class has to move or
-qualify them: the test seam `AfterReadPinForGuard`, a head field the pole lanes pass to `CapturePinAndRoots`, and
-three statics in `OutputLocations.cs`, `LocatePluginFileOnDisk`, `LooksLikePath` and `SamePluginFile`.
+Outside the interface it calls four statics of the head's output code in `OutputLocations.cs`,
+`LoadOrderService.LocatePluginFileOnDisk`, `LooksLikePath` and `SamePluginFile`, and names the head's
+`LoadOrderService.ViewPin` record.

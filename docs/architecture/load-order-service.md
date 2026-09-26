@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-24
+updated: 2026-09-26
 covers: [src/housecarl-mcp/LoadOrderService.cs, src/housecarl-mcp/LoadOrderHost.cs, src/housecarl-mcp/ServiceResults.cs]
 ---
 # The load-order service
@@ -27,7 +27,7 @@ the config file.
 - `WriteGate` is the same object as `_writeGate`, so the lock order above holds through it: take the write gate first, then capture.
 - `Types` is the service's `TypeLookup` (a `type=` string to its getter types), built from the corpus on first use and kept for the service's life, so a `CorpusRulebook.CorpusPath` set before a service's first type resolution governs that service. It is never process-wide. The read, check, write and asset lanes resolve types through it.
 - `Rulebook` is the service's `CorpusRulebook` (corpus.json), loaded on first use from the `CorpusPath` set then; concurrent first calls publish one instance, and a failed load is not kept. The read area's scan takes it to judge a `where=` quantifier's shape; the write lanes use the same instance.
-- Each area's own interface extends `ILoadOrderHost` and carries the rest: the head members only that area takes, plus rows relayed from areas that are not their own classes yet. The first is `IAssetHost`, in `src/housecarl-mcp/AssetLayers.cs`; the second is `ICheckHost`, in `src/housecarl-mcp/RecordChecks.cs`; the third is `IReadHost`, at the top of `src/housecarl-mcp/RecordReads.cs`.
+- Each area's own interface extends `ILoadOrderHost` and carries the rest: the head members only that area takes, plus rows relayed from areas that are not their own classes yet. The first is `IAssetHost`, in `src/housecarl-mcp/AssetLayers.cs`; the second is `ICheckHost`, in `src/housecarl-mcp/RecordChecks.cs`; the third is `IReadHost`, at the top of `src/housecarl-mcp/RecordReads.cs`. Those three areas are their own classes, `AssetLayers`, `RecordChecks` and `RecordReads`, each built by the head over itself; writes and output are still parts of the head's class.
 
 ### The service's answers
 - The index build is lazy, so startup and `tools/list` are instant, and it is serialized on one gate because the server dispatches tool calls concurrently.
@@ -57,7 +57,7 @@ the config file.
 `NamedProfileComposition`, `PapyrusSourceImportDirs`, `Dispose`, `CapturePin()` and the `ViewPin` record it
 returns (nested in the service), `CapturePinAnd<T>` (one `_gate` hold: the pin, a seam, then a second capture),
 over which `CapturePinAndAssets` and `CapturePinAndRoots` (`IReadHost`'s: the pin and the four roots, for the read
-area's pole lanes, which pass it the test seam `AfterReadPinForGuard`) are one-liners, the class-parent cache
+area's pole lanes, which pass it the area's test seam `AfterReadPinForGuard`) are one-liners, the class-parent cache
 (`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, `Types` (the
 `TypeLookup`, the door member, whose map is built on the first type resolution), and the explicit
 `ILoadOrderHost`, `IAssetHost`, `ICheckHost` and `IReadHost` members. `src/housecarl-mcp/LoadOrderHost.cs` declares `ILoadOrderHost` and
@@ -66,7 +66,12 @@ The head's asset-facing surface is one-line delegators to `_assetLayers`, the `A
 its constructor: `AssetStatus`, `SkseInventory`, `SkseConfigAudit`, `NativePairingAudit`, `SkyPatcherLayer`,
 `NifInspect`, `NifSet`, `PlaceAssets`. `AssetArea` hands tests the instance, to set its seams. The read area reaches the SkyPatcher replay through
 `IReadHost.OpenSkyPatcherReplay`, relayed to `_assetLayers` in the head's relay block.
-The checks-facing surface is the same shape over `_checks`, the `RecordChecks` it builds after `_assetLayers`:
+The reads-facing surface is the same shape over `_reads`, the `RecordReads` it builds after `_assetLayers`:
+`ResolveRead`, `ResolveReadOn`, `ResolveSummaryOn`, `ResolveTreePinned`, `ResolveRefs`, `ResolveBatch`,
+`ResolveBatchFromPole`, `ProbeSourceArm`, `DeltaBatch`, `TreeBatch`, `OverlayPostBatch`, `WalkForwardBatch`,
+`InfoOrderBatch`, `CrossQuery`, `OffOrderQuery`, `ResolveEffectChain`, with `ReadArea` for tests; `IReadHost` is at
+the top of `src/housecarl-mcp/RecordReads.cs`.
+The checks-facing surface is the same shape over `_checks`, the `RecordChecks` it builds after `_reads`:
 `ValidateDialogue`, `CheckDialogue`, `CheckErrors`, `ValidateScripts`, `CheckFaceGen`, `SweepScopeError`, with
 `CheckArea` for tests; `ICheckHost` is at the top of `src/housecarl-mcp/RecordChecks.cs`.
 `src/housecarl-mcp/ServiceResults.cs` holds the result records the head's lanes and the other areas' lanes return;
