@@ -48,11 +48,12 @@ internal sealed class RecordChecks
         {
             // One resolver, one asset resolver, one view and one composition read for the whole call, so every seed
             // is validated against the same build and the stamp names it.
-            var resolver = _host.Resolver;
+            var (pin, roots) = _host.CapturePinAndRoots(AfterCheckPinForGuard);
+            var resolver = pin.Resolver;
             var assets = _host.Assets;
-            var view = resolver.Capture();
+            var view = pin.View;
             // The seed door is pinned to that same view, so the seeds cannot name records from another build.
-            var forceLoaded = ForceLoadedPluginNames(_host.CaptureRoots().ProfileDir);
+            var forceLoaded = ForceLoadedPluginNames(roots.ProfileDir);
             // The fold is opened ONCE for the whole sweep and the sweep closes it; a file that will not open is the
             // family's own named refusal.
             DialogueFold? fold = null;
@@ -95,17 +96,19 @@ internal sealed class RecordChecks
         if (!SweepFindings.TryParseErrorClasses(findings, out var classes, out var classErr))
             return ErrorCheckResult.Fail(classErr!);
 
-        // One resolver and one view for the whole call: the scope check, the refusal stamps and the sweep all name
-        // the same build.
-        var resolver = _host.Resolver;
-        var viewAll = resolver.Capture();
-        var roots = _host.CaptureRoots();
+        // One resolver, one view and one set of roots for the whole call, taken in one hold: the scope check, the
+        // refusal stamps and the sweep all name the same build.
+        var (pin, roots) = _host.CapturePinAndRoots(AfterCheckPinForGuard);
+        var resolver = pin.Resolver;
+        var viewAll = pin.View;
+        // The profile's composition, read at most once and only by a consumer that needs it.
+        var composition = new Lazy<Mo2Composition>(() => ReadComposition(roots.ProfileDir));
 
         // The exclude= axis. The `implicit` group is a fact about the MO2 composition, so it is read here and the
         // core sweep receives plain filenames, before anything is swept. Gated on the caller having written the
         // token, so a named-plugin exclusion over an unreadable profile is not refused about a group they never named.
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
-        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(roots.ProfileDir) : (Array.Empty<string>(), null);
+        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(roots.ProfileDir, () => composition.Value) : (Array.Empty<string>(), null);
         if (implicitErr is not null) return ErrorCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return ErrorCheckResult.Fail(excludeErr);
@@ -116,23 +119,34 @@ internal sealed class RecordChecks
             // Membership and locate refusals are decided against THIS build, so they are stamped; a blank name
             // consulted no build and stays unstamped.
             if (SweepOffOrderScope.Split(view, plugins, roots,
-                                         out var active, out var offOrder, offOrderMemo) is { } splitErr)
+                                         out var active, out var offOrder, offOrderMemo, () => composition.Value) is { } splitErr)
                 return splitErr.Stamped
                     ? ErrorCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
                     : ErrorCheckResult.Fail(splitErr.Message);
             return ClassifyMissingMasters(
                 ErrorCheck.Run(resolver, viewAll, active, limit, offOrder.Count > 0 ? offOrder : null,
-                               recordScope, classes, countsOnly, excluded), roots);
+                               recordScope, classes, countsOnly, excluded), roots, () => composition.Value);
         }
         return ClassifyMissingMasters(
-            ErrorCheck.Run(resolver, viewAll, plugins, limit, null, recordScope, classes, countsOnly, excluded), roots);
+            ErrorCheck.Run(resolver, viewAll, plugins, limit, null, recordScope, classes, countsOnly, excluded), roots,
+            () => composition.Value);
+    }
+
+    /// <summary>How many times <see cref="CheckErrors"/> has parsed the profile's composition; a test seam for the one read.</summary>
+    internal int CompositionReads;
+
+    Mo2Composition ReadComposition(string profileDir)
+    {
+        Interlocked.Increment(ref CompositionReads);
+        return Mo2LoadOrder.ReadComposition(profileDir);
     }
 
     /// <summary>Fill in each report's install-vs-enable split for the masters the sweep found unsatisfied — a fact
     /// about the MO2 composition, which lives at this layer, with one home in
     /// <see cref="Mo2LoadOrder.SplitUnsatisfiedMasters"/>. A composition that cannot be read leaves every report's
-    /// subset null, not empty, and the render falls back to the union remedy. <paramref name="roots"/> are the ones the sweep took.</summary>
-    static ErrorCheckResult ClassifyMissingMasters(ErrorCheckResult r, Mo2Roots roots)
+    /// subset null, not empty, and the render falls back to the union remedy. <paramref name="roots"/> are the ones the sweep took,
+    /// and <paramref name="readComposition"/> reads their profile.</summary>
+    static ErrorCheckResult ClassifyMissingMasters(ErrorCheckResult r, Mo2Roots roots, Func<Mo2Composition> readComposition)
     {
         if (r.Error is not null || r.Reports.Count == 0) return r;
         if (!r.Reports.Any(p => p.MissingMasters.Count > 0)) return r;
@@ -141,7 +155,7 @@ internal sealed class RecordChecks
         IReadOnlyCollection<string> installed;
         try
         {
-            comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
+            comp = readComposition();
             // The install's plugin-name set, read ONCE for the whole sweep: the answer does not depend on which
             // report asked, so neither does the read.
             installed = Mo2LoadOrder.AllPluginFileNames(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
@@ -161,8 +175,12 @@ internal sealed class RecordChecks
     /// <see cref="SweepExclusion.ImplicitToken"/>, or the reason they could not be read. A read that did not happen
     /// is not a set that is empty.</summary>
     static (IReadOnlyList<string> Names, string? Error) ImplicitPluginNames(string profileDir)
+        => ImplicitPluginNames(profileDir, () => Mo2LoadOrder.ReadComposition(profileDir));
+
+    /// <summary>As above, with <paramref name="readComposition"/> reading <paramref name="profileDir"/>'s composition.</summary>
+    static (IReadOnlyList<string> Names, string? Error) ImplicitPluginNames(string profileDir, Func<Mo2Composition> readComposition)
     {
-        try { return (Mo2LoadOrder.ReadComposition(profileDir).ImplicitPluginNames, null); }
+        try { return (readComposition().ImplicitPluginNames, null); }
         catch (Exception ex)
         {
             return (Array.Empty<string>(),
@@ -261,7 +279,7 @@ internal sealed class RecordChecks
         ScriptCheckResult WithWarnings(ScriptCheckResult r) => r.Success ? r with { AssetWarnings = captured.Warnings } : r;
     }
 
-    /// <summary>Test seam: invoked in the facegen and script sweeps after the pin and before the asset capture; null in the product.</summary>
+    /// <summary>Test seam: invoked in every sweep after the pin and before the asset or roots capture; null in the product.</summary>
     internal Action? AfterCheckPinForGuard;
 
     /// <summary>Sweep the facegen join. <paramref name="plugins"/> takes the same active/off-order split the errors and scripts families take, through the same memo.</summary>
