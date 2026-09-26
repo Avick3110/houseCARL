@@ -17,18 +17,26 @@ internal static class SweepOffOrderScope
                                    Mo2Roots roots,
                                    out List<string> active, out List<(string Name, string Path)> offOrder,
                                    SweepOffOrderMemo? memo = null)
+        => Split(view, plugins, roots, out active, out offOrder, memo, () => Mo2LoadOrder.ReadComposition(roots.ProfileDir));
+
+    /// <summary>As above, with <paramref name="readComposition"/> reading the profile's composition when a name is off-order.</summary>
+    internal static Refusal? Split(LoadOrderResolver.IndexView view, IReadOnlyList<string> plugins,
+                                   Mo2Roots roots,
+                                   out List<string> active, out List<(string Name, string Path)> offOrder,
+                                   SweepOffOrderMemo? memo, Func<Mo2Composition> readComposition)
     {
-        if (memo is { Epoch: not null } m && m.Epoch == view.Epoch && ReferenceEquals(m.Plugins, plugins))
+        if (memo is { Epoch: not null } m && m.Epoch == view.Epoch && m.Roots == roots && ReferenceEquals(m.Plugins, plugins))
         {
             active = m.Active;
             offOrder = m.OffOrder;
             return m.Refusal;
         }
 
-        var answer = Compute(view, plugins, roots, out active, out offOrder);
+        var answer = Compute(view, plugins, roots, out active, out offOrder, readComposition);
         if (memo is not null)
         {
             memo.Epoch = view.Epoch;
+            memo.Roots = roots;
             memo.Plugins = plugins;
             memo.Refusal = answer;
             memo.Active = active;
@@ -39,7 +47,8 @@ internal static class SweepOffOrderScope
 
     static Refusal? Compute(LoadOrderResolver.IndexView view, IReadOnlyList<string> plugins,
                             Mo2Roots roots,
-                            out List<string> active, out List<(string Name, string Path)> offOrder)
+                            out List<string> active, out List<(string Name, string Path)> offOrder,
+                            Func<Mo2Composition> readComposition)
     {
         active = new List<string>();
         offOrder = new List<(string Name, string Path)>();
@@ -49,7 +58,7 @@ internal static class SweepOffOrderScope
             var n = name?.Trim() ?? "";
             if (n.Length == 0) return new Refusal(SweepSharedInput.BlankPluginName, Stamped: false);
             if (view.ContainsPlugin(n)) { active.Add(n); continue; }
-            comp ??= Mo2LoadOrder.ReadComposition(roots.ProfileDir);
+            comp ??= readComposition();
             var loc = LoadOrderService.LocatePluginFileOnDisk(comp, roots, n, null);
             if (loc.Error is not null)
                 // The did-you-mean rides along: a name found neither in the order nor on disk is usually a typo.
@@ -67,11 +76,12 @@ internal static class SweepOffOrderScope
 }
 
 /// <summary>ONE CALL's memo of the off-order split, so a surface handing the same <c>plugins=</c> list to both swept
-/// families pays the composition read and the folder sweep once. It answers only for the build and the very list it
-/// was filled against; anything else recomputes, and a family handed no memo resolves on its own.</summary>
+/// families pays the composition read and the folder sweep once. It answers only for the build, the roots and the very
+/// list it was filled against; anything else recomputes, and a family handed no memo resolves on its own.</summary>
 public sealed class SweepOffOrderMemo
 {
     internal string? Epoch;
+    internal Mo2Roots? Roots;
     internal IReadOnlyList<string>? Plugins;
     internal SweepOffOrderScope.Refusal? Refusal;
     internal List<string> Active = new();
