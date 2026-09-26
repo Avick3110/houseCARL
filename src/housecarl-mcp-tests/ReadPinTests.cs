@@ -310,6 +310,33 @@ public sealed class ReadPinTests : IDisposable
         Assert.Equal("10", OverlayDamage());
     }
 
+    [Fact]
+    public void AnAssetBuildThatThrowsInsideTheHoldIsNamedAsTheSkyPatcherLayer()
+    {
+        _svc.CaptureView();                                                     // warms the index; the asset build is not taken yet
+        var modlist = Path.Combine(_instance, "profiles", "Default", "modlist.txt");
+        FileStream? held = null;
+        // MO2 holding modlist.txt between the pin and the asset build makes the build throw.
+        void HoldModlist() { _svc.ReadArea.AfterReadPinForGuard = null; held = new FileStream(modlist, FileMode.Open, FileAccess.Read, FileShare.None); }
+        try
+        {
+            _svc.ReadArea.AfterReadPinForGuard = HoldModlist;
+            _svc.OverlayPostBatch(new[] { _patched }, new[] { "BasicStats.Damage" }, 1, false, null, out var refusal, out var refusalEpoch, out _);
+            Assert.StartsWith("the SkyPatcher layer could not be discovered for the overlay source: ", refusal);
+            Assert.NotNull(refusalEpoch);
+            held!.Dispose();
+
+            // On a pole the same sentence is the row's error, under the epoch the call reports.
+            _svc.ReadArea.AfterReadPinForGuard = HoldModlist;
+            var rows = _svc.DeltaBatch(new[] { _patched }, OverlayPost, RecordReads.PoleSpec.Winner, new[] { "BasicStats.Damage" }, null,
+                                       out _, out _, out _, out var deltaRefusal, out var epoch);
+            Assert.Null(deltaRefusal);
+            Assert.NotNull(epoch);
+            Assert.StartsWith("subject: the SkyPatcher layer could not be discovered for the overlay pole: ", Assert.Single(rows).Error);
+        }
+        finally { held?.Dispose(); }
+    }
+
     /// <summary>A one-item list that runs <paramref name="onFirstRead"/> the first time its item is read.</summary>
     sealed class JoinOnFirstRead(string item, Action onFirstRead) : IReadOnlyList<string>
     {
