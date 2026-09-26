@@ -102,9 +102,9 @@ internal static class CheckArtifact
             }
         }
 
-        // The benign class the RESPONSE withholds is written here; the class column tells the two apart.
+        // The classes the RESPONSE withholds are written here; the class column tells them apart.
         if (s.FaceGen is { Error: null } fg)
-            foreach (var f in fg.Findings.Concat(fg.WithheldBenign ?? Array.Empty<FaceGenFinding>()))
+            foreach (var f in fg.Findings.Concat(fg.Withheld ?? Array.Empty<FaceGenFinding>()))
             {
                 total++;
                 writer.WriteRow((w, _) => Row(w, "facegen", f.Class, formid: f.FormId, editorid: f.EditorId,
@@ -115,7 +115,7 @@ internal static class CheckArtifact
 
         // The facegen family counts findings its listing budget cut, so total says so rather than row_count.
         if (s.FaceGen is { Error: null } fgt)
-            total += Math.Max(0, fgt.TotalFound - fgt.Findings.Count - (fgt.WithheldBenign?.Count ?? 0));
+            total += Math.Max(0, fgt.TotalFound - fgt.Findings.Count - (fgt.Withheld?.Count ?? 0));
 
         var (manifest, err) = writer.Save(ArtifactTarget.Named(path), ToolNames.Check, query, identity: "formid", RowSchema,
                                           sort: "family, then the order each family reported",

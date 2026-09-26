@@ -59,6 +59,46 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
     }
 
     [Fact]
+    public void ThePlayerAndAPresetAreNeverBakedCountedAndListedOnlyByName()
+    {
+        var text = Sweep("facegen");
+        Assert.DoesNotContain("'HcFgCharGenPreset'", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(FaceGenCheck.PlayerFormKey.ToString(), text, StringComparison.Ordinal);
+        Assert.Contains("never_baked=2", text, StringComparison.Ordinal);
+        Assert.Contains("(1 CharGen face preset(s), 1 Player)", text, StringComparison.Ordinal);
+        Assert.Contains("findings=[\"never_baked\"]", text, StringComparison.Ordinal);
+        // HcFgBakeAbsent, HcFgTemplateSource, HcFgNoHeadParts and HcFgNoHeadPartsFaceData.
+        Assert.Contains("bake_absent=4", text, StringComparison.Ordinal);
+        Assert.Contains("usually a voice or dummy actor", RowFor(text, "HcFgNoHeadParts"));
+        Assert.Contains("[BAKE_ABSENT]", RowFor(text, "HcFgNoHeadParts"));
+        Assert.DoesNotContain("dummy actor", RowFor(text, "HcFgNoHeadPartsFaceData"));
+        // The same kinds with a half on disk classify like any NPC.
+        Assert.Contains("[TINT_ABSENT]", RowFor(text, "HcFgCharGenPresetBaked"));
+        Assert.Contains("[TINT_ABSENT]", RowFor(text, "HcFgNoHeadPartsBaked"));
+        Assert.Contains("[TINT_ABSENT]", RowFor(text, "HcFgTintAbsent"));
+        Assert.DoesNotContain("'HcFgClean'", text, StringComparison.Ordinal);
+
+        var named = Sweep("never_baked");
+        Assert.Contains("CharGen face preset", RowFor(named, "HcFgCharGenPreset"));
+        Assert.Contains("the Player", RowFor(named, "Player"));
+        Assert.DoesNotContain("'HcFgNoHeadParts'", named, StringComparison.Ordinal);
+
+        using var doc = JsonDocument.Parse(CheckTools.CheckTool(
+            _w.Svc, findings: new[] { "facegen" }, format: "json", max_chars: 60000));
+        var family = doc.RootElement.GetProperty("families").GetProperty("facegen");
+        Assert.Equal(1, family.GetProperty("never_baked_chargen_preset").GetInt32());
+        Assert.Equal(1, family.GetProperty("never_baked_player").GetInt32());
+        Assert.False(family.GetProperty("never_baked_listed").GetBoolean());
+        Assert.Equal(2, family.GetProperty("counts_by_class").GetProperty("never_baked").GetInt32());
+        Assert.Equal(4, family.GetProperty("counts_by_class").GetProperty("bake_absent").GetInt32());
+
+        var path = Path.Combine(_w.Root, "never-baked.jsonl");
+        CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" }, to_file: path, max_chars: 60000);
+        Assert.Equal(2, File.ReadAllLines(path).Skip(1).Where(l => l.Length > 0)
+                            .Count(l => JsonDocument.Parse(l).RootElement.GetProperty("class").GetString() == "never_baked"));
+    }
+
+    [Fact]
     public void TheBenignFamilySplitIsCountedButNotListedUntilItsClassIsNamed()
     {
         var whole = Sweep("facegen");
@@ -471,6 +511,30 @@ public sealed class FaceGenToFileRenderTests : IDisposable
             Assert.False(json.RootElement.TryGetProperty("root_read_failures", out _));
             Assert.False(json.RootElement.TryGetProperty("facegen_untested", out _));
         }
+    }
+}
+
+/// <summary>The Player with a half on disk classifies like any NPC; it needs its own world, since there is one Player.</summary>
+[Trait("tier", "integration")]
+public sealed class FaceGenBakedPlayerTests : IDisposable
+{
+    readonly FaceGenWorld _w = new(playerBaked: true);
+
+    public void Dispose() => _w.Dispose();
+
+    [Fact]
+    public void APlayerWithAMeshOnDiskStillReportsTintAbsent()
+    {
+        var text = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" }, max_chars: 60000);
+        Assert.Contains("[TINT_ABSENT]", RowFor(text, "Player"));
+        Assert.Contains("0 Player)", text, StringComparison.Ordinal);
+    }
+
+    static string RowFor(string response, string editorId)
+    {
+        var at = response.IndexOf("'" + editorId + "'", StringComparison.Ordinal);
+        Assert.True(at >= 0, $"no row for {editorId} in:\n{response}");
+        return response[response.LastIndexOf('[', at)..at];
     }
 }
 

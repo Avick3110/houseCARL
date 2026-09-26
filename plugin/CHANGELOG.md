@@ -21,6 +21,9 @@ made the change.
   untested there apart from those whose mod ships no plugin.**
 - **`housecarl_check` now names the archives that failed to open and the asset build's warnings when the facegen or
   scripts family runs.** In json, these and `root_read_failures` are `null` when no family that reads assets ran.
+- **`housecarl_check findings=["facegen"]` puts the Player and CharGen presets that have no bake in a new
+  `never_baked` class instead of `bake_absent`, counted and listed only by name.** List them with
+  `findings=["never_baked"]`.
 
 ## 2.0.3 — 2026-09-23
 

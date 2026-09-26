@@ -322,7 +322,7 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
     static FaceGenCheckResult FaceGenResult(IReadOnlyList<string> roots) =>
         new(Array.Empty<FaceGenFinding>(), 0, 0, 0, 0, 0, null, null, false,
             new Dictionary<string, string>(), null, null, null, FaceGenFindingClass.All, "deadbeefdeadbeef", 0, null,
-            ReadIncomplete: true, WholeOrder: true, NpcsNoFaceGenRace: 0, NpcsRaceUnresolved: 0, WithheldBenign: null,
+            ReadIncomplete: true, WholeOrder: true, NpcsNoFaceGenRace: 0, NpcsRaceUnresolved: 0, Withheld: null,
             RootFailures: roots);
 
     /// <summary>The create lane names the UNION of its two checks' roots, in either order. They scan different
