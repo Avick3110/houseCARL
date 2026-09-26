@@ -82,7 +82,7 @@ fold), `RecordPoles.cs` (comparison poles, the delta/tree batches), `RecordWalk.
 `docs/architecture/check-families.md` and
 `docs/architecture/check-scripts-and-dialogue-families.md`). The type lookup is in `TypeLookup.cs`,
 under `docs/architecture/corpus-rulebook.md`. The pole lanes (`ProbeSourceArm`, `ResolveBatchFromPole`,
-`DeltaBatch`, `TreeBatch`) take the view and the MO2 roots in one hold through `IReadHost.CapturePinAndRoots`,
+`DeltaBatch`, `TreeBatch`) take the view and the MO2 roots in one hold through `CapturePinAndRoots` on the shared door,
 and an off-order `PoleInfo` carries the `DataDir` it was located under.
 Tool: `housecarl_records`.
 
@@ -100,11 +100,10 @@ statics and nested types (`PoleInfo`, `PoleSpec`, `DeltaRow`, `TreeRow`, `WalkSe
 addressed as `RecordReads.X`.
 
 What the class needs from outside itself is the members of `IReadHost`, declared at the top of `RecordReads.cs`:
-`CapturePinAndRoots(afterPin)`, the pin and the four MO2 roots in one hold, from the head; and
 `OpenSkyPatcherReplay`, relayed from the assets area (the overload that takes its own asset capture), which the
-SkyPatcher overlay pole reads through. The resolver, the type lookup and the corpus rulebook are `Resolver`,
-`Types` and `Rulebook` on the shared door. The members every area shares come through the door it extends,
-`ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs` ([`load-order-service.md`](load-order-service.md)).
+SkyPatcher overlay pole reads through. The resolver, the type lookup, the corpus rulebook and the pin-and-roots
+capture are `Resolver`, `Types`, `Rulebook` and `CapturePinAndRoots(afterPin)` on the shared door. The members
+every area shares come through the door it extends, `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs` ([`load-order-service.md`](load-order-service.md)).
 Outside the interface it calls one static of the head's output code, `LoadOrderService.LocatePluginFileOnDisk`
 in `OutputLocations.cs`, and names the head's `LoadOrderService.ViewPin` record. The path helpers it shares with
 the write and output lanes (`LooksLikePath`, `SamePluginFile`, `ActiveNameForPath`) are the static class

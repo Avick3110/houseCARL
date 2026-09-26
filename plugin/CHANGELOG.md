@@ -24,6 +24,8 @@ made the change.
 - **`housecarl_check findings=["facegen"]` puts the Player and CharGen presets that have no bake in a new
   `never_baked` class instead of `bake_absent`, counted and listed only by name, and marks a `bake_absent` row with no
   head parts or face data as a likely voice or dummy actor.** List them with `findings=["never_baked"]`.
+- **`housecarl_check`'s errors and dialogue families now read the MO2 roots in the same hold as the build they
+  sweep, so a profile switch mid-call can no longer mix two profiles.**
 
 ## 2.0.3 — 2026-09-23
 

@@ -97,6 +97,12 @@ not asked and the render must fall back to the unqualified remedy.
 The install-vs-enable split for missing masters is filled in by the layer that reads the MO2 composition, because
 the core sweep knows the active order and stops there; a composition that cannot be read leaves that subset null.
 
+The sweep pins its view and its MO2 roots together, in one `_gate` hold (`CapturePinAndRoots`), so the off-order
+locate, the `implicit` group and this split all read the profile the swept build came from; the dialogue sweep takes
+its force-loaded names the same way. The profile's composition is read at most once per call, and only when one of
+those three needs it. The off-order memo a merged check shares answers only for the build, the roots and the list
+it was filled against.
+
 #### Which plugins LOST entries is not a sweep fact
 
 It is a fact about the RESPONSE. Computed on the result it could only ever report the listing budget's own
@@ -228,7 +234,8 @@ accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_def
 - `src/housecarl-mcp/CheckTools.cs` — `CheckTools.CheckTool`. Tool: `housecarl_check`.
 
 What the area needs from outside itself is the members of `ICheckHost`, declared at the top of `RecordChecks.cs`:
-the FormID door from the head. The type filter is `ILoadOrderHost.Types`, on the shared door. The dialogue fold
+the FormID door from the head. The type filter is `ILoadOrderHost.Types`, and the pin-and-roots capture the errors
+and dialogue sweeps take is `CapturePinAndRoots(afterPin)`, both on the shared door. The dialogue fold
 is a static, `RecordReads.OpenDialogueFold`, so it is called directly. The members every area
 shares come through the door it extends, `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs`
 ([`load-order-service.md`](load-order-service.md)).
