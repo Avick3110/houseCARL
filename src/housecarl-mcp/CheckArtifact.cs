@@ -136,13 +136,14 @@ internal static class CheckArtifact
             + "formids=[\"@<path>\"].",
         };
         if (s.Dialogue?.Folded is { } folded) notes.Add("PROJECTION — " + folded.Trim());
+        if (s.FaceGen is { Error: null } fg && FaceGenSweepRender.UntestedNote(fg) is { } untested) notes.Add("facegen: " + untested);
         return notes;
     }
 
     /// <summary>The response a <c>to_file=</c> call renders: the scope sentence, each family's refusal or boundary,
     /// and the manifest — no rows, because the rows ARE the file. A family that refused states its ground beside its
     /// boundary rather than refusing the whole call.</summary>
-    internal static string RenderManifestOnly(CheckSweep s, SpillInfo spill, bool json)
+    internal static string RenderManifestOnly(CheckSweep s, SpillInfo spill, bool json, int cap)
     {
         var o = CheckOutcome.For(s);
         if (json)
@@ -156,6 +157,10 @@ internal static class CheckArtifact
                 // folded to_file= call gets, so it rides this response too.
                 if (s.Dialogue?.Folded is { } foldedJson) w.WriteString("folded", foldedJson.Trim());
                 if (o.Epoch is not null) w.WriteString("epoch", o.Epoch);
+                // The file has no place for the build's unread roots or the untested facegen pairs, so this render states them.
+                if (o.RootFailures.Count > 0) JsonWire.WriteRootFailuresCut(w, o.RootFailures, cap);
+                if (s.FaceGen is { Error: null } fgj && FaceGenSweepRender.UntestedNote(fgj) is { } untestedJson)
+                    w.WriteString("facegen_untested", untestedJson);
                 w.WriteStartObject("boundaries");
                 foreach (var a in o.Sections.Zip(o.Accountings(0)))
                     w.WriteString(SweepFamilySelection.Token(a.First), a.Second.Boundary);
@@ -176,6 +181,9 @@ internal static class CheckArtifact
         sb.Append(CheckSentences.SweepMergedTitle).Append('\n').Append(o.ScopeSentence()).Append('\n');
         if (s.Dialogue?.Folded is { } foldedText) sb.Append(foldedText.Trim()).Append('\n');
         if (o.Epoch is not null) sb.Append("epoch=").Append(o.Epoch).Append('\n');
+        sb.Append(BatchRender.RootFailureLines(o.RootFailures, cap));
+        if (s.FaceGen is { Error: null } fgt && FaceGenSweepRender.UntestedNote(fgt) is { } untested)
+            sb.Append("note (facegen): ").Append(untested).Append('\n');
         var accts = o.Accountings(0);
         for (int i = 0; i < o.Sections.Count; i++)
         {

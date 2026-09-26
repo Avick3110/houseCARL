@@ -98,18 +98,6 @@ internal sealed class CheckOutcome
         .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
-    /// <summary>The facegen owners' folders that would not list, each named with the reason; empty when all listed.</summary>
-    internal IReadOnlyList<string> UnreadableModFolders => _s.FaceGen?.UnreadableModFolders ?? Array.Empty<string>();
-
-    /// <summary>The response-root caveat block — the unread loose roots, then the unlisted owner folders — cut once at
-    /// <paramref name="cap"/>, so both transports name the same entries.</summary>
-    internal (BatchRender.CaveatList List, (IReadOnlyList<string> Shown, int Omitted) Cut)[] RootCaveats(int cap)
-    {
-        var lists = new[] { BatchRender.RootFailureList(RootFailures), BatchRender.OwnerFolderFailureList(UnreadableModFolders) };
-        var cuts = BatchRender.CaveatBlockCut(cap, lists);
-        return lists.Zip(cuts).ToArray();
-    }
-
     /// <summary><c>findings=</c> was omitted, so <see cref="Ran"/> is the default rather than a caller's choice —
     /// the one selection fact a response still states.</summary>
     internal bool Defaulted => _s.Selection.Defaulted;

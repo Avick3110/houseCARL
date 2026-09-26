@@ -160,8 +160,7 @@ public sealed class FaceGenWorld : IDisposable
             + "\r\n+" + BakesOnlyMod + "\r\n+" + UnlistedMod + "\r\n");
         File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
 
-        // Deny LISTING only, not inherited, as LocalizedModFolderUnreadableTests does: the bake below it still
-        // resolves by traverse, while listing the folder's own plugins throws.
+        // Deny listing only, not inherited (as LocalizedModFolderUnreadableTests does), so the bake still resolves by traverse.
         if (OperatingSystem.IsWindows())
         {
             var dir = new DirectoryInfo(_unlistedDir);
@@ -199,7 +198,8 @@ public sealed class FaceGenWorld : IDisposable
                 acl.RemoveAccessRule(_unlistedDeny);
                 dir.SetAccessControl(acl);
             }
-            catch { /* the temp tree goes either way */ }
+            catch (UnauthorizedAccessException) { }   // the ACL calls' own failures only; anything else surfaces
+            catch (IOException) { }
         try { Directory.Delete(Root, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 }

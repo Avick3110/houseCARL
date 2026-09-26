@@ -323,7 +323,7 @@ public static class CheckTools
                 return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : CheckTextRender.RenderCheck(sweep, max_chars, lim);
             var (spill, artErr) = CheckArtifact.Write(sweep, path, query);
             if (artErr is not null) return Wire.Refuse(json, "error: " + artErr);
-            return CheckArtifact.RenderManifestOnly(sweep, spill!, json);
+            return CheckArtifact.RenderManifestOnly(sweep, spill!, json, Wire.Cap(max_chars));
         }
 
         return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : CheckTextRender.RenderCheck(sweep, max_chars, lim);

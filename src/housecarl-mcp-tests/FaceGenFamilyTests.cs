@@ -261,7 +261,7 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
         Assert.True(_w.UnlistedStaged, "the listing deny on " + FaceGenWorld.UnlistedMod + " did not bite on this host");
 
         var text = Sweep("facegen");
-        Assert.Contains("[!] facegen owner folder not listed: " + FaceGenWorld.UnlistedMod + ":", text, StringComparison.Ordinal);
+        Assert.Contains(BatchRender.RootFailureLead + FaceGenWorld.UnlistedMod + ":", text, StringComparison.Ordinal);
         Assert.Contains("2 clean pair(s) could NOT be tested", text, StringComparison.Ordinal);
         Assert.DoesNotContain("'HcFgUnlisted'", text, StringComparison.Ordinal);
 
@@ -270,8 +270,23 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
         var family = doc.RootElement.GetProperty("families").GetProperty("facegen");
         Assert.Equal(1, family.GetProperty("clean_pairs_owner_folder_unreadable").GetInt32());
         Assert.Equal(1, family.GetProperty("clean_pairs_without_comparison_pole").GetInt32());   // FgBakesOnly alone
-        var named = Assert.Single(doc.RootElement.GetProperty("unreadable_mod_folders").EnumerateArray());
-        Assert.StartsWith(FaceGenWorld.UnlistedMod + ":", named.GetString(), StringComparison.Ordinal);
+        Assert.Contains(doc.RootElement.GetProperty("root_read_failures").EnumerateArray(),
+                        e => e.GetString()!.StartsWith(FaceGenWorld.UnlistedMod + ":", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AToFileSweepNamesTheUnlistedFolderAndTheUntestedCount()
+    {
+        Assert.True(_w.UnlistedStaged, "the listing deny on " + FaceGenWorld.UnlistedMod + " did not bite on this host");
+
+        var path = Path.Combine(_w.Root, "unlisted.jsonl");
+        var text = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" }, to_file: path, max_chars: 60000);
+        Assert.Contains(BatchRender.RootFailureLead + FaceGenWorld.UnlistedMod + ":", text, StringComparison.Ordinal);
+        Assert.Contains("1 because the owner's folder could not be listed", text, StringComparison.Ordinal);
+
+        using var manifest = JsonDocument.Parse(File.ReadAllLines(path)[0]);
+        Assert.Contains(manifest.RootElement.GetProperty("notes").EnumerateArray(),
+                        n => n.GetString()!.Contains("1 because the owner's folder could not be listed", StringComparison.Ordinal));
     }
 
     [Fact]
