@@ -18,7 +18,7 @@ Reads ride NiflySharp, source-generated from `nif.xml`, as houseCARL's own build
 commit plus one change: every count, string length and unknown-block size is checked against the bytes left before
 anything is allocated for it (inside a block, against what the block's stored size has left), and a block that reads
 past its stored size stops the load. Both throw
-`InvalidDataException` naming the block and the number, where 1.1.0 could allocate gigabytes for one corrupted count
+`InvalidDataException` naming the block (or header field) and the number, where 1.1.0 could allocate gigabytes for one corrupted count
 (#926). When a block and its stored size disagree, the exception carries `NifLoadErrors.BlockSizeMismatchKey`, and
 `NifService` words that case apart from a count that does not fit the file by that key, never by the message text.
 How the package is built and checked is under *The vendored NiflySharp fork* below. One library quirk binds every read: the
