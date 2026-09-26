@@ -15,6 +15,7 @@ public sealed class ErrorsCheckPinTests : IDisposable
     const string MasterName = "HcEpMaster.esm";
     const string PatchName = "HcEpPatch.esp";
     const string OffName = "HcEpOff.esp";
+    const string CleanName = "HcEpClean.esp";
 
     readonly string _root;
     readonly string _ini;
@@ -37,8 +38,7 @@ public sealed class ErrorsCheckPinTests : IDisposable
         _ini = Path.Combine(instance, "ModOrganizer.ini");
         File.WriteAllText(_ini, IniFor(gameA));
 
-        // Game A's Data holds the unchecked master and a plugin in no list; the order holds only the patch, from a mod
-        // folder, so moving the game folder moves the roots and leaves the order and its epoch unchanged.
+        // Game A's Data holds the unchecked master and a plugin in no list; the order holds only mod-folder plugins, so moving the game folder moves the roots and leaves the order and its epoch unchanged.
         var master = new SkyrimMod(new ModKey("HcEpMaster", ModType.Master), SkyrimRelease.SkyrimSE);
         var race = master.Races.AddNew(); race.EditorID = "HcEpMasterRace";
         master.BeginWrite.ToPath(Path.Combine(gameA, "Data", MasterName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
@@ -51,8 +51,13 @@ public sealed class ErrorsCheckPinTests : IDisposable
         var npc = patch.Npcs.AddNew(); npc.EditorID = "HcEpPatchNpc"; npc.Race.SetTo(race.FormKey);
         patch.BeginWrite.ToPath(Path.Combine(patchDir, PatchName)).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
-        File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + PatchName + "\r\n");
-        File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), MasterName + "\r\n*" + PatchName + "\r\n");
+        // A plugin with no masters and nothing to report: a sweep of it alone needs no composition.
+        var clean = new SkyrimMod(new ModKey("HcEpClean", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var cleanRace = clean.Races.AddNew(); cleanRace.EditorID = "HcEpCleanRace";
+        clean.BeginWrite.ToPath(Path.Combine(patchDir, CleanName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + CleanName + "\r\n" + PatchName + "\r\n");
+        File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), MasterName + "\r\n*" + CleanName + "\r\n*" + PatchName + "\r\n");
         File.WriteAllText(Path.Combine(profileDir, "modlist.txt"), "# header\r\n+PatchMod\r\n");
 
         _svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(_root, "houseCARL.user.json")));
@@ -150,5 +155,20 @@ public sealed class ErrorsCheckPinTests : IDisposable
         Assert.Equal(new[] { MasterName }, InstalledButInactive(r));
 
         Assert.Equal(1, Mo2LoadOrder.CompositionReadsOnThisThread - before);
+    }
+
+    [Fact]
+    public void AnErrorsCallThatNeedsNoCompositionParsesNone()
+    {
+        _svc.CheckErrors(null, 1000);                                           // warms the index
+        var before = Mo2LoadOrder.CompositionReadsOnThisThread;
+
+        // No off-order name, no implicit group, no missing master.
+        var r = _svc.CheckErrors(new[] { CleanName }, 1000);
+        Assert.Null(r.Error);
+        Assert.Empty(r.OffOrderScanned);
+        Assert.DoesNotContain(r.Reports, p => p.MissingMasters.Count > 0);
+
+        Assert.Equal(0, Mo2LoadOrder.CompositionReadsOnThisThread - before);
     }
 }
