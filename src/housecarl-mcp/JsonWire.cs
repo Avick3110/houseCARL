@@ -1881,8 +1881,11 @@ static class JsonWire
         // A response-level fact, like the roster below: this call's order was short of plugins (#353).
         WriteOrderDegraded(w, o.OrderExcluded);
         // WHICH loose roots the asset build could not read — at the document root, because ONE build feeds every
-        // family that hedges on it, and cut by the same rule the text lane's lines are.
-        WriteRootFailuresCut(w, o.RootFailures, cap);
+        // family that hedges on it, and cut by the same rule the text lane's lines are. The facegen owner folders that
+        // would not list share that one cut, and are absent when every folder listed.
+        var rootCaveats = o.RootCaveats(cap);
+        WriteCaveatCut(w, "root_read_failures", rootCaveats[0].Cut);
+        if (o.UnreadableModFolders.Count > 0) WriteCaveatCut(w, "unreadable_mod_folders", rootCaveats[1].Cut);
 
         // Above `families` because an accounting reports what has been emitted, and every family's is in the loop.
         WriteExcluded(w, o.ExcludedPlugins, body);

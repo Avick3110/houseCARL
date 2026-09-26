@@ -321,8 +321,10 @@ internal sealed class RecordChecks
             }
             catch (Exception ex)
             {
-                unreadable[provider] = $"{provider}: could not list the mod folder — "
-                                     + ex.Message.Replace("\r", "").Replace("\n", " ").Trim();
+                // The loose-root register's shape and its 200-char bound on the reason.
+                var why = ex.Message.Replace("\r", "").Replace("\n", " ").Trim();
+                unreadable[provider] = $"{provider}: could not list '{dir}' — "
+                                     + (why.Length > 200 ? why[..200] + "…" : why);
                 return shipped[provider] = null;
             }
             return shipped[provider] = names;
