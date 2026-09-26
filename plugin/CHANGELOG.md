@@ -15,8 +15,8 @@ made the change.
   that cap cannot hold its header and warnings.** Pass `max_chars=8000` on a large layer: the answer is 8,000 characters or fewer.
 - **`housecarl_records project=info_order` now lists as many lines of a topic as fit in `max_chars` and marks the cut,
   instead of dropping a topic too big for the cap.** A topic of 60 lines at `max_chars=3000` lists its first lines.
-- **`housecarl_nif_inspect` and `housecarl_nif_set` answer a malformed mesh with a named error, naming the block
-  and the bad count, instead of running the server out of memory.** Inspect a mesh with a corrupted count and read the error.
+- **`housecarl_nif_inspect` and `housecarl_nif_set` answer a malformed mesh with a named error, naming where it
+  breaks (the block or header field) and the bad count, instead of running the server out of memory.** Inspect a mesh with a corrupted count and read the error.
 
 ## 2.0.3 — 2026-09-23
 
