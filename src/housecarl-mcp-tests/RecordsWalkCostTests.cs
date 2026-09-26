@@ -272,6 +272,30 @@ public sealed class RecordsWalkCostTests
         Assert.Equal(0, RecordReads.WalkBodiesHeldAtReturn);
     }
 
+    /// <summary>The gather pass size lowered on one service is not seen by another over the same world: it is a
+    /// per-service setting, so a walk test that shrinks its own pass cannot split another world's walk.</summary>
+    [Fact]
+    public void APassSizeLoweredOnOneServiceLeavesAnotherServiceAtTheDefault()
+    {
+        using var other = LoadOrderService.WithInstance(Path.Combine(_w.Root, "inst"), 0,
+                                                        new UserConfigStore(Path.Combine(_w.Root, "other-user.json")));
+        string Walk(LoadOrderService svc) => RecordsTools.Records(svc, types: Npc, plugins: Scope(),
+                                                                  walk: new RecordsTools.RecordsWalk { depth = 1 },
+                                                                  project: Chain(), counts_only: true);
+        var prior = Svc.ReadArea.WalkPassRows;
+        Svc.ReadArea.WalkPassRows = 5;
+        try
+        {
+            Walk(Svc);
+            Assert.True(RecordReads.WalkBodyHighWater <= 5, $"the lowered service held {RecordReads.WalkBodyHighWater} bodies at once.");
+
+            Assert.Equal(BodyPrefetch.ChunkRows, other.ReadArea.WalkPassRows);
+            Walk(other);
+            Assert.True(RecordReads.WalkBodyHighWater > 5, $"the other service held only {RecordReads.WalkBodyHighWater} bodies at once, so it walked in the lowered passes.");
+        }
+        finally { Svc.ReadArea.WalkPassRows = prior; }
+    }
+
     // ---- the node budget's hard upper bound ---------------------------------------------------------
 
     /// <summary>The budget has a hard upper bound, so "no cap" cannot be spelled as a huge number and walked into
