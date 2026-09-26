@@ -299,7 +299,7 @@ public sealed partial class LoadOrderService
             if (replay is not null || setupError is not null) return;
             try
             {
-                replay = Host.AssetArea.OpenSkyPatcherReplay(view, session, out var draftRefusal, spec.Draft, overlayWarnings);
+                replay = Host.OpenSkyPatcherReplay(view, session, out var draftRefusal, spec.Draft, overlayWarnings);
                 if (draftRefusal is not null) setupError = draftRefusal;
             }
             catch (Exception ex)
@@ -408,7 +408,7 @@ public sealed partial class LoadOrderService
         string? draftRefusal;
         try
         {
-            replay = Host.AssetArea.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, overlayWarnings);
+            replay = Host.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, overlayWarnings);
         }
         catch (Exception ex)
         {
