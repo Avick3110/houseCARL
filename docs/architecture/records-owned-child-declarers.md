@@ -43,7 +43,7 @@ fact about that child record, and asserting it here would cost one fetch per mem
 
 The union costs a body per touching plugin, so it runs only where the CALLER named the records: the single read,
 `batch_record_detail`, and the `records` source pole. Those lanes are handed a formid list, and one
-`LoadOrderService.ChildUnionMemo` per call assembles each record once however many times it is named.
+`RecordReads.ChildUnionMemo` per call assembles each record once however many times it is named.
 
 The SCAN lanes — the `cross_plugin_query` detail rows, the dense grid, and the artifact spill of either —
 discover their row count instead of being handed it, so a body per toucher per row is a cost nobody asked for.
