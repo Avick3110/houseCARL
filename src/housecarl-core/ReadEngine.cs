@@ -402,14 +402,17 @@ public static class ReadEngine
     /// <summary>Memoised on (element type, segment): a scan hits the same dead-end once per scanned record.</summary>
     static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type, string), HopVerdict> HopVerdicts = new();
 
-    /// <summary>How many verdicts have been computed — pinned by
-    /// <c>RecordsRemedyRepairTests.AScanComputesOneListHopRemedyForTheWholeScan</c>.</summary>
-    internal static int ListHopVerdictComputations;
+    /// <summary>How many times each (element type, segment) verdict has actually been computed.</summary>
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type, string), int> HopComputations = new();
+
+    /// <summary>How many times the list-hop verdict for (element type, segment) has been computed.</summary>
+    internal static int ListHopComputationsOf(Type elementType, string segment) =>
+        HopComputations.TryGetValue((elementType, segment), out var n) ? n : 0;
 
     static HopVerdict HopVerdictOf(Type et, string segName) =>
         HopVerdicts.GetOrAdd((et, segName), key =>
         {
-            Interlocked.Increment(ref ListHopVerdictComputations);
+            HopComputations.AddOrUpdate(key, 1, (_, n) => n + 1);
             var (t, seg) = key;
             var etName = RecordNaming.StripOverlay(t.Name);
             if (WriteEngine.ResolveProperty(t, seg) is not null) return new HopVerdict(true, etName, null);
