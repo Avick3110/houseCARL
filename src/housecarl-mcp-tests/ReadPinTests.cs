@@ -107,6 +107,8 @@ public sealed class ReadPinTests : IDisposable
 
     object Gate() => typeof(LoadOrderService).GetField("_gate", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(_svc)!;
 
+    bool AssetsBuilt() => typeof(LoadOrderService).GetField("_assetResolver", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(_svc) is not null;
+
     void SelectOtherProfileAndGameB() => File.WriteAllText(_ini, IniFor("Other", Path.GetDirectoryName(_dataB)!));
 
     /// <summary>Selects Other and game B, then starts a switcher that takes the service's gate and re-derives the roots.</summary>
@@ -222,9 +224,11 @@ public sealed class ReadPinTests : IDisposable
 
     static readonly RecordReads.PoleSpec OverlayPost = new(RecordReads.PoleKind.Overlay, OverlayState: "post");
 
-    RecordReads.DeltaRow Delta()
+    RecordReads.DeltaRow Delta() => Delta(OverlayPost, RecordReads.PoleSpec.Winner);
+
+    RecordReads.DeltaRow Delta(RecordReads.PoleSpec subject, RecordReads.PoleSpec reference)
     {
-        var rows = _svc.DeltaBatch(new[] { _patched }, OverlayPost, RecordReads.PoleSpec.Winner, new[] { "BasicStats.Damage" }, null,
+        var rows = _svc.DeltaBatch(new[] { _patched }, subject, reference, new[] { "BasicStats.Damage" }, null,
                                    out _, out _, out _, out var refusal, out _);
         Assert.Null(refusal);
         var row = Assert.Single(rows);
@@ -256,6 +260,20 @@ public sealed class ReadPinTests : IDisposable
         var after = Delta();
         Assert.StartsWith("skypatcher overlay (post) — 0 op(s)", after.Subject!.Where);
         Assert.Empty(after.Diff!.Deltas);
+    }
+
+    [Fact]
+    public void AComparisonWithNoOverlayPostPoleBuildsNoAssets()
+    {
+        var named = Delta(RecordReads.PoleSpec.Winner, new RecordReads.PoleSpec(RecordReads.PoleKind.Named, BaseName));
+        Assert.Empty(named.Diff!.Deltas);
+        var pre = Delta(new RecordReads.PoleSpec(RecordReads.PoleKind.Overlay, OverlayState: "pre"), RecordReads.PoleSpec.Winner);
+        Assert.Empty(pre.Diff!.Deltas);
+        Assert.False(AssetsBuilt());
+
+        // The overlay post pole is the one that pays for it.
+        Delta();
+        Assert.True(AssetsBuilt());
     }
 
     [Fact]
