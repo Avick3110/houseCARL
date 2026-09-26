@@ -268,7 +268,7 @@ public static class ConflictDiffProbe
 
     // The tree the render layer consumes, off a fresh capture of the probe's own resolver.
     static ConflictTreeView? TreeOf(LoadOrderService svc, LoadOrderResolver resolver, FormKey fk) =>
-        svc.ResolveTreePinned(new LoadOrderService.ViewPin(resolver, resolver.Capture()), fk, null);
+        svc.ReadArea.ResolveTreePinned(new LoadOrderService.ViewPin(resolver, resolver.Capture()), fk, null);
 
     static Relation Rel(FormKey target)
     {

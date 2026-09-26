@@ -87,7 +87,7 @@ public static class BulkPrimitivesWave2Probe
             Console.WriteLine("── P3: housecarl_resolve — type/editorid/name/winner, per-item error isolation ──");
             const string absentFid = "000800:Nonexist.esp";   // a valid FormID string whose plugin isn't in the order
             const string badFid = "not-a-formid";
-            var refs = svc.ResolveRefs(new[] { w1Fk.ToString(), kaFk.ToString(), w3Fk.ToString(), absentFid, badFid });
+            var refs = svc.ReadArea.ResolveRefs(new[] { w1Fk.ToString(), kaFk.ToString(), w3Fk.ToString(), absentFid, badFid });
             Check($"resolve returns one row per input, in order — got {refs.Count}", refs.Count == 5);
 
             var r0 = refs[0];
@@ -107,7 +107,7 @@ public static class BulkPrimitivesWave2Probe
                   !r4.Resolved && r4.Error is not null && r4.Error.Contains("bad FormID", StringComparison.OrdinalIgnoreCase));
 
             // A recurring target resolves consistently (the batch memo returns the same identity).
-            var dup = svc.ResolveRefs(new[] { kaFk.ToString(), kaFk.ToString() });
+            var dup = svc.ReadArea.ResolveRefs(new[] { kaFk.ToString(), kaFk.ToString() });
             Check("a target repeated in one batch resolves identically (memoised)",
                   dup.Count == 2 && dup[0].EditorId == dup[1].EditorId && dup[0].EditorId == "hcw2KwA");
 
@@ -116,7 +116,7 @@ public static class BulkPrimitivesWave2Probe
             // check_errors and the dialogue lints apply), while the NEXT sub-0x800 form still dangles (precision).
             Console.WriteLine();
             Console.WriteLine("── P3 #230: engine-implicit forms resolve to their hardcoded identity; the exemption stays precise ──");
-            var ei = svc.ResolveRefs(new[] { "000014:Skyrim.esm", "000007:Skyrim.esm", "000015:Skyrim.esm" });
+            var ei = svc.ReadArea.ResolveRefs(new[] { "000014:Skyrim.esm", "000007:Skyrim.esm", "000015:Skyrim.esm" });
             Check("PlayerRef (000014:Skyrim.esm) → Resolved, PlacedNpc/PlayerRef, winner <engine> (#230 — was 'unresolved')",
                   ei[0] is { Resolved: true, Type: "PlacedNpc", EditorId: "PlayerRef", Winner: "<engine>" });
             Check("Player (000007:Skyrim.esm) → Resolved, Npc/Player, winner <engine>",
@@ -135,7 +135,7 @@ public static class BulkPrimitivesWave2Probe
             // ================= P7 — resolve_names (FormLink token → target identity, DISPLAY-ONLY) =================
             Console.WriteLine();
             Console.WriteLine("── P7: resolve_names annotates FormLink tokens with target identity, NEVER replacing the token ──");
-            var named = svc.ResolveRead(w1Fk, null, new[] { "Keywords" }, false, depth: 2, resolveNames: true);
+            var named = svc.ReadArea.ResolveRead(w1Fk, null, new[] { "Keywords" }, false, depth: 2, resolveNames: true);
             var kwFields = named.Record!.Fields.Where(f => f.Path.StartsWith("Keywords[", StringComparison.Ordinal)).ToList();
             Check($"resolve_names read surfaced the 2 keyword elements — got {kwFields.Count}", kwFields.Count == 2);
             var kaField = kwFields.FirstOrDefault(f => f.Token == kaFk.ToString());
@@ -147,7 +147,7 @@ public static class BulkPrimitivesWave2Probe
             Check("a link whose target no active plugin defines is annotated UNRESOLVED (named, not dropped/guessed — Q3), token still intact",
                   ghostField is { HasValue: true } && ghostField.Token == ghostFk.ToString() && ghostField.Link is { Resolved: false });
 
-            var plainRead = svc.ResolveRead(w1Fk, null, new[] { "Keywords" }, false, depth: 2, resolveNames: false);
+            var plainRead = svc.ReadArea.ResolveRead(w1Fk, null, new[] { "Keywords" }, false, depth: 2, resolveNames: false);
             Check("without resolve_names, NO leaf carries a Link annotation (default behavior unchanged)",
                   plainRead.Record!.Fields.All(f => f.Link is null));
 
@@ -200,7 +200,7 @@ public static class BulkPrimitivesWave2Probe
             Console.WriteLine();
             Console.WriteLine("── container hint: the service layer hints depth=2 where the knob exists; write read-backs stay bare ──");
 
-            var rrHint = svc.ResolveRead(w1Fk, null, new[] { "Keywords" }, false);
+            var rrHint = svc.ReadArea.ResolveRead(w1Fk, null, new[] { "Keywords" }, false);
             var rrNote = rrHint.Record?.Fields.FirstOrDefault(f => f.Path == "Keywords")?.Note;
             Check("read_record (HAS depth=) keeps the classic ' — pass depth=2 to expand' hint (default preserved)",
                   rrNote is not null && rrNote.Contains("pass depth=2 to expand"));

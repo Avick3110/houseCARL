@@ -14,10 +14,10 @@ internal sealed partial class RecordReads
     /// the index.</summary>
     public CrossQueryOutcome CrossQuery(string? type, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
-                                        bool definedIn, string? groupBy, int offset, string? whereSource,
-                                        IReadOnlyList<ArtifactDemand>? artifactDemands,
-                                        IReadOnlyList<FormKey>? referencesNone,
-                                        CancellationToken ct)
+                                        bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
+                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null,
+                                        IReadOnlyList<FormKey>? referencesNone = null,
+                                        CancellationToken ct = default)
         => CrossQuery(type is null ? null : new[] { type }, references, editoridContains, conflictsOnly, plugins, where,
                       limit, definedIn, groupBy, offset, whereSource, artifactDemands, formidSet: null, pinnedView: null, referencesNone: referencesNone, ct: ct);
 

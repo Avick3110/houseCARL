@@ -268,12 +268,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     internal string ResultsDir { get; }
 
     // The reads area's tool-facing surface; the bodies are in RecordReads.cs, RecordPoles.cs, RecordWalk.cs, RecordQuery.cs and TreeFold.cs.
-    internal ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
-                                     bool resolveNames = false, RecordReads.LinkMemo? linkMemo = null,
-                                     string? containerHint = ReadEngine.DepthExpandHint,
-                                     IReadOnlyList<int>? depths = null,
-                                     IReadOnlyCollection<string>? countFields = null)
-        => _reads.ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, countFields);
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
                                        bool conflictTree, int depth = 1, bool resolveNames = false,
                                        RecordReads.LinkMemo? linkMemo = null,
@@ -284,9 +278,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                                        IReadOnlyCollection<string>? countFields = null)
         => _reads.ResolveReadOn(q, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, session, prefetched, countFields);
     internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk) => _reads.ResolveSummaryOn(q, fk);
-    internal ConflictTreeView? ResolveTreePinned(ViewPin p, FormKey fk, IReadOnlyList<string>? fields) => _reads.ResolveTreePinned(p, fk, fields);
-    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids) => _reads.ResolveRefs(formids);
-    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, out OrderStamp epoch) => _reads.ResolveRefs(formids, out epoch);
     public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, ArtifactDemand? artifactDemand,
                                                   out OrderStamp epoch, out string? artifactRefusal)
         => _reads.ResolveRefs(formids, artifactDemand, out epoch, out artifactRefusal);
@@ -354,14 +345,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                                                                    out string? refusal, out OrderStamp? epoch,
                                                                    RecordReads.PoleInfo? foldArm = null, RecordReads.FoldFacts? foldFacts = null)
         => _reads.InfoOrderBatch(formids, demand, out refusal, out epoch, foldArm, foldFacts);
-    public CrossQueryOutcome CrossQuery(string? type, IReadOnlyList<FormKey>? references, string? editoridContains,
-                                        bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
-                                        bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
-                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null,
-                                        IReadOnlyList<FormKey>? referencesNone = null,
-                                        CancellationToken ct = default)
-        => _reads.CrossQuery(type, references, editoridContains, conflictsOnly, plugins, where, limit, definedIn, groupBy, offset, whereSource,
-                             artifactDemands, referencesNone, ct);
     public CrossQueryOutcome CrossQuery(IReadOnlyList<string>? typeSet, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
                                         bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,

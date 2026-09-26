@@ -140,13 +140,13 @@ public static class SnapshotViewProbe
             Check("SERVICE Stats(): one consistent counter set (2 plugins / 3 records / 0 conflicts / maxDepth 0 / 0 failures)",
                   stats.plugins == 2 && stats.records == 3 && stats.conflicts == 0 && stats.maxDepth == 0 && stats.loadFailures.Count == 0);
 
-            var read = svc.ResolveRead(fk1, null, null, conflictTree: true);
+            var read = svc.ReadArea.ResolveRead(fk1, null, null, conflictTree: true);
             Check("SERVICE ResolveRead(W1): no error, winner = master, depth 1",
                   read.Error is null && Eq(read.WinnerPlugin ?? "", masterName) && read.OverrideDepth == 1);
             Check("SERVICE ResolveRead(W1): winner agrees with its OWN touching list (winner == touching[^1])",
                   read.TouchingPlugins is { Count: 1 } rt && Eq(rt[^1], read.WinnerPlugin ?? ""));
 
-            var q = svc.CrossQuery(type: null, references: null, editoridContains: null, conflictsOnly: false,
+            var q = svc.ReadArea.CrossQuery(type: null, references: null, editoridContains: null, conflictsOnly: false,
                                    plugins: new[] { masterName, ovrName }, where: null, limit: 500);
             Check("SERVICE CrossQuery(plugins=[master,ovr]): no error, 3 matches (W1, W2, W3)",
                   q.Error is null && q.Total == 3 && q.Keys.Count == 3 && q.Prefilled is { Count: 3 });
@@ -158,7 +158,7 @@ public static class SnapshotViewProbe
                   q.Error is null && q.Prefilled is not null && Enumerable.Range(0, q.Keys.Count).Any(i =>
                       q.Keys[i] == fk1 && Eq(q.Prefilled[i].Winner, masterName) && q.Prefilled[i].OverrideDepth == 1));
 
-            var qc = svc.CrossQuery(type: null, references: null, editoridContains: null, conflictsOnly: true,
+            var qc = svc.ReadArea.CrossQuery(type: null, references: null, editoridContains: null, conflictsOnly: true,
                                     plugins: null, where: null, limit: 500);
             Check("SERVICE CrossQuery(conflicts_only): 0 matches on the new build (the old build had 1)",
                   qc.Error is null && qc.Total == 0);

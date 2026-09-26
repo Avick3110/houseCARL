@@ -87,10 +87,12 @@ and an off-order `PoleInfo` carries the `DataDir` it was located under.
 Tool: `housecarl_records`.
 
 The five service files are one class, `RecordReads`, which the head builds over itself as `_reads` and reaches
-through one-line delegators with the old names, signatures and defaults: `ResolveRead`, `ResolveReadOn`,
-`ResolveSummaryOn`, `ResolveTreePinned`, `ResolveRefs`, `ResolveBatch`, `ResolveBatchFromPole`, `ProbeSourceArm`,
+through one-line delegators with the old names, signatures and defaults, one per overload the product calls:
+`ResolveReadOn`, `ResolveSummaryOn`, `ResolveRefs`, `ResolveBatch`, `ResolveBatchFromPole`, `ProbeSourceArm`,
 `DeltaBatch`, `TreeBatch`, `OverlayPostBatch`, `WalkForwardBatch`, `InfoOrderBatch`, `CrossQuery`, `OffOrderQuery`,
-`ResolveEffectChain`. `ReadArea` hands tests the instance, to set the pole lanes' seam `AfterReadPinForGuard`. The
+`ResolveEffectChain`. `ReadArea` hands tests and probes the instance, for the members only they call
+(`ResolveRead`, `ResolveTreePinned`, the two short `ResolveRefs` overloads, the single-type `CrossQuery`) and to set
+the pole lanes' seam `AfterReadPinForGuard`. The
 statics and nested types (`PoleInfo`, `PoleSpec`, `DeltaRow`, `TreeRow`, `WalkSeedResult`, `InfoOrderRow`,
 `LinkMemo`, `ArtifactEpochMismatch`, `UnresolvedFormId`, `OpenDialogueFold`, `FoldLabel` and the rest) are
 addressed as `RecordReads.X`.

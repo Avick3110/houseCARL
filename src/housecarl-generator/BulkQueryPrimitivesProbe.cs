@@ -105,24 +105,24 @@ public static class BulkQueryPrimitivesProbe
 
             // ================= P1 — defined_in= (definitions vs touches) =================
             Console.WriteLine("── P1: defined_in= narrows plugins= from TOUCHES to DEFINITIONS ──");
-            var touches = svc.CrossQuery("Weapon", null, null, false, new[] { replName }, null, 500);
+            var touches = svc.ReadArea.CrossQuery("Weapon", null, null, false, new[] { replName }, null, 500);
             Check($"plugins=[Repl] type=Weapon TOUCHES 2 (W1 override + W3 def) — got {touches.Total}", touches.Total == 2 && touches.Keys.Count == 2);
             Check("  ... and the override W1 is among the touched", touches.Keys.Contains(w1Fk));
 
-            var defd = svc.CrossQuery("Weapon", null, null, false, new[] { replName }, null, 500, definedIn: true);
+            var defd = svc.ReadArea.CrossQuery("Weapon", null, null, false, new[] { replName }, null, 500, definedIn: true);
             Check($"plugins=[Repl] type=Weapon defined_in=true DEFINES 1 (only W3) — got {defd.Total}", defd.Total == 1 && defd.Keys.Count == 1);
             Check("  ... the one defined record is W3 (origin=Repl)", defd.Keys.Count == 1 && defd.Keys[0] == w3Fk);
             Check("  ... the override W1 (origin=master) is EXCLUDED", !defd.Keys.Contains(w1Fk));
             Check($"  ... the header names the scope explicitly (ScopeLabel='{replName}')", defd.ScopeLabel == replName);
 
-            var defRefusal = svc.CrossQuery("Weapon", null, null, false, null, null, 500, definedIn: true);
+            var defRefusal = svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 500, definedIn: true);
             Check("defined_in=true WITHOUT plugins= is REFUSED loud (not silently ignored)",
                   defRefusal.Error is not null && defRefusal.Error.Contains("plugins=", StringComparison.OrdinalIgnoreCase));
 
             // ================= P2 — list-valued references= (OR + matches= un-merge) =================
             Console.WriteLine();
             Console.WriteLine("── P2: references= is a LIST — OR over targets, each match records WHICH it hit ──");
-            var multi = svc.CrossQuery("Weapon", new[] { kaFk, kbFk }, null, false, null, null, 500);
+            var multi = svc.ReadArea.CrossQuery("Weapon", new[] { kaFk, kbFk }, null, false, null, null, 500);
             Check($"references=[KA,KB] over Weapons matches 3 (W1→KA, W2→KB, W3→KA,KB) — got {multi.Total}", multi.Total == 3);
             Check("  ... MatchedTargets is populated for a multi-target lookup", multi.MatchedTargets is not null && multi.MatchedTargets.Count == multi.Keys.Count);
             if (multi.MatchedTargets is not null)
@@ -133,31 +133,31 @@ public static class BulkQueryPrimitivesProbe
                 Check($"  ... W2 matches=KB only", matchOf.TryGetValue(w2Fk, out var m2) && m2 == kbFk.ToString());
                 Check($"  ... W3 matches=KA, KB (both, in input order)", matchOf.TryGetValue(w3Fk, out var m3) && m3 == $"{kaFk}, {kbFk}");
             }
-            var oneKa = svc.CrossQuery("Weapon", new[] { kaFk }, null, false, null, null, 500);
+            var oneKa = svc.ReadArea.CrossQuery("Weapon", new[] { kaFk }, null, false, null, null, 500);
             Check($"references=[KA] alone matches 2 (W1,W3) — got {oneKa.Total}", oneKa.Total == 2 && oneKa.Keys.Contains(w1Fk) && oneKa.Keys.Contains(w3Fk));
             Check("  ... single-target references= adds NO matches= noise (MatchedTargets null)", oneKa.MatchedTargets is null);
-            var oneKb = svc.CrossQuery("Weapon", new[] { kbFk }, null, false, null, null, 500);
+            var oneKb = svc.ReadArea.CrossQuery("Weapon", new[] { kbFk }, null, false, null, null, 500);
             Check($"references=[KB] alone matches 2 (W2,W3) — the OR union of [KA]+[KB] is the 3 above", oneKb.Total == 2 && oneKb.Keys.Contains(w2Fk) && oneKb.Keys.Contains(w3Fk));
 
             // ================= P4 — group_by= aggregation =================
             Console.WriteLine();
             Console.WriteLine("── P4: group_by= winner|type|defined_in → a count table over ALL matches ──");
-            var byWinner = svc.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "winner");
+            var byWinner = svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "winner");
             var gw = GroupMap(byWinner);
             Check($"group_by=winner over Weapons: total 3, Repl=2 (W1,W3) & master=1 (W2) — got total {byWinner.Total}",
                   byWinner.Total == 3 && byWinner.GroupBy == "winner" && gw.GetValueOrDefault(replName) == 2 && gw.GetValueOrDefault(masterName) == 1);
             Check("  ... groups are sorted by count desc (Repl(2) before master(1))",
                   byWinner.Groups is { Count: 2 } && byWinner.Groups[0].Key == replName && byWinner.Groups[1].Key == masterName);
 
-            var byDef = svc.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "defined_in");
+            var byDef = svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "defined_in");
             var gd = GroupMap(byDef);
             Check($"group_by=defined_in over Weapons: master=2 (W1,W2 defined there) & Repl=1 (W3) — got total {byDef.Total}",
                   byDef.Total == 3 && gd.GetValueOrDefault(masterName) == 2 && gd.GetValueOrDefault(replName) == 1);
 
             // group_by=type over a broad (all-touched) scope, cross-checked against a hand tally of the same scope.
-            var byType = svc.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 500, groupBy: "type");
+            var byType = svc.ReadArea.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 500, groupBy: "type");
             var gt = GroupMap(byType);
-            var plain = svc.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 5000);   // same scope, no group_by
+            var plain = svc.ReadArea.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 5000);   // same scope, no group_by
             var handTally = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var s in plain.Prefilled ?? Array.Empty<RecordSummary>()) handTally[s.Type] = handTally.GetValueOrDefault(s.Type) + 1;
             Check($"group_by=type over plugins=[master,Repl]: Weapon=3, Armor=2, Keyword=2, total 7 — got total {byType.Total}",
@@ -166,18 +166,18 @@ public static class BulkQueryPrimitivesProbe
                   plain.Total == byType.Total && gt.Count == handTally.Count && gt.All(kv => handTally.GetValueOrDefault(kv.Key) == kv.Value));
 
             // conflicts_only + group_by=winner: the pure-index branch (NO body) still aggregates by winner.
-            var conflictWinner = svc.CrossQuery((string?)null, null, null, true, null, null, 500, groupBy: "winner");
+            var conflictWinner = svc.ReadArea.CrossQuery((string?)null, null, null, true, null, null, 500, groupBy: "winner");
             var cw = GroupMap(conflictWinner);
             Check($"conflicts_only + group_by=winner (no body scope): the 1 contested record (W1) → Repl=1 — got total {conflictWinner.Total}",
                   conflictWinner.Total == 1 && cw.GetValueOrDefault(replName) == 1);
 
             // group_by=type WITHOUT a body-bearing scope is refused (type isn't known without a per-record fetch).
-            var typeNoBody = svc.CrossQuery((string?)null, null, null, true, null, null, 500, groupBy: "type");
+            var typeNoBody = svc.ReadArea.CrossQuery((string?)null, null, null, true, null, null, 500, groupBy: "type");
             Check("group_by=type without type=/plugins= is REFUSED loud (no body to name the type)",
                   typeNoBody.Error is not null && typeNoBody.Error.Contains("group_by=type", StringComparison.OrdinalIgnoreCase));
 
             // group_by with an unknown key is refused before any scan.
-            var badKey = svc.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "bogus");
+            var badKey = svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "bogus");
             Check("group_by=<unknown key> is REFUSED loud", badKey.Error is not null && badKey.Error.Contains("group_by", StringComparison.OrdinalIgnoreCase));
 
             // ================= #248 — group_by keys are CASE-FOLDED (case-variant plugin spellings merge) =================
@@ -219,7 +219,7 @@ public static class BulkQueryPrimitivesProbe
             using (var cfResolver = LoadOrderResolver.Build(new[] { cfMasterPath, cfAPath, cfBPath }))
             {
                 var cfSvc = LoadOrderService.ForGuard(cfResolver, new UserConfigStore(Path.Combine(dir, "houseCARL.cf.user.json")));
-                var byDef248 = cfSvc.CrossQuery((string?)null, null, null, false, new[] { cfAName, cfBName }, null, 500, groupBy: "defined_in");
+                var byDef248 = cfSvc.ReadArea.CrossQuery((string?)null, null, null, false, new[] { cfAName, cfBName }, null, 500, groupBy: "defined_in");
                 // Setup sanity: the two overrides ARE seen (2 touched records) — the variance test has something to fold.
                 Check($"#248 setup: plugins=[A,B] group_by=defined_in sees 2 touched records — got total {byDef248.Total}",
                       byDef248.Total == 2);
@@ -245,11 +245,11 @@ public static class BulkQueryPrimitivesProbe
             Console.WriteLine("── #223: offset= pages exact windows; format=dense renders columnar rows ──");
 
             // Service-level paging: limit=1 windows at offset 0/1/2 tile the FULL Weapon enumeration exactly.
-            var full = svc.CrossQuery("Weapon", null, null, false, null, null, 500);
+            var full = svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 500);
             var paged = new List<FormKey>();
             for (int off = 0; off < 3; off++)
             {
-                var win = svc.CrossQuery("Weapon", null, null, false, null, null, 1, offset: off);
+                var win = svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 1, offset: off);
                 Check($"window offset={off} limit=1: 1 row, total still {full.Total}, offset in the outcome",
                       win.Keys.Count == 1 && win.Total == full.Total && win.Offset == off);
                 Check($"  ... capped={(off < 2).ToString().ToLowerInvariant()} (matches beyond the WINDOW {(off < 2 ? "exist" : "don't")} — skipped-before-offset never reads as capped)",
@@ -259,13 +259,13 @@ public static class BulkQueryPrimitivesProbe
             Check("the 3 windows tile the full enumeration EXACTLY (no gap, no overlap, same order)", paged.SequenceEqual(full.Keys));
 
             // offset past the end: an honest empty window — exact total, not capped (nothing beyond the window).
-            var past = svc.CrossQuery("Weapon", null, null, false, null, null, 500, offset: 10);
+            var past = svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 500, offset: 10);
             Check("offset past the last match: 0 rows, exact total, not capped", past.Keys.Count == 0 && past.Total == full.Total && !past.Capped);
 
             // refusals (Q3): negative offset; offset under group_by (a count table has no window to page).
-            var neg = svc.CrossQuery("Weapon", null, null, false, null, null, 500, offset: -1);
+            var neg = svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 500, offset: -1);
             Check("offset=-1 is REFUSED loud", neg.Error is not null && neg.Error.Contains("offset", StringComparison.OrdinalIgnoreCase));
-            var offGroup = svc.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "winner", offset: 5);
+            var offGroup = svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "winner", offset: 5);
             Check("offset + group_by is REFUSED loud (never silently ignored)",
                   offGroup.Error is not null && offGroup.Error.Contains("group_by", StringComparison.OrdinalIgnoreCase));
 
@@ -277,20 +277,20 @@ public static class BulkQueryPrimitivesProbe
 
             // Tiling on the OTHER two collect paths (PR #239 review: type= never fires the de-dup, and conflicts_only
             // collects in its own branch — a branch-confined offset regression must not pass the guard).
-            var fullP = svc.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 5000);   // 7 records, de-dup ACTIVE
+            var fullP = svc.ReadArea.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 5000);   // 7 records, de-dup ACTIVE
             var pagedP = new List<FormKey>();
             for (int off = 0; off < fullP.Total; off += 3)
             {
-                var win = svc.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 3, offset: off);
+                var win = svc.ReadArea.CrossQuery((string?)null, null, null, false, new[] { masterName, replName }, null, 3, offset: off);
                 Check($"plugins-scope window offset={off} limit=3: sources stay parallel to keys",
                       win.Sources is not null && win.Sources.Count == win.Keys.Count);
                 pagedP.AddRange(win.Keys);
             }
             Check($"plugins=[master,Repl] windows tile the de-dup'd enumeration EXACTLY ({fullP.Total} records)",
                   pagedP.SequenceEqual(fullP.Keys));
-            var fullC = svc.CrossQuery((string?)null, null, null, true, null, null, 500);                                // conflicts_only branch
-            var winC0 = svc.CrossQuery((string?)null, null, null, true, null, null, 500, offset: 0);
-            var winC1 = svc.CrossQuery((string?)null, null, null, true, null, null, 500, offset: 1);
+            var fullC = svc.ReadArea.CrossQuery((string?)null, null, null, true, null, null, 500);                                // conflicts_only branch
+            var winC0 = svc.ReadArea.CrossQuery((string?)null, null, null, true, null, null, 500, offset: 0);
+            var winC1 = svc.ReadArea.CrossQuery((string?)null, null, null, true, null, null, 500, offset: 1);
             Check("conflicts_only offset: window 0 = the 1 contested record; offset=1 = honest empty window, not capped",
                   fullC.Total == 1 && winC0.Keys.SequenceEqual(fullC.Keys) && winC1.Keys.Count == 0 && winC1.Total == 1 && !winC1.Capped);
 
@@ -305,41 +305,41 @@ public static class BulkQueryPrimitivesProbe
             // scope streams master's OWN body (10); the reporter's 259-vs-82 split is exactly this — where= on the scoped
             // body counts records that ONCE matched, where_source=winner counts those whose LIVE winner still does.
             Console.WriteLine("── #233: where_source=winner retargets the where= predicate onto the live load-order winner ──");
-            var wsScoped10 = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 10" }, 500);
+            var wsScoped10 = svc.ReadArea.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 10" }, 500);
             Check($"where=[Damage=10] default (scoped) → W1 matches on master's OWN body 10 (Total {wsScoped10.Total})",
                   wsScoped10.Total == 1 && wsScoped10.Keys.Count == 1 && wsScoped10.Keys[0] == w1Fk && !wsScoped10.WhereWinner);
-            var wsWinner10 = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 10" }, 500, whereSource: "winner");
+            var wsWinner10 = svc.ReadArea.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 10" }, 500, whereSource: "winner");
             Check($"THE FIX: where=[Damage=10] where_source=winner → 0 (W1's live winner is repl's 15, not 10) — the scoped-vs-winner split (Total {wsWinner10.Total})",
                   wsWinner10.Total == 0 && wsWinner10.WhereWinner && wsWinner10.Error is null);
-            var wsWinner15 = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "winner");
+            var wsWinner15 = svc.ReadArea.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "winner");
             Check($"where=[Damage=15] where_source=winner → W1 matches on the WINNER's body 15 (scoped master is 10) (Total {wsWinner15.Total})",
                   wsWinner15.Total == 1 && wsWinner15.Keys.Count == 1 && wsWinner15.Keys[0] == w1Fk && wsWinner15.WhereWinner);
 
             // defined_in= composes — the issue's exact call shape (defining-plugin scope + a condition on the final winner).
-            var wsDefWinner = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 15" }, 500, definedIn: true, whereSource: "winner");
+            var wsDefWinner = svc.ReadArea.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 15" }, 500, definedIn: true, whereSource: "winner");
             Check($"defined_in=true + where_source=winner → W1 (DEFINED in master, winner 15); W3 (defined in repl) excluded (Total {wsDefWinner.Total})",
                   wsDefWinner.Total == 1 && wsDefWinner.Keys.Count == 1 && wsDefWinner.Keys[0] == w1Fk);
 
             // Multi-scoped de-dup under winner-source: W1 is touched by BOTH scoped plugins, but the winner verdict is
             // FK-intrinsic — it de-dups up front and resolves the winner ONCE, so W1 counts exactly one match (not two).
-            var wsBoth = svc.CrossQuery("Weapon", null, null, false, new[] { masterName, replName }, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "winner");
+            var wsBoth = svc.ReadArea.CrossQuery("Weapon", null, null, false, new[] { masterName, replName }, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "winner");
             Check($"plugins=[master,repl] where_source=winner → W1 counted ONCE despite living in both scoped plugins (Total {wsBoth.Total}, Keys {wsBoth.Keys.Count})",
                   wsBoth.Total == 1 && wsBoth.Keys.Count == 1 && wsBoth.Keys[0] == w1Fk);
 
             // type=-only scope: the scan already streams the winner, so where_source=winner is REDUNDANT — accepted with
             // a note (never a silent no-op, never a hostile refusal), and identical to the plain call.
-            var wsTypeOnly = svc.CrossQuery("Weapon", null, null, false, null, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "winner");
-            var wsTypePlain = svc.CrossQuery("Weapon", null, null, false, null, new[] { "BasicStats.Damage = 15" }, 500);
+            var wsTypeOnly = svc.ReadArea.CrossQuery("Weapon", null, null, false, null, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "winner");
+            var wsTypePlain = svc.ReadArea.CrossQuery("Weapon", null, null, false, null, new[] { "BasicStats.Damage = 15" }, 500);
             Check($"type=-only where_source=winner → matches W1 (winner 15), carries the REDUNDANT note, same result as plain (Total {wsTypeOnly.Total} vs {wsTypePlain.Total})",
                   wsTypeOnly.Total == 1 && wsTypeOnly.Keys[0] == w1Fk && wsTypeOnly.WhereWinner
                   && wsTypeOnly.WhereSourceNote is not null && wsTypeOnly.WhereSourceNote.Contains("redundant")
                   && wsTypeOnly.Total == wsTypePlain.Total);
 
             // Loud refusals (Q3, up front): unknown value names scoped/winner; winner without a body filter to retarget.
-            var wsBad = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "bogus");
+            var wsBad = svc.ReadArea.CrossQuery("Weapon", null, null, false, new[] { masterName }, new[] { "BasicStats.Damage = 15" }, 500, whereSource: "bogus");
             Check("where_source='bogus' REFUSED naming 'scoped' and 'winner'",
                   wsBad.Error is not null && wsBad.Error.Contains("scoped") && wsBad.Error.Contains("winner"));
-            var wsNoFilter = svc.CrossQuery("Weapon", null, null, false, new[] { masterName }, null, 500, whereSource: "winner");
+            var wsNoFilter = svc.ReadArea.CrossQuery("Weapon", null, null, false, new[] { masterName }, null, 500, whereSource: "winner");
             Check("where_source=winner WITHOUT a body filter REFUSED (nothing to retarget)",
                   wsNoFilter.Error is not null && wsNoFilter.Error.Contains("body filter"));
 
@@ -352,10 +352,10 @@ public static class BulkQueryPrimitivesProbe
             // rides the SAME filterBody as where=/references=. W1's WINNER editorid ('hcbpSword1Winner') differs from
             // its scoped master body ('hcbpSword1'), so 'Winner' matches ONLY under where_source=winner — proving the
             // retarget end-to-end for a non-where filter (references= shares the identical filterBody line in core).
-            var ecScoped = svc.CrossQuery("Weapon", null, "Winner", false, new[] { masterName }, null, 500);
+            var ecScoped = svc.ReadArea.CrossQuery("Weapon", null, "Winner", false, new[] { masterName }, null, 500);
             Check($"editorid_contains='Winner' default (scoped) → 0 (master's W1 editorid is 'hcbpSword1', no 'Winner') (Total {ecScoped.Total})",
                   ecScoped.Total == 0 && !ecScoped.WhereWinner);
-            var ecWinner = svc.CrossQuery("Weapon", null, "Winner", false, new[] { masterName }, null, 500, whereSource: "winner");
+            var ecWinner = svc.ReadArea.CrossQuery("Weapon", null, "Winner", false, new[] { masterName }, null, 500, whereSource: "winner");
             Check($"editorid_contains='Winner' where_source=winner → W1 (its WINNER editorid 'hcbpSword1Winner' contains 'Winner') — the body-filter widening beyond where= (Total {ecWinner.Total})",
                   ecWinner.Total == 1 && ecWinner.Keys.Count == 1 && ecWinner.Keys[0] == w1Fk && ecWinner.WhereWinner);
             Console.WriteLine();

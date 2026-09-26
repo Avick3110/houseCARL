@@ -98,12 +98,12 @@ public sealed class WinnerScanCoverageTests
         using var world = new ScanWorld();
 
         // Vacuity: unheld, the same call finds the weapon — so what follows is about the lock.
-        var open = world.Svc.CrossQuery("Weapon", null, null, false, null, null, 50);
+        var open = world.Svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 50);
         Assert.Equal(1, open.Total);
         Assert.Null(open.ScanNote);
 
         using var hold = HeldOpen.Hold(world.HeldPath);
-        var locked = world.Svc.CrossQuery("Weapon", null, null, false, null, null, 50);
+        var locked = world.Svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 50);
 
         Assert.Equal(0, locked.Total);
         Assert.NotNull(locked.ScanNote);
@@ -182,7 +182,7 @@ public sealed class WinnerScanCoverageTests
         using var world = new ScanWorld();
         using var hold = HeldOpen.Hold(world.HeldPath);
 
-        var locked = world.Svc.CrossQuery("Weapon", null, null, false, null, null, 50, offset: 10);
+        var locked = world.Svc.ReadArea.CrossQuery("Weapon", null, null, false, null, null, 50, offset: 10);
         string header = Wire.RenderCrossQuery(world.Svc, locked, null, 40_000, false, false, 0, null, out _)
                             .Split('\n')[0];
 
