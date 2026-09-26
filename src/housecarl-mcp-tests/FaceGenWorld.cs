@@ -174,7 +174,8 @@ public sealed class FaceGenWorld : IDisposable
             catch (IOException) { UnlistedStaged = true; }
         }
 
-        Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
+        try { Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json"))); }
+        catch { LiftDeny(); throw; }   // xUnit skips Dispose when the constructor throws, so the deny comes off here
     }
 
     static string GeomDir(string master) => @"meshes\actors\character\facegendata\facegeom\" + master;
@@ -188,18 +189,19 @@ public sealed class FaceGenWorld : IDisposable
         File.WriteAllText(p, "x");
     }
 
+    /// <summary>Take the listing deny off; a failure throws, so a denied folder never leaks into temp unreported.</summary>
+    void LiftDeny()
+    {
+        if (_unlistedDeny is null || !OperatingSystem.IsWindows()) return;
+        var dir = new DirectoryInfo(_unlistedDir);
+        var acl = dir.GetAccessControl();
+        acl.RemoveAccessRule(_unlistedDeny);
+        dir.SetAccessControl(acl);
+    }
+
     public void Dispose()
     {
-        if (_unlistedDeny is not null && OperatingSystem.IsWindows())
-            try
-            {
-                var dir = new DirectoryInfo(_unlistedDir);
-                var acl = dir.GetAccessControl();
-                acl.RemoveAccessRule(_unlistedDeny);
-                dir.SetAccessControl(acl);
-            }
-            catch (UnauthorizedAccessException) { }   // the ACL calls' own failures only; anything else surfaces
-            catch (IOException) { }
+        LiftDeny();
         try { Directory.Delete(Root, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 }

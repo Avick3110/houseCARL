@@ -49,8 +49,8 @@ internal static class FaceGenSweepRender
             sb.Append("note: a BSA or a loose mod folder failed to read this build — an 'absent' half below may merely be unscanned.\n");
     }
 
-    /// <summary>The clean pairs the stale-bake test could not run on, by cause; null when there are none.</summary>
-    internal static string? UntestedNote(FaceGenCheckResult r)
+    /// <summary>The clean pairs the stale-bake test could not run on, by cause; null when none. <paramref name="namesRoots"/>: the render names the root failures.</summary>
+    internal static string? UntestedNote(FaceGenCheckResult r, bool namesRoots = true)
     {
         if (r.NoComparisonPoleUnreadable == 0)
             return r.NoComparisonPole == 0 ? null
@@ -61,7 +61,8 @@ internal static class FaceGenSweepRender
         if (r.NoComparisonPole > 0)
             sb.Append(r.NoComparisonPole).Append(" because the facegen owner's mod ships no plugin that defines the NPC, ");
         sb.Append(r.NoComparisonPoleUnreadable)
-          .Append(" because the owner's folder could not be listed (named among the loose root read failures). Not counted clean.");
+          .Append(" because the owner's folder could not be listed")
+          .Append(namesRoots ? " (named among the loose root read failures)" : "").Append(". Not counted clean.");
         return sb.ToString();
     }
 
