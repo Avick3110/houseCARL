@@ -276,6 +276,27 @@ public sealed class ReadPinTests : IDisposable
         Assert.True(AssetsBuilt());
     }
 
+    RecordReads.TreeRow Tree(RecordReads.PoleSpec reference)
+    {
+        var rows = _svc.TreeBatch(new[] { _patched }, reference, new[] { "BasicStats.Damage" }, null, out _, out _, out var refusal, out _);
+        Assert.Null(refusal);
+        var row = Assert.Single(rows);
+        Assert.Null(row.Error);
+        return row;
+    }
+
+    [Fact]
+    public void ATreeWithNoOverlayPostReferenceBuildsNoAssets()
+    {
+        Tree(new RecordReads.PoleSpec(RecordReads.PoleKind.Named, BaseName));
+        Tree(new RecordReads.PoleSpec(RecordReads.PoleKind.Overlay, OverlayState: "pre"));
+        Assert.False(AssetsBuilt());
+
+        // The overlay post reference is the one that pays for it.
+        Tree(OverlayPost);
+        Assert.True(AssetsBuilt());
+    }
+
     [Fact]
     public void AProfileSwitchInsideTheHoldDoesNotSplitTheOverlaySourceFromItsAssetBuild()
     {
