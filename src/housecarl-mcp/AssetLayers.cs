@@ -31,9 +31,6 @@ internal interface IAssetHost : ILoadOrderHost
 
     // Relayed from writes until in-place consent is its own type.
     string InPlaceHandshakeLead(string name, string path, string subject, string verb);
-
-    // Relayed from reads until reads is its own class.
-    string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk);
 }
 
 /// <summary>The assets area: asset status, the SKSE layer, NIF, the SkyPatcher layer scan and replay, place.</summary>

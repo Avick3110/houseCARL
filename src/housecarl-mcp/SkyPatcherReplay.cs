@@ -83,7 +83,7 @@ internal sealed partial class AssetLayers
         {
             var winner = _view.ResolveWinner(fk);
             if (winner is null)
-                return SkyPatcherReplayResult.Fail(_host.UnresolvedFormId(_view, fk));
+                return SkyPatcherReplayResult.Fail(RecordReads.UnresolvedFormId(_view, fk));
 
             var body = _view.GetRecord(_session, winner.Value.WinnerPlugin, fk);
             if (body is null)
