@@ -160,7 +160,8 @@ prefix so a throwing lane and a returning lane can both use it.
 
 `src/housecarl-mcp/OutputLocations.cs` holds the output folders, the ownership marker, `into=`, the stem suffix and
 `out_path=`; `src/housecarl-mcp/Artifacts.cs` is what a response says when its result lives in an artifact;
-`src/housecarl-mcp/ResultsStore.cs` is the server-managed results directory, the reservation and the prune.
+`LoadOrderService.ResultsDir` is the server-managed results directory, `results` beside `houseCARL.user.json`;
+`src/housecarl-mcp/ResultsStore.cs` is the reservation and the prune inside the folder it is given.
 `src/housecarl-core/ResultArtifact.cs` is the artifact, its manifest, and the identity read re-entry takes
 (`ReadIdentity`); `AtomicFile.cs` is `AtomicFile.Commit`;
 `FileStamp.cs` and `OrderStamp.cs` are the two stamps; `PathArguments.cs` is `PathArguments.NotAbsolute`. Entry
