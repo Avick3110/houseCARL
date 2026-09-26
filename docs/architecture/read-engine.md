@@ -87,10 +87,12 @@ and an off-order `PoleInfo` carries the `DataDir` it was located under.
 Tool: `housecarl_records`.
 
 The five service files are one class, `RecordReads`, which the head builds over itself as `_reads` and reaches
-through one-line delegators with the old names, signatures and defaults, one per overload the product calls:
+through one-line delegators with the old names and defaults, one per overload the product calls:
 `ResolveReadOn`, `ResolveSummaryOn`, `ResolveRefs`, `ResolveBatch`, `ResolveBatchFromPole`, `ProbeSourceArm`,
 `DeltaBatch`, `TreeBatch`, `OverlayPostBatch`, `WalkForwardBatch`, `InfoOrderBatch`, `CrossQuery`, `OffOrderQuery`,
-`ResolveEffectChain`. `ReadArea` hands tests and probes the instance, for the members only they call
+`ResolveEffectChain`. Seven of them (`ResolveBatchFromPole`, `ProbeSourceArm`, `OffOrderQuery`, `DeltaBatch`,
+`TreeBatch`, `WalkForwardBatch`, `InfoOrderBatch`) and the checks delegator `CheckDialogue` are `internal`, not
+`public`, because their signatures carry a type nested in the internal `RecordReads`. `ReadArea` hands tests and probes the instance, for the members only they call
 (`ResolveRead`, `ResolveTreePinned`, the two short `ResolveRefs` overloads, the single-type `CrossQuery`) and to set
 the pole lanes' seam `AfterReadPinForGuard`. The
 statics and nested types (`PoleInfo`, `PoleSpec`, `DeltaRow`, `TreeRow`, `WalkSeedResult`, `InfoOrderRow`,
