@@ -23,7 +23,7 @@ public sealed class NifInspectMalformedTests : IClassFixture<MalformedMeshWorld>
         var text = _w.Inspect(MalformedMeshWorld.SeedTen);
 
         Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode): A list count of 117 needs at least 468 bytes", text);
-        Assert.Contains("size table", text);
+        Assert.Contains("a count in that block is larger than the block's stored size allows", text);
     }
 
     // Byte 385 alone is the low byte of the root node's effect count; 0x75 makes it 117 refs, past the block's end.
@@ -33,7 +33,7 @@ public sealed class NifInspectMalformedTests : IClassFixture<MalformedMeshWorld>
         var text = _w.Inspect(MalformedMeshWorld.EffectCountByte);
 
         Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode): A list count of 117 needs at least 468 bytes", text);
-        Assert.Contains("size table", text);
+        Assert.Contains("a count in that block is larger than the block's stored size allows", text);
     }
 
     // A header count is refused before any block is read, so its message carries no block.
