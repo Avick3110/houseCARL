@@ -297,8 +297,10 @@ internal sealed class RecordChecks
 
         // Which plugins one provider ships, read lazily and memoized: only a provider that WINS a facegen half is
         // ever asked, so a whole-order sweep pays for a handful of directory listings.
-        var shipped = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
-        IReadOnlyList<string> PluginsIn(string provider)
+        // A folder that will not list is tried once, answers null, and is named on the result with the reason.
+        var shipped = new Dictionary<string, IReadOnlyList<string>?>(StringComparer.OrdinalIgnoreCase);
+        var unreadable = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<string>? PluginsIn(string provider)
         {
             if (shipped.TryGetValue(provider, out var got)) return got;
             var dir = provider.Equals(AssetResolver.OverwriteLayerName, StringComparison.OrdinalIgnoreCase) ? overwriteDir
@@ -317,12 +319,19 @@ internal sealed class RecordChecks
                             names.Add(Path.GetFileName(f));
                     }
             }
-            catch (Exception) { /* an unreadable folder ships no pole; the row says the test did not run */ }
+            catch (Exception ex)
+            {
+                unreadable[provider] = $"{provider}: could not list the mod folder — "
+                                     + ex.Message.Replace("\r", "").Replace("\n", " ").Trim();
+                return shipped[provider] = null;
+            }
             return shipped[provider] = names;
         }
 
-        return FaceGenCheck.Run(resolver, view, assets, PluginsIn, plugins, limit,
-                                offOrder.Count > 0 ? offOrder : null, recordScope, classes, countsOnly, excluded);
+        var result = FaceGenCheck.Run(resolver, view, assets, PluginsIn, plugins, limit,
+                                      offOrder.Count > 0 ? offOrder : null, recordScope, classes, countsOnly, excluded);
+        return unreadable.Count == 0 ? result
+             : result with { UnreadableModFolders = unreadable.Values.OrderBy(v => v, StringComparer.OrdinalIgnoreCase).ToList() };
     }
 
     /// <summary>The facegen family's <c>findings=</c> class tokens. An unrecognized token is a named refusal listing the vocabulary, never a silent widening.</summary>

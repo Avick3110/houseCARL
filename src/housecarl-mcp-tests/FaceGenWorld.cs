@@ -1,3 +1,5 @@
+using System.Security.AccessControl;
+using System.Security.Principal;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
@@ -22,6 +24,9 @@ namespace HousecarlMcpTests;
 ///   TextureLighting, so the bake no longer matches the winner.</item>
 /// <item><c>Templated</c> — <c>Template</c> + <c>Traits</c>: excluded, never flagged.</item>
 /// <item><c>Beast</c> — a race with no <c>FaceGenHead</c> flag: excluded, never flagged.</item>
+/// <item><c>NoPlugin</c> — a clean pair in <c>FgBakesOnly</c>, which ships no plugin: untested for a stale bake.</item>
+/// <item><c>Unlisted</c> — a clean pair in <c>FgUnlisted</c>, whose folder denies LISTING (not traverse), so the
+///   bake resolves but the folder's plugins cannot be read: untested for a different reason.</item>
 /// </list>
 ///
 /// <para>Plus four files that belong to no NPC: one for a FormID nothing defines, one under a folder named for a
@@ -39,6 +44,14 @@ public sealed class FaceGenWorld : IDisposable
     public const string UpdateMod = "FgBase - Update";
     public const string OtherMod = "FgOther";
     public const string OverhaulMod = "FgOverhaul";
+    public const string BakesOnlyMod = "FgBakesOnly";
+    public const string UnlistedMod = "FgUnlisted";
+
+    /// <summary>Whether the listing deny on <see cref="UnlistedMod"/> bit on this host; false off Windows.</summary>
+    public bool UnlistedStaged { get; }
+
+    readonly string _unlistedDir;
+    readonly FileSystemAccessRule? _unlistedDeny;
 
     /// <summary>A plugin the order does not load, whose orphaned facegen folder is one of the inert rows.</summary>
     public const string OffOrderFolder = "HcFgNotLoaded.esp";
@@ -56,7 +69,9 @@ public sealed class FaceGenWorld : IDisposable
         var updateDir = Path.Combine(mods, UpdateMod);
         var otherDir = Path.Combine(mods, OtherMod);
         var overhaulDir = Path.Combine(mods, OverhaulMod);
-        foreach (var d in new[] { profile, baseDir, updateDir, otherDir, overhaulDir,
+        var bakesOnlyDir = Path.Combine(mods, BakesOnlyMod);
+        _unlistedDir = Path.Combine(mods, UnlistedMod);
+        foreach (var d in new[] { profile, baseDir, updateDir, otherDir, overhaulDir, bakesOnlyDir, _unlistedDir,
                                   Path.Combine(Root, "game", "Data") })
             Directory.CreateDirectory(d);
 
@@ -92,6 +107,8 @@ public sealed class FaceGenWorld : IDisposable
         Add("HcFgFamily", manRace);
         var stale = Add("HcFgStale", manRace);
         Add("HcFgBeast", beastRace);
+        Add("HcFgNoPlugin", manRace);
+        Add("HcFgUnlisted", manRace);
         var templateTarget = Add("HcFgTemplateSource", manRace);
         var templated = Add("HcFgTemplated", manRace);
         templated.Template.SetTo(templateTarget);
@@ -119,6 +136,10 @@ public sealed class FaceGenWorld : IDisposable
         Loose(updateDir, Tint(keys["HcFgFamily"]));
         Loose(baseDir, Mesh(keys["HcFgStale"]));
         Loose(baseDir, Tint(keys["HcFgStale"]));
+        Loose(bakesOnlyDir, Mesh(keys["HcFgNoPlugin"]));
+        Loose(bakesOnlyDir, Tint(keys["HcFgNoPlugin"]));
+        Loose(_unlistedDir, Mesh(keys["HcFgUnlisted"]));
+        Loose(_unlistedDir, Tint(keys["HcFgUnlisted"]));
 
         // Files no NPC reads.
         Loose(baseDir, GeomDir(MasterName) + @"\00099999.nif");                 // no record defines this FormID
@@ -135,8 +156,24 @@ public sealed class FaceGenWorld : IDisposable
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + MasterName + "\r\n*" + OverhaulName + "\r\n");
         // Listed first = higher priority.
         File.WriteAllText(Path.Combine(profile, "modlist.txt"),
-            "# header\r\n+" + OverhaulMod + "\r\n+" + OtherMod + "\r\n+" + UpdateMod + "\r\n+" + BaseMod + "\r\n");
+            "# header\r\n+" + OverhaulMod + "\r\n+" + OtherMod + "\r\n+" + UpdateMod + "\r\n+" + BaseMod
+            + "\r\n+" + BakesOnlyMod + "\r\n+" + UnlistedMod + "\r\n");
         File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
+
+        // Deny LISTING only, not inherited, as LocalizedModFolderUnreadableTests does: the bake below it still
+        // resolves by traverse, while listing the folder's own plugins throws.
+        if (OperatingSystem.IsWindows())
+        {
+            var dir = new DirectoryInfo(_unlistedDir);
+            var acl = dir.GetAccessControl();
+            _unlistedDeny = new FileSystemAccessRule(WindowsIdentity.GetCurrent().Name, FileSystemRights.ListDirectory,
+                                                     AccessControlType.Deny);
+            acl.AddAccessRule(_unlistedDeny);
+            dir.SetAccessControl(acl);
+            try { Directory.EnumerateFiles(_unlistedDir).ToList(); }
+            catch (UnauthorizedAccessException) { UnlistedStaged = true; }
+            catch (IOException) { UnlistedStaged = true; }
+        }
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
     }
@@ -154,6 +191,15 @@ public sealed class FaceGenWorld : IDisposable
 
     public void Dispose()
     {
+        if (_unlistedDeny is not null && OperatingSystem.IsWindows())
+            try
+            {
+                var dir = new DirectoryInfo(_unlistedDir);
+                var acl = dir.GetAccessControl();
+                acl.RemoveAccessRule(_unlistedDeny);
+                dir.SetAccessControl(acl);
+            }
+            catch { /* the temp tree goes either way */ }
         try { Directory.Delete(Root, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 }

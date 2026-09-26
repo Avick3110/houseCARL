@@ -42,10 +42,18 @@ internal static class FaceGenSweepRender
         else if (benign > 0)
             sb.Append("note: 'family_split' is a NAME-BASED inference (one product's two halves, or a repack of its "
                     + "own archive), not a verdict — a few carry real risk.\n");
-        if (r.NoComparisonPole > 0)
+        if (r.NoComparisonPoleUnreadable > 0)
+            sb.Append("note: ").Append(r.NoComparisonPole + r.NoComparisonPoleUnreadable)
+              .Append(" clean pair(s) could NOT be tested for a stale bake — ").Append(r.NoComparisonPole)
+              .Append(" because the facegen owner's mod ships no plugin that defines the NPC, ")
+              .Append(r.NoComparisonPoleUnreadable)
+              .Append(" because the owner's mod folder could not be listed (named below). Not counted clean.\n");
+        else if (r.NoComparisonPole > 0)
             sb.Append("note: ").Append(r.NoComparisonPole).Append(" clean pair(s) could NOT be tested for a stale bake — ")
               .Append("the facegen owner's mod ships no plugin that defines the NPC, so there was no pole to compare "
                     + "against. Not counted clean.\n");
+        foreach (var folder in r.UnreadableModFolders ?? Array.Empty<string>())
+            sb.Append("[!] mod folder read failure: ").Append(folder).Append('\n');
         if (r.ScanError is not null)
             sb.Append("[SCAN ERROR] ").Append(r.ScanError).Append('\n');
         if (r.ReadIncomplete)
@@ -106,6 +114,13 @@ internal static class FaceGenSweepRender
         w.WriteNumber("facegen_files_on_disk", r.FilesSeen);
         w.WriteNumber("findings_found", r.TotalFound);
         w.WriteNumber("clean_pairs_without_comparison_pole", r.NoComparisonPole);
+        w.WriteNumber("clean_pairs_owner_folder_unreadable", r.NoComparisonPoleUnreadable);
+        if (r.UnreadableModFolders is { Count: > 0 } unread)
+        {
+            w.WriteStartArray("unreadable_mod_folders");
+            foreach (var n in unread) w.WriteStringValue(n);
+            w.WriteEndArray();
+        }
         w.WriteBoolean("whole_order", r.WholeOrder);
         w.WriteBoolean("family_split_listed", r.FamilySplitListed);
         if (r.Epoch is not null) w.WriteString("epoch", r.Epoch);
