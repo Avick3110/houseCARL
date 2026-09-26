@@ -38,7 +38,8 @@ resolver reads no profile.
   `RootFailures` and sets `ReadIncomplete` too, so a root neither lane could read is said rather than silently
   omitted. **These lanes name the roots**, because a hedge that does not name the folder leaves the modder nothing to
   act on: `asset_status`, the three `skse` families, the SkyPatcher layer and the NIF batch, beside their archive
-  failures; the check sweep, dialogue family included, at the response root above its family sections; the `place`
+  failures; the check sweep, dialogue family included, at the response root above its family sections, beside the
+  failed archives and build warnings of its facegen and scripts families; the `place`
   lane, above its rows, which is where its source-scan hedge points; `nif_set`'s no-copy refusals (a named source,
   the `*winner` pole, or no source), which share that hedge, under the error line (a text-only lane with no
   max_chars, so cut at the server default); the create lane, under the coverage reports whose hedges depend on them;

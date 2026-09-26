@@ -98,6 +98,47 @@ internal sealed class CheckOutcome
         .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
+    /// <summary>Whether a family that captures its asset build with its warnings (facegen, scripts) answered, so the
+    /// warnings and failed archives below were looked for; the json writes null for them where none did.</summary>
+    internal bool BuildCaveatsComputed => _s.FaceGen is { Success: true } || _s.Scripts is { Success: true };
+
+    /// <summary>Whether a family that reads assets answered (dialogue included, which feeds <see cref="RootFailures"/>),
+    /// so the unread roots were looked for; the json writes null for them where none did.</summary>
+    internal bool RootsComputed => BuildCaveatsComputed || _s.Dialogue is { Success: true };
+
+    /// <summary>The asset build warnings of the families that captured one, unioned in the order they were said. The two
+    /// families may answer off two builds, so a warning here may hold for only one of them.</summary>
+    internal IReadOnlyList<string> AssetWarnings =>
+        (_s.FaceGen?.AssetWarnings ?? Array.Empty<string>())
+        .Concat(_s.Scripts?.AssetWarnings ?? Array.Empty<string>())
+        .Distinct(StringComparer.Ordinal)
+        .ToList();
+
+    /// <summary>The archives those builds could not open, unioned as <see cref="RootFailures"/> is.</summary>
+    internal IReadOnlyList<string> ArchiveFailures =>
+        (_s.FaceGen?.ArchiveFailures ?? Array.Empty<string>())
+        .Concat(_s.Scripts?.ArchiveFailures ?? Array.Empty<string>())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    /// <summary>The response root's caveat block, each list with its cut, named so no writer reads a list by position.</summary>
+    internal readonly record struct CaveatCut(
+        (BatchRender.CaveatList List, (IReadOnlyList<string> Shown, int Omitted) Cut) Warnings,
+        (BatchRender.CaveatList List, (IReadOnlyList<string> Shown, int Omitted) Cut) Archives,
+        (BatchRender.CaveatList List, (IReadOnlyList<string> Shown, int Omitted) Cut) Roots);
+
+    /// <summary>The block cut ONCE, so its lists together take one <see cref="BatchRender.CaveatShare"/> and both
+    /// transports name the same entries.</summary>
+    internal CaveatCut RootCaveats(int cap)
+    {
+        var w = BatchRender.WarningList(AssetWarnings);
+        var a = BatchRender.ArchiveFailureList(ArchiveFailures);
+        var r = BatchRender.RootFailureList(RootFailures);
+        var cuts = BatchRender.CaveatBlockCut(cap, w, a, r);
+        return new CaveatCut((w, cuts[0]), (a, cuts[1]), (r, cuts[2]));
+    }
+
     /// <summary><c>findings=</c> was omitted, so <see cref="Ran"/> is the default rather than a caller's choice —
     /// the one selection fact a response still states.</summary>
     internal bool Defaulted => _s.Selection.Defaulted;

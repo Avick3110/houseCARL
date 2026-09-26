@@ -59,7 +59,11 @@ public sealed class FaceGenWorld : IDisposable
     /// <summary>The NPCs, by the EditorID the rows print, so a test names the NPC rather than a FormID.</summary>
     public IReadOnlyDictionary<string, FormKey> Npcs { get; }
 
-    public FaceGenWorld()
+    public FaceGenWorld() : this(degradedAssets: false) { }
+
+    /// <param name="degradedAssets">an empty base-archive list (a discovery warning) and four unreadable archives
+    /// paired with the two plugins (read failures); for a test that builds its own instance.</param>
+    internal FaceGenWorld(bool degradedAssets)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-facegen-world-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
@@ -158,7 +162,13 @@ public sealed class FaceGenWorld : IDisposable
         File.WriteAllText(Path.Combine(profile, "modlist.txt"),
             "# header\r\n+" + OverhaulMod + "\r\n+" + OtherMod + "\r\n+" + UpdateMod + "\r\n+" + BaseMod
             + "\r\n+" + BakesOnlyMod + "\r\n+" + UnlistedMod + "\r\n");
-        File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
+        // A base-archive list naming an archive not on disk reads clean; an empty one makes the asset build warn.
+        File.WriteAllText(Path.Combine(profile, "Skyrim.ini"),
+            "[Archive]\r\nsResourceArchiveList=" + (degradedAssets ? "" : "Skyrim - Meshes0.bsa") + "\r\n");
+        if (degradedAssets)
+            foreach (var (bsaDir, bsa) in new[] { (baseDir, "HcFgMaster.bsa"), (baseDir, "HcFgMaster - Textures.bsa"),
+                                                  (overhaulDir, "HcFgOverhaul.bsa"), (overhaulDir, "HcFgOverhaul - Textures.bsa") })
+                File.WriteAllBytes(Path.Combine(bsaDir, bsa), new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
 
         // Deny listing only, not inherited (as LocalizedModFolderUnreadableTests does), so the bake still resolves by traverse.
         if (OperatingSystem.IsWindows())

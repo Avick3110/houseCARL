@@ -297,7 +297,7 @@ public static class ScriptPropertyCheck
                                      filterNote, histogram is null ? null : SweepFindings.Histogram(histogram), countsOnly,
                                      classes, totalUnboundObject, totalUnboundScalar, propFilter, view.Epoch, limit,
                                      offOrderScanned, collapsedUnverifiable, recordScope?.TypeScopeLabel,
-                                     av.RootFailures);
+                                     av.RootFailures, ArchiveFailures: av.BsaFailures);
     }
 
     /// <summary>One record's fault, appended to the plugin's running scan-error line — the same sentence on both
@@ -477,7 +477,9 @@ public sealed record ScriptCheckResult(
     IReadOnlyList<string>? OffOrderScanned = null,   // the files swept OFF-ORDER: on disk, not in the active order — the pre-enable verify lane
     int UnverifiableCollapsed = 0,   // records whose unverifiable note repeated one already listed for the same script class; counted in TotalUnverifiable, not listed again
     string? TypeScopeLabel = null,   // the scope's types, spelled with any expanded arms, when it covered MORE than one; null otherwise — the same rule the errors family carries, because both families fill one listing over one record stream
-    IReadOnlyList<string>? RootFailures = null)   // the loose roots this build could not walk or list, each named with the reason; null or empty when every root read
+    IReadOnlyList<string>? RootFailures = null,   // the loose roots this build could not walk or list, each named with the reason; null or empty when every root read
+    IReadOnlyList<string>? AssetWarnings = null,  // the asset build's own warnings (an archive list not found, a kept profile), set by the host on a sweep that ran; null or empty when it had none
+    IReadOnlyList<string>? ArchiveFailures = null) // the archives this build could not open, each named with the reason, set on a sweep that ran; null or empty when every archive read
 {
     public bool Success => Error is null;
     public static ScriptCheckResult Fail(string error) =>

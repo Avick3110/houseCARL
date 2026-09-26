@@ -19,6 +19,8 @@ made the change.
   breaks (the block or header field) and the bad count, instead of running the server out of memory.** Inspect a mesh with a corrupted count and read the error.
 - **`housecarl_check findings=["facegen"]` now names a mod folder it could not list, and counts the pairs it left
   untested there apart from those whose mod ships no plugin.**
+- **`housecarl_check` now names the archives that failed to open and the asset build's warnings when the facegen or
+  scripts family runs.** In json, these and `root_read_failures` are `null` when no family that reads assets ran.
 
 ## 2.0.3 — 2026-09-23
 
