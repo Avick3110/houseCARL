@@ -238,7 +238,7 @@ public static class PerkRefsProbe
         var order = Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir, p.OverwriteDir);
         using var resolver = LoadOrderResolver.Build(order.OrderedPaths.ToList());
         Console.WriteLine($"   resolver: {resolver.PluginCount} plugins, {resolver.RecordCount:N0} records, {resolver.ExcludedPlugins.Count} excluded");
-        var svc = LoadOrderService.ForGuard(resolver, new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-perkrefs-proof.user.json")));
+        var svc = LoadOrderService.ForGuard(resolver, new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-perkrefs-proof", "houseCARL.user.json")));
 
         CrossQueryOutcome q;
         var sw = System.Diagnostics.Stopwatch.StartNew();

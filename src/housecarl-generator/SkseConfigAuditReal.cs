@@ -18,7 +18,7 @@ public static class SkseConfigAuditReal
         int max = int.TryParse(ArgVal(args, "--max"), out var m) ? m : 80_000;
         if (mo2 is null) { Console.WriteLine("skse-config-audit-real needs --mo2 <MO2 instance folder>"); return 2; }
 
-        var store = new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-skse-cfgaudit-" + Guid.NewGuid().ToString("N") + ".json"));
+        var store = new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-skse-cfgaudit-" + Guid.NewGuid().ToString("N"), "user.json"));
         using var svc = LoadOrderService.WithInstance(mo2, 0, store);
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var data = svc.SkseConfigAudit();

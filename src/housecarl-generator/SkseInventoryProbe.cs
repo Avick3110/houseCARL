@@ -21,7 +21,7 @@ internal static class SkseInventoryProbe
         if (mo2 is null) { Console.WriteLine("skse-inventory-real needs --mo2 <MO2 instance folder>"); return 2; }
         if (peek && filter is null) { Console.WriteLine("--peek needs --filter (a peek is per-DLL)"); return 2; }
 
-        var store = new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-skse-real-" + Guid.NewGuid().ToString("N") + ".json"));
+        var store = new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-skse-real-" + Guid.NewGuid().ToString("N"), "user.json"));
         using var svc = LoadOrderService.WithInstance(mo2, 0, store);
         var sw = Stopwatch.StartNew();
         var data = svc.SkseInventory(peek ? filter : null);
