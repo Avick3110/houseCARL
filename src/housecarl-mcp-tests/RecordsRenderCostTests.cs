@@ -442,7 +442,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void TheBoundDescribesADeltasOwnWorkNotATrees()
     {
-        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, types: Weap, versus: System.Text.Json.JsonDocument.Parse("\"winner\"").RootElement.Clone(),
+        var r = Svc.WithBounds(b => b with { ComparisonRows = 2 }, () => RecordsTools.Records(Svc, types: Weap, versus: System.Text.Json.JsonDocument.Parse("\"winner\"").RootElement.Clone(),
                                                                   project: new RecordsTools.RecordsProject { form = "delta" }, limit: 10));
         Assert.StartsWith("error:", r);
         Assert.Contains("two versions", r);
@@ -455,7 +455,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void ATreeOverTooManyRecordsRefusesWithTheCountAndWhatToTry()
     {
-        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 10));
+        var r = Svc.WithBounds(b => b with { ComparisonRows = 2 }, () => RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 10));
         Assert.StartsWith("error:", r);
         Assert.Contains("reads every override", r);
         Assert.Contains("10 records", r);
@@ -468,7 +468,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void ATreeOverTooManyFormidsRefusesNamingTheListAsTheLever()
     {
-        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, formids: AllWeaponIds, project: Tree()));
+        var r = Svc.WithBounds(b => b with { ComparisonRows = 2 }, () => RecordsTools.Records(Svc, formids: AllWeaponIds, project: Tree()));
         Assert.StartsWith("error:", r);
         Assert.Contains("formids=", r);
     }
@@ -479,7 +479,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void TheScanLeverNamesALimitAtOrBelowTheBound_NotOneToLower()
     {
-        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, types: Weap, project: Tree()));
+        var r = Svc.WithBounds(b => b with { ComparisonRows = 2 }, () => RecordsTools.Records(Svc, types: Weap, project: Tree()));
         Assert.StartsWith("error:", r);
         Assert.Contains("limit= at or below the bound", r);
         Assert.DoesNotContain("lower limit=", r);
@@ -492,7 +492,7 @@ public sealed class RecordsRenderCostTests
     public void AMalformedTreeIsRefusedForItsShapeBeforeItsCost()
     {
         var src = System.Text.Json.JsonDocument.Parse("\"" + _w.MasterName + "\"").RootElement.Clone();
-        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, formids: AllWeaponIds, project: Tree(), source: src));
+        var r = Svc.WithBounds(b => b with { ComparisonRows = 2 }, () => RecordsTools.Records(Svc, formids: AllWeaponIds, project: Tree(), source: src));
         Assert.StartsWith("error:", r);
         Assert.Contains("no subject", r);
         Assert.DoesNotContain("pass fewer formids=", r);
@@ -510,7 +510,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void ATreeCensusPastTheBoundSaysLimitIsNotItsLever()
     {
-        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 10, counts_only: true));
+        var r = Svc.WithBounds(b => b with { ComparisonRows = 2 }, () => RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 10, counts_only: true));
         Assert.StartsWith("error:", r);
         Assert.Contains("limit= does not lower what they read", r);
     }
@@ -663,7 +663,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void ARenderOverTheBoundRefusesNamingTheWindowAndTheWholeSetShapes()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, types: Weap, limit: RenderCostWorld.Weapons, project: Fields()));
 
         Assert.StartsWith("error:", response);
@@ -680,7 +680,7 @@ public sealed class RecordsRenderCostTests
     public void AToFileCallOverTheBoundRefusesAndWritesNoArtifact()
     {
         var path = _w.Scratch("over-bound.jsonl");
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, types: Weap, project: Fields(), to_file: path));
 
         Assert.StartsWith("error:", response);
@@ -691,7 +691,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void ARenderUnderTheBoundIsUntouched()
     {
-        var doc = Doc(WithBound(RenderCostWorld.Weapons, () =>
+        var doc = Doc(Svc.WithBounds(b => b with { Rows = RenderCostWorld.Weapons }, () =>
             RecordsTools.Records(Svc, types: Weap, format: "json", limit: RenderCostWorld.Weapons, project: Fields())));
         Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rendered").GetInt32());
     }
@@ -723,7 +723,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AnEverythingRenderIsBoundedByItsOwnWholeRecordCost()
     {
-        var response = WithWholeRecordBound(10, () =>
+        var response = Svc.WithBounds(b => b with { WholeRecordRows = 10 }, () =>
             RecordsTools.Records(Svc, types: Weap, limit: RenderCostWorld.Weapons, project: Everything()));
 
         Assert.StartsWith("error:", response);
@@ -736,7 +736,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void TheFieldsBoundDoesNotRefuseAnEverythingRenderThatFitsItsOwn()
     {
-        var doc = Doc(WithBound(1, () =>
+        var doc = Doc(Svc.WithBounds(b => b with { Rows = 1 }, () =>
             RecordsTools.Records(Svc, types: Weap, format: "json", limit: 5, project: Everything())));
         Assert.Equal(5, doc.GetProperty("rendered").GetInt32());
     }
@@ -747,7 +747,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AFormidsReadOverTheBoundRefuses()
     {
-        var response = WithWholeRecordBound(10, () =>
+        var response = Svc.WithBounds(b => b with { WholeRecordRows = 10 }, () =>
             RecordsTools.Records(Svc, formids: AllWeaponIds, project: Everything()));
 
         Assert.StartsWith("error:", response);
@@ -760,7 +760,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AFormidsCensusIsHeldToTheBoundBecauseItStillReadsEveryBody()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, formids: AllWeaponIds, project: Fields(), counts_only: true));
 
         Assert.StartsWith("error:", response);
@@ -772,7 +772,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AFormidsSummaryReadOverTheBoundRefuses()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, formids: AllWeaponIds,
                                  project: new RecordsTools.RecordsProject { form = "summary" }));
 
@@ -785,7 +785,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AFormidsAggregateReadOverTheBoundRefuses()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, formids: AllWeaponIds,
                                  project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" }));
 
@@ -855,7 +855,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AnIdentityReadOverItsOwnBoundRefuses()
     {
-        var response = WithIdentityBound(10, () =>
+        var response = Svc.WithBounds(b => b with { IdentityRows = 10 }, () =>
             RecordsTools.Records(Svc, formids: AllWeaponIds,
                                  project: new RecordsTools.RecordsProject { form = "identity" }));
 
@@ -872,11 +872,11 @@ public sealed class RecordsRenderCostTests
     public void TheIdentityBoundAndTheFieldsBoundAreSeparate()
     {
         var identity = new RecordsTools.RecordsProject { form = "identity" };
-        var doc = Doc(WithBound(1, () =>
+        var doc = Doc(Svc.WithBounds(b => b with { Rows = 1 }, () =>
             RecordsTools.Records(Svc, formids: AllWeaponIds, format: "json", project: identity)));
         Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("count").GetInt32());
 
-        var fields = Doc(WithIdentityBound(1, () =>
+        var fields = Doc(Svc.WithBounds(b => b with { IdentityRows = 1 }, () =>
             RecordsTools.Records(Svc, formids: AllWeaponIds, format: "json", limit: 5, project: Fields())));
         Assert.Equal(5, fields.GetProperty("rendered").GetInt32());
     }
@@ -931,7 +931,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AnOffOrderRenderOverTheBoundRefusesToo()
     {
-        var response = WithWholeRecordBound(2, () =>
+        var response = Svc.WithBounds(b => b with { WholeRecordRows = 2 }, () =>
             RecordsTools.Records(Svc, types: Weap, source: Pole(_w.OffOrderName), project: Everything()));
 
         Assert.StartsWith("error:", response);
@@ -955,7 +955,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AWalkIsMeasuredOnWhatItReachedAndNotOnItsSeedScan()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, types: Weap, walk: new RecordsTools.RecordsWalk(), project: Fields()));
 
         Assert.StartsWith("error:", response);
@@ -969,7 +969,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AWalkCensusIsHeldToTheBoundBecauseTheListLaneStillReadsEveryBody()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, types: Weap, walk: new RecordsTools.RecordsWalk(), project: Fields(),
                                  counts_only: true));
 
@@ -984,7 +984,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AWalkCensusRefusalSaysItCountsBodiesRatherThanRendersRows()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, types: Weap, walk: new RecordsTools.RecordsWalk(), project: Fields(),
                                  counts_only: true));
 
@@ -998,7 +998,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AFormidsCensusRefusalSaysItCountsBodiesRatherThanRendersRows()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, formids: AllWeaponIds, project: Fields(), counts_only: true));
 
         Assert.Contains("reads a record body before it is counted", response);
@@ -1012,7 +1012,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void ARenderedWalkRefusalStillSpeaksOfItsRender()
     {
-        var response = WithBound(10, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 10 }, () =>
             RecordsTools.Records(Svc, types: Weap, walk: new RecordsTools.RecordsWalk(), project: Fields()));
 
         Assert.Contains("renders", response);
@@ -1024,7 +1024,7 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void TheCensusIsNotHeldToTheRenderBound()
     {
-        var response = WithBound(1, () =>
+        var response = Svc.WithBounds(b => b with { Rows = 1 }, () =>
             RecordsTools.Records(Svc, types: Weap, format: "json", project: Fields(), counts_only: true));
         Assert.Equal(RenderCostWorld.Weapons, Doc(response).GetProperty("total").GetInt32());
     }
@@ -1179,43 +1179,7 @@ public sealed class RecordsRenderCostTests
 
     // ---- helpers -----------------------------------------------------------------------------------
 
-    /// <summary>Run one call with the render bound moved, restored whatever happens — building 300,000 records to
-    /// reach the real one is not a test.</summary>
-    string WithBound(int rows, Func<string> call)
-    {
-        var prior = Svc.Bounds;
-        Svc.Bounds = prior with { Rows = rows };
-        try { return call(); }
-        finally { Svc.Bounds = prior; }
-    }
 
-    /// <summary>The same for the comparison forms' own bound, which is small enough in production that a world of
-    /// 60 records could reach it — moved anyway, so the test says which number it is about.</summary>
-    string WithComparisonBound(int rows, Func<string> call)
-    {
-        var prior = Svc.Bounds;
-        Svc.Bounds = prior with { ComparisonRows = rows };
-        try { return call(); }
-        finally { Svc.Bounds = prior; }
-    }
-
-    /// <summary>The same for the whole-record lane's own bound.</summary>
-    string WithWholeRecordBound(int rows, Func<string> call)
-    {
-        var prior = Svc.Bounds;
-        Svc.Bounds = prior with { WholeRecordRows = rows };
-        try { return call(); }
-        finally { Svc.Bounds = prior; }
-    }
-
-    /// <summary>And for the identity lane's own bound.</summary>
-    string WithIdentityBound(int rows, Func<string> call)
-    {
-        var prior = Svc.Bounds;
-        Svc.Bounds = prior with { IdentityRows = rows };
-        try { return call(); }
-        finally { Svc.Bounds = prior; }
-    }
 
     /// <summary>A bare plugin-name source pole.</summary>
     static System.Text.Json.JsonElement Pole(string name) =>

@@ -363,7 +363,7 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
     [Fact]
     public void ATransitiveReverseWalkTooBigToRenderRefuses()
     {
-        var r = WithBound(1, () =>
+        var r = Svc.WithBounds(b => b with { Rows = 1 }, () =>
             RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
                                  walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 2 },
                                  project: Fields("EditorID")));
@@ -377,20 +377,12 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
     [Fact]
     public void AReverseCarrierWalkTooBigToRenderRefusesNamingTheChainForm()
     {
-        var r = WithBound(1, () =>
+        var r = Svc.WithBounds(b => b with { Rows = 1 }, () =>
             RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
                                  walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
                                  project: Fields("EditorID")));
         Refused(r, "project.form='chain'", "walk.max_nodes");
         Assert.DoesNotContain("walk.depth", r);
-    }
-
-    string WithBound(int rows, Func<string> call)
-    {
-        var prior = Svc.Bounds;
-        Svc.Bounds = prior with { Rows = rows };
-        try { return call(); }
-        finally { Svc.Bounds = prior; }
     }
 
     // ---- what a match COSTS after the index ---------------------------------------------------------
