@@ -112,7 +112,7 @@ internal sealed partial class AssetLayers
                                        warnings, profileName, notes, selected.Count, Math.Max(offset, 0),
                                        Math.Max(limit, 0),
                                        // Dedup can leave the running count at the bound rather than past it; the walk stopping is the proof.
-                                       RenderBudget.RefuseAssetPaths(bound: MaxAssetPaths, paths: Math.Max(selected.Count, MaxAssetPaths + 1),
+                                       RenderBudget.RefuseAssetPaths(new AssetPathBound(MaxAssetPaths), Math.Max(selected.Count, MaxAssetPaths + 1),
                                                                      wholeSelection, atLeast: true)!);
 
         var total = selected.Count;
@@ -126,7 +126,7 @@ internal sealed partial class AssetLayers
                       + (window.Count > 0 && window[^1].PairPath is { } lastPair
                          && (window.Count < 2 || !string.Equals(lastPair, window[^2].Path, StringComparison.OrdinalIgnoreCase))
                          ? 1 : 0);
-        if (RenderBudget.RefuseAssetPaths(bound: MaxAssetPaths, paths: toResolve, wholeSelection) is { } tooBig)
+        if (RenderBudget.RefuseAssetPaths(new AssetPathBound(MaxAssetPaths), toResolve, wholeSelection) is { } tooBig)
             return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
                                        view.ReadIncomplete,
                                        warnings, profileName, notes, total, Math.Max(offset, 0),
