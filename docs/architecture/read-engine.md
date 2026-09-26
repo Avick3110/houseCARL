@@ -87,8 +87,11 @@ and an off-order `PoleInfo` carries the `DataDir` it was located under.
 Tool: `housecarl_records`.
 
 What the area needs from outside itself is the members of `IReadHost`, declared at the top of `RecordReads.cs`:
-`CapturePinAndRoots(afterPin)`, the pin and the four MO2 roots in one hold, from the head; and `AssetArea`, the
-assets area instance, whose self-capturing `OpenSkyPatcherReplay` the SkyPatcher overlay pole reads through. The
-resolver, the type lookup and the corpus rulebook are `Resolver`, `Types` and `Rulebook` on the shared door. The
-members every area shares come through the door it extends, `ILoadOrderHost` in
-`src/housecarl-mcp/LoadOrderHost.cs` ([`load-order-service.md`](load-order-service.md)).
+`CapturePinAndRoots(afterPin)`, the pin and the four MO2 roots in one hold, from the head; and
+`OpenSkyPatcherReplay`, relayed from the assets area (the overload that takes its own asset capture), which the
+SkyPatcher overlay pole reads through. The resolver, the type lookup and the corpus rulebook are `Resolver`,
+`Types` and `Rulebook` on the shared door. The members every area shares come through the door it extends,
+`ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs` ([`load-order-service.md`](load-order-service.md)).
+Four reaches still sit outside the interface, and the change that makes reads its own class has to move or
+qualify them: the test seam `AfterReadPinForGuard`, a head field the pole lanes pass to `CapturePinAndRoots`, and
+three statics in `OutputLocations.cs`, `LocatePluginFileOnDisk`, `LooksLikePath` and `SamePluginFile`.

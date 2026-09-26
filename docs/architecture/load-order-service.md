@@ -26,7 +26,7 @@ the config file.
 - `CapturePinAndAssets(afterPin)` is the one-hold pin-plus-assets capture two areas take (the SkyPatcher layer scan and the facegen and script sweeps): one `_gate` hold pins the index view with its resolver, runs `afterPin` (a test seam, null in the product), then captures the asset build without a second profile refresh, so a profile switch cannot split the pin from the assets.
 - `WriteGate` is the same object as `_writeGate`, so the lock order above holds through it: take the write gate first, then capture.
 - `Types` is the service's `TypeLookup` (a `type=` string to its getter types), built from the corpus on first use and kept for the service's life, so a `CorpusRulebook.CorpusPath` set before a service's first type resolution governs that service. It is never process-wide. The read, check, write and asset lanes resolve types through it.
-- `Rulebook` is the service's `CorpusRulebook` (corpus.json), loaded once on first use. The read area's scan takes it to judge a `where=` quantifier's shape; the write lanes use the same instance.
+- `Rulebook` is the service's `CorpusRulebook` (corpus.json), loaded on first use from the `CorpusPath` set then; concurrent first calls publish one instance, and a failed load is not kept. The read area's scan takes it to judge a `where=` quantifier's shape; the write lanes use the same instance.
 - Each area's own interface extends `ILoadOrderHost` and carries the rest: the head members only that area takes, plus rows relayed from areas that are not their own classes yet. The first is `IAssetHost`, in `src/housecarl-mcp/AssetLayers.cs`; the second is `ICheckHost`, in `src/housecarl-mcp/RecordChecks.cs`; the third is `IReadHost`, at the top of `src/housecarl-mcp/RecordReads.cs`.
 
 ### The service's answers
@@ -64,8 +64,8 @@ area's pole lanes, which pass it the test seam `AfterReadPinForGuard`) are one-l
 `AssetCapture`; `IAssetHost` is at the top of `src/housecarl-mcp/AssetLayers.cs`.
 The head's asset-facing surface is one-line delegators to `_assetLayers`, the `AssetLayers` it builds over itself in
 its constructor: `AssetStatus`, `SkseInventory`, `SkseConfigAudit`, `NativePairingAudit`, `SkyPatcherLayer`,
-`NifInspect`, `NifSet`, `PlaceAssets`. `AssetArea` hands tests the instance, to set its seams, and is how the read area reaches
-the SkyPatcher replay.
+`NifInspect`, `NifSet`, `PlaceAssets`. `AssetArea` hands tests the instance, to set its seams. The read area reaches the SkyPatcher replay through
+`IReadHost.OpenSkyPatcherReplay`, relayed to `_assetLayers` in the head's relay block.
 The checks-facing surface is the same shape over `_checks`, the `RecordChecks` it builds after `_assetLayers`:
 `ValidateDialogue`, `CheckDialogue`, `CheckErrors`, `ValidateScripts`, `CheckFaceGen`, `SweepScopeError`, with
 `CheckArea` for tests; `ICheckHost` is at the top of `src/housecarl-mcp/RecordChecks.cs`.
