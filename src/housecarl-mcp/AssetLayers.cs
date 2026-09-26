@@ -364,7 +364,6 @@ internal sealed partial class AssetLayers
         // Archives and enabled mods are the same build as the view, so the loader scan below walks the mod set the view describes, never a second unpinned profile read.
         var captured = _host.CaptureAssets();
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
-        var dataDir = captured.Roots.DataDir; var modsDir = captured.Roots.ModsDir; var overwriteDir = captured.Roots.OverwriteDir;
         var archives = captured.Archives; var enabledMods = captured.EnabledMods;
 
         // ---- the official-archive set: the ENGINE anchor. Keyed by filename, because a BSA provider's name IS the archive filename. ----
@@ -377,7 +376,7 @@ internal sealed partial class AssetLayers
         // Pairing identity needs the MOD that ships an archive, not the archive filename, or a mod whose scripts ride its own BSA reads as UNPAIRED.
         var archiveShipper = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var a in archives)
-            if (LayerOfInstallPath(a.Path, modsDir, overwriteDir, dataDir) is { } shipper)
+            if (LayerOfInstallPath(a.Path, captured.Roots) is { } shipper)
                 archiveShipper[Path.GetFileName(a.Path)] = shipper;
 
         // ---- DLL candidates: one SKSE\Plugins pass. A mod "ships" a DLL when it appears anywhere in that file's
@@ -520,9 +519,9 @@ internal sealed partial class AssetLayers
             static bool LoaderIn(string dir) => Directory.Exists(dir)
                 && (File.Exists(Path.Combine(dir, "skse64_loader.exe"))
                     || Directory.EnumerateFiles(dir, "skse64_*.dll").Any());
-            var gameDir = dataDir.Length > 0 ? Path.GetDirectoryName(dataDir.TrimEnd('\\', '/')) : null;
+            var gameDir = captured.Roots.DataDir.Length > 0 ? Path.GetDirectoryName(captured.Roots.DataDir.TrimEnd('\\', '/')) : null;
             loaderSeen = (gameDir is { Length: > 0 } && LoaderIn(gameDir))
-                || (modsDir.Length > 0 && enabledMods.Any(m => LoaderIn(Path.Combine(modsDir, m, "Root"))));
+                || (captured.Roots.ModsDir.Length > 0 && enabledMods.Any(m => LoaderIn(Path.Combine(captured.Roots.ModsDir, m, "Root"))));
         }
         catch { loaderSeen = null; }
 
@@ -534,11 +533,11 @@ internal sealed partial class AssetLayers
 
     /// <summary>The MO2 LAYER a physical file path belongs to, as a NAME. A caller that has to say WHICH of the three
     /// answered takes <see cref="InstallLayerOfPath"/> instead, because a mod folder may itself be called "Data".</summary>
-    internal static string? LayerOfInstallPath(string archivePath, string modsDir, string overwriteDir, string dataDir) =>
-        InstallLayerOfPath(archivePath, modsDir, overwriteDir, dataDir)?.Name;
+    internal static string? LayerOfInstallPath(string archivePath, Mo2Roots roots) =>
+        InstallLayerOfPath(archivePath, roots)?.Name;
 
     /// <summary>The MO2 layer a physical file path belongs to, as the BRANCH that answered plus the name it produced.</summary>
-    internal static SourceLayer? InstallLayerOfPath(string archivePath, string modsDir, string overwriteDir, string dataDir)
+    internal static SourceLayer? InstallLayerOfPath(string archivePath, Mo2Roots roots)
     {
         // Full-path-normalize both sides, or a trailing separator or '..' from config makes this test disagree with the rest of the plumbing.
         static string Norm(string p) { try { return Path.GetFullPath(p); } catch { return p; } }
@@ -552,15 +551,15 @@ internal sealed partial class AssetLayers
             remainder = path.Substring(r.Length);
             return true;
         }
-        if (Under(archivePath, overwriteDir, out _))
+        if (Under(archivePath, roots.OverwriteDir, out _))
             return new SourceLayer(SourceLayerKind.Overwrite, AssetResolver.OverwriteLayerName);
-        if (Under(archivePath, modsDir, out var rest))
+        if (Under(archivePath, roots.ModsDir, out var rest))
         {
             int slash = rest.IndexOfAny(new[] { '\\', '/' });
             // a .bsa directly in mods\ belongs to no mod — no translation
             return slash > 0 ? new SourceLayer(SourceLayerKind.ModFolder, rest[..slash]) : null;
         }
-        if (Under(archivePath, dataDir, out _))
+        if (Under(archivePath, roots.DataDir, out _))
             return new SourceLayer(SourceLayerKind.GameData, AssetResolver.DataLayerName);
         return null;
     }

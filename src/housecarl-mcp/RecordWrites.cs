@@ -277,7 +277,7 @@ public sealed partial class LoadOrderService
         var arms = new List<SourceArm>(poles.Count);
         var openedHere = new List<IDisposable>();
         Mo2Composition? comp = null;
-        string modsDir = "", dataDir = "", overwriteDir = "", profileDir = "";
+        var roots = new Mo2Roots(ProfileDir: "", DataDir: "", ModsDir: "", OverwriteDir: "");
 
         string Fail(string message)
         {
@@ -290,8 +290,8 @@ public sealed partial class LoadOrderService
         {
             try
             {
-                lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
-                return view.PluginPath(pluginName) is { } p ? AssetLayers.InstallLayerOfPath(p, modsDir, overwriteDir, dataDir) : null;
+                lock (_gate) { EnsurePathsDerived(); roots = RootsLocked(); }
+                return view.PluginPath(pluginName) is { } p ? AssetLayers.InstallLayerOfPath(p, roots) : null;
             }
             catch { return null; }
         }
@@ -352,21 +352,21 @@ public sealed partial class LoadOrderService
 
             if (comp is null)
             {
-                try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+                try { lock (_gate) { EnsurePathsDerived(); roots = RootsLocked(); } }
                 catch (Exception ex)
                 {
                     error = Fail($"{at}: '{spelling}' is not in the load order and the MO2 roots couldn't be derived to find it on disk: {ex.Message}");
                     return null;
                 }
-                comp = Mo2LoadOrder.ReadComposition(profileDir);
+                comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
             }
 
             // offerModParam is false: this refusal names a LIST element, whose disambiguator is a full path in that element.
-            var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, spelling, null, offerModParam: false);
+            var loc = LocatePluginFileOnDisk(comp, roots, spelling, null, offerModParam: false);
             if (loc.Error is not null)
             {
                 // Suggested from every plugin the locate SEARCHED, not just the active order; empty when nothing is close.
-                var pool = Mo2LoadOrder.AllPluginFileNames(comp, modsDir, dataDir, overwriteDir);
+                var pool = Mo2LoadOrder.AllPluginFileNames(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
                 error = Fail($"{at}: source '{spelling}' is not in the load order and {loc.Error}" +
                              PluginNameSuggest.DidYouMean(spelling, pool));
                 return null;
@@ -380,7 +380,7 @@ public sealed partial class LoadOrderService
             }
 
             ISkyrimModGetter ov;
-            try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+            try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(roots.DataDir) ? null : roots.DataDir); }
             catch (Exception ex)
             {
                 error = Fail($"{at}: source file '{spelling}' ({loc.Path}) could not be opened as a Skyrim plugin ({ex.Message}).");
@@ -392,7 +392,7 @@ public sealed partial class LoadOrderService
             var cache = ov.ToImmutableLinkCache();
             var where = $"file '{Path.GetFileName(loc.Path!)}' ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
             // The layer this file sits in, read off the path by the shared rule rather than parsed back out of `where`.
-            var layer = AssetLayers.InstallLayerOfPath(loc.Path!, modsDir, overwriteDir, dataDir);
+            var layer = AssetLayers.InstallLayerOfPath(loc.Path!, roots);
             // A mod folder the profile is not loading travels as such, and both off standings are carried.
             if (layer is { Kind: SourceLayerKind.ModFolder })
                 layer = loc.Served switch
