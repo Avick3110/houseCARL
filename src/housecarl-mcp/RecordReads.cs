@@ -8,7 +8,7 @@ namespace HousecarlMcp;
 /// <summary>Everything the reads area takes from outside itself.</summary>
 internal interface IReadHost : ILoadOrderHost
 {
-    // Relayed from assets: the SkyPatcher replay door over an asset build the caller pinned, for the SkyPatcher overlay source.
+    // Relayed from assets: the SkyPatcher replay door over an asset build the caller pinned, for the SkyPatcher overlay pole and source.
     AssetLayers.SkyPatcherReplay? OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
                                                        LoadOrderResolver.OverlaySession session, out string? draftRefusal,
                                                        SkyPatcherDraft.Plan? draft, SkyPatcherOverlay.WarningSink? draftWarnings);
@@ -22,7 +22,7 @@ internal sealed partial class RecordReads
 
     internal RecordReads(IReadHost host) => _host = host;
 
-    /// <summary>Test seam: invoked in the pole lanes after the pin and before the roots or the asset build; null in the product.</summary>
+    /// <summary>Test seam: invoked in the pole lanes and the overlay source after the pin and before the roots or the asset build; null in the product.</summary>
     internal Action? AfterReadPinForGuard;
 
     /// <summary>Resolve + read one record: the WINNER's body by default, or a named <paramref name="plugin"/>'s

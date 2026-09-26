@@ -82,11 +82,14 @@ fold), `RecordPoles.cs` (comparison poles, the delta/tree batches), `RecordWalk.
 `docs/architecture/check-families.md` and
 `docs/architecture/check-scripts-and-dialogue-families.md`). The type lookup is in `TypeLookup.cs`,
 under `docs/architecture/corpus-rulebook.md`. The pole lanes (`ProbeSourceArm`, `ResolveBatchFromPole`,
-`DeltaBatch`, `TreeBatch`) take the view and the MO2 roots in one hold through `CapturePinAndRoots` on the shared door,
+`DeltaBatch`, `TreeBatch`) and the overlay source's `OverlayPostBatch` run the seam `AfterReadPinForGuard` inside their hold;
+the four pole lanes take the view and the MO2 roots in one hold through `CapturePinAndRoots` on the shared door,
 and an off-order `PoleInfo` carries the `DataDir` it was located under. When a pole is the SkyPatcher overlay in its post state,
 `DeltaBatch` and `TreeBatch` take `CapturePinAndAssets` instead and read the roots off that asset build, and
 `OverlayPostBatch` (the overlay `source=`) always does, so the INI layer replays over the asset build pinned with the
-winners; no other pole, the overlay's pre state included, pays for an asset build.
+winners; no other pole, the overlay's pre state included, pays for an asset build. An asset build that throws is
+named by the replay's own sentence ("the SkyPatcher layer could not be discovered for the overlay pole/source"),
+over a pin taken again so the rows and the epoch line still read.
 Tool: `housecarl_records`.
 
 The five service files are one class, `RecordReads`, which the head builds over itself as `_reads` and reaches
@@ -97,7 +100,7 @@ through one-line delegators with the old names and defaults, one per overload th
 `TreeBatch`, `WalkForwardBatch`, `InfoOrderBatch`) and the checks delegator `CheckDialogue` are `internal`, not
 `public`, because their signatures carry a type nested in the internal `RecordReads`. `ReadArea` hands tests and probes the instance, for the members only they call
 (`ResolveRead`, `ResolveTreePinned`, the two short `ResolveRefs` overloads, the single-type `CrossQuery`) and to set
-the pole lanes' seam `AfterReadPinForGuard`. The
+the pole and overlay source lanes' seam `AfterReadPinForGuard`. The
 statics and nested types (`PoleInfo`, `PoleSpec`, `DeltaRow`, `TreeRow`, `WalkSeedResult`, `InfoOrderRow`,
 `LinkMemo`, `ArtifactEpochMismatch`, `UnresolvedFormId`, `OpenDialogueFold`, `FoldLabel` and the rest) are
 addressed as `RecordReads.X`.
