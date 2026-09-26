@@ -400,19 +400,15 @@ public static class ReadEngine
     readonly record struct HopVerdict(bool OnElement, string TypeName, string? Near);
 
     /// <summary>Memoised on (element type, segment): a scan hits the same dead-end once per scanned record.</summary>
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type, string), HopVerdict> HopVerdicts = new();
-
-    /// <summary>How many times each (element type, segment) verdict has actually been computed.</summary>
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type, string), int> HopComputations = new();
+    static readonly CountedMemo<(Type, string), HopVerdict> HopVerdicts = new();
 
     /// <summary>How many times the list-hop verdict for (element type, segment) has been computed.</summary>
     internal static int ListHopComputationsOf(Type elementType, string segment) =>
-        HopComputations.TryGetValue((elementType, segment), out var n) ? n : 0;
+        HopVerdicts.ComputationsOf((elementType, segment));
 
     static HopVerdict HopVerdictOf(Type et, string segName) =>
-        HopVerdicts.GetOrAdd((et, segName), key =>
+        HopVerdicts.GetOrAdd((et, segName), static key =>
         {
-            HopComputations.AddOrUpdate(key, 1, (_, n) => n + 1);
             var (t, seg) = key;
             var etName = RecordNaming.StripOverlay(t.Name);
             if (WriteEngine.ResolveProperty(t, seg) is not null) return new HopVerdict(true, etName, null);

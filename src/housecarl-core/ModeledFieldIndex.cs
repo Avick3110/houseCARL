@@ -14,14 +14,11 @@ public static class ModeledFieldIndex
     static readonly object Gate = new();
 
     /// <summary>Memoised per (corpus path, owner type, field name), so the nearest-name sweep does not run once per scanned record.</summary>
-    static readonly ConcurrentDictionary<(string, string, string), Verdict> Verdicts = new();
+    static readonly CountedMemo<(string, string, string), Verdict> Verdicts = new();
 
-    /// <summary>How many times each memo key's verdict has actually been computed.</summary>
-    static readonly ConcurrentDictionary<(string, string, string), int> Computations = new();
-
-    /// <summary>How many times the verdict for (corpus path, owner type, field name) has been computed.</summary>
-    internal static int ComputationsOf(string corpusPath, string ownerTypeName, string fieldName) =>
-        Computations.TryGetValue((corpusPath, ownerTypeName, fieldName), out var n) ? n : 0;
+    /// <summary>How many times the verdict for this owner type and field name has been computed, keyed on the corpus the index is built from now.</summary>
+    internal static int ComputationsOf(string ownerTypeName, string fieldName) =>
+        Index() is { } idx ? Verdicts.ComputationsOf((idx.Path, ownerTypeName, fieldName)) : 0;
 
     /// <summary>What the schema knows about <paramref name="fieldName"/> not resolving on <paramref name="ownerTypeName"/>; null when the corpus is absent or the catalog does not carry the owner.</summary>
     public static Verdict? Diagnose(string ownerTypeName, string fieldName)
@@ -32,18 +29,18 @@ public static class ModeledFieldIndex
         // The path comes from the snapshot, never a second read of the settable global.
         var key = (idx.Path, ownerTypeName, fieldName);
         // The memo answers before anything is allocated — a scan dead-ends on every record it crosses.
-        if (Verdicts.TryGetValue(key, out var memo)) return memo;
-        return Verdicts.GetOrAdd(key, k =>
+        // The factory is static, so nothing is captured and a hit allocates nothing.
+        return Verdicts.GetOrAdd(key, static (k, idx) =>
         {
-            Computations.AddOrUpdate(k, 1, (_, n) => n + 1);
-            var on = idx.ByField.TryGetValue(fieldName, out var types) ? types : Array.Empty<string>();
-            bool onOwner = on.Contains(ownerTypeName, StringComparer.Ordinal);
+            var (_, owner, field) = k;
+            var on = idx.ByField.TryGetValue(field, out var types) ? types : Array.Empty<string>();
+            bool onOwner = on.Contains(owner, StringComparer.Ordinal);
             var others = onOwner
-                ? on.Where(t => !string.Equals(t, ownerTypeName, StringComparison.Ordinal)).ToArray()
+                ? on.Where(t => !string.Equals(t, owner, StringComparison.Ordinal)).ToArray()
                 : on;
-            var (near, caseSlip) = onOwner ? default : NearestOn(idx.ByType, ownerTypeName, fieldName);
+            var (near, caseSlip) = onOwner ? default : NearestOn(idx.ByType, owner, field);
             return new Verdict(onOwner, others, near, caseSlip);
-        });
+        }, idx);
     }
 
     /// <summary>The owner type's own field a miss most likely meant, and whether it is the CASE-only slip — checked first and answered exactly, because field names are case-sensitive.</summary>

@@ -84,13 +84,14 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
 
     /// <summary>The verdict costs a schema lookup and a nearest-name sweep over the owner type's whole field list,
     /// and every record in a scan dead-ends the same way — so it is computed once per (corpus, owner type, name),
-    /// not once per scanned record. The name is unique to this test so the memo is cold when it runs.</summary>
+    /// not once per scanned record. The name is unique to this run so the memo is cold when it runs.</summary>
     [Fact]
     public void AScanComputesOneVerdictForTheWholeScan()
     {
-        int Computed() => HousecarlCore.ModeledFieldIndex.ComputationsOf(HousecarlCore.CorpusRulebook.CorpusPath, "Spell", "NoFieldMemoProbe");
+        var probe = "NoFieldMemoProbe" + Guid.NewGuid().ToString("N");
+        int Computed() => HousecarlCore.ModeledFieldIndex.ComputationsOf("Spell", probe);
         var before = Computed();
-        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, project: Fields("NoFieldMemoProbe"));
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, project: Fields(probe));
         Served(r, "a mistyped name");
         Assert.True(W.SpellBodies.Count > 1, "the scan must cross more than one record for this to say anything");
         Assert.Equal(1, Computed() - before);

@@ -169,14 +169,15 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
 
     /// <summary>The remedy is the same for every record the scan dead-ends on, and computing it costs a property
     /// resolve, the element type's whole field list and a nearest-name sweep — so it is computed once for the
-    /// (element type, segment) pair, not once per scanned record. The segment is unique to this test so the memo
+    /// (element type, segment) pair, not once per scanned record. The segment is unique to this run so the memo
     /// is cold when it runs.</summary>
     [Fact]
     public void AScanComputesOneListHopRemedyForTheWholeScan()
     {
-        int Computed() => HousecarlCore.ReadEngine.ListHopComputationsOf(typeof(Mutagen.Bethesda.Skyrim.IEffectGetter), "HopMemoProbe");
+        var probe = "HopMemoProbe" + Guid.NewGuid().ToString("N");
+        int Computed() => HousecarlCore.ReadEngine.ListHopComputationsOf(typeof(Mutagen.Bethesda.Skyrim.IEffectGetter), probe);
         var before = Computed();
-        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects.HopMemoProbe > 0" });
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { $"Effects.{probe} > 0" });
         Assert.Contains("is not a field on its element type", r);
         Assert.True(W.SpellBodies.Count > 1, "the scan must cross more than one record for this to say anything");
         Assert.Equal(1, Computed() - before);
