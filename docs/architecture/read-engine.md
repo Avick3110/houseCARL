@@ -1,6 +1,6 @@
 ---
 updated: 2026-09-26
-covers: [src/housecarl-core/ReadEngine.cs, src/housecarl-core/BodyGather.cs, src/housecarl-core/WinnerBodies.cs, src/housecarl-core/RecordLinks.cs, src/housecarl-core/RecordArms.cs, src/housecarl-core/RecordNaming.cs, src/housecarl-core/PathFold.cs, src/housecarl-core/PluginFile.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/RecordPoles.cs, src/housecarl-mcp/RecordWalk.cs, src/housecarl-mcp/RecordQuery.cs, src/housecarl-mcp/TreeFold.cs, src/housecarl-mcp/FieldFold.cs, src/housecarl-mcp/ReverseWalkBatch.cs, src/housecarl-mcp/ScanDetailReader.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/ScopeSplit.cs, src/housecarl-mcp/BodyPrefetch.cs, src/housecarl-mcp/PoleGather.cs, src/housecarl-core/FieldsDiff.cs]
+covers: [src/housecarl-core/ReadEngine.cs, src/housecarl-core/BodyGather.cs, src/housecarl-core/WinnerBodies.cs, src/housecarl-core/RecordLinks.cs, src/housecarl-core/RecordArms.cs, src/housecarl-core/RecordNaming.cs, src/housecarl-core/PathFold.cs, src/housecarl-core/PluginFile.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/RecordPoles.cs, src/housecarl-mcp/RecordWalk.cs, src/housecarl-mcp/RecordQuery.cs, src/housecarl-mcp/TreeFold.cs, src/housecarl-mcp/FieldFold.cs, src/housecarl-mcp/ReverseWalkBatch.cs, src/housecarl-mcp/ScanDetailReader.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/ScopeSplit.cs, src/housecarl-mcp/BodyPrefetch.cs, src/housecarl-mcp/PoleGather.cs, src/housecarl-mcp/PluginPaths.cs, src/housecarl-core/FieldsDiff.cs]
 ---
 # The read engine
 
@@ -101,6 +101,7 @@ What the class needs from outside itself is the members of `IReadHost`, declared
 SkyPatcher overlay pole reads through. The resolver, the type lookup and the corpus rulebook are `Resolver`,
 `Types` and `Rulebook` on the shared door. The members every area shares come through the door it extends,
 `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs` ([`load-order-service.md`](load-order-service.md)).
-Outside the interface it calls three statics of the head's output code in `OutputLocations.cs`,
-`LoadOrderService.LocatePluginFileOnDisk`, `LooksLikePath` and `SamePluginFile`, and names the head's
-`LoadOrderService.ViewPin` record.
+Outside the interface it calls one static of the head's output code, `LoadOrderService.LocatePluginFileOnDisk`
+in `OutputLocations.cs`, and names the head's `LoadOrderService.ViewPin` record. The path helpers it shares with
+the write and output lanes (`LooksLikePath`, `SamePluginFile`, `ActiveNameForPath`) are the static class
+`PluginPaths` in `src/housecarl-mcp/PluginPaths.cs`, which belongs to no area.

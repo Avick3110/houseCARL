@@ -777,8 +777,8 @@ public sealed partial class LoadOrderService
         Mo2Composition comp, IReadOnlyList<PluginFileHit> located, string fullPath)
     {
         var served = located.FirstOrDefault(h => h.Enabled);
-        if (served is not null && SamePluginFile(served.Path, fullPath)) return (ServedStanding.Serves, null);
-        var own = located.FirstOrDefault(h => SamePluginFile(h.Path, fullPath));
+        if (served is not null && PluginPaths.SamePluginFile(served.Path, fullPath)) return (ServedStanding.Serves, null);
+        var own = located.FirstOrDefault(h => PluginPaths.SamePluginFile(h.Path, fullPath));
         if (own is null) return (ServedStanding.NotAnInstallCopy, null);          // outside the install, or unreachable by string compare
         // Its own layer is ON but something else serves the name, and the useful pointer is the copy that WINS.
         if (own.Enabled) return (ServedStanding.Shadowed, served?.Where);
@@ -810,7 +810,7 @@ public sealed partial class LoadOrderService
         bool offerModParam = true)
     {
         // Every lane below returns the (served, tick) pair through the same two helpers, never its own way.
-        if (LooksLikePath(plugin))
+        if (PluginPaths.LooksLikePath(plugin))
         {
             if (!File.Exists(plugin))
                 return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, null, $"no file at path '{plugin}'.");
@@ -847,16 +847,6 @@ public sealed partial class LoadOrderService
         var (oneServed, oneDetail) = JudgeServed(comp, hits, hits[0].Path);
         // WhereNamesLayer: TRUE — Where IS the located hit's own label, folder and state both.
         return new(hits[0].Path, hits[0].Where, oneServed, JudgeTick(comp, Path.GetFileName(plugin)), oneDetail, true, null, null);
-    }
-
-    /// <summary>Does the user's `plugin` argument denote a PATH, used verbatim, rather than a bare filename located in the MO2 folders? True if rooted or carrying a directory separator.</summary>
-    internal static bool LooksLikePath(string s) => Path.IsPathRooted(s) || s.Contains('\\') || s.Contains('/');
-
-    /// <summary>Do two paths denote the same plugin file? A full-path compare, never a filename one, since a backup and the live copy share a name.</summary>
-    internal static bool SamePluginFile(string a, string b)
-    {
-        try { return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase); }
-        catch { return false; }
     }
 
     /// <summary>Is <paramref name="fullPath"/> inside any MO2 or game root? Used only to skip work, so the enabled/disabled classification stays with the shared locate and is never re-derived here.</summary>

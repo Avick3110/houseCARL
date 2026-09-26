@@ -451,21 +451,6 @@ internal sealed partial class RecordReads
 
     // ---- pairwise record diff --------------------------------------------------------------------------
 
-    /// <summary>If <paramref name="path"/> is the EXACT file the active order loads for its filename, the plugin name
-    /// the order knows it by; else null.</summary>
-    internal static string? ActiveNameForPath(LoadOrderResolver.IndexView view, string path)
-    {
-        string full;
-        try { full = Path.GetFullPath(path.Trim()); } catch { return null; }
-        var name = Path.GetFileName(full);
-        if (name.Length == 0 || !view.ContainsPlugin(name)) return null;
-        // An excluded plugin is still in the name table and the active lane can only refuse it; reading its file
-        // directly is the escape hatch, so a path to one must keep taking the off-order lane.
-        if (view.ExcludedPlugins.ContainsKey(name)) return null;
-        var active = view.PluginPath(name);
-        return !string.IsNullOrEmpty(active) && LoadOrderService.SamePluginFile(active, full) ? name : null;
-    }
-
     /// <summary>One side of a housecarl_diff_record comparison: the plugin named, WHERE its version was found,
     /// whether it is in the active order, and the record identity it carries.</summary>
     public sealed record DiffPole(string Plugin, string Where, bool InOrder, string? RecordType, string? EditorId)
@@ -588,10 +573,10 @@ internal sealed partial class RecordReads
     {
         // Judged on the argument as given: the rewrite below turns a path into a bare filename, which would flip
         // a path pole into the mod= lane.
-        bool namesMod = !string.IsNullOrWhiteSpace(mod) && !LoadOrderService.LooksLikePath(plugin);
+        bool namesMod = !string.IsNullOrWhiteSpace(mod) && !PluginPaths.LooksLikePath(plugin);
 
         // A pole addressed by path that IS the active order's file resolves back to its plugin name.
-        if (LoadOrderService.LooksLikePath(plugin) && ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
+        if (PluginPaths.LooksLikePath(plugin) && PluginPaths.ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
 
         bool activeFilename = view.ContainsPlugin(plugin);
         if (!namesMod && activeFilename)
