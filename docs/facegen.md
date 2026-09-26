@@ -81,7 +81,8 @@ in a different order, because the Creation Kit bakes from the values rather than
 
 **A clean pair whose record test could not run is counted apart, never counted clean.** When the facegen owner's mod
 ships no plugin that defines the NPC — a texture-only mod, overwrite, Data — there is no pole, and the header states
-the count. A test that did not run must not read as a test that passed.
+the count. When the owner's folder could not be listed at all, its plugins are unknown: those pairs are counted
+separately and the folder is named with the reason. A test that did not run must not read as a test that passed.
 
 **`family_split` is a name-based inference, not a verdict.** Two layers are called one product when one name is a
 boundary prefix of the other (at least six characters, and the next character is not alphanumeric), which is all the

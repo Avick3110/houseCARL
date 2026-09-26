@@ -296,7 +296,8 @@ static class CheckTextRender
             sb.Append(OrderDegraded.Sentence(o.OrderExcluded)).Append('\n');
         // WHICH loose roots the asset build could not read, at the response root because ONE build feeds every
         // family that hedges on it; bounded and counted by the shared renderer.
-        sb.Append(BatchRender.RootFailureLines(o.RootFailures, cap));
+        foreach (var (list, cut) in o.RootCaveats(cap))
+            sb.Append(BatchRender.CaveatLines(list, cut, ""));
 
         // The excluded-plugin roster goes ABOVE the family sections, where each family's accounting can see its rows, and is a response-level participant in the allocation taking its share of the row budget.
         AppendExcludedPlugins(sb, body, o.ExcludedPlugins);
