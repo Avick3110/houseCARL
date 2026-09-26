@@ -95,7 +95,14 @@ public sealed class ErrorsCheckPinTests : IDisposable
         File.WriteAllText(_ini, ini);
         _mover = new Thread(() => _svc.CaptureView());
         _mover.Start();
-        _mover.Join(TimeSpan.FromSeconds(1));
+        // Until the call is blocked (its first wait is the hold) or done; a re-derive that holds the hold makes the
+        // roots capture wait for it, so neither shape needs a fixed wait.
+        var cap = System.Diagnostics.Stopwatch.StartNew();
+        while ((_mover.ThreadState & (ThreadState.WaitSleepJoin | ThreadState.Stopped)) == 0)
+        {
+            if (cap.Elapsed > TimeSpan.FromSeconds(60)) throw new TimeoutException("the other call neither blocked nor finished");
+            Thread.Sleep(1);
+        }
     }
 
     ErrorCheckResult SweepWithMoveAfterPin(IReadOnlyList<string>? plugins)
