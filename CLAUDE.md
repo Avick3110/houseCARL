@@ -38,11 +38,12 @@ Code comments call the first two of these the cornerstones. A design question th
 | `src/housecarl-mcp/LoadOrderHost.cs` | The shared head door every area interface extends |
 | `src/housecarl-mcp/AssetLayers.cs` | The assets area: asset status, the SKSE layer, NIF, the SkyPatcher layer scan, place; its own class, `AssetLayers(IAssetHost)` |
 | `src/housecarl-mcp/SkyPatcherReplay.cs` | The SkyPatcher replay and the one door that opens its context |
-| `src/housecarl-mcp/RecordReads.cs` | Read, resolve, query, type lookup |
+| `src/housecarl-mcp/RecordReads.cs` | The reads area: resolve, batch, poles, walk, cross query, info order; its own class, `RecordReads(IReadHost)`, across this file and `RecordPoles.cs`, `RecordWalk.cs`, `RecordQuery.cs` and `TreeFold.cs` |
 | `src/housecarl-mcp/RecordChecks.cs` | The checks area: the errors, scripts, facegen and dialogue sweeps; its own class, `RecordChecks(ICheckHost)` |
 | `src/housecarl-mcp/RecordWrites.cs` | The write lanes |
 | `src/housecarl-mcp/OutputLocations.cs` | Output folders, plugin locate, `.seq` |
 | `src/housecarl-mcp/ServiceResults.cs` | The result records and enums those lanes return |
+| `src/housecarl-mcp/TypeLookup.cs` | Shared: the type lookup (`type=` string to getter types), one per service, held by the head as `Types` |
 | `src/housecarl-core/` | Record, asset, read, and write engines; the load-order resolver |
 | `src/housecarl-generator/` | Build-time schema generator; also the probe runner (`ci-all`) |
 | `src/housecarl-mcp-tests/` | xUnit tests against the built server |
