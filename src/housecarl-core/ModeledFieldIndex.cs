@@ -83,7 +83,6 @@ public static class ModeledFieldIndex
             var snap = new Snapshot(path, built, byType);
             _cache = snap;
             Verdicts.Clear();   // verdicts carry their corpus in the key; dropping the old one's keeps the memo bounded
-            Computations.Clear();
             return snap;
         }
     }
