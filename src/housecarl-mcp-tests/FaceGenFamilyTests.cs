@@ -285,8 +285,17 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
         Assert.Contains("1 because the owner's folder could not be listed", text, StringComparison.Ordinal);
 
         using var manifest = JsonDocument.Parse(File.ReadAllLines(path)[0]);
-        Assert.Contains(manifest.RootElement.GetProperty("notes").EnumerateArray(),
-                        n => n.GetString()!.Contains("1 because the owner's folder could not be listed", StringComparison.Ordinal));
+        var note = Assert.Single(manifest.RootElement.GetProperty("notes").EnumerateArray(),
+                                 n => n.GetString()!.StartsWith("facegen:", StringComparison.Ordinal)).GetString()!;
+        Assert.Contains("1 because the owner's folder could not be listed", note, StringComparison.Ordinal);
+        Assert.DoesNotContain("root read failures", note, StringComparison.Ordinal);   // the file carries no such list
+
+        using var doc = JsonDocument.Parse(CheckTools.CheckTool(
+            _w.Svc, findings: new[] { "facegen" }, format: "json", to_file: path, max_chars: 60000));
+        Assert.Contains(doc.RootElement.GetProperty("root_read_failures").EnumerateArray(),
+                        e => e.GetString()!.StartsWith(FaceGenWorld.UnlistedMod + ":", StringComparison.Ordinal));
+        Assert.Contains("1 because the owner's folder could not be listed",
+                        doc.RootElement.GetProperty("facegen_untested").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -297,6 +306,53 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
         Assert.Contains("only on an UNSCOPED sweep", scoped, StringComparison.Ordinal);
         Assert.DoesNotContain("00099999.nif", scoped, StringComparison.Ordinal);
         Assert.Contains("'HcFgStale'", scoped, StringComparison.Ordinal);
+    }
+}
+
+/// <summary>The <c>to_file=</c> render's root-failure lines and untested-pair note, on a staged result.</summary>
+[Trait("tier", "unit")]
+public sealed class FaceGenToFileRenderTests : IDisposable
+{
+    readonly string _dir = Path.Combine(Path.GetTempPath(), "hc-facegen-tofile-" + Guid.NewGuid().ToString("N"));
+    public FaceGenToFileRenderTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() { try { Directory.Delete(_dir, recursive: true); } catch (IOException) { } }
+
+    static FaceGenCheckResult Result(IReadOnlyList<string> roots, int unreadable) =>
+        new(Array.Empty<FaceGenFinding>(), 0, 0, 0, 0, 0, null, null, false,
+            new Dictionary<string, string>(), null, WholeOrder: true, RootFailures: roots,
+            NoComparisonPoleUnreadable: unreadable);
+
+    (string Text, JsonDocument Json) Render(FaceGenCheckResult r, int cap)
+    {
+        var sweep = new CheckSweep(CheckErrorsFixtures.Sel("facegen"), FaceGen: r);
+        var (spill, err) = CheckArtifact.Write(sweep, Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".jsonl"),
+                                               Array.Empty<KeyValuePair<string, string>>());
+        Assert.Null(err);
+        return (CheckArtifact.RenderManifestOnly(sweep, spill!, json: false, cap),
+                JsonDocument.Parse(CheckArtifact.RenderManifestOnly(sweep, spill!, json: true, cap)));
+    }
+
+    [Fact]
+    public void ALongRootFailureListIsCutToTheCapWithACountedMarkerInBothTransports()
+    {
+        var roots = Enumerable.Range(0, 40).Select(i => $"Mod{i:D2}: could not read '\\' — Access to the path is denied.").ToList();
+        var (text, json) = Render(Result(roots, 40), 2000);
+        using (json)
+        {
+            Assert.Contains("of 40 loose root read failure(s)", text, StringComparison.Ordinal);
+            Assert.True(json.RootElement.GetProperty("root_read_failures_omitted").GetInt32() > 0);
+        }
+    }
+
+    [Fact]
+    public void WithNoRootFailuresAndNoUntestedPairsTheJsonCarriesNeitherKey()
+    {
+        var (_, json) = Render(Result(Array.Empty<string>(), 0), 60000);
+        using (json)
+        {
+            Assert.False(json.RootElement.TryGetProperty("root_read_failures", out _));
+            Assert.False(json.RootElement.TryGetProperty("facegen_untested", out _));
+        }
     }
 }
 

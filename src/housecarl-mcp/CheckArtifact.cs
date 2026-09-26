@@ -136,7 +136,7 @@ internal static class CheckArtifact
             + "formids=[\"@<path>\"].",
         };
         if (s.Dialogue?.Folded is { } folded) notes.Add("PROJECTION — " + folded.Trim());
-        if (s.FaceGen is { Error: null } fg && FaceGenSweepRender.UntestedNote(fg) is { } untested) notes.Add("facegen: " + untested);
+        if (s.FaceGen is { Error: null } fg && FaceGenSweepRender.UntestedNote(fg, namesRoots: false) is { } untested) notes.Add("facegen: " + untested);
         return notes;
     }
 

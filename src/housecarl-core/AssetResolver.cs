@@ -620,16 +620,35 @@ public sealed class AssetResolver : IDisposable
         }
     }
 
-    /// <summary>One loose root's top-level files through the same listing the warm uses; empty for a name that is no loose root.</summary>
+    /// <summary>One loose root's top-level files, not a warm listing; empty when absent or no root, null (and named) when it would not list.</summary>
     IReadOnlyCollection<string>? LooseRootFiles(string rootName, Snapshot snap)
     {
-        foreach (var (name, dir) in _looseRoots)
-            if (string.Equals(name, rootName, StringComparison.OrdinalIgnoreCase))
-            {
-                var (_, files, provedAbsent) = SafeListing(dir, name, dir, "", snap);
-                return files is not null ? files : provedAbsent ? Array.Empty<string>() : null;
-            }
-        return Array.Empty<string>();
+        var at = RootIndex(rootName);
+        if (at < 0) return Array.Empty<string>();                     // no loose root by that name, so nothing ships there
+        var (name, dir) = _looseRoots[at];
+        try
+        {
+            if (Directory.Exists(dir)) return new DirectoryInfo(dir).EnumerateFiles().Select(f => f.Name).ToList();
+            if (WalkProvesAbsent(dir, dir, Directory.Exists, FreshNames)) return Array.Empty<string>();
+            RecordRootFailure(name, "", snap);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            RecordRootFailure(name, "", "read", ex, snap);
+            return null;
+        }
+    }
+
+    /// <summary>Where one root name sits in <see cref="_looseRoots"/>: overwrite and Data by position, so a mod folder named either cannot shadow them.</summary>
+    int RootIndex(string rootName)
+    {
+        bool hasOverwrite = _overwriteDir.Length > 0, hasData = _dataDir.Length > 0;
+        if (rootName.Equals(OverwriteLayerName, StringComparison.OrdinalIgnoreCase)) return hasOverwrite ? 0 : -1;
+        if (rootName.Equals(DataLayerName, StringComparison.OrdinalIgnoreCase)) return hasData ? _looseRoots.Count - 1 : -1;
+        for (int i = hasOverwrite ? 1 : 0; i < _looseRoots.Count - (hasData ? 1 : 0); i++)
+            if (_looseRoots[i].Name.Equals(rootName, StringComparison.OrdinalIgnoreCase)) return i;
+        return -1;
     }
 
     /// <summary>Is a directory Directory.Exists calls absent really absent? On Windows it answers "not there" for a
