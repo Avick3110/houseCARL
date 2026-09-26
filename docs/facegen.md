@@ -31,8 +31,9 @@ calls — `housecarl_records types=["NPC_"] to_file=<file>` for the identity set
 over the order; `housecarl_check findings=["facegen"]` is what adds the record winner and the classes below — and
 what drops the two populations named at the end of this page. `formids=` reads no record, so it applies neither
 exclusion: every templated follower and every horse, dragon and draugr shell in the list comes back as two rows
-with no provider. A row count off the artifact is therefore not a finding count, and the artifact's
-`pair_exists=false` total will not match `check`'s `bake_absent`.
+with no provider. Nor does it know the two kinds `check` puts in `never_baked` rather than `bake_absent` (the
+Player and CharGen presets; below). A row count off the artifact is therefore not a finding count, and the
+artifact's `pair_exists=false` total will not match `check`'s `bake_absent`.
 
 `pair_differs` is decided on the winners' owning **mods** (`winner_mod` / `pair_winner_mod`), not on their
 provider names (`winner` / `pair_winner`, which for a BSA is the archive's own filename). Vanilla ships every
@@ -56,11 +57,24 @@ findings=["facegen"]`'s job, using the table below.
 | `family_split` | Both halves win, from two mods of one product or a repack of its own archive. Benign by default; a few carry real risk. | Usually nothing. Verify only if that NPC renders wrong. |
 | `foreign_index` | A same-local-id file in the same folder carrying a different load-order index byte — a bake keyed to somebody else's order. | Rename it to the canonical `00`-prefixed name, or re-bake. |
 | `inert` | The key resolves to a placed reference, to no record at all, to a plugin not in the order, or the filename is malformed. | Nothing. No actor reads that path. |
+| `never_baked` | Neither half anywhere, for the Player or a CharGen preset, which the Creation Kit never bakes. Counted, listed only under its own token. | Usually nothing. If it is placed and renders dark, bake it (Ctrl+F4). |
 
 Two exclusions the check applies silently in the counts and never as a fault. An NPC whose `Template` is set with
 the `Traits` flag inherits its appearance and has no bake of its own — recompute the path against the template's
 FormID if you need it. An NPC whose race lacks the `FaceGenHead` flag (a horse, a dragon, a draugr shell) has no
 baked head at all.
+
+The Creation Kit never bakes four kinds of NPC (measured on the vanilla masters, 2026-09-26): a Traits-templated
+NPC, one on a race without `FaceGenHead`, a CharGen face preset (the `IsCharGenFacePreset` flag in `ACBS`; 0 of 201
+baked), and the Player (`000007:Skyrim.esm`). The first two are the exclusions above. A preset or the Player with
+neither half on disk is `never_baked`, not `bake_absent`: counted in the header, listed only when named, like
+`family_split`, and carried in every `to_file=` artifact. A preset duplicated into a placed follower and never baked
+lands there too, so list the class when auditing followers. An NPC with no head parts (`PNAM`) is not on that list:
+the CK bakes it from the race's default head (146 of the 178 vanilla ones that also lack face data are baked), and a
+placed one without a bake shows dark. It reports `bake_absent`. When it also has no `FaceMorph`, `FaceParts` or
+`TintLayers`, the row says so and asks whether it is placed, because the unbaked vanilla ones are voice and dummy
+actors (`InvisibleNPC`, the `VoiceType*` speakers). Any NPC of these kinds with a half on disk classifies like every
+other NPC.
 
 ## What the sweep covers, and what it will not claim
 

@@ -56,7 +56,7 @@ public sealed class SweepFamilySelection
     public ScriptFindingClass ScriptClasses { get; }
 
     /// <summary>Which facegen classes the facegen family reports; under <see cref="FaceGenFindingClass.All"/> the
-    /// benign <c>family_split</c> class is counted in the header but not listed.</summary>
+    /// <c>family_split</c> and <c>never_baked</c> classes are counted in the header but not listed.</summary>
     public FaceGenFindingClass FaceGenClasses { get; }
 
     /// <summary><c>findings=</c> was omitted, so <see cref="Ran"/> is the default rather than a caller's choice.</summary>

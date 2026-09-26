@@ -46,9 +46,10 @@ public static class FaceGenCheck
         var byClass = new Dictionary<string, int>(StringComparer.Ordinal);
         var byMod = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         int totalFound = 0, npcsScanned = 0, templated = 0, noPole = 0, noPoleUnreadable = 0, noFaceGenRace = 0, raceUnresolved = 0;
-        int excludedFromScope = 0;
+        int excludedFromScope = 0, charGenPreset = 0, player = 0;
         var raceMemo = new Dictionary<FormKey, bool?>();
         bool listFamilySplit = classes != FaceGenFindingClass.All && classes.HasFlag(FaceGenFindingClass.FamilySplit);
+        bool listNeverBaked = classes != FaceGenFindingClass.All && classes.HasFlag(FaceGenFindingClass.NeverBaked);
 
         // The scope's plugin targets. An off-order file is swept as its own overlay, as the errors family does it.
         var targets = new List<string>();
@@ -283,7 +284,8 @@ public static class FaceGenCheck
                                       offOrderScanned, filterNote, classes, view.Epoch, limit, scanError,
                                       assets.ReadIncomplete, wholeOrder, noFaceGenRace, raceUnresolved, withheld,
                                       assets.RootFailures, NoComparisonPoleUnreadable: noPoleUnreadable,
-                                      ArchiveFailures: assets.BsaFailures);
+                                      ArchiveFailures: assets.BsaFailures,
+                                      NeverBakedCharGenPreset: charGenPreset, NeverBakedPlayer: player);
 
         // ---- the per-NPC join ---------------------------------------------------------------------
         void Classify(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile)
@@ -314,7 +316,22 @@ public static class FaceGenCheck
             }
             else if (mesh is not null) cls = FaceGenFindingClass.TintAbsent;
             else if (tint is not null) cls = FaceGenFindingClass.MeshAbsent;
-            else cls = FaceGenFindingClass.BakeAbsent;
+            else if (NeverBakedKind(fk, body) is { } kind)
+            {
+                // No bake is expected for this NPC: its own class, withheld by default like family_split.
+                cls = FaceGenFindingClass.NeverBaked;
+                detail = kind;
+                if (classes.HasFlag(cls))
+                {
+                    if (kind == KindPlayer) player++;
+                    else charGenPreset++;
+                }
+            }
+            else
+            {
+                cls = FaceGenFindingClass.BakeAbsent;
+                if (body is INpcGetter n && NoHeadOrFaceData(n)) detail = NoHeadHint;
+            }
 
             Add(new FaceGenFinding(fk.ToString(), body.EditorID, master,
                                    winnerPlugin + (offOrderFile ? " (off-order)" : ""),
@@ -409,9 +426,10 @@ public static class FaceGenCheck
             totalFound++;
             byClass[f.Class] = byClass.GetValueOrDefault(f.Class) + 1;
             if (f.OwningMod is { Length: > 0 } m) byMod[m] = byMod.GetValueOrDefault(m) + 1;
-            // The benign class is COUNTED in the header and LISTED only when the caller named it; held aside rather
+            // The withheld classes are COUNTED in the header and LISTED only when the caller named them; held aside rather
             // than dropped, so a to_file= artifact still carries every class (docs/facegen.md).
-            if (cls == FaceGenFindingClass.FamilySplit && !listFamilySplit)
+            if ((cls == FaceGenFindingClass.FamilySplit && !listFamilySplit)
+                || (cls == FaceGenFindingClass.NeverBaked && !listNeverBaked))
             {
                 if (!countsOnly && withheld.Count < limit) withheld.Add(f);
                 return;
@@ -420,6 +438,25 @@ public static class FaceGenCheck
             findings.Add(f);
         }
     }
+
+    /// <summary>The Player's base record, whose face is built at runtime.</summary>
+    public static readonly FormKey PlayerFormKey = new(new ModKey("Skyrim", ModType.Master), 0x7);
+
+    const string KindPlayer = "the Player, whose face is built at runtime";
+    const string KindPreset = "a CharGen face preset (IsCharGenFacePreset) with no bake";
+    const string NoHeadHint = "no head parts and no face data; usually a voice or dummy actor, check whether it is placed";
+
+    /// <summary>Which kind of NPC with no bake on disk is one that never gets one, or null for a real missing bake.</summary>
+    static string? NeverBakedKind(FormKey fk, IMajorRecordGetter body)
+    {
+        if (fk == PlayerFormKey) return KindPlayer;
+        if (body is not INpcGetter n) return null;
+        return n.Configuration.Flags.HasFlag(NpcConfiguration.Flag.IsCharGenFacePreset) ? KindPreset : null;
+    }
+
+    /// <summary>No head parts and none of FaceMorph, FaceParts, TintLayers: the shape of a voice or dummy actor, though the CK bakes most such NPCs.</summary>
+    static bool NoHeadOrFaceData(INpcGetter n)
+        => n.HeadParts.Count == 0 && n.FaceMorph is null && n.FaceParts is null && n.TintLayers.Count == 0;
 
     /// <summary>Does this NPC inherit its appearance rather than carry a bake of its own? Excluded from the population, never reported as a missing bake.</summary>
     public static bool InheritsAppearance(INpcGetter npc)
@@ -449,6 +486,7 @@ public static class FaceGenCheck
         FaceGenFindingClass.FamilySplit => "family_split",
         FaceGenFindingClass.ForeignIndex => "foreign_index",
         FaceGenFindingClass.Inert => "inert",
+        FaceGenFindingClass.NeverBaked => "never_baked",
         _ => c.ToString().ToLowerInvariant(),
     };
 
@@ -466,7 +504,7 @@ public static class FaceGenCheck
     {
         FaceGenFindingClass.TintAbsent, FaceGenFindingClass.MeshAbsent, FaceGenFindingClass.BakeAbsent,
         FaceGenFindingClass.SplitBake, FaceGenFindingClass.StaleBake, FaceGenFindingClass.FamilySplit,
-        FaceGenFindingClass.ForeignIndex, FaceGenFindingClass.Inert,
+        FaceGenFindingClass.ForeignIndex, FaceGenFindingClass.Inert, FaceGenFindingClass.NeverBaked,
     };
 
     /// <summary>One fix sentence per class — what to DO about a row, in the row itself.</summary>
@@ -480,6 +518,7 @@ public static class FaceGenCheck
         FaceGenFindingClass.FamilySplit => "Usually benign — one product's two halves. Verify only if this NPC renders wrong.",
         FaceGenFindingClass.ForeignIndex => "The bake is keyed to another load order's index byte — rename it to the canonical 00-prefixed name, or re-bake.",
         FaceGenFindingClass.Inert => "Not a face bug — no actor reads this path.",
+        FaceGenFindingClass.NeverBaked => "No bake expected; if this NPC is placed and shows a dark face, bake it in the Creation Kit (Ctrl+F4).",
         _ => "",
     };
 
@@ -496,7 +535,7 @@ public static class FaceGenCheck
 /// and the MO2 layer it lives in — the layer being what decides whether two halves are one bake.</summary>
 public sealed record FaceGenHalf(string Provider, AssetKind Kind, string Layer);
 
-/// <summary>The facegen family's finding classes; <see cref="FamilySplit"/> is benign and listed only under its own token (docs/facegen.md).</summary>
+/// <summary>The facegen family's finding classes; <see cref="FamilySplit"/> and <see cref="NeverBaked"/> are listed only under their own tokens (docs/facegen.md).</summary>
 [Flags]
 public enum FaceGenFindingClass
 {
@@ -517,7 +556,9 @@ public enum FaceGenFindingClass
     ForeignIndex = 64,
     /// <summary>The key resolves to a placed reference, to no record, to a plugin not in this order, or the filename is malformed.</summary>
     Inert = 128,
-    All = TintAbsent | MeshAbsent | BakeAbsent | SplitBake | StaleBake | FamilySplit | ForeignIndex | Inert,
+    /// <summary>No half on disk, for the Player or a CharGen preset, which the CK never bakes. Listed only under its own token.</summary>
+    NeverBaked = 256,
+    All = TintAbsent | MeshAbsent | BakeAbsent | SplitBake | StaleBake | FamilySplit | ForeignIndex | Inert | NeverBaked,
 }
 
 /// <summary>One row: one NPC (or one orphaned file), the three winners that decide its face, and the class the join puts it in.</summary>
@@ -550,11 +591,13 @@ public sealed record FaceGenCheckResult(
     bool WholeOrder = false,
     int NpcsNoFaceGenRace = 0,
     int NpcsRaceUnresolved = 0,
-    IReadOnlyList<FaceGenFinding>? WithheldBenign = null,
+    IReadOnlyList<FaceGenFinding>? Withheld = null,   // the family_split and never_baked rows held out of the listing
     IReadOnlyList<string>? RootFailures = null,   // the loose roots this build could not walk or list, each named with the reason; null or empty when every root read
     int NoComparisonPoleUnreadable = 0,            // clean pairs untested because the owner's folder could not be listed, kept apart from NoComparisonPole
     IReadOnlyList<string>? AssetWarnings = null,  // the asset build's own warnings (an archive list not found, a kept profile), set by the host on a sweep that ran; null or empty when it had none
-    IReadOnlyList<string>? ArchiveFailures = null) // the archives this build could not open, each named with the reason, set on a sweep that ran; null or empty when every archive read
+    IReadOnlyList<string>? ArchiveFailures = null, // the archives this build could not open, each named with the reason, set on a sweep that ran; null or empty when every archive read
+    int NeverBakedCharGenPreset = 0,   // the 'never_baked' rows by kind
+    int NeverBakedPlayer = 0)
 {
     public bool Success => Error is null;
 
@@ -563,11 +606,15 @@ public sealed record FaceGenCheckResult(
     public bool FamilySplitListed
         => Classes != FaceGenFindingClass.All && Classes.HasFlag(FaceGenFindingClass.FamilySplit);
 
-    /// <summary>How many findings were ELIGIBLE for the listing, so a withheld benign row cannot make a complete listing claim the budget ran out.</summary>
+    /// <summary>Whether this sweep LISTS its 'never_baked' rows rather than counting and withholding them.</summary>
+    public bool NeverBakedListed
+        => Classes != FaceGenFindingClass.All && Classes.HasFlag(FaceGenFindingClass.NeverBaked);
+
+    /// <summary>How many findings were ELIGIBLE for the listing, so a withheld row cannot make a complete listing claim the budget ran out.</summary>
     public int ListableFound
-        => FamilySplitListed
-           ? TotalFound                                              // the caller named the benign class: it is listed
-           : TotalFound - CountOf(FaceGenFindingClass.FamilySplit);
+        => TotalFound
+           - (FamilySplitListed ? 0 : CountOf(FaceGenFindingClass.FamilySplit))
+           - (NeverBakedListed ? 0 : CountOf(FaceGenFindingClass.NeverBaked));
 
     /// <summary>How many findings of one class this sweep FOUND (never the capped listing's count).</summary>
     public int CountOf(FaceGenFindingClass c)

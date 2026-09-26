@@ -76,7 +76,7 @@ public static class CheckTools
              "'errors', 'scripts', 'dialogue', 'facegen'. Classes inside them: 'dangling', 'missing_masters' (errors); " +
              "'unbound_object' (HIGH — the silent-None footgun), 'unbound_scalar' (MEDIUM), 'unbound' (both), " +
              "'bound_null' (advisory) (scripts); 'tint_absent', 'mesh_absent', 'bake_absent', 'split_bake', " +
-             "'stale_bake', 'family_split', 'foreign_index', 'inert' (facegen). The DIALOGUE family has no class token — it narrows by seeds=, " +
+             "'stale_bake', 'family_split', 'foreign_index', 'inert', 'never_baked' (facegen). The DIALOGUE family has no class token — it narrows by seeds=, " +
              "which it requires. A family token means every class in it; a class token runs its family narrowed to " +
              "that class; naming several runs each. DEFAULT (omitted) = the ERRORS family alone, and the response " +
              "STATES which families ran, which registered families did not, and the exact findings= spelling that " +
@@ -146,7 +146,8 @@ public static class CheckTools
              "BENIGN, counted in the header and listed only under its own class token), 'foreign_index' (a " +
              "same-local-id file carrying a different load-order index byte, inferred from the file itself), " +
              "'inert' (the key resolves to a placed reference, to no record, to a plugin not in the order, or the " +
-             "filename is malformed - named and dropped, not a face bug). POPULATION is the UNION: every NPC_ in " +
+             "filename is malformed - named and dropped, not a face bug), 'never_baked' (neither half, for the Player or a CharGen preset, " +
+             "which the Creation Kit never bakes; counted in the header and listed only under its own class token). POPULATION is the UNION: every NPC_ in " +
              "scope that needs a bake, plus every facegen file on disk whose key resolves to nothing. An NPC whose " +
              "Template carries the Traits flag inherits its appearance and has no bake of its own - it is EXCLUDED " +
              "and counted, never flagged. The file half (inert/foreign_index) is reported only on an UNSCOPED " +

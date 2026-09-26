@@ -11,7 +11,7 @@ internal static class FaceGenSweepRender
     // ---- text ---------------------------------------------------------------------------------------
 
     /// <summary>The family's head: what it swept, what it excluded, and what it found by class. The two things this
-    /// family does not claim — the withheld benign class and the untestable clean pairs — are stated here.</summary>
+    /// family does not claim — the withheld classes and the untestable clean pairs — are stated here.</summary>
     internal static void AppendHead(StringBuilder sb, FaceGenCheckResult r)
     {
         sb.Append("scanned ").Append(r.NpcsScanned).Append(r.NpcsScanned == 1 ? " NPC · " : " NPCs · ")
@@ -43,6 +43,12 @@ internal static class FaceGenSweepRender
             sb.Append("note: 'family_split' is a NAME-BASED inference (one product's two halves, or a repack of its "
                     + "own archive), not a verdict — a few carry real risk.\n");
         if (UntestedNote(r) is { } untested) sb.Append("note: ").Append(untested).Append('\n');
+        int neverBaked = r.CountOf(FaceGenFindingClass.NeverBaked);
+        if (neverBaked > 0 && !r.NeverBakedListed)
+            sb.Append("note: ").Append(neverBaked).Append(" 'never_baked' row(s) counted above are NOT listed (")
+              .Append(r.NeverBakedCharGenPreset).Append(" CharGen face preset(s), ")
+              .Append(r.NeverBakedPlayer).Append(" Player) — no bake is expected for them; ")
+              .Append("ask for them with findings=[\"never_baked\"].\n");
         if (r.ScanError is not null)
             sb.Append("[SCAN ERROR] ").Append(r.ScanError).Append('\n');
         if (r.ReadIncomplete)
@@ -117,12 +123,15 @@ internal static class FaceGenSweepRender
         w.WriteNumber("npcs_excluded_templated", r.NpcsTemplated);
         w.WriteNumber("npcs_excluded_no_facegen_race", r.NpcsNoFaceGenRace);
         w.WriteNumber("npcs_excluded_race_unresolved", r.NpcsRaceUnresolved);
+        w.WriteNumber("never_baked_chargen_preset", r.NeverBakedCharGenPreset);
+        w.WriteNumber("never_baked_player", r.NeverBakedPlayer);
         w.WriteNumber("facegen_files_on_disk", r.FilesSeen);
         w.WriteNumber("findings_found", r.TotalFound);
         w.WriteNumber("clean_pairs_without_comparison_pole", r.NoComparisonPole);
         w.WriteNumber("clean_pairs_owner_folder_unreadable", r.NoComparisonPoleUnreadable);
         w.WriteBoolean("whole_order", r.WholeOrder);
         w.WriteBoolean("family_split_listed", r.FamilySplitListed);
+        w.WriteBoolean("never_baked_listed", r.NeverBakedListed);
         if (r.Epoch is not null) w.WriteString("epoch", r.Epoch);
         if (r.FilterNote is not null) w.WriteString("narrowed", r.FilterNote);
         if (r.ScanError is not null) w.WriteString("scan_error", r.ScanError);

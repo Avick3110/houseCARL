@@ -27,6 +27,12 @@ namespace HousecarlMcpTests;
 /// <item><c>NoPlugin</c> — a clean pair in <c>FgBakesOnly</c>, which ships no plugin: untested for a stale bake.</item>
 /// <item><c>Unlisted</c> — a clean pair in <c>FgUnlisted</c>, whose folder denies LISTING (not traverse), so the
 ///   bake resolves but the folder's plugins cannot be read: untested for a different reason.</item>
+/// <item><c>CharGenPreset</c> and the Player (<c>000007:Skyrim.esm</c>, in a second master) — no files anywhere:
+///   <c>never_baked</c>. Every other NPC carries one head part unless named here.</item>
+/// <item><c>NoHeadParts</c> — no head parts or face data, no files: <c>bake_absent</c> with the dummy-actor hint.</item>
+/// <item><c>NoHeadPartsFaceData</c> — no head parts but a FaceMorph, and no files: <c>bake_absent</c>, no hint.</item>
+/// <item><c>CharGenPresetBaked</c> / <c>NoHeadPartsBaked</c> — the same two kinds with a mesh on disk and no tint:
+///   still <c>tint_absent</c>.</item>
 /// </list>
 ///
 /// <para>Plus four files that belong to no NPC: one for a FormID nothing defines, one under a folder named for a
@@ -46,6 +52,8 @@ public sealed class FaceGenWorld : IDisposable
     public const string OverhaulMod = "FgOverhaul";
     public const string BakesOnlyMod = "FgBakesOnly";
     public const string UnlistedMod = "FgUnlisted";
+    public const string VanillaName = "Skyrim.esm";
+    public const string VanillaMod = "FgVanilla";
 
     /// <summary>Whether the listing deny on <see cref="UnlistedMod"/> bit on this host; false off Windows.</summary>
     public bool UnlistedStaged { get; }
@@ -63,7 +71,8 @@ public sealed class FaceGenWorld : IDisposable
 
     /// <param name="degradedAssets">an empty base-archive list (a discovery warning) and four unreadable archives
     /// paired with the two plugins (read failures); for a test that builds its own instance.</param>
-    internal FaceGenWorld(bool degradedAssets)
+    /// <param name="playerBaked">Give the Player a mesh on disk and no tint, so it classifies as tint_absent.</param>
+    internal FaceGenWorld(bool degradedAssets = false, bool playerBaked = false)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-facegen-world-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
@@ -75,7 +84,8 @@ public sealed class FaceGenWorld : IDisposable
         var overhaulDir = Path.Combine(mods, OverhaulMod);
         var bakesOnlyDir = Path.Combine(mods, BakesOnlyMod);
         _unlistedDir = Path.Combine(mods, UnlistedMod);
-        foreach (var d in new[] { profile, baseDir, updateDir, otherDir, overhaulDir, bakesOnlyDir, _unlistedDir,
+        var vanillaDir = Path.Combine(mods, VanillaMod);
+        foreach (var d in new[] { profile, baseDir, updateDir, otherDir, overhaulDir, bakesOnlyDir, _unlistedDir, vanillaDir,
                                   Path.Combine(Root, "game", "Data") })
             Directory.CreateDirectory(d);
 
@@ -91,6 +101,8 @@ public sealed class FaceGenWorld : IDisposable
         var beastRace = master.Races.AddNew();
         beastRace.EditorID = "HcFgBeastRace";
         beastRace.Flags = Race.Flag.Walks;                               // no FaceGenHead: no bake of any kind
+        var head = master.HeadParts.AddNew();
+        head.EditorID = "HcFgHead";
 
         var keys = new Dictionary<string, FormKey>(StringComparer.Ordinal);
         Npc Add(string editorId, IRaceGetter race)
@@ -98,6 +110,7 @@ public sealed class FaceGenWorld : IDisposable
             var n = master.Npcs.AddNew();
             n.EditorID = editorId;
             n.Race.SetTo(race);
+            n.HeadParts.Add(head);
             n.TextureLighting = System.Drawing.Color.FromArgb(0, 10, 20, 30);
             keys[editorId] = n.FormKey;
             return n;
@@ -117,6 +130,28 @@ public sealed class FaceGenWorld : IDisposable
         var templated = Add("HcFgTemplated", manRace);
         templated.Template.SetTo(templateTarget);
         templated.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+        Add("HcFgCharGenPreset", manRace).Configuration.Flags |= NpcConfiguration.Flag.IsCharGenFacePreset;
+        Add("HcFgNoHeadParts", manRace).HeadParts.Clear();
+        Add("HcFgCharGenPresetBaked", manRace).Configuration.Flags |= NpcConfiguration.Flag.IsCharGenFacePreset;
+        Add("HcFgNoHeadPartsBaked", manRace).HeadParts.Clear();
+        var faceData = Add("HcFgNoHeadPartsFaceData", manRace);
+        faceData.HeadParts.Clear();
+        faceData.FaceMorph = new NpcFaceMorph { NoseLongVsShort = 0.5f };
+
+        // The Player at its real FormKey, with a baking race and a head part so only the FormKey singles it out.
+        var sky = new SkyrimMod(new ModKey("Skyrim", ModType.Master), SkyrimRelease.SkyrimSE);
+        var nordRace = sky.Races.AddNew();
+        nordRace.EditorID = "HcFgNordRace";
+        nordRace.Flags = Race.Flag.Playable | Race.Flag.FaceGenHead;
+        var skyHead = sky.HeadParts.AddNew();
+        skyHead.EditorID = "HcFgPlayerHead";
+        var playerNpc = new Npc(HousecarlCore.FaceGenCheck.PlayerFormKey, SkyrimRelease.SkyrimSE) { EditorID = "Player" };
+        playerNpc.Race.SetTo(nordRace);
+        playerNpc.HeadParts.Add(skyHead);
+        sky.Npcs.Add(playerNpc);
+        keys["Player"] = playerNpc.FormKey;
+        sky.BeginWrite.ToPath(Path.Combine(vanillaDir, VanillaName))
+           .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).NoCheckIfLowerRangeDisallowed().Write();
 
         master.BeginWrite.ToPath(Path.Combine(baseDir, MasterName))
               .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
@@ -144,6 +179,9 @@ public sealed class FaceGenWorld : IDisposable
         Loose(bakesOnlyDir, Tint(keys["HcFgNoPlugin"]));
         Loose(_unlistedDir, Mesh(keys["HcFgUnlisted"]));
         Loose(_unlistedDir, Tint(keys["HcFgUnlisted"]));
+        Loose(baseDir, Mesh(keys["HcFgCharGenPresetBaked"]));
+        Loose(baseDir, Mesh(keys["HcFgNoHeadPartsBaked"]));
+        if (playerBaked) Loose(vanillaDir, Mesh(keys["Player"]));
 
         // Files no NPC reads.
         Loose(baseDir, GeomDir(MasterName) + @"\00099999.nif");                 // no record defines this FormID
@@ -156,12 +194,12 @@ public sealed class FaceGenWorld : IDisposable
         Loose(baseDir, GeomDir(MasterName) + "\\05" + keys["HcFgMeshAbsent"].ID.ToString("X6") + ".nif");
 
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"),
-            "# header\r\n" + MasterName + "\r\n" + OverhaulName + "\r\n");
+            "# header\r\n" + VanillaName + "\r\n" + MasterName + "\r\n" + OverhaulName + "\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + MasterName + "\r\n*" + OverhaulName + "\r\n");
         // Listed first = higher priority.
         File.WriteAllText(Path.Combine(profile, "modlist.txt"),
             "# header\r\n+" + OverhaulMod + "\r\n+" + OtherMod + "\r\n+" + UpdateMod + "\r\n+" + BaseMod
-            + "\r\n+" + BakesOnlyMod + "\r\n+" + UnlistedMod + "\r\n");
+            + "\r\n+" + BakesOnlyMod + "\r\n+" + UnlistedMod + "\r\n+" + VanillaMod + "\r\n");
         // A base-archive list naming an archive not on disk reads clean; an empty one makes the asset build warn.
         File.WriteAllText(Path.Combine(profile, "Skyrim.ini"),
             "[Archive]\r\nsResourceArchiveList=" + (degradedAssets ? "" : "Skyrim - Meshes0.bsa") + "\r\n");

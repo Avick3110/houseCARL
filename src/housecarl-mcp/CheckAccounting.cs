@@ -33,8 +33,8 @@ internal sealed class CheckAccounting
     // The scope's types where it covered more than one, spelled with any expanded arms; null otherwise. Stated as a
     // rule wherever the listing came out short, because the sweep never tallies by type.
     readonly string? _typeScope;
-    // The facegen findings ELIGIBLE for listing, which its listing budget can cut below — the benign class the
-    // family withholds on purpose is not in it. Zero on every other lane.
+    // The facegen findings ELIGIBLE for listing, which its listing budget can cut below — the classes the family
+    // withholds on purpose are not in it. Zero on every other lane.
     readonly int _faceGenFound;
 
     /// <summary>Build the accounting for one response, declaring the errors family's own subjects: dangling entries

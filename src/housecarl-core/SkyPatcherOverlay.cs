@@ -176,7 +176,7 @@ public static class SkyPatcherOverlay
     enum FilterVerdict { Match, NoMatch, Unresolved }
 
     /// <summary>The player actor — always excluded except from a lone bare primary filter naming it.</summary>
-    static readonly FormKey PlayerFormKey = new(new ModKey("Skyrim", ModType.Master), 0x7);
+    static readonly FormKey PlayerFormKey = FaceGenCheck.PlayerFormKey;
 
     /// <summary>The filter base names the overlay evaluates without a field-map spec; shared with the filtermap coverage guard.</summary>
     public static readonly IReadOnlySet<string> BuiltInFilterBases = new HashSet<string>(StringComparer.Ordinal)
