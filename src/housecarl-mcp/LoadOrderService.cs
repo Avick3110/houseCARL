@@ -244,10 +244,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
     bool IAssetHost.InPlaceParentUnwritable(string targetPath, out string why) => InPlaceParentUnwritable(targetPath, out why);
     string IAssetHost.InPlaceHandshakeLead(string name, string path, string subject, string verb) => InPlaceHandshakeLead(name, path, subject, verb);
-    AssetLayers.SkyPatcherReplay? IReadHost.OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                                                                 out string? draftRefusal, SkyPatcherDraft.Plan? draft,
-                                                                 SkyPatcherOverlay.WarningSink? draftWarnings)
-        => _assetLayers.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, draftWarnings);
+    AssetLayers.SkyPatcherReplay? IReadHost.OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
+                                                                 LoadOrderResolver.OverlaySession session, out string? draftRefusal,
+                                                                 SkyPatcherDraft.Plan? draft, SkyPatcherOverlay.WarningSink? draftWarnings)
+        => _assetLayers.OpenSkyPatcherReplay(captured, view, session, out draftRefusal, draft, draftWarnings);
 
     // The assets area's tool-facing surface; the bodies are in AssetLayers.cs and SkyPatcherReplay.cs.
     public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under = null, int limit = 0, int offset = 0,

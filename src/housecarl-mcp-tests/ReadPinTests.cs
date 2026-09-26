@@ -18,6 +18,7 @@ public sealed class ReadPinTests : IDisposable
     const string OffMod = "OffMod";
     const string NameA = "HcRpNameA";
     const string NameB = "HcRpNameB";
+    const string IniMod = "HcRpIni";
     static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
     readonly string _root;
@@ -26,6 +27,7 @@ public sealed class ReadPinTests : IDisposable
     readonly string _dataA;
     readonly string _dataB;
     readonly string _weapon;
+    readonly string _patched;
     readonly LoadOrderService _svc;
     readonly ManualResetEventSlim _switcherReady = new();
     readonly ManualResetEventSlim _switcherInGate = new();
@@ -38,13 +40,18 @@ public sealed class ReadPinTests : IDisposable
         var mods = Path.Combine(_instance, "mods");
         _dataA = Path.Combine(_root, "gameA", "Data");
         _dataB = Path.Combine(_root, "gameB", "Data");
-        foreach (var d in new[] { _dataA, _dataB, Path.Combine(mods, "BaseMod"), Path.Combine(mods, OffMod) })
+        var iniDir = Path.Combine(mods, IniMod, "SKSE", "Plugins", "SkyPatcher", "weapon");
+        foreach (var d in new[] { _dataA, _dataB, Path.Combine(mods, "BaseMod"), Path.Combine(mods, OffMod), iniDir })
             Directory.CreateDirectory(d);
         _ini = Path.Combine(_instance, "ModOrganizer.ini");
         File.WriteAllText(_ini, IniFor("Default", Path.GetDirectoryName(_dataA)!));
 
         var baseMod = new SkyrimMod(ModKey.FromFileName(BaseName), SkyrimRelease.SkyrimSE);
         baseMod.Weapons.AddNew().EditorID = "HcRpBaseWeap";
+        var patched = new Weapon(new FormKey(baseMod.ModKey, 0x900), SkyrimRelease.SkyrimSE)
+                      { EditorID = "HcRpPatchedWeap", BasicStats = new WeaponBasicStats { Damage = 10 } };
+        baseMod.Weapons.Add(patched);
+        _patched = patched.FormKey.ToString();
         baseMod.BeginWrite.ToPath(Path.Combine(mods, "BaseMod", BaseName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         // The localized off-order copy has no tables beside it: game A's Strings name it NameA, game B's NameB.
@@ -60,8 +67,11 @@ public sealed class ReadPinTests : IDisposable
         Directory.CreateDirectory(scratch);
         WriteWithTablesIn(off, scratch, _dataB);
 
+        // Only Default enables the SkyPatcher INI, which sets the patched weapon's damage to 20.
+        File.WriteAllText(Path.Combine(iniDir, "Pin.ini"), $"filterByWeapons={BaseName}|900:attackDamage=20\r\n");
+
         // Default disables OffMod; Other enables it with the plugin unticked, so both profiles have the same active order.
-        WriteProfile("Default", "*" + BaseName + "\r\n", "+BaseMod\r\n-" + OffMod + "\r\n");
+        WriteProfile("Default", "*" + BaseName + "\r\n", "+" + IniMod + "\r\n+BaseMod\r\n-" + OffMod + "\r\n");
         WriteProfile("Other", "*" + BaseName + "\r\n" + OffName + "\r\n", "+" + OffMod + "\r\n+BaseMod\r\n");
 
         _svc = LoadOrderService.WithInstance(_instance, 0, new UserConfigStore(Path.Combine(_root, "houseCARL.user.json")));
@@ -85,6 +95,7 @@ public sealed class ReadPinTests : IDisposable
         File.WriteAllText(Path.Combine(dir, "loadorder.txt"), "# header\r\n" + BaseName + "\r\n" + OffName + "\r\n");
         File.WriteAllText(Path.Combine(dir, "plugins.txt"), plugins);
         File.WriteAllText(Path.Combine(dir, "modlist.txt"), "# header\r\n" + modlist);
+        File.WriteAllText(Path.Combine(dir, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
     }
 
     /// <summary>Write the plugin into <paramref name="dir"/> and move the tables it wrote beside it into <paramref name="data"/>.</summary>
@@ -200,6 +211,64 @@ public sealed class ReadPinTests : IDisposable
         _svc.CaptureView();
         Assert.Equal("Other", _svc.ProfileName);
         Assert.Equal(_dataB, roots.CaptureRoots().DataDir);
+    }
+
+    /// <summary>Selects Other and game B on this thread, inside the hold; the next profile re-read takes it.</summary>
+    void SwitchInsideTheHold()
+    {
+        _svc.ReadArea.AfterReadPinForGuard = null;
+        SelectOtherProfileAndGameB();
+    }
+
+    static readonly RecordReads.PoleSpec OverlayPost = new(RecordReads.PoleKind.Overlay, OverlayState: "post");
+
+    RecordReads.DeltaRow Delta()
+    {
+        var rows = _svc.DeltaBatch(new[] { _patched }, OverlayPost, RecordReads.PoleSpec.Winner, new[] { "BasicStats.Damage" }, null,
+                                   out _, out _, out _, out var refusal, out _);
+        Assert.Null(refusal);
+        var row = Assert.Single(rows);
+        Assert.Null(row.Error);
+        return row;
+    }
+
+    string OverlayDamage()
+    {
+        var outcomes = _svc.OverlayPostBatch(new[] { _patched }, new[] { "BasicStats.Damage" }, 1, false, null, out var refusal, out _, out _);
+        Assert.Null(refusal);
+        var o = Assert.Single(outcomes);
+        Assert.Null(o.Error);
+        return o.Record!.Fields.Single(f => f.Path == "BasicStats.Damage").Token!;
+    }
+
+    [Fact]
+    public void AProfileSwitchInsideTheHoldDoesNotSplitTheOverlayPoleFromItsAssetBuild()
+    {
+        Assert.StartsWith("skypatcher overlay (post) — 1 op(s)", Delta().Subject!.Where);   // warms the index and the asset build on Default
+        _svc.ReadArea.AfterReadPinForGuard = SwitchInsideTheHold;
+
+        // The replay runs over Default's asset build, the one pinned with the winners, so Default's INI applies.
+        var during = Delta();
+        Assert.StartsWith("skypatcher overlay (post) — 1 op(s)", during.Subject!.Where);
+        Assert.NotEmpty(during.Diff!.Deltas);
+
+        // The switch landed for the next call: Other does not enable the INI.
+        var after = Delta();
+        Assert.StartsWith("skypatcher overlay (post) — 0 op(s)", after.Subject!.Where);
+        Assert.Empty(after.Diff!.Deltas);
+    }
+
+    [Fact]
+    public void AProfileSwitchInsideTheHoldDoesNotSplitTheOverlaySourceFromItsAssetBuild()
+    {
+        Assert.Equal("20", OverlayDamage());                                     // warms the index and the asset build on Default
+        _svc.ReadArea.AfterReadPinForGuard = SwitchInsideTheHold;
+
+        // Replayed over Default's asset build, the one pinned with the winners.
+        Assert.Equal("20", OverlayDamage());
+
+        // The switch landed for the next call: Other does not enable the INI.
+        Assert.Equal("10", OverlayDamage());
     }
 
     /// <summary>A one-item list that runs <paramref name="onFirstRead"/> the first time its item is read.</summary>
