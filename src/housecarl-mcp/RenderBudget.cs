@@ -32,17 +32,6 @@ internal static class RenderBudget
 
     internal const int DefaultMaxAssetPaths = 1_200_000;
 
-    /// <summary>The bounds in force. Settable so a test can drive the seam; production never assigns them.</summary>
-    internal static int MaxRenderRows { get; set; } = DefaultMaxRenderRows;
-
-    internal static int MaxWholeRecordRows { get; set; } = DefaultMaxWholeRecordRows;
-
-    internal static int MaxIdentityRows { get; set; } = DefaultMaxIdentityRows;
-
-    internal static int MaxComparisonRows { get; set; } = DefaultMaxComparisonRows;
-
-    internal static int MaxAssetPaths { get; set; } = DefaultMaxAssetPaths;
-
     /// <summary>The chars a text render holds back from <c>max_chars</c> for its accounting line; pinned by
     /// RecordsRenderCostTests.TheAccountingLineIsReservedFromTheRowBudget.</summary>
     internal const int AccountingReserve = 64;
@@ -135,9 +124,9 @@ internal static class RenderBudget
 
     /// <summary>The refusal for a render over its lane's bound, or null when it fits. The
     /// <c>form='everything'</c> lane and a <c>counts_only</c> census each take their own wording.</summary>
-    internal static string? Refuse(int rows, bool wholeRecord, string? remedy = null, bool census = false)
+    internal static string? Refuse(RenderBounds bounds, int rows, bool wholeRecord, string? remedy = null, bool census = false)
     {
-        int bound = wholeRecord ? MaxWholeRecordRows : MaxRenderRows;
+        int bound = wholeRecord ? bounds.WholeRecordRows : bounds.Rows;
         if (rows <= bound) return null;
         var opens = census ? $"this call counts {rows:N0} records and each one reads a "
                            : $"this call renders {rows:N0} rows and each one reads a ";
@@ -147,7 +136,7 @@ internal static class RenderBudget
             ? $"error: {opens}WHOLE record body{when} — {Projected(rows, true)}" +
               $"{spend}, past the {bound:N0}-row bound form='everything' is given (a client stops waiting at 30 " +
               $"minutes). Name the fields you need instead — project.form='fields' with fields=[…] reads a body per " +
-              $"row too but costs a fraction of a whole-record read, and is bounded at {MaxRenderRows:N0} rows. Or "
+              $"row too but costs a fraction of a whole-record read, and is bounded at {bounds.Rows:N0} rows. Or "
             : $"error: {opens}record body{when} — {Projected(rows, false)}{spend}, " +
               $"past the {bound:N0}-row bound one call is given (a client stops waiting at 30 minutes). ";
         var lever = remedy ?? ScanRemedy;
@@ -156,12 +145,12 @@ internal static class RenderBudget
 
     /// <summary>The refusal for a comparison form (delta/tree) over its own bound, or null when it fits;
     /// <paramref name="lever"/> is one of the four below, picked by the caller's lane.</summary>
-    internal static string? RefuseComparison(int rows, string form, string lever) =>
-        rows <= MaxComparisonRows
+    internal static string? RefuseComparison(RenderBounds bounds, int rows, string form, string lever) =>
+        rows <= bounds.ComparisonRows
             ? null
             : $"error: this {form} reads {(form == "delta" ? "two versions" : "every override")} of each of {rows:N0} records — " +
               $"{ProjectedAt(rows, MillisPerComparisonRow)} at the {MillisPerComparisonRow / 1000:0.##} s a row measured for these forms, " +
-              $"past the {MaxComparisonRows:N0}-row bound the comparison forms are given; " +
+              $"past the {bounds.ComparisonRows:N0}-row bound the comparison forms are given; " +
               lever;
 
     /// <summary>The comparison bound's levers, one per lane.</summary>
@@ -177,14 +166,14 @@ internal static class RenderBudget
     internal const string ComparisonWalkLever =
         "narrow the seeds you passed, or lower walk.depth or walk.max_nodes, until the set the walk reaches fits — the rows are what the walk reached, so limit= windows the render and not the walk.";
 
-    /// <summary>The refusal for an <c>asset_status</c> call over <see cref="MaxAssetPaths"/>, or null when it fits;
+    /// <summary>The refusal for an <c>asset_status</c> call over <paramref name="bound"/>, or null when it fits;
     /// <paramref name="atLeast"/> is the lane whose enumeration stopped at the bound, so the count is a floor.</summary>
-    internal static string? RefuseAssetPaths(int paths, bool wholeSelection, bool atLeast = false)
+    internal static string? RefuseAssetPaths(int bound, int paths, bool wholeSelection, bool atLeast = false)
     {
-        if (paths <= MaxAssetPaths) return null;
+        if (paths <= bound) return null;
         return $"error: this call resolves {(atLeast ? "at least " : "")}{paths:N0} asset path(s) through the VFS, each one a lookup in every " +
                $"active archive plus a loose-directory warm across every mod folder — {(atLeast ? "over " : "")}{ProjectedAt(paths, MillisPerAssetPath)}, " +
-               $"past the {MaxAssetPaths:N0}-path bound one call is given (a client stops waiting at 30 minutes). " +
+               $"past the {bound:N0}-path bound one call is given (a client stops waiting at 30 minutes). " +
                (atLeast ? "The sweep stopped counting there, so nothing was walked past the bound and nothing was resolved. " : "") +
                (wholeSelection
                    ? "this call resolves the COMPLETE selection — to_file= and counts_only= both do — so limit= " +
@@ -196,13 +185,20 @@ internal static class RenderBudget
     }
 
     /// <summary>The refusal for an <c>form='identity'</c> render over its own bound, or null when it fits.</summary>
-    internal static string? RefuseIdentity(int rows, string remedy, bool census = false)
+    internal static string? RefuseIdentity(RenderBounds bounds, int rows, string remedy, bool census = false)
     {
-        if (rows <= MaxIdentityRows) return null;
+        if (rows <= bounds.IdentityRows) return null;
         return $"error: this call resolves {rows:N0} FormIDs and each one reads its winner's body by an UNTYPED " +
-               $"whole-plugin seek — {ProjectedAt(rows, MillisPerIdentityRow)}{(census ? " of reading" : " of render")}, past the {MaxIdentityRows:N0}-row " +
+               $"whole-plugin seek — {ProjectedAt(rows, MillisPerIdentityRow)}{(census ? " of reading" : " of render")}, past the {bounds.IdentityRows:N0}-row " +
                $"bound form='identity' is given (a client stops waiting at 30 minutes). project.form='summary' reads the " +
                $"same type, editorid and winner off a read gathered per plugin, at a fraction of the cost and bounded at " +
-               $"{MaxRenderRows:N0} rows — project.form='fields' with fields=[\"Name\"] if you need the display name too. Or " + remedy;
+               $"{bounds.Rows:N0} rows — project.form='fields' with fields=[\"Name\"] if you need the display name too. Or " + remedy;
     }
+}
+
+/// <summary>The four records render bounds in force on one service; production keeps <see cref="Default"/>, a test lowers its own world's.</summary>
+internal sealed record RenderBounds(int Rows, int WholeRecordRows, int IdentityRows, int ComparisonRows)
+{
+    internal static readonly RenderBounds Default = new(RenderBudget.DefaultMaxRenderRows, RenderBudget.DefaultMaxWholeRecordRows,
+                                                         RenderBudget.DefaultMaxIdentityRows, RenderBudget.DefaultMaxComparisonRows);
 }

@@ -178,7 +178,8 @@ own row bound, because the lanes are orders of magnitude apart: named fields, wh
 ten minutes at that lane's per-row cost — a third of the 30-minute idle timeout a Claude Code client gives a
 call — except the comparison forms, whose bound is about a minute because their row is. What a call spent
 comes back as `render_ms`, which is how the estimates are checked against a real order. The bounds are
-settable so a test can drive the seam; production never assigns them. `AccountingReserve` is held back from
+per-service settings (`Bounds` on the service, `MaxAssetPaths` on the assets area) so a test lowers only its
+own world's; production never assigns them. `AccountingReserve` is held back from
 `max_chars` so the accounting line is paid for inside the cap.
 
 ## Pinned by

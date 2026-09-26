@@ -41,6 +41,9 @@ internal sealed partial class AssetLayers
 
     internal AssetLayers(IAssetHost host) => _host = host;
 
+    /// <summary>The <c>asset_status</c> path bound; production keeps the default, a test lowers its own world's.</summary>
+    internal int MaxAssetPaths { get; set; } = RenderBudget.DefaultMaxAssetPaths;
+
     /// <summary>Resolve a batch of Data-relative asset paths through the MO2 VFS (housecarl_asset_status): which
     /// source provides each, and which copy wins. ONE <see cref="AssetResolver.Capture"/> for the batch, so every
     /// path and the build-level caveats describe a single build; a bad path is a per-path error, never a batch
@@ -90,7 +93,7 @@ internal sealed partial class AssetLayers
             try
             {
                 // One past what is left of the budget: a selector that fills it has proved the selection is over. 0 = no cap.
-                int room = wholeIsResolved ? Math.Max(RenderBudget.MaxAssetPaths - selected.Count, 0) + 1 : 0;
+                int room = wholeIsResolved ? Math.Max(MaxAssetPaths - selected.Count, 0) + 1 : 0;
                 var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped);
                 overBound |= stopped;
                 // A selector that named a FILE is said out loud too, so the sweep's own count is explained.
@@ -109,7 +112,7 @@ internal sealed partial class AssetLayers
                                        warnings, profileName, notes, selected.Count, Math.Max(offset, 0),
                                        Math.Max(limit, 0),
                                        // Dedup can leave the running count at the bound rather than past it; the walk stopping is the proof.
-                                       RenderBudget.RefuseAssetPaths(Math.Max(selected.Count, RenderBudget.MaxAssetPaths + 1),
+                                       RenderBudget.RefuseAssetPaths(MaxAssetPaths, Math.Max(selected.Count, MaxAssetPaths + 1),
                                                                      wholeSelection, atLeast: true)!);
 
         var total = selected.Count;
@@ -123,7 +126,7 @@ internal sealed partial class AssetLayers
                       + (window.Count > 0 && window[^1].PairPath is { } lastPair
                          && (window.Count < 2 || !string.Equals(lastPair, window[^2].Path, StringComparison.OrdinalIgnoreCase))
                          ? 1 : 0);
-        if (RenderBudget.RefuseAssetPaths(toResolve, wholeSelection) is { } tooBig)
+        if (RenderBudget.RefuseAssetPaths(MaxAssetPaths, toResolve, wholeSelection) is { } tooBig)
             return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
                                        view.ReadIncomplete,
                                        warnings, profileName, notes, total, Math.Max(offset, 0),

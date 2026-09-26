@@ -385,12 +385,12 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
         Assert.DoesNotContain("walk.depth", r);
     }
 
-    static string WithBound(int rows, Func<string> call)
+    string WithBound(int rows, Func<string> call)
     {
-        var prior = RenderBudget.MaxRenderRows;
-        RenderBudget.MaxRenderRows = rows;
+        var prior = Svc.Bounds;
+        Svc.Bounds = prior with { Rows = rows };
         try { return call(); }
-        finally { RenderBudget.MaxRenderRows = prior; }
+        finally { Svc.Bounds = prior; }
     }
 
     // ---- what a match COSTS after the index ---------------------------------------------------------
