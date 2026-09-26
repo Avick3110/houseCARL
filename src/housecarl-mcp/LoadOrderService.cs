@@ -236,7 +236,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     /// <summary>The rest of an asset capture around a view just taken; caller holds <see cref="_gate"/>.</summary>
     AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
-        new(view, AssetWarningsLocked(), _profileName, new Mo2Roots(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir), _activeArchives, _enabledModsAtBuild);
+        new(view, AssetWarningsLocked(), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild);
 
     // Rows the areas take from one another, relayed here: output, writes and reads until those are their own classes; the assets replay for reads.
     RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);
@@ -759,8 +759,11 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     Mo2Roots ILoadOrderHost.CaptureRoots()
     {
-        lock (_gate) { EnsurePathsDerived(); return new(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir); }
+        lock (_gate) { EnsurePathsDerived(); return RootsLocked(); }
     }
+
+    /// <summary>The four roots as they stand; caller holds <see cref="_gate"/>.</summary>
+    Mo2Roots RootsLocked() => new(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir);
 
     static bool PathEq(string a, string b) =>
         string.Equals(a.TrimEnd('\\', '/'), b.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);

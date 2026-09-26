@@ -592,7 +592,7 @@ public sealed partial class LoadOrderService
             return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
 
         var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
-        var loc = LocatePluginFileOnDisk(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, plugin, mod);
+        var loc = LocatePluginFileOnDisk(comp, roots, plugin, mod);
         if (loc.Error is not null)
             // A pole found in neither place names both places searched; when the filename IS active, the named
             // mod folder is the only place searched.

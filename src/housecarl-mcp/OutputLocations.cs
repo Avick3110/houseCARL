@@ -800,6 +800,11 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The on-disk plugin-locate contract, shared by every lane that resolves a plugin by name so no two can diverge: a direct path is used verbatim, else the filename is found across the whole install, with <paramref name="mod"/> narrowing a name several folders provide and ambiguity coming back structured. <paramref name="offerModParam"/> is false for a caller that does not declare <c>mod=</c>.</summary>
+    internal static PluginLocateResult LocatePluginFileOnDisk(Mo2Composition comp, Mo2Roots roots, string plugin, string? mod,
+                                                              bool offerModParam = true) =>
+        LocatePluginFileOnDisk(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, plugin, mod, offerModParam);
+
+    /// <summary>The same locate over the three install roots given one by one.</summary>
     internal static PluginLocateResult LocatePluginFileOnDisk(
         Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string plugin, string? mod,
         bool offerModParam = true)
