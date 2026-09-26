@@ -52,7 +52,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         _configured = configured;
         _maxPlugins = maxPlugins;
         _store = store;
-        ResultsDir = Path.Combine(Path.GetDirectoryName(store.FilePath)!, "results");
+        // Absolute first, so a bare-filename store is not resolved against the working directory at each spill. A
+        // full file path always has a parent folder; only a bare root has none, and that is its own folder.
+        var storePath = Path.GetFullPath(store.FilePath);
+        ResultsDir = Path.Combine(Path.GetDirectoryName(storePath) ?? storePath, "results");
         _assetLayers = new AssetLayers(this);
         _checks = new RecordChecks(this);
     }
@@ -264,8 +267,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     internal AssetLayers AssetArea => _assetLayers;   // the assets area instance, for tests that set its seams
 
-    /// <summary>The auto-spill results directory: <c>results</c> beside houseCARL.user.json; a test points it at its own folder.</summary>
-    internal string ResultsDir { get; set; }
+    /// <summary>The auto-spill results directory: <c>results</c> beside houseCARL.user.json.</summary>
+    internal string ResultsDir { get; }
 
     // The checks area's tool-facing surface; the bodies are in RecordChecks.cs.
     public DialogueValidationReport ValidateDialogue(FormKey fk) => _checks.ValidateDialogue(fk);

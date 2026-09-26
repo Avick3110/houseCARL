@@ -528,10 +528,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     [Fact]
     public void AnOverCeilingRenderIsSpilledWholeAndTheResponseNamesTheFile()
     {
-        var spills = Temp("spills");
-        Directory.CreateDirectory(spills);
-        var prior = _w.Svc.ResultsDir;
-        _w.Svc.ResultsDir = spills;
+        var spills = SpillFolders.Emptied(_w.Svc);
         try
         {
             var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, max_chars: 900);
@@ -549,17 +546,14 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Equal(AssetSelectWorld.FaceGeomFiles, manifest.GetProperty("total").GetInt32());
             Assert.Equal("path", manifest.GetProperty("identity").GetString());
         }
-        finally { _w.Svc.ResultsDir = prior; try { Directory.Delete(spills, true); } catch { } }
+        finally { try { Directory.Delete(spills, true); } catch { } }
     }
 
     /// <summary>The json lane carries the same marker as data, with the reason a consumer branches on.</summary>
     [Fact]
     public void TheJsonLaneNamesTheAutoSpillAndItsReason()
     {
-        var spills = Temp("spills-json");
-        Directory.CreateDirectory(spills);
-        var prior = _w.Svc.ResultsDir;
-        _w.Svc.ResultsDir = spills;
+        var spills = SpillFolders.Emptied(_w.Svc);
         try
         {
             var root = JsonDocument.Parse(
@@ -572,7 +566,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.True(spilled.GetProperty("complete").GetBoolean());
             Assert.Equal(AssetSelectWorld.FaceGeomFiles, spilled.GetProperty("row_count").GetInt32());
         }
-        finally { _w.Svc.ResultsDir = prior; try { Directory.Delete(spills, true); } catch { } }
+        finally { try { Directory.Delete(spills, true); } catch { } }
     }
 
     /// <summary>A window that then runs past the ceiling spills the window, and says so: the file is complete as a
@@ -587,10 +581,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     [InlineData(0, 2)]
     public void AnAutoSpilledWindowSaysTheMatchesOutsideItAreInNoFile(int limit, int offset)
     {
-        var spills = Temp($"spills-window-{limit}-{offset}");
-        Directory.CreateDirectory(spills);
-        var prior = _w.Svc.ResultsDir;
-        _w.Svc.ResultsDir = spills;
+        var spills = SpillFolders.Emptied(_w.Svc);
         try
         {
             var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
@@ -606,7 +597,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Equal($"window: rows {offset + 1}–{offset + rows} of {AssetSelectWorld.FaceGeomFiles} (limit={limit}, offset={offset})",
                          manifest.GetProperty("query").GetProperty("window").GetString());
         }
-        finally { _w.Svc.ResultsDir = prior; try { Directory.Delete(spills, true); } catch { } }
+        finally { try { Directory.Delete(spills, true); } catch { } }
     }
 
     /// <summary>A to_file= into the service's results folder, beside its user config, is refused on this lane too.</summary>
@@ -616,6 +607,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
                                           to_file: Path.Combine(_w.Root, "results", "mine.jsonl"));
 
+        Assert.StartsWith("error:", text);
         Assert.Contains("pruned by age", text);
     }
 
@@ -643,10 +635,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     public void AnAutoSpilledArtifactCarriesTheEpochOfTheBuildItSitsBeside()
     {
         using var w = new DegradedOrderWorld();
-        var spills = Temp("spills-stamped");
-        Directory.CreateDirectory(spills);
-        var prior = w.Svc.ResultsDir;
-        w.Svc.ResultsDir = spills;
+        var spills = SpillFolders.Emptied(w.Svc);
         try
         {
             var epoch = w.Svc.CaptureView().Stamp.Epoch;
@@ -664,7 +653,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Equal(epoch, manifest.GetProperty("epoch").GetString());
             Assert.Equal(DegradedOrderWorld.SweepFiles, manifest.GetProperty("row_count").GetInt32());
         }
-        finally { w.Svc.ResultsDir = prior; try { Directory.Delete(spills, true); } catch { } }
+        finally { try { Directory.Delete(spills, true); } catch { } }
     }
 
     /// <summary>The empty-selection refusal names every SELECT there is, formids= included — a caller who passed

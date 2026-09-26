@@ -193,14 +193,14 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void Control_MaxCharsTruncatesTheInlineTextRender()
     {
-        using var d = OwnResults("control-trunc");
+        var d = OwnResults();
         Assert.Contains("[truncated:", RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: TinyScan));
     }
 
     [Fact]
     public void AnAutoSpillAnnouncesTheCompleteResultWithItsRowCountNotTheRenderedPrefix()
     {
-        using var d = OwnResults("complete-marker");
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: TinyScan);
         Assert.Contains($"spilled: complete result ({WeaponTotal} rows)", r);
     }
@@ -209,7 +209,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [MemberData(nameof(Transports), MemberType = typeof(ArtifactTestBase))]
     public void AnAutoSpillNamesTheResultsDirFileThatActuallyExists(string format)
     {
-        using var d = OwnResults("names-" + format);
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, format: format, max_chars: TinyScan);
         var path = TheSpill(d);
         // The file NAME, not the full path: a json render escapes the path's separators, and the name is
@@ -228,7 +228,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [InlineData(20_000)]
     public void AScanRenderIsNeverWiderThanItsCap(int cap)
     {
-        using var d = OwnResults("scan-ceiling-" + cap);
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: cap);
 
         Assert.True(r.Length <= cap, $"the scan returned {r.Length} chars at max_chars={cap}");
@@ -238,7 +238,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void AScanCutByItsCapSaysHowManyRecordsItHeldBack()
     {
-        using var d = OwnResults("scan-ceiling-notice");
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: 2_500);
 
         Assert.Matches(@"\[truncated: rendered \d+ of " + WeaponTotal + " records", r);
@@ -249,7 +249,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void TheSpillStillCarriesTheCompleteResultWhenTheRenderIsHeldToItsCap()
     {
-        using var d = OwnResults("ceiling-spill-complete");
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: 2_500);
 
         Assert.True(r.Length <= 2_500, $"the scan returned {r.Length} chars at max_chars=2500");
@@ -268,7 +268,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [InlineData(20_000)]
     public void ASummaryRenderIsNeverWiderThanItsCap(int cap)
     {
-        using var d = OwnResults("summary-ceiling-" + cap);
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, formids: SummaryIds,
                                      project: new RecordsTools.RecordsProject { form = "summary" }, max_chars: cap);
 
@@ -281,7 +281,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void ASummaryTooSmallForWhatItMustCarrySaysSoInsteadOfOverrunningSilently()
     {
-        using var d = OwnResults("summary-ceiling-tiny");
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, formids: SummaryIds,
                                      project: new RecordsTools.RecordsProject { form = "summary" }, max_chars: 900);
 
@@ -319,7 +319,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [InlineData(20_000)]
     public void ADeltaRenderIsNeverWiderThanItsCap(int cap)
     {
-        using var d = OwnResults("delta-ceiling-" + cap);
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("delta"),
                                      versus: Je("\"" + W.MasterName + "\""), max_chars: cap);
 
@@ -334,7 +334,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [InlineData(20_000)]
     public void ATreeRenderIsNeverWiderThanItsCap(int cap)
     {
-        using var d = OwnResults("tree-ceiling-" + cap);
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("tree"), max_chars: cap);
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
@@ -348,7 +348,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [InlineData(20_000)]
     public void AChainRenderIsNeverWiderThanItsCap(int cap)
     {
-        using var d = OwnResults("chain-ceiling-" + cap);
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk(),
                                      project: Form("chain"), max_chars: cap);
 
@@ -363,7 +363,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [InlineData(4_000)]
     public void AReverseEffectChainRenderIsNeverWiderThanItsCap(int cap)
     {
-        using var d = OwnResults("effect-chain-ceiling-" + cap);
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
                                      walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
                                      project: Form("chain"), max_chars: cap);
@@ -388,7 +388,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
                                                   project: Form("chain"), max_chars: cap)),
         })
         {
-            using var d = OwnResults("held-back-" + name);
+            var d = OwnResults();
             int cap = call(0).Length - 100;   // the whole render spills nothing; 100 short of it cannot hold
             var r = call(cap);
 
@@ -449,7 +449,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
                                                          project: Form("chain"), max_chars: cap)),
         })
         {
-            using var d = OwnResults("fits-" + name);
+            var d = OwnResults();
             int whole = call(0).Length;
             foreach (int cap in new[] { whole, whole + 1, whole + 50, whole + 140 })
             {
@@ -467,7 +467,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void ACapTooSmallForTheSpillBlockSaysSoAndNamesTheCapThatClearsIt()
     {
-        using var d = OwnResults("ceiling-too-small");
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: TinyBody);
 
         Assert.Contains($"over the max_chars={TinyBody} it was given", r);
@@ -479,7 +479,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void AnAutoSpilledArtifactHoldsEveryRowStampedWithTheScannedBuild()
     {
-        using var d = OwnResults("spill-rows");
+        var d = OwnResults();
         RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: TinyScan);
         var m = ManifestOf(TheSpill(d));
         Assert.Equal(WeaponTotal, m.RowCount);
@@ -489,7 +489,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void AutoSpillJson_TruncatedIsTrueAlongsideASpilledPathThatResolves()
     {
-        using var d = OwnResults("json-truncated");
+        var d = OwnResults();
         var doc = Je(RecordsTools.Records(Svc, types: new[] { "WEAP" }, format: "json", max_chars: TinyScan));
         Assert.True(doc.GetProperty("truncated").GetBoolean());
         Assert.True(File.Exists(doc.GetProperty("spilled").GetProperty("path").GetString()!));
@@ -501,8 +501,8 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void AnAutoSpillLandsWhileAScannerGrabsEveryFileTheResultsDirectoryGains()
     {
-        using var d = OwnResults("scanner-holds");
-        using (var scanner = new GrabbingScanner(d.Dir))
+        var d = OwnResults();
+        using (var scanner = new GrabbingScanner(d))
         {
             var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: TinyScan);
             Assert.Contains("spilled:", r);
@@ -564,7 +564,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void TheBodyLaneAutoSpillsItsCompleteRowsWhenTheRenderIsTruncated()
     {
-        using var d = OwnResults("body-spill");
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, formids: Ids, project: Everything, max_chars: TinyBody);
         Assert.Contains("spilled:", r);
         Assert.Equal(Ids.Length, ManifestOf(TheSpill(d)).RowCount);
@@ -573,7 +573,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void TheIdentityLaneAutoSpillsUnderTheSameContract()
     {
-        using var d = OwnResults("identity-spill");
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, formids: Ids, project: Identity, max_chars: TinyList);
         Assert.Contains("spilled:", r);
         Assert.Equal(Ids.Length, ManifestOf(TheSpill(d)).RowCount);
@@ -583,8 +583,8 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void AFailedAutoSpillIsNamedLoudInTheTextResponse()
     {
         // Prose-only: the failure has no value to report — the datum is that no file was produced.
-        using var d = UncreatableResults("failed-text");
-        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: TinyScan);
+        using var svc = UncreatableResults("failed-text");
+        var r = RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: TinyScan);
         Assert.Contains("[truncated:", r);
         Assert.Contains("could NOT be written", r);
         Assert.Contains("exists NOWHERE", r);
@@ -593,8 +593,8 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void AFailedAutoSpillRidesTheJsonDocumentAsSpillError()
     {
-        using var d = UncreatableResults("failed-json");
-        var doc = Je(RecordsTools.Records(Svc, types: new[] { "WEAP" }, format: "json", max_chars: TinyScan));
+        using var svc = UncreatableResults("failed-json");
+        var doc = Je(RecordsTools.Records(svc, types: new[] { "WEAP" }, format: "json", max_chars: TinyScan));
         Assert.True(doc.TryGetProperty("spill_error", out _));
     }
 
@@ -645,7 +645,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void AWindowedAutoSpillSaysWindowAndNeverClaimsTheCompleteResult()
     {
-        using var d = OwnResults("windowed");
+        var d = OwnResults();
         var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, limit: 2, max_chars: TinyScan);
         Assert.Contains($"spilled: the returned WINDOW (2 rows of {WeaponTotal} total matches)", r);
         Assert.DoesNotContain("complete result", r);
@@ -656,7 +656,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     {
         // Prose-only: "nowhere" is not a value the response can carry as a number. The sentence names the WINDOW,
         // not limit=, because offset= alone makes a window too and the matches it drops are the ones before it.
-        using var d = OwnResults("windowed-missing");
+        var d = OwnResults();
         Assert.Contains("outside the returned window are in NO file",
                         RecordsTools.Records(Svc, types: new[] { "WEAP" }, limit: 2, max_chars: TinyScan));
     }
@@ -664,7 +664,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void WindowedSpillJson_CarriesCompleteFalseWithRowCountAndTotalAsData()
     {
-        using var d = OwnResults("windowed-json");
+        var d = OwnResults();
         var sp = Je(RecordsTools.Records(Svc, types: new[] { "WEAP" }, limit: 2, format: "json", max_chars: TinyScan))
                  .GetProperty("spilled");
         Assert.False(sp.GetProperty("complete").GetBoolean());
@@ -675,7 +675,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void Control_AnUnwindowedSpillIsCompleteTrue()
     {
-        using var d = OwnResults("unwindowed-json");
+        var d = OwnResults();
         var sp = Je(RecordsTools.Records(Svc, types: new[] { "WEAP" }, format: "json", max_chars: TinyScan))
                  .GetProperty("spilled");
         Assert.True(sp.GetProperty("complete").GetBoolean());
@@ -800,35 +800,20 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         return p;
     }
 
-    /// <summary>This world's results directory, pointed at a private one until disposed, then put back.</summary>
-    sealed class SpillDir : IDisposable
+    /// <summary>This world's own results folder, emptied, so the one file a call spilled is the only file in it.</summary>
+    string OwnResults() => SpillFolders.Emptied(Svc);
+
+    /// <summary>The one artifact a spilling call left in the results folder.</summary>
+    static string TheSpill(string dir) => Assert.Single(Directory.GetFiles(dir, "*.jsonl"));
+
+    /// <summary>A second service over this world's instance whose results folder CANNOT be created: a file sits
+    /// where it should be, beside the service's user config.</summary>
+    LoadOrderService UncreatableResults(string name)
     {
-        readonly LoadOrderService _svc;
-        readonly string _prior;
-        public string Dir { get; }
-
-        public SpillDir(LoadOrderService svc, string dir, bool create = true)
-        {
-            if (create) Directory.CreateDirectory(dir);
-            (_svc, _prior, Dir) = (svc, svc.ResultsDir, dir);
-            svc.ResultsDir = dir;
-        }
-
-        public void Dispose() => _svc.ResultsDir = _prior;
-    }
-
-    /// <summary>A private auto-spill directory, so the one file a call spilled is the only file in it.</summary>
-    SpillDir OwnResults(string name) => new(Svc, W.Scratch("spills", name, "dir"));
-
-    /// <summary>The one artifact a spilling call left in its own results directory.</summary>
-    static string TheSpill(SpillDir d) => Assert.Single(Directory.GetFiles(d.Dir, "*.jsonl"));
-
-    /// <summary>An auto-spill directory that CANNOT be created: its parent is a file.</summary>
-    SpillDir UncreatableResults(string name)
-    {
-        var blocker = W.Scratch("blockers", name);
-        File.WriteAllText(blocker, "a file where the results directory should be");
-        return new SpillDir(Svc, Path.Combine(blocker, "sub"), create: false);
+        var storeDir = W.Scratch("blockers", name, "store");
+        Directory.CreateDirectory(storeDir);
+        File.WriteAllText(Path.Combine(storeDir, "results"), "a file where the results directory should be");
+        return LoadOrderService.WithInstance(W.Instance, 0, new UserConfigStore(Path.Combine(storeDir, "user.json")));
     }
 
     /// <summary>A to_file target that passes validation and then cannot be written: its parent is a file.</summary>
