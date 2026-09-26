@@ -213,10 +213,10 @@ public sealed class TreeIncompleteNoteTests
 {
     static string Render(params string[] deltas)
     {
-        var row = new LoadOrderService.TreeRow("000800:A.esm", "Weapon", "HcWeap",
+        var row = new RecordReads.TreeRow("000800:A.esm", "Weapon", "HcWeap",
             new[] { "A.esm", "B.esp" }, "A.esm",
-            new[] { new LoadOrderService.TreeNodeDelta("A.esm", false, true, Array.Empty<string>(), 0, true, null),
-                    new LoadOrderService.TreeNodeDelta("B.esp", true, false, deltas, 0, false, null) },
+            new[] { new RecordReads.TreeNodeDelta("A.esm", false, true, Array.Empty<string>(), 0, true, null),
+                    new RecordReads.TreeNodeDelta("B.esp", true, false, deltas, 0, false, null) },
             null, Array.Empty<ChildDeclarers>());
         return RecordsTools.RenderRecordsTree(new[] { row }, 1, 1, 0, false, "records  form=tree", null,
                                               100_000, null, out _);
@@ -252,9 +252,9 @@ public sealed class DeltaIncompleteNoteTests
             new[] { "Name: 'A' (reference 'B')", "Value: 10 (reference 20)", "Weight: 1.0 (reference 2.0)",
                     "Damage: 5 (reference 6)", "Keywords: 3 entries (reference 2)" },
             Complete: false, AgreedCount: 0, AgreedSample: Array.Empty<string>(), NoVerdictCount: 0);
-        var row = new LoadOrderService.DeltaRow("000800:A.esm",
-            new LoadOrderService.DiffPole("B.esp", "active", true, "Weapon", "HcWeap"),
-            new LoadOrderService.DiffPole("A.esm", "active", true, "Weapon", "HcWeap"),
+        var row = new RecordReads.DeltaRow("000800:A.esm",
+            new RecordReads.DiffPole("B.esp", "active", true, "Weapon", "HcWeap"),
+            new RecordReads.DiffPole("A.esm", "active", true, "Weapon", "HcWeap"),
             diff, null, null, null);
         return RecordsTools.RenderRecordsDelta(new[] { row }, 1, 1, 0, 0, 0, "records  form=delta", null,
                                                cap, null, out _);

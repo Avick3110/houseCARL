@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
-public sealed partial class LoadOrderService
+internal sealed partial class RecordReads
 {
     // ---- the traversal construct (walk=) ---------------------------------------------------------------
 
@@ -150,11 +150,11 @@ public sealed partial class LoadOrderService
     public IReadOnlyList<WalkSeedResult> WalkForwardBatch(
         IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
-        ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct = default,
-        bool wantCycles = false)
+        ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct,
+        bool wantCycles)
     {
         refusal = null;
-        var resolver = Host.Resolver;
+        var resolver = _host.Resolver;
         var view = resolver.Capture();
         epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)

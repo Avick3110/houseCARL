@@ -175,7 +175,7 @@ public static class AssetTools
                                          "of PATHS re-enters through asset_paths= without a build, because a path " +
                                          "answers off the VFS alone.");
             if (demand.Epoch != order!.Epoch)
-                return Wire.Refuse(json, "error: " + LoadOrderService.ArtifactEpochMismatch(demand, order.Epoch));
+                return Wire.Refuse(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, order.Epoch));
         }
 
         // counts_only= resolves the WHOLE selection, as to_file= does: a census of a window would answer about a window while the rows that need paging had no knob.

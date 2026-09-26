@@ -236,7 +236,7 @@ internal static class Artifacts
 
     /// <summary>The precise tier's response-level note for a tree artifact: <see cref="ReadSentences.DeclarersLead"/>
     /// stated once rather than per row, when any row's <c>child_declarers</c> reached the file.</summary>
-    static IReadOnlyList<string>? PreciseChildNotes(IReadOnlyList<LoadOrderService.TreeRow> rows) =>
+    static IReadOnlyList<string>? PreciseChildNotes(IReadOnlyList<RecordReads.TreeRow> rows) =>
         rows.Any(r => r.Error is null && r.ChildDeclarers.Count > 0) ? new[] { ReadSentences.DeclarersLead } : null;
 
     /// <summary>The annotated field paths an artifact's rows actually carry, collected from the rows themselves so the manifest cannot state a clause over an annotation no row wrote.</summary>
@@ -294,7 +294,7 @@ internal static class Artifacts
 
     /// <summary>Build and save the artifact for a delta result — one row per input, in input order, per-item refusals included.</summary>
     public static (SpillInfo? Spill, string? Error) WriteDelta(
-        IReadOnlyList<LoadOrderService.DeltaRow> rows, string? epoch, ArtifactTarget target, string reason,
+        IReadOnlyList<RecordReads.DeltaRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();
@@ -309,7 +309,7 @@ internal static class Artifacts
 
     /// <summary>Build and save the artifact for a tree result — one row per record, the provider stack with per-node deltas.</summary>
     public static (SpillInfo? Spill, string? Error) WriteTree(
-        IReadOnlyList<LoadOrderService.TreeRow> rows, string? epoch, ArtifactTarget target, string reason,
+        IReadOnlyList<RecordReads.TreeRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();
@@ -324,7 +324,7 @@ internal static class Artifacts
 
     /// <summary>Build and save the artifact for a chain result — one row per seed, in input order: nodes with provenance, cycles, truncation notes, the template report.</summary>
     public static (SpillInfo? Spill, string? Error) WriteChain(
-        IReadOnlyList<LoadOrderService.WalkSeedResult> rows, string? epoch, ArtifactTarget target, string reason,
+        IReadOnlyList<RecordReads.WalkSeedResult> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();
@@ -381,7 +381,7 @@ internal static class Artifacts
 
     /// <summary>Build and save the artifact for an info_order result — one row per topic, in input order, the confidence gates as data and per-item errors included.</summary>
     public static (SpillInfo? Spill, string? Error) WriteInfoOrder(
-        IReadOnlyList<LoadOrderService.InfoOrderRow> rows, string? epoch, ArtifactTarget target, string reason,
+        IReadOnlyList<RecordReads.InfoOrderRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();

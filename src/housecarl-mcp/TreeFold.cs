@@ -6,7 +6,7 @@ namespace HousecarlMcp;
 /// <summary>The conflict-tree fill for a CHUNK of rows: ONE PLUGIN PASS over the chunk, highest priority first, so
 /// each provider plugin is walked exactly once and answers its whole share, and the caller releases each
 /// provider's fields before the next plugin is walked. Contracts and pins in docs/architecture/read-engine.md.</summary>
-public sealed partial class LoadOrderService
+internal sealed partial class RecordReads
 {
     /// <summary>Rows whose bodies one comparison-form chunk gathers together — ONE number over both lanes, since
     /// both hold one materialised thing per row of the chunk.</summary>
@@ -22,7 +22,7 @@ public sealed partial class LoadOrderService
 
     /// <summary>Fill the conflict tree of every key off one pinned build, handing each provider's fields to
     /// <paramref name="onNode"/> as it is read; null per row when no provider yielded a body.</summary>
-    internal TreeFill?[] FoldTreeChunkPinned(ViewPin p, LoadOrderResolver.OverlaySession session,
+    internal TreeFill?[] FoldTreeChunkPinned(LoadOrderService.ViewPin p, LoadOrderResolver.OverlaySession session,
                                              IReadOnlyList<FormKey> keys, IReadOnlyList<string>? fields,
                                              TreeNodeVisitor onNode)
     {

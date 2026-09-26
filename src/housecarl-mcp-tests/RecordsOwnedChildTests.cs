@@ -927,7 +927,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     string TreeRender(FormKey fk, int cap, out bool truncated)
     {
-        var rows = Svc.TreeBatch(new[] { OwnedChildWorld.Fid(fk) }, LoadOrderService.PoleSpec.Winner, null, null,
+        var rows = Svc.TreeBatch(new[] { OwnedChildWorld.Fid(fk) }, RecordReads.PoleSpec.Winner, null, null,
                                  out _, out _, out var refusal, out _);
         Assert.Null(refusal);
         return RecordsTools.RenderRecordsTree(rows, rows.Count, 0, 0, false, TreeHeader, null, cap, null, out truncated)
@@ -939,7 +939,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     /// <summary>Two rows through the same render, so what a cut row costs the rows BELOW it can be read.</summary>
     string TreeRender(FormKey[] fks, int cap)
     {
-        var rows = Svc.TreeBatch(fks.Select(OwnedChildWorld.Fid).ToArray(), LoadOrderService.PoleSpec.Winner,
+        var rows = Svc.TreeBatch(fks.Select(OwnedChildWorld.Fid).ToArray(), RecordReads.PoleSpec.Winner,
                                  null, null, out _, out _, out var refusal, out _);
         Assert.Null(refusal);
         return RecordsTools.RenderRecordsTree(rows, rows.Count, 0, 0, false, TreeHeader, null, cap, null, out _)
@@ -1409,10 +1409,10 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // it. AppendChildDeclarers and JsonWire.WriteTreeRow are internal for exactly this — driven directly against
     // a hand-built TreeRow with 5 declarers on one field, no MO2 fixture extension needed.
 
-    static LoadOrderService.TreeRow FiveDeclarerRow() => new(
+    static RecordReads.TreeRow FiveDeclarerRow() => new(
         "000001:Test.esm", "Cell", "TestCell",
         new[] { "A.esp", "B.esp", "C.esp", "D.esp", "E.esp" }, "E.esp",
-        new[] { new LoadOrderService.TreeNodeDelta("E.esp", true, true, Array.Empty<string>(), 0, true, null) },
+        new[] { new RecordReads.TreeNodeDelta("E.esp", true, true, Array.Empty<string>(), 0, true, null) },
         null,
         new[] { new ChildDeclarers("Persistent", OwnedChildShape.Collection,
                                    new[] { "A.esp", "B.esp", "C.esp", "D.esp", "E.esp" }, Array.Empty<string>()) });
@@ -1449,10 +1449,10 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // overflow: a SINGULAR field (Cell.Landscape) never reaches the Collection guard, so gating on it alone
     // leaves that elision with no pointer at all.
 
-    static LoadOrderService.TreeRow UnreadableRow(OwnedChildShape shape, int declaring, int unreadable) => new(
+    static RecordReads.TreeRow UnreadableRow(OwnedChildShape shape, int declaring, int unreadable) => new(
         "000001:Test.esm", "Cell", "TestCell",
         new[] { "A.esp", "B.esp", "C.esp", "D.esp", "E.esp" }, "E.esp",
-        new[] { new LoadOrderService.TreeNodeDelta("E.esp", true, true, Array.Empty<string>(), 0, true, null) },
+        new[] { new RecordReads.TreeNodeDelta("E.esp", true, true, Array.Empty<string>(), 0, true, null) },
         null,
         new[] { new ChildDeclarers("Landscape", shape,
                                    Names("D", declaring), Names("U", unreadable)) });
@@ -1460,7 +1460,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     static string[] Names(string prefix, int n) =>
         Enumerable.Range(1, n).Select(i => $"{prefix}{i}.esp").ToArray();
 
-    static string RenderRow(LoadOrderService.TreeRow row)
+    static string RenderRow(RecordReads.TreeRow row)
     {
         var sb = new StringBuilder();
         bool leadWritten = false;

@@ -159,7 +159,7 @@ public sealed partial class LoadOrderService
             if (!string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal)) continue;
             // The same LooksLikePath check the other pole-resolving sites use.
             if (string.IsNullOrWhiteSpace(e.FromPlugin) || !LooksLikePath(e.FromPlugin!)) continue;
-            if (ActiveNameForPath(view, e.FromPlugin!) is { } activeName)
+            if (RecordReads.ActiveNameForPath(view, e.FromPlugin!) is { } activeName)
                 edits[i] = e with { FromPlugin = activeName };
         }
     }
@@ -175,7 +175,7 @@ public sealed partial class LoadOrderService
         var view = resolver.Capture();
         epoch = view.Stamp;
         if (view.ContainsPlugin(fromPlugin)) return null;      // active — the engine resolves it off the shared build
-        if (LooksLikePath(fromPlugin) && ActiveNameForPath(view, fromPlugin) is { } activeName)
+        if (LooksLikePath(fromPlugin) && RecordReads.ActiveNameForPath(view, fromPlugin) is { } activeName)
         {
             sourceName = activeName;                           // a path to the ACTIVE copy — in-order after all
             return null;
@@ -343,7 +343,7 @@ public sealed partial class LoadOrderService
                 continue;
             }
             // A path that names the order's own copy of an active plugin is that plugin, not an off-order file.
-            if (LooksLikePath(spelling) && ActiveNameForPath(view, spelling) is { } activeName)
+            if (LooksLikePath(spelling) && RecordReads.ActiveNameForPath(view, spelling) is { } activeName)
             {
                 arms.Add(new SourceArm(activeName, SourceArmKind.ActiveOrder, $"'{activeName}' (active in the load order; named by path)",
                     fk => view.GetRecord(session, activeName, fk), ActiveLayer(activeName)));

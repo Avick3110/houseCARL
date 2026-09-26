@@ -213,8 +213,8 @@ public sealed class RecordsWalkCycleTests
         var response = RecordsTools.Records(Svc, formids: new[] { _w.DenseSeed }, walk: Deep, project: Chain,
                                             counts_only: true);
 
-        Assert.Contains($"cycles={LoadOrderService.WalkCycleCap}", response);
-        Assert.Contains($"{LoadOrderService.WalkCycleCap}-cycle search cap", response);
+        Assert.Contains($"cycles={RecordReads.WalkCycleCap}", response);
+        Assert.Contains($"{RecordReads.WalkCycleCap}-cycle search cap", response);
     }
 
     /// <summary>counts_only lists no seed, so it must not tell the reader to look under one.</summary>

@@ -101,7 +101,7 @@ public sealed class ReadPinTests : IDisposable
     /// <summary>Selects Other and game B, then starts a switcher that takes the service's gate and re-derives the roots.</summary>
     void SwitchFromAnotherThread()
     {
-        _svc.AfterReadPinForGuard = null;
+        _svc.ReadArea.AfterReadPinForGuard = null;
         SelectOtherProfileAndGameB();
         var gate = Gate();
         _switcher = Task.Run(() =>
@@ -114,7 +114,7 @@ public sealed class ReadPinTests : IDisposable
         Assert.True(Monitor.IsEntered(gate) || _switcherInGate.Wait(Timeout), "the switcher never took the free gate");
     }
 
-    (LoadOrderService.PoleInfo Pole, string Name) Read(IReadOnlyList<string> formids)
+    (RecordReads.PoleInfo Pole, string Name) Read(IReadOnlyList<string> formids)
     {
         var outcomes = _svc.ResolveBatchFromPole(formids, OffName, OffMod, new[] { "Name" }, 1, false, null,
                                                  out var pole, out var refusal, out _);
@@ -124,7 +124,7 @@ public sealed class ReadPinTests : IDisposable
         return (pole!, o.Record!.Fields.Single(f => f.Path == "Name").Token!);
     }
 
-    LoadOrderService.PoleInfo Probe()
+    RecordReads.PoleInfo Probe()
     {
         var pole = _svc.ProbeSourceArm(OffName, OffMod, out var error);
         Assert.Null(error);
@@ -138,7 +138,7 @@ public sealed class ReadPinTests : IDisposable
         Assert.False(before.Pole.InOrder);
         Assert.Equal(_dataA, before.Pole.DataDir);
         Assert.Equal(NameA, before.Name);
-        _svc.AfterReadPinForGuard = SwitchFromAnotherThread;
+        _svc.ReadArea.AfterReadPinForGuard = SwitchFromAnotherThread;
 
         // The FormIDs are read after the locate and before the overlay opens; the switch has landed by then.
         var during = Read(new JoinOnFirstRead(_weapon, () => _switcher!.GetAwaiter().GetResult()));

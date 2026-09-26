@@ -133,7 +133,7 @@ static class JsonWire
     }
 
     // ---- housecarl_diff_record ----------------------------------------------------------------------
-    static void WriteDiffPole(Utf8JsonWriter w, string name, LoadOrderService.DiffPole p)
+    static void WriteDiffPole(Utf8JsonWriter w, string name, RecordReads.DiffPole p)
     {
         w.WriteStartObject(name);
         w.WriteString("plugin", p.Plugin);
@@ -610,7 +610,7 @@ static class JsonWire
 
     /// <summary>One delta row — shared by the json render and the artifact writer; a per-item refusal is
     /// <c>{formid, error, stack_above?}</c>, a compared row carries both poles and the text lane's delta strings.</summary>
-    internal static void WriteDeltaRow(Utf8JsonWriter w, LoadOrderService.DeltaRow row, CharCountedStream ms, int cap)
+    internal static void WriteDeltaRow(Utf8JsonWriter w, RecordReads.DeltaRow row, CharCountedStream ms, int cap)
     {
         w.WriteStartObject();
         w.WriteString("formid", row.Formid);
@@ -649,7 +649,7 @@ static class JsonWire
     }
 
     /// <summary>records form=delta. The identical count only counts COMPLETE comparisons (<c>complete:false</c> otherwise).</summary>
-    public static string RenderDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int maxChars, OrderStamp? epoch,
+    public static string RenderDelta(IReadOnlyList<RecordReads.DeltaRow> rows, int maxChars, OrderStamp? epoch,
                                      IReadOnlyList<KeyValuePair<string, string>> envelope,
                                      IReadOnlyList<KeyValuePair<string, int>> counts,
                                      SpillState? spill, out bool truncated)
@@ -688,7 +688,7 @@ static class JsonWire
 
     /// <summary>One tree row — the provider stack with per-node deltas, shared by the json render and the artifact writer.</summary>
     /// <returns>true if any part of the row hit <paramref name="cap"/>; the caller must merge it into <c>truncated</c>.</returns>
-    internal static bool WriteTreeRow(Utf8JsonWriter w, LoadOrderService.TreeRow row, CharCountedStream ms, int cap,
+    internal static bool WriteTreeRow(Utf8JsonWriter w, RecordReads.TreeRow row, CharCountedStream ms, int cap,
                                       LeverNames? levers = null)
     {
         // The notice vocabulary comes from the carrier, not a literal; both callers pass Records explicitly.
@@ -763,7 +763,7 @@ static class JsonWire
     }
 
     /// <summary>records form=tree: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c>.</summary>
-    public static string RenderTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int maxChars, OrderStamp? epoch,
+    public static string RenderTree(IReadOnlyList<RecordReads.TreeRow> rows, int maxChars, OrderStamp? epoch,
                                     IReadOnlyList<KeyValuePair<string, string>> envelope,
                                     IReadOnlyList<KeyValuePair<string, int>> counts,
                                     SpillState? spill, out bool truncated, LeverNames? levers = null)
@@ -810,7 +810,7 @@ static class JsonWire
 
     /// <summary>One chain row — shared by the json render and the artifact writer. Node status is 'expanded' or
     /// 'kept'. Returns whether anything in THIS row was held back at <paramref name="cap"/>.</summary>
-    internal static bool WriteChainRow(Utf8JsonWriter w, LoadOrderService.WalkSeedResult row, CharCountedStream ms, int cap)
+    internal static bool WriteChainRow(Utf8JsonWriter w, RecordReads.WalkSeedResult row, CharCountedStream ms, int cap)
     {
         bool cut = false;
         w.WriteStartObject();
@@ -882,7 +882,7 @@ static class JsonWire
     }
 
     /// <summary>records form=chain: <c>{…envelope, seeds, errors, epoch, rows:[…]}</c>.</summary>
-    public static string RenderChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int maxChars, OrderStamp? epoch,
+    public static string RenderChain(IReadOnlyList<RecordReads.WalkSeedResult> rows, int maxChars, OrderStamp? epoch,
                                      IReadOnlyList<KeyValuePair<string, string>> envelope,
                                      IReadOnlyList<KeyValuePair<string, int>> counts,
                                      SpillState? spill, out bool truncated)
@@ -984,7 +984,7 @@ static class JsonWire
     /// <summary>One info_order row, shared by the json render and the artifact writer; positions are 1-based. The
     /// honesty gates ride as data — a negative claim about moves holds only when <c>complete</c> and
     /// <c>moves_computed</c> are both true.</summary>
-    internal static void WriteInfoOrderRow(Utf8JsonWriter w, LoadOrderService.InfoOrderRow row, CharCountedStream ms, int cap)
+    internal static void WriteInfoOrderRow(Utf8JsonWriter w, RecordReads.InfoOrderRow row, CharCountedStream ms, int cap)
     {
         w.WriteStartObject();
         w.WriteString("formid", row.Formid);
@@ -1041,7 +1041,7 @@ static class JsonWire
     }
 
     /// <summary>records form=info_order: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c>.</summary>
-    public static string RenderInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int maxChars, OrderStamp? epoch,
+    public static string RenderInfoOrder(IReadOnlyList<RecordReads.InfoOrderRow> rows, int maxChars, OrderStamp? epoch,
                                          IReadOnlyList<KeyValuePair<string, string>> envelope,
                                          IReadOnlyList<KeyValuePair<string, int>> counts,
                                          SpillState? spill, out bool truncated)

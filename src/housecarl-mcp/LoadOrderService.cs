@@ -19,6 +19,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     readonly int _maxPlugins;
     readonly object _gate = new();
     readonly AssetLayers _assetLayers;             // the assets area; built in the constructor over this head
+    readonly RecordReads _reads;                   // the reads area; built in the constructor over this head
     readonly RecordChecks _checks;                 // the checks area; built in the constructor over this head
     // Serializes every plugin write's resolve, stage and commit; contract in docs/architecture/load-order-service.md.
     readonly object _writeGate = new();
@@ -57,6 +58,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var storePath = Path.GetFullPath(store.FilePath);
         ResultsDir = Path.Combine(Path.GetDirectoryName(storePath) ?? storePath, "results");
         _assetLayers = new AssetLayers(this);
+        _reads = new RecordReads(this);
         _checks = new RecordChecks(this);
     }
 
@@ -117,9 +119,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     (ViewPin Pin, AssetCapture Assets) ILoadOrderHost.CapturePinAndAssets(Action? afterPin)
         => CapturePinAnd(() => AssetCaptureLocked(AssetsNoProfileRefreshLocked().Capture()), afterPin);
-
-    /// <summary>Test seam: invoked in the pole lanes after the pin and before the roots; null in the product.</summary>
-    internal Action? AfterReadPinForGuard;
 
     (ViewPin Pin, Mo2Roots Roots) IReadHost.CapturePinAndRoots(Action? afterPin)
         => CapturePinAnd(() => ((ILoadOrderHost)this).CaptureRoots(), afterPin);
@@ -245,7 +244,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
     bool IAssetHost.InPlaceParentUnwritable(string targetPath, out string why) => InPlaceParentUnwritable(targetPath, out why);
     string IAssetHost.InPlaceHandshakeLead(string name, string path, string subject, string verb) => InPlaceHandshakeLead(name, path, subject, verb);
-    string IAssetHost.UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk) => UnresolvedFormId(view, fk);
+    string IAssetHost.UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk) => RecordReads.UnresolvedFormId(view, fk);
     AssetLayers.SkyPatcherReplay? IReadHost.OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                                                  out string? draftRefusal, SkyPatcherDraft.Plan? draft,
                                                                  SkyPatcherOverlay.WarningSink? draftWarnings)
@@ -269,9 +268,128 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>The auto-spill results directory: <c>results</c> beside houseCARL.user.json.</summary>
     internal string ResultsDir { get; }
 
+    // The reads area's tool-facing surface; the bodies are in RecordReads.cs, RecordPoles.cs, RecordWalk.cs, RecordQuery.cs and TreeFold.cs.
+    internal ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
+                                     bool resolveNames = false, RecordReads.LinkMemo? linkMemo = null,
+                                     string? containerHint = ReadEngine.DepthExpandHint,
+                                     IReadOnlyList<int>? depths = null,
+                                     IReadOnlyCollection<string>? countFields = null)
+        => _reads.ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, countFields);
+    internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
+                                       bool conflictTree, int depth = 1, bool resolveNames = false,
+                                       RecordReads.LinkMemo? linkMemo = null,
+                                       string? containerHint = ReadEngine.DepthExpandHint,
+                                       IReadOnlyList<int>? depths = null,
+                                       LoadOrderResolver.OverlaySession? session = null,
+                                       IMajorRecordGetter? prefetched = null,
+                                       IReadOnlyCollection<string>? countFields = null)
+        => _reads.ResolveReadOn(q, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, session, prefetched, countFields);
+    internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk) => _reads.ResolveSummaryOn(q, fk);
+    internal ConflictTreeView? ResolveTreePinned(ViewPin p, FormKey fk, IReadOnlyList<string>? fields) => _reads.ResolveTreePinned(p, fk, fields);
+    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids) => _reads.ResolveRefs(formids);
+    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, out OrderStamp epoch) => _reads.ResolveRefs(formids, out epoch);
+    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, ArtifactDemand? artifactDemand,
+                                                  out OrderStamp epoch, out string? artifactRefusal)
+        => _reads.ResolveRefs(formids, artifactDemand, out epoch, out artifactRefusal);
+    public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
+                                                   bool resolveNames = false, string? plugin = null,
+                                                   string? containerHint = ReadEngine.DepthExpandHint,
+                                                   IReadOnlyList<int>? depths = null,
+                                                   CancellationToken ct = default,
+                                                   IReadOnlyList<Type>? getterTypes = null,
+                                                   IReadOnlyCollection<string>? countFields = null)
+        => _reads.ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, containerHint, depths, ct, getterTypes, countFields);
+    public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
+                                                   bool resolveNames, string? plugin, ArtifactDemand? artifactDemand,
+                                                   out string? artifactRefusal, out OrderStamp? refusalEpoch,
+                                                   string? containerHint = ReadEngine.DepthExpandHint,
+                                                   IReadOnlyList<int>? depths = null,
+                                                   CancellationToken ct = default,
+                                                   IReadOnlyList<Type>? getterTypes = null,
+                                                   IReadOnlyCollection<string>? countFields = null)
+        => _reads.ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, artifactDemand, out artifactRefusal, out refusalEpoch,
+                               containerHint, depths, ct, getterTypes, countFields);
+    internal IReadOnlyList<ReadOutcome> ResolveBatchFromPole(
+        IReadOnlyList<string> formids, string plugin, string? mod,
+        IReadOnlyList<string>? fields, int depth, bool resolveNames,
+        ArtifactDemand? artifactDemand,
+        out RecordReads.PoleInfo? pole, out string? refusal, out OrderStamp? refusalEpoch,
+        string? containerHint = ReadEngine.DepthExpandHint,
+        IReadOnlyList<int>? depths = null,
+        CancellationToken ct = default,
+        IReadOnlyList<Type>? getterTypes = null,
+        IReadOnlyCollection<string>? countFields = null)
+        => _reads.ResolveBatchFromPole(formids, plugin, mod, fields, depth, resolveNames, artifactDemand, out pole, out refusal, out refusalEpoch,
+                                       containerHint, depths, ct, getterTypes, countFields);
+    internal RecordReads.PoleInfo? ProbeSourceArm(string plugin, string? mod, out string? error) => _reads.ProbeSourceArm(plugin, mod, out error);
+    internal IReadOnlyList<RecordReads.DeltaRow> DeltaBatch(
+        IReadOnlyList<string> formids, RecordReads.PoleSpec subject, RecordReads.PoleSpec reference, IReadOnlyList<string>? fields,
+        ArtifactDemand? demand,
+        out string? subjectArm, out string? referenceArm, out bool epochCoversAll,
+        out string? refusal, out OrderStamp? epoch, SkyPatcherOverlay.WarningSink? overlayWarnings = null)
+        => _reads.DeltaBatch(formids, subject, reference, fields, demand, out subjectArm, out referenceArm, out epochCoversAll,
+                             out refusal, out epoch, overlayWarnings);
+    public IReadOnlyList<ReadOutcome> OverlayPostBatch(
+        IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth, bool resolveNames,
+        ArtifactDemand? demand, out string? refusal, out OrderStamp? refusalEpoch, out OrderStamp? epoch,
+        string? containerHint = ReadEngine.DepthExpandHint,
+        IReadOnlyList<int>? depths = null,
+        CancellationToken ct = default,
+        SkyPatcherDraft.Plan? draft = null,
+        SkyPatcherOverlay.WarningSink? overlayWarnings = null)
+        => _reads.OverlayPostBatch(formids, fields, depth, resolveNames, demand, out refusal, out refusalEpoch, out epoch,
+                                   containerHint, depths, ct, draft, overlayWarnings);
+    internal IReadOnlyList<RecordReads.TreeRow> TreeBatch(
+        IReadOnlyList<string> formids, RecordReads.PoleSpec reference, IReadOnlyList<string>? fields,
+        ArtifactDemand? demand,
+        out string? referenceArm, out bool epochCoversAll, out string? refusal, out OrderStamp? epoch,
+        SkyPatcherOverlay.WarningSink? overlayWarnings = null)
+        => _reads.TreeBatch(formids, reference, fields, demand, out referenceArm, out epochCoversAll, out refusal, out epoch, overlayWarnings);
+    internal IReadOnlyList<RecordReads.WalkSeedResult> WalkForwardBatch(
+        IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
+        int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
+        ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct = default,
+        bool wantCycles = false)
+        => _reads.WalkForwardBatch(seeds, seedPaths, follow, depth, maxNodes, exclusions, demand, out refusal, out epoch, ct, wantCycles);
+    internal IReadOnlyList<RecordReads.InfoOrderRow> InfoOrderBatch(IReadOnlyList<string> formids, ArtifactDemand? demand,
+                                                                   out string? refusal, out OrderStamp? epoch,
+                                                                   RecordReads.PoleInfo? foldArm = null, RecordReads.FoldFacts? foldFacts = null)
+        => _reads.InfoOrderBatch(formids, demand, out refusal, out epoch, foldArm, foldFacts);
+    public CrossQueryOutcome CrossQuery(string? type, IReadOnlyList<FormKey>? references, string? editoridContains,
+                                        bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
+                                        bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
+                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null,
+                                        IReadOnlyList<FormKey>? referencesNone = null,
+                                        CancellationToken ct = default)
+        => _reads.CrossQuery(type, references, editoridContains, conflictsOnly, plugins, where, limit, definedIn, groupBy, offset, whereSource,
+                             artifactDemands, referencesNone, ct);
+    public CrossQueryOutcome CrossQuery(IReadOnlyList<string>? typeSet, IReadOnlyList<FormKey>? references, string? editoridContains,
+                                        bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
+                                        bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
+                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null,
+                                        IReadOnlyList<FormKey>? formidSet = null,
+                                        LoadOrderResolver.IndexView? pinnedView = null,
+                                        IReadOnlyList<FormKey>? referencesNone = null,
+                                        CancellationToken ct = default)
+        => _reads.CrossQuery(typeSet, references, editoridContains, conflictsOnly, plugins, where, limit, definedIn, groupBy, offset, whereSource,
+                             artifactDemands, formidSet, pinnedView, referencesNone, ct);
+    internal CrossQueryOutcome OffOrderQuery(RecordReads.PoleInfo pole, IReadOnlyList<string>? typeSet,
+        IReadOnlyList<FormKey>? references, string? editoridContains, IReadOnlyList<string>? scopePlugins,
+        bool definedIn, IReadOnlyList<string>? where, int limit, string? groupBy, int offset,
+        IReadOnlyList<FormKey>? formidSet, IReadOnlyList<ArtifactDemand>? artifactDemands,
+        LoadOrderResolver.IndexView? pinnedView = null,
+        IReadOnlyList<FormKey>? referencesNone = null,
+        CancellationToken ct = default)
+        => _reads.OffOrderQuery(pole, typeSet, references, editoridContains, scopePlugins, definedIn, where, limit, groupBy, offset,
+                                formidSet, artifactDemands, pinnedView, referencesNone, ct);
+    public EffectChainResult ResolveEffectChain(FormKey mgef, IReadOnlyList<string>? typesNarrow, int limit)
+        => _reads.ResolveEffectChain(mgef, typesNarrow, limit);
+
+    internal RecordReads ReadArea => _reads;   // the reads area instance, for tests that set its seams
+
     // The checks area's tool-facing surface; the bodies are in RecordChecks.cs.
     public DialogueValidationReport ValidateDialogue(FormKey fk) => _checks.ValidateDialogue(fk);
-    public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false, PoleInfo? foldArm = null)
+    internal DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false, RecordReads.PoleInfo? foldArm = null)
         => _checks.CheckDialogue(seeds, limit, countsOnly, foldArm);
     public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit,
                                         IReadOnlyList<string>? formids = null, string? editoridContains = null,
