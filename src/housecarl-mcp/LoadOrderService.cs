@@ -120,7 +120,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     (ViewPin Pin, AssetCapture Assets) ILoadOrderHost.CapturePinAndAssets(Action? afterPin)
         => CapturePinAnd(() => AssetCaptureLocked(AssetsNoProfileRefreshLocked().Capture()), afterPin);
 
-    (ViewPin Pin, Mo2Roots Roots) IReadHost.CapturePinAndRoots(Action? afterPin)
+    (ViewPin Pin, Mo2Roots Roots) ILoadOrderHost.CapturePinAndRoots(Action? afterPin)
         => CapturePinAnd(() => ((ILoadOrderHost)this).CaptureRoots(), afterPin);
 
     /// <summary>A FormID door for a tool body with no captured view of its own — see <see cref="FormIdDoor"/>.</summary>
