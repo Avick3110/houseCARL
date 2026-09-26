@@ -19,7 +19,7 @@ internal sealed partial class RecordReads
                                         IReadOnlyList<FormKey>? referencesNone,
                                         CancellationToken ct)
         => CrossQuery(type is null ? null : new[] { type }, references, editoridContains, conflictsOnly, plugins, where,
-                      limit, definedIn, groupBy, offset, whereSource, artifactDemands, referencesNone: referencesNone, ct: ct);
+                      limit, definedIn, groupBy, offset, whereSource, artifactDemands, formidSet: null, pinnedView: null, referencesNone: referencesNone, ct: ct);
 
     /// <summary>The formids-by-scan composition: <paramref name="formidSet"/> intersects the selection with an
     /// explicit identity set.</summary>
@@ -28,12 +28,12 @@ internal sealed partial class RecordReads
     /// <see cref="TypeLookup.Resolve"/>, and the scan streams the union of the resolved type groups.</summary>
     public CrossQueryOutcome CrossQuery(IReadOnlyList<string>? typeSet, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
-                                        bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
-                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null,
-                                        IReadOnlyList<FormKey>? formidSet = null,
-                                        LoadOrderResolver.IndexView? pinnedView = null,
-                                        IReadOnlyList<FormKey>? referencesNone = null,
-                                        CancellationToken ct = default)
+                                        bool definedIn, string? groupBy, int offset, string? whereSource,
+                                        IReadOnlyList<ArtifactDemand>? artifactDemands,
+                                        IReadOnlyList<FormKey>? formidSet,
+                                        LoadOrderResolver.IndexView? pinnedView,
+                                        IReadOnlyList<FormKey>? referencesNone,
+                                        CancellationToken ct)
     {
         var resolver = _host.Resolver;
         // The caller's own build when its FormID door already captured one, so the tokens it parsed and the
