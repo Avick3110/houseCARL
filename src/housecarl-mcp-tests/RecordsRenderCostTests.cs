@@ -1130,15 +1130,20 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void ACancelledCallLeavesNothingInTheResultsDirectory()
     {
-        using var results = new ResultsDirScope(_w.Scratch("cancel-results"));   // its own, so the claim is "empty"
-        var dir = results.Dir;
+        var dir = _w.Scratch("cancel-results");   // its own, so the claim is "empty"
+        Directory.CreateDirectory(dir);
         Assert.Empty(Directory.GetFiles(dir));
-
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        Assert.Throws<OperationCanceledException>(() =>
-            RecordsTools.Records(Svc, types: Weap, limit: RenderCostWorld.Weapons, project: Fields(),
-                                 max_chars: 600, ct: cts.Token));
+        var prior = Svc.ResultsDir;
+        Svc.ResultsDir = dir;
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            Assert.Throws<OperationCanceledException>(() =>
+                RecordsTools.Records(Svc, types: Weap, limit: RenderCostWorld.Weapons, project: Fields(),
+                                     max_chars: 600, ct: cts.Token));
+        }
+        finally { Svc.ResultsDir = prior; }
 
         Assert.Empty(Directory.GetFiles(dir));
     }

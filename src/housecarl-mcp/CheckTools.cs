@@ -307,7 +307,7 @@ public static class CheckTools
         {
             // The same validator the records surface runs: absolute, .jsonl, and outside the pruned results
             // directory.
-            if (Artifacts.ValidateToFile(path) is { } verr) return Wire.Refuse(json, verr);
+            if (Artifacts.ValidateToFile(path, svc.ResultsDir) is { } verr) return Wire.Refuse(json, verr);
             if (counts_only)
                 return Wire.Refuse(json, "error: counts_only= returns the histograms with no findings, and to_file= "
                                        + "writes the findings - the two contradict; drop one.");

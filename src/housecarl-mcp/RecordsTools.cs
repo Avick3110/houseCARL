@@ -432,7 +432,7 @@ public static partial class RecordsTools
         bool wantFile = !string.IsNullOrEmpty(toFile);
         if (wantFile)
         {
-            if (Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
+            if (Artifacts.ValidateToFile(toFile!, svc.ResultsDir) is { } verr) return Wire.Refuse(json, verr);
             if (offset > 0) return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a window), so offset= has nothing to page — drop offset=.");
             if (form == "aggregate") return Wire.Refuse(json, "error: to_file= writes row artifacts, and the aggregate form is a count table with no record rows — drop one of the two.");
             if (counts_only) return Wire.Refuse(json, Artifacts.CountsOnlyWithToFile);
@@ -644,7 +644,7 @@ public static partial class RecordsTools
                 var rendered = Render(spill, out var truncated);
                 if (spill is null && truncated)
                 {
-                    using var reservation = ResultsStore.Reserve(ToolNames.Records, epoch.Epoch);
+                    using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch.Epoch);
                     var (s, aerr) = Artifacts.WriteResolve(rows, epoch.Epoch, reservation, "ceiling", Echo());
                     rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
@@ -750,7 +750,7 @@ public static partial class RecordsTools
             var rendered2 = Render2(spill2, out var truncated2);
             if (spill2 is null && truncated2)
             {
-                using var reservation = ResultsStore.Reserve(ToolNames.Records, epoch2?.Epoch ?? "none");
+                using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch2?.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteBatch(outcomes, reservation, "ceiling", Echo(), formLevers);
                 rendered2 = Render2(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
@@ -940,7 +940,7 @@ public static partial class RecordsTools
                 var revRendered = RenderRev(revSpill, out var revTrunc);
                 if (revSpill is null && revTrunc)
                 {
-                    using var reservation = ResultsStore.Reserve(ToolNames.Records, epochR?.Epoch ?? "none");
+                    using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epochR?.Epoch ?? "none");
                     var (sp, aerr) = Artifacts.WriteEffectChains(results, epochR?.Epoch, reservation, "ceiling", Echo());
                     revRendered = RenderRev(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
@@ -996,7 +996,7 @@ public static partial class RecordsTools
                 var rendered = Render(spill, out var truncated);
                 if (spill is null && truncated)
                 {
-                    using var reservation = ResultsStore.Reserve(ToolNames.Records, wEpoch?.Epoch ?? "none");
+                    using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, wEpoch?.Epoch ?? "none");
                     var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, reservation, "ceiling", Echo());
                     rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
@@ -1124,7 +1124,7 @@ public static partial class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
-                using var reservation = ResultsStore.Reserve(ToolNames.Records, epoch?.Epoch ?? "none");
+                using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, reservation, "ceiling", echo);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
@@ -1164,7 +1164,7 @@ public static partial class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
-                using var reservation = ResultsStore.Reserve(ToolNames.Records, epoch?.Epoch ?? "none");
+                using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, reservation, "ceiling", echo);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
@@ -1219,7 +1219,7 @@ public static partial class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
-                using var reservation = ResultsStore.Reserve(ToolNames.Records, epoch?.Epoch ?? "none");
+                using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, reservation, "ceiling", echo);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
@@ -1605,7 +1605,7 @@ public static partial class RecordsTools
                 var evRendered = RenderEv(evSpill, out var evTrunc);
                 if (evSpill is null && evTrunc)
                 {
-                    using var reservation = ResultsStore.Reserve(ToolNames.Records, bodyEpoch?.Epoch ?? "none");
+                    using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, bodyEpoch?.Epoch ?? "none");
                     var (s, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), evLevers, matches: evMatches);
                     evRendered = RenderEv(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
@@ -1634,7 +1634,7 @@ public static partial class RecordsTools
             {
                 // Disposing the reservation deletes the file it owns unless the write landed, so a cancel inside
                 // the write leaves nothing.
-                using var reservation = ResultsStore.Reserve(ToolNames.Records, outcome.Epoch ?? "none");
+                using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, outcome.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, reservation, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
@@ -1830,7 +1830,7 @@ public static partial class RecordsTools
                 var offRendered = RenderOff(offSpill, out var offTrunc);
                 if (offSpill is null && offTrunc)
                 {
-                    using var reservation = ResultsStore.Reserve(ToolNames.Records, offEpoch?.Epoch ?? "none");
+                    using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, offEpoch?.Epoch ?? "none");
                     var (sp, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), offLevers, matches: offMatches);
                     offRendered = RenderOff(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
@@ -1857,7 +1857,7 @@ public static partial class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
             {
-                using var reservation = ResultsStore.Reserve(ToolNames.Records, outcome.Epoch ?? "none");
+                using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, outcome.Epoch ?? "none");
                 var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, reservation, "ceiling", Echo(), LeverNames.Records);
                 rendered = Render(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }

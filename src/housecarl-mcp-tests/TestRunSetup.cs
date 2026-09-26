@@ -8,7 +8,7 @@ using Xunit.Sdk;
 namespace HousecarlMcpTests;
 
 /// <summary>Sets up what every test in the run shares, once, before the first test runs and never on discovery: the
-/// test corpus and the auto-spill folder. A failure here stops the run with its own message.</summary>
+/// test corpus. A failure here stops the run with its own message.</summary>
 public sealed class TestRunSetup : XunitTestFramework
 {
     public TestRunSetup(IMessageSink messageSink) : base(messageSink) { }
@@ -25,7 +25,6 @@ public sealed class TestRunSetup : XunitTestFramework
                                              ITestFrameworkExecutionOptions executionOptions)
         {
             _ = TestCorpus.Path;
-            TestResultsDir.Set();
             base.RunTestCases(testCases, executionMessageSink, executionOptions);
         }
     }

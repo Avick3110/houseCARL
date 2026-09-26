@@ -7,25 +7,9 @@ static class ResultsStore
 {
     public const int PruneAfterDays = 7;
 
-    /// <summary>The results directory (created on demand): HOUSECARL_DATA_DIR, else the server binary's folder, the same order Program.cs uses for user config.</summary>
-    public static string Dir
+    /// <summary>Reserve a fresh artifact file in <paramref name="dir"/> (created on demand) for an auto-spill from <paramref name="tool"/> at build <paramref name="epoch"/>, pruning old spills on the way; the reservation IS the file, and the caller disposes it.</summary>
+    public static ArtifactTarget Reserve(string dir, string tool, string epoch)
     {
-        get
-        {
-            if (OverrideDirForTests is { } o) return o;
-            var dataDir = Environment.GetEnvironmentVariable("HOUSECARL_DATA_DIR");
-            var root = string.IsNullOrWhiteSpace(dataDir) ? AppContext.BaseDirectory : dataDir;
-            return Path.Combine(root, "results");
-        }
-    }
-
-    /// <summary>Test seam: point the store at a temp directory. Never set in production code paths.</summary>
-    public static string? OverrideDirForTests;
-
-    /// <summary>Reserve a fresh artifact file for an auto-spill from <paramref name="tool"/> at build <paramref name="epoch"/>, pruning old spills on the way; the reservation IS the file, and the caller disposes it.</summary>
-    public static ArtifactTarget Reserve(string tool, string epoch)
-    {
-        var dir = Dir;
         // Best-effort: Save names a write failure as a spill warning, rather than a generic tool error here.
         try { Directory.CreateDirectory(dir); Prune(dir); } catch (Exception) { }
         var shortTool = tool.StartsWith("housecarl_", StringComparison.Ordinal) ? tool["housecarl_".Length..] : tool;

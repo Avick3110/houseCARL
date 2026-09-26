@@ -528,12 +528,15 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     [Fact]
     public void AnOverCeilingRenderIsSpilledWholeAndTheResponseNamesTheFile()
     {
-        using var results = new ResultsDirScope(Temp("spills"));
+        var spills = Temp("spills");
+        Directory.CreateDirectory(spills);
+        var prior = _w.Svc.ResultsDir;
+        _w.Svc.ResultsDir = spills;
         try
         {
             var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, max_chars: 900);
 
-            var file = Assert.Single(Directory.GetFiles(results.Dir, "*.jsonl"));
+            var file = Assert.Single(Directory.GetFiles(spills, "*.jsonl"));
             Assert.Contains("spilled: complete result", text);
             Assert.Contains(file, text);
             Assert.Contains("the inline render hit max_chars", text);
@@ -546,14 +549,17 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Equal(AssetSelectWorld.FaceGeomFiles, manifest.GetProperty("total").GetInt32());
             Assert.Equal("path", manifest.GetProperty("identity").GetString());
         }
-        finally { try { Directory.Delete(results.Dir, true); } catch { } }
+        finally { _w.Svc.ResultsDir = prior; try { Directory.Delete(spills, true); } catch { } }
     }
 
     /// <summary>The json lane carries the same marker as data, with the reason a consumer branches on.</summary>
     [Fact]
     public void TheJsonLaneNamesTheAutoSpillAndItsReason()
     {
-        using var results = new ResultsDirScope(Temp("spills-json"));
+        var spills = Temp("spills-json");
+        Directory.CreateDirectory(spills);
+        var prior = _w.Svc.ResultsDir;
+        _w.Svc.ResultsDir = spills;
         try
         {
             var root = JsonDocument.Parse(
@@ -562,11 +568,11 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
 
             var spilled = root.GetProperty("spilled");
             Assert.Equal("over_inline_ceiling", spilled.GetProperty("reason").GetString());
-            Assert.Equal(Assert.Single(Directory.GetFiles(results.Dir, "*.jsonl")), spilled.GetProperty("path").GetString());
+            Assert.Equal(Assert.Single(Directory.GetFiles(spills, "*.jsonl")), spilled.GetProperty("path").GetString());
             Assert.True(spilled.GetProperty("complete").GetBoolean());
             Assert.Equal(AssetSelectWorld.FaceGeomFiles, spilled.GetProperty("row_count").GetInt32());
         }
-        finally { try { Directory.Delete(results.Dir, true); } catch { } }
+        finally { _w.Svc.ResultsDir = prior; try { Directory.Delete(spills, true); } catch { } }
     }
 
     /// <summary>A window that then runs past the ceiling spills the window, and says so: the file is complete as a
@@ -581,7 +587,10 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     [InlineData(0, 2)]
     public void AnAutoSpilledWindowSaysTheMatchesOutsideItAreInNoFile(int limit, int offset)
     {
-        using var results = new ResultsDirScope(Temp($"spills-window-{limit}-{offset}"));
+        var spills = Temp($"spills-window-{limit}-{offset}");
+        Directory.CreateDirectory(spills);
+        var prior = _w.Svc.ResultsDir;
+        _w.Svc.ResultsDir = spills;
         try
         {
             var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
@@ -590,14 +599,14 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Contains("spilled: the returned WINDOW", text);
             Assert.Contains("outside the returned window are in NO file", text);
             var manifest = JsonDocument.Parse(
-                File.ReadAllLines(Assert.Single(Directory.GetFiles(results.Dir, "*.jsonl")))[0]).RootElement;
+                File.ReadAllLines(Assert.Single(Directory.GetFiles(spills, "*.jsonl")))[0]).RootElement;
             int rows = limit > 0 ? limit : AssetSelectWorld.FaceGeomFiles - offset;
             Assert.Equal(rows, manifest.GetProperty("row_count").GetInt32());
             Assert.Equal(AssetSelectWorld.FaceGeomFiles, manifest.GetProperty("total").GetInt32());
             Assert.Equal($"window: rows {offset + 1}–{offset + rows} of {AssetSelectWorld.FaceGeomFiles} (limit={limit}, offset={offset})",
                          manifest.GetProperty("query").GetProperty("window").GetString());
         }
-        finally { try { Directory.Delete(results.Dir, true); } catch { } }
+        finally { _w.Svc.ResultsDir = prior; try { Directory.Delete(spills, true); } catch { } }
     }
 
     /// <summary>The window echo is a WINDOW's alone: a to_file= artifact covers the whole selection, so an entry
@@ -624,7 +633,10 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     public void AnAutoSpilledArtifactCarriesTheEpochOfTheBuildItSitsBeside()
     {
         using var w = new DegradedOrderWorld();
-        using var results = new ResultsDirScope(Temp("spills-stamped"));
+        var spills = Temp("spills-stamped");
+        Directory.CreateDirectory(spills);
+        var prior = w.Svc.ResultsDir;
+        w.Svc.ResultsDir = spills;
         try
         {
             var epoch = w.Svc.CaptureView().Stamp.Epoch;
@@ -634,7 +646,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
 
             Assert.Contains("spilled: complete result", text);
             Assert.Contains("epoch=" + epoch, text);
-            var file = Assert.Single(Directory.GetFiles(results.Dir, "*.jsonl"));
+            var file = Assert.Single(Directory.GetFiles(spills, "*.jsonl"));
             // The server names the file after the build it was read beside, so an unstamped spill is visible
             // without opening one.
             Assert.Contains(epoch, Path.GetFileName(file));
@@ -642,7 +654,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Equal(epoch, manifest.GetProperty("epoch").GetString());
             Assert.Equal(DegradedOrderWorld.SweepFiles, manifest.GetProperty("row_count").GetInt32());
         }
-        finally { try { Directory.Delete(results.Dir, true); } catch { } }
+        finally { w.Svc.ResultsDir = prior; try { Directory.Delete(spills, true); } catch { } }
     }
 
     /// <summary>The empty-selection refusal names every SELECT there is, formids= included — a caller who passed
