@@ -34,11 +34,13 @@ jobs:
       # Cache the NuGet package restore across runs (keyed on the project files, which pin the
       # package versions). Trims the restore inside the build step below; the build itself still
       # compiles the whole solution fresh every run.
-      # The local Nifly package and why its version suffix is the cache's guard: docs/architecture/nif.md.
+      # The vendored Nifly package is left out, so every run restores it from packages/local, never a stale copy.
       - name: Cache NuGet packages
         uses: actions/cache@v6
         with:
-          path: ~/.nuget/packages
+          path: |
+            ~/.nuget/packages
+            !~/.nuget/packages/nifly
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'nuget.config', 'packages/local/*.nupkg') }}
           restore-keys: |
             nuget-${{ runner.os }}-
