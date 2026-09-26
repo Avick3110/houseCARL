@@ -180,10 +180,6 @@ static class BatchRender
     public static CaveatList RootFailureList(IReadOnlyList<string> failures) =>
         new(failures, RootFailureLead, "loose root read failure(s)");
 
-    /// <summary>The facegen owners' folders that would not list, so their plugins could not be read.</summary>
-    public static CaveatList OwnerFolderFailureList(IReadOnlyList<string> failures) =>
-        new(failures, "[!] facegen owner folder not listed: ", "unlisted facegen owner folder(s)");
-
     /// <summary>A cut list as caveat lines, closed by its counted marker when anything was left out.</summary>
     public static string CaveatLines(CaveatList list, (IReadOnlyList<string> Shown, int Omitted) cut, string indent)
     {

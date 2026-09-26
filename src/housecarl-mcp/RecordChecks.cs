@@ -295,45 +295,21 @@ internal sealed class RecordChecks
                     : FaceGenCheckResult.Fail(splitErr.Message);
         }
 
-        // Which plugins one provider ships, read lazily and memoized: only a provider that WINS a facegen half is
-        // ever asked, so a whole-order sweep pays for a handful of directory listings.
-        // A folder that will not list is tried once, answers null, and is named on the result with the reason.
+        // Which plugins one provider ships, memoized; null when its folder would not list, which the view names in RootFailures.
         var shipped = new Dictionary<string, IReadOnlyList<string>?>(StringComparer.OrdinalIgnoreCase);
-        var unreadable = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         IReadOnlyList<string>? PluginsIn(string provider)
         {
             if (shipped.TryGetValue(provider, out var got)) return got;
-            var dir = provider.Equals(AssetResolver.OverwriteLayerName, StringComparison.OrdinalIgnoreCase) ? overwriteDir
-                    : provider.Equals(AssetResolver.DataLayerName, StringComparison.OrdinalIgnoreCase) ? dataDir
-                    : Path.Combine(modsDir, provider);
-            var names = new List<string>();
-            try
-            {
-                if (Directory.Exists(dir))
-                    foreach (var f in Directory.EnumerateFiles(dir))
-                    {
-                        var ext = Path.GetExtension(f);
-                        if (ext.Equals(".esp", StringComparison.OrdinalIgnoreCase)
-                         || ext.Equals(".esm", StringComparison.OrdinalIgnoreCase)
-                         || ext.Equals(".esl", StringComparison.OrdinalIgnoreCase))
-                            names.Add(Path.GetFileName(f));
-                    }
-            }
-            catch (Exception ex)
-            {
-                // The loose-root register's shape and its 200-char bound on the reason.
-                var why = ex.Message.Replace("\r", "").Replace("\n", " ").Trim();
-                unreadable[provider] = $"{provider}: could not list '{dir}' — "
-                                     + (why.Length > 200 ? why[..200] + "…" : why);
-                return shipped[provider] = null;
-            }
-            return shipped[provider] = names;
+            return shipped[provider] = assets.LooseRootFiles(provider)?
+                .Where(f => Path.GetExtension(f) is var ext
+                         && (ext.Equals(".esp", StringComparison.OrdinalIgnoreCase)
+                          || ext.Equals(".esm", StringComparison.OrdinalIgnoreCase)
+                          || ext.Equals(".esl", StringComparison.OrdinalIgnoreCase)))
+                .ToList();
         }
 
-        var result = FaceGenCheck.Run(resolver, view, assets, PluginsIn, plugins, limit,
-                                      offOrder.Count > 0 ? offOrder : null, recordScope, classes, countsOnly, excluded);
-        return unreadable.Count == 0 ? result
-             : result with { UnreadableModFolders = unreadable.Values.OrderBy(v => v, StringComparer.OrdinalIgnoreCase).ToList() };
+        return FaceGenCheck.Run(resolver, view, assets, PluginsIn, plugins, limit,
+                                offOrder.Count > 0 ? offOrder : null, recordScope, classes, countsOnly, excluded);
     }
 
     /// <summary>The facegen family's <c>findings=</c> class tokens. An unrecognized token is a named refusal listing the vocabulary, never a silent widening.</summary>

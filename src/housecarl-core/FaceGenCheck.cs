@@ -551,8 +551,7 @@ public sealed record FaceGenCheckResult(
     int NpcsRaceUnresolved = 0,
     IReadOnlyList<FaceGenFinding>? WithheldBenign = null,
     IReadOnlyList<string>? RootFailures = null,   // the loose roots this build could not walk or list, each named with the reason; null or empty when every root read
-    int NoComparisonPoleUnreadable = 0,            // clean pairs untested because the owner's mod folder could not be listed, kept apart from NoComparisonPole
-    IReadOnlyList<string>? UnreadableModFolders = null)   // the mod folders the sweep could not list, each named with the reason; null when every one listed
+    int NoComparisonPoleUnreadable = 0)            // clean pairs untested because the owner's folder could not be listed, kept apart from NoComparisonPole
 {
     public bool Success => Error is null;
 

@@ -461,6 +461,9 @@ public sealed class AssetResolver : IDisposable
 
         public AssetHit Resolve(string relPath) => _r.Resolve(relPath, _s);
 
+        /// <summary>The files at the top of one loose root by its name; null when it would not list, which is named in <see cref="RootFailures"/>.</summary>
+        public IReadOnlyCollection<string>? LooseRootFiles(string rootName) => _r.LooseRootFiles(rootName, _s);
+
         public PlacementResolution ResolveForPlacement(string relPath) => _r.ResolveForPlacement(relPath, _s);
 
         /// <summary>The off-order source lane — see <see cref="AssetResolver.TryResolveOffOrderProvider"/>.
@@ -615,6 +618,18 @@ public sealed class AssetResolver : IDisposable
             RecordRootFailure(rootName, subtreeDir, "read", ex, snap);
             return (null, null, false);
         }
+    }
+
+    /// <summary>One loose root's top-level files through the same listing the warm uses; empty for a name that is no loose root.</summary>
+    IReadOnlyCollection<string>? LooseRootFiles(string rootName, Snapshot snap)
+    {
+        foreach (var (name, dir) in _looseRoots)
+            if (string.Equals(name, rootName, StringComparison.OrdinalIgnoreCase))
+            {
+                var (_, files, provedAbsent) = SafeListing(dir, name, dir, "", snap);
+                return files is not null ? files : provedAbsent ? Array.Empty<string>() : null;
+            }
+        return Array.Empty<string>();
     }
 
     /// <summary>Is a directory Directory.Exists calls absent really absent? On Windows it answers "not there" for a
