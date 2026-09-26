@@ -27,6 +27,8 @@ made the change.
 - **`housecarl_check`'s errors and dialogue families now read the MO2 profile, its folders and, for dialogue, its
   mod files together with the load order they check, so switching profiles in MO2 mid-check can no longer mix two
   profiles.**
+- **A `housecarl_records` call with a SkyPatcher overlay source or pole now replays the INI layer over the same asset
+  build its winners came from, so a profile switch mid-call can no longer mix two profiles.**
 
 ## 2.0.3 — 2026-09-23
 
