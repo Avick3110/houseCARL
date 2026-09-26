@@ -115,7 +115,7 @@ internal sealed class RecordChecks
             var view = viewAll;
             // Membership and locate refusals are decided against THIS build, so they are stamped; a blank name
             // consulted no build and stays unstamped.
-            if (SweepOffOrderScope.Split(view, plugins, roots.ModsDir, roots.DataDir, roots.OverwriteDir, roots.ProfileDir,
+            if (SweepOffOrderScope.Split(view, plugins, roots,
                                          out var active, out var offOrder, offOrderMemo) is { } splitErr)
                 return splitErr.Stamped
                     ? ErrorCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
@@ -237,7 +237,7 @@ internal sealed class RecordChecks
         var view = pin.View;
         // The exclusion resolves here, where the MO2 composition lives, exactly as it does for CheckErrors.
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
-        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(captured.ProfileDir) : (Array.Empty<string>(), null);
+        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(captured.Roots.ProfileDir) : (Array.Empty<string>(), null);
         if (implicitErr is not null) return ScriptCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return ScriptCheckResult.Fail(excludeErr);
@@ -245,7 +245,7 @@ internal sealed class RecordChecks
         // The off-order lane, resolved exactly as CheckErrors resolves it.
         if (plugins is { Count: > 0 })
         {
-            if (SweepOffOrderScope.Split(view, plugins, captured.ModsDir, captured.DataDir, captured.OverwriteDir, captured.ProfileDir,
+            if (SweepOffOrderScope.Split(view, plugins, captured.Roots,
                                          out var active, out var offOrder, offOrderMemo) is { } splitErr)
                 return splitErr.Stamped
                     ? ScriptCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
@@ -280,10 +280,10 @@ internal sealed class RecordChecks
         var resolver = pin.Resolver;
         var view = pin.View;
         var assets = captured.View;
-        string modsDir = captured.ModsDir, dataDir = captured.DataDir, overwriteDir = captured.OverwriteDir, profileDir = captured.ProfileDir;
+        var roots = captured.Roots;
 
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
-        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(profileDir) : (Array.Empty<string>(), null);
+        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(roots.ProfileDir) : (Array.Empty<string>(), null);
         if (implicitErr is not null) return FaceGenCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return FaceGenCheckResult.Fail(excludeErr);
@@ -291,7 +291,7 @@ internal sealed class RecordChecks
         List<(string Name, string Path)> offOrder = new();
         if (plugins is { Count: > 0 })
         {
-            if (SweepOffOrderScope.Split(view, plugins, modsDir, dataDir, overwriteDir, profileDir,
+            if (SweepOffOrderScope.Split(view, plugins, roots,
                                          out _, out offOrder, offOrderMemo) is { } splitErr)
                 return splitErr.Stamped
                     ? FaceGenCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
