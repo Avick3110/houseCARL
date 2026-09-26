@@ -383,10 +383,10 @@ public sealed class ChainSeedTailTests
     static string Render(int cap)
     {
         var nodes = Enumerable.Range(0, 6).Select(i =>
-            new LoadOrderService.WalkNodeRow($"00080{i}:A.esm", "Weapon", "HcRecW" + i, 1, "Effects[].BaseEffect", "reached", null)).ToArray();
-        var row = new LoadOrderService.WalkSeedResult("000800:A.esm", "Npc", "HcRecNpcChild", nodes,
+            new RecordReads.WalkNodeRow($"00080{i}:A.esm", "Weapon", "HcRecW" + i, 1, "Effects[].BaseEffect", "reached", null)).ToArray();
+        var row = new RecordReads.WalkSeedResult("000800:A.esm", "Npc", "HcRecNpcChild", nodes,
             Array.Empty<string>(), WalkCap,
-            new[] { new LoadOrderService.NpcTemplateCategory("Traits", true, "000900:A.esm", "HcRecNpcParent", null) },
+            new[] { new RecordReads.NpcTemplateCategory("Traits", true, "000900:A.esm", "HcRecNpcParent", null) },
             null);
         return RecordsTools.RenderRecordsChain(new[] { row }, 1, nodes.Length, 0, "records  form=chain", null,
                                                cap, null, out _);

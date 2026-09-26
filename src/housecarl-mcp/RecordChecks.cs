@@ -41,7 +41,7 @@ internal sealed class RecordChecks
     /// <param name="foldArm">an already-probed OFF-ORDER plugin, folded in at the END of the order, opened once for
     /// the whole sweep and closed when it ends.</param>
     public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly,
-                                             LoadOrderService.PoleInfo? foldArm)
+                                             RecordReads.PoleInfo? foldArm)
         // Bound LAZILY: the sweep calls this only once it has seeds, so a call with no seeds= refuses without
         // building the index.
         => DialogueSweep.Run(() =>
@@ -59,7 +59,7 @@ internal sealed class RecordChecks
             string? foldError = null;
             if (foldArm is not null)
             {
-                fold = LoadOrderService.OpenDialogueFold(foldArm, out foldError, LoadOrderService.FoldLabel(foldArm), withRecords: true);
+                fold = RecordReads.OpenDialogueFold(foldArm, out foldError, RecordReads.FoldLabel(foldArm), withRecords: true);
                 // Placed HERE, where the file is opened and the build is in hand: a fold that reaches a render
                 // unplaced would print the field's default position, which is a guess.
                 fold?.PlaceIn(view);

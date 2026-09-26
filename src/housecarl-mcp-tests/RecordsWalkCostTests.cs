@@ -210,9 +210,9 @@ public sealed class RecordsWalkCostTests
 
         var reached = WalkCostWorld.Seeds * (WalkCostWorld.ItemsPerSeed + 1) + 1;
         Assert.Contains($"reached={reached}", response);
-        Assert.Equal(0, LoadOrderService.WalkBodiesHeldAtReturn);
-        Assert.True(LoadOrderService.WalkBodyHighWater <= BodyPrefetch.ChunkRows,
-                    $"the walk held {LoadOrderService.WalkBodyHighWater} bodies at once — past the {BodyPrefetch.ChunkRows} one gather pass allows.");
+        Assert.Equal(0, RecordReads.WalkBodiesHeldAtReturn);
+        Assert.True(RecordReads.WalkBodyHighWater <= BodyPrefetch.ChunkRows,
+                    $"the walk held {RecordReads.WalkBodyHighWater} bodies at once — past the {BodyPrefetch.ChunkRows} one gather pass allows.");
     }
 
     /// <summary>The same walk with a pass small enough to SPLIT — every seed slice and every hop runs several
@@ -235,9 +235,9 @@ public sealed class RecordsWalkCostTests
 
         Assert.Equal(whole, split);
         Assert.Contains($"reached={reached}", split);
-        Assert.Equal(0, LoadOrderService.WalkBodiesHeldAtReturn);
-        Assert.True(LoadOrderService.WalkBodyHighWater <= passRows,
-                    $"a walk passing {passRows} keys at a time held {LoadOrderService.WalkBodyHighWater} bodies at once.");
+        Assert.Equal(0, RecordReads.WalkBodiesHeldAtReturn);
+        Assert.True(RecordReads.WalkBodyHighWater <= passRows,
+                    $"a walk passing {passRows} keys at a time held {RecordReads.WalkBodyHighWater} bodies at once.");
     }
 
     /// <summary>The node budget is spent across passes, not per pass: a seed capped at one node records one node and
@@ -251,7 +251,7 @@ public sealed class RecordsWalkCostTests
                                  project: Chain(), counts_only: true));
 
         Assert.Contains($"reached={WalkCostWorld.Seeds + 1}", response);
-        Assert.Equal(0, LoadOrderService.WalkBodiesHeldAtReturn);
+        Assert.Equal(0, RecordReads.WalkBodiesHeldAtReturn);
     }
 
     /// <summary>A severity 'refuse' still names the first seed in seed order at the shallowest hop, and the pass it
@@ -269,7 +269,7 @@ public sealed class RecordsWalkCostTests
 
         Assert.StartsWith("error:", whole);
         Assert.Equal(whole, split);
-        Assert.Equal(0, LoadOrderService.WalkBodiesHeldAtReturn);
+        Assert.Equal(0, RecordReads.WalkBodiesHeldAtReturn);
     }
 
     // ---- the node budget's hard upper bound ---------------------------------------------------------
@@ -505,10 +505,10 @@ public sealed class RecordsWalkCostTests
     /// <summary>Run one call with the walk's gather pass shrunk, restored whatever happens.</summary>
     static string WithPassRows(int rows, Func<string> call)
     {
-        var prior = LoadOrderService.WalkPassRows;
-        LoadOrderService.WalkPassRows = rows;
+        var prior = RecordReads.WalkPassRows;
+        RecordReads.WalkPassRows = rows;
         try { return call(); }
-        finally { LoadOrderService.WalkPassRows = prior; }
+        finally { RecordReads.WalkPassRows = prior; }
     }
 
     /// <summary>Every NPC in the world, as walk seeds.</summary>

@@ -31,7 +31,7 @@ internal sealed class PoleGather
     /// <summary>Declare and gather the chunk. Eager, not deferred: a delta reads every row of its batch, so nothing
     /// here is speculative — unlike a scan render, which stops at max_chars mid-chunk.
     /// <para>The gathered bodies are held until the NEXT chunk replaces this one, so what a pole holds is its own
-    /// chunk's rows — <see cref="LoadOrderService.ComparisonChunkRows"/> of them — rather than the one body the
+    /// chunk's rows — <see cref="RecordReads.ComparisonChunkRows"/> of them — rather than the one body the
     /// per-record read held. That is the retention the chunk size is the bound on.</para></summary>
     internal void Open(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                        IReadOnlyList<FormKey> keys, Func<int, string?> subjectAt)

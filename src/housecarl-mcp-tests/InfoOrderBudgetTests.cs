@@ -21,7 +21,7 @@ public sealed class InfoOrderBudgetTests
     public void AnOversizedTopicRendersSomeLinesTheMarkerTheLeadAndTheNoteInsideTheCap()
     {
         const int cap = 1_500;
-        var row = new LoadOrderService.InfoOrderRow("000001:big.esp", "DialogTopic", "HcBigTopic", "patch.esp", BigOrder(), null);
+        var row = new RecordReads.InfoOrderRow("000001:big.esp", "DialogTopic", "HcBigTopic", "patch.esp", BigOrder(), null);
         var r = RecordsTools.RenderRecordsInfoOrder(new[] { row }, 1, 1, 0, "records  form=info_order", null, cap, null,
                                                     out bool truncated);
 

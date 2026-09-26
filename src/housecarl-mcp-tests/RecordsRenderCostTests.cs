@@ -266,11 +266,11 @@ public sealed class RecordsRenderCostTests
         var ids = AllArmorIds;
         Assert.Equal(RenderCostWorld.Contested, ids.Length);
 
-        var beforeBodies = LoadOrderService.TreeBodiesRead;
+        var beforeBodies = RecordReads.TreeBodiesRead;
         var beforePasses = LoadOrderResolver.CollectPasses;
         var beforeSeeks = LoadOrderResolver.BodySeeks;
         var response = RecordsTools.Records(Svc, formids: ids, project: Tree(), max_chars: 4_000_000);
-        var bodies = LoadOrderService.TreeBodiesRead - beforeBodies;
+        var bodies = RecordReads.TreeBodiesRead - beforeBodies;
         var passes = LoadOrderResolver.CollectPasses - beforePasses;
         var seeks = LoadOrderResolver.BodySeeks - beforeSeeks;
 
@@ -279,7 +279,7 @@ public sealed class RecordsRenderCostTests
         // Every row carries the four always-present providers; the first TopCovers carry the top one as well.
         Assert.Equal(RenderCostWorld.Contested * RenderCostWorld.Overriders + RenderCostWorld.TopCovers, bodies);
         Assert.Equal(0, seeks);
-        int chunks = (RenderCostWorld.Contested + LoadOrderService.ComparisonChunkRows - 1) / LoadOrderService.ComparisonChunkRows;
+        int chunks = (RenderCostWorld.Contested + RecordReads.ComparisonChunkRows - 1) / RecordReads.ComparisonChunkRows;
         Assert.True(passes <= stack * chunks,
                     $"{RenderCostWorld.Contested} rows over a {stack}-deep stack cost {passes} plugin walks.");
 
@@ -305,9 +305,9 @@ public sealed class RecordsRenderCostTests
     public void ATreeWalksAPluginOnceWhenItWinsSomeRowsAndLosesOthers()
     {
         // One chunk, both kinds of row in it: HcCostOver2 wins the plain ones and is a lower provider on the rest.
-        var ids = _w.TopCoveredIds.Take(LoadOrderService.ComparisonChunkRows / 2)
-                    .Concat(_w.PlainContestedIds.Take(LoadOrderService.ComparisonChunkRows / 2)).ToArray();
-        Assert.Equal(LoadOrderService.ComparisonChunkRows, ids.Length);
+        var ids = _w.TopCoveredIds.Take(RecordReads.ComparisonChunkRows / 2)
+                    .Concat(_w.PlainContestedIds.Take(RecordReads.ComparisonChunkRows / 2)).ToArray();
+        Assert.Equal(RecordReads.ComparisonChunkRows, ids.Length);
 
         var beforePasses = LoadOrderResolver.CollectPasses;
         var beforeSeeks = LoadOrderResolver.BodySeeks;
@@ -362,7 +362,7 @@ public sealed class RecordsRenderCostTests
 
         Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
         Assert.Equal(0, seeks);
-        int chunks = (RenderCostWorld.Contested + LoadOrderService.ComparisonChunkRows - 1) / LoadOrderService.ComparisonChunkRows;
+        int chunks = (RenderCostWorld.Contested + RecordReads.ComparisonChunkRows - 1) / RecordReads.ComparisonChunkRows;
         // Two winner plugins and two previous-provider plugins across the chunk, one walk each.
         Assert.True(passes <= 4 * chunks,
                     $"{RenderCostWorld.Contested} delta rows over two poles cost {passes} plugin walks.");
@@ -394,13 +394,13 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void LimitBoundsWhatATreeOverAScanReads_NotOnlyWhatItRenders()
     {
-        var before = LoadOrderService.TreeBodiesRead;
+        var before = RecordReads.TreeBodiesRead;
         var windowedResponse = RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 5);
-        var windowed = LoadOrderService.TreeBodiesRead - before;
+        var windowed = RecordReads.TreeBodiesRead - before;
 
-        before = LoadOrderService.TreeBodiesRead;
+        before = RecordReads.TreeBodiesRead;
         RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: RenderCostWorld.Weapons);
-        var whole = LoadOrderService.TreeBodiesRead - before;
+        var whole = RecordReads.TreeBodiesRead - before;
 
         Assert.False(windowedResponse.StartsWith("error:", StringComparison.Ordinal), windowedResponse);
         Assert.True(windowed * 2 < whole,

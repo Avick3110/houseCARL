@@ -8,7 +8,7 @@ static partial class RecordsTools
 {
     /// <summary>The delta form's text render: header counts, then per record the two pole lines, the stack-above fact stated neutrally, and the delta-line grammar, where a truncated deep read is never 'identical'; max_chars is a CEILING, per docs/architecture/render-budget.md.</summary>
     /// <remarks>Internal so a test can drive a row shape no fixture produces — an incomplete deep read with enough delta lines to be cut.</remarks>
-    internal static string RenderRecordsDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int total, int differing, int identical,
+    internal static string RenderRecordsDelta(IReadOnlyList<RecordReads.DeltaRow> rows, int total, int differing, int identical,
                                      int noVerdict, int errors,
                                      string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated,
                                      bool unreserved = false)
@@ -144,7 +144,7 @@ static partial class RecordsTools
 
     /// <summary>The tree form's text render: per record the touching list in load order with the winner last, then each provider's delta against the reference, under the delta form's own wording rules and the same max_chars ceiling.</summary>
     /// <remarks>Internal so a test can drive a node shape no fixture produces — an incomplete comparison on a record only one in-order plugin touches.</remarks>
-    internal static string RenderRecordsTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int total, int contested, int errors,
+    internal static string RenderRecordsTree(IReadOnlyList<RecordReads.TreeRow> rows, int total, int contested, int errors,
                                     bool fieldsNarrow, string headerLine, OrderStamp? epoch, int maxChars,
                                     SpillState? spill, out bool truncated, bool unreserved = false)
     {
@@ -272,7 +272,7 @@ static partial class RecordsTools
     /// <param name="blockCut">true only when declarer lines were dropped AND the block said so; false with a true return means the block is complete and the row ends at <paramref name="cap"/>.</param>
     /// <param name="tailReserve">Room the CALLER still owes below this block, held back here so its notice lands inside the budget too.</param>
     /// <param name="mute">true when the block stopped with no room to say it was cut, so the caller takes the whole row back out.</param>
-    internal static bool AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row, RenderCap cap,
+    internal static bool AppendChildDeclarers(StringBuilder sb, RecordReads.TreeRow row, RenderCap cap,
                                               int tailReserve, ref bool leadWritten, out bool blockCut, out bool mute)
     {
         blockCut = false;
@@ -315,7 +315,7 @@ static partial class RecordsTools
 
     /// <summary>The chain form's text render: per seed the reached nodes in BFS order with what pulled each one in, the recorded cycles, the cap-truncation note and the NPC TemplateFlags inheritance report, under the same max_chars ceiling the delta and tree renders carry.</summary>
     /// <remarks>Internal so a test can drive a seed shape no fixture produces — a walk that hit its node cap with nodes enough for max_chars to cut.</remarks>
-    internal static string RenderRecordsChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int total, int reached,
+    internal static string RenderRecordsChain(IReadOnlyList<RecordReads.WalkSeedResult> rows, int total, int reached,
                                      int errors, string headerLine, OrderStamp? epoch, int maxChars,
                                      SpillState? spill, out bool truncated, bool unreserved = false)
     {
@@ -394,7 +394,7 @@ static partial class RecordsTools
 
     /// <summary>What a walked seed states after its nodes — the cycles it found, the walk.max_nodes cap it hit, and the NPC TemplateFlags inheritance report — composed apart from the node loop because these are claims about the WALK that a max_chars cut may not swallow.</summary>
     /// <param name="cycleRoom">The room the unbounded cycle list is held to; past it a line says how many were held back and how to get them, while the cap note and the template report are always written.</param>
-    static string SeedTail(LoadOrderService.WalkSeedResult row, int cycleRoom, int cap)
+    static string SeedTail(RecordReads.WalkSeedResult row, int cycleRoom, int cap)
     {
         var t = new StringBuilder();
         for (int i = 0; i < row.Cycles.Count; i++)
@@ -407,7 +407,7 @@ static partial class RecordsTools
         }
         if (row.CyclesCapped)
             t.Append("  ... [the cycle search stopped at its ")
-             .Append(LoadOrderService.WalkCycleCap)
+             .Append(RecordReads.WalkCycleCap)
              .Append("-cycle cap — this seed holds more loops than are listed or counted]\n");
         if (row.TruncationNote is not null)
             t.Append("  [!] ").Append(row.TruncationNote).Append('\n');
@@ -479,7 +479,7 @@ static partial class RecordsTools
 
     /// <summary>The info_order form's text render: per topic its identity, then the merged-order body from the shared <see cref="Wire.AppendInfoOrderView"/>, bounded by what this render has left rather than by the whole cap.</summary>
     /// <remarks>Internal so a test can drive a topic wider than the auto-spill block, which no fixture has.</remarks>
-    internal static string RenderRecordsInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int total, int contested,
+    internal static string RenderRecordsInfoOrder(IReadOnlyList<RecordReads.InfoOrderRow> rows, int total, int contested,
                                          int errors, string headerLine, OrderStamp? epoch, int maxChars,
                                          SpillState? spill, out bool truncated, bool unreserved = false)
     {

@@ -272,7 +272,7 @@ public static partial class RecordsTools
         }
         // ParsePole has no transport in scope, so its refusals take their shape here.
         if (ParsePole(sourceEl, "source", subjectRole: true, out var srcSpec) is { } sperr) return Wire.Refuse(json, sperr);
-        srcSpec ??= LoadOrderService.PoleSpec.Winner;
+        srcSpec ??= RecordReads.PoleSpec.Winner;
         if (ParsePole(versus, "versus", subjectRole: false, out var versusSpec) is { } vperr) return Wire.Refuse(json, vperr);
 
         // versus= belongs to the comparison forms, and the delta form requires it — a delta has two poles.
@@ -282,8 +282,8 @@ public static partial class RecordsTools
             return Wire.Refuse(json, "error: the 'delta' form compares the subject (source=, default the winner) against a REFERENCE — pass versus= (\"winner\" | a plugin filename | \"previous_provider\" | {\"overlay\": …}).");
         if (form == "tree")
         {
-            versusSpec ??= LoadOrderService.PoleSpec.Winner;
-            if (versusSpec.Kind == LoadOrderService.PoleKind.PreviousProvider)
+            versusSpec ??= RecordReads.PoleSpec.Winner;
+            if (versusSpec.Kind == RecordReads.PoleKind.PreviousProvider)
                 return Wire.Refuse(json, "error: versus='previous_provider' is subject-relative and pairs with the 'delta' form (one subject, one reference below it) — a tree diffs EVERY provider against ONE reference pole. Use form='delta', or a named/winner versus= on the tree.");
         }
         // ---- walk= (the traversal construct) ----
@@ -348,9 +348,9 @@ public static partial class RecordsTools
             return Wire.Refuse(json, $"error: the 'chain' form renders a walk's paths — pass walk= (e.g. walk={{\"follow\": \"Template\"}} over NPC seeds; reverse MGEF carriers: walk={{\"direction\": \"reverse\", \"follow\": \"{CarrierFollow}\"}} with MGEF formids=).");
 
         // The single-pole lanes below drive off these fields; richer specs dispatch before reaching them.
-        string? srcName = srcSpec.Kind == LoadOrderService.PoleKind.Named ? srcSpec.Plugin : null;
-        string? srcMod = srcSpec.Kind == LoadOrderService.PoleKind.Named ? srcSpec.Mod : null;
-        bool srcOverlay = srcSpec.Kind == LoadOrderService.PoleKind.Overlay;
+        string? srcName = srcSpec.Kind == RecordReads.PoleKind.Named ? srcSpec.Plugin : null;
+        string? srcMod = srcSpec.Kind == RecordReads.PoleKind.Named ? srcSpec.Mod : null;
+        bool srcOverlay = srcSpec.Kind == RecordReads.PoleKind.Overlay;
 
         // ---- fields_source (display pole) ----
         // The value first, then the lane rules: 'scoped'/'scanned' are no-op defaults accepted everywhere, only
@@ -415,7 +415,7 @@ public static partial class RecordsTools
             return Wire.Refuse(json, "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'info_order' form is an ordered sequence render with no fixed column set — use format='text' or 'json'.");
         // info_order takes exactly ONE thing on source=, an OFF-ORDER file; the merge IS the answer, so no other
         // pole has anything to pick.
-        if (form == "info_order" && srcSpec.Kind is LoadOrderService.PoleKind.Overlay or LoadOrderService.PoleKind.PreviousProvider)
+        if (form == "info_order" && srcSpec.Kind is RecordReads.PoleKind.Overlay or RecordReads.PoleKind.PreviousProvider)
             return Wire.Refuse(json, "error: the info_order form merges EVERY plugin touching each topic — that merge is the answer, so a runtime-overlay or previous_provider pole has no seat here (each line already names the plugin that placed it). The one source= this form takes is an OFF-ORDER plugin filename, folded into the merge where MO2 would load it.");
         // fields_source= is the scan lane's display pole; the list lane's read IS its display, so it refuses by name.
         if (winnerFields && formids is { Length: > 0 } && !hasScan)
@@ -443,8 +443,8 @@ public static partial class RecordsTools
         // ---- info_order: the off-order fold ------------------------------------------------------------
         // The fold's file is resolved through the same one-pole probe every other source= goes through, and an
         // ACTIVE plugin is refused; contract in docs/architecture/records-tool-front.md.
-        LoadOrderService.PoleInfo? ioFold = null;
-        if (form == "info_order" && srcSpec.Kind == LoadOrderService.PoleKind.Named)
+        RecordReads.PoleInfo? ioFold = null;
+        if (form == "info_order" && srcSpec.Kind == RecordReads.PoleKind.Named)
         {
             var probe = svc.ProbeSourceArm(srcSpec.Plugin!, srcSpec.Mod, out var foldProbeErr);
             if (foldProbeErr is not null) return Wire.Refuse(json, "error: " + foldProbeErr);
@@ -456,8 +456,8 @@ public static partial class RecordsTools
         }
         // The probe knows the name, the row label and where the copy is; the batch that opens the file adds the
         // placement. Filled here so a statement written before the merge names the same file the rows will.
-        LoadOrderService.FoldFacts? ioFoldFacts = null;
-        if (ioFold is not null) { ioFoldFacts = new LoadOrderService.FoldFacts(); ioFoldFacts.FromArm(ioFold); }
+        RecordReads.FoldFacts? ioFoldFacts = null;
+        if (ioFold is not null) { ioFoldFacts = new RecordReads.FoldFacts(); ioFoldFacts.FromArm(ioFold); }
         // The probe decided OFF-ORDER against its own build and the merge reads another, so the two are
         // epoch-compared like every two-capture lane here; docs/architecture/records-tool-front.md.
         string? FoldSeam(OrderStamp? mergeEpoch)
@@ -671,7 +671,7 @@ public static partial class RecordsTools
             var readFieldDepths = ReferenceEquals(readFields, readPaths) ? readDepths : null;
             var readFieldCounts = ReferenceEquals(readFields, readPaths) ? countFields : null;
             IReadOnlyList<ReadOutcome> outcomes;
-            LoadOrderService.PoleInfo? pole = null;
+            RecordReads.PoleInfo? pole = null;
             // Clocked like the scan's body lane, over the BODIES READ; docs/architecture/records-tool-front.md.
             var listClock = System.Diagnostics.Stopwatch.StartNew();
             if (srcOverlay && !string.Equals(srcSpec.OverlayState ?? "post", "pre", StringComparison.OrdinalIgnoreCase))
@@ -861,7 +861,7 @@ public static partial class RecordsTools
                 {
                     var dref = epochR is null
                         ? $"artifact '{demand.Path}' carries epoch={demand.Epoch}, but no seed consulted a build to verify it against (every seed failed pre-capture) — fix the seeds and retry."
-                        : LoadOrderService.ArtifactEpochMismatch(demand, epochR.Epoch);
+                        : RecordReads.ArtifactEpochMismatch(demand, epochR.Epoch);
                     return json ? JsonWire.RenderError(dref, epochR) : "error: " + dref + Wire.EpochLine(epochR);
                 }
                 Arm("winner (carriers are the load-order-effective versions)");
@@ -972,7 +972,7 @@ public static partial class RecordsTools
                 if (cutSeeds > 0)
                     headerLine += $"\n[!] {cutSeeds} seed(s) stopped at walk.depth ({walkDepth}) or walk.max_nodes ({walkMaxNodes}) — a loop closing past the cut is not visible, so this cycle count is not proof of none; raise the cap to finish the walk.";
                 if (cappedCycles > 0)
-                    headerLine += $"\n[!] {cappedCycles} seed(s) reached the {LoadOrderService.WalkCycleCap}-cycle search cap — more loops are there than are counted.";
+                    headerLine += $"\n[!] {cappedCycles} seed(s) reached the {RecordReads.WalkCycleCap}-cycle search cap — more loops are there than are counted.";
                 envelope.Add(new("walk", $"forward{(walk.follow is { } f2 ? $" follow={f2}" : " (closure)")} depth={walkDepth}"));
                 if (counts_only)
                     return json
@@ -1074,7 +1074,7 @@ public static partial class RecordsTools
             }
             else   // tree
             {
-                if (srcSpec.Kind != LoadOrderService.PoleKind.Winner)
+                if (srcSpec.Kind != RecordReads.PoleKind.Winner)
                     return Wire.Refuse(json, "error: the tree form has no subject — every provider of each record is on the bench, and the pole each is diffed against is versus=. Drop source= (or use form='delta' for a subject-vs-reference comparison).");
                 if (ListCost() is { } treeTooBig) return Wire.Refuse(json, treeTooBig);
                 var rows = svc.TreeBatch(ids, versusSpec!, projFields, demand,
@@ -1092,7 +1092,7 @@ public static partial class RecordsTools
 
         // The shared delta response pipeline — envelope, counts_only, window, spill, both renders — used by the
         // list and scan lanes alike.
-        string DeltaResponse(IReadOnlyList<LoadOrderService.DeltaRow> rows, string? sArm, string? rArm, bool covers,
+        string DeltaResponse(IReadOnlyList<RecordReads.DeltaRow> rows, string? sArm, string? rArm, bool covers,
                              OrderStamp? epoch, List<KeyValuePair<string, string>> echo)
         {
             Arm(sArm ?? srcSpec.Label);
@@ -1132,12 +1132,12 @@ public static partial class RecordsTools
         }
 
         // The shared tree response pipeline. The tree form has no subject: every provider is on the bench.
-        string TreeResponse(IReadOnlyList<LoadOrderService.TreeRow> rows, string? rArm, bool covers,
+        string TreeResponse(IReadOnlyList<RecordReads.TreeRow> rows, string? rArm, bool covers,
                             OrderStamp? epoch, List<KeyValuePair<string, string>> echo)
         {
             // The tree's reference rides the `versus` envelope key, as delta's does, so `source` keeps the
             // SELECTION statement that makes epoch_covers_source intelligible.
-            var refStatement = versusSpec!.Kind == LoadOrderService.PoleKind.Winner ? "winner" : rArm ?? versusSpec.Label;
+            var refStatement = versusSpec!.Kind == RecordReads.PoleKind.Winner ? "winner" : rArm ?? versusSpec.Label;
             envelope.Add(new("versus", refStatement));
             headerLine += $"  versus={refStatement}";
             Arm("every provider of each record (the touching stack, winner last)");
@@ -1173,7 +1173,7 @@ public static partial class RecordsTools
 
         // The shared info_order response pipeline — envelope, counts_only, window, spill, both renders — used by
         // the list and scan lanes alike.
-        string InfoOrderResponse(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, OrderStamp? epoch,
+        string InfoOrderResponse(IReadOnlyList<RecordReads.InfoOrderRow> rows, OrderStamp? epoch,
                                  List<KeyValuePair<string, string>> echo)
         {
             if (ioFold is null)
@@ -1243,7 +1243,7 @@ public static partial class RecordsTools
             if (form == "identity")
                 return Wire.Refuse(json, "error: the identity form labels a formids= list; a scan's summary rows already carry each match's identity — use form='summary' (the default).");
 
-            if (srcOverlay || versusSpec?.Kind == LoadOrderService.PoleKind.Overlay)
+            if (srcOverlay || versusSpec?.Kind == RecordReads.PoleKind.Overlay)
                 return Wire.Refuse(json, "error: an overlay pole on a SCAN would replay the SkyPatcher INI layer over every match — a per-record replay at scan scale " +
                        "(a scan comparison compares EVERY match, so it is not a bound). Name the records via formids= — the list lane reads and " +
                        "compares their post-state bodies — or read the whole layer via " + ToolNames.SkypatcherLayer + ".");
@@ -1394,7 +1394,7 @@ public static partial class RecordsTools
                 Add("fields", projFields is { Length: > 0 } ? string.Join(", ", projFields) : null);
                 if (depth > 1) Add("depth", depth.ToString());
                 if (winnerFields) Add("fields_source", "winner");
-                Add("source", srcName ?? (srcSpec.Kind != LoadOrderService.PoleKind.Winner ? srcSpec.Label : null));
+                Add("source", srcName ?? (srcSpec.Kind != RecordReads.PoleKind.Winner ? srcSpec.Label : null));
                 if (versusSpec is not null) Add("versus", versusSpec.Label);
                 Add("window", cmpWindowNote);   // a ceiling spill of a windowed comparison holds the window, and says so
                 return e;
@@ -1644,7 +1644,7 @@ public static partial class RecordsTools
         // ================================================================================================
         //  OFF-ORDER scan: the file's own records are the universe.
         // ================================================================================================
-        string OffOrderScan(LoadOrderService.PoleInfo pole)
+        string OffOrderScan(RecordReads.PoleInfo pole)
         {
             // The file is the SELECTION statement, stated for every form except delta, whose pipeline names the
             // same file as its subject.
@@ -1658,7 +1658,7 @@ public static partial class RecordsTools
             if (walk is not null)
                 return Wire.Refuse(json, "error: the walk expands the ACTIVE order's winner link graph — an out-of-load-order file's records are not in that graph. Enumerate the file with form='summary', then walk specific records via formids= (dropping source=).", pole.Stamp);
             if (dense) return "error: format='dense' is the in-order scan's columnar form — an off-order file scan renders text or json.";
-            if (versusSpec?.Kind == LoadOrderService.PoleKind.Overlay)
+            if (versusSpec?.Kind == RecordReads.PoleKind.Overlay)
                 return Wire.Refuse(json, "error: an overlay pole on a SCAN would replay the SkyPatcher INI layer over every match — a per-record replay at scan scale " +
                        "(a scan comparison compares EVERY match, so it is not a bound). Name the records via formids= — the list lane reads and " +
                        "compares their post-state bodies — or read the whole layer via " + ToolNames.SkypatcherLayer + ".", pole.Stamp);
@@ -1881,7 +1881,7 @@ public static partial class RecordsTools
     static KeyValuePair<string, int> KvI(string k, int v) => new(k, v);
 
     /// <summary>Parse a pole expression from its wire spelling, returning the named refusal or null; <paramref name="subjectRole"/> marks source=, which previous_provider is measured FROM and so cannot be.</summary>
-    static string? ParsePole(JsonElement? el, string param, bool subjectRole, out LoadOrderService.PoleSpec? spec)
+    static string? ParsePole(JsonElement? el, string param, bool subjectRole, out RecordReads.PoleSpec? spec)
     {
         spec = null;
         if (el is not { } e || e.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return null;
@@ -1889,17 +1889,17 @@ public static partial class RecordsTools
         {
             var s = e.GetString()!.Trim();
             if (s.Length == 0 || s.Equals("winner", StringComparison.OrdinalIgnoreCase))
-            { spec = LoadOrderService.PoleSpec.Winner; return null; }
+            { spec = RecordReads.PoleSpec.Winner; return null; }
             if (s.Equals("previous_provider", StringComparison.OrdinalIgnoreCase))
             {
                 if (subjectRole)
                     return "error: source= is the SUBJECT of the call, and 'previous_provider' is measured FROM the subject " +
                            "(it is the plugin immediately below whatever source= names, §4.3) — so it cannot BE the subject. " +
                            "Name the subject via source= and pass versus=\"previous_provider\".";
-                spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.PreviousProvider);
+                spec = new RecordReads.PoleSpec(RecordReads.PoleKind.PreviousProvider);
                 return null;
             }
-            spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.Named, s);
+            spec = new RecordReads.PoleSpec(RecordReads.PoleKind.Named, s);
             return null;
         }
         if (e.ValueKind == JsonValueKind.Object)
@@ -1930,7 +1930,7 @@ public static partial class RecordsTools
                     if (SkyPatcherDraft.Prepare(draftIni, draftSub, SkyPatcherCatalog.Load(), out plan) is { } derr)
                         return $"error: {param}= {derr}";
                 }
-                spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.Overlay, OverlayState: st.ToLowerInvariant(), Draft: plan);
+                spec = new RecordReads.PoleSpec(RecordReads.PoleKind.Overlay, OverlayState: st.ToLowerInvariant(), Draft: plan);
                 return null;
             }
             // The draft keys ride the overlay pole and have no meaning on a {"file"} pole.
@@ -1940,7 +1940,7 @@ public static partial class RecordsTools
             if (!e.TryGetProperty("file", out var fEl) || fEl.ValueKind != JsonValueKind.String)
                 return $"error: a structured {param}= names the plugin as {{\"file\": \"X.esp\"[, \"mod\": \"<mod folder>\"]}} or the runtime view as {{\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"[, \"ini\": \"<draft path>\", \"subfolder\": \"<type folder>\"]}}.";
             string? mod = e.TryGetProperty("mod", out var mEl) && mEl.ValueKind == JsonValueKind.String ? mEl.GetString()!.Trim() : null;
-            spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.Named, fEl.GetString()!.Trim(), mod);
+            spec = new RecordReads.PoleSpec(RecordReads.PoleKind.Named, fEl.GetString()!.Trim(), mod);
             return null;
         }
         return $"error: {param}= is a string (\"winner\" | a plugin filename{(subjectRole ? "" : " | \"previous_provider\"")}) or an object ({{\"file\", \"mod\"}} | {{\"overlay\", \"state\"}}).";

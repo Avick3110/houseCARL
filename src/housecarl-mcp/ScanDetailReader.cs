@@ -17,7 +17,7 @@ internal sealed class ScanDetailReader : IDisposable
     readonly string? _containerHint;
     readonly IReadOnlyList<int>? _depths;
     readonly CancellationToken _ct;
-    readonly LoadOrderService.LinkMemo? _linkMemo;
+    readonly RecordReads.LinkMemo? _linkMemo;
     readonly LoadOrderResolver.IndexView? _view;
     readonly LoadOrderResolver.OverlaySession? _session;
 
@@ -31,14 +31,14 @@ internal sealed class ScanDetailReader : IDisposable
         _svc = svc; _q = q; _fields = fields; _depth = depth;
         _resolveNames = resolveNames; _winnerFields = winnerFields;
         _containerHint = containerHint; _depths = depths; _ct = ct;
-        _linkMemo = resolveNames ? new LoadOrderService.LinkMemo() : null;
+        _linkMemo = resolveNames ? new RecordReads.LinkMemo() : null;
         // Only a pinned outcome can be read this way; an unpinned one falls through to the plain per-row path.
         _view = q.Pin?.View;
         _session = q.Pin?.Resolver.OpenSession();
     }
 
     /// <summary>One link-resolution cache for the whole render, so a target recurring across rows resolves once.</summary>
-    internal LoadOrderService.LinkMemo? LinkMemo => _linkMemo;
+    internal RecordReads.LinkMemo? LinkMemo => _linkMemo;
 
     /// <summary>Read row <paramref name="i"/> of the scan's key list.</summary>
     internal ReadOutcome Row(int i)

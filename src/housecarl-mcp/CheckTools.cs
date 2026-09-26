@@ -237,7 +237,7 @@ public static class CheckTools
 
         // ---- the dialogue family's off-order fold ------------------------------------------------------
         // Resolved through the same one-pole probe every off-order address takes, before any family runs.
-        LoadOrderService.PoleInfo? dialogueFold = null;
+        RecordReads.PoleInfo? dialogueFold = null;
         if (source is { } srcEl && srcEl.ValueKind is not (System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined))
         {
             if (!selection.Ran.Contains(SweepFamily.Dialogue))

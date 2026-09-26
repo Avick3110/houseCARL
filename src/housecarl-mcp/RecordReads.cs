@@ -17,29 +17,35 @@ internal interface IReadHost : ILoadOrderHost
                                                        SkyPatcherOverlay.WarningSink? draftWarnings);
 }
 
-public sealed partial class LoadOrderService
+/// <summary>The reads area: resolve, batch, poles, walk, cross query, info order.</summary>
+internal sealed partial class RecordReads
 {
     /// <summary>Every head member the reads area takes, and nothing else.</summary>
-    IReadHost Host => this;
+    readonly IReadHost _host;
+
+    internal RecordReads(IReadHost host) => _host = host;
+
+    /// <summary>Test seam: invoked in the pole lanes after the pin and before the roots; null in the product.</summary>
+    internal Action? AfterReadPinForGuard;
 
     /// <summary>Resolve + read one record: the WINNER's body by default, or a named <paramref name="plugin"/>'s
     /// override; with <paramref name="conflictTree"/> also the ordered touching-plugin list. Every failure is a
     /// recoverable NAMED error, never a silent empty result; contracts in docs/architecture/read-engine.md.</summary>
-    public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
-                                   bool resolveNames = false, LinkMemo? linkMemo = null,
-                                   string? containerHint = ReadEngine.DepthExpandHint,
-                                   IReadOnlyList<int>? depths = null,
-                                   IReadOnlyCollection<string>? countFields = null)
+    public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
+                                   bool resolveNames, LinkMemo? linkMemo,
+                                   string? containerHint,
+                                   IReadOnlyList<int>? depths,
+                                   IReadOnlyCollection<string>? countFields)
     {
-        var resolver = Host.Resolver;
+        var resolver = _host.Resolver;
         var view = resolver.Capture();
         return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
                            new ChildUnionMemo(), depths: depths, countFields: countFields)   // one named record: the union lane
-               with { Stamp = view.Stamp, Pin = new ViewPin(resolver, view) };   // stamped and pinned here, off the view actually read
+               with { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view) };   // stamped and pinned here, off the view actually read
     }
 
     /// <summary>The read body, answered entirely off ONE captured view, so a freshness rebuild landing mid-read
-    /// cannot make a record's reported winner disagree with its own touching list; the <see cref="ViewPin"/> rule
+    /// cannot make a record's reported winner disagree with its own touching list; the <see cref="LoadOrderService.ViewPin"/> rule
     /// is in docs/architecture/read-engine.md.</summary>
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
@@ -250,7 +256,7 @@ public sealed partial class LoadOrderService
     /// clause is stated only where the index says that plugin is light-flagged — pinned by
     /// <c>RuntimeFormIdTests.AMissingRecordInAnEslFlaggedPluginIsToldAboutCompaction</c> and
     /// <c>RecordsRemedyRepairTests.AndDoesNotBlameEslCompactionOnAPluginThatIsNotEslFlagged</c>.</summary>
-    static string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk,
+    internal static string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk,
                                    Dictionary<string, string>? absenceMemo = null)
     {
         var defining = FormIdToken.Plugin(fk.ModKey.FileName.String);
@@ -286,7 +292,7 @@ public sealed partial class LoadOrderService
     /// uses by default. One winner-body fetch; holds nothing.</summary>
     public RecordSummary ResolveSummary(FormKey fk)
     {
-        var resolver = Host.Resolver;
+        var resolver = _host.Resolver;
         return ResolveSummary(resolver, resolver.Capture(), fk);   // one capture per summary: winner, depth and fetch from one build
     }
 
@@ -311,13 +317,13 @@ public sealed partial class LoadOrderService
     /// <param name="session">The render's one overlay session; <paramref name="prefetched"/> is this row's body when
     /// the caller gathered it in bulk.</param>
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
-                                       bool conflictTree, int depth = 1, bool resolveNames = false,
-                                       LinkMemo? linkMemo = null,
-                                       string? containerHint = ReadEngine.DepthExpandHint,
-                                       IReadOnlyList<int>? depths = null,
-                                       LoadOrderResolver.OverlaySession? session = null,
-                                       IMajorRecordGetter? prefetched = null,
-                                       IReadOnlyCollection<string>? countFields = null)
+                                       bool conflictTree, int depth, bool resolveNames,
+                                       LinkMemo? linkMemo,
+                                       string? containerHint,
+                                       IReadOnlyList<int>? depths,
+                                       LoadOrderResolver.OverlaySession? session,
+                                       IMajorRecordGetter? prefetched,
+                                       IReadOnlyCollection<string>? countFields)
         => q.Pin is { } p
             ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
                           batchSession: session, depths: depths, prefetched: prefetched, countFields: countFields)
@@ -335,7 +341,7 @@ public sealed partial class LoadOrderService
 
     /// <summary>The conflict-tree fill off a pinned build, so the tree's membership and the response's epoch stamp
     /// name the same build.</summary>
-    internal TreeFill? FoldTreePinned(ViewPin p, FormKey fk, IReadOnlyList<string>? fields,
+    internal TreeFill? FoldTreePinned(LoadOrderService.ViewPin p, FormKey fk, IReadOnlyList<string>? fields,
                                       Func<string, RecordFields, bool, bool> onNode)
     {
         using var session = p.Resolver.OpenSession();
@@ -345,7 +351,7 @@ public sealed partial class LoadOrderService
 
     /// <summary>The whole tree materialised — every provider's fields at once, in priority order with the winner
     /// last. For a caller that genuinely needs the providers side by side; the render does not.</summary>
-    internal ConflictTreeView? ResolveTreePinned(ViewPin p, FormKey fk, IReadOnlyList<string>? fields)
+    internal ConflictTreeView? ResolveTreePinned(LoadOrderService.ViewPin p, FormKey fk, IReadOnlyList<string>? fields)
     {
         var nodes = new List<ConflictNodeView>();
         var fill = FoldTreePinned(p, fk, fields, (plugin, read, _) => { nodes.Add(new ConflictNodeView(plugin, read)); return true; });
@@ -421,7 +427,7 @@ public sealed partial class LoadOrderService
                                                   out OrderStamp epoch, out string? artifactRefusal)
     {
         artifactRefusal = null;
-        var resolver = Host.Resolver;
+        var resolver = _host.Resolver;
         var view = resolver.Capture();                  // one build for the whole batch
         epoch = view.Stamp;
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
@@ -447,7 +453,7 @@ public sealed partial class LoadOrderService
 
     /// <summary>If <paramref name="path"/> is the EXACT file the active order loads for its filename, the plugin name
     /// the order knows it by; else null.</summary>
-    static string? ActiveNameForPath(LoadOrderResolver.IndexView view, string path)
+    internal static string? ActiveNameForPath(LoadOrderResolver.IndexView view, string path)
     {
         string full;
         try { full = Path.GetFullPath(path.Trim()); } catch { return null; }
@@ -457,7 +463,7 @@ public sealed partial class LoadOrderService
         // directly is the escape hatch, so a path to one must keep taking the off-order lane.
         if (view.ExcludedPlugins.ContainsKey(name)) return null;
         var active = view.PluginPath(name);
-        return !string.IsNullOrEmpty(active) && SamePluginFile(active, full) ? name : null;
+        return !string.IsNullOrEmpty(active) && LoadOrderService.SamePluginFile(active, full) ? name : null;
     }
 
     /// <summary>One side of a housecarl_diff_record comparison: the plugin named, WHERE its version was found,
@@ -480,13 +486,13 @@ public sealed partial class LoadOrderService
     /// order, and a bad or absent formid is a per-item error that does not fail the batch. Under
     /// <paramref name="plugin"/> every formid is read as that plugin's override, not the load-order winner.</summary>
     /// <summary>Resolve and read many records in one call.</summary>
-    public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
-                                                   bool resolveNames = false, string? plugin = null,
-                                                   string? containerHint = ReadEngine.DepthExpandHint,
-                                                   IReadOnlyList<int>? depths = null,
-                                                   CancellationToken ct = default,
-                                                   IReadOnlyList<Type>? getterTypes = null,
-                                                   IReadOnlyCollection<string>? countFields = null)
+    public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
+                                                   bool resolveNames, string? plugin,
+                                                   string? containerHint,
+                                                   IReadOnlyList<int>? depths,
+                                                   CancellationToken ct,
+                                                   IReadOnlyList<Type>? getterTypes,
+                                                   IReadOnlyCollection<string>? countFields)
         => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint, depths, ct, getterTypes, countFields);
 
     /// <summary>The artifact-aware overload: <paramref name="artifactDemand"/> is checked against THIS capture's
@@ -496,14 +502,14 @@ public sealed partial class LoadOrderService
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                                                    bool resolveNames, string? plugin, ArtifactDemand? artifactDemand,
                                                    out string? artifactRefusal, out OrderStamp? refusalEpoch,
-                                                   string? containerHint = ReadEngine.DepthExpandHint,
-                                                   IReadOnlyList<int>? depths = null,
-                                                   CancellationToken ct = default,
-                                                   IReadOnlyList<Type>? getterTypes = null,
-                                                   IReadOnlyCollection<string>? countFields = null)
+                                                   string? containerHint,
+                                                   IReadOnlyList<int>? depths,
+                                                   CancellationToken ct,
+                                                   IReadOnlyList<Type>? getterTypes,
+                                                   IReadOnlyCollection<string>? countFields)
     {
         artifactRefusal = null; refusalEpoch = null;
-        var resolver = Host.Resolver;           // build/refresh once for the batch
+        var resolver = _host.Resolver;           // build/refresh once for the batch
         var view = resolver.Capture();          // one build for every item — the whole batch is one logical operation
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
         {
@@ -511,7 +517,7 @@ public sealed partial class LoadOrderService
             refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
-        var pin = new ViewPin(resolver, view);
+        var pin = new LoadOrderService.ViewPin(resolver, view);
         var linkMemo = resolveNames ? new LinkMemo() : null;   // one link-resolution cache across the whole batch
         var unionMemo = new ChildUnionMemo();                  // the caller NAMED these records: the union lane, one assembly per record
         // One overlay cache for the whole batch.
@@ -582,17 +588,17 @@ public sealed partial class LoadOrderService
     {
         // Judged on the argument as given: the rewrite below turns a path into a bare filename, which would flip
         // a path pole into the mod= lane.
-        bool namesMod = !string.IsNullOrWhiteSpace(mod) && !LooksLikePath(plugin);
+        bool namesMod = !string.IsNullOrWhiteSpace(mod) && !LoadOrderService.LooksLikePath(plugin);
 
         // A pole addressed by path that IS the active order's file resolves back to its plugin name.
-        if (LooksLikePath(plugin) && ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
+        if (LoadOrderService.LooksLikePath(plugin) && ActiveNameForPath(view, plugin) is { } activeName) plugin = activeName;
 
         bool activeFilename = view.ContainsPlugin(plugin);
         if (!namesMod && activeFilename)
             return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
 
         var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
-        var loc = LocatePluginFileOnDisk(comp, roots, plugin, mod);
+        var loc = LoadOrderService.LocatePluginFileOnDisk(comp, roots, plugin, mod);
         if (loc.Error is not null)
             // A pole found in neither place names both places searched; when the filename IS active, the named
             // mod folder is the only place searched.
@@ -615,7 +621,7 @@ public sealed partial class LoadOrderService
     /// <summary>The tool-layer probe: WHICH arm would this source= pole resolve to.</summary>
     public PoleInfo? ProbeSourceArm(string plugin, string? mod, out string? error)
     {
-        var (pin, roots) = Host.CapturePinAndRoots(AfterReadPinForGuard);
+        var (pin, roots) = _host.CapturePinAndRoots(AfterReadPinForGuard);
         var view = pin.View;
         var (pole, err) = ResolvePoleArm(view, roots, plugin, mod);
         error = err;
@@ -630,14 +636,14 @@ public sealed partial class LoadOrderService
         IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? artifactDemand,
         out PoleInfo? pole, out string? refusal, out OrderStamp? refusalEpoch,
-        string? containerHint = ReadEngine.DepthExpandHint,
-        IReadOnlyList<int>? depths = null,
-        CancellationToken ct = default,
-        IReadOnlyList<Type>? getterTypes = null,
-        IReadOnlyCollection<string>? countFields = null)
+        string? containerHint,
+        IReadOnlyList<int>? depths,
+        CancellationToken ct,
+        IReadOnlyList<Type>? getterTypes,
+        IReadOnlyCollection<string>? countFields)
     {
         pole = null; refusal = null; refusalEpoch = null;
-        var (pin, roots) = Host.CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for the pole test and every read
+        var (pin, roots) = _host.CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for the pole test and every read
         var resolver = pin.Resolver;
         var view = pin.View;
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
@@ -782,10 +788,10 @@ public sealed partial class LoadOrderService
     /// through the index alone.</summary>
     public IReadOnlyList<InfoOrderRow> InfoOrderBatch(IReadOnlyList<string> formids, ArtifactDemand? demand,
                                                       out string? refusal, out OrderStamp? epoch,
-                                                      PoleInfo? foldArm = null, FoldFacts? foldFacts = null)
+                                                      PoleInfo? foldArm, FoldFacts? foldFacts)
     {
         refusal = null;
-        var resolver = Host.Resolver;
+        var resolver = _host.Resolver;
         var view = resolver.Capture();
         epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)

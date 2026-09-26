@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
-public sealed partial class LoadOrderService
+internal sealed partial class RecordReads
 {
     // ---- comparison poles and the delta/tree batches --------------------------------------------------
 
@@ -38,10 +38,10 @@ public sealed partial class LoadOrderService
         IReadOnlyList<string> formids, PoleSpec subject, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
         out string? subjectArm, out string? referenceArm, out bool epochCoversAll,
-        out string? refusal, out OrderStamp? epoch, SkyPatcherOverlay.WarningSink? overlayWarnings = null)
+        out string? refusal, out OrderStamp? epoch, SkyPatcherOverlay.WarningSink? overlayWarnings)
     {
         subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
-        var (pin, roots) = Host.CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for every pole of every record
+        var (pin, roots) = _host.CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for every pole of every record
         var resolver = pin.Resolver;
         var view = pin.View;
         epoch = view.Stamp;
@@ -299,7 +299,7 @@ public sealed partial class LoadOrderService
             if (replay is not null || setupError is not null) return;
             try
             {
-                replay = Host.OpenSkyPatcherReplay(view, session, out var draftRefusal, spec.Draft, overlayWarnings);
+                replay = _host.OpenSkyPatcherReplay(view, session, out var draftRefusal, spec.Draft, overlayWarnings);
                 if (draftRefusal is not null) setupError = draftRefusal;
             }
             catch (Exception ex)
@@ -385,14 +385,14 @@ public sealed partial class LoadOrderService
     public IReadOnlyList<ReadOutcome> OverlayPostBatch(
         IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? refusalEpoch, out OrderStamp? epoch,
-        string? containerHint = ReadEngine.DepthExpandHint,
-        IReadOnlyList<int>? depths = null,
-        CancellationToken ct = default,
-        SkyPatcherDraft.Plan? draft = null,
-        SkyPatcherOverlay.WarningSink? overlayWarnings = null)
+        string? containerHint,
+        IReadOnlyList<int>? depths,
+        CancellationToken ct,
+        SkyPatcherDraft.Plan? draft,
+        SkyPatcherOverlay.WarningSink? overlayWarnings)
     {
         refusal = null; refusalEpoch = null;
-        var resolver = Host.Resolver;
+        var resolver = _host.Resolver;
         var view = resolver.Capture();
         epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)
@@ -401,14 +401,14 @@ public sealed partial class LoadOrderService
             refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
-        var pin = new ViewPin(resolver, view);
+        var pin = new LoadOrderService.ViewPin(resolver, view);
         using var session = resolver.OpenSession();
 
         AssetLayers.SkyPatcherReplay? replay;
         string? draftRefusal;
         try
         {
-            replay = Host.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, overlayWarnings);
+            replay = _host.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, overlayWarnings);
         }
         catch (Exception ex)
         {
@@ -485,10 +485,10 @@ public sealed partial class LoadOrderService
         IReadOnlyList<string> formids, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
         out string? referenceArm, out bool epochCoversAll, out string? refusal, out OrderStamp? epoch,
-        SkyPatcherOverlay.WarningSink? overlayWarnings = null)
+        SkyPatcherOverlay.WarningSink? overlayWarnings)
     {
         referenceArm = null; epochCoversAll = true; refusal = null;
-        var (pin, roots) = Host.CapturePinAndRoots(AfterReadPinForGuard);
+        var (pin, roots) = _host.CapturePinAndRoots(AfterReadPinForGuard);
         var resolver = pin.Resolver;
         var view = pin.View;
         epoch = view.Stamp;
@@ -579,7 +579,7 @@ public sealed partial class LoadOrderService
                 refGather.Release();
             }
 
-            var fills = FoldTreeChunkPinned(new ViewPin(resolver, view), session, keys, fields,
+            var fills = FoldTreeChunkPinned(new LoadOrderService.ViewPin(resolver, view), session, keys, fields,
                 (j, node, plugin, read, isWinner) =>
                 {
                     var touchers = liveTouchers[start + j];

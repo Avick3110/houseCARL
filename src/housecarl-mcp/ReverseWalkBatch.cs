@@ -37,7 +37,7 @@ public static class ReverseWalkBatch
         var stamp = view.Stamp;
         if (demand is not null && demand.Epoch != stamp.Epoch)
             return new Result(Array.Empty<ReverseSelection.Hop>(), Array.Empty<string>(), 0, false, DropCensus.Empty, null, stamp,
-                              LoadOrderService.ArtifactEpochMismatch(demand, stamp.Epoch));
+                              RecordReads.ArtifactEpochMismatch(demand, stamp.Epoch));
 
         // Seeds are deduplicated: two spellings of one key parse to the same FormKey.
         var seedKeys = new List<FormKey>(seeds.Count);

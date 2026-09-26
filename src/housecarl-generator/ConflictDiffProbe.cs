@@ -184,7 +184,7 @@ public static class ConflictDiffProbe
         var big = new SkyrimMod(new ModKey("hcDiffBig", ModType.Plugin), SkyrimRelease.SkyrimSE);
         var bigF = big.Factions.AddNew();
         for (int i = 0; i < 900; i++) bigF.Relations.Add(Rel(t[i % 4]));
-        var bigRead = ReadEngine.ReadFields(bigF, new[] { "Relations" }, LoadOrderService.ConflictDiffDepth);
+        var bigRead = ReadEngine.ReadFields(bigF, new[] { "Relations" }, RecordReads.ConflictDiffDepth);
         var dE = FieldsDiff.Compare(bigRead, bigRead);
         Check("E: a capped read yields Complete=false (no false 'identical' claim)",
               dE is { Complete: false, Deltas.Count: 0 });

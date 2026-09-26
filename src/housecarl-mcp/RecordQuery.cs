@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
-public sealed partial class LoadOrderService
+internal sealed partial class RecordReads
 {
     // ---- cross-plugin query ----------------------------------------------------------------------------
 
@@ -14,10 +14,10 @@ public sealed partial class LoadOrderService
     /// the index.</summary>
     public CrossQueryOutcome CrossQuery(string? type, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
-                                        bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
-                                        IReadOnlyList<ArtifactDemand>? artifactDemands = null,
-                                        IReadOnlyList<FormKey>? referencesNone = null,
-                                        CancellationToken ct = default)
+                                        bool definedIn, string? groupBy, int offset, string? whereSource,
+                                        IReadOnlyList<ArtifactDemand>? artifactDemands,
+                                        IReadOnlyList<FormKey>? referencesNone,
+                                        CancellationToken ct)
         => CrossQuery(type is null ? null : new[] { type }, references, editoridContains, conflictsOnly, plugins, where,
                       limit, definedIn, groupBy, offset, whereSource, artifactDemands, referencesNone: referencesNone, ct: ct);
 
@@ -35,7 +35,7 @@ public sealed partial class LoadOrderService
                                         IReadOnlyList<FormKey>? referencesNone = null,
                                         CancellationToken ct = default)
     {
-        var resolver = Host.Resolver;
+        var resolver = _host.Resolver;
         // The caller's own build when its FormID door already captured one, so the tokens it parsed and the
         // records this scan matches come from ONE build.
         var view = pinnedView ?? resolver.Capture();
@@ -156,7 +156,7 @@ public sealed partial class LoadOrderService
                 return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
 
         IReadOnlyList<Type>? types;
-        try { types = Host.Types.ResolveSet(hasType ? typeSet : null); }
+        try { types = _host.Types.ResolveSet(hasType ? typeSet : null); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
         if (predicate is not null && hasType && QuantifierShapeRefusal(typeSet!, predicate) is { } qerr)
@@ -511,7 +511,7 @@ public sealed partial class LoadOrderService
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
-               { Stamp = view.Stamp, Pin = new ViewPin(resolver, view), GetterTypes = types,
+               { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view), GetterTypes = types,
                  ReverseIndexNote = reverseNote,
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList() };
     }
@@ -522,7 +522,7 @@ public sealed partial class LoadOrderService
     {
         var schemas = new List<TypeSchema>();
         foreach (var token in typeTokens)
-            foreach (var ts in Host.Rulebook.RecordTypesNamed(token))
+            foreach (var ts in _host.Rulebook.RecordTypesNamed(token))
                 if (!schemas.Contains(ts)) schemas.Add(ts);
         if (schemas.Count == 0) return null;
 
@@ -534,7 +534,7 @@ public sealed partial class LoadOrderService
             bool unanswered = false;
             foreach (var ts in schemas)
             {
-                var card = Host.Rulebook.StepCardinality(ts, step.Path, step.Index);
+                var card = _host.Rulebook.StepCardinality(ts, step.Path, step.Index);
                 // The schema cannot say for this type, so this STEP goes to the runtime accounting.
                 if (card is null) { unanswered = true; break; }
                 if (card == "list") { whatItIs.Clear(); break; }
@@ -611,11 +611,11 @@ public sealed partial class LoadOrderService
         IReadOnlyList<FormKey>? references, string? editoridContains, IReadOnlyList<string>? scopePlugins,
         bool definedIn, IReadOnlyList<string>? where, int limit, string? groupBy, int offset,
         IReadOnlyList<FormKey>? formidSet, IReadOnlyList<ArtifactDemand>? artifactDemands,
-        LoadOrderResolver.IndexView? pinnedView = null,
-        IReadOnlyList<FormKey>? referencesNone = null,
-        CancellationToken ct = default)
+        LoadOrderResolver.IndexView? pinnedView,
+        IReadOnlyList<FormKey>? referencesNone,
+        CancellationToken ct)
     {
-        var resolver = Host.Resolver;
+        var resolver = _host.Resolver;
         var view = pinnedView ?? resolver.Capture();   // the caller's door build when it captured one — see CrossQuery
 
         if (groupBy is not null)
@@ -652,7 +652,7 @@ public sealed partial class LoadOrderService
                 return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
 
         IReadOnlyList<Type>? types;
-        try { types = Host.Types.ResolveSet(typeSet); }
+        try { types = _host.Types.ResolveSet(typeSet); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }
 
         if (predicate is not null && typeSet is { Count: > 0 } && QuantifierShapeRefusal(typeSet, predicate) is { } qerr)
@@ -800,7 +800,7 @@ public sealed partial class LoadOrderService
         return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
                                      predicate?.AccountingNote(), sources, scanNote, matched, groupRows, groupBy,
                                      definedIn ? pole.Plugin : null, offset, false, null)
-               { Stamp = view.Stamp, Pin = new ViewPin(resolver, view) };
+               { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view) };
     }
 
     /// <summary>Seat every type the scan NAMED in a group_by=type census at zero, so a requested type with no records reads as a 0 row rather than being absent from the table. No-op for the other count keys.</summary>
@@ -823,7 +823,7 @@ public sealed partial class LoadOrderService
             foreach (var ts in typesNarrow)
             {
                 IReadOnlyList<Type> resolved;
-                try { resolved = Host.Types.Resolve(ts.Trim()); }         // unknown type → named error, as on the scan
+                try { resolved = _host.Types.Resolve(ts.Trim()); }         // unknown type → named error, as on the scan
                 catch (ArgumentException ex) { return EffectChainResult.Fail(ex.Message); }
                 foreach (var t in resolved)
                 {
@@ -838,6 +838,6 @@ public sealed partial class LoadOrderService
         }
         else scope = EffectChain.CarrierTypes;
 
-        return EffectChain.Resolve(Host.Resolver, mgef, scope, limit);
+        return EffectChain.Resolve(_host.Resolver, mgef, scope, limit);
     }
 }
