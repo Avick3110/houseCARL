@@ -297,6 +297,43 @@ public sealed class ReadPinTests : IDisposable
         Assert.True(AssetsBuilt());
     }
 
+    const string OverName = "HcRpOver.esp";
+
+    /// <summary>Stages an override of the patched weapon at damage 10, active in both profiles, so the base plugin sits under the winner.</summary>
+    void StageOverride()
+    {
+        var mod = new SkyrimMod(ModKey.FromFileName(OverName), SkyrimRelease.SkyrimSE);
+        mod.Weapons.Add(new Weapon(FormKey.Factory(_patched), SkyrimRelease.SkyrimSE)
+                        { EditorID = "HcRpPatchedWeap", BasicStats = new WeaponBasicStats { Damage = 10 } });
+        var dir = Path.Combine(_instance, "mods", "OverMod");
+        Directory.CreateDirectory(dir);
+        mod.BeginWrite.ToPath(Path.Combine(dir, OverName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        foreach (var profile in new[] { "Default", "Other" })
+        {
+            var p = Path.Combine(_instance, "profiles", profile);
+            File.AppendAllText(Path.Combine(p, "loadorder.txt"), OverName + "\r\n");
+            File.AppendAllText(Path.Combine(p, "plugins.txt"), "*" + OverName + "\r\n");
+            File.AppendAllText(Path.Combine(p, "modlist.txt"), "+OverMod\r\n");
+        }
+    }
+
+    /// <summary>The base plugin's node, one under the winner, against the overlay post reference.</summary>
+    IReadOnlyList<string> TreeBaseDeltas() => Tree(OverlayPost).Nodes.Single(n => n.Plugin == BaseName).Deltas;
+
+    [Fact]
+    public void AProfileSwitchInsideTheHoldDoesNotSplitTheTreeOverlayReferenceFromItsAssetBuild()
+    {
+        StageOverride();
+        Assert.NotEmpty(TreeBaseDeltas());                                      // warms on Default: the base's 10 against the replay's 20
+        _svc.ReadArea.AfterReadPinForGuard = SwitchInsideTheHold;
+
+        // The reference replays over Default's asset build, the one pinned with the winners, so Default's INI applies.
+        Assert.NotEmpty(TreeBaseDeltas());
+
+        // The switch landed for the next call: Other does not enable the INI.
+        Assert.Empty(TreeBaseDeltas());
+    }
+
     [Fact]
     public void AProfileSwitchInsideTheHoldDoesNotSplitTheOverlaySourceFromItsAssetBuild()
     {
