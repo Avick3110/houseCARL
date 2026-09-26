@@ -501,7 +501,7 @@ public sealed partial class LoadOrderService
                                                    IReadOnlyCollection<string>? countFields = null)
     {
         artifactRefusal = null; refusalEpoch = null;
-        var resolver = Host.Resolver;                // build/refresh once for the batch
+        var resolver = Host.Resolver;           // build/refresh once for the batch
         var view = resolver.Capture();          // one build for every item — the whole batch is one logical operation
         if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
         {
