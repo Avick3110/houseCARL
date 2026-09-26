@@ -609,6 +609,16 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         finally { _w.Svc.ResultsDir = prior; try { Directory.Delete(spills, true); } catch { } }
     }
 
+    /// <summary>A to_file= into the service's results folder, beside its user config, is refused on this lane too.</summary>
+    [Fact]
+    public void AToFileIntoTheResultsFolderIsRefusedNamingThePruneHazard()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                          to_file: Path.Combine(_w.Root, "results", "mine.jsonl"));
+
+        Assert.Contains("pruned by age", text);
+    }
+
     /// <summary>The window echo is a WINDOW's alone: a to_file= artifact covers the whole selection, so an entry
     /// saying which rows it holds would misdescribe it.</summary>
     [Fact]

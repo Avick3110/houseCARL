@@ -41,6 +41,16 @@ public sealed class RecordsTransportTests : IDisposable
         Assert.True(File.Exists(nested), $"to_file did not create its parent directory. Response: {r}");
     }
 
+    /// <summary>The results directory is the folder beside the service's user config, as production puts it beside
+    /// houseCARL.user.json: this world's store is &lt;root&gt;/user.json, so &lt;root&gt;/results is refused by name.</summary>
+    [Fact]
+    public void ToFile_IntoTheResultsFolderBesideTheUserConfigIsRefused()
+    {
+        var r = RecordsTools.Records(_w.Svc, formids: Ids, to_file: Path.Combine(_w.Root, "results", "mine.jsonl"));
+        Assert.StartsWith("error:", r);
+        Assert.Contains("pruned by age", r);
+    }
+
     [Fact]
     public void ToFile_TheArtifactIsWrittenAndTheResponseIsManifestOnlyInline()
     {
