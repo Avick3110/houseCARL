@@ -2,8 +2,8 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>Tests that read or set process-wide state (the cost counters, the render budget, the FormID spelling
-/// table, the working directory) run here, one at a time and after every parallel test, until that state stops
+/// <summary>Tests that read or set process-wide state (the cost counters, the FormID spelling table, the working
+/// directory) run here, one at a time and after every parallel test, until that state stops
 /// being process-wide (#903).</summary>
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class SerialCollection

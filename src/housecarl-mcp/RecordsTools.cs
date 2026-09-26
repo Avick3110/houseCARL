@@ -612,7 +612,7 @@ public static partial class RecordsTools
                            "it does not take a source= pole. Use form='summary' or 'fields' for a named version's view.");
                 // This form reads a body by the dearest route on the tool, an untyped whole-plugin seek per id, so
                 // it has its own tier, checked before the read.
-                if (RenderBudget.RefuseIdentity(ids.Length, counts_only ? RenderBudget.ListCensusRemedy : RenderBudget.ListRemedy,
+                if (RenderBudget.RefuseIdentity(svc.Bounds, ids.Length, counts_only ? RenderBudget.ListCensusRemedy : RenderBudget.ListRemedy,
                                                 counts_only) is { } identityTooBig)
                     return Wire.Refuse(json, identityTooBig);
                 var identityClock = System.Diagnostics.Stopwatch.StartNew();
@@ -654,7 +654,7 @@ public static partial class RecordsTools
             // ---- the render's own bound on this lane, over all five reading forms, checked before any body is
             // read; counts_only pays it too, because this lane reads the list whatever it renders. ----
             if (bodyForm && !walkDerived
-                && RenderBudget.Refuse(ids.Length, form == "everything",
+                && RenderBudget.Refuse(svc.Bounds, ids.Length, form == "everything",
                                        counts_only ? RenderBudget.ListCensusRemedy : RenderBudget.ListRemedy,
                                        counts_only) is { } listTooBig)
                 return Wire.Refuse(json, listTooBig);
@@ -824,7 +824,7 @@ public static partial class RecordsTools
                 // The reached set's render bound, with its own remedy because chain and the scan terms are both
                 // refused on this walk; counts_only pays it too, since the list lane reads before it counts.
                 if (bodyForm
-                    && RenderBudget.Refuse(rev.Selection.Count, form == "everything",
+                    && RenderBudget.Refuse(svc.Bounds, rev.Selection.Count, form == "everything",
                                            counts_only ? RenderBudget.ReverseTransitiveCensusRemedy : RenderBudget.ReverseTransitiveRemedy,
                                            counts_only) is { } revTooBig)
                     return Wire.Refuse(json, revTooBig, rev.Stamp);
@@ -909,7 +909,7 @@ public static partial class RecordsTools
                     // The reached set's render bound, without walk.depth among its levers because this walk reaches
                     // nothing past hop 1; counts_only pays it too, since the census reads bodies.
                     if (bodyForm
-                        && RenderBudget.Refuse(carrierSel.Count, form == "everything",
+                        && RenderBudget.Refuse(svc.Bounds, carrierSel.Count, form == "everything",
                                                counts_only ? RenderBudget.ReverseCarrierCensusRemedy : RenderBudget.ReverseCarrierRemedy,
                                                counts_only) is { } carrierTooBig)
                         return Wire.Refuse(json, carrierTooBig, epochR);
@@ -1023,7 +1023,7 @@ public static partial class RecordsTools
             // with its own remedy since the scan window is not what moves a walk. form='chain' returned above and
             // pays no SECOND body read; counts_only pays this, because the list lane reads before it counts. ----
             if (bodyForm
-                && RenderBudget.Refuse(combined.Count, form == "everything",
+                && RenderBudget.Refuse(svc.Bounds, combined.Count, form == "everything",
                                        counts_only ? RenderBudget.WalkCensusRemedy : RenderBudget.WalkRemedy,
                                        counts_only) is { } walkTooBig)
                 return Wire.Refuse(json, walkTooBig, wEpoch);
@@ -1059,7 +1059,7 @@ public static partial class RecordsTools
             // The same bound as the scan lane's, on the list's own length, since limit= windows only the render here;
             // a walk arrives as a list it derived, so its lever is the walk's. Charged AFTER each form's shape checks.
             string? ListCost() =>
-                RenderBudget.RefuseComparison(ids.Length, form,
+                RenderBudget.RefuseComparison(svc.Bounds, ids.Length, form,
                     walkDerived ? RenderBudget.ComparisonWalkLever : RenderBudget.ComparisonListLever);
 
             if (form == "delta")
@@ -1427,7 +1427,7 @@ public static partial class RecordsTools
             // its own reached count instead; the named-fields and 'everything' lanes are measured separately. ----
             if ((bodyFields || form == "everything") && !counts_only
                 && outcome.Error is null && outcome.Groups is null
-                && RenderBudget.Refuse(outcome.Keys.Count, form == "everything") is { } tooBig)
+                && RenderBudget.Refuse(svc.Bounds, outcome.Keys.Count, form == "everything") is { } tooBig)
                 return Wire.Refuse(json, tooBig, outcome.Stamp);
 
             // ---- delta / tree on a scan: the scan selects the records, the engine batches compare them, and the
@@ -1437,7 +1437,7 @@ public static partial class RecordsTools
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan";
                 var cmpKeys = ComparisonWindow(outcome.Keys, outcome.Total);
-                if (RenderBudget.RefuseComparison(cmpKeys.Count, form, ComparisonLever()) is { } cmpTooBig)
+                if (RenderBudget.RefuseComparison(svc.Bounds, cmpKeys.Count, form, ComparisonLever()) is { } cmpTooBig)
                     return Wire.Refuse(json, cmpTooBig, outcome.Stamp);
                 if (form == "delta")
                 {
@@ -1744,7 +1744,7 @@ public static partial class RecordsTools
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es) selected from the file";
                 var cmpKeys = ComparisonWindow(outcome.Keys, outcome.Total);
-                if (RenderBudget.RefuseComparison(cmpKeys.Count, form, ComparisonLever()) is { } offCmpTooBig)
+                if (RenderBudget.RefuseComparison(svc.Bounds, cmpKeys.Count, form, ComparisonLever()) is { } offCmpTooBig)
                     return Wire.Refuse(json, offCmpTooBig, outcome.Stamp);
                 if (form == "delta")
                 {
@@ -1783,7 +1783,7 @@ public static partial class RecordsTools
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
                 // The render bound is on the row cost, not on where the row came from, so it refuses on the same
                 // numbers before reading a body.
-                if (RenderBudget.Refuse(keys.Count, form == "everything") is { } offTooBig)
+                if (RenderBudget.Refuse(svc.Bounds, keys.Count, form == "everything") is { } offTooBig)
                     return Wire.Refuse(json, offTooBig, outcome.Stamp);
                 // And clocked the same way, so the bound's estimate is checkable on this lane too.
                 var offClock = System.Diagnostics.Stopwatch.StartNew();

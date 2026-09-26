@@ -1160,40 +1160,40 @@ public sealed class RecordsRenderCostTests
 
     /// <summary>Run one call with the render bound moved, restored whatever happens — building 300,000 records to
     /// reach the real one is not a test.</summary>
-    static string WithBound(int rows, Func<string> call)
+    string WithBound(int rows, Func<string> call)
     {
-        var prior = RenderBudget.MaxRenderRows;
-        RenderBudget.MaxRenderRows = rows;
+        var prior = Svc.Bounds;
+        Svc.Bounds = prior with { Rows = rows };
         try { return call(); }
-        finally { RenderBudget.MaxRenderRows = prior; }
+        finally { Svc.Bounds = prior; }
     }
 
     /// <summary>The same for the comparison forms' own bound, which is small enough in production that a world of
     /// 60 records could reach it — moved anyway, so the test says which number it is about.</summary>
-    static string WithComparisonBound(int rows, Func<string> call)
+    string WithComparisonBound(int rows, Func<string> call)
     {
-        var prior = RenderBudget.MaxComparisonRows;
-        RenderBudget.MaxComparisonRows = rows;
+        var prior = Svc.Bounds;
+        Svc.Bounds = prior with { ComparisonRows = rows };
         try { return call(); }
-        finally { RenderBudget.MaxComparisonRows = prior; }
+        finally { Svc.Bounds = prior; }
     }
 
     /// <summary>The same for the whole-record lane's own bound.</summary>
-    static string WithWholeRecordBound(int rows, Func<string> call)
+    string WithWholeRecordBound(int rows, Func<string> call)
     {
-        var prior = RenderBudget.MaxWholeRecordRows;
-        RenderBudget.MaxWholeRecordRows = rows;
+        var prior = Svc.Bounds;
+        Svc.Bounds = prior with { WholeRecordRows = rows };
         try { return call(); }
-        finally { RenderBudget.MaxWholeRecordRows = prior; }
+        finally { Svc.Bounds = prior; }
     }
 
     /// <summary>And for the identity lane's own bound.</summary>
-    static string WithIdentityBound(int rows, Func<string> call)
+    string WithIdentityBound(int rows, Func<string> call)
     {
-        var prior = RenderBudget.MaxIdentityRows;
-        RenderBudget.MaxIdentityRows = rows;
+        var prior = Svc.Bounds;
+        Svc.Bounds = prior with { IdentityRows = rows };
         try { return call(); }
-        finally { RenderBudget.MaxIdentityRows = prior; }
+        finally { Svc.Bounds = prior; }
     }
 
     /// <summary>A bare plugin-name source pole.</summary>

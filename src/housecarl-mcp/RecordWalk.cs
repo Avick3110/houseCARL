@@ -19,7 +19,7 @@ internal sealed partial class RecordReads
 
     /// <summary>How many record bodies one forward-walk gather pass reads before it releases them;
     /// <see cref="BodyPrefetch.ChunkRows"/>, and a test lowers it to split a hop.</summary>
-    internal static int WalkPassRows = BodyPrefetch.ChunkRows;
+    internal int WalkPassRows { get; set; } = BodyPrefetch.ChunkRows;
 
     /// <summary>Everything a walk takes from one reached node: its identity and its links, as values — what a key
     /// is remembered by once its body is gone, so a node two seeds both reach is still ONE read per call.</summary>

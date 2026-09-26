@@ -13,7 +13,6 @@ namespace HousecarlMcpTests;
 /// declared-cost bound. Before this, a whole-order pairing sweep was two calls per NPC and broke the character budget
 /// past a few dozen paths.</summary>
 [Trait("tier", "unit")]
-[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
 {
     readonly AssetSelectWorld _w;
@@ -248,8 +247,8 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     [Fact]
     public void TheBoundRefusesUpFrontWithTheCountAndTheEstimate()
     {
-        var prior = RenderBudget.MaxAssetPaths;
-        RenderBudget.MaxAssetPaths = 3;
+        var prior = _w.Svc.AssetArea.MaxAssetPaths;
+        _w.Svc.AssetArea.MaxAssetPaths = 3;
         try
         {
             var text = AssetTools.AssetStatus(
@@ -261,12 +260,12 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Contains("seconds", text);                    // the estimate, not just the count
 
             // And the same selection under the bound still answers.
-            RenderBudget.MaxAssetPaths = 6;
+            _w.Svc.AssetArea.MaxAssetPaths = 6;
             Assert.Contains("(6 paths selected)",
                             AssetTools.AssetStatus(_w.Svc,
                                                    formids: new[] { AssetSelectWorld.SplitFormId, AssetSelectWorld.MatchedFormId, AssetSelectWorld.TintAbsentFormId }));
         }
-        finally { RenderBudget.MaxAssetPaths = prior; }
+        finally { _w.Svc.AssetArea.MaxAssetPaths = prior; }
     }
 
     /// <summary>On an `under=` sweep the bound stops the WALK, not just the resolve. The enumeration is the expensive
@@ -275,8 +274,8 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     [Fact]
     public void AnUnderSweepStopsWalkingAtTheBoundRatherThanCountingItAllFirst()
     {
-        var prior = RenderBudget.MaxAssetPaths;
-        RenderBudget.MaxAssetPaths = 2;
+        var prior = _w.Svc.AssetArea.MaxAssetPaths;
+        _w.Svc.AssetArea.MaxAssetPaths = 2;
         try
         {
             var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir });
@@ -285,7 +284,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Contains("stopped counting there", text);
             Assert.Contains("2-path bound", text);
         }
-        finally { RenderBudget.MaxAssetPaths = prior; }
+        finally { _w.Svc.AssetArea.MaxAssetPaths = prior; }
     }
 
     /// <summary>The bound is on what the call RESOLVES, so a windowed sweep over a folder bigger than the bound
@@ -294,8 +293,8 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     [Fact]
     public void APagedUnderSweepAnswersOverAFolderBiggerThanTheBound()
     {
-        var prior = RenderBudget.MaxAssetPaths;
-        RenderBudget.MaxAssetPaths = 2;
+        var prior = _w.Svc.AssetArea.MaxAssetPaths;
+        _w.Svc.AssetArea.MaxAssetPaths = 2;
         try
         {
             var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, limit: 2);
@@ -313,7 +312,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             var wide = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, limit: 5);
             Assert.Contains("2-path bound", wide);
         }
-        finally { RenderBudget.MaxAssetPaths = prior; }
+        finally { _w.Svc.AssetArea.MaxAssetPaths = prior; }
     }
 
     /// <summary>A plain path list splits on line breaks ONLY. A comma is legal in a Windows file name and mod authors
@@ -363,8 +362,8 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     [Fact]
     public void ANarrowGlobUnderAWideFolderIsNotRefusedForTheFoldersSize()
     {
-        var prior = RenderBudget.MaxAssetPaths;
-        RenderBudget.MaxAssetPaths = 2;
+        var prior = _w.Svc.AssetArea.MaxAssetPaths;
+        _w.Svc.AssetArea.MaxAssetPaths = 2;
         try
         {
             var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir + @"\0004.*" });
@@ -372,7 +371,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.DoesNotContain("bound", text);
             Assert.Contains("(1 path selected)", text);
         }
-        finally { RenderBudget.MaxAssetPaths = prior; }
+        finally { _w.Svc.AssetArea.MaxAssetPaths = prior; }
     }
 
     /// <summary>The text lane shows the owning mod on a formids= row's own winner as well as its pair's, or the

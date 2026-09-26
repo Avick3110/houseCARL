@@ -267,6 +267,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>The auto-spill results directory: <c>results</c> beside houseCARL.user.json.</summary>
     internal string ResultsDir { get; }
 
+    /// <summary>The records render bounds in force on this service; production keeps the default, a test lowers its own world's.</summary>
+    internal RenderBounds Bounds { get; set; } = RenderBounds.Default;
+
     // The reads area's tool-facing surface; the bodies are in RecordReads.cs, RecordPoles.cs, RecordWalk.cs, RecordQuery.cs and TreeFold.cs.
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
                                        bool conflictTree, int depth = 1, bool resolveNames = false,
