@@ -165,6 +165,8 @@ the field map; `SkyPatcherDiscovery.cs` the discovery and apply order; `SkyPatch
 (`SkyPatcherOverlay.Apply`); `SkyPatcherConflicts.cs` the conflict and ITM report; `SkyPatcherDraft.cs` the draft fold.
 `src/housecarl-mcp/SkyPatcherReplay.cs` is the service's replay: `OpenSkyPatcherReplay` opens
 one call's context (asset capture, catalog, field map, scan, draft fold) and `Replay` runs one record's winner through
-it, for both the layer tool and the overlay source. `src/housecarl-mcp/SkyPatcherTools.cs` is the tool front. Tool: `housecarl_skypatcher_layer`; the overlay and the
+it, for both the layer tool and the overlay source. Both open it over an asset build taken in the same `_gate` hold as
+the index pin their answer is stamped with (`CapturePinAndAssets`), so a profile switch mid-call cannot replay one
+profile's INI layer onto another's winners. `src/housecarl-mcp/SkyPatcherTools.cs` is the tool front. Tool: `housecarl_skypatcher_layer`; the overlay and the
 draft are also read through `housecarl_records`'s SkyPatcher overlay source.
 The result records are in `src/housecarl-mcp/AssetResults.cs` ([`assets.md`](assets.md)).
