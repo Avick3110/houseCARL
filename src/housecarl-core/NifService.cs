@@ -71,12 +71,12 @@ public static class NifService
         // A count inside a block, or the block itself, runs past the block's stored size; the key does not say which, so lead with the usual cause.
         if (NifLoadErrors.IsBlockSizeMismatch(ex))
             return $"the mesh is malformed and was not read ({m.TrimEnd('.')}) — a count in that block is larger than the block's " +
-                   "stored size allows, which usually means the count is corrupted, so reinstall the mod that ships it or open it " +
-                   "in NifSkope to see where it breaks.";
+                   "stored size allows, which usually means the count is corrupted, so reinstall whatever ships it (the mod, or the " +
+                   "game files for a vanilla mesh) or open it in NifSkope to see where it breaks.";
         // NiflySharp's bound on a count, length or size that cannot fit in the bytes left in the file.
         if (ex is InvalidDataException)
-            return $"the mesh is malformed and was not read ({m.TrimEnd('.')}) — the file is damaged or cut short, " +
-                   "so reinstall the mod that ships it or open it in NifSkope to see where it breaks.";
+            return $"the mesh is malformed and was not read ({m.TrimEnd('.')}) — the file is damaged or cut short, so reinstall " +
+                   "whatever ships it (the mod, or the game files for a vanilla mesh) or open it in NifSkope to see where it breaks.";
         if (m.Contains("boolean", StringComparison.OrdinalIgnoreCase))
             return "NiflySharp refused this mesh: a boolean field holds a non-0/1 byte, which the library rejects strictly " +
                    "(some exporters write it). The file is otherwise a valid SE mesh — NifSkope can open it — and houseCARL " +
