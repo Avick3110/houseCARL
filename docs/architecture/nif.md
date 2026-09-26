@@ -14,11 +14,14 @@ writes DATA VALUES.
 ## Contracts
 
 Reads ride NiflySharp, source-generated from `nif.xml`, as houseCARL's own build of a fork: NuGet `Nifly`
-1.1.0-housecarl.3, vendored in `packages/local` and added by the root `nuget.config`. The fork is upstream 1.1.0's
+1.1.0-housecarl.4, vendored in `packages/local` and added by the root `nuget.config`. The fork is upstream 1.1.0's
 commit plus one change: every count, string length and unknown-block size is checked against the bytes left before
-anything is allocated for it, and a block that reads past its stored size stops the load. Both throw
+anything is allocated for it (inside a block, against what the block's stored size has left), and a block that reads
+past its stored size stops the load. Both throw
 `InvalidDataException` naming the block and the number, where 1.1.0 could allocate gigabytes for one corrupted count
-(#926). How the package is built and checked is under *The vendored NiflySharp fork* below. One library quirk binds every read: the
+(#926). When a block and its stored size disagree, the exception carries `NifLoadErrors.BlockSizeMismatchKey`, and
+`NifService` words that case apart from a count that does not fit the file by that key, never by the message text.
+How the package is built and checked is under *The vendored NiflySharp fork* below. One library quirk binds every read: the
 alpha / shader / skin refs are read DIRECTLY off `INiShape`, never via `NifFile.GetPropertyOfType<T>`, which NREs on
 SE-style shapes whose legacy `Properties` list is null.
 
@@ -131,16 +134,21 @@ and the final render stay unseen, so a rewritten path or a renamed shape still n
 ### The vendored NiflySharp fork
 
 The fork is https://github.com/Avick3110/NiflySharp. The package in `packages/local` is built from commit
-`38edbbd095029181118b9bbfd7bbfb78b55234b3`: upstream `ousnius/NiflySharp` at `7b55e88a` (the commit Nifly 1.1.0
-was built from), plus two commits. The first adds the bounds and the block-end check. The second caches each element
-type's smallest size without a lock. The assembly is still `NiflySharp 1.1.0.0`, and its public API is the same as
-1.1.0's. The THIRD-PARTY-NOTICES entry names the same commit.
+`55da70711949f77b879dcf5b1d2f9c18a2405792`: upstream `ousnius/NiflySharp` at `7b55e88a` (the commit Nifly 1.1.0
+was built from), plus three commits:
+- the first adds the bounds and the block-end check;
+- the second caches each element type's smallest size without a lock;
+- the third bounds a count inside a block by what the block's stored size has left, and marks a block-size
+  disagreement with a data key.
+
+The assembly is still `NiflySharp 1.1.0.0`. Its public API is 1.1.0's plus one class, `NifLoadErrors`. The
+THIRD-PARTY-NOTICES entry names the same commit.
 
 To rebuild it: clone the fork, check out that commit, and run `git submodule update --init` for `nifxml` (it should
 be at `292bb940`). Then, with the .NET 10 SDK, run:
 
 ```
-dotnet build NiflySharp/NiflySharp.csproj -c Release -p:Version=1.1.0-housecarl.3 -p:ContinuousIntegrationBuild=true -p:RepositoryUrl=https://github.com/Avick3110/NiflySharp -p:PackageProjectUrl=https://github.com/Avick3110/NiflySharp
+dotnet build NiflySharp/NiflySharp.csproj -c Release -p:Version=1.1.0-housecarl.4 -p:ContinuousIntegrationBuild=true -p:RepositoryUrl=https://github.com/Avick3110/NiflySharp -p:PackageProjectUrl=https://github.com/Avick3110/NiflySharp
 ```
 
 The project builds the package itself, into `NiflySharp/bin/Release/`. A bare `dotnet pack` fails with NU5026 on a
@@ -148,20 +156,27 @@ fresh clone, because it packs before the builds exist. `ContinuousIntegrationBui
 of the DLLs, so two clones at different paths give the same DLLs byte for byte.
 
 Give every rebuild a new version suffix. NuGet keeps each version it has restored in `~/.nuget/packages` and never
-reads the local source again for that version. CI restores its package cache on the exact key only, for the same reason.
+reads the local source again for that version. CI's package cache can fall back to an older cache, so it relies on the
+same rule.
 
 Before a new build replaces the vendored one, check it the way each earlier version was checked:
 
 - **Every real mesh, file by file.** Load and round-trip every loose `.nif` in the instance's mod folders, and every
   mesh in `Skyrim - Meshes0.bsa` and `Meshes1.bsa`, once with the old library and once with the new. Then compare
   the two runs file by file. The dev corpus's `spike-nif` scanner and `diff_ab.py` do this. Matching totals is not
-  the check, because two runs can match in total and still disagree about which files they read. housecarl.3 against
+  the check, because two runs can match in total and still disagree about which files they read. housecarl.4 against
   1.1.0: 22,047 archive meshes and 72,861 loose meshes, 0 files changed verdict.
 - **Random corruption of the authored test mesh.** Change 4 random bytes (seeds 0 to 22,112), and change one byte at
   each of the 998 positions. Each input runs in a child process that is stopped at 10 s or 2 GB. On 1.1.0, 137 + 38
-  inputs passed 2 GB. On housecarl.3, 0 did: each of those is a named error, and the worst input took 73 ms and
-  28 MB. Of the 847 seeds that 1.1.0 reads, 829 read to the same result. The other 18 each carry a corrupted size
+  inputs passed 2 GB. On housecarl.4, 0 did: each of those is a named error, and the worst input took 101 ms and
+  26 MB. Of the 847 seeds that 1.1.0 reads, 829 read to the same result. The other 18 each carry a corrupted size
   that the fork now checks.
+- **A corrupted count in the largest real mesh.** The largest loose mesh in the instance is a 40 MB FaceGen head
+  (`00013386.nif`, 172 blocks). A copy of it was given a count of 10,000,000 in three places: the root node's
+  children, the root node's extra data, and block 3's children. On 1.1.0, each ran past 2 GB in about 4 s. On
+  housecarl.3 (bounded only by the bytes left in the file), each was refused after about 0.9 s and 450 MB. On
+  housecarl.4, each was refused in 27 ms at a 66 MB peak, with the 40 MB file already in memory. Unchanged, the mesh
+  reads the same on all three in about 0.6 s at 167 MB.
 
 Earlier, 1.0.0 to 1.1.0 (2026-07-26, #287) was checked the same way: 12 more loose meshes read, and no file read
 worse.
@@ -171,8 +186,8 @@ worse.
 - *Contracts*, the parse-failure paragraph: `NifInspectDecodeTests` — empty bytes and non-NIF garbage each return a
   named error, never a throw or a half-model (`EmptyBytesReturnANamedError`, `NonNifGarbageReturnsANamedErrorNotAThrow`);
   `NifInspectMalformedTests` — through the built server under a 2 GB heap cap and a 30 s call timeout, meshes that ran
-  1.1.0 out of memory come back from `nif_inspect` and `nif_set` as the malformed error: a block-end case, a header
-  count, and the write refusal ending "Nothing was written."
+  1.1.0 out of memory come back from `nif_inspect` and `nif_set` as the malformed error: a count past its block's
+  stored size, a header count, and the write refusal ending "Nothing was written."
 - *Coverage comes from the library, never a hand list*: `NifShaderDecodeTests` and `NifInspectRenderTests` pin both
   branches of `ReallyReads`, `NifSetGuardProbe` (`nif-set-guard`) pins all three `ReallyWrites` states including the
   unmarshalable one via a stand-in type, and the flag decode's gap and combo-peel behaviour is pinned rather than

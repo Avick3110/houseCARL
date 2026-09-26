@@ -16,13 +16,13 @@ public sealed class NifInspectMalformedTests : IClassFixture<MalformedMeshWorld>
     readonly MalformedMeshWorld _w;
     public NifInspectMalformedTests(MalformedMeshWorld w) => _w = w;
 
-    // The first input the random 4-byte corruption of the authored mesh ran out of memory on (seed 10): the block-end check.
+    // The first input the random 4-byte corruption of the authored mesh ran out of memory on (seed 10): a count past its block's stored size.
     [Fact]
     public void TheSeedTenCorruptionIsANamedBlockSizeErrorNotARunaway()
     {
         var text = _w.Inspect(MalformedMeshWorld.SeedTen);
 
-        Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode) read 556 bytes, past its stored size of 88)", text);
+        Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode): A list count of 117 needs at least 468 bytes", text);
         Assert.Contains("size table", text);
     }
 
@@ -32,7 +32,8 @@ public sealed class NifInspectMalformedTests : IClassFixture<MalformedMeshWorld>
     {
         var text = _w.Inspect(MalformedMeshWorld.EffectCountByte);
 
-        Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode) read 556 bytes, past its stored size of 88)", text);
+        Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode): A list count of 117 needs at least 468 bytes", text);
+        Assert.Contains("size table", text);
     }
 
     // A header count is refused before any block is read, so its message carries no block.
@@ -51,7 +52,7 @@ public sealed class NifInspectMalformedTests : IClassFixture<MalformedMeshWorld>
     {
         var text = _w.Set(MalformedMeshWorld.SeedTen);
 
-        Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode) read 556 bytes", text);
+        Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode): A list count of 117", text);
         Assert.Contains("Nothing was written.", text);
     }
 }
