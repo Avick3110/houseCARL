@@ -237,14 +237,13 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
         new(view, AssetWarningsLocked(), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild);
 
-    // Rows the areas take from one another, relayed here: output, writes and reads until those are their own classes; the assets replay for reads.
+    // Rows the areas take from one another, relayed here: output and writes until those are their own classes; the assets replay for reads.
     RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);
     string? IAssetHost.RemoveOrNameRiderResidue(RiderFolder folder) => RemoveOrNameRiderResidue(folder);
     bool IAssetHost.IsInPlaceAcknowledged(string path) => _store.IsInPlaceAcknowledged(path);
     string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
     bool IAssetHost.InPlaceParentUnwritable(string targetPath, out string why) => InPlaceParentUnwritable(targetPath, out why);
     string IAssetHost.InPlaceHandshakeLead(string name, string path, string subject, string verb) => InPlaceHandshakeLead(name, path, subject, verb);
-    string IAssetHost.UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk) => RecordReads.UnresolvedFormId(view, fk);
     AssetLayers.SkyPatcherReplay? IReadHost.OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                                                  out string? draftRefusal, SkyPatcherDraft.Plan? draft,
                                                                  SkyPatcherOverlay.WarningSink? draftWarnings)
