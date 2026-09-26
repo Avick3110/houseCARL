@@ -21,6 +21,7 @@ past its stored size stops the load. Both throw
 `InvalidDataException` naming the block (or header field) and the number, where 1.1.0 could allocate gigabytes for one corrupted count
 (#926). When a block and its stored size disagree, the exception carries `NifLoadErrors.BlockSizeMismatchKey`, and
 `NifService` words that case apart from a count that does not fit the file by that key, never by the message text.
+The key does not say whether the count or the stored size is wrong, so that wording leads with the count, the usual cause.
 How the package is built and checked is under *The vendored NiflySharp fork* below. One library quirk binds every read: the
 alpha / shader / skin refs are read DIRECTLY off `INiShape`, never via `NifFile.GetPropertyOfType<T>`, which NREs on
 SE-style shapes whose legacy `Properties` list is null.
