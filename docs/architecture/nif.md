@@ -187,8 +187,9 @@ worse.
 - *Contracts*, the parse-failure paragraph: `NifInspectDecodeTests` — empty bytes and non-NIF garbage each return a
   named error, never a throw or a half-model (`EmptyBytesReturnANamedError`, `NonNifGarbageReturnsANamedErrorNotAThrow`);
   `NifInspectMalformedTests` — through the built server under a 2 GB heap cap and a 30 s call timeout, meshes that ran
-  1.1.0 out of memory come back from `nif_inspect` and `nif_set` as the malformed error: a count past its block's
-  stored size, a header count, and the write refusal ending "Nothing was written."
+  1.1.0 out of memory come back from `nif_inspect` and `nif_set` as the malformed error. One case per library throw:
+  a count past its block's stored size and a block that reads past it (both keyed, count wording), an unknown block and
+  a header count larger than the file (damaged-file wording), and the write refusal ending "Nothing was written."
 - *Coverage comes from the library, never a hand list*: `NifShaderDecodeTests` and `NifInspectRenderTests` pin both
   branches of `ReallyReads`, `NifSetGuardProbe` (`nif-set-guard`) pins all three `ReallyWrites` states including the
   unmarshalable one via a stand-in type, and the flag decode's gap and combo-peel behaviour is pinned rather than
