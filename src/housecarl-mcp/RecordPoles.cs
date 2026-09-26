@@ -41,7 +41,7 @@ public sealed partial class LoadOrderService
         out string? refusal, out OrderStamp? epoch, SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
-        var (pin, roots) = CapturePinAndRoots();   // one build and one set of roots for every pole of every record
+        var (pin, roots) = Host.CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for every pole of every record
         var resolver = pin.Resolver;
         var view = pin.View;
         epoch = view.Stamp;
@@ -299,7 +299,7 @@ public sealed partial class LoadOrderService
             if (replay is not null || setupError is not null) return;
             try
             {
-                replay = OpenSkyPatcherReplay(view, session, out var draftRefusal, spec.Draft, overlayWarnings);
+                replay = Host.AssetArea.OpenSkyPatcherReplay(view, session, out var draftRefusal, spec.Draft, overlayWarnings);
                 if (draftRefusal is not null) setupError = draftRefusal;
             }
             catch (Exception ex)
@@ -392,7 +392,7 @@ public sealed partial class LoadOrderService
         SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         refusal = null; refusalEpoch = null;
-        var resolver = Resolver;
+        var resolver = Host.Resolver;
         var view = resolver.Capture();
         epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)
@@ -408,7 +408,7 @@ public sealed partial class LoadOrderService
         string? draftRefusal;
         try
         {
-            replay = OpenSkyPatcherReplay(view, session, out draftRefusal, draft, overlayWarnings);
+            replay = Host.AssetArea.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, overlayWarnings);
         }
         catch (Exception ex)
         {
@@ -488,7 +488,7 @@ public sealed partial class LoadOrderService
         SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         referenceArm = null; epochCoversAll = true; refusal = null;
-        var (pin, roots) = CapturePinAndRoots();
+        var (pin, roots) = Host.CapturePinAndRoots(AfterReadPinForGuard);
         var resolver = pin.Resolver;
         var view = pin.View;
         epoch = view.Stamp;

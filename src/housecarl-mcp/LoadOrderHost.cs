@@ -36,4 +36,7 @@ internal interface ILoadOrderHost
 
     /// <summary>The type lookup, one per service; its map is built from the corpus on the first resolution that needs it.</summary>
     TypeLookup Types { get; }
+
+    /// <summary>The corpus rulebook (corpus.json), loaded once on first use.</summary>
+    CorpusRulebook Rulebook { get; }
 }

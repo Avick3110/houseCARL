@@ -6,7 +6,7 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlMcp;
 
 /// <summary>Owns the load-order resolver's lifecycle and is the one place the tools reach the core engines; contract in docs/architecture/load-order-service.md.</summary>
-public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHost
+public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHost, IReadHost
 {
     string? _instanceDir;                          // INSTANCE-mode source of truth; null in explicit/unconfigured mode
     string _dataDir;                               // DERIVED (instance mode) or configured (explicit); mutable for a live profile switch
@@ -80,6 +80,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     /// <summary>The write pre-flight rulebook (corpus.json), loaded once from an absolute CorpusPath.</summary>
     CorpusRulebook Rulebook => _rulebook ??= CorpusRulebook.Load();
+    CorpusRulebook ILoadOrderHost.Rulebook => Rulebook;
 
     /// <summary>The type lookup, one per service; its map is built from the corpus on the first resolution that needs it.</summary>
     internal TypeLookup Types => _typeLookup.Value;
@@ -116,9 +117,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>Test seam: invoked in the pole lanes after the pin and before the roots; null in the product.</summary>
     internal Action? AfterReadPinForGuard;
 
-    /// <summary>A pinned index and the four MO2 roots in one <c>_gate</c> hold, with <see cref="AfterReadPinForGuard"/> between them.</summary>
-    (ViewPin Pin, Mo2Roots Roots) CapturePinAndRoots()
-        => CapturePinAnd(() => ((ILoadOrderHost)this).CaptureRoots(), AfterReadPinForGuard);
+    (ViewPin Pin, Mo2Roots Roots) IReadHost.CapturePinAndRoots(Action? afterPin)
+        => CapturePinAnd(() => ((ILoadOrderHost)this).CaptureRoots(), afterPin);
 
     /// <summary>A FormID door for a tool body with no captured view of its own — see <see cref="FormIdDoor"/>.</summary>
     internal FormIdDoor OpenFormIdDoor() => FormIdDoor.For(this);
@@ -256,12 +256,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         => _assetLayers.NifSet(relPath, ops, sourceProvider, patchName, into, inPlace, acknowledge);
     public PlaceOutcome PlaceAssets(IReadOnlyList<PlaceRequest> requests, string? patchName, string? into) => _assetLayers.PlaceAssets(requests, patchName, into);
 
-    internal AssetLayers.SkyPatcherReplay? OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                                                                out string? draftRefusal, SkyPatcherDraft.Plan? draft = null,
-                                                                SkyPatcherOverlay.WarningSink? draftWarnings = null)
-        => _assetLayers.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, draftWarnings);
-
     internal AssetLayers AssetArea => _assetLayers;   // the assets area instance, for tests that set its seams
+    AssetLayers IReadHost.AssetArea => _assetLayers;
 
     // The checks area's tool-facing surface; the bodies are in RecordChecks.cs.
     public DialogueValidationReport ValidateDialogue(FormKey fk) => _checks.ValidateDialogue(fk);
