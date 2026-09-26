@@ -44,7 +44,7 @@ internal sealed partial class RecordReads
     {
         subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
         // One build and one set of roots for every pole of every record.
-        var (pin, roots, captured) = CapturePolePin(subject.ReplaysOverlay || reference.ReplaysOverlay);
+        var (pin, roots, assets) = CapturePolePin(subject.ReplaysOverlay || reference.ReplaysOverlay);
         var resolver = pin.Resolver;
         var view = pin.View;
         epoch = view.Stamp;
@@ -67,9 +67,9 @@ internal sealed partial class RecordReads
         // Resolve the uniform arms once; winner and overlay are per-record but uniform in statement.
         var sGather = new PoleGather();
         var rGather = new PoleGather();
-        var sReader = MakePoleReader(view, roots, captured, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr, out var sOffOrder, overlayWarnings, sGather);
+        var sReader = MakePoleReader(view, roots, assets, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr, out var sOffOrder, overlayWarnings, sGather);
         if (sErr is not null) { refusal = "source: " + sErr; return Array.Empty<DeltaRow>(); }
-        var rReader = MakePoleReader(view, roots, captured, session, reference, fields, wanted, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings, rGather);
+        var rReader = MakePoleReader(view, roots, assets, session, reference, fields, wanted, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings, rGather);
         if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<DeltaRow>(); }
         epochCoversAll = sCovers && rCovers;
 
@@ -122,15 +122,27 @@ internal sealed partial class RecordReads
     }
 
     /// <summary>A comparison batch's one hold: the pin and roots, plus the asset build when a pole replays the overlay.</summary>
-    (LoadOrderService.ViewPin Pin, Mo2Roots Roots, AssetCapture? Captured) CapturePolePin(bool replaysOverlay)
+    (LoadOrderService.ViewPin Pin, Mo2Roots Roots, Func<AssetCapture>? Assets) CapturePolePin(bool replaysOverlay)
     {
-        if (!replaysOverlay)
+        if (replaysOverlay) return CaptureOverlayPin();
+        var (pin, roots) = _host.CapturePinAndRoots(AfterReadPinForGuard);
+        return (pin, roots, null);
+    }
+
+    /// <summary>The pin and the asset build the overlay replays over, in one hold; a build that throws is handed to the
+    /// replay's own catch to name, over a pin taken again so the rows and the epoch line still read.</summary>
+    (LoadOrderService.ViewPin Pin, Mo2Roots Roots, Func<AssetCapture> Assets) CaptureOverlayPin()
+    {
+        try
         {
-            var (p, r) = _host.CapturePinAndRoots(AfterReadPinForGuard);
-            return (p, r, null);
+            var (pin, captured) = _host.CapturePinAndAssets(AfterReadPinForGuard);
+            return (pin, captured.Roots, () => captured);
         }
-        var (pin, captured) = _host.CapturePinAndAssets(AfterReadPinForGuard);   // the overlay replays over this build
-        return (pin, captured.Roots, captured);
+        catch (Exception ex)
+        {
+            var (pin, roots) = _host.CapturePinAndRoots(null);
+            return (pin, roots, () => throw ex);
+        }
     }
 
     /// <summary>A pole reader's per-record result: the deep-read fields plus the pole identity for the render, or
@@ -141,7 +153,7 @@ internal sealed partial class RecordReads
 
     /// <summary>Build the per-record reader for one pole against the shared captured view and session; uniform arm
     /// resolution happens here once and per-record work stays in the returned reader.</summary>
-    PoleReader MakePoleReader(LoadOrderResolver.IndexView view, Mo2Roots roots, AssetCapture? captured, LoadOrderResolver.OverlaySession session,
+    PoleReader MakePoleReader(LoadOrderResolver.IndexView view, Mo2Roots roots, Func<AssetCapture>? assets, LoadOrderResolver.OverlaySession session,
                               PoleSpec spec, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted,
                               out string? armStatement, out bool covers, out string? error, out PoleInfo? offOrderArm,
                               SkyPatcherOverlay.WarningSink? overlayWarnings = null, PoleGather? gather = null)
@@ -208,7 +220,7 @@ internal sealed partial class RecordReads
                 };
 
             case PoleKind.Overlay:
-                return MakeOverlayPoleReader(view, captured, session, spec, fields, out armStatement, out covers, out error, overlayWarnings, gather);
+                return MakeOverlayPoleReader(view, assets, session, spec, fields, out armStatement, out covers, out error, overlayWarnings, gather);
 
             default:   // Named — the one-pole rule: active in the order, else an on-disk file.
                 var (arm, armErr) = ResolvePoleArm(view, roots, spec.Plugin!, spec.Mod);
@@ -266,7 +278,7 @@ internal sealed partial class RecordReads
     }
 
     /// <summary>The SkyPatcher-overlay pole.</summary>
-    PoleReader MakeOverlayPoleReader(LoadOrderResolver.IndexView view, AssetCapture? captured, LoadOrderResolver.OverlaySession session,
+    PoleReader MakeOverlayPoleReader(LoadOrderResolver.IndexView view, Func<AssetCapture>? assets, LoadOrderResolver.OverlaySession session,
                                      PoleSpec spec, IReadOnlyList<string>? fields,
                                      out string? armStatement, out bool covers, out string? error,
                                      SkyPatcherOverlay.WarningSink? overlayWarnings = null, PoleGather? gather = null)
@@ -300,7 +312,7 @@ internal sealed partial class RecordReads
             };
         }
 
-        var assets = captured ?? throw new InvalidOperationException();   // a post pole always arrives with the asset build
+        var build = assets ?? throw new InvalidOperationException();   // a post pole always arrives with the asset build
         covers = false;   // the INI layer's files are outside the index fingerprint (a draft INI likewise)
         armStatement = "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
                      + (spec.Draft is null ? "" : $", with {spec.Draft.Arm}");
@@ -315,7 +327,7 @@ internal sealed partial class RecordReads
             if (replay is not null || setupError is not null) return;
             try
             {
-                replay = _host.OpenSkyPatcherReplay(assets, view, session, out var draftRefusal, spec.Draft, overlayWarnings);
+                replay = _host.OpenSkyPatcherReplay(build(), view, session, out var draftRefusal, spec.Draft, overlayWarnings);
                 if (draftRefusal is not null) setupError = draftRefusal;
             }
             catch (Exception ex)
@@ -408,7 +420,7 @@ internal sealed partial class RecordReads
         SkyPatcherOverlay.WarningSink? overlayWarnings)
     {
         refusal = null; refusalEpoch = null;
-        var (pin, captured) = _host.CapturePinAndAssets(AfterReadPinForGuard);   // the replay runs over the asset build pinned with the winners
+        var (pin, _, assets) = CaptureOverlayPin();   // the replay runs over the asset build pinned with the winners
         var resolver = pin.Resolver;
         var view = pin.View;
         epoch = view.Stamp;
@@ -424,7 +436,7 @@ internal sealed partial class RecordReads
         string? draftRefusal;
         try
         {
-            replay = _host.OpenSkyPatcherReplay(captured, view, session, out draftRefusal, draft, overlayWarnings);
+            replay = _host.OpenSkyPatcherReplay(assets(), view, session, out draftRefusal, draft, overlayWarnings);
         }
         catch (Exception ex)
         {
@@ -504,7 +516,7 @@ internal sealed partial class RecordReads
         SkyPatcherOverlay.WarningSink? overlayWarnings)
     {
         referenceArm = null; epochCoversAll = true; refusal = null;
-        var (pin, roots, captured) = CapturePolePin(reference.ReplaysOverlay);
+        var (pin, roots, assets) = CapturePolePin(reference.ReplaysOverlay);
         var resolver = pin.Resolver;
         var view = pin.View;
         epoch = view.Stamp;
@@ -531,7 +543,7 @@ internal sealed partial class RecordReads
         PoleReader? refReader = null;
         if (reference.Kind is not PoleKind.Winner)
         {
-            refReader = MakePoleReader(view, roots, captured, session, reference, fields, wantedT, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings, refGather);
+            refReader = MakePoleReader(view, roots, assets, session, reference, fields, wantedT, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings, refGather);
             if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<TreeRow>(); }
             epochCoversAll = rCovers;
         }
