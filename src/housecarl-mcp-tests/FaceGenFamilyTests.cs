@@ -256,6 +256,25 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
     }
 
     [Fact]
+    public void AModFolderThatWillNotListIsNamedAndItsPairCountedApartFromOneThatShipsNoPlugin()
+    {
+        Assert.True(_w.UnlistedStaged, "the listing deny on " + FaceGenWorld.UnlistedMod + " did not bite on this host");
+
+        var text = Sweep("facegen");
+        Assert.Contains("[!] mod folder read failure: " + FaceGenWorld.UnlistedMod + ":", text, StringComparison.Ordinal);
+        Assert.Contains("2 clean pair(s) could NOT be tested", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("'HcFgUnlisted'", text, StringComparison.Ordinal);
+
+        using var doc = JsonDocument.Parse(CheckTools.CheckTool(
+            _w.Svc, findings: new[] { "facegen" }, format: "json", max_chars: 60000));
+        var family = doc.RootElement.GetProperty("families").GetProperty("facegen");
+        Assert.Equal(1, family.GetProperty("clean_pairs_owner_folder_unreadable").GetInt32());
+        Assert.Equal(1, family.GetProperty("clean_pairs_without_comparison_pole").GetInt32());   // FgBakesOnly alone
+        var named = Assert.Single(family.GetProperty("unreadable_mod_folders").EnumerateArray());
+        Assert.StartsWith(FaceGenWorld.UnlistedMod + ":", named.GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void APluginScopeSaysTheFileHalfOfThePopulationDidNotRun()
     {
         var scoped = CheckTools.CheckTool(_w.Svc, plugins: new[] { FaceGenWorld.OverhaulName },

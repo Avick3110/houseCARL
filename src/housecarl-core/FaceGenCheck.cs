@@ -29,10 +29,11 @@ public static class FaceGenCheck
 
     /// <summary>Sweep <paramref name="scope"/> (plugin filenames; null or empty = every NPC in the active order).
     /// <paramref name="pluginsInMod"/> maps a provider to the plugin filenames it ships — a fact about the MO2
-    /// composition, which lives above core. <paramref name="limit"/> caps COLLECTED findings, never the totals.</summary>
+    /// composition, which lives above core; null means the provider's folder could not be listed, which is counted
+    /// apart from a provider that ships none. <paramref name="limit"/> caps COLLECTED findings, never the totals.</summary>
     public static FaceGenCheckResult Run(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                                          AssetResolver.AssetView assets,
-                                         Func<string, IReadOnlyList<string>> pluginsInMod,
+                                         Func<string, IReadOnlyList<string>?> pluginsInMod,
                                          IReadOnlyList<string>? scope, int limit,
                                          IReadOnlyList<(string Name, string Path)>? offOrder = null,
                                          SweepScope? recordScope = null,
@@ -44,7 +45,7 @@ public static class FaceGenCheck
         var withheld = new List<FaceGenFinding>();
         var byClass = new Dictionary<string, int>(StringComparer.Ordinal);
         var byMod = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        int totalFound = 0, npcsScanned = 0, templated = 0, noPole = 0, noFaceGenRace = 0, raceUnresolved = 0;
+        int totalFound = 0, npcsScanned = 0, templated = 0, noPole = 0, noPoleUnreadable = 0, noFaceGenRace = 0, raceUnresolved = 0;
         int excludedFromScope = 0;
         var raceMemo = new Dictionary<FormKey, bool?>();
         bool listFamilySplit = classes != FaceGenFindingClass.All && classes.HasFlag(FaceGenFindingClass.FamilySplit);
@@ -281,7 +282,7 @@ public static class FaceGenCheck
                                       histClass, histMod, countsOnly, view.ExcludedPlugins, null,
                                       offOrderScanned, filterNote, classes, view.Epoch, limit, scanError,
                                       assets.ReadIncomplete, wholeOrder, noFaceGenRace, raceUnresolved, withheld,
-                                      assets.RootFailures);
+                                      assets.RootFailures, NoComparisonPoleUnreadable: noPoleUnreadable);
 
         // ---- the per-NPC join ---------------------------------------------------------------------
         void Classify(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile)
@@ -301,8 +302,8 @@ public static class FaceGenCheck
                     // A clean pair: both halves come out of ONE MO2 layer — the layer, not the provider name, is what
                     // makes a pair clean. The remaining question is whether the winning record still agrees with the
                     // plugin whose mod baked these files.
-                    var (stale, why, pole) = StaleAgainstOwner(fk, body, winnerPlugin, mw.Layer);
-                    if (pole is null) { noPole++; return; }
+                    var (stale, why, pole, unreadable) = StaleAgainstOwner(fk, body, winnerPlugin, mw.Layer);
+                    if (pole is null) { if (unreadable) noPoleUnreadable++; else noPole++; return; }
                     if (!stale) return;
                     cls = FaceGenFindingClass.StaleBake;
                     detail = why;
@@ -352,27 +353,28 @@ public static class FaceGenCheck
 
         // The record axis, run only on a clean pair: compare the WINNING record's face fields against the same record
         // as the FACEGEN OWNER's plugin defines it (docs/facegen.md).
-        (bool Stale, string? Why, string? Pole) StaleAgainstOwner(FormKey fk, IMajorRecordGetter winnerBody,
+        (bool Stale, string? Why, string? Pole, bool Unreadable) StaleAgainstOwner(FormKey fk, IMajorRecordGetter winnerBody,
                                                                  string winnerPlugin, string layer)
         {
             var shipped = pluginsInMod(layer);
-            if (shipped.Count == 0) return (false, null, null);
+            if (shipped is null) return (false, null, null, true);          // the folder would not list: untested, not "ships none"
+            if (shipped.Count == 0) return (false, null, null, false);
             // The pole both ships in the bake's own layer AND touches this record. Asking the touching list first is
             // what keeps a whole-order sweep affordable.
             var touching = view.TouchingPlugins(fk);
-            if (touching is null) return (false, null, null);
+            if (touching is null) return (false, null, null, false);
             string? pole = null;
             foreach (var name in touching)                                  // priority order, so the last match wins
             {
                 if (!shipped.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
                 // The bake's own layer ships the winner: record and files agree by construction, no read needed.
-                if (string.Equals(name, winnerPlugin, StringComparison.OrdinalIgnoreCase)) return (false, null, name);
+                if (string.Equals(name, winnerPlugin, StringComparison.OrdinalIgnoreCase)) return (false, null, name, false);
                 pole = name;
             }
-            if (pole is null) return (false, null, null);
+            if (pole is null) return (false, null, null, false);
 
             var ownerBody = view.GetRecord(session, pole, fk, typeof(INpcGetter));
-            if (ownerBody is null) return (false, null, null);
+            if (ownerBody is null) return (false, null, null, false);
             var theirs = ReadEngine.ReadFields(ownerBody, FaceFields, depth: 4);
             var winner = ReadEngine.ReadFields(winnerBody, FaceFields, depth: 4);
             var diff = FieldsDiff.Compare(theirs, winner, referenceLabel: "winner");
@@ -381,10 +383,10 @@ public static class FaceGenCheck
                            .Where(d => !d.StartsWith(HairColorPath, StringComparison.Ordinal)
                                     && !d.Contains(OrderOnlyDelta, StringComparison.Ordinal))
                            .ToList();
-            if (real.Count == 0) return (false, null, pole);
+            if (real.Count == 0) return (false, null, pole, false);
             return (true, $"winner {winnerPlugin} disagrees with the bake's own plugin {pole} on "
                         + string.Join(", ", real.Take(3)) + (real.Count > 3 ? $" (+{real.Count - 3} more)" : ""),
-                    pole);
+                    pole, false);
         }
 
         static string? WinnerText(FaceGenHalf? h)
@@ -523,7 +525,8 @@ public sealed record FaceGenFinding(string? FormId, string? EditorId, string Def
                                     string? Detail, string? OwningMod);
 
 /// <summary>The result of <see cref="FaceGenCheck.Run"/>. <paramref name="NoComparisonPole"/> is how many clean
-/// pairs the stale-bake test could not run on; reported rather than folded into "clean".</summary>
+/// pairs the stale-bake test could not run on because the owner's mod ships no plugin; reported rather than folded
+/// into "clean".</summary>
 public sealed record FaceGenCheckResult(
     IReadOnlyList<FaceGenFinding> Findings,
     int NpcsScanned,
@@ -547,7 +550,9 @@ public sealed record FaceGenCheckResult(
     int NpcsNoFaceGenRace = 0,
     int NpcsRaceUnresolved = 0,
     IReadOnlyList<FaceGenFinding>? WithheldBenign = null,
-    IReadOnlyList<string>? RootFailures = null)   // the loose roots this build could not walk or list, each named with the reason; null or empty when every root read
+    IReadOnlyList<string>? RootFailures = null,   // the loose roots this build could not walk or list, each named with the reason; null or empty when every root read
+    int NoComparisonPoleUnreadable = 0,            // clean pairs untested because the owner's mod folder could not be listed, kept apart from NoComparisonPole
+    IReadOnlyList<string>? UnreadableModFolders = null)   // the mod folders the sweep could not list, each named with the reason; null when every one listed
 {
     public bool Success => Error is null;
 
