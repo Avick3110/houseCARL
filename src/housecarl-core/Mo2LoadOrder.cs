@@ -36,6 +36,9 @@ public sealed record PluginFileHit(string Path, string Where, bool Enabled);
 
 public static class Mo2LoadOrder
 {
+    /// <summary>How many compositions this thread has parsed; a test seam, per thread so parallel tests do not share it.</summary>
+    [ThreadStatic] internal static int CompositionReadsOnThisThread;
+
     static readonly string[] PluginExts = PluginFile.Extensions;   // the one shared home (HousecarlCore.PluginFile) — no divergent copy
 
     /// <summary>Read the active order from <paramref name="profileDir"/>'s three profile files, resolving each active plugin to its winning real path; the returned paths are in load order, winner last.</summary>
@@ -76,6 +79,7 @@ public static class Mo2LoadOrder
     /// <summary>Parse the profile's enabled/disabled composition from the three profile text files; the diagnostic re-reads this fresh each call, and <see cref="Build"/> adds the physical-path resolution on top.</summary>
     public static Mo2Composition ReadComposition(string profileDir, List<string>? warnings = null)
     {
+        CompositionReadsOnThisThread++;
         var enabled = new List<string>();
         var disabled = new List<string>();
         ParseModlist(Path.Combine(profileDir, "modlist.txt"), enabled, disabled, warnings);

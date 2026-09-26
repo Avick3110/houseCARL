@@ -102,7 +102,7 @@ internal sealed class RecordChecks
         var resolver = pin.Resolver;
         var viewAll = pin.View;
         // The profile's composition, read at most once and only by a consumer that needs it.
-        var composition = new Lazy<Mo2Composition>(() => ReadComposition(roots.ProfileDir));
+        var composition = new Lazy<Mo2Composition>(() => Mo2LoadOrder.ReadComposition(roots.ProfileDir));
 
         // The exclude= axis. The `implicit` group is a fact about the MO2 composition, so it is read here and the
         // core sweep receives plain filenames, before anything is swept. Gated on the caller having written the
@@ -130,15 +130,6 @@ internal sealed class RecordChecks
         return ClassifyMissingMasters(
             ErrorCheck.Run(resolver, viewAll, plugins, limit, null, recordScope, classes, countsOnly, excluded), roots,
             () => composition.Value);
-    }
-
-    /// <summary>How many times <see cref="CheckErrors"/> has parsed the profile's composition; a test seam for the one read.</summary>
-    internal int CompositionReads;
-
-    Mo2Composition ReadComposition(string profileDir)
-    {
-        Interlocked.Increment(ref CompositionReads);
-        return Mo2LoadOrder.ReadComposition(profileDir);
     }
 
     /// <summary>Fill in each report's install-vs-enable split for the masters the sweep found unsatisfied — a fact
