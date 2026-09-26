@@ -11,10 +11,10 @@ internal interface IReadHost : ILoadOrderHost
     /// <summary>A pinned index and the four MO2 roots in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between the two.</summary>
     (LoadOrderService.ViewPin Pin, Mo2Roots Roots) CapturePinAndRoots(Action? afterPin);
 
-    // Relayed from assets: the SkyPatcher replay door that takes its own asset capture, for the SkyPatcher overlay source.
-    AssetLayers.SkyPatcherReplay? OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                                                       out string? draftRefusal, SkyPatcherDraft.Plan? draft,
-                                                       SkyPatcherOverlay.WarningSink? draftWarnings);
+    // Relayed from assets: the SkyPatcher replay door over an asset build the caller pinned, for the SkyPatcher overlay source.
+    AssetLayers.SkyPatcherReplay? OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
+                                                       LoadOrderResolver.OverlaySession session, out string? draftRefusal,
+                                                       SkyPatcherDraft.Plan? draft, SkyPatcherOverlay.WarningSink? draftWarnings);
 }
 
 /// <summary>The reads area: resolve, batch, poles, walk, cross query, info order.</summary>
@@ -25,7 +25,7 @@ internal sealed partial class RecordReads
 
     internal RecordReads(IReadHost host) => _host = host;
 
-    /// <summary>Test seam: invoked in the pole lanes after the pin and before the roots; null in the product.</summary>
+    /// <summary>Test seam: invoked in the pole lanes after the pin and before the roots or the asset build; null in the product.</summary>
     internal Action? AfterReadPinForGuard;
 
     /// <summary>Resolve + read one record: the WINNER's body by default, or a named <paramref name="plugin"/>'s

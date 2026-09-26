@@ -13,15 +13,7 @@ internal sealed partial class AssetLayers
     /// <summary>The in-memory scratch mod the replay copy is overridden into — never written to disk.</summary>
     static readonly ModKey SkyPatcherScratchKey = new("HousecarlSkyPatcherScratch", ModType.Plugin);
 
-    /// <summary>Open one call's replay context, folding in the draft if given; null with the refusal when the draft cannot be folded.</summary>
-    internal SkyPatcherReplay? OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                                                    out string? draftRefusal, SkyPatcherDraft.Plan? draft,
-                                                    SkyPatcherOverlay.WarningSink? draftWarnings)
-    {
-        return OpenSkyPatcherReplay(_host.CaptureAssets(), view, session, out draftRefusal, draft, draftWarnings);
-    }
-
-    /// <summary>The same door over assets the caller took in its own capture hold, for a lane that pins the index in that hold.</summary>
+    /// <summary>Open one call's replay context over assets the caller took in its index pin's hold, folding in the draft if given; null with the refusal when the draft cannot be folded.</summary>
     internal SkyPatcherReplay? OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
                                                     LoadOrderResolver.OverlaySession session, out string? draftRefusal,
                                                     SkyPatcherDraft.Plan? draft = null, SkyPatcherOverlay.WarningSink? draftWarnings = null)

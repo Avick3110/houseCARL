@@ -83,7 +83,10 @@ fold), `RecordPoles.cs` (comparison poles, the delta/tree batches), `RecordWalk.
 `docs/architecture/check-scripts-and-dialogue-families.md`). The type lookup is in `TypeLookup.cs`,
 under `docs/architecture/corpus-rulebook.md`. The pole lanes (`ProbeSourceArm`, `ResolveBatchFromPole`,
 `DeltaBatch`, `TreeBatch`) take the view and the MO2 roots in one hold through `IReadHost.CapturePinAndRoots`,
-and an off-order `PoleInfo` carries the `DataDir` it was located under.
+and an off-order `PoleInfo` carries the `DataDir` it was located under. When a pole is the SkyPatcher overlay in its post state,
+`DeltaBatch` and `TreeBatch` take `CapturePinAndAssets` instead and read the roots off that asset build, and
+`OverlayPostBatch` (the overlay `source=`) always does, so the INI layer replays over the asset build pinned with the
+winners; no other pole, the overlay's pre state included, pays for an asset build.
 Tool: `housecarl_records`.
 
 The five service files are one class, `RecordReads`, which the head builds over itself as `_reads` and reaches
@@ -101,9 +104,9 @@ addressed as `RecordReads.X`.
 
 What the class needs from outside itself is the members of `IReadHost`, declared at the top of `RecordReads.cs`:
 `CapturePinAndRoots(afterPin)`, the pin and the four MO2 roots in one hold, from the head; and
-`OpenSkyPatcherReplay`, relayed from the assets area (the overload that takes its own asset capture), which the
-SkyPatcher overlay pole reads through. The resolver, the type lookup and the corpus rulebook are `Resolver`,
-`Types` and `Rulebook` on the shared door. The members every area shares come through the door it extends,
+`OpenSkyPatcherReplay(captured, …)`, relayed from the assets area (the overload over an `AssetCapture` the caller
+took in its pin's hold), which the SkyPatcher overlay pole and source read through. The resolver, the type lookup, the corpus rulebook and the pin-plus-assets hold are `Resolver`,
+`Types`, `Rulebook` and `CapturePinAndAssets(afterPin)` on the shared door. The members every area shares come through the door it extends,
 `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs` ([`load-order-service.md`](load-order-service.md)).
 Outside the interface it calls one static of the head's output code, `LoadOrderService.LocatePluginFileOnDisk`
 in `OutputLocations.cs`, and names the head's `LoadOrderService.ViewPin` record. The path helpers it shares with
