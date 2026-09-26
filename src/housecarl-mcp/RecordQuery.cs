@@ -21,11 +21,9 @@ internal sealed partial class RecordReads
         => CrossQuery(type is null ? null : new[] { type }, references, editoridContains, conflictsOnly, plugins, where,
                       limit, definedIn, groupBy, offset, whereSource, artifactDemands, formidSet: null, pinnedView: null, referencesNone: referencesNone, ct: ct);
 
-    /// <summary>The formids-by-scan composition: <paramref name="formidSet"/> intersects the selection with an
-    /// explicit identity set.</summary>
-
     /// <summary>The set-valued-types overload: each entry resolves through the same
     /// <see cref="TypeLookup.Resolve"/>, and the scan streams the union of the resolved type groups.</summary>
+    /// <param name="formidSet">The formids-by-scan composition: intersects the selection with an explicit identity set.</param>
     public CrossQueryOutcome CrossQuery(IReadOnlyList<string>? typeSet, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
                                         bool definedIn, string? groupBy, int offset, string? whereSource,
