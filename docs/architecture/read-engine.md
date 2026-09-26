@@ -101,6 +101,6 @@ What the class needs from outside itself is the members of `IReadHost`, declared
 SkyPatcher overlay pole reads through. The resolver, the type lookup and the corpus rulebook are `Resolver`,
 `Types` and `Rulebook` on the shared door. The members every area shares come through the door it extends,
 `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs` ([`load-order-service.md`](load-order-service.md)).
-Outside the interface it calls four statics of the head's output code in `OutputLocations.cs`,
+Outside the interface it calls three statics of the head's output code in `OutputLocations.cs`,
 `LoadOrderService.LocatePluginFileOnDisk`, `LooksLikePath` and `SamePluginFile`, and names the head's
 `LoadOrderService.ViewPin` record.

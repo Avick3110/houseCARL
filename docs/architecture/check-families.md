@@ -229,7 +229,7 @@ accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_def
 
 What the area needs from outside itself is the members of `ICheckHost`, declared at the top of `RecordChecks.cs`:
 the FormID door from the head. The type filter is `ILoadOrderHost.Types`, on the shared door. The dialogue fold
-is a static, `LoadOrderService.OpenDialogueFold`, so it is called directly. The members every area
+is a static, `RecordReads.OpenDialogueFold`, so it is called directly. The members every area
 shares come through the door it extends, `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs`
 ([`load-order-service.md`](load-order-service.md)).
 
