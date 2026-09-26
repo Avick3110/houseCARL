@@ -24,7 +24,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     readonly object _writeGate = new();
     object ILoadOrderHost.WriteGate => _writeGate;
     LoadOrderResolver? _resolver;
-    CorpusRulebook? _rulebook;
+    readonly Lazy<CorpusRulebook> _rulebook = new(() => CorpusRulebook.Load(), LazyThreadSafetyMode.PublicationOnly);   // one instance; a failed load is not kept
     readonly Lazy<TypeLookup> _typeLookup = new(() => new TypeLookup());   // one per service; construction reads nothing
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
     // The VFS-aware asset resolver, built lazily on an asset query and dropped when the active profile changes.
@@ -78,8 +78,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         lock (_gate) { _resolver?.Dispose(); _resolver = null; _assetResolver?.Dispose(); _assetResolver = null; }
     }
 
-    /// <summary>The write pre-flight rulebook (corpus.json), loaded once from an absolute CorpusPath.</summary>
-    CorpusRulebook Rulebook => _rulebook ??= CorpusRulebook.Load();
+    /// <summary>The corpus rulebook (corpus.json), loaded from the absolute CorpusPath on first use; the write pre-flight and the read scan's quantifier check share it.</summary>
+    CorpusRulebook Rulebook => _rulebook.Value;
     CorpusRulebook ILoadOrderHost.Rulebook => Rulebook;
 
     /// <summary>The type lookup, one per service; its map is built from the corpus on the first resolution that needs it.</summary>
@@ -234,7 +234,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
         new(view, AssetWarningsLocked(), _profileName, _profileDir, _dataDir, _modsDir, _overwriteDir, _activeArchives, _enabledModsAtBuild);
 
-    // Rows the assets and checks areas take from output, writes and reads, relayed here until those areas are their own classes.
+    // Rows the areas take from one another, relayed here: output, writes and reads until those are their own classes; the assets replay for reads.
     RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);
     string? IAssetHost.RemoveOrNameRiderResidue(RiderFolder folder) => RemoveOrNameRiderResidue(folder);
     bool IAssetHost.IsInPlaceAcknowledged(string path) => _store.IsInPlaceAcknowledged(path);
@@ -242,6 +242,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     bool IAssetHost.InPlaceParentUnwritable(string targetPath, out string why) => InPlaceParentUnwritable(targetPath, out why);
     string IAssetHost.InPlaceHandshakeLead(string name, string path, string subject, string verb) => InPlaceHandshakeLead(name, path, subject, verb);
     string IAssetHost.UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk) => UnresolvedFormId(view, fk);
+    AssetLayers.SkyPatcherReplay? IReadHost.OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                                                                 out string? draftRefusal, SkyPatcherDraft.Plan? draft,
+                                                                 SkyPatcherOverlay.WarningSink? draftWarnings)
+        => _assetLayers.OpenSkyPatcherReplay(view, session, out draftRefusal, draft, draftWarnings);
 
     // The assets area's tool-facing surface; the bodies are in AssetLayers.cs and SkyPatcherReplay.cs.
     public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under = null, int limit = 0, int offset = 0,
@@ -257,7 +261,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public PlaceOutcome PlaceAssets(IReadOnlyList<PlaceRequest> requests, string? patchName, string? into) => _assetLayers.PlaceAssets(requests, patchName, into);
 
     internal AssetLayers AssetArea => _assetLayers;   // the assets area instance, for tests that set its seams
-    AssetLayers IReadHost.AssetArea => _assetLayers;
 
     // The checks area's tool-facing surface; the bodies are in RecordChecks.cs.
     public DialogueValidationReport ValidateDialogue(FormKey fk) => _checks.ValidateDialogue(fk);

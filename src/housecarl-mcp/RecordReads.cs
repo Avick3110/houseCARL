@@ -11,8 +11,10 @@ internal interface IReadHost : ILoadOrderHost
     /// <summary>A pinned index and the four MO2 roots in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between the two.</summary>
     (LoadOrderService.ViewPin Pin, Mo2Roots Roots) CapturePinAndRoots(Action? afterPin);
 
-    /// <summary>The assets area instance, for the SkyPatcher replay a pole reads through.</summary>
-    AssetLayers AssetArea { get; }
+    // Relayed from assets: the SkyPatcher replay door that takes its own asset capture, for the SkyPatcher overlay source.
+    AssetLayers.SkyPatcherReplay? OpenSkyPatcherReplay(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                                                       out string? draftRefusal, SkyPatcherDraft.Plan? draft,
+                                                       SkyPatcherOverlay.WarningSink? draftWarnings);
 }
 
 public sealed partial class LoadOrderService
