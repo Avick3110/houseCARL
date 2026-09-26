@@ -494,21 +494,21 @@ public sealed class RecordsWalkCostTests
 
     /// <summary>Run one call with the named-fields render bound moved, restored whatever happens — building
     /// 300,000 reachable records to meet the real one is not a test.</summary>
-    static string WithBound(int rows, Func<string> call)
+    string WithBound(int rows, Func<string> call)
     {
-        var prior = RenderBudget.MaxRenderRows;
-        RenderBudget.MaxRenderRows = rows;
+        var prior = Svc.Bounds;
+        Svc.Bounds = prior with { Rows = rows };
         try { return call(); }
-        finally { RenderBudget.MaxRenderRows = prior; }
+        finally { Svc.Bounds = prior; }
     }
 
     /// <summary>Run one call with the walk's gather pass shrunk, restored whatever happens.</summary>
-    static string WithPassRows(int rows, Func<string> call)
+    string WithPassRows(int rows, Func<string> call)
     {
-        var prior = RecordReads.WalkPassRows;
-        RecordReads.WalkPassRows = rows;
+        var prior = Svc.ReadArea.WalkPassRows;
+        Svc.ReadArea.WalkPassRows = rows;
         try { return call(); }
-        finally { RecordReads.WalkPassRows = prior; }
+        finally { Svc.ReadArea.WalkPassRows = prior; }
     }
 
     /// <summary>Every NPC in the world, as walk seeds.</summary>
