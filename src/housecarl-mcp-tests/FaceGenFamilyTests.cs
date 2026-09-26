@@ -307,6 +307,124 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
         Assert.DoesNotContain("00099999.nif", scoped, StringComparison.Ordinal);
         Assert.Contains("'HcFgStale'", scoped, StringComparison.Ordinal);
     }
+
+    /// <summary>The response text above its first family section, where the build caveats are stated once.</summary>
+    static string RootBlock(string text)
+    {
+        var at = new[] { "errors", "scripts", "facegen", "dialogue" }
+            .Select(f => text.IndexOf("\n[" + f + "] ", StringComparison.Ordinal))
+            .Where(i => i >= 0).DefaultIfEmpty(-1).Min();
+        Assert.True(at >= 0, "no family section in the response:\n" + text);
+        return text[..at];
+    }
+
+    static int ArchiveLinesNaming(string root, string archive)
+        => root.Split('\n').Count(l => l.StartsWith(BatchRender.ArchiveFailureList(Array.Empty<string>()).Lead, StringComparison.Ordinal)
+                                     && l.Contains(archive, StringComparison.Ordinal));
+
+    [Fact]
+    public void TheAssetBuildsWarningsAndFailedArchivesAreNamedBesideTheReadIncompleteNote()
+    {
+        // The staged empty sResourceArchiveList raises the discovery warning; the staged archives will not open.
+        using var w = new FaceGenWorld(degradedAssets: true);
+        var text = CheckTools.CheckTool(w.Svc, findings: new[] { "facegen" }, max_chars: 60000);
+        var root = RootBlock(text);
+        Assert.Equal(1, ArchiveLinesNaming(root, "HcFgOverhaul.bsa"));
+        Assert.Contains("sResourceArchiveList", root, StringComparison.Ordinal);
+        Assert.Contains("failed to read this build", text, StringComparison.Ordinal);
+
+        using var doc = JsonDocument.Parse(CheckTools.CheckTool(
+            w.Svc, findings: new[] { "facegen" }, format: "json", max_chars: 60000));
+        Assert.Contains(doc.RootElement.GetProperty("archive_read_failures").EnumerateArray(),
+                        e => e.GetString()!.Contains("HcFgOverhaul.bsa", StringComparison.Ordinal));
+        Assert.Contains(doc.RootElement.GetProperty("warnings").EnumerateArray(),
+                        e => e.GetString()!.Contains("sResourceArchiveList", StringComparison.Ordinal));
+        Assert.True(doc.RootElement.GetProperty("families").GetProperty("facegen").GetProperty("read_incomplete").GetBoolean());
+    }
+
+    [Fact]
+    public void TheBuildsWarningsFailedArchivesAndRootsShareOneQuarterOfMaxChars()
+    {
+        using var w = new FaceGenWorld(degradedAssets: true);
+        string Call(int cap, string format) => CheckTools.CheckTool(w.Svc, findings: new[] { "facegen" },
+                                                                    counts_only: true, format: format, max_chars: cap);
+        static List<string> Strings(JsonElement e, string name)
+            => e.GetProperty(name).EnumerateArray().Select(x => x.GetString()!).ToList();
+        using var whole = JsonDocument.Parse(Call(60000, "json"));
+        var warnings = Strings(whole.RootElement, "warnings");
+        var archives = Strings(whole.RootElement, "archive_read_failures");
+        var roots = Strings(whole.RootElement, "root_read_failures");
+        Assert.True(archives.Count > 1, $"the world must stage more than one failed archive; it named {archives.Count}");
+
+        (IReadOnlyList<string> Shown, int Omitted) Shared(int c)
+            => BatchRender.CaveatBlockCut(c, BatchRender.WarningList(warnings), BatchRender.ArchiveFailureList(archives),
+                                          BatchRender.RootFailureList(roots))[1];
+        // A cap where the one shared quarter cuts the archives that a quarter of their own would show whole.
+        var cap = Enumerable.Range(1, 400).Select(i => i * 50).FirstOrDefault(c =>
+            Shared(c).Omitted > 0 && BatchRender.CaveatBlockCut(c, BatchRender.ArchiveFailureList(archives))[0].Omitted == 0);
+        Assert.True(cap > 0, "no max_chars in 50..20000 where the shared cut bites and a cut of its own would not");
+
+        using var cut = JsonDocument.Parse(Call(cap, "json"));
+        Assert.Equal(Shared(cap).Omitted, cut.RootElement.GetProperty("archive_read_failures_omitted").GetInt32());
+        var lead = BatchRender.ArchiveFailureList(archives).Lead;
+        Assert.Equal(Shared(cap).Shown.Count,
+                     Call(cap, "text").Split('\n').Count(l => l.StartsWith(lead, StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void TheJsonBuildCaveatsAreEmptyWhenASweepRanAndNullWhenNoneLooked()
+    {
+        using var ran = JsonDocument.Parse(CheckTools.CheckTool(
+            _w.Svc, findings: new[] { "facegen" }, format: "json", max_chars: 60000));
+        foreach (var list in new[] { "warnings", "archive_read_failures" })
+        {
+            Assert.Equal(0, ran.RootElement.GetProperty(list).GetArrayLength());
+            Assert.Equal(0, ran.RootElement.GetProperty(list + "_omitted").GetInt32());
+        }
+        // The base world stages an unlistable mod folder, so its roots were computed and need not be empty.
+        Assert.Equal(JsonValueKind.Array, ran.RootElement.GetProperty("root_read_failures").ValueKind);
+        Assert.Equal(JsonValueKind.Number, ran.RootElement.GetProperty("root_read_failures_omitted").ValueKind);
+
+        using var none = JsonDocument.Parse(CheckTools.CheckTool(
+            _w.Svc, findings: new[] { "errors" }, format: "json", max_chars: 60000));
+        foreach (var list in new[] { "warnings", "archive_read_failures", "root_read_failures" })
+        {
+            Assert.Equal(JsonValueKind.Null, none.RootElement.GetProperty(list).ValueKind);
+            Assert.Equal(JsonValueKind.Null, none.RootElement.GetProperty(list + "_omitted").ValueKind);
+        }
+    }
+
+    [Fact]
+    public void TheScriptsFamilyNamesTheFailedArchivesAndBesideFacegenEachIsNamedOnce()
+    {
+        using var w = new FaceGenWorld(degradedAssets: true);
+        var scriptsOnly = RootBlock(CheckTools.CheckTool(w.Svc, findings: new[] { "scripts" }, max_chars: 60000));
+        Assert.Equal(1, ArchiveLinesNaming(scriptsOnly, "HcFgOverhaul.bsa"));
+        Assert.Contains("sResourceArchiveList", scriptsOnly, StringComparison.Ordinal);
+
+        var both = RootBlock(CheckTools.CheckTool(w.Svc, findings: new[] { "facegen", "scripts" }, max_chars: 60000));
+        Assert.Equal(1, ArchiveLinesNaming(both, "HcFgOverhaul.bsa"));
+        Assert.Equal(1, both.Split("sResourceArchiveList").Length - 1);
+    }
+
+    [Fact]
+    public void AFacegenSweepThatRefusedLocallyPutsNothingOfItsBuildAtTheRoot()
+    {
+        using var w = new FaceGenWorld(degradedAssets: true);
+        var text = CheckTools.CheckTool(w.Svc, findings: new[] { "errors", "facegen" },
+                                        exclude: new[] { "HcFgNoSuch.esp" }, max_chars: 60000);
+        Assert.Contains("not in the scope this facegen sweep would cover", text, StringComparison.Ordinal);
+        var root = RootBlock(text);
+        Assert.Equal(0, ArchiveLinesNaming(root, ".bsa"));
+        Assert.DoesNotContain("sResourceArchiveList", root, StringComparison.Ordinal);
+
+        // No family that captures warnings ran, so json says they were not looked for, not that none were found.
+        using var doc = JsonDocument.Parse(CheckTools.CheckTool(w.Svc, findings: new[] { "errors", "facegen" },
+                                                                exclude: new[] { "HcFgNoSuch.esp" }, format: "json",
+                                                                max_chars: 60000));
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("warnings").ValueKind);
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("archive_read_failures").ValueKind);
+    }
 }
 
 /// <summary>The <c>to_file=</c> render's root-failure lines and untested-pair note, on a staged result.</summary>

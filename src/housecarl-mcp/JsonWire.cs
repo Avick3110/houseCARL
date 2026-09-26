@@ -1880,9 +1880,27 @@ static class JsonWire
         w.WriteString("findings_scope", o.ScopeSentence());
         // A response-level fact, like the roster below: this call's order was short of plugins (#353).
         WriteOrderDegraded(w, o.OrderExcluded);
-        // WHICH loose roots the asset build could not read — at the document root, because ONE build feeds every
-        // family that hedges on it, and cut by the same rule the text lane's lines are.
-        WriteRootFailuresCut(w, o.RootFailures, cap);
+        // The asset builds' warnings, failed archives and unread roots, unioned over the families that read them and
+        // cut by the same rule the text lane's lines are. Each list is null where no family that computes it ran.
+        var caveats = o.RootCaveats(cap);
+        if (o.BuildCaveatsComputed)
+        {
+            WriteCaveatCut(w, "warnings", caveats.Warnings.Cut);
+            WriteCaveatCut(w, "archive_read_failures", caveats.Archives.Cut);
+        }
+        else
+        {
+            w.WriteNull("warnings");
+            w.WriteNull("warnings_omitted");
+            w.WriteNull("archive_read_failures");
+            w.WriteNull("archive_read_failures_omitted");
+        }
+        if (o.RootsComputed) WriteCaveatCut(w, "root_read_failures", caveats.Roots.Cut);
+        else
+        {
+            w.WriteNull("root_read_failures");
+            w.WriteNull("root_read_failures_omitted");
+        }
 
         // Above `families` because an accounting reports what has been emitted, and every family's is in the loop.
         WriteExcluded(w, o.ExcludedPlugins, body);

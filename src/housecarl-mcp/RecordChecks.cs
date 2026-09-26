@@ -250,12 +250,15 @@ internal sealed class RecordChecks
                 return splitErr.Stamped
                     ? ScriptCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
                     : ScriptCheckResult.Fail(splitErr.Message);
-            return ScriptPropertyCheck.Run(resolver, view, captured.View, active, limit, recordScope,
-                                           propertyContains, classes, countsOnly, excluded,
-                                           offOrder.Count > 0 ? offOrder : null);
+            return WithWarnings(ScriptPropertyCheck.Run(resolver, view, captured.View, active, limit, recordScope,
+                                                        propertyContains, classes, countsOnly, excluded,
+                                                        offOrder.Count > 0 ? offOrder : null));
         }
-        return ScriptPropertyCheck.Run(resolver, view, captured.View, plugins, limit, recordScope,
-                                       propertyContains, classes, countsOnly, excluded);
+        return WithWarnings(ScriptPropertyCheck.Run(resolver, view, captured.View, plugins, limit, recordScope,
+                                                    propertyContains, classes, countsOnly, excluded));
+
+        // The build's warnings, taken in this one hold, ride only a sweep that ran.
+        ScriptCheckResult WithWarnings(ScriptCheckResult r) => r.Success ? r with { AssetWarnings = captured.Warnings } : r;
     }
 
     /// <summary>Test seam: invoked in the facegen and script sweeps after the pin and before the asset capture; null in the product.</summary>
@@ -308,8 +311,10 @@ internal sealed class RecordChecks
                 .ToList();
         }
 
-        return FaceGenCheck.Run(resolver, view, assets, PluginsIn, plugins, limit,
-                                offOrder.Count > 0 ? offOrder : null, recordScope, classes, countsOnly, excluded);
+        var result = FaceGenCheck.Run(resolver, view, assets, PluginsIn, plugins, limit,
+                                      offOrder.Count > 0 ? offOrder : null, recordScope, classes, countsOnly, excluded);
+        // The build's warnings, taken in this one hold, ride only a sweep that ran.
+        return result.Success ? result with { AssetWarnings = captured.Warnings } : result;
     }
 
     /// <summary>The facegen family's <c>findings=</c> class tokens. An unrecognized token is a named refusal listing the vocabulary, never a silent widening.</summary>

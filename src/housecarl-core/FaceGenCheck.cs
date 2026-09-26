@@ -282,7 +282,8 @@ public static class FaceGenCheck
                                       histClass, histMod, countsOnly, view.ExcludedPlugins, null,
                                       offOrderScanned, filterNote, classes, view.Epoch, limit, scanError,
                                       assets.ReadIncomplete, wholeOrder, noFaceGenRace, raceUnresolved, withheld,
-                                      assets.RootFailures, NoComparisonPoleUnreadable: noPoleUnreadable);
+                                      assets.RootFailures, NoComparisonPoleUnreadable: noPoleUnreadable,
+                                      ArchiveFailures: assets.BsaFailures);
 
         // ---- the per-NPC join ---------------------------------------------------------------------
         void Classify(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile)
@@ -551,7 +552,9 @@ public sealed record FaceGenCheckResult(
     int NpcsRaceUnresolved = 0,
     IReadOnlyList<FaceGenFinding>? WithheldBenign = null,
     IReadOnlyList<string>? RootFailures = null,   // the loose roots this build could not walk or list, each named with the reason; null or empty when every root read
-    int NoComparisonPoleUnreadable = 0)            // clean pairs untested because the owner's folder could not be listed, kept apart from NoComparisonPole
+    int NoComparisonPoleUnreadable = 0,            // clean pairs untested because the owner's folder could not be listed, kept apart from NoComparisonPole
+    IReadOnlyList<string>? AssetWarnings = null,  // the asset build's own warnings (an archive list not found, a kept profile), set by the host on a sweep that ran; null or empty when it had none
+    IReadOnlyList<string>? ArchiveFailures = null) // the archives this build could not open, each named with the reason, set on a sweep that ran; null or empty when every archive read
 {
     public bool Success => Error is null;
 

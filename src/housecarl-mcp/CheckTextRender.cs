@@ -294,9 +294,11 @@ static class CheckTextRender
         // A short order is a response-level fact, stated here once rather than left to whichever families ran.
         if (o.OrderExcluded.Count > 0)
             sb.Append(OrderDegraded.Sentence(o.OrderExcluded)).Append('\n');
-        // WHICH loose roots the asset build could not read, at the response root because ONE build feeds every
-        // family that hedges on it; bounded and counted by the shared renderer.
-        sb.Append(BatchRender.RootFailureLines(o.RootFailures, cap));
+        // The asset builds' warnings, failed archives and unread roots, unioned over the families that read them and
+        // stated once here rather than under each family; one block, one share of the cap.
+        var caveats = o.RootCaveats(cap);
+        foreach (var (list, cut) in new[] { caveats.Warnings, caveats.Archives, caveats.Roots })
+            sb.Append(BatchRender.CaveatLines(list, cut, ""));
 
         // The excluded-plugin roster goes ABOVE the family sections, where each family's accounting can see its rows, and is a response-level participant in the allocation taking its share of the row budget.
         AppendExcludedPlugins(sb, body, o.ExcludedPlugins);
