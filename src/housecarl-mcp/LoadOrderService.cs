@@ -236,7 +236,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     /// <summary>The rest of an asset capture around a view just taken; caller holds <see cref="_gate"/>.</summary>
     AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
-        new(view, AssetWarningsLocked(), _profileName, _profileDir, _dataDir, _modsDir, _overwriteDir, _activeArchives, _enabledModsAtBuild);
+        new(view, AssetWarningsLocked(), _profileName, new Mo2Roots(_profileDir, _dataDir, _modsDir, _overwriteDir), _activeArchives, _enabledModsAtBuild);
 
     // Rows the areas take from one another, relayed here: output, writes and reads until those are their own classes; the assets replay for reads.
     RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);

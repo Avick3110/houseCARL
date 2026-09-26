@@ -14,7 +14,7 @@ internal static class SweepOffOrderScope
     /// <paramref name="active"/> and <paramref name="offOrder"/> filled. A blank name, a name found nowhere, and a
     /// name several mod folders provide each refuse before anything is swept.</summary>
     internal static Refusal? Split(LoadOrderResolver.IndexView view, IReadOnlyList<string> plugins,
-                                   string modsDir, string dataDir, string overwriteDir, string profileDir,
+                                   Mo2Roots roots,
                                    out List<string> active, out List<(string Name, string Path)> offOrder,
                                    SweepOffOrderMemo? memo = null)
     {
@@ -25,7 +25,7 @@ internal static class SweepOffOrderScope
             return m.Refusal;
         }
 
-        var answer = Compute(view, plugins, modsDir, dataDir, overwriteDir, profileDir, out active, out offOrder);
+        var answer = Compute(view, plugins, roots, out active, out offOrder);
         if (memo is not null)
         {
             memo.Epoch = view.Epoch;
@@ -38,7 +38,7 @@ internal static class SweepOffOrderScope
     }
 
     static Refusal? Compute(LoadOrderResolver.IndexView view, IReadOnlyList<string> plugins,
-                            string modsDir, string dataDir, string overwriteDir, string profileDir,
+                            Mo2Roots roots,
                             out List<string> active, out List<(string Name, string Path)> offOrder)
     {
         active = new List<string>();
@@ -49,8 +49,8 @@ internal static class SweepOffOrderScope
             var n = name?.Trim() ?? "";
             if (n.Length == 0) return new Refusal(SweepSharedInput.BlankPluginName, Stamped: false);
             if (view.ContainsPlugin(n)) { active.Add(n); continue; }
-            comp ??= Mo2LoadOrder.ReadComposition(profileDir);
-            var loc = LoadOrderService.LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, n, null);
+            comp ??= Mo2LoadOrder.ReadComposition(roots.ProfileDir);
+            var loc = LoadOrderService.LocatePluginFileOnDisk(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, n, null);
             if (loc.Error is not null)
                 // The did-you-mean rides along: a name found neither in the order nor on disk is usually a typo.
                 return new Refusal(

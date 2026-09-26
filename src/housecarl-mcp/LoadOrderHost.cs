@@ -3,11 +3,10 @@ namespace HousecarlMcp;
 
 /// <summary>One asset build with its warnings, profile and roots, all taken in one <c>_gate</c> hold.</summary>
 internal readonly record struct AssetCapture(AssetResolver.AssetView View, IReadOnlyList<string> Warnings, string ProfileName,
-                                             string ProfileDir, string DataDir, string ModsDir, string OverwriteDir,
-                                             IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> EnabledMods)
+                                             Mo2Roots Roots, IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> EnabledMods)
 {
     /// <summary>The captured mods root, or null when there is none.</summary>
-    public string? ModsRootOrNull => string.IsNullOrWhiteSpace(ModsDir) ? null : ModsDir;
+    public string? ModsRootOrNull => string.IsNullOrWhiteSpace(Roots.ModsDir) ? null : Roots.ModsDir;
 }
 
 /// <summary>The four MO2 roots, taken in one <c>_gate</c> hold after the roots are derived.</summary>

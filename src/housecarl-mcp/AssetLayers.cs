@@ -180,7 +180,7 @@ internal sealed partial class AssetLayers
     public SkseInventoryData SkseInventory(string? peekFilter)
     {
         var captured = _host.CaptureAssets();   // build/refresh the asset resolver under the gate, ONCE
-        var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName; var profileDir = captured.ProfileDir;
+        var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName; var profileDir = captured.Roots.ProfileDir;
         // The plugin names a peek's cross-check adjudicates against, skipped entirely without peek=. The set is what
         // the game loads: plugins.txt entries plus the force-loaded base and CC masters, which never appear there.
         IReadOnlySet<string>? activePlugins = null;
@@ -364,7 +364,7 @@ internal sealed partial class AssetLayers
         // Archives and enabled mods are the same build as the view, so the loader scan below walks the mod set the view describes, never a second unpinned profile read.
         var captured = _host.CaptureAssets();
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
-        var dataDir = captured.DataDir; var modsDir = captured.ModsDir; var overwriteDir = captured.OverwriteDir;
+        var dataDir = captured.Roots.DataDir; var modsDir = captured.Roots.ModsDir; var overwriteDir = captured.Roots.OverwriteDir;
         var archives = captured.Archives; var enabledMods = captured.EnabledMods;
 
         // ---- the official-archive set: the ENGINE anchor. Keyed by filename, because a BSA provider's name IS the archive filename. ----
