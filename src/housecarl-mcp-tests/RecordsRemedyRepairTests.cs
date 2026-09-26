@@ -7,7 +7,7 @@ namespace HousecarlMcpTests;
 /// <summary>The records surface's wording and remedy repairs: a summary row's own label, the aggregate scope
 /// pre-check, the form-scoped field selector, the walk's carrier bound, and the two refusals that used to state a
 /// negative they could have qualified. Every one is a sentence a caller reads, so each is driven, not derived.</summary>
-[Collection(SerialRecordsCollection.Name)]   // process-global seams, #903
+[Collection("records")]
 [Trait("tier", "integration")]
 public sealed class RecordsRemedyRepairTests : RecordsTestBase
 {
@@ -174,11 +174,12 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     [Fact]
     public void AScanComputesOneListHopRemedyForTheWholeScan()
     {
-        var before = HousecarlCore.ReadEngine.ListHopVerdictComputations;
+        int Computed() => HousecarlCore.ReadEngine.ListHopComputationsOf(typeof(Mutagen.Bethesda.Skyrim.IEffectGetter), "HopMemoProbe");
+        var before = Computed();
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects.HopMemoProbe > 0" });
         Assert.Contains("is not a field on its element type", r);
         Assert.True(W.SpellBodies.Count > 1, "the scan must cross more than one record for this to say anything");
-        Assert.Equal(1, HousecarlCore.ReadEngine.ListHopVerdictComputations - before);
+        Assert.Equal(1, Computed() - before);
     }
 
     /// <summary>The bracket is only half the diagnosis: a trailing segment that is not a field on the ELEMENT type

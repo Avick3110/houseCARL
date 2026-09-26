@@ -16,8 +16,12 @@ public static class ModeledFieldIndex
     /// <summary>Memoised per (corpus path, owner type, field name), so the nearest-name sweep does not run once per scanned record.</summary>
     static readonly ConcurrentDictionary<(string, string, string), Verdict> Verdicts = new();
 
-    /// <summary>How many verdicts have actually been computed — the memo's own counter.</summary>
-    internal static int VerdictComputations;
+    /// <summary>How many times each memo key's verdict has actually been computed.</summary>
+    static readonly ConcurrentDictionary<(string, string, string), int> Computations = new();
+
+    /// <summary>How many times the verdict for (corpus path, owner type, field name) has been computed.</summary>
+    internal static int ComputationsOf(string corpusPath, string ownerTypeName, string fieldName) =>
+        Computations.TryGetValue((corpusPath, ownerTypeName, fieldName), out var n) ? n : 0;
 
     /// <summary>What the schema knows about <paramref name="fieldName"/> not resolving on <paramref name="ownerTypeName"/>; null when the corpus is absent or the catalog does not carry the owner.</summary>
     public static Verdict? Diagnose(string ownerTypeName, string fieldName)
@@ -29,9 +33,9 @@ public static class ModeledFieldIndex
         var key = (idx.Path, ownerTypeName, fieldName);
         // The memo answers before anything is allocated — a scan dead-ends on every record it crosses.
         if (Verdicts.TryGetValue(key, out var memo)) return memo;
-        return Verdicts.GetOrAdd(key, _ =>
+        return Verdicts.GetOrAdd(key, k =>
         {
-            Interlocked.Increment(ref VerdictComputations);
+            Computations.AddOrUpdate(k, 1, (_, n) => n + 1);
             var on = idx.ByField.TryGetValue(fieldName, out var types) ? types : Array.Empty<string>();
             bool onOwner = on.Contains(ownerTypeName, StringComparer.Ordinal);
             var others = onOwner
@@ -79,6 +83,7 @@ public static class ModeledFieldIndex
             var snap = new Snapshot(path, built, byType);
             _cache = snap;
             Verdicts.Clear();   // verdicts carry their corpus in the key; dropping the old one's keeps the memo bounded
+            Computations.Clear();
             return snap;
         }
     }

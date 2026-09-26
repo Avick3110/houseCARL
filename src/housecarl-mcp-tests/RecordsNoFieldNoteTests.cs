@@ -9,7 +9,7 @@ namespace HousecarlMcpTests;
 /// is invisible) and a mistyped name both used to read as a bare "(no field X)", and they need opposite next
 /// moves: nothing to fix in the path, versus fix the spelling.
 /// </summary>
-[Collection(SerialRecordsCollection.Name)]   // process-global seams, #903
+[Collection("records")]
 [Trait("tier", "integration")]
 public sealed class RecordsNoFieldNoteTests : RecordsTestBase
 {
@@ -88,10 +88,11 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
     [Fact]
     public void AScanComputesOneVerdictForTheWholeScan()
     {
-        var before = HousecarlCore.ModeledFieldIndex.VerdictComputations;
+        int Computed() => HousecarlCore.ModeledFieldIndex.ComputationsOf(HousecarlCore.CorpusRulebook.CorpusPath, "Spell", "NoFieldMemoProbe");
+        var before = Computed();
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, project: Fields("NoFieldMemoProbe"));
         Served(r, "a mistyped name");
         Assert.True(W.SpellBodies.Count > 1, "the scan must cross more than one record for this to say anything");
-        Assert.Equal(1, HousecarlCore.ModeledFieldIndex.VerdictComputations - before);
+        Assert.Equal(1, Computed() - before);
     }
 }
