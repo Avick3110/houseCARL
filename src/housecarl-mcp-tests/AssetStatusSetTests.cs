@@ -268,6 +268,26 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         finally { _w.Svc.AssetArea.MaxAssetPaths = prior; }
     }
 
+    /// <summary>The path bound lowered on one service is not seen by a second service over the same world (#903):
+    /// it is a per-service setting, so this class can run beside the others.</summary>
+    [Fact]
+    public void ThePathBoundLoweredOnOneServiceLeavesAnotherServiceAtTheDefault()
+    {
+        var formids = new[] { AssetSelectWorld.SplitFormId, AssetSelectWorld.MatchedFormId, AssetSelectWorld.TintAbsentFormId };
+        using var other = LoadOrderService.WithInstance(Path.Combine(_w.Root, "instance"), 0,
+                                                        new UserConfigStore(Path.Combine(_w.Root, "other.user.json")));
+        var prior = _w.Svc.AssetArea.MaxAssetPaths;
+        _w.Svc.AssetArea.MaxAssetPaths = 3;
+        try
+        {
+            Assert.Contains("3-path bound", AssetTools.AssetStatus(_w.Svc, formids: formids));
+
+            Assert.Equal(RenderBudget.DefaultMaxAssetPaths, other.AssetArea.MaxAssetPaths);
+            Assert.Contains("(6 paths selected)", AssetTools.AssetStatus(other, formids: formids));
+        }
+        finally { _w.Svc.AssetArea.MaxAssetPaths = prior; }
+    }
+
     /// <summary>On an `under=` sweep the bound stops the WALK, not just the resolve. The enumeration is the expensive
     /// half — it re-walks every loose root and re-scans every archive table under the prefix — so counting it in full
     /// and then refusing would charge the caller for exactly the work the refusal says was too much.</summary>

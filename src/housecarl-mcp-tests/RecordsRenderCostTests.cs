@@ -696,6 +696,27 @@ public sealed class RecordsRenderCostTests
         Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rendered").GetInt32());
     }
 
+    /// <summary>A bound lowered on one service is not seen by a second service over the same world (#903): the
+    /// bounds are per-service settings, so a test that lowers its own cannot make another world's call refuse.</summary>
+    [Fact]
+    public void ABoundLoweredOnOneServiceLeavesAnotherServiceAtTheDefault()
+    {
+        using var other = LoadOrderService.WithInstance(Path.Combine(_w.Root, "inst"), 0,
+                                                        new UserConfigStore(_w.Scratch("other-user.json")));
+        var prior = Svc.Bounds;
+        Svc.Bounds = prior with { Rows = 10 };
+        try
+        {
+            Assert.StartsWith("error:",
+                RecordsTools.Records(Svc, types: Weap, limit: RenderCostWorld.Weapons, project: Fields()));
+
+            Assert.Equal(RenderBounds.Default, other.Bounds);
+            var doc = Doc(RecordsTools.Records(other, types: Weap, format: "json", limit: RenderCostWorld.Weapons, project: Fields()));
+            Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rendered").GetInt32());
+        }
+        finally { Svc.Bounds = prior; }
+    }
+
     /// <summary>The body lane has a bound of its OWN, because its row is a whole record: measured at ~30 ms against
     /// ~0.013 ms for a three-field projection on the same world, so one number over both lanes would either wave
     /// this one through or refuse the cheap one for nothing. The refusal names the move between them.</summary>
