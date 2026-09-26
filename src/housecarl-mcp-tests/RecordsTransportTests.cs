@@ -12,7 +12,7 @@ public sealed class RecordsTransportTests : IDisposable
     readonly RecordsWorld _w = new();
     readonly string _art;
 
-    public RecordsTransportTests() => _art = Path.Combine(_w.Root, "results", "weaps.jsonl");
+    public RecordsTransportTests() => _art = Path.Combine(_w.Root, "artifacts", "weaps.jsonl");
 
     public void Dispose() => _w.Dispose();
 
