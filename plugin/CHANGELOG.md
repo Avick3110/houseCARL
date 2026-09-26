@@ -17,6 +17,8 @@ made the change.
   instead of dropping a topic too big for the cap.** A topic of 60 lines at `max_chars=3000` lists its first lines.
 - **`housecarl_nif_inspect` and `housecarl_nif_set` answer a malformed mesh with a named error, naming where it
   breaks (the block or header field) and the bad count, instead of running the server out of memory.** Inspect a mesh with a corrupted count and read the error.
+- **`housecarl_check findings=["facegen"]` now names a mod folder it could not list, and counts the pairs that left
+  untested apart from a mod that ships no plugin.**
 
 ## 2.0.3 — 2026-09-23
 
