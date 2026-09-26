@@ -16,24 +16,34 @@ public sealed class NifInspectMalformedTests : IClassFixture<MalformedMeshWorld>
     readonly MalformedMeshWorld _w;
     public NifInspectMalformedTests(MalformedMeshWorld w) => _w = w;
 
-    // The first input the random 4-byte corruption of the authored mesh ran out of memory on (seed 10): a count past its block's stored size.
+    // Byte 385 is the low byte of the root node's effect count; 0x75 makes it 117 refs, more than the block's stored size holds.
     [Fact]
-    public void TheSeedTenCorruptionIsANamedBlockSizeErrorNotARunaway()
-    {
-        var text = _w.Inspect(MalformedMeshWorld.SeedTen);
-
-        Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode): A list count of 117 needs at least 468 bytes", text);
-        Assert.Contains("a count in that block is larger than the block's stored size allows", text);
-    }
-
-    // Byte 385 alone is the low byte of the root node's effect count; 0x75 makes it 117 refs, past the block's end.
-    [Fact]
-    public void TheRootEffectCountByteIsANamedBlockSizeErrorNotARunaway()
+    public void ACountLargerThanItsBlockIsANamedCountErrorNotARunaway()
     {
         var text = _w.Inspect(MalformedMeshWorld.EffectCountByte);
 
         Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode): A list count of 117 needs at least 468 bytes", text);
         Assert.Contains("a count in that block is larger than the block's stored size allows", text);
+    }
+
+    // The alpha property's stored size is 2 bytes short and it has no list to stop on, so the read runs past its end.
+    [Fact]
+    public void ABlockThatReadsPastItsStoredSizeIsANamedCountError()
+    {
+        var text = _w.Inspect(MalformedMeshWorld.BlockEnd);
+
+        Assert.Contains($"(NiAlphaProperty) read {_w.AlphaSize} bytes, past its stored size of {_w.AlphaSize - 2})", text);
+        Assert.Contains("a count in that block is larger than the block's stored size allows", text);
+    }
+
+    // An unknown block's stored size becomes its buffer, so one larger than the file is refused as a damaged file.
+    [Fact]
+    public void AnUnknownBlockLargerThanTheFileIsANamedDamagedFileError()
+    {
+        var text = _w.Inspect(MalformedMeshWorld.UnknownBlock);
+
+        Assert.Contains($"(NiAlphaPropertX) is a type this library does not know, and its stored size of {int.MaxValue}", text);
+        Assert.Contains("the file is damaged or cut short", text);
     }
 
     // A header count is refused before any block is read, so its message carries no block.
@@ -43,17 +53,17 @@ public sealed class NifInspectMalformedTests : IClassFixture<MalformedMeshWorld>
         var text = _w.Inspect(MalformedMeshWorld.HeaderCount);
 
         Assert.Contains($"the mesh is malformed and was not read (The header's block count of {int.MaxValue} needs", text);
-        Assert.Contains("damaged or cut short", text);
+        Assert.Contains("the file is damaged or cut short", text);
     }
 
     // The write path refuses the same mesh by name and says the disk is unchanged.
     [Fact]
     public void NifSetRefusesAMalformedMeshAndSaysNothingWasWritten()
     {
-        var text = _w.Set(MalformedMeshWorld.SeedTen);
+        var text = _w.Set(MalformedMeshWorld.EffectCountByte);
 
         Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode): A list count of 117", text);
-        Assert.Contains("Nothing was written.", text);
+        Assert.Contains("see where it breaks. Nothing was written.", text);
     }
 }
 
@@ -61,9 +71,13 @@ public sealed class NifInspectMalformedTests : IClassFixture<MalformedMeshWorld>
 /// the byte edits below (the recipe is the fixture; no binary), and the server is configured on it once.</summary>
 public sealed class MalformedMeshWorld : IDisposable
 {
-    public const string SeedTen = @"meshes\hc926\seed10.nif";
     public const string EffectCountByte = @"meshes\hc926\byte385.nif";
+    public const string BlockEnd = @"meshes\hc926\blockend.nif";
+    public const string UnknownBlock = @"meshes\hc926\unknownblock.nif";
     public const string HeaderCount = @"meshes\hc926\headercount.nif";
+
+    /// <summary>The alpha property's real stored size in the authored mesh.</summary>
+    public int AlphaSize { get; }
 
     readonly string _root;
     readonly ServerFixture _server;
@@ -75,7 +89,8 @@ public sealed class MalformedMeshWorld : IDisposable
         // xUnit does not dispose a fixture whose constructor threw, so a failure here stops the server and removes the tree itself.
         try
         {
-            var instance = Stage(_root);
+            var instance = Stage(_root, out int alphaSize);
+            AlphaSize = alphaSize;
             // 2 GB of GC heap: a runaway allocation fails inside the server, never in the test host.
             server = new ServerFixture(new Dictionary<string, string> { ["DOTNET_GCHeapHardLimit"] = "0x80000000" })
             {
@@ -94,7 +109,7 @@ public sealed class MalformedMeshWorld : IDisposable
     }
 
     // Writes the instance under root: two masters and one mod holding the malformed meshes; returns the instance folder.
-    static string Stage(string root)
+    static string Stage(string root, out int alphaSize)
     {
         var instance = Path.Combine(root, "instance");
         var profile = Path.Combine(instance, "profiles", "Default");
@@ -113,8 +128,20 @@ public sealed class MalformedMeshWorld : IDisposable
                .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         }
 
-        WriteMesh(meshMod, SeedTen, Edit((948, 0xC0), (756, 0xB1), (719, 0x4C), (385, 0x75)));
         WriteMesh(meshMod, EffectCountByte, Edit((385, 0x75)));
+
+        var (alphaSizeAt, alphaTypeAt) = AlphaOffsets(NifInspectFixtures.BuildSyntheticSe());
+        var blockEnd = NifInspectFixtures.BuildSyntheticSe();
+        alphaSize = BitConverter.ToInt32(blockEnd, alphaSizeAt);
+        BitConverter.GetBytes(alphaSize - 2).CopyTo(blockEnd, alphaSizeAt);
+        WriteMesh(meshMod, BlockEnd, blockEnd);
+
+        // Renaming the type in the header's type table makes the block unknown; its stored size then becomes its buffer.
+        var unknown = NifInspectFixtures.BuildSyntheticSe();
+        unknown[alphaTypeAt] = (byte)'X';
+        BitConverter.GetBytes(int.MaxValue).CopyTo(unknown, alphaSizeAt);
+        WriteMesh(meshMod, UnknownBlock, unknown);
+
         var header = NifInspectFixtures.BuildSyntheticSe();
         // After the version line: file version (4), endian (1), user version (4), then the block count.
         BitConverter.GetBytes(int.MaxValue).CopyTo(header, Array.IndexOf(header, (byte)'\n') + 1 + 4 + 1 + 4);
@@ -144,6 +171,20 @@ public sealed class MalformedMeshWorld : IDisposable
         foreach (var (pos, val) in edits)
             bytes[pos] = val;
         return bytes;
+    }
+
+    // Where the alpha property's stored size sits in the header's size table, and the last letter of its type name.
+    static (int SizeAt, int TypeLastLetterAt) AlphaOffsets(byte[] bytes)
+    {
+        var nif = new NiflySharp.NifFile();
+        using (var ms = new MemoryStream(bytes, writable: false))
+            Assert.Equal(0, nif.Load(ms));
+        int alphaId = nif.Blocks.FindIndex(b => b is NiflySharp.Blocks.NiAlphaProperty);
+        var table = Enumerable.Range(0, nif.Header.BlockCount).SelectMany(i => BitConverter.GetBytes(nif.Header.GetBlockSize(i))).ToArray();
+        int tableAt = bytes.AsSpan().IndexOf(table);
+        Assert.True(tableAt > 0);
+        var name = System.Text.Encoding.ASCII.GetBytes("NiAlphaProperty");
+        return (tableAt + 4 * alphaId, bytes.AsSpan().IndexOf(name) + name.Length - 1);
     }
 
     static void WriteMesh(string mod, string rel, byte[] bytes)
