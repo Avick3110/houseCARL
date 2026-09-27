@@ -123,7 +123,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     (ViewPin Pin, Mo2Roots Roots) ILoadOrderHost.CapturePinAndRoots(Action? afterPin)
         => CapturePinAnd(() => ((ILoadOrderHost)this).CaptureRoots(), afterPin);
 
-    (ViewPin Pin, Mo2Roots Roots, AssetResolver Assets) ILoadOrderHost.CapturePinRootsAndAssets(Action? afterPin)
+    (ViewPin Pin, Mo2Roots Roots, AssetResolver Assets) ICheckHost.CapturePinRootsAndAssets(Action? afterPin)
     {
         var (pin, (roots, assets)) = CapturePinAnd(() => (((ILoadOrderHost)this).CaptureRoots(), AssetsNoProfileRefreshLocked()), afterPin);
         return (pin, roots, assets);
