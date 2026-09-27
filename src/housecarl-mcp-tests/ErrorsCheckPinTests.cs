@@ -88,21 +88,15 @@ public sealed class ErrorsCheckPinTests : IDisposable
         => "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(" + profile + ")\r\ngamePath=@ByteArray("
            + game.Replace(@"\", @"\\") + ")\r\n";
 
-    /// <summary>Rewrites the ini and lets another call re-derive the roots. Inside the sweep's hold that call waits
-    /// for the hold; with the roots taken outside it, it lands before them.</summary>
+    /// <summary>Rewrites the ini and has another call re-derive the roots. Run inside the sweep's hold, that call
+    /// cannot re-derive until the hold ends, so it is not waited for; run outside it, it is joined, so the re-derive
+    /// has landed before the sweep takes anything else. No timing either way.</summary>
     void RederiveFromAnotherCall(string ini)
     {
         File.WriteAllText(_ini, ini);
         _mover = new Thread(() => _svc.CaptureView());
         _mover.Start();
-        // Until the call is blocked (its first wait is the hold) or done; a re-derive that holds the hold makes the
-        // roots capture wait for it, so neither shape needs a fixed wait.
-        var cap = System.Diagnostics.Stopwatch.StartNew();
-        while ((_mover.ThreadState & (ThreadState.WaitSleepJoin | ThreadState.Stopped)) == 0)
-        {
-            if (cap.Elapsed > TimeSpan.FromSeconds(60)) throw new TimeoutException("the other call neither blocked nor finished");
-            Thread.Sleep(1);
-        }
+        if (!_svc.GateHeldByThisThread) _mover.Join();
     }
 
     ErrorCheckResult SweepWithMoveAfterPin(IReadOnlyList<string>? plugins)

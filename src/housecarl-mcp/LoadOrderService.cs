@@ -398,6 +398,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         => _checks.SweepScopeError(formids, editoridContains, types);
 
     internal RecordChecks CheckArea => _checks;   // the checks area instance, for tests that set its seams
+    internal bool GateHeldByThisThread => Monitor.IsEntered(_gate);   // for a test seam that must know whether it runs inside the hold
 
     internal int AbsenceExplanations;   // how many times the explainer has parsed the profile — a test seam for the memo
 
