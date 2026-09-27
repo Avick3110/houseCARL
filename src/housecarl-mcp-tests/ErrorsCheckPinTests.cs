@@ -17,6 +17,7 @@ public sealed class ErrorsCheckPinTests : IDisposable
     const string OffName = "HcEpOff.esp";
     const string CleanName = "HcEpClean.esp";
     const string OtherProfile = "Other";
+    const string ScriptName = "HcEpScript";
 
     readonly string _root;
     readonly string _ini;
@@ -56,6 +57,13 @@ public sealed class ErrorsCheckPinTests : IDisposable
         // A topic whose unmodeled SNAM marker is warned about only where the patch is not force-loaded.
         var topic = patch.DialogTopics.AddNew(); topic.EditorID = "HcEpTopic"; topic.SubtypeName = new RecordType("ZZZZ");
         _topicSeed = $"{topic.FormKey.ID:X6}:{PatchName}";
+        // A line binding a script whose .pex only the first profile's mods provide.
+        var vmad = new DialogResponsesAdapter();
+        vmad.Scripts.Add(new ScriptEntry { Name = ScriptName });
+        topic.Responses.Add(new DialogResponses(patch.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcEpLine", VirtualMachineAdapter = vmad });
+        var scriptsDir = Path.Combine(instance, "mods", "ScriptMod", "Scripts");
+        Directory.CreateDirectory(scriptsDir);
+        File.WriteAllBytes(Path.Combine(scriptsDir, ScriptName + ".pex"), new byte[] { 0xFA, 0x57, 0xC0, 0xDE });
         patch.BeginWrite.ToPath(Path.Combine(patchDir, PatchName)).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
         // A plugin with no masters and nothing to report: a sweep of it alone needs no composition.
@@ -65,14 +73,15 @@ public sealed class ErrorsCheckPinTests : IDisposable
 
         File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + CleanName + "\r\n" + PatchName + "\r\n");
         File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), MasterName + "\r\n*" + CleanName + "\r\n*" + PatchName + "\r\n");
-        File.WriteAllText(Path.Combine(profileDir, "modlist.txt"), "# header\r\n+PatchMod\r\n");
+        File.WriteAllText(Path.Combine(profileDir, "modlist.txt"), "# header\r\n+ScriptMod\r\n+PatchMod\r\n");
 
-        // The second profile: the same order, but plugins.txt does not list the patch, so there it is force-loaded.
+        // The second profile: the same order, but plugins.txt does not list the patch, so there it is force-loaded,
+        // and the script mod is disabled, so there the line's .pex is missing.
         var otherDir = Path.Combine(instance, "profiles", OtherProfile);
         Directory.CreateDirectory(otherDir);
         File.WriteAllText(Path.Combine(otherDir, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + CleanName + "\r\n" + PatchName + "\r\n");
         File.WriteAllText(Path.Combine(otherDir, "plugins.txt"), MasterName + "\r\n*" + CleanName + "\r\n");
-        File.WriteAllText(Path.Combine(otherDir, "modlist.txt"), "# header\r\n+PatchMod\r\n");
+        File.WriteAllText(Path.Combine(otherDir, "modlist.txt"), "# header\r\n-ScriptMod\r\n+PatchMod\r\n");
 
         _svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(_root, "houseCARL.user.json")));
     }
@@ -167,11 +176,16 @@ public sealed class ErrorsCheckPinTests : IDisposable
     static bool WarnsOfTheMarker(DialogueCheckResult r)
         => r.Topics.Any(t => t.Topic.Issues.Any(i => i.Message.Contains("not a marker houseCARL models")));
 
+    static ScriptBindingStatus LineScript(DialogueCheckResult r)
+        => r.Topics.SelectMany(t => t.Topic.ScriptFindings).Single().Status;
+
     [Fact]
-    public void TheDialogueForceLoadedSetUsesTheProfilePinnedWithTheView()
+    public void TheDialogueForceLoadedSetAndAssetsUseTheProfilePinnedWithTheView()
     {
         var seeds = new[] { _topicSeed };
-        Assert.True(WarnsOfTheMarker(_svc.CheckDialogue(seeds, 1000)));        // warms; not force-loaded here
+        var before = _svc.CheckDialogue(seeds, 1000);                         // warms; not force-loaded here
+        Assert.True(WarnsOfTheMarker(before));
+        Assert.Equal(ScriptBindingStatus.BoundAndCompiled, LineScript(before));
 
         _svc.CheckArea.AfterCheckPinForGuard = () => RederiveFromAnotherCall(IniFor(_gameA, OtherProfile));
         var during = _svc.CheckDialogue(seeds, 1000);
@@ -179,9 +193,13 @@ public sealed class ErrorsCheckPinTests : IDisposable
         _mover!.Join();
         Assert.Null(during.Error);
         Assert.True(WarnsOfTheMarker(during));
+        Assert.Equal(ScriptBindingStatus.BoundAndCompiled, LineScript(during));
 
-        // The switch landed for the next call: the other profile force-loads the patch, so the warning is not its author's.
-        Assert.False(WarnsOfTheMarker(_svc.CheckDialogue(seeds, 1000)));
+        // The switch landed for the next call: the other profile force-loads the patch, so the warning is not its
+        // author's, and disables the script mod, so the .pex is missing.
+        var after = _svc.CheckDialogue(seeds, 1000);
+        Assert.False(WarnsOfTheMarker(after));
+        Assert.Equal(ScriptBindingStatus.ScriptNotCompiled, LineScript(after));
     }
 
     [Fact]
