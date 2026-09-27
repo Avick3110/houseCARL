@@ -60,7 +60,7 @@ the config file.
 returns (nested in the service), `CapturePinAnd<T>` (one `_gate` hold: the pin, a seam, then a second capture),
 over which `CapturePinAndAssets`, `CapturePinAndRoots` (the pin and the four roots, for the read area's pole
 lanes, which pass it the area's test seam `AfterReadPinForGuard`, and the errors sweep) and `CapturePinRootsAndAssets`
-(the pin, the roots and the live asset resolver, for the dialogue sweep) are one-liners, the class-parent cache
+(the pin, the roots and the live asset resolver, for the dialogue sweep) are thin wrappers, the class-parent cache
 (`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, `Types` (the
 `TypeLookup`, the door member, whose map is built on the first type resolution), and the explicit
 `ILoadOrderHost`, `IAssetHost`, `ICheckHost` and `IReadHost` members. `src/housecarl-mcp/LoadOrderHost.cs` declares `ILoadOrderHost` and
