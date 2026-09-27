@@ -46,11 +46,10 @@ internal sealed class RecordChecks
         // building the index.
         => DialogueSweep.Run(() =>
         {
-            // One resolver, one asset resolver, one view and one composition read for the whole call, so every seed
-            // is validated against the same build and the stamp names it.
-            var (pin, roots) = _host.CapturePinAndRoots(AfterCheckPinForGuard);
+            // One resolver, view, set of roots and asset resolver, taken in one hold, so every seed is validated
+            // against one build and one profile's assets, and the stamp names that build.
+            var (pin, roots, assets) = _host.CapturePinRootsAndAssets(AfterCheckPinForGuard);
             var resolver = pin.Resolver;
-            var assets = _host.Assets;
             var view = pin.View;
             // The seed door is pinned to that same view, so the seeds cannot name records from another build.
             var forceLoaded = ForceLoadedPluginNames(roots.ProfileDir);

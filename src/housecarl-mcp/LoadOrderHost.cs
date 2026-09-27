@@ -33,6 +33,9 @@ internal interface ILoadOrderHost
     /// <summary>A pinned index and the four MO2 roots in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between the two.</summary>
     (LoadOrderService.ViewPin Pin, Mo2Roots Roots) CapturePinAndRoots(Action? afterPin);
 
+    /// <summary>A pinned index, the four MO2 roots and the live asset resolver for that same profile, in one <c>_gate</c> hold; <paramref name="afterPin"/> runs after the pin.</summary>
+    (LoadOrderService.ViewPin Pin, Mo2Roots Roots, AssetResolver Assets) CapturePinRootsAndAssets(Action? afterPin);
+
     /// <summary>The write gate; lock it before any capture, never inside one.</summary>
     object WriteGate { get; }
 
