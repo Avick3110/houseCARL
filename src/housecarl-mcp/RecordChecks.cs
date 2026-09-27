@@ -31,7 +31,7 @@ internal sealed class RecordChecks
     /// for content they did not author. Null, never an empty set, when the MO2 profile cannot be read.</summary>
     static IReadOnlyCollection<string>? ForceLoadedPluginNames(string profileDir)
     {
-        var (names, err) = ImplicitPluginNames(profileDir);
+        var (names, err) = ImplicitPluginNames(profileDir, () => Mo2LoadOrder.ReadComposition(profileDir));
         return err is null ? names : null;
     }
 
@@ -100,14 +100,15 @@ internal sealed class RecordChecks
         var (pin, roots) = _host.CapturePinAndRoots(AfterCheckPinForGuard);
         var resolver = pin.Resolver;
         var viewAll = pin.View;
-        // The profile's composition, read at most once and only by a consumer that needs it.
-        var composition = new Lazy<Mo2Composition>(() => Mo2LoadOrder.ReadComposition(roots.ProfileDir));
+        // The profile's composition, read at most once for the whole call and only by a consumer that needs it.
+        var memo = offOrderMemo ?? new SweepOffOrderMemo();
+        var readComposition = memo.CompositionReader(roots.ProfileDir);
 
         // The exclude= axis. The `implicit` group is a fact about the MO2 composition, so it is read here and the
         // core sweep receives plain filenames, before anything is swept. Gated on the caller having written the
         // token, so a named-plugin exclusion over an unreadable profile is not refused about a group they never named.
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
-        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(roots.ProfileDir, () => composition.Value) : (Array.Empty<string>(), null);
+        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(roots.ProfileDir, readComposition) : (Array.Empty<string>(), null);
         if (implicitErr is not null) return ErrorCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return ErrorCheckResult.Fail(excludeErr);
@@ -118,17 +119,17 @@ internal sealed class RecordChecks
             // Membership and locate refusals are decided against THIS build, so they are stamped; a blank name
             // consulted no build and stays unstamped.
             if (SweepOffOrderScope.Split(view, plugins, roots,
-                                         out var active, out var offOrder, offOrderMemo, () => composition.Value) is { } splitErr)
+                                         out var active, out var offOrder, memo) is { } splitErr)
                 return splitErr.Stamped
                     ? ErrorCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
                     : ErrorCheckResult.Fail(splitErr.Message);
             return ClassifyMissingMasters(
                 ErrorCheck.Run(resolver, viewAll, active, limit, offOrder.Count > 0 ? offOrder : null,
-                               recordScope, classes, countsOnly, excluded), roots, () => composition.Value);
+                               recordScope, classes, countsOnly, excluded), roots, readComposition);
         }
         return ClassifyMissingMasters(
             ErrorCheck.Run(resolver, viewAll, plugins, limit, null, recordScope, classes, countsOnly, excluded), roots,
-            () => composition.Value);
+            readComposition);
     }
 
     /// <summary>Fill in each report's install-vs-enable split for the masters the sweep found unsatisfied — a fact
@@ -163,11 +164,7 @@ internal sealed class RecordChecks
 
     /// <summary>The force-loaded plugin names — in the order, absent from plugins.txt — for
     /// <see cref="SweepExclusion.ImplicitToken"/>, or the reason they could not be read. A read that did not happen
-    /// is not a set that is empty.</summary>
-    static (IReadOnlyList<string> Names, string? Error) ImplicitPluginNames(string profileDir)
-        => ImplicitPluginNames(profileDir, () => Mo2LoadOrder.ReadComposition(profileDir));
-
-    /// <summary>As above, with <paramref name="readComposition"/> reading <paramref name="profileDir"/>'s composition.</summary>
+    /// is not a set that is empty. <paramref name="readComposition"/> reads <paramref name="profileDir"/>'s composition.</summary>
     static (IReadOnlyList<string> Names, string? Error) ImplicitPluginNames(string profileDir, Func<Mo2Composition> readComposition)
     {
         try { return (readComposition().ImplicitPluginNames, null); }
@@ -243,9 +240,12 @@ internal sealed class RecordChecks
         var (pin, captured) = _host.CapturePinAndAssets(AfterCheckPinForGuard);
         var resolver = pin.Resolver;
         var view = pin.View;
+        var memo = offOrderMemo ?? new SweepOffOrderMemo();   // the call's one composition read, shared with the other families
         // The exclusion resolves here, where the MO2 composition lives, exactly as it does for CheckErrors.
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
-        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(captured.Roots.ProfileDir) : (Array.Empty<string>(), null);
+        var (implicitNames, implicitErr) = wantsImplicit
+            ? ImplicitPluginNames(captured.Roots.ProfileDir, memo.CompositionReader(captured.Roots.ProfileDir))
+            : (Array.Empty<string>(), null);
         if (implicitErr is not null) return ScriptCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return ScriptCheckResult.Fail(excludeErr);
@@ -254,7 +254,7 @@ internal sealed class RecordChecks
         if (plugins is { Count: > 0 })
         {
             if (SweepOffOrderScope.Split(view, plugins, captured.Roots,
-                                         out var active, out var offOrder, offOrderMemo) is { } splitErr)
+                                         out var active, out var offOrder, memo) is { } splitErr)
                 return splitErr.Stamped
                     ? ScriptCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
                     : ScriptCheckResult.Fail(splitErr.Message);
@@ -289,9 +289,12 @@ internal sealed class RecordChecks
         var view = pin.View;
         var assets = captured.View;
         var roots = captured.Roots;
+        var memo = offOrderMemo ?? new SweepOffOrderMemo();   // the call's one composition read, shared with the other families
 
         bool wantsImplicit = exclude?.Any(v => (v ?? "").Trim().Equals(SweepExclusion.ImplicitToken, StringComparison.OrdinalIgnoreCase)) == true;
-        var (implicitNames, implicitErr) = wantsImplicit ? ImplicitPluginNames(roots.ProfileDir) : (Array.Empty<string>(), null);
+        var (implicitNames, implicitErr) = wantsImplicit
+            ? ImplicitPluginNames(roots.ProfileDir, memo.CompositionReader(roots.ProfileDir))
+            : (Array.Empty<string>(), null);
         if (implicitErr is not null) return FaceGenCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return FaceGenCheckResult.Fail(excludeErr);
@@ -300,7 +303,7 @@ internal sealed class RecordChecks
         if (plugins is { Count: > 0 })
         {
             if (SweepOffOrderScope.Split(view, plugins, roots,
-                                         out _, out offOrder, offOrderMemo) is { } splitErr)
+                                         out _, out offOrder, memo) is { } splitErr)
                 return splitErr.Stamped
                     ? FaceGenCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
                     : FaceGenCheckResult.Fail(splitErr.Message);

@@ -99,9 +99,9 @@ the core sweep knows the active order and stops there; a composition that cannot
 
 The sweep pins its view and its MO2 roots together, in one `_gate` hold (`CapturePinAndRoots`), so the off-order
 locate, the `implicit` group and this split all read the profile the swept build came from; the dialogue sweep takes
-its force-loaded names and its asset resolver the same way (`CapturePinRootsAndAssets`). The profile's composition is read at most once per call, and only when one of
-those three needs it. The off-order memo a merged check shares answers only for the build, the roots and the list
-it was filled against.
+its force-loaded names and its asset resolver the same way (`CapturePinRootsAndAssets`). The profile's composition is read at most once per call, across every swept family
+a merged check runs, and only when one of those three needs it: the per-call memo the families share carries the one
+read. Its off-order split answers only for the build, the roots and the list it was filled against.
 
 #### Which plugins LOST entries is not a sweep fact
 
@@ -222,8 +222,8 @@ accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_def
 - `src/housecarl-mcp/CheckTextRender.cs`, `CheckSentences.cs` and `CheckSweep.cs` — the check text render
   (`CheckTextRender`), the check sentences (`CheckSentences`), and the `CheckSweep` record the renders take.
 - `src/housecarl-mcp/SweepSharedInput.cs` — the input refusals every family shares, checked once before the merged
-  response; `SweepOffOrderScope.cs` — the `plugins=` split into active and off-order names, and its per-call memo
-  `SweepOffOrderMemo`.
+  response; `SweepOffOrderScope.cs` — the `plugins=` split into active and off-order names, and the per-call memo
+  `SweepOffOrderMemo` that carries the split and the call's one composition read.
 - `src/housecarl-mcp/FaceGenSweepRender.cs` — the facegen family's render in both transports.
 - `src/housecarl-mcp/SweepDemand.cs` — what each subject of a merged response wants, measured before the render. Its
   contract is in [`render-budget.md`](render-budget.md), which covers the file.

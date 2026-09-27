@@ -251,6 +251,26 @@ public sealed class ErrorsCheckPinTests : IDisposable
     }
 
     [Fact]
+    public void OneMergedCheckReadsTheCompositionOnceAcrossFamilies()
+    {
+        string Merged() => CheckTools.CheckTool(_svc, plugins: new[] { PatchName, OffName },
+                                                exclude: new[] { SweepExclusion.ImplicitToken },
+                                                findings: new[] { "errors", "scripts", "facegen" },
+                                                format: "json", max_chars: 60000);
+        Merged();                                                               // warms the index and the asset build
+        string? json = null;
+
+        // Each of the three swept families wants the implicit group and the off-order locate.
+        var reads = CompositionReadsDuring(() => json = Merged());
+        using var doc = System.Text.Json.JsonDocument.Parse(json!);
+        var families = doc.RootElement.GetProperty("families");
+        foreach (var family in new[] { "errors", "scripts", "facegen" })
+            Assert.True(families.TryGetProperty(family, out _), $"the {family} family did not answer: {json}");
+
+        Assert.Equal(1, reads);
+    }
+
+    [Fact]
     public void AnErrorsCallThatNeedsNoCompositionParsesNone()
     {
         _svc.CheckErrors(null, 1000);                                           // warms the index
