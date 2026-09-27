@@ -12,36 +12,27 @@ internal static class SweepOffOrderScope
 
     /// <summary>Split <paramref name="plugins"/> against <paramref name="view"/>: the refusal, or null with
     /// <paramref name="active"/> and <paramref name="offOrder"/> filled. A blank name, a name found nowhere, and a
-    /// name several mod folders provide each refuse before anything is swept.</summary>
+    /// name several mod folders provide each refuse before anything is swept. The composition, read only when a name
+    /// is off-order, is the call's one read through <paramref name="memo"/>.</summary>
     internal static Refusal? Split(LoadOrderResolver.IndexView view, IReadOnlyList<string> plugins,
                                    Mo2Roots roots,
                                    out List<string> active, out List<(string Name, string Path)> offOrder,
-                                   SweepOffOrderMemo? memo = null)
-        => Split(view, plugins, roots, out active, out offOrder, memo, () => Mo2LoadOrder.ReadComposition(roots.ProfileDir));
-
-    /// <summary>As above, with <paramref name="readComposition"/> reading the profile's composition when a name is off-order.</summary>
-    internal static Refusal? Split(LoadOrderResolver.IndexView view, IReadOnlyList<string> plugins,
-                                   Mo2Roots roots,
-                                   out List<string> active, out List<(string Name, string Path)> offOrder,
-                                   SweepOffOrderMemo? memo, Func<Mo2Composition> readComposition)
+                                   SweepOffOrderMemo memo)
     {
-        if (memo is { Epoch: not null } m && m.Epoch == view.Epoch && m.Roots == roots && ReferenceEquals(m.Plugins, plugins))
+        if (memo.Epoch is not null && memo.Epoch == view.Epoch && memo.Roots == roots && ReferenceEquals(memo.Plugins, plugins))
         {
-            active = m.Active;
-            offOrder = m.OffOrder;
-            return m.Refusal;
+            active = memo.Active;
+            offOrder = memo.OffOrder;
+            return memo.Refusal;
         }
 
-        var answer = Compute(view, plugins, roots, out active, out offOrder, readComposition);
-        if (memo is not null)
-        {
-            memo.Epoch = view.Epoch;
-            memo.Roots = roots;
-            memo.Plugins = plugins;
-            memo.Refusal = answer;
-            memo.Active = active;
-            memo.OffOrder = offOrder;
-        }
+        var answer = Compute(view, plugins, roots, out active, out offOrder, memo.CompositionReader(roots.ProfileDir));
+        memo.Epoch = view.Epoch;
+        memo.Roots = roots;
+        memo.Plugins = plugins;
+        memo.Refusal = answer;
+        memo.Active = active;
+        memo.OffOrder = offOrder;
         return answer;
     }
 
@@ -75,9 +66,10 @@ internal static class SweepOffOrderScope
     }
 }
 
-/// <summary>ONE CALL's memo of the off-order split, so a surface handing the same <c>plugins=</c> list to both swept
-/// families pays the composition read and the folder sweep once. It answers only for the build, the roots and the very
-/// list it was filled against; anything else recomputes, and a family handed no memo resolves on its own.</summary>
+/// <summary>ONE CALL's shared state for the swept families, so a merged check pays the profile's composition read and
+/// the off-order folder sweep once. The composition is parsed at most once per profile folder; the split answers only
+/// for the build, the roots and the very list it was filled against, and anything else recomputes. A family handed no
+/// memo makes its own.</summary>
 public sealed class SweepOffOrderMemo
 {
     internal string? Epoch;
@@ -86,4 +78,20 @@ public sealed class SweepOffOrderMemo
     internal SweepOffOrderScope.Refusal? Refusal;
     internal List<string> Active = new();
     internal List<(string Name, string Path)> OffOrder = new();
+
+    string? _compositionProfile;
+    Lazy<Mo2Composition>? _composition;
+
+    /// <summary>A reader for <paramref name="profileDir"/>'s composition that parses it at most once for this call,
+    /// and only when first invoked; a different folder is read afresh. A failed read fails the same way each time.</summary>
+    internal Func<Mo2Composition> CompositionReader(string profileDir)
+    {
+        if (_composition is null || !string.Equals(_compositionProfile, profileDir, StringComparison.Ordinal))
+        {
+            _compositionProfile = profileDir;
+            _composition = new Lazy<Mo2Composition>(() => Mo2LoadOrder.ReadComposition(profileDir), LazyThreadSafetyMode.None);
+        }
+        var composition = _composition;
+        return () => composition.Value;
+    }
 }

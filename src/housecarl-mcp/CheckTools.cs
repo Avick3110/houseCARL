@@ -252,8 +252,8 @@ public static class CheckTools
             dialogueFold = probe;
         }
 
-        // Both swept families take the same plugins= list whole, sharing ONE memo of the off-order split, so the two
-        // cannot disagree about which names resolved.
+        // The swept families take the same plugins= list whole, sharing ONE memo: one read of the profile's composition
+        // and one off-order split, so they cannot disagree about which names resolved.
         var offOrderMemo = new SweepOffOrderMemo();
         // The order every family below answers from, captured once so the response root can say whether it had lost
         // plugins once for the whole call, rather than leaving the fact to whichever families ran (#353).
