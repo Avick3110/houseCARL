@@ -99,7 +99,7 @@ the core sweep knows the active order and stops there; a composition that cannot
 
 The sweep pins its view and its MO2 roots together, in one `_gate` hold (`CapturePinAndRoots`), so the off-order
 locate, the `implicit` group and this split all read the profile the swept build came from; the dialogue sweep takes
-its force-loaded names the same way. The profile's composition is read at most once per call, and only when one of
+its force-loaded names and its asset resolver the same way (`CapturePinRootsAndAssets`). The profile's composition is read at most once per call, and only when one of
 those three needs it. The off-order memo a merged check shares answers only for the build, the roots and the list
 it was filled against.
 
@@ -234,8 +234,9 @@ accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_def
 - `src/housecarl-mcp/CheckTools.cs` — `CheckTools.CheckTool`. Tool: `housecarl_check`.
 
 What the area needs from outside itself is the members of `ICheckHost`, declared at the top of `RecordChecks.cs`:
-the FormID door from the head. The type filter is `ILoadOrderHost.Types`, and the pin-and-roots capture the errors
-and dialogue sweeps take is `CapturePinAndRoots(afterPin)`, both on the shared door. The dialogue fold
+the FormID door from the head. The type filter is `ILoadOrderHost.Types`, the pin-and-roots capture the errors
+sweep takes is `CapturePinAndRoots(afterPin)`, and the dialogue sweep's is `CapturePinRootsAndAssets(afterPin)`, which
+adds the live asset resolver; all three are on the shared door. The dialogue fold
 is a static, `RecordReads.OpenDialogueFold`, so it is called directly. The members every area
 shares come through the door it extends, `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs`
 ([`load-order-service.md`](load-order-service.md)).
