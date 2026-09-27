@@ -36,8 +36,8 @@ public sealed record PluginFileHit(string Path, string Where, bool Enabled);
 
 public static class Mo2LoadOrder
 {
-    /// <summary>How many compositions this thread has parsed; a test seam, per thread so parallel tests do not share it.</summary>
-    [ThreadStatic] internal static int CompositionReadsOnThisThread;
+    /// <summary>Test seam: raised with the profile folder on every <see cref="ReadComposition"/>, never for <see cref="Build"/>'s own parse; null in the product.</summary>
+    internal static event Action<string>? CompositionRead;
 
     static readonly string[] PluginExts = PluginFile.Extensions;   // the one shared home (HousecarlCore.PluginFile) — no divergent copy
 
@@ -47,7 +47,7 @@ public static class Mo2LoadOrder
         var warnings = new List<string>();
 
         // The enabled/disabled COMPOSITION (text files only — cheap). The diagnostic re-reads this same parse fresh.
-        var comp = ReadComposition(profileDir, warnings);
+        var comp = ParseComposition(profileDir, warnings);
 
         // filename → WINNING real path: overwrite first, then highest-priority enabled mod (first-seen wins), data folder as base.
         var winningPath = BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir);
@@ -79,7 +79,13 @@ public static class Mo2LoadOrder
     /// <summary>Parse the profile's enabled/disabled composition from the three profile text files; the diagnostic re-reads this fresh each call, and <see cref="Build"/> adds the physical-path resolution on top.</summary>
     public static Mo2Composition ReadComposition(string profileDir, List<string>? warnings = null)
     {
-        CompositionReadsOnThisThread++;
+        CompositionRead?.Invoke(profileDir);
+        return ParseComposition(profileDir, warnings);
+    }
+
+    /// <summary>The parse behind <see cref="ReadComposition"/>, which <see cref="Build"/> calls directly.</summary>
+    static Mo2Composition ParseComposition(string profileDir, List<string>? warnings)
+    {
         var enabled = new List<string>();
         var disabled = new List<string>();
         ParseModlist(Path.Combine(profileDir, "modlist.txt"), enabled, disabled, warnings);

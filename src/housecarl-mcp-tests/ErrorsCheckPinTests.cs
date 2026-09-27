@@ -219,34 +219,49 @@ public sealed class ErrorsCheckPinTests : IDisposable
         Assert.Contains("no on-disk copy", refusal?.Message);
     }
 
-    // Counted at the parse itself, on this thread: a consumer that parses for itself is counted too.
+    /// <summary>This world's composition parses during <paramref name="act"/>, on any thread. Counted at the parse, so
+    /// a consumer that parses for itself counts too; an index build's own parse does not.</summary>
+    int CompositionReadsDuring(Action act)
+    {
+        int n = 0;
+        void Count(string profileDir)
+        {
+            if (profileDir.StartsWith(_root, StringComparison.OrdinalIgnoreCase)) Interlocked.Increment(ref n);
+        }
+        Mo2LoadOrder.CompositionRead += Count;
+        try { act(); }
+        finally { Mo2LoadOrder.CompositionRead -= Count; }
+        return n;
+    }
+
     [Fact]
     public void OneErrorsCallReadsTheCompositionOnce()
     {
         _svc.CheckErrors(null, 1000);                                           // warms the index
-        var before = Mo2LoadOrder.CompositionReadsOnThisThread;
+        ErrorCheckResult? r = null;
 
         // An off-order name, the implicit group and a missing master: three consumers of the composition.
-        var r = _svc.CheckErrors(new[] { PatchName, OffName }, 1000, exclude: new[] { SweepExclusion.ImplicitToken });
-        Assert.Null(r.Error);
+        var reads = CompositionReadsDuring(() =>
+            r = _svc.CheckErrors(new[] { PatchName, OffName }, 1000, exclude: new[] { SweepExclusion.ImplicitToken }));
+        Assert.Null(r!.Error);
         Assert.Equal(new[] { OffName }, r.OffOrderScanned);
         Assert.Equal(new[] { MasterName }, InstalledButInactive(r));
 
-        Assert.Equal(1, Mo2LoadOrder.CompositionReadsOnThisThread - before);
+        Assert.Equal(1, reads);
     }
 
     [Fact]
     public void AnErrorsCallThatNeedsNoCompositionParsesNone()
     {
         _svc.CheckErrors(null, 1000);                                           // warms the index
-        var before = Mo2LoadOrder.CompositionReadsOnThisThread;
+        ErrorCheckResult? r = null;
 
         // No off-order name, no implicit group, no missing master.
-        var r = _svc.CheckErrors(new[] { CleanName }, 1000);
-        Assert.Null(r.Error);
+        var reads = CompositionReadsDuring(() => r = _svc.CheckErrors(new[] { CleanName }, 1000));
+        Assert.Null(r!.Error);
         Assert.Empty(r.OffOrderScanned);
         Assert.DoesNotContain(r.Reports, p => p.MissingMasters.Count > 0);
 
-        Assert.Equal(0, Mo2LoadOrder.CompositionReadsOnThisThread - before);
+        Assert.Equal(0, reads);
     }
 }
