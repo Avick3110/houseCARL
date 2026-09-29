@@ -189,7 +189,8 @@ own world's; production never assigns them. `AccountingReserve` is held back fro
   transport states its own length about the same sweep (`TheTextLaneStatesItsOwnLengthOnTheSameSweep` for text); no
   test compares the two lengths with each other.
 - *A merged response water-fills its body budget over measured demand*: the properties, in
-  `src/housecarl-generator/CheckMergeProbe.cs` (`ci-all`, ci probe `check-guard`):
+  `src/housecarl-mcp-tests/CheckMergeAllocationTests.cs` (the arm names below are the retired `check-guard`
+  probe's, kept as one-line comments above each test):
 
 | property | what it holds |
 |---|---|
@@ -200,9 +201,9 @@ own world's; production never assigns them. `AccountingReserve` is held back fro
 | `RESERVE-DECLARED-IS-RESERVE-DEMANDED` | the demand pass's reserve and the render's reserve are one number |
 | `RESERVE-COVERS-WHAT-IT-RESERVES-FOR` | a reserve is wide enough for the sentence it was held back for |
 
-- *A merged response water-fills its body budget over measured demand*: `CheckShapeMatrix.cs`, run inside
-  `CheckMergeProbe`, drives the same properties over a shape matrix (`MATRIX-MONOTONE-IN-MAX-CHARS`,
-  `MATRIX-JSON-PARSES-AT-EVERY-CAP`), and its one-budget arm **bounds** `OutstandingHigh` by `ReservedForRows` — it
+- *A merged response water-fills its body budget over measured demand*: `CheckMergeShapeMatrixTests` drives the
+  same properties over a shape matrix (`MATRIX-MONOTONE-IN-MAX-CHARS`, `MATRIX-JSON-PARSES-AT-EVERY-CAP`), every
+  eleventh cap per shape, and its one-budget fact **bounds** `OutstandingHigh` by `ReservedForRows` — it
   fails only on `>`. Equality is the diagnostic reading, that the up-front measurement was not exceeded, and not the
   asserted property.
 - *What a merged response's accounting may claim*:

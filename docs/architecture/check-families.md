@@ -204,10 +204,10 @@ accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_def
   `Fact28_ExcludeNarrowingIsStated_AndAFullyExcludedBaseMasterLeavesNoBaselineLine` pin the rendered baseline line and
   its absence, but reach their negative arm by EXCLUDING the base master, so neither distinguishes
   opened-but-not-examined.
-- *Family selection*: `CheckMergeProbe`'s `REGISTERED-IS-THE-MEMBERSHIP` (every registered family is askable) and
-  `CLASS-TOKEN-ROUND-TRIP` (each class set the probe DRIVES — three errors sets, six of the eight scripts flag
-  combinations — spells tokens the family parsers read back as the same set, which is the trip the merged tool hands
-  each family its classes through; the probe's own label says "every class set", which is wider than what it walks).
+- *Family selection*: `CheckMergeRenderTests.EveryRegisteredFamilyIsOfferedAndAccepted` (every registered family is
+  askable) and `ErrorClassTokensRoundTrip` / `ScriptClassTokensRoundTrip` (each class set the tests DRIVE — three
+  errors sets, six of the eight scripts flag combinations — spells tokens the family parsers read back as the same
+  set, which is the trip the merged tool hands each family its classes through).
 
 ## Where
 - `src/housecarl-core/ErrorCheck.cs` — the errors family: `ErrorCheck.Run`, `ErrorCheckResult`, `PluginErrors`.
