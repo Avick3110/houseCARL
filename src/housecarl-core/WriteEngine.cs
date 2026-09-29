@@ -1429,12 +1429,7 @@ public static class WriteEngine
         Directory.CreateDirectory(tmpDir);
         try
         {
-            targetMod.BeginWrite
-                .ToPath(tmpPath)
-                .WithLoadOrder(ordered)            // the target's OWN masters — no whole-order, no baseline
-                .NoNextFormIDProcessing()          // persist the author's NextObjectID verbatim (no EnsureFormIdFloor)
-                .WithEmbeddedEncodings(PluginTextEncoding.WriteInPlace(outputPath))
-                .Write();
+            SerializeInPlace(targetMod, ordered, outputPath, tmpPath, fileSystem: null);
             return tmpPath;
         }
         catch
@@ -1442,6 +1437,18 @@ public static class WriteEngine
             CleanupStaged(tmpPath);
             throw;
         }
+    }
+
+    /// <summary>The one in-place serialize, shared by the staged write and the round-trip check so the two cannot drift.</summary>
+    internal static void SerializeInPlace(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath,
+                                          string writePath, System.IO.Abstractions.IFileSystem? fileSystem)
+    {
+        targetMod.BeginWrite
+            .ToPath(writePath, fileSystem)
+            .WithLoadOrder(ordered)            // the target's OWN masters — no whole-order, no baseline
+            .NoNextFormIDProcessing()          // persist the author's NextObjectID verbatim (no EnsureFormIdFloor)
+            .WithEmbeddedEncodings(PluginTextEncoding.WriteInPlace(outputPath))
+            .Write();
     }
 
     /// <summary>The base-game masters every Skyrim plugin must carry, force-included on every patch write.</summary>
