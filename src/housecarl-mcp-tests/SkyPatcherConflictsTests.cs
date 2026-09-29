@@ -155,6 +155,20 @@ public sealed class SkyPatcherConflictsTests
     public void DifferentTargetSetsDoNotCollide() =>
         Assert.DoesNotContain(Cross.Conflicts.SelectMany(c => c.Entries), e => e.Value == "99");
 
+    // one INI writing the same field and target twice is an ITM only, never a cross-INI conflict or duplicate
+    [Fact]
+    public void ASingleFilesRewritesAreNeverACrossIniConflictOrDuplicate()
+    {
+        var solo = Detect(Ini("solo.ini",
+            $"filterByWeapons={Target}:attackDamage=40",
+            $"filterByWeapons={Target}:attackDamage=60",
+            $"filterByWeapons={Target}:weight=5",
+            $"filterByWeapons={Target}:weight=5"));
+        Assert.Empty(solo.Conflicts);
+        Assert.Empty(solo.Duplicates);
+        Assert.Equal(2, solo.Itms.Count);
+    }
+
     // cross-file-only writes are NOT ITMs (the conflict fixture yields zero)
     [Fact]
     public void CrossFileOnlyWritesAreNotItms() => Assert.Empty(Cross.Itms);
