@@ -58,9 +58,12 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   existing patch (`into=`); and the in-place compact over its target and every referencer it would repoint, on the
   acknowledged call, after the writable-folder pre-flight and before the compacted plugin is written. Create runs it after its spec pre-flight, as apply
   does. The unedited file is serialized through `WriteEngine.SerializeInPlace` into a capture that holds the bytes in
-  memory and refuses every other file-system call, with no load order: the order only sorts the header's master list,
-  which the walk maps away, so the check opens no master. The trade-off is that a master that cannot be opened, or is
-  not active, is met by the lane's own write in its own words rather than by the check. The `into=` lanes stage through `WritePatch`,
+  memory and refuses every other file-system call, over the target's own declared masters only: the session's overlays
+  of them on every session lane (which the write then reuses), opened from the view on compact. The whole order is not
+  opened: beyond the declared masters it only sorts the header's master list, which the walk maps away. No load order at
+  all is not used, because it changes what the serialize does (a record below the FormID floor refuses, a FormID 0
+  record is written differently). A master the order lacks or cannot open is left out and retried with no load order,
+  so the lane's own write meets it in its own words; one that fails to open mid-call refuses in its own sentence. The `into=` lanes stage through `WritePatch`,
   whose chain differs in the header masters, the FormID floor and the text encoding: the check embeds the encoding the
   file was read in, while `WritePatch` goes to UTF-8 when `NewFileIsUtf8` holds, so a non-ASCII string in a patch read
   in the legacy encoding can come back at another length on the real write. That is a re-encode, not a loss; the check
