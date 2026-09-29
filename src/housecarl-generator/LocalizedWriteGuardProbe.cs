@@ -515,8 +515,8 @@ public static class LocalizedWriteGuardProbe
     /// before it REFUSES, which is the wider, fail-closed "anything but NotLocalized". Armed here, at the seam, rather
     /// than through each consumer: the compact report note's consumer cannot be driven end to end (its Assess and its
     /// plugin read are the same `CreateFromBinaryOverlay` call a few lines apart, so a file one cannot open the other
-    /// cannot either — see CompactServiceLocalizedTests.AHeldSourceIsRefusedInPlaceNamingTheReadFailureNotLocalization), and an arm that looked like it had driven it
-    /// would be measuring a failed compaction.
+    /// cannot either — see CompactServiceLocalizedTests.AHeldSourceIsRefusedInPlaceNamingTheReadFailureNotLocalization),
+    /// and an arm that looked like it had driven it would be measuring a failed compaction.
     ///
     /// <para>Walked over the whole enum, both directions, so it cannot pass by answering true everywhere or false
     /// everywhere — and so a shape added later is a FAILURE here rather than a silent default.</para></summary>
