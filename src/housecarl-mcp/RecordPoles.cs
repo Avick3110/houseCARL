@@ -42,7 +42,7 @@ internal sealed partial class RecordReads
         IReadOnlyList<string> formids, PoleSpec subject, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
         out string? subjectArm, out string? referenceArm, out bool epochCoversAll,
-        out string? refusal, out OrderStamp? epoch, SkyPatcherOverlay.WarningSink? overlayWarnings)
+        out string? refusal, out OrderStamp? epoch, ComparisonMeter meter, SkyPatcherOverlay.WarningSink? overlayWarnings)
     {
         subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
         // One build and one set of roots for every pole of every record.
@@ -87,13 +87,42 @@ internal sealed partial class RecordReads
         // Whether the subject holds a version of the record, as the subject pole itself answers it.
         bool SubjectHolds(FormKey fk, string? subjectPlugin) => sGather.Holds?.Invoke(fk) ?? subjectPlugin is not null;
 
-        var rows = new List<DeltaRow>(formids.Count);
-        // A chunk of rows at a time, so each pole walks a plugin once for the whole chunk.
-        for (int start = 0; start < parsed.Count; start = ChunkEnd(start, parsed.Count))
+        DeltaRow RowAt(int i)
         {
-            int end = ChunkEnd(start, parsed.Count);
+            var (raw, fkOpt, parseError) = parsed[i];
+            if (parseError is not null) return new DeltaRow(raw?.Trim() ?? "", null, null, null, null, null, parseError);
+            var fk = fkOpt!.Value;
+            var s = sReader(fk, null);
+            if (s.Error is not null) return new DeltaRow(FormIdToken.Of(fk), s.Pole, null, null, null, null, "subject: " + s.Error);
+            // previous_provider is measured from the SUBJECT, so the reference reader is handed the subject's plugin.
+            var r = rReader(fk, s.Pole!.Plugin);
+            if (r.Error is not null) return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error);
+            string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
+                ? "the two poles resolved to the SAME provider — the diff is trivially empty by construction"
+                : null;
+            // Two copies of one filename on opposite arms: the delta line names the off-order side's mod folder.
+            var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.LabelVersus(s.Pole.Plugin));
+            return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null);
+        }
+
+        // An off-order subject is swept first: the sweep is what says which ids it holds.
+        if (sOffOrder is not null && wanted.Count > 0) sGather.Prime?.Invoke();
+        // Rows whose subject holds no version read no body, so they are settled here and only the live ones chunked.
+        var rows = new DeltaRow[parsed.Count];
+        var live = new List<int>();
+        for (int i = 0; i < parsed.Count; i++)
+        {
+            if (parsed[i].Fk is { } lk && SubjectHolds(lk, sGather.PluginOf?.Invoke(lk, null))) live.Add(i);
+            else rows[i] = RowAt(i);
+        }
+        if (live.Count > 0) { sGather.Prime?.Invoke(); rGather.Prime?.Invoke(); }
+        meter.Start();
+        // A chunk of live rows at a time, so each pole walks a plugin once for the whole chunk.
+        for (int start = 0; start < live.Count; start = ChunkEnd(start, live.Count))
+        {
+            int end = ChunkEnd(start, live.Count);
             var chunkKeys = new List<FormKey>(end - start);
-            for (int i = start; i < end; i++) if (parsed[i].Fk is { } k) chunkKeys.Add(k);
+            for (int j = start; j < end; j++) chunkKeys.Add(parsed[live[j]].Fk!.Value);
             sGather.Open(view, session, chunkKeys);
             // The reference's rows: each key whose subject holds a version, with the plugin the subject resolved to.
             var refRows = new List<(FormKey Key, string? Subject)>(chunkKeys.Count);
@@ -101,26 +130,12 @@ internal sealed partial class RecordReads
                 if (sGather.PluginOf?.Invoke(key, null) is var sp && SubjectHolds(key, sp)) refRows.Add((key, sp));
             rGather.Open(view, session, refRows);
 
-            for (int i = start; i < end; i++)
+            for (int j = start; j < end; j++) rows[live[j]] = RowAt(live[j]);
+            // Past the budget the rows are dropped and nothing further is read.
+            if (meter.Check(end, live.Count) is { } tooDear)
             {
-                var (raw, fkOpt, parseError) = parsed[i];
-                if (parseError is not null) { rows.Add(new DeltaRow(raw?.Trim() ?? "", null, null, null, null, null, parseError)); continue; }
-                var fk = fkOpt!.Value;
-
-                var s = sReader(fk, null);
-                if (s.Error is not null) { rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, null, null, null, null, "subject: " + s.Error)); continue; }
-                // previous_provider is measured from the SUBJECT, so the reference reader is handed the subject's
-                // resolved plugin for this record.
-                var r = rReader(fk, s.Pole!.Plugin);
-                if (r.Error is not null) { rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error)); continue; }
-
-                string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
-                    ? "the two poles resolved to the SAME provider — the diff is trivially empty by construction"
-                    : null;
-                // Two copies of one filename on opposite arms: the delta line names the off-order side's mod
-                // folder, or the reader cannot tell which side a value came from.
-                var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.LabelVersus(s.Pole.Plugin));
-                rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null));
+                refusal = tooDear;
+                return Array.Empty<DeltaRow>();
             }
         }
         return rows;
@@ -265,7 +280,7 @@ internal sealed partial class RecordReads
                 covers = false;   // the file's content sits outside the epoch fingerprint
                 offOrderArm = arm;
                 var lazy = new OffOrderPoleCache(arm, fields, wanted);
-                if (gather is not null) gather.Holds = fk => lazy.Find(fk) is { Fields: not null, Error: null };
+                if (gather is not null) { gather.Prime = lazy.Prime; gather.Holds = fk => lazy.Find(fk) is { Fields: not null, Error: null }; }
                 return (fk, _) =>
                 {
                     var (rec, oerr) = lazy.Find(fk);
@@ -328,7 +343,6 @@ internal sealed partial class RecordReads
         // would re-apply every INI line onto the already-mutated copy.
         var postMemo = new Dictionary<FormKey, PoleReading>();
         string? setupError = null;
-        if (gather is not null) gather.Holds = fk => { Setup(); return setupError is null && view.ResolveWinner(fk) is not null; };
         void Setup()
         {
             if (replay is not null || setupError is not null) return;
@@ -343,6 +357,8 @@ internal sealed partial class RecordReads
                 setupError = $"the SkyPatcher layer could not be discovered for the overlay pole: {ex.Message}";
             }
         }
+        if (gather is not null) { gather.Prime = Setup; gather.Holds = fk => view.ResolveWinner(fk) is not null && SetupHolds(); }
+        bool SetupHolds() { Setup(); return setupError is null; }
         // A draft is folded up front rather than on the first record: whether it can be folded at all is a fact
         // about the whole call, so it refuses by name here.
         if (spec.Draft is not null)
@@ -354,6 +370,8 @@ internal sealed partial class RecordReads
         {
             if (setupError is not null) return new PoleReading(null, null, null, setupError);
             if (postMemo.TryGetValue(fk, out var memoized)) return memoized;
+            // An id with no winner has nothing to replay, so it is answered without opening the layer.
+            if (view.ResolveWinner(fk) is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
             Setup();
             if (setupError is not null) return new PoleReading(null, null, null, setupError);
             var r = replay!.Replay(fk);
@@ -385,6 +403,12 @@ internal sealed partial class RecordReads
 
         public OffOrderPoleCache(PoleInfo arm, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted)
         { _arm = arm; _fields = fields; _wanted = wanted is null ? null : new HashSet<FormKey>(wanted); }
+
+        /// <summary>Sweep now rather than on the first lookup; a failure is kept for every lookup to name.</summary>
+        public void Prime()
+        {
+            if (_all is null && _error is null && Sweep() is { } err) _error = err;
+        }
 
         public (RecordFields? Fields, string? Error) Find(FormKey fk)
         {
@@ -521,7 +545,7 @@ internal sealed partial class RecordReads
         IReadOnlyList<string> formids, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
         out string? referenceArm, out bool epochCoversAll, out string? refusal, out OrderStamp? epoch,
-        SkyPatcherOverlay.WarningSink? overlayWarnings)
+        ComparisonMeter meter, SkyPatcherOverlay.WarningSink? overlayWarnings)
     {
         referenceArm = null; epochCoversAll = true; refusal = null;
         var (pin, roots, assets) = CapturePolePin(reference.ReplaysOverlay);
@@ -582,6 +606,8 @@ internal sealed partial class RecordReads
             liveRow.Add(i); liveKey.Add(fk0); liveTouchers.Add(t);
         }
 
+        if (liveRow.Count > 0) refGather.Prime?.Invoke();
+        meter.Start();
         // A chunk of rows at a time, so each provider plugin is walked once for the whole chunk.
         for (int start = 0; start < liveRow.Count; start = ChunkEnd(start, liveRow.Count))
         {
@@ -664,6 +690,12 @@ internal sealed partial class RecordReads
                 }
                 rows[i] = new TreeRow(FormIdToken.Of(fk), fills[j]!.Type, fills[j]!.EditorId,
                                       touchers, refLabel[j], ordered, null, fills[j]!.ChildDeclarers);
+            }
+            // Past the budget the rows are dropped and nothing further is read.
+            if (meter.Check(end, liveRow.Count) is { } tooDear)
+            {
+                refusal = tooDear;
+                return Array.Empty<TreeRow>();
             }
         }
         return rows;
