@@ -40,11 +40,13 @@ public sealed class SeqFileEncodingFixture : IDisposable
             p.Quests.GetOrAddAsOverride(m.Quests.First(q => q.FormKey == AMasterQuest)).Flags = Quest.Flag.StartGameEnabled;
             AOwn = AddQuest(p, "HcSeqAOwn", Quest.Flag.StartGameEnabled);
             APlain = AddQuest(p, "HcSeqAPlain", Quest.Flag.RunOnce);
-            var del = p.Quests.AddNew(); del.EditorID = "HcSeqADel"; del.Flags = Quest.Flag.StartGameEnabled; del.IsDeleted = true;
-            ADeleted = del.FormKey;
+            ADeleted = AddQuest(p, "HcSeqADel", Quest.Flag.StartGameEnabled);
             p.BeginWrite.ToPath(APatch).WithLoadOrder(new[] { (ISkyrimModGetter)m }).NoNextFormIDProcessing().Write();
         }
         AMasters = MastersOf(APatch);
+        // Mutagen writes a deleted record with no fields, so the SGE flag would be gone; set the header's deleted bit
+        // on the written record instead, so the quest is deleted AND still flagged start-game-enabled.
+        MarkQuestDeleted(APatch, ((uint)AMasters.Count << 24) | ADeleted.ID);
 
         var b1 = Path.Combine(_root, "HcSeqBM1.esm");
         var b2 = Path.Combine(_root, "HcSeqBM2.esm");
@@ -109,15 +111,38 @@ public sealed class SeqFileEncodingFixture : IDisposable
 
     /// <summary>Every QUST record's FormID as it sits in the file's record headers, read from the raw bytes rather than
     /// through Mutagen, so the encoding is checked against what was written.</summary>
-    public static HashSet<uint> RawQuestFormIds(string path)
+    public static Dictionary<string, uint> RawQuestFormIdsByEditorId(string path)
     {
         var buf = File.ReadAllBytes(path);
-        var found = new HashSet<uint>();
+        return QuestHeaders(buf).ToDictionary(h => EditorIdAt(buf, h.offset), h => h.formId);
+    }
+
+    /// <summary>The EDID a QUST record opens with: the first field after its 24-byte header, a zero-terminated string.</summary>
+    static string EditorIdAt(byte[] buf, int record)
+    {
+        int f = record + 24;
+        if (System.Text.Encoding.ASCII.GetString(buf, f, 4) != "EDID") return "";
+        int len = BitConverter.ToUInt16(buf, f + 4);
+        return System.Text.Encoding.ASCII.GetString(buf, f + 6, len).TrimEnd('\0');
+    }
+
+    /// <summary>Set the deleted bit (0x20) in the record header of the QUST whose on-disk FormID is <paramref name="formId"/>.</summary>
+    static void MarkQuestDeleted(string path, uint formId)
+    {
+        var buf = File.ReadAllBytes(path);
+        var at = QuestHeaders(buf).Single(h => h.formId == formId).offset;
+        BitConverter.GetBytes(BitConverter.ToUInt32(buf, at + 8) | 0x20u).CopyTo(buf, at + 8);
+        File.WriteAllBytes(path, buf);
+    }
+
+    static List<(uint formId, int offset)> QuestHeaders(byte[] buf)
+    {
+        var found = new List<(uint, int)>();
         if (buf.Length >= 24) Scan(buf, 24 + (int)BitConverter.ToUInt32(buf, 4), buf.Length, found);
         return found;
     }
 
-    static void Scan(byte[] buf, int start, int end, HashSet<uint> found)
+    static void Scan(byte[] buf, int start, int end, List<(uint, int)> found)
     {
         int p = start;
         while (p + 24 <= end)
@@ -126,7 +151,7 @@ public sealed class SeqFileEncodingFixture : IDisposable
             uint size = BitConverter.ToUInt32(buf, p + 4);
             long next;
             if (sig == "GRUP") { next = (long)p + size; Scan(buf, p + 24, (int)Math.Min(next, end), found); }
-            else { if (sig == "QUST") found.Add(BitConverter.ToUInt32(buf, p + 12)); next = (long)p + 24 + size; }
+            else { if (sig == "QUST") found.Add((BitConverter.ToUInt32(buf, p + 12), p)); next = (long)p + 24 + size; }
             if (next <= p) break;
             p = (int)Math.Min(next, (long)end);
         }
@@ -191,10 +216,16 @@ public sealed class SeqFileEncodingTests : IClassFixture<SeqFileEncodingFixture>
         Assert.Equal(F.AMasters.ToList().IndexOf(F.AMasterQuest.ModKey), HighByte(ov.OnDiskFormId));
     }
 
-    // Probe DELETED-SKIP: "deleted SGE quest EXCLUDED".
+    // Probe DELETED-SKIP: "deleted SGE quest EXCLUDED". The quest is still flagged SGE, so only the deleted skip drops it.
     [Fact]
     public void ADeletedSgeQuestIsNotListed()
     {
+        using (var ov = SkyrimMod.CreateFromBinaryOverlay(F.APatch, SkyrimRelease.SkyrimSE))
+        {
+            var del = ov.Quests.Single(q => q.FormKey == F.ADeleted);
+            Assert.True(del.IsDeleted);
+            Assert.True(del.Flags.HasFlag(Quest.Flag.StartGameEnabled));
+        }
         Assert.DoesNotContain(SeqFile.Build(F.APatch).Quests, q => q.FormKey == F.ADeleted);
     }
 
@@ -220,16 +251,16 @@ public sealed class SeqFileEncodingTests : IClassFixture<SeqFileEncodingFixture>
     }
 
     // Probe ON-DISK-MATCH: "built FormIDs == actual on-disk record FormIDs (master-index, never FE)", on the 1-master
-    // patch and (with ESL-NEVER-FE) on the light patch.
+    // patch and (with ESL-NEVER-FE) on the light patch. Matched per quest by EditorID, so two quests cannot share one header.
     [Theory]
     [InlineData("A")]
     [InlineData("E")]
     public void EveryListedFormIdIsTheOneWrittenInTheRecordHeader(string which)
     {
         var path = which == "A" ? F.APatch : F.EPatch;
-        var raw = SeqFileEncodingFixture.RawQuestFormIds(path);
+        var raw = SeqFileEncodingFixture.RawQuestFormIdsByEditorId(path);
         var built = SeqFile.Build(path);
         Assert.NotEmpty(built.Quests);
-        Assert.All(built.Quests, q => Assert.Contains(q.OnDiskFormId, raw));
+        Assert.All(built.Quests, q => Assert.Equal(raw[q.EditorId!], q.OnDiskFormId));
     }
 }

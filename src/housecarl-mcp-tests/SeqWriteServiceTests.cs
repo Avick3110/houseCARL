@@ -88,12 +88,16 @@ public sealed class SeqWriteServiceTests : IDisposable
         Assert.False(o.WroteIntoPluginFolder);
     }
 
-    // Probe OUTPUT-DIR: "no houseCARL folder cut, no ownership marker stamped".
+    // Probe OUTPUT-DIR: "no houseCARL folder cut, no ownership marker stamped". The plugin is a copy outside any
+    // houseCARL folder, so without out_path= this call would cut a fresh one.
     [Fact]
     public void OutPathCutsNoFolderAndStampsNoMarker()
     {
+        var loose = Path.Combine(W.Root, "loose", "HcSeqSvc.esp");
+        Directory.CreateDirectory(Path.GetDirectoryName(loose)!);
+        File.Copy(W.SvcPlugin, loose);
         int before = Directory.GetDirectories(W.Mods).Length;
-        W.WriteToUserMod();
+        Assert.True(W.Svc.WriteSeq(loose, null, null, W.UserMod).Success);
         Assert.Equal(before, Directory.GetDirectories(W.Mods).Length);
         Assert.False(File.Exists(Path.Combine(W.UserMod, "meta.ini")));
     }
