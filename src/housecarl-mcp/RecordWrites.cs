@@ -1203,11 +1203,6 @@ public sealed partial class LoadOrderService
                         $"'{name}' is untouched. Following the renumber means rewriting those referencers in place, and " +
                         "houseCARL rewrites neither a localized plugin nor one it cannot read in place.");
             }
-            // Before the consent gate and before ANY write: every file this call rewrites in place must survive the round
-            // trip (#961), because the referencer rewrites run only after the compacted plugin is on disk.
-            if ((willOverwriteTarget || willRepoint) &&
-                WritePatchBuilder.CompactRoundTripRefusal(view, srcPath, willOverwriteTarget, willRepoint ? id.ExternalPlugins : null) is { } lost)
-                return WritePatchBuilder.CompactOutcome.Fail(lost);
             if ((willOverwriteTarget || willRepoint) && !acknowledge)
             {
                 var c = new System.Text.StringBuilder();
@@ -1223,6 +1218,11 @@ public sealed partial class LoadOrderService
                 c.Append("Re-call with acknowledge=true to proceed.");
                 return WritePatchBuilder.CompactOutcome.Confirm(c.ToString());
             }
+            // Acknowledged, before ANY write: every file this call rewrites in place must survive the round trip (#961),
+            // because the referencer rewrites run only after the compacted plugin is on disk.
+            if ((willOverwriteTarget || willRepoint) &&
+                WritePatchBuilder.CompactRoundTripRefusal(view, srcPath, willOverwriteTarget, willRepoint ? id.ExternalPlugins : null) is { } lost)
+                return WritePatchBuilder.CompactOutcome.Fail(lost);
 
             // Pre-flight that the in-place target's parent is writable before any work.
             if (inPlace && InPlaceParentUnwritable(srcPath, out var unwritable))

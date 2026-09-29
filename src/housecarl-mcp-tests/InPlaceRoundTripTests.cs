@@ -486,6 +486,16 @@ public sealed class CompactRoundTripTests
         Assert.Equal(target, File.ReadAllBytes(w.TargetPath));
     }
 
+    // The check runs once, on the acknowledged call; the consent prompt comes first and costs no round trip.
+    [Fact]
+    public void TheUnacknowledgedCompactAsksForConsentWithoutRunningTheCheck()
+    {
+        using var w = new World(lossyTarget: true);
+        var o = w.Svc.CompactPlugin(World.TargetName, esl: true, inPlace: true, repointExternals: true, acknowledge: false);
+        Assert.True(o.NeedsAcknowledge, o.Error);
+        Assert.DoesNotContain("MOD2", o.Error);
+    }
+
     // copy into= re-serializes the whole existing patch, so it is checked like the other into= lanes.
     [Fact]
     public void ACopyIntoAPatchThatWouldLoseSubrecordsIsRefusedWithTheFileUntouched()
