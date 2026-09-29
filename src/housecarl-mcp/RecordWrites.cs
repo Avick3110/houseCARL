@@ -1003,14 +1003,14 @@ public sealed partial class LoadOrderService
 
             // The basename is load-bearing for a trigger, so a collision is never auto-suffixed — refuse instead.
             // (a) an active plugin already owns this basename — a second one would shadow it (MO2 picks one by mod order).
-            foreach (var ext in OutputLocations.PluginExts)                              // .esp / .esm / .esl
+            foreach (var ext in OutputLocations.PluginExts)              // .esp / .esm / .esl
                 if (view.ContainsPlugin(stem + ext))
                     return WritePatchBuilder.CreatePluginOutcome.Fail(
                         $"a plugin named '{stem + ext}' is already active in your load order — a header-only trigger needs a UNIQUE basename (a second one would shadow it, MO2 picking the winner by mod order). Choose a different name.");
             var folder = Path.Combine(roots.ModsDir, OutputLocations.ModFolderName(stem));
             var plugin = stem + ".esp";
             var active = OutputLocations.ActivePluginBasenames(roots, snapshot.BuiltPluginNames);   // before the lock: may build the order
-            lock (_outputLocations.FolderAllocationGate)                                 // the same allocation lock as the other fresh-folder sites
+            lock (_outputLocations.FolderAllocationGate)                 // the same allocation lock as the other fresh-folder sites
             {
                 // (b) a houseCARL mod folder of this exact name already exists — don't overwrite (could clobber a real patch
                 //     sharing the name) and don't auto-rename (would break the basename trigger): refuse and point at it.
@@ -1019,7 +1019,7 @@ public sealed partial class LoadOrderService
                         $"a houseCARL output folder '{OutputLocations.ModFolderName(stem)}' already exists — houseCARL won't auto-rename a header-only plugin (its exact basename is what makes the trigger resolve). Remove that folder in MO2, or choose a different name.");
                 // (c) a plugin of this BASENAME sits somewhere the order is NOT loading — the shadow the fresh patch lanes take (#561).
                 if (active.Count > 0 && OutputLocations.ReadCompositionForShadow(roots) is { } comp)
-                    foreach (var ext in OutputLocations.PluginExts)                       // .esp / .esm / .esl — the basename is what binds
+                    foreach (var ext in OutputLocations.PluginExts)       // .esp / .esm / .esl — the basename is what binds
                         if (PatchStemShadow.Find(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, stem + ext, active) is { } shadow)
                             return WritePatchBuilder.CreatePluginOutcome.Fail(
                                 PatchStemShadow.Refusal(plugin, shadow, "patch", stem + ext,
@@ -1235,7 +1235,7 @@ public sealed partial class LoadOrderService
                 try { rf = _outputLocations.ResolvePatchModFolder(patchName, null, Path.GetFileNameWithoutExtension(name) + " compacted", naming: null); }
                 catch (InvalidOperationException ex) { return WritePatchBuilder.CompactOutcome.Fail(ex.Message); }
                 createdFresh = rf.CreatedFresh;
-                OutputLocations.WriteOwnerMeta(rf.ModFolder, name);                       // the output keeps the source's exact basename
+                OutputLocations.WriteOwnerMeta(rf.ModFolder, name);       // the output keeps the source's exact basename
                 outPath = Path.Combine(rf.OutputDir, name);
             }
 
@@ -2084,7 +2084,7 @@ public sealed partial class LoadOrderService
             var baseStem = OutputLocations.PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
             var active = OutputLocations.ActivePluginBasenames(roots, _resolver?.PluginNames);   // under _gate, before the allocation lock
             // Every record lane that reaches here declares patch= and writes "<stem>.esp".
-            lock (_outputLocations.FolderAllocationGate)                                // the same allocation lock as the rider lanes
+            lock (_outputLocations.FolderAllocationGate)                // the same allocation lock as the rider lanes
             {
                 var freeStem = OutputLocations.UniqueStem(roots, active, baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
                                           new PatchStemShadow.Target(s => s + ".esp", "patch"), refuseTaken);
