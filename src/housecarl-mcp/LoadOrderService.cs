@@ -331,9 +331,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         IReadOnlyList<string> formids, RecordReads.PoleSpec subject, RecordReads.PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
         out string? subjectArm, out string? referenceArm, out bool epochCoversAll,
-        out string? refusal, out OrderStamp? epoch, SkyPatcherOverlay.WarningSink? overlayWarnings = null)
+        out string? refusal, out OrderStamp? epoch, ComparisonMeter meter, SkyPatcherOverlay.WarningSink? overlayWarnings = null)
         => _reads.DeltaBatch(formids, subject, reference, fields, demand, out subjectArm, out referenceArm, out epochCoversAll,
-                             out refusal, out epoch, overlayWarnings);
+                             out refusal, out epoch, meter, overlayWarnings);
     public IReadOnlyList<ReadOutcome> OverlayPostBatch(
         IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? refusalEpoch, out OrderStamp? epoch,
@@ -348,8 +348,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         IReadOnlyList<string> formids, RecordReads.PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
         out string? referenceArm, out bool epochCoversAll, out string? refusal, out OrderStamp? epoch,
-        SkyPatcherOverlay.WarningSink? overlayWarnings = null)
-        => _reads.TreeBatch(formids, reference, fields, demand, out referenceArm, out epochCoversAll, out refusal, out epoch, overlayWarnings);
+        ComparisonMeter meter, SkyPatcherOverlay.WarningSink? overlayWarnings = null)
+        => _reads.TreeBatch(formids, reference, fields, demand, out referenceArm, out epochCoversAll, out refusal, out epoch, meter, overlayWarnings);
     internal IReadOnlyList<RecordReads.WalkSeedResult> WalkForwardBatch(
         IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,

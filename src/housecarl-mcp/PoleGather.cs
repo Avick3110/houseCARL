@@ -23,6 +23,9 @@ internal sealed class PoleGather
     /// body, which leaves every row of it on its own read.</summary>
     internal Func<FormKey, string?, string?>? PluginOf;
 
+    /// <summary>The arm's one-time work (the off-order sweep, the SkyPatcher replay's open), run before the metered chunks.</summary>
+    internal Action? Prime;
+
     /// <summary>Whether this pole holds a version of the record, for an arm with no in-order plugin (the post replay, an off-order file); null leaves it to <see cref="PluginOf"/>.</summary>
     internal Func<FormKey, bool>? Holds;
 
