@@ -781,6 +781,8 @@ public static class WritePatchBuilder
         // The author's DECLARED masters before any mutation, diffed against the re-opened header for the re-sort note.
         var mastersBefore = targetMod.ModHeader.MasterReferences
             .Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (RoundTripRefusal(targetMod, targetPath, session.AllMastersExcept(fileName), session) is { } lost)
+            return PatchOutcome.Fail(lost);
 
         // --- Phase 2b: SNAPSHOT every same-file copy source BEFORE any op mutates anything, ONE snapshot PER OP. ---
         Dictionary<PatchEdit, IMajorRecordGetter>? selfSnapshots = null;
@@ -1225,6 +1227,14 @@ public static class WritePatchBuilder
             return RemovalOutcome.Fail(
                 $"refused — {problems.Count} of {targets.Count} target(s) not carried by '{fileName}'; NOTHING removed:\n  - "
                 + string.Join("\n  - ", problems));
+        var checkOverlays = new List<IDisposable>();
+        try
+        {
+            var checkMasters = ResolveOwnMasters(view, targetMod, checkOverlays, out var checkMissing);
+            if (checkMissing is not null) return RemovalOutcome.Fail(checkMissing);
+            if (RoundTripRefusal(targetMod, targetPath, checkMasters, session) is { } lost) return RemovalOutcome.Fail(lost);
+        }
+        finally { foreach (var d in checkOverlays) { try { d.Dispose(); } catch { /* best-effort; never mask the check */ } } }
 
         // --- Phase 4: literal drop-from-group via the typed overload; a singular owned child goes through the detach below. ---
         try
@@ -1443,6 +1453,8 @@ public static class WritePatchBuilder
         // Declared masters before any mutation — diffed against the re-opened header (see MasterGrowNote).
         var mastersBefore = targetMod.ModHeader.MasterReferences
             .Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (RoundTripRefusal(targetMod, targetPath, session.AllMastersExcept(fileName), session) is { } lost)
+            return ForwardOutcome.Fail(lost);
 
         // --- Phase 3: replace-or-copy each source body into the TARGET; nothing is serialized until Phase 4. ---
         var alreadyCarried = new Dictionary<FormKey, IMajorRecord>();
@@ -1555,6 +1567,17 @@ public static class WritePatchBuilder
     }
 
     /// <summary>Render a serialize-failure message, except that a BASELINE refusal SUBSTITUTES its own message for the lot.</summary>
+    /// <summary>The in-place round-trip check (#961) before any op runs: its refusal, or the serialize fault in the lanes' own words.</summary>
+    static string? RoundTripRefusal(SkyrimMod targetMod, string targetPath, IReadOnlyList<ISkyrimModGetter> masters,
+                                    LoadOrderResolver.OverlaySession session)
+    {
+        try { return SubrecordInventory.RoundTripRefusal(targetMod, targetPath, masters); }
+        catch (Exception ex)
+        {
+            return SerializeFailure($"writing '{Path.GetFileName(targetPath)}' in place failed (serialize or commit; the existing file is untouched): ", ex, session);
+        }
+    }
+
     public static string SerializeFailure(string lead, Exception ex, LoadOrderResolver.OverlaySession session, string trailer = "")
     {
         for (Exception? b = ex; b is not null; b = b.InnerException)
@@ -2272,6 +2295,8 @@ public static class WritePatchBuilder
         var mastersBefore = inPlace || extend
             ? patchMod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : null;
+        if (inPlace && RoundTripRefusal(patchMod, outPath, session.AllMastersExcept(fileName), session) is { } lost)
+            return CreateOutcome.Fail(lost);
 
         // --- Phase 1: pre-flight EVERY spec before any mutation; creatability is STRUCTURAL, the FormID unknown until Phase 3. ---
         var problems = new List<string>();
