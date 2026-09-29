@@ -177,7 +177,8 @@ public sealed class RecordsWalkCostTests
     /// <summary>What the seeks meant in memory. A walk's allocation now scales with the SEEDS, not with the seeds
     /// times the plugin behind them: 9 MB over these 302 seeds, where the per-node seek spent 240 MB on the same
     /// call and rose with every record added to the plugin. The bound is allocated bytes, which a run reports
-    /// exactly — no clock, so no flaky timing.</summary>
+    /// exactly — no clock, so no flaky timing. The records path runs synchronously on the calling thread, so this
+    /// thread's allocation is the call's.</summary>
     [Fact]
     public void AWalkCostsWithItsSeedsNotWithThePluginBehindThem()
     {

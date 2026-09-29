@@ -100,7 +100,7 @@ public sealed class MasterCaseDriftWorld : IDisposable
 /// <summary>A FormID token spells its plugin the way the file is spelled on disk, whichever read produced it —
 /// so two reads of the same record hand back the same string and a join of them lines up (#664).</summary>
 [Trait("tier", "integration")]
-[Collection(SerialCollection.Name)]   // process-global seams, #903
+[Collection(SerialCollection.Name)]   // the process-wide spelling table, kept by ruling N5 (SEAMS_903 scoping page)
 public sealed class FormIdTokenCaseTests : IDisposable
 {
     readonly MasterCaseDriftWorld _w = new();
@@ -198,7 +198,7 @@ public sealed class FormIdTokenCaseTests : IDisposable
 /// instance without a restart, so a publish REPLACES the table: a name the new order does not carry must fall
 /// back to its own spelling rather than keep the old order's.</summary>
 [Trait("tier", "unit")]
-[Collection(SerialCollection.Name)]   // process-global seams, #903
+[Collection(SerialCollection.Name)]   // the process-wide spelling table, kept by ruling N5 (SEAMS_903 scoping page)
 public sealed class FormIdTokenPublishTests
 {
     [Fact]

@@ -186,7 +186,7 @@ public sealed class LoadOrderResolver : IDisposable
     public OverlaySession OpenSession() => new(this);
 
     /// <summary>What this resolver's reads cost, for the cost tests; the service hands in its own so a rebuild keeps counting.</summary>
-    public CostCounters Counters { get; }
+    internal CostCounters Counters { get; }
 
     public sealed class OverlaySession : IDisposable
     {
