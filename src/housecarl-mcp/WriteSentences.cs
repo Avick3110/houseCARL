@@ -81,10 +81,11 @@ internal static class WriteSentences
         "plugin is the one loading.\n";
 
     /// <summary>What the in-place round-trip check proved before the write (#961), on every in-place render that ran it.</summary>
-    [MustState("lost none of its subrecord signatures", "values not compared")]
+    [MustState("kept every subrecord at its length", "values not compared")]
     internal const string RoundTripChecked =
-        "round-trip check: before the write, each rewritten file re-serialized unedited in memory lost none of its " +
-        "subrecord signatures (added ones and BODT rewritten as BOD2 allowed; values not compared)\n";
+        "round-trip check: before the write, each rewritten file re-serialized unedited in memory kept every subrecord " +
+        "at its length (added ones, BODT rewritten as BOD2, and three measured losses that carry no information allowed: " +
+        "an LTEX INAM below form version 43, a deleted REFR's body, an all-zero REFR XRMR; values not compared)\n";
 
     internal static string InPlaceModFolder(string modFolder) =>
         $"mod folder: {modFolder}  — already active in your load order; re-sort only if a winner changed\n";
