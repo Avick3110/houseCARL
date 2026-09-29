@@ -8,10 +8,10 @@ namespace HousecarlMcpTests;
 /// <summary>The facegen family driven end to end over <see cref="FaceGenWorld"/>: real plugins, real loose files,
 /// one assertion per class the join has to tell apart.</summary>
 [Trait("tier", "integration")]
-public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
+public sealed class FaceGenFamilyTests : IClassFixture<FaceGenClassFixture>
 {
     readonly FaceGenWorld _w;
-    public FaceGenFamilyTests(FaceGenWorld w) => _w = w;
+    public FaceGenFamilyTests(FaceGenClassFixture w) => _w = w;
 
     string Sweep(params string[] findings)
         => CheckTools.CheckTool(_w.Svc, findings: findings, max_chars: 60000);
