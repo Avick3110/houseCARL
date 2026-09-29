@@ -1234,7 +1234,8 @@ public static class WritePatchBuilder
             ISkyrimModGetter[] ownMasters = ResolveOwnMasters(view, targetMod, masterOverlays, out var missing);
             if (missing is not null) return RemovalOutcome.Fail(missing);
             if (RoundTripRefusal(targetMod, targetPath, () => ownMasters,
-                    ex => SerializeFailure(CheckSerializeLead(targetPath), ex, session), SubrecordInventory.Remedy.RecordLane) is { } lost)
+                    ex => SerializeFailure(CheckSerializeLead(targetPath), ex, session), SubrecordInventory.Remedy.Remove,
+                    DroppedWith(targetMod, toRemove.Select(rr => rr.Target))) is { } lost)
                 return RemovalOutcome.Fail(lost);
 
             // --- Phase 4: literal drop-from-group via the typed overload; a singular owned child goes through the detach below. ---
@@ -1449,7 +1450,8 @@ public static class WritePatchBuilder
         // Declared masters before any mutation — diffed against the re-opened header (see MasterGrowNote).
         var mastersBefore = targetMod.ModHeader.MasterReferences
             .Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (RoundTripRefusal(targetMod, targetPath, session, SubrecordInventory.Remedy.RecordLane) is { } lost)
+        if (RoundTripRefusal(targetMod, targetPath, session, SubrecordInventory.Remedy.RecordLane,
+                             resolved.Select(r => r.spec.Target)) is { } lost)
             return ForwardOutcome.Fail(lost);
 
         // --- Phase 3: replace-or-copy each source body into the TARGET; nothing is serialized until Phase 4. ---
@@ -1564,13 +1566,14 @@ public static class WritePatchBuilder
 
     /// <summary>The round-trip check (#961) over the session's master set, the one the lane's write hands the serializer.</summary>
     static string? RoundTripRefusal(SkyrimMod mod, string path, LoadOrderResolver.OverlaySession session,
-                                    SubrecordInventory.Remedy remedy)
+                                    SubrecordInventory.Remedy remedy, IEnumerable<FormKey>? dropped = null)
         => RoundTripRefusal(mod, path, () => session.AllMastersExcept(Path.GetFileName(path)),
-                            ex => SerializeFailure(CheckSerializeLead(path), ex, session), remedy);
+                            ex => SerializeFailure(CheckSerializeLead(path), ex, session), remedy, dropped);
 
     /// <summary>The round-trip check (#961) over the given masters: its refusal, the master-open refusal, or the serialize fault's.</summary>
     static string? RoundTripRefusal(SkyrimMod mod, string path, Func<IReadOnlyList<ISkyrimModGetter>> masters,
-                                    Func<Exception, string> serializeFailure, SubrecordInventory.Remedy remedy)
+                                    Func<Exception, string> serializeFailure, SubrecordInventory.Remedy remedy,
+                                    IEnumerable<FormKey>? dropped = null)
     {
         var fileName = Path.GetFileName(path);
         IReadOnlyList<ISkyrimModGetter> set;
@@ -1581,8 +1584,20 @@ public static class WritePatchBuilder
             return $"cannot re-serialize '{fileName}': a plugin in the load order could not be opened for the round-trip " +
                    $"check ({WriteEngine.Describe(ex)}). Repair or remove that plugin in MO2 and retry. The file is UNTOUCHED.";
         }
-        try { return SubrecordInventory.RoundTripRefusal(mod, path, set, remedy); }
+        try { return SubrecordInventory.RoundTripRefusal(mod, path, set, remedy, dropped?.ToHashSet()); }
         catch (Exception ex) { return serializeFailure(ex); }
+    }
+
+    /// <summary>The keys an op drops whole: each named record and every record nested under it.</summary>
+    static HashSet<FormKey> DroppedWith(IMajorRecordGetterEnumerable mod, IEnumerable<FormKey> keys)
+    {
+        var set = keys.ToHashSet();
+        var nested = new List<FormKey>();
+        foreach (var r in mod.EnumerateMajorRecords())
+            if (set.Contains(r.FormKey) && r is IMajorRecordGetterEnumerable parent)
+                nested.AddRange(parent.EnumerateMajorRecords().Select(c => c.FormKey));
+        set.UnionWith(nested);
+        return set;
     }
 
     /// <summary>The lead of a serialize fault met by the round-trip check, which the write would meet the same way.</summary>

@@ -235,6 +235,48 @@ public sealed class InPlaceRoundTripTests
         using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
         var o = WritePatchBuilder.RemoveRecordsInPlace(r, new[] { keyword }, path, PluginName);
         AssertRefusedUntouched(o.Success, o.Error, path, before);
+        Assert.Contains("fix that record in xEdit first, or remove it in the same call", o.Error);
+        Assert.DoesNotContain("in_place=", o.Error);
+    }
+
+    // The removed record goes whole, so its own losses are not counted.
+    [Fact]
+    public void AnInPlaceRemoveOfTheLossyRecordItselfWrites()
+    {
+        var (path, arma) = StageReproduction();
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        var o = WritePatchBuilder.RemoveRecordsInPlace(r, new[] { arma }, path, PluginName);
+        Assert.True(o.Success, o.Error);
+        using var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+        Assert.Empty(ov.ArmorAddons);
+        Assert.Single(ov.Keywords);
+    }
+
+    // The forwarded body replaces the old one whole, so the old one's losses are not counted.
+    [Fact]
+    public void AnInPlaceForwardOverTheLossyRecordWritesTheSourcesVersion()
+    {
+        var dir = _w.NewDir();
+        var srcPath = Path.Combine(dir, "HcRtSource.esp");
+        var src = new SkyrimMod(ModKey.FromFileName("HcRtSource.esp"), SkyrimRelease.SkyrimSE);
+        var arma = AddArma(src);
+        src.BeginWrite.ToPath(srcPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        var path = Path.Combine(dir, PluginName);
+        using (var srcOv = SkyrimMod.CreateFromBinaryOverlay(srcPath, SkyrimRelease.SkyrimSE))
+        {
+            var mod = new SkyrimMod(ModKey.FromFileName(PluginName), SkyrimRelease.SkyrimSE);
+            mod.ArmorAddons.GetOrAddAsOverride(srcOv.ArmorAddons.Single());
+            mod.Keywords.AddNew().EditorID = "HcRT_Kw";
+            mod.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { srcOv }).Write();
+        }
+        ToIssueOrder(path);
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, srcPath, path });
+        var o = WritePatchBuilder.ForwardRecordsInPlace(r,
+            new[] { new WritePatchBuilder.ForwardSpec { Target = arma, FromPlugin = "HcRtSource.esp" } },
+            path, PluginName, "source=");
+        Assert.True(o.Success, o.Error);
+        Assert.True(HasSubrecord(path, "MOD2"));
+        Assert.True(HasSubrecord(path, "MOD4"));
     }
 
     [Fact]
