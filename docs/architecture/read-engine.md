@@ -58,6 +58,8 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 - `RecordsBulkSelectTests.AMalformedFormidIsAPerItemErrorRowWhileTheOtherRowsStillResolve` and `TheIdentityJsonCarriesOneResolvedRowPerInput` — a bad formid is a per-item error, and the batch renders one row per input.
 - `RuntimeFormIdTests.AMissingRecordInAnEslFlaggedPluginIsToldAboutCompaction` and `RecordsRemedyRepairTests.AndDoesNotBlameEslCompactionOnAPluginThatIsNotEslFlagged` — the ESL clause is stated on a light-flagged plugin and NOT on a plain full master.
 - `RecordsRenderCostTests.ATreeGathersItsProviderBodiesPerPluginNotPerRow` — the tree fold's one walk per provider plugin per chunk.
+- `ComparisonBatchReadTests` and `ComparisonBatchOffOrderReadTests` — a delta walks no pole plugin for a row that pole holds nothing of (in-order, post-state or off-order subject; a named reference).
+- `ComparisonBatchReadTests.AbsentIdsExplainTheirPluginOnce` — an absent plugin is explained from the profile once a call on the tree, the winner, the overlay pre and post poles.
 - `RecordsRenderCostTests.ABatchBodyReadStopsWhenTheClientCancels` and `ACancelStopsAnEverythingRenderToo` — a cancelled batch and a cancelled render stop inside one record.
 - `RecordsWalkCostTests.AWalkHoldsNoReachedBodiesPastTheGatherThatReadThem` and `AWalkSplitAcrossPassesReachesTheSameSetAndHoldsOnePass` — a walk holds one gather pass and nothing at return.
 - `RecordsRemedyRepairTests.AScanComputesOneListHopRemedyForTheWholeScan` — the list-hop verdict is memoised per (element type, segment).
