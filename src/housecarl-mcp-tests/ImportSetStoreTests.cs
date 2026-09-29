@@ -29,6 +29,14 @@ public sealed class ImportSetStoreTests : IDisposable
         Assert.Empty(_store.ImportSetNames());
     }
 
+    // Probe F: "an unknown set reads as null", with another set saved beside it.
+    [Fact]
+    public void AnUnknownNameBesideASavedSetIsNull()
+    {
+        _store.SaveImportSet("MyProject", Dirs);
+        Assert.Null(_store.GetImportSet("nope"));
+    }
+
     // Probe F: "a set saves" and "the set round-trips in ORDER (order is compiler semantics)".
     [Fact]
     public void ASetRoundTripsInOrder()
