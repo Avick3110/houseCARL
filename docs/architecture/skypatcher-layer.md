@@ -152,7 +152,7 @@ hardened.
   — the filter kinds, the entry and list ops, and the op closures.
 - *How the overlay replays onto a record*: `SkyPatcherFieldMapGuardTests.AMappedHardOpIsCaught` — CI rejects a
   HARD op that acquires a mapping.
-- *Reports and drafts*: `SkyPatcherConflictsProbe` (`skypatcher-conflicts-guard`) — SET collisions with the later
+- *Reports and drafts*: `SkyPatcherConflictsTests` — SET collisions with the later
   file winning, accumulating ops not conflicts, and the ITM classes.
 - *Reports and drafts*: `RecordsSkyPatcherDraftTests.ADraftThatSetsALeafIsReadInThePostState` — a draft is folded into
   the live scan; `ADraftWhoseFilenameIsAlreadyPlacedIsRefused` and
