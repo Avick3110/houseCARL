@@ -410,7 +410,7 @@ internal static class Artifacts
     }
 
     /// <summary>Split a plain list file's content into tokens, the same grammar the where-grammar's @file uses: commas and newlines separate, never bare spaces, and brackets and quotes are stripped per token.
-    /// <para><paramref name="commaSeparates"/> is false for a list of PATHS or plugin filenames, where a comma and a leading '[' are legal filename characters; that lane parses content opening with '[' as a JSON array before falling through to line splitting, and strips only quotes and blanks per line.</para></summary>
+    /// <para><paramref name="commaSeparates"/> is false for a list of PATHS or plugin filenames, where a comma, a bracket and an apostrophe are legal filename characters; that lane parses content opening with '[' as a JSON array before falling through to line splitting, and strips only double quotes and blanks per line.</para></summary>
     public static IEnumerable<string> SplitListTokens(string content, bool commaSeparates = true)
     {
         if (!commaSeparates && JsonArrayOrNull(content) is { } parsed)
@@ -420,7 +420,7 @@ internal static class Artifacts
         }
         foreach (var t in content.Split(commaSeparates ? ListSeparators : LineSeparators, StringSplitOptions.RemoveEmptyEntries))
         {
-            var tok = commaSeparates ? t.Trim('[', ']', '"', '\'', ' ', '\t') : t.Trim('"', '\'', ' ', '\t');
+            var tok = commaSeparates ? t.Trim('[', ']', '"', '\'', ' ', '\t') : t.Trim('"', ' ', '\t');
             if (tok.Length > 0) yield return tok;
         }
     }
