@@ -26,7 +26,7 @@ Three invariants hold for every default, and the DialogTopic SNAM marker follows
    vanilla reference plugins.
 
 Every fill path and its read-only counterpart share one presence predicate, so a create that FILLS a field and a
-validate that FLAGS its absence cannot disagree. `DialogueCkParityGuardProbe` pins the pairs.
+validate that FLAGS its absence cannot disagree. `DialogueCkParityPairTests` and `DialogueCkParityCreateTests` pin the pairs.
 
 Three tiers:
 
@@ -105,8 +105,8 @@ defaulting to the widest set. The same table decides what the epoch stamp names:
 substrate throughout and the stamp caveats nothing.
 
 ## Pinned by
-- `DialogueCkParityGuardProbe` (`src/housecarl-generator`) — the fill and gap pairs; its `*-WINS` arms pin
-  NON-OVERRIDE, its `*-AUTOFILL` arms NEVER SILENT, `DIAL-PNAM-WINS` an explicit `0` Priority, and
+- `DialogueCkParityPairTests` and `DialogueCkParityCreateTests` — the fill and gap pairs; their `*-WINS` tests pin
+  NON-OVERRIDE, their `*-AUTOFILL` tests NEVER SILENT, `DIAL-PNAM-WINS` an explicit `0` Priority, and
   `QUST-ALIAS-LOCATION` VTCK's scope to reference aliases.
 - `DialogBranchFlagsRefusalTests` — a branch with no `Flags` is refused naming both values, and an explicit
   value, `0` included, lands.
