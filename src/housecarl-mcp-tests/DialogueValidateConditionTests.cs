@@ -48,7 +48,7 @@ public class DialogueValidateConditionTests
     [Fact]
     public void ARealAliasIndexIsNotFlagged() => Clean("cond-alias-ok");
 
-    // COND-ALIAS-FLOI: an alias-mode form parameter (HasPerk.Perk = alias 7) is not flagged.
+    // COND-ALIAS-FLOI: an alias-mode form parameter (HasPerk.Perk = an alias index) is not flagged.
     [Fact]
     public void AnAliasModeFormParameterIsNotFlagged() => Clean("cond-alias-floi");
 
