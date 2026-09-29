@@ -7,14 +7,23 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>A small MO2 instance whose plugin names carry the characters a FormID list strips: a comma and a
-/// leading '['. A master defines one weapon, and three plugins override it.</summary>
+/// <summary>A small MO2 instance whose plugin names carry the characters a FormID list strips or an '@file' entry
+/// claims: a comma, a leading '[', a leading apostrophe and a leading '@'. A master defines one weapon every plugin
+/// overrides, and each plugin defines a weapon of its own, so a scan's rows say which plugins it covered.</summary>
 public sealed class ScopeNamesWorld : IDisposable
 {
     public const string Bracket = "[Hc] Bracket Patch.esp";
     public const string Comma = "HcScope Eyes, Standalone.esp";
+    public const string Apostrophe = "'Til Dawn Patch.esp";
+    public const string At = "@HcAt Patch.esp";
     public const string Plain = "HcScopePlain.esp";
     const string Master = "HcScopeMaster.esm";
+
+    /// <summary>Each plugin's own weapon, by EditorID.</summary>
+    public static readonly IReadOnlyDictionary<string, string> Own = new Dictionary<string, string>
+    {
+        [Bracket] = "HcOwnBracket", [Comma] = "HcOwnComma", [Apostrophe] = "HcOwnApos", [At] = "HcOwnAt", [Plain] = "HcOwnPlain",
+    };
 
     readonly string _root = Path.Combine(Path.GetTempPath(), "hc-scope-names-" + Guid.NewGuid().ToString("N"));
     public LoadOrderService Svc { get; }
@@ -28,10 +37,12 @@ public sealed class ScopeNamesWorld : IDisposable
         weapon.EditorID = "HcScopeWeapon";
         var mods = new List<string> { "MasterMod" };
         WriteMod(inst, "MasterMod", master, Array.Empty<ISkyrimModGetter>());
-        foreach (var name in new[] { Bracket, Comma, Plain })
+        var plugins = new[] { Bracket, Comma, Apostrophe, At, Plain };
+        foreach (var name in plugins)
         {
             var mod = new SkyrimMod(ModKey.FromFileName(name), SkyrimRelease.SkyrimSE);
             mod.Weapons.GetOrAddAsOverride(weapon);
+            mod.Weapons.AddNew().EditorID = Own[name];
             var folder = "Mod" + mods.Count;
             WriteMod(inst, folder, mod, new ISkyrimModGetter[] { master });
             mods.Add(folder);
@@ -42,7 +53,7 @@ public sealed class ScopeNamesWorld : IDisposable
             + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(inst, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        var order = new[] { Master, Bracket, Comma, Plain };
+        var order = new[] { Master }.Concat(plugins).ToArray();
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), string.Concat(order.Select(p => "*" + p + "\r\n")));
         File.WriteAllText(Path.Combine(prof, "modlist.txt"),
@@ -74,26 +85,63 @@ public sealed class RecordsScopeAtFileTests : RecordsTestBase, IClassFixture<Sco
 
     static string TempPath(string ext) => Path.Combine(Path.GetTempPath(), "hc-scope-atfile-" + Guid.NewGuid().ToString("N") + ext);
 
-    /// <summary>The scope is the file's two plugins, a comma and a leading '[' kept, and not the third; the artifact's
-    /// manifest is where the response states the scope it scanned.</summary>
+    /// <summary>The own weapons a scan's rows carry, of the five plugins' own weapons.</summary>
+    static string[] OwnIn(string rows) =>
+        ScopeNamesWorld.Own.Where(kv => rows.Contains(kv.Value, StringComparison.Ordinal)).Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+
+    static string[] Sorted(params string[] names) => names.OrderBy(k => k, StringComparer.Ordinal).ToArray();
+
+    /// <summary>The rows are exactly the listed plugins' own weapons, a comma, a leading '[' and a leading apostrophe
+    /// kept; the manifest echoes the list file, not the names it held.</summary>
     [Fact]
-    public void AnAtFileScopeScansExactlyThePluginsTheFileLists_ACommaAndABracketKept()
+    public void AnAtFileScopeScansExactlyThePluginsTheFileLists_ACommaABracketAndAnApostropheKept()
     {
         var file = TempPath(".txt");
         var artifact = TempPath(".jsonl");
-        File.WriteAllText(file, ScopeNamesWorld.Bracket + "\n" + ScopeNamesWorld.Comma + "\n");
+        File.WriteAllText(file, ScopeNamesWorld.Bracket + "\n" + ScopeNamesWorld.Comma + "\n" + ScopeNamesWorld.Apostrophe + "\n");
         try
         {
             var text = RecordsTools.Records(_names.Svc, plugins: Scope("@" + file), types: new[] { "WEAP" }, to_file: artifact);
 
             Assert.DoesNotContain("error:", text);
             Assert.DoesNotContain("note:", text);   // a split or trimmed name would be reported as missing here
-            var manifest = File.ReadLines(artifact).First();
-            Assert.Contains(ScopeNamesWorld.Bracket, manifest);
-            Assert.Contains(ScopeNamesWorld.Comma, manifest);
-            Assert.DoesNotContain(ScopeNamesWorld.Plain, manifest);
+            var lines = File.ReadAllLines(artifact);
+            Assert.Equal(Sorted(ScopeNamesWorld.Bracket, ScopeNamesWorld.Comma, ScopeNamesWorld.Apostrophe),
+                         OwnIn(string.Join("\n", lines.Skip(1))));
+            Assert.Contains("@" + file.Replace(@"\", @"\\"), lines[0]);
+            Assert.DoesNotContain(ScopeNamesWorld.Comma, lines[0]);
         }
         finally { File.Delete(file); File.Delete(artifact); }
+    }
+
+    /// <summary>A list file that opens with '[' is read as a JSON array first.</summary>
+    [Fact]
+    public void AJsonArrayListFileScopesItsPlugins()
+    {
+        var file = TempPath(".json");
+        File.WriteAllText(file, "[\"" + ScopeNamesWorld.Bracket + "\", \"" + ScopeNamesWorld.Comma + "\"]");
+        try
+        {
+            var text = RecordsTools.Records(_names.Svc, plugins: Scope("@" + file), types: new[] { "WEAP" });
+
+            Served(text);
+            Assert.DoesNotContain("note:", text);
+            Assert.Equal(Sorted(ScopeNamesWorld.Bracket, ScopeNamesWorld.Comma), OwnIn(text));
+        }
+        finally { File.Delete(file); }
+    }
+
+    /// <summary>A filename that starts with '@' is written '@@' inline, alone or beside other names.</summary>
+    [Fact]
+    public void ADoubledAtNamesAPluginWhoseFilenameStartsWithAt()
+    {
+        var alone = RecordsTools.Records(_names.Svc, plugins: Scope("@" + ScopeNamesWorld.At), types: new[] { "WEAP" });
+        var beside = RecordsTools.Records(_names.Svc, plugins: Scope(ScopeNamesWorld.Plain, "@" + ScopeNamesWorld.At), types: new[] { "WEAP" });
+
+        Served(alone);
+        Assert.Equal(new[] { ScopeNamesWorld.At }, OwnIn(alone));
+        Served(beside);
+        Assert.Equal(Sorted(ScopeNamesWorld.At, ScopeNamesWorld.Plain), OwnIn(beside));
     }
 
     /// <summary>A FormID result artifact names no plugins, so it is refused by its identity in one sentence rather
@@ -119,11 +167,20 @@ public sealed class RecordsScopeAtFileTests : RecordsTestBase, IClassFixture<Sco
     {
         var text = RecordsTools.Records(Svc, plugins: Scope("@" + TempPath(".txt")), types: new[] { "WEAP" });
 
-        Refused(text, "could not read");
+        Refused(text, "could not read plugins={\"names\": […]} list file");
+    }
+
+    /// <summary>A json caller gets the refusal as a document with an error member.</summary>
+    [Fact]
+    public void AnAtFileThatDoesNotExistIsRefusedAsAJsonDocumentOnJson()
+    {
+        var doc = Je(RecordsTools.Records(Svc, plugins: Scope("@" + TempPath(".txt")), types: new[] { "WEAP" }, format: "json"));
+
+        Assert.Contains("could not read", doc.GetProperty("error").GetString());
     }
 
     /// <summary>'@file' stands in place of the whole list on plugins.names as on formids=, so a name beside it is
-    /// refused the same way rather than spliced.</summary>
+    /// refused the same way rather than spliced, and the remedy is a spelling the tool accepts.</summary>
     [Fact]
     public void AnAtFileBesideAnInlineNameIsRefused()
     {
@@ -133,7 +190,7 @@ public sealed class RecordsScopeAtFileTests : RecordsTestBase, IClassFixture<Sco
         {
             var text = RecordsTools.Records(Svc, plugins: Scope(W.MasterName, "@" + file), types: new[] { "WEAP" });
 
-            Refused(text, "mixes");
+            Refused(text, "mixes", "Pass plugins={\"names\": [\"@<path>\"]} alone");
         }
         finally { File.Delete(file); }
     }
