@@ -39,7 +39,7 @@ namespace HousecarlMcpTests;
 /// plugin the order does not load, one carrying a foreign load-order index byte, and one whose name is not the
 /// eight-hex form at all.</para>
 /// </summary>
-public sealed class FaceGenWorld : IDisposable
+public class FaceGenWorld : IDisposable
 {
     public string Root { get; }
     public LoadOrderService Svc { get; }
@@ -281,4 +281,10 @@ public sealed class FaceGenWorld : IDisposable
         try { Svc.Dispose(); }
         finally { Release(); }
     }
+}
+
+/// <summary>The shared class-fixture world: xUnit disposes it after the class's tests report, so its dispose asserts the root is gone.</summary>
+public sealed class FaceGenClassFixture : FaceGenWorld, IDisposable
+{
+    void IDisposable.Dispose() => AssertNoHandlesLeft();
 }
