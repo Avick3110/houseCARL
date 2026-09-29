@@ -166,7 +166,7 @@ internal sealed partial class RecordReads
         bool templateFollow = followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase);
 
         var bodyCache = new Dictionary<FormKey, IMajorRecordGetter?>();
-        var counters = session.Counters;
+        var counters = resolver.Counters;
         counters.WalkBodyHighWater = 0;
         counters.WalkBodiesHeldAtReturn = 0;
         IMajorRecordGetter? Fetch(FormKey k)
@@ -223,7 +223,7 @@ internal sealed partial class RecordReads
             for (int i = 0; i < wanted.Count; i += BodyPrefetch.ChunkRows)
             {
                 int end = Math.Min(i + BodyPrefetch.ChunkRows, wanted.Count);
-                var chunk = BodyPrefetch.Gather(view, session, wanted, i, end, _ => null, null, ct);
+                var chunk = BodyPrefetch.Gather(view, session, resolver.Counters, wanted, i, end, _ => null, null, ct);
                 // The walk asks for every key it gathered, so the chunk's deferred per-plugin walk is forced here.
                 for (int k = i; k < end; k++)
                     if (chunk.Body(wanted[k]) is { } body) bodyCache[wanted[k]] = body;

@@ -123,7 +123,7 @@ internal sealed partial class RecordReads
                     var body = sink.TryGetValue(fk, out var got)
                              ? got
                              : view.FetchRecord(session, plugin, fk, isWinner ? null : seekTypes[r]);
-                    Interlocked.Increment(ref session.Counters.TreeBodiesRead);
+                    Interlocked.Increment(ref p.Resolver.Counters.TreeBodiesRead);
                     if (isWinner)
                     {
                         owning[r] = OwnedChildContent.Fields(body);
