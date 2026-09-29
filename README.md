@@ -119,7 +119,7 @@ Three lanes, mutually exclusive.
 
 A patch name already taken by an earlier houseCARL patch is suffixed. A name matching a plugin on disk that the order is not loading is refused, naming the place and the file.
 
-The in-place lane keeps no backup and has no undo. The first in-place write to a given plugin returns a confirmation instead of writing; the call is repeated with `acknowledge=true`. The acknowledgement covers the overwrite of that plugin only. The pre-flight and record verify run on every call. Before any change, the unedited plugin is re-serialized in memory, and the write is refused, file untouched, if any record would lose a subrecord houseCARL's parser cannot represent; the refusal names the record and the subrecords.
+The in-place lane keeps no backup and has no undo. The first in-place write to a given plugin returns a confirmation instead of writing; the call is repeated with `acknowledge=true`. The acknowledgement covers the overwrite of that plugin only. The pre-flight and record verify run on every call. Before any change, the unedited plugin is re-serialized in memory, and the write is refused, file untouched, if any record would lose a subrecord or change its length; the refusal names the record and the subrecords. `into=` runs the same check on the patch it extends. Three measured losses that carry no information are allowed: an LTEX `INAM` below form version 43, a deleted REFR's body, and an all-zero REFR `XRMR`.
 
 **Pre-flight.** Every op is checked before any file is opened for writing: record type, field path, enum value, verb against cardinality, value range, writability, record identity, the target type of every FormLink. Each failing op is named and counted. One failing op refuses the whole call.
 
