@@ -250,7 +250,7 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   `AMemoThatWronglyProvesAnAbsenceCostsOneRebuildNotOnePerCall`); a memo never makes a failure
   (`AnAbsenceUnderAFolderGivenBackAfterItWouldNotListIsProvedAndWatched`).
 - *One build per call*: **Zero archive handles at rest:** pinned by `asset-resolver-guard`'s at-rest arm (rename *and*
-  delete while the resolver lives) and, for single-entry extraction, `place-asset-guard` arm B.
+  delete while the resolver lives) and, for single-entry extraction, `PlaceCoreTests.TheArchiveIsNotHeldOpenAfterTheRead`.
 - *One build per call*: `AssetResolverProbe`'s capture/refresh arm reads a batch and a captured view off one build, but
   changes nothing on disk between the capture and the read, so it would pass if a view read the live build: the
   `Capture()` sentence is not pinned against a rebuild.
@@ -258,11 +258,13 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   (`AppearAndVanishAreSeenEvenInsideOneTimestampTick`), an unrelated file beside a root's answering ancestor does not
   discard the build (`AnUnrelatedFileAppearingInAModFolderDoesNotDiscardTheBuild`), and a loose file's bytes are never
   cached (`AFilesChangedBytesAreSeenOnTheNextRead`).
-- *Naming a source*: `place-asset-guard` arm I1c round-trips a refusal's own tokens back through the tool, and
-  `AssetProviderTokenTests` pins the render.
-- *Naming a source*: `PlaceProbe` (`place-asset-guard`) arm M — naming an unticked mod reads its loose copy, then its
-  root archives, and no other pole widens with it; M7 and M16 — a name the built universe knows never reaches a mods
-  folder of that name; M22 — a trailing-dot spelling never reaches disk.
+- *Naming a source*: `PlaceSourcePoleTests.EveryProviderTokenInTheAmbiguityRefusalIsAcceptedBack` round-trips a
+  refusal's own tokens back through the tool, and `AssetProviderTokenTests` pins the render.
+- *Naming a source*: `PlaceOffOrderLaneTests` — naming an unticked mod reads its loose copy, then its root archives,
+  and no other pole widens with it; `ANameTheActiveOrderKnowsIsServedByItNotByAModsFolderOfThatName` and
+  `PlaceOffOrderGuardTests.ANameTheActiveOrderKnowsNeverFallsThroughToAFolderOfThatName` — a name the built universe
+  knows never reaches a mods folder of that name; `ATrailingDotNameNeverReachesDisk` — a trailing-dot spelling never
+  reaches disk.
 - *Naming a source*: `NifSourceLaneTokenTests` and `NifSourceLaneReachTests` — every printed provider token is one
   `source_provider=` accepts, and naming a mod reaches its loose files and its root archives.
 - *Naming a source*: `RawModsPathRefusalTests` — a raw path into MO2's mods tree is refused and handed the address
