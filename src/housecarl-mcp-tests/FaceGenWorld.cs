@@ -261,7 +261,7 @@ public sealed class FaceGenWorld : IDisposable
         {
             if (attempt > 0) Thread.Sleep(100);   // a handle still closing is the common cause
             try { Directory.Delete(Root, recursive: true); return; }
-            catch (DirectoryNotFoundException) { return; }
+            catch (DirectoryNotFoundException e) { if (!Directory.Exists(Root)) return; last = e; }
             catch (IOException e) { last = e; }
             catch (UnauthorizedAccessException e) { last = e; }
         }
