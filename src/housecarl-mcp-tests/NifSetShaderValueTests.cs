@@ -42,6 +42,15 @@ public sealed class NifSetShaderValueTests
         Assert.Null(w.UnknownTypeName);
     }
 
+    // not in the probe: the effect shader's answer comes from a missing public property, so this pins the CanWrite half of no-setter
+    [Fact]
+    public void AGetOnlyPropertyOnTheClassReportsNoSetter()
+    {
+        var w = NifService.ReallyWrites(typeof(GetOnlyShaderStandIn), nameof(GetOnlyShaderStandIn.Glossiness));
+        Assert.False(w.Writable);
+        Assert.Null(w.UnknownTypeName);
+    }
+
     // probe: "a SETTABLE property of an unmarshalable type reports unknown-type — a distinct state from no-setter"
     [Fact]
     public void ASettablePropertyOfAnUnmarshalableTypeReportsUnknownType()

@@ -177,6 +177,9 @@ static class NifSetMeshes
 
     /// <summary>A settable lighting value of a type houseCARL does not marshal: the ReallyWrites state no real shader block produces.</summary>
     public sealed class UnmarshalableShaderStandIn { public string Glossiness { get; set; } = ""; }
+
+    /// <summary>A lighting value the class itself declares get-only, so the no-setter answer comes from CanWrite rather than a missing property.</summary>
+    public sealed class GetOnlyShaderStandIn { public float Glossiness { get; } = 1f; }
 }
 
 /// <summary>A temporary MO2 instance with one enabled mod, FaceMod, carrying <see cref="MeshRel"/> as a loose file and a

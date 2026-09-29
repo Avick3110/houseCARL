@@ -61,6 +61,11 @@ public sealed class NifSetRefusalTests
     public void AnAmbiguousShapeNameRefuses() =>
         Assert.Contains("ambiguous", NifService.Set(DupNames(), new[] { new NifSetOp(NifSetOpKind.SetFlags, "Dup", Flags: 1) }).Error);
 
+    // not in the probe: set_flags resolves a shape OR node, so this pins the shape-only lookup's ambiguity refusal too
+    [Fact]
+    public void AnAmbiguousShapeNameRefusesOnAShapeOnlyOp() =>
+        Assert.Contains("ambiguous", NifService.Set(DupNames(), new[] { new NifSetOp(NifSetOpKind.SetPartition, "Dup", BodyPartId: 32) }).Error);
+
     // probe: "non-SE stream → named refusal (no cross-game write)"
     [Fact]
     public void ANonSeStreamRefuses()
