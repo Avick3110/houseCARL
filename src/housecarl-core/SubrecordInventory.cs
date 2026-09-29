@@ -36,8 +36,8 @@ public static class SubrecordInventory
     /// <summary>How many records the refusal names before it falls back to a count.</summary>
     const int RecordsNamed = 5;
 
-    /// <summary>One subrecord shape: signature, length, count, all-zero, and whether the write keeps each such one as its own prefix less a zero tail.</summary>
-    public sealed record Sub(string Sig, int Length, int Count, bool Zero, bool ZeroTail = false);
+    /// <summary>One subrecord shape: signature, payload length, how many, and whether every one is all zero bytes.</summary>
+    public sealed record Sub(string Sig, int Length, int Count, bool Zero);
 
     /// <summary>One record as its bytes hold it: signature, form version, deleted flag, and its subrecords by (signature, length).</summary>
     public sealed class RecordEntry
@@ -47,16 +47,27 @@ public static class SubrecordInventory
         public bool Deleted { get; init; }
         public Dictionary<(string Sig, int Length), (int Count, bool Zero)> Subs { get; } = new();
         public List<(string Sig, int Length)> Order { get; } = new();
-        public List<ReadOnlyMemorySlice<byte>> Bodies { get; } = new();
+        readonly List<Func<ReadOnlyMemorySlice<byte>>> _bodies = new();
 
-        /// <summary>Count every subrecord of one record body, kept for a later look at the payloads.</summary>
+        /// <summary>Count every subrecord of one record body.</summary>
         public void AddBody(ReadOnlyMemorySlice<byte> body)
         {
-            Bodies.Add(body);
-            foreach (var (sig, data) in Subrecords(body)) Add(sig, data);
+            _bodies.Add(() => body);
+            Count(body);
         }
 
-        internal void AddRecord(MajorRecordFrame rec) => AddBody(Body(rec));
+        /// <summary>Count a record's subrecords; a compressed body is decompressed again on demand rather than held.</summary>
+        internal void AddRecord(MajorRecordFrame rec)
+        {
+            if (rec.IsCompressed) _bodies.Add(() => Body(rec)); else { var body = rec.Content; _bodies.Add(() => body); }
+            Count(Body(rec));
+        }
+
+        void Count(ReadOnlyMemorySlice<byte> body) { foreach (var (sig, data) in Subrecords(body)) Add(sig, data); }
+
+        /// <summary>The payloads of one signature, in order, parsed once on demand.</summary>
+        internal List<ReadOnlyMemorySlice<byte>> Payloads(string sig) =>
+            _bodies.SelectMany(b => Subrecords(b())).Where(x => x.Sig == sig).Select(x => x.Data).ToList();
 
         void Add(string sig, ReadOnlyMemorySlice<byte> data)
         {
@@ -72,7 +83,7 @@ public static class SubrecordInventory
 
     /// <summary>One record's subrecords the round trip lost and gained, before any rename or allowance is paired off.</summary>
     public sealed record RecordDiff(FormKey Key, string Signature, int FormVersion, bool Deleted, IReadOnlyList<Sub> Lost,
-                                    IReadOnlyList<Sub> Gained);
+                                    IReadOnlyList<Sub> Gained, RecordEntry? File = null, RecordEntry? Written = null);
 
     /// <summary>What the refusal tells the caller to do instead, per lane, for one record and for several.</summary>
     public sealed record Remedy(string One, string Many)
@@ -220,24 +231,21 @@ public static class SubrecordInventory
             var lost = Minus(f, w);
             var gained = w is null ? new List<Sub>() : Minus(w, f);
             if (lost.Count > 0 || gained.Count > 0)
-                diffs.Add(new RecordDiff(key, f.Signature, f.FormVersion, f.Deleted, lost, gained));
+                diffs.Add(new RecordDiff(key, f.Signature, f.FormVersion, f.Deleted, lost, gained, f, w));
         }
         return diffs;
     }
 
     static List<Sub> Minus(RecordEntry a, RecordEntry? b) =>
-        a.Order.Select(k => new Sub(k.Sig, k.Length, a.Subs[k].Count - (b?.Count(k) ?? 0), a.Subs[k].Zero, ZeroTailOnly(a, b, k.Sig)))
+        a.Order.Select(k => new Sub(k.Sig, k.Length, a.Subs[k].Count - (b?.Count(k) ?? 0), a.Subs[k].Zero))
                .Where(x => x.Count > 0).ToList();
 
-    static List<ReadOnlyMemorySlice<byte>> Payloads(RecordEntry e, string sig) =>
-        e.Bodies.SelectMany(b => Subrecords(b)).Where(x => x.Sig == sig).Select(x => x.Data).ToList();
-
     /// <summary>True when every occurrence of the signature is written back, in order, as its own leading bytes with only a zero tail cut.</summary>
-    static bool ZeroTailOnly(RecordEntry file, RecordEntry? written, string sig)
+    static bool ZeroTailOnly(RecordEntry? file, RecordEntry? written, string sig)
     {
-        if (written is null) return false;
-        var f = Payloads(file, sig);
-        var w = Payloads(written, sig);
+        if (file is null || written is null) return false;
+        var f = file.Payloads(sig);
+        var w = written.Payloads(sig);
         if (f.Count != w.Count) return false;
         for (int i = 0; i < f.Count; i++)
         {
@@ -278,7 +286,7 @@ public static class SubrecordInventory
         && (!a.When.HasFlag(AllowWhen.FormVersionBelow) || d.FormVersion < a.FormVersion)
         && (!a.When.HasFlag(AllowWhen.RecordDeleted) || d.Deleted)
         && (!a.When.HasFlag(AllowWhen.AllZeroPayload) || s.Zero)
-        && (!a.When.HasFlag(AllowWhen.ZeroTailDropped) || s.ZeroTail);
+        && (!a.When.HasFlag(AllowWhen.ZeroTailDropped) || ZeroTailOnly(d.File, d.Written, s.Sig));
 
     /// <summary>The one refusal: which records, which subrecords, why, and what to do instead.</summary>
     static string Refusal(string fileName, IReadOnlyList<RecordDiff> losses, SkyrimMod parsed, Remedy remedy)
