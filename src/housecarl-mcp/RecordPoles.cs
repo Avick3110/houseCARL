@@ -94,21 +94,12 @@ internal sealed partial class RecordReads
             int end = ChunkEnd(start, parsed.Count);
             var chunkKeys = new List<FormKey>(end - start);
             for (int i = start; i < end; i++) if (parsed[i].Fk is { } k) chunkKeys.Add(k);
-            sGather.Open(view, session, chunkKeys, _ => null);
-            // previous_provider is measured FROM the subject, so the reference's declaration needs the plugin the
-            // subject resolved to.
-            var subjects = new string?[chunkKeys.Count];
-            for (int j = 0; j < chunkKeys.Count; j++) subjects[j] = sGather.PluginOf?.Invoke(chunkKeys[j], null);
-            // Declare to the reference only the rows whose subject holds a version.
-            var refKeys = new List<FormKey>(chunkKeys.Count);
-            var refSubjects = new List<string?>(chunkKeys.Count);
-            for (int j = 0; j < chunkKeys.Count; j++)
-            {
-                if (!SubjectHolds(chunkKeys[j], subjects[j])) continue;
-                refKeys.Add(chunkKeys[j]);
-                refSubjects.Add(subjects[j]);
-            }
-            rGather.Open(view, session, refKeys, j => refSubjects[j]);
+            sGather.Open(view, session, chunkKeys);
+            // The reference's rows: each key whose subject holds a version, with the plugin the subject resolved to.
+            var refRows = new List<(FormKey Key, string? Subject)>(chunkKeys.Count);
+            foreach (var key in chunkKeys)
+                if (sGather.PluginOf?.Invoke(key, null) is var sp && SubjectHolds(key, sp)) refRows.Add((key, sp));
+            rGather.Open(view, session, refRows);
 
             for (int i = start; i < end; i++)
             {
@@ -614,7 +605,7 @@ internal sealed partial class RecordReads
             // chunk share would stay alive beside every other plugin's.
             if (refReader is not null)
             {
-                refGather.Open(view, session, keys, _ => null);   // one walk of the versus plugin for the chunk
+                refGather.Open(view, session, keys);   // one walk of the versus plugin for the chunk
                 for (int j = 0; j < c; j++)
                 {
                     var rr = refReader(keys[j], null);
