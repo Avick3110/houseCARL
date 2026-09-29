@@ -109,11 +109,12 @@ public sealed class ImportOrderBuildImportsTests : IDisposable
         Order(new[] { _scriptDir, _userB }, CompileTools.BuildImports(_scriptDir, _noSrcCompiler, _userB));
     }
 
-    // Probe: "BuildImports takes the caller's RESOLVED vanilla dir rather than re-deriving its own".
+    // Probe: "BuildImports takes the caller's RESOLVED vanilla dir rather than re-deriving its own". The auto list leaves
+    // vanilla out, so the resolved dir is the only way it can reach the path.
     [Fact]
     public void AResolvedVanillaDirIsAppendedLastWhenTheCompilerHasNone() =>
         Order(new[] { _scriptDir, _autoA, _vanilla },
-              CompileTools.BuildImports(_scriptDir, _noSrcCompiler, null, new[] { _vanilla, _autoA }, _vanilla));
+              CompileTools.BuildImports(_scriptDir, _noSrcCompiler, null, new[] { _autoA }, _vanilla));
 
     // Probe: "auto_imports=true scans", "…scans regardless of whether the compiler has vanilla beside it", "auto_imports=false
     // with the compiler's vanilla present does NOT touch the modlist", "auto_imports=false WITHOUT compiler vanilla still
