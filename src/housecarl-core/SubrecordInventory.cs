@@ -1,10 +1,10 @@
 using System.Buffers.Binary;
 using System.IO.Abstractions;
-using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Headers;
+using Mutagen.Bethesda.Plugins.Binary.Translations;
 using Mutagen.Bethesda.Plugins.Meta;
 using Mutagen.Bethesda.Skyrim;
 using Noggog;
@@ -55,6 +55,8 @@ public static class SubrecordInventory
             Bodies.Add(body);
             foreach (var (sig, data) in Subrecords(body)) Add(sig, data);
         }
+
+        internal void AddRecord(MajorRecordFrame rec) => AddBody(Body(rec));
 
         void Add(string sig, ReadOnlyMemorySlice<byte> data)
         {
@@ -113,7 +115,7 @@ public static class SubrecordInventory
     {
         if (parsed.UsingLocalization) return null;   // WriteInPlace and WritePatch refuse a localized file before staging
         var fileName = Path.GetFileName(path);
-        byte[]? written;
+        ReadOnlyMemorySlice<byte>? written;
         try { written = SerializeToMemory(parsed, masters, path); }
         catch (Exception ex) when (Find<CaptureUnsupportedException>(ex) is { } cu) { return CouldNotRun(fileName, cu.Message); }
         if (written is null) return CouldNotRun(fileName, "the in-memory serialize produced no bytes");
@@ -122,7 +124,7 @@ public static class SubrecordInventory
         {
             var file = Walk(File.ReadAllBytes(path), parsed.ModKey);
             if (dropped is not null) foreach (var k in dropped) file.Remove(k);
-            losses = Losses(Diff(file, Walk(written, parsed.ModKey)), Renames, InformationFree);
+            losses = Losses(Diff(file, Walk(written.Value, parsed.ModKey)), Renames, InformationFree);
         }
         catch (Exception ex) { return CouldNotRun(fileName, WriteEngine.Describe(ex)); }
         return losses.Count == 0 ? null : Refusal(fileName, losses, parsed, remedy);
@@ -135,7 +137,7 @@ public static class SubrecordInventory
         "it open, and retry.";
 
     /// <summary>The bytes the write would stage, held in memory; a missing master retries with no load order, which only the header feels.</summary>
-    public static byte[]? SerializeToMemory(SkyrimMod parsed, IReadOnlyList<ISkyrimModGetter> masters, string path)
+    public static ReadOnlyMemorySlice<byte>? SerializeToMemory(SkyrimMod parsed, IReadOnlyList<ISkyrimModGetter> masters, string path)
     {
         var ordered = masters as ISkyrimModGetter[] ?? masters.ToArray();
         try { return Capture(parsed, ordered, path); }
@@ -143,7 +145,7 @@ public static class SubrecordInventory
             { return Capture(parsed, null, path); }
     }
 
-    static byte[]? Capture(SkyrimMod parsed, ISkyrimModGetter[]? ordered, string path)
+    static ReadOnlyMemorySlice<byte>? Capture(SkyrimMod parsed, ISkyrimModGetter[]? ordered, string path)
     {
         var capture = new CaptureFileSystem();
         WriteEngine.SerializeInPlace(parsed, ordered, path, path, capture);
@@ -158,17 +160,16 @@ public static class SubrecordInventory
     }
 
     /// <summary>Every major record in a plugin's bytes, keyed by FormKey through that file's own master list; compressed records inflated.</summary>
-    public static Dictionary<FormKey, RecordEntry> Walk(byte[] bytes, ModKey self)
+    public static Dictionary<FormKey, RecordEntry> Walk(ReadOnlyMemorySlice<byte> all, ModKey self)
     {
         var meta = GameConstants.SkyrimSE;
-        var all = new ReadOnlyMemorySlice<byte>(bytes);
         var into = new Dictionary<FormKey, RecordEntry>();
         var header = new MajorRecordFrame(meta, all);
         var masters = new List<ModKey>();
         foreach (var (sig, data) in Subrecords(header.Content))
             if (sig == "MAST") masters.Add(ModKey.FromFileName(Encoding.Latin1.GetString(data.Span).TrimEnd('\0')));
         long pos = header.TotalLength;
-        while (pos < bytes.Length) pos += WalkGroup(meta, all.Slice(checked((int)pos)), masters, self, into);
+        while (pos < all.Length) pos += WalkGroup(meta, all.Slice(checked((int)pos)), masters, self, into);
         return into;
     }
 
@@ -192,37 +193,18 @@ public static class SubrecordInventory
                     Signature = rec.RecordType.Type, FormVersion = rec.FormVersion ?? 0,
                     Deleted = (rec.MajorRecordFlags & DeletedFlag) != 0,
                 };
-            entry.AddBody(rec.IsCompressed ? Inflate(rec.Content) : rec.Content);
+            entry.AddRecord(rec);
             p += rec.TotalLength;
         }
         return end;
     }
 
-    static ReadOnlyMemorySlice<byte> Inflate(ReadOnlyMemorySlice<byte> content)
-    {
-        var size = BinaryPrimitives.ReadUInt32LittleEndian(content.Span);
-        var outBuf = new byte[size];
-        using var z = new ZLibStream(new MemoryStream(content.Slice(4).ToArray()), CompressionMode.Decompress);
-        z.ReadExactly(outBuf);
-        return new ReadOnlyMemorySlice<byte>(outBuf);
-    }
+    /// <summary>A record's subrecords in order through Mutagen's framing: signature and payload, an XXXX carrier folded in.</summary>
+    static IEnumerable<(string Sig, ReadOnlyMemorySlice<byte> Data)> Subrecords(ReadOnlyMemorySlice<byte> body) =>
+        RecordSpanExtensions.EnumerateSubrecords(body, GameConstants.SkyrimSE, 0).Select(f => (f.RecordType.Type, f.Content));
 
-    /// <summary>A record body's subrecords in order: signature plus payload, an XXXX carrier folded into the length it sets.</summary>
-    static IEnumerable<(string Sig, ReadOnlyMemorySlice<byte> Data)> Subrecords(ReadOnlyMemorySlice<byte> body)
-    {
-        int p = 0;
-        int? overflow = null;
-        while (p + 6 <= body.Length)
-        {
-            var sig = Sig(body.Span.Slice(p));
-            int len = BinaryPrimitives.ReadUInt16LittleEndian(body.Span.Slice(p + 4));
-            p += 6;
-            if (overflow is { } big) { len = big; overflow = null; }
-            if (sig == "XXXX") { overflow = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(body.Span.Slice(p))); p += len; continue; }
-            yield return (sig, body.Slice(p, len));
-            p += len;
-        }
-    }
+    /// <summary>A record's body, decompressed through Mutagen when the record is compressed.</summary>
+    static ReadOnlyMemorySlice<byte> Body(MajorRecordFrame rec) => rec.IsCompressed ? rec.Decompress(out _).Content : rec.Content;
 
     static string Sig(ReadOnlySpan<byte> at) => Encoding.Latin1.GetString(at.Slice(0, 4));
 
@@ -336,7 +318,8 @@ public static class SubrecordInventory
     {
         readonly CaptureStreams _streams;
         public CaptureFileSystem() { _streams = new CaptureStreams(this); }
-        public byte[]? Bytes => _streams.Captured?.ToArray();
+        public ReadOnlyMemorySlice<byte>? Bytes =>
+            _streams.Captured?.TryGetBuffer(out var seg) == true ? new ReadOnlyMemorySlice<byte>(seg.Array!, seg.Offset, seg.Count) : null;
 
         public IFileStreamFactory FileStream => _streams;
         public IDirectory Directory => throw Unsupported(nameof(Directory));

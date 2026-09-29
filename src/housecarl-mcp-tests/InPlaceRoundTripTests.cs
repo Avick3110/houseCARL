@@ -273,6 +273,42 @@ public sealed class InPlaceRoundTripTests
         Assert.Contains("INAM", o.Error);
     }
 
+    // A compressed record is walked through its decompressed body on both sides, and writes.
+    [Fact]
+    public void ACompressedRecordIsWalkedThroughItsBody()
+    {
+        var (path, arma) = StagePluginWith(m => m.ArmorAddons.First().IsCompressed = true);
+        var file = SubrecordInventory.Walk(File.ReadAllBytes(path), ModKey.FromFileName(PluginName));
+        Assert.Contains(file[arma].Subs.Keys, k => k.Sig == "MOD2");
+        using (var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE))
+            Assert.True(ov.ArmorAddons.Single().IsCompressed);
+        var o = SetWeaponAdjust(path, arma);
+        Assert.True(o.Success, o.Error);
+    }
+
+    // A subrecord over 64 KB, carried by XXXX, counts at its real length and XXXX itself is not counted.
+    [Fact]
+    public void AnXxxxCarriedSubrecordCountsAtItsRealLength()
+    {
+        // Mutagen 0.54.4 will not write a 70,000-byte DESC, so the body is built by hand: XXXX, then DESC with a zero length.
+        var xxxx = Subrecord("XXXX", BitConverter.GetBytes(70000));
+        var desc = Subrecord("DESC", Array.Empty<byte>()).Concat(Enumerable.Repeat((byte)'a', 70000)).ToArray();
+        var e = new SubrecordInventory.RecordEntry { Signature = "BOOK" };
+        e.AddBody(new Noggog.ReadOnlyMemorySlice<byte>(Subrecord("EDID", Encoding.ASCII.GetBytes("HcRT\0")).Concat(xxxx).Concat(desc).ToArray()));
+        Assert.Contains(e.Subs.Keys, k => k.Sig == "DESC" && k.Length == 70000);
+        Assert.Contains(e.Subs.Keys, k => k.Sig == "EDID" && k.Length == 5);
+        Assert.DoesNotContain(e.Subs.Keys, k => k.Sig == "XXXX");
+    }
+
+    // A truncated trailing subrecord faults the walk rather than being dropped from the count.
+    [Fact]
+    public void ATruncatedTrailingSubrecordIsNotSilentlyDropped()
+    {
+        var e = new SubrecordInventory.RecordEntry { Signature = "KYWD" };
+        var body = Subrecord("EDID", Encoding.ASCII.GetBytes("HcRT\0"))[..8];
+        Assert.ThrowsAny<Exception>(() => e.AddBody(new Noggog.ReadOnlyMemorySlice<byte>(body)));
+    }
+
     /// <summary>One record's walk from raw PHWT payloads, as the file or the written side would hold them.</summary>
     static Dictionary<FormKey, SubrecordInventory.RecordEntry> RaceWith(FormKey key, params byte[][] phwt)
     {
