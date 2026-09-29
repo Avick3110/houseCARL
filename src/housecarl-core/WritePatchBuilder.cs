@@ -1240,7 +1240,7 @@ public static class WritePatchBuilder
         {
             ISkyrimModGetter[] ownMasters = ResolveOwnMasters(view, targetMod, masterOverlays, out var missing);
             if (missing is not null) return RemovalOutcome.Fail(missing);
-            if (RoundTripRefusal(targetMod, targetPath, SubrecordInventory.Remedy.Remove, true, session,
+            if (RoundTripRefusal(targetMod, targetPath, SubrecordInventory.Remedy.Remove, true, () => ownMasters, session,
                     DroppedWith(targetMod, toRemove.Select(rr => rr.Target))) is { } lost)
                 return RemovalOutcome.Fail(lost);
 
@@ -1618,8 +1618,11 @@ public static class WritePatchBuilder
     static string CheckSerializeFailure(string path, Exception ex, LoadOrderResolver.OverlaySession? session)
     {
         var name = Path.GetFileName(path);
-        return SerializeFailure($"refused: re-serializing '{name}' unedited for the round-trip check failed, so the write would fail the same way: ",
-            ex, session, $" '{name}' is UNTOUCHED — check that plugin in xEdit and retry.");
+        var whole = SerializeFailure("", ex, session);
+        // A baseline, localized or unspellable fault is already its own whole sentence; anything else gets this one.
+        if (whole != WriteEngine.Describe(ex) + UnopenableMasterClause(ex, session)) return whole;
+        return $"refused: re-serializing '{name}' unedited for the round-trip check failed ({WriteEngine.Describe(ex)}), " +
+               $"so the write would fail the same way; '{name}' is UNTOUCHED — check that plugin in xEdit and retry.";
     }
 
     /// <summary>Render a serialize-failure message, except that a BASELINE refusal SUBSTITUTES its own message for the lot.</summary>
