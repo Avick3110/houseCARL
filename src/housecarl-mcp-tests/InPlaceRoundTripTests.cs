@@ -245,19 +245,68 @@ public sealed class InPlaceRoundTripTests
         return raw;
     }
 
-    // Allowed: an LTEX INAM on a record older than form version 43, which Mutagen neither reads nor writes.
-    [Fact]
-    public void AnLtexInamBelowFormVersion43IsAnAllowedLoss()
+    /// <summary>A plugin with an LTEX carrying those flags, its header set to form version 35, below Mutagen's gate at 43.</summary>
+    (string Path, FormKey Arma) StageOldLtex(LandscapeTexture.Flag flags)
     {
-        var (path, arma) = StagePluginWith(m =>
-        {
-            var ltex = m.LandscapeTextures.AddNew("HcRT_Ltex");
-            ltex.Flags = LandscapeTexture.Flag.IsSnow;
-        });
+        var (path, arma) = StagePluginWith(m => m.LandscapeTextures.AddNew("HcRT_Ltex").Flags = flags);
         EditRecord(path, "LTEX", header: h => BinaryPrimitives.WriteUInt16LittleEndian(h.AsSpan(20), 35));
         Assert.Contains(RecordSubrecords(File.ReadAllBytes(path), "LTEX", out _, out _, out _), s => s.Sig == "INAM");
+        return (path, arma);
+    }
+
+    // Allowed: an all-zero LTEX INAM below form version 43, which Mutagen neither reads nor writes.
+    [Fact]
+    public void AZeroLtexInamBelowFormVersion43IsAnAllowedLoss()
+    {
+        var (path, arma) = StageOldLtex(0);
         var o = SetWeaponAdjust(path, arma);
         Assert.True(o.Success, o.Error);
+    }
+
+    // Refused: the same INAM with IsSnow set carries a flag the write would drop.
+    [Fact]
+    public void AnLtexInamWithIsSnowSetBelowFormVersion43Refuses()
+    {
+        var (path, arma) = StageOldLtex(LandscapeTexture.Flag.IsSnow);
+        var o = SetWeaponAdjust(path, arma);
+        Assert.False(o.Success);
+        Assert.Contains("INAM", o.Error);
+    }
+
+    /// <summary>One record's walk from raw PHWT payloads, as the file or the written side would hold them.</summary>
+    static Dictionary<FormKey, SubrecordInventory.RecordEntry> RaceWith(FormKey key, params byte[][] phwt)
+    {
+        var e = new SubrecordInventory.RecordEntry { Signature = "RACE", FormVersion = 44 };
+        e.AddBody(new Noggog.ReadOnlyMemorySlice<byte>(phwt.SelectMany(p => Subrecord("PHWT", p)).ToArray()));
+        return new() { [key] = e };
+    }
+
+    static byte[] Floats(params float[] v) => v.SelectMany(BitConverter.GetBytes).ToArray();
+
+    // Allowed: a PHWT written back as its own leading bytes, the dropped tail all zero (Requiem pads 8 floats to 16).
+    [Fact]
+    public void APhwtWhoseDroppedTailIsAllZeroIsAnAllowedLoss()
+    {
+        var key = new FormKey(ModKey.FromFileName(PluginName), 0x800);
+        var kept = Floats(1, 0.5f, 0, 0, 0.25f, 0, 0, 1);
+        var diffs = SubrecordInventory.Diff(RaceWith(key, kept.Concat(new byte[32]).ToArray(), kept.Concat(new byte[32]).ToArray()),
+                                            RaceWith(key, kept, kept));
+        Assert.Single(diffs);
+        Assert.Empty(SubrecordInventory.Losses(diffs, SubrecordInventory.Renames, SubrecordInventory.InformationFree));
+    }
+
+    // Refused: the same cut when the tail holds a value, or when the kept bytes differ from the file's.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void APhwtCutThatLosesAValueStillRefuses(bool nonZeroTail)
+    {
+        var key = new FormKey(ModKey.FromFileName(PluginName), 0x800);
+        var kept = Floats(1, 0.5f, 0, 0, 0.25f, 0, 0, 1);
+        var file = kept.Concat(nonZeroTail ? Floats(0, 0, 0, 0.75f, 0, 0, 0, 0) : new byte[32]).ToArray();
+        var written = nonZeroTail ? kept : Floats(1, 0.5f, 0, 0, 0.25f, 0, 0, 0);
+        var diffs = SubrecordInventory.Diff(RaceWith(key, file), RaceWith(key, written));
+        Assert.Single(SubrecordInventory.Losses(diffs, SubrecordInventory.Renames, SubrecordInventory.InformationFree));
     }
 
     // Allowed: a deleted REFR whose body is only its NAME, the measured shape; Mutagen writes it empty.
@@ -289,6 +338,8 @@ public sealed class InPlaceRoundTripTests
     // The allowance is exactly the measured class: the same subrecord outside its condition, or on another type, still refuses.
     [Theory]
     [InlineData("LTEX", "INAM", 44, false, true)]
+    [InlineData("LTEX", "INAM", 35, false, false)]
+    [InlineData("RACE", "PHWT", 44, false, true)]
     [InlineData("WEAP", "INAM", 35, false, true)]
     [InlineData("REFR", "NAME", 44, false, true)]
     [InlineData("ACHR", "NAME", 44, true, true)]

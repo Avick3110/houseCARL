@@ -17,25 +17,27 @@ public static class SubrecordInventory
     /// <summary>The one (lost, gained) signature pair the ARR round trip rewrites one for one (INPLACE_ROUNDTRIP_MEASURE_2026-09-28).</summary>
     internal static readonly IReadOnlyList<(string Lost, string Gained)> Renames = new[] { ("BODT", "BOD2") };
 
-    /// <summary>When an allowed loss holds for the record or subrecord the file has.</summary>
-    public enum AllowWhen { FormVersionBelow, RecordDeleted, AllZeroPayload }
+    /// <summary>The conditions an allowed loss needs, every one set holding: on the record, the lost payload, or its dropped tail.</summary>
+    [Flags]
+    public enum AllowWhen { FormVersionBelow = 1, RecordDeleted = 2, AllZeroPayload = 4, ZeroTailDropped = 8 }
 
     /// <summary>A loss the writer makes that carries no information: record type, subrecord, and the condition.</summary>
     public sealed record Allowance(string Record, string Subrecord, AllowWhen When, int FormVersion = 0);
 
-    /// <summary>The measured class of information-free losses, and nothing beyond it (Aaron, 2026-09-29 ~09:10).</summary>
+    /// <summary>The measured class of information-free losses, and nothing beyond it (Aaron, 2026-09-29 ~09:10 and ~10:45).</summary>
     internal static readonly IReadOnlyList<Allowance> InformationFree = new[]
     {
-        new Allowance("LTEX", "INAM", AllowWhen.FormVersionBelow, FormVersion: 43),
+        new Allowance("LTEX", "INAM", AllowWhen.FormVersionBelow | AllowWhen.AllZeroPayload, FormVersion: 43),
         new Allowance("REFR", "NAME", AllowWhen.RecordDeleted),
         new Allowance("REFR", "XRMR", AllowWhen.AllZeroPayload),
+        new Allowance("RACE", "PHWT", AllowWhen.ZeroTailDropped),
     };
 
     /// <summary>How many records the refusal names before it falls back to a count.</summary>
     const int RecordsNamed = 5;
 
-    /// <summary>One subrecord shape in a record: signature, payload length, how many, and whether every one is all zero bytes.</summary>
-    public sealed record Sub(string Sig, int Length, int Count, bool Zero);
+    /// <summary>One subrecord shape: signature, length, count, all-zero, and whether the write keeps each such one as its own prefix less a zero tail.</summary>
+    public sealed record Sub(string Sig, int Length, int Count, bool Zero, bool ZeroTail = false);
 
     /// <summary>One record as its bytes hold it: signature, form version, deleted flag, and its subrecords by (signature, length).</summary>
     public sealed class RecordEntry
@@ -45,11 +47,19 @@ public static class SubrecordInventory
         public bool Deleted { get; init; }
         public Dictionary<(string Sig, int Length), (int Count, bool Zero)> Subs { get; } = new();
         public List<(string Sig, int Length)> Order { get; } = new();
+        public List<ReadOnlyMemorySlice<byte>> Bodies { get; } = new();
 
-        public void Add(string sig, ReadOnlySpan<byte> data)
+        /// <summary>Count every subrecord of one record body, kept for a later look at the payloads.</summary>
+        public void AddBody(ReadOnlyMemorySlice<byte> body)
+        {
+            Bodies.Add(body);
+            foreach (var (sig, data) in Subrecords(body)) Add(sig, data);
+        }
+
+        void Add(string sig, ReadOnlyMemorySlice<byte> data)
         {
             var key = (sig, data.Length);
-            bool zero = !data.ContainsAnyExcept((byte)0);
+            bool zero = !data.Span.ContainsAnyExcept((byte)0);
             if (Subs.TryGetValue(key, out var had)) { Subs[key] = (had.Count + 1, had.Zero && zero); return; }
             Subs[key] = (1, zero);
             Order.Add(key);
@@ -182,7 +192,7 @@ public static class SubrecordInventory
                     Signature = rec.RecordType.Type, FormVersion = rec.FormVersion ?? 0,
                     Deleted = (rec.MajorRecordFlags & DeletedFlag) != 0,
                 };
-            foreach (var (sig, data) in Subrecords(rec.IsCompressed ? Inflate(rec.Content) : rec.Content)) entry.Add(sig, data.Span);
+            entry.AddBody(rec.IsCompressed ? Inflate(rec.Content) : rec.Content);
             p += rec.TotalLength;
         }
         return end;
@@ -234,8 +244,27 @@ public static class SubrecordInventory
     }
 
     static List<Sub> Minus(RecordEntry a, RecordEntry? b) =>
-        a.Order.Select(k => new Sub(k.Sig, k.Length, a.Subs[k].Count - (b?.Count(k) ?? 0), a.Subs[k].Zero))
+        a.Order.Select(k => new Sub(k.Sig, k.Length, a.Subs[k].Count - (b?.Count(k) ?? 0), a.Subs[k].Zero, ZeroTailOnly(a, b, k.Sig)))
                .Where(x => x.Count > 0).ToList();
+
+    static List<ReadOnlyMemorySlice<byte>> Payloads(RecordEntry e, string sig) =>
+        e.Bodies.SelectMany(b => Subrecords(b)).Where(x => x.Sig == sig).Select(x => x.Data).ToList();
+
+    /// <summary>True when every occurrence of the signature is written back, in order, as its own leading bytes with only a zero tail cut.</summary>
+    static bool ZeroTailOnly(RecordEntry file, RecordEntry? written, string sig)
+    {
+        if (written is null) return false;
+        var f = Payloads(file, sig);
+        var w = Payloads(written, sig);
+        if (f.Count != w.Count) return false;
+        for (int i = 0; i < f.Count; i++)
+        {
+            if (f[i].Length == w[i].Length) continue;
+            if (w[i].Length > f[i].Length || !f[i].Span[..w[i].Length].SequenceEqual(w[i].Span)
+                || f[i].Span[w[i].Length..].ContainsAnyExcept((byte)0)) return false;
+        }
+        return true;
+    }
 
     /// <summary>The diffs that still lose a subrecord once each rename is paired with its gain and each allowed loss is set aside.</summary>
     public static List<RecordDiff> Losses(List<RecordDiff> diffs, IReadOnlyList<(string Lost, string Gained)> renames,
@@ -263,13 +292,11 @@ public static class SubrecordInventory
     }
 
     static bool Allows(Allowance a, RecordDiff d, Sub s) =>
-        a.Record == d.Signature && a.Subrecord == s.Sig && a.When switch
-        {
-            AllowWhen.FormVersionBelow => d.FormVersion < a.FormVersion,
-            AllowWhen.RecordDeleted => d.Deleted,
-            AllowWhen.AllZeroPayload => s.Zero,
-            _ => false,
-        };
+        a.Record == d.Signature && a.Subrecord == s.Sig && a.When != 0
+        && (!a.When.HasFlag(AllowWhen.FormVersionBelow) || d.FormVersion < a.FormVersion)
+        && (!a.When.HasFlag(AllowWhen.RecordDeleted) || d.Deleted)
+        && (!a.When.HasFlag(AllowWhen.AllZeroPayload) || s.Zero)
+        && (!a.When.HasFlag(AllowWhen.ZeroTailDropped) || s.ZeroTail);
 
     /// <summary>The one refusal: which records, which subrecords, why, and what to do instead.</summary>
     static string Refusal(string fileName, IReadOnlyList<RecordDiff> losses, SkyrimMod parsed, Remedy remedy)
