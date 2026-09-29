@@ -413,7 +413,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   drives the same clause off the written file on the in-place lane, which is the forced half.
 - `dry-run-guard`'s RENDER HONESTY arm — a dry outcome leads with DRY RUN and nothing-written and never reads like a
   write, with the `full_readback` dump labelled as the IN-MEMORY preview.
-- `seq-write-guard` arms TOOL-LANE and UNCHANGED / -DIFFERS / RENDER-UNCHANGED / JSON-UNCHANGED — `out_path=` wins
+- `SeqWriteToolLaneTests` and `SeqWriteUnchangedTests` (the former `seq-write-guard` arms TOOL-LANE and UNCHANGED /
+  -DIFFERS / RENDER-UNCHANGED / JSON-UNCHANGED) — `out_path=` wins
   over `patch=`/`into=` with the ignored lane STATED, and a byte-identical destination is left alone and renders as
   its own state on both transports while a stale one is rewritten.
 - `DescriptionVocabularyScanTests` (the former `description-vocab-guard` arms) INV4-HOMES / INV4-CREATEHOMES /
