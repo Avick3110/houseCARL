@@ -995,8 +995,10 @@ public sealed partial class LoadOrderService
         {
             // Touch Resolver FIRST: in instance mode _modsDir is derived lazily inside the getter.
             var view = Resolver.Capture();
-            if (!Directory.Exists(_modsDir))
-                return WritePatchBuilder.CreatePluginOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
+            var snapshot = ConfiguredRoots();                             // before the allocation lock, which never wraps a _gate hold
+            var roots = snapshot.Roots;
+            if (!Directory.Exists(roots.ModsDir))
+                return WritePatchBuilder.CreatePluginOutcome.Fail($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
 
             // The basename is load-bearing for a trigger, so a collision is never auto-suffixed — refuse instead.
             // (a) an active plugin already owns this basename — a second one would shadow it (MO2 picks one by mod order).
@@ -1004,9 +1006,9 @@ public sealed partial class LoadOrderService
                 if (view.ContainsPlugin(stem + ext))
                     return WritePatchBuilder.CreatePluginOutcome.Fail(
                         $"a plugin named '{stem + ext}' is already active in your load order — a header-only trigger needs a UNIQUE basename (a second one would shadow it, MO2 picking the winner by mod order). Choose a different name.");
-            var roots = ((ILoadOrderHost)this).CaptureRoots();           // before the allocation lock, which never wraps a _gate hold
-            var folder = Path.Combine(_modsDir, ModFolderName(stem));
+            var folder = Path.Combine(roots.ModsDir, ModFolderName(stem));
             var plugin = stem + ".esp";
+            var active = ActivePluginBasenames(roots, snapshot.BuiltPluginNames);   // before the lock: may build the order
             lock (_folderAllocationGate)                                 // the same allocation lock as the other fresh-folder sites
             {
                 // (b) a houseCARL mod folder of this exact name already exists — don't overwrite (could clobber a real patch
@@ -1015,7 +1017,6 @@ public sealed partial class LoadOrderService
                     return WritePatchBuilder.CreatePluginOutcome.Fail(
                         $"a houseCARL output folder '{ModFolderName(stem)}' already exists — houseCARL won't auto-rename a header-only plugin (its exact basename is what makes the trigger resolve). Remove that folder in MO2, or choose a different name.");
                 // (c) a plugin of this BASENAME sits somewhere the order is NOT loading — the shadow the fresh patch lanes take (#561).
-                var active = ActivePluginBasenames(roots);
                 if (active.Count > 0 && ReadCompositionForShadow(roots) is { } comp)
                     foreach (var ext in PluginExts)                       // .esp / .esm / .esl — the basename is what binds
                         if (PatchStemShadow.Find(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, stem + ext, active) is { } shadow)
@@ -2058,14 +2059,15 @@ public sealed partial class LoadOrderService
         lock (_gate)
         {
             createdFolder = false;
-            if (!Directory.Exists(_modsDir))
-                throw new InvalidOperationException($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
+            var roots = RootsLocked();
+            if (!Directory.Exists(roots.ModsDir))
+                throw new InvalidOperationException($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
 
             if (!string.IsNullOrWhiteSpace(into))
             {
                 extend = true;
                 // The .esp write lane shares the extend resolver with the rider and asset lanes; needEsp:true picks the .esp inside the folder.
-                var folder = ResolveOwnedPatchFolder(RootsLocked(), into, needEsp: true, freshPatch, noFreshRule);
+                var folder = ResolveOwnedPatchFolder(roots, into, needEsp: true, freshPatch, noFreshRule);
                 var direct = Path.Combine(folder, PatchStem(into) + ".esp");
                 if (File.Exists(direct)) return direct;
                 var sole = SoleEspInFolder(folder, out var why);
@@ -2075,12 +2077,13 @@ public sealed partial class LoadOrderService
 
             extend = false;
             var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
+            var active = ActivePluginBasenames(roots, _resolver?.PluginNames);   // under _gate, before the allocation lock
             // Every record lane that reaches here declares patch= and writes "<stem>.esp".
             lock (_folderAllocationGate)                                // the same allocation lock as the rider lanes
             {
-                var freeStem = UniqueStem(RootsLocked(), baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
+                var freeStem = UniqueStem(roots, active, baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
                                           new PatchStemShadow.Target(s => s + ".esp", "patch"), refuseTaken);
-                var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
+                var newFolder = Path.Combine(roots.ModsDir, ModFolderName(freeStem));
                 var plugin = freeStem + ".esp";
                 // A dry run (create:false) resolves the would-be path only — no folder, no meta.ini.
                 if (create)
