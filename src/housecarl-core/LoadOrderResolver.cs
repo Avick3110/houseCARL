@@ -558,7 +558,8 @@ public sealed class LoadOrderResolver : IDisposable
     {
         readonly LoadOrderResolver _r;
         readonly IndexSnapshot _s;
-        internal IndexView(LoadOrderResolver r, IndexSnapshot s) { _r = r; _s = s; }   // only Capture() constructs
+        readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Clause, string? Cause)> _absences;   // one explanation per absent plugin per pin
+        internal IndexView(LoadOrderResolver r, IndexSnapshot s) { _r = r; _s = s; _absences = new(StringComparer.Ordinal); }   // only Capture() constructs
 
         public int PluginCount => _r._paths.Length;
 
@@ -605,9 +606,15 @@ public sealed class LoadOrderResolver : IDisposable
             => orderIndex >= 0 && orderIndex < _r._names.Length ? _r._names[orderIndex] : null;
 
         /// <summary>The trailing clause for a refusal naming a plugin <see cref="ContainsPlugin"/> just returned false for; always safe to append, and "" when there is nothing to add.</summary>
-        public string AbsenceClause(string pluginName) => _r.AbsenceClause(pluginName);
+        public string AbsenceClause(string pluginName) => AbsenceClause(pluginName, out _);
 
-        public string AbsenceClause(string pluginName, out string? cause) => _r.AbsenceClause(pluginName, out cause);
+        public string AbsenceClause(string pluginName, out string? cause)
+        {
+            var r = _r;
+            var (clause, why) = _absences.GetOrAdd(pluginName, n => (r.AbsenceClause(n, out var c), c));
+            cause = why;
+            return clause;
+        }
 
         /// <summary>Is this plugin LIGHT — ESL-flagged in its header, or a <c>.esl</c> — in THIS build? A refusal about ESL compaction asks the index rather than inferring it from a FormID.</summary>
         public bool IsLightFlagged(string pluginName)
@@ -617,7 +624,11 @@ public sealed class LoadOrderResolver : IDisposable
         public bool IsMasterBlock(string pluginName)
             => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.MasterBlock[i];
 
-        public string? ExplainAbsence(string pluginName) => _r.ExplainAbsence(pluginName);
+        public string? ExplainAbsence(string pluginName)
+        {
+            AbsenceClause(pluginName, out var cause);
+            return cause;
+        }
 
         public string NameSuggestion(string pluginName) => _r.NameSuggestion(pluginName);
 
@@ -644,6 +655,13 @@ public sealed class LoadOrderResolver : IDisposable
         public ReverseReferenceIndex? ReverseIndex => _r.ReverseIndex;
 
         public IEnumerable<FormKey> ConflictKeys() => _s.Overriders.Keys;
+
+        /// <summary>Whether the named plugin holds a version of the record in this build, without allocating.</summary>
+        public bool Touches(FormKey fk, string pluginName)
+        {
+            if (!_r._nameToIdx.TryGetValue(pluginName, out int i) || !_s.Index.TryGetValue(fk, out var e)) return false;
+            return e.count == 1 ? e.winner == i : Array.IndexOf(_s.Overriders[fk], i) >= 0;
+        }
 
         public IReadOnlyList<string>? TouchingPlugins(FormKey fk)
         {

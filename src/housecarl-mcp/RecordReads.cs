@@ -253,8 +253,7 @@ internal sealed partial class RecordReads
     /// clause is stated only where the index says that plugin is light-flagged — pinned by
     /// <c>RuntimeFormIdTests.AMissingRecordInAnEslFlaggedPluginIsToldAboutCompaction</c> and
     /// <c>RecordsRemedyRepairTests.AndDoesNotBlameEslCompactionOnAPluginThatIsNotEslFlagged</c>.</summary>
-    internal static string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk,
-                                   Dictionary<string, string>? absenceMemo = null)
+    internal static string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk)
     {
         var defining = FormIdToken.Plugin(fk.ModKey.FileName.String);
         if (view.ExcludedPlugins.TryGetValue(defining, out var why))
@@ -269,14 +268,9 @@ internal sealed partial class RecordReads
                    $"overrides it either.{esl} List what it actually defines with housecarl_records " +
                    $"plugins={{\"names\": [\"{defining}\"], \"defined_in\": true}}.";
         }
-        // One clause, one explainer call, and the spelling hint only where nothing better can be said.
-        if (absenceMemo is null || !absenceMemo.TryGetValue(defining, out var tail))
-        {
-            var absence = view.AbsenceClause(defining, out var cause);
-            var hint = cause is null ? " (names match the plugin FILENAME incl. .esp/.esm, case-insensitively)" : "";
-            tail = hint + "." + absence;
-            if (absenceMemo is not null) absenceMemo[defining] = tail;
-        }
+        // One clause, and the spelling hint only where nothing better can be said.
+        var absence = view.AbsenceClause(defining, out var cause);
+        var tail = (cause is null ? " (names match the plugin FILENAME incl. .esp/.esm, case-insensitively)" : "") + "." + absence;
         return $"FormID {FormIdToken.Of(fk)} is not present in the load order ({view.PluginCount} plugins): its plugin '{defining}' " +
                $"is not in the order{tail}";
     }
@@ -362,16 +356,11 @@ internal sealed partial class RecordReads
     static string? ReadDisplayName(IMajorRecordGetter body) =>
         body is INamedGetter named && !string.IsNullOrEmpty(named.Name) ? named.Name : null;
 
-    /// <summary>The name-resolution caches one lane carries: a target's identity per FormKey, and the absence tail
-    /// per missing plugin name. Both are per-lane, never global — they describe ONE captured build.</summary>
+    /// <summary>The name-resolution cache one lane carries: a target's identity per FormKey, for ONE captured build.</summary>
     public sealed class LinkMemo
     {
         /// <summary>Resolved identity per target, so a keyword recurring across a batch resolves once.</summary>
         public Dictionary<FormKey, ResolvedRef> Refs { get; } = new();
-
-        /// <summary>The unresolved-FormID tail per missing plugin, so the absence explainer runs once per plugin
-        /// rather than once per dangling FormKey.</summary>
-        public Dictionary<string, string> Absences { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Resolve ONE FormKey to its load-order identity off a captured view + open session, memoised so a
@@ -387,7 +376,7 @@ internal sealed partial class RecordReads
                 ? new ResolvedRef(FormIdToken.Of(fk), Resolved: true, Type: eiType, EditorId: eiEditorId, Winner: "<engine>")   // engine-implicit: hardcoded, real, defined by no plugin
                 // Valid FormKey, no active plugin defines it; the reason is the three-cause sentence every other
                 // lane states.
-                : new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Error: UnresolvedFormId(view, fk, memo.Absences));
+                : new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Error: UnresolvedFormId(view, fk));
         else
         {
             var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
