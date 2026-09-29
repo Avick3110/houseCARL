@@ -96,4 +96,16 @@ public sealed class AbsentMasterLinkTests : IDisposable
         Assert.Contains(AbsentMasterWorld.GoneName, r);              // the links really did dangle into the absent master
         Assert.Equal(1, _w.Svc.AbsenceExplanations - before);
     }
+
+    /// <summary>An unpinned scan read row by row shares one absence cache across its rows.</summary>
+    [Fact]
+    public void AnUnpinnedScanWithResolveNamesExplainsAnAbsentMasterOnce()
+    {
+        var q = _w.Svc.CrossQuery(new[] { "NPC_" }, null, null, false, null, null, 100) with { Pin = null };
+        Assert.Equal(AbsentMasterWorld.Danglers, q.Keys.Count);
+        var before = _w.Svc.AbsenceExplanations;
+        using var reader = new ScanDetailReader(_w.Svc, q, new[] { "Race" }, 1, true, false, null, null, default);
+        for (int i = 0; i < q.Keys.Count; i++) Assert.Null(reader.Row(i).Error);
+        Assert.Equal(1, _w.Svc.AbsenceExplanations - before);
+    }
 }
