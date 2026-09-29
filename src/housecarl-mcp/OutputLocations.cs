@@ -16,14 +16,26 @@ public sealed partial class LoadOrderService
 
     /// <summary>Resolve a houseCARL-owned mod folder under ModsDir for a non-.esp output: a fresh marker-stamped folder, auto-suffixed so a prior one is never clobbered, or <paramref name="into"/> an existing owned one. Derives ModsDir with no index build, and throws the unconfigured prompt when there is no instance.</summary>
     public RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming)
+        => ResolvePatchModFolder(ConfiguredRoots(), patchName, into, defaultStem, naming);   // cheap: roots only, NO resolver build
+
+    /// <summary>The roots and the built resolver's plugin names, null when none is built, from one <c>_gate</c> hold, so a stem check never mixes two instances.</summary>
+    internal readonly record struct OutputRoots(Mo2Roots Roots, IReadOnlyList<string>? BuiltPluginNames);
+
+    /// <summary>One <c>_gate</c> hold: the configured check, the roots and the built plugin names; throws the unconfigured prompt when there is no instance.</summary>
+    internal OutputRoots ConfiguredRoots()
     {
-        if (ConfigPromptOrNull() is not null) throw NotConfigured();
-        return ResolvePatchModFolder(((ILoadOrderHost)this).CaptureRoots(), patchName, into, defaultStem, naming);   // cheap: roots only, NO resolver build
+        lock (_gate)
+        {
+            if (!_configured) throw NotConfigured();
+            EnsurePathsDerived();
+            return new OutputRoots(RootsLocked(), _resolver?.PluginNames);
+        }
     }
 
-    /// <summary>The body of <see cref="ResolvePatchModFolder(string?, string?, string, RiderNaming?)"/> over roots the caller captured; no lock held, so the create runs outside the index lock.</summary>
-    RiderFolder ResolvePatchModFolder(Mo2Roots roots, string? patchName, string? into, string defaultStem, RiderNaming? naming)
+    /// <summary>The body of <see cref="ResolvePatchModFolder(string?, string?, string, RiderNaming?)"/> over a snapshot the caller captured; no index lock held, so the create runs outside it.</summary>
+    internal RiderFolder ResolvePatchModFolder(OutputRoots snapshot, string? patchName, string? into, string defaultStem, RiderNaming? naming)
     {
+        var roots = snapshot.Roots;
         if (!Directory.Exists(roots.ModsDir))
             throw new InvalidOperationException($"cannot write: ModsDir '{roots.ModsDir}' does not exist.");
 
@@ -34,9 +46,10 @@ public sealed partial class LoadOrderService
             return new RiderFolder(folder, folder, CreatedFresh: false, FolderStem(folder));   // reused — the user owns it; cleanup leaves it
         }
 
+        var active = ActivePluginBasenames(roots, snapshot.BuiltPluginNames);   // before the lock: may build the order
         lock (_folderAllocationGate)                       // the stem check and the create, race-free only together
         {
-            var newStem = UniqueStem(roots, PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!),
+            var newStem = UniqueStem(roots, active, PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!),
                                      !string.IsNullOrWhiteSpace(patchName), writes: null, naming?.RefuseTaken);
             var newFolder = Path.Combine(roots.ModsDir, ModFolderName(newStem));
             Directory.CreateDirectory(newFolder);
@@ -71,11 +84,8 @@ public sealed partial class LoadOrderService
         string outputDir, string sub,
         Func<string, string, string, string, (string dir, bool appended, string? deployWarning)> contract,
         out string? deployWarning)
-    {
-        if (ConfigPromptOrNull() is not null) throw NotConfigured();
         // cheap: roots for the deployability check, NO resolver build
-        return ResolveExplicitRiderFolder(((ILoadOrderHost)this).CaptureRoots(), outputDir, sub, contract, out deployWarning);
-    }
+        => ResolveExplicitRiderFolder(ConfiguredRoots().Roots, outputDir, sub, contract, out deployWarning);
 
     /// <summary>The out_path= body over roots the caller captured; no lock held, so the create runs outside the index lock.</summary>
     RiderFolder ResolveExplicitRiderFolder(
@@ -214,10 +224,10 @@ public sealed partial class LoadOrderService
 
     // ---- write the start-game-enabled-quest .seq file ----
 
-    /// <summary>The <c>SEQ\</c> output folder for a generated <c>.seq</c>, under a houseCARL mod folder, which MO2 deploys into the game's <c>Data\SEQ</c>, over roots the caller captured.</summary>
-    RiderFolder ResolveSeqFolder(Mo2Roots roots, string? patchName, string? into)
+    /// <summary>The <c>SEQ\</c> output folder for a generated <c>.seq</c>, under a houseCARL mod folder, which MO2 deploys into the game's <c>Data\SEQ</c>, over a snapshot the caller captured.</summary>
+    RiderFolder ResolveSeqFolder(OutputRoots snapshot, string? patchName, string? into)
     {
-        var f = ResolvePatchModFolder(roots, patchName, into, "houseCARL_SEQ", new RiderNaming("patch"));
+        var f = ResolvePatchModFolder(snapshot, patchName, into, "houseCARL_SEQ", new RiderNaming("patch"));
         var seq = Path.Combine(f.ModFolder, "SEQ");
         Directory.CreateDirectory(seq);
         return f with { OutputDir = seq };
@@ -244,14 +254,15 @@ public sealed partial class LoadOrderService
         // Lock order is _writeGate then _gate; contract in docs/architecture/load-order-service.md.
         lock (_writeGate)                                                // one write at a time: locate, build, resolve, commit
         {
-            if (ConfigPromptOrNull() is { } cfgPrompt) return SeqOutcome.Fail(cfgPrompt);   // need the roots for the locate and the output folder
-
             // Source resolution through the shared locate contract; the arm that resolved decides which .seq you get.
+            OutputRoots snapshot;
             Mo2Roots roots;
             string pluginPath, resolvedFrom;
             try
             {
-                roots = ((ILoadOrderHost)this).CaptureRoots();          // one capture for the locate, the owned-folder check and the folder resolve
+                // One capture for the locate, the owned-folder check and the folder resolve; unconfigured fails with the prompt.
+                snapshot = ConfiguredRoots();
+                roots = snapshot.Roots;
                 var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);   // cheap text parse — no index build
                 var loc = LocatePluginFileOnDisk(comp, roots, plugin, null, offerModParam: false);
                 // The locate refusal names what it could not find; this adds what THIS tool accepts.
@@ -289,7 +300,7 @@ public sealed partial class LoadOrderService
             {
                 rf = chosenOutput
                     ? ResolveExplicitSeqFolder(roots, outputDir!, out deployWarning)
-                    : ResolveSeqFolder(roots, patchName, autoInto ?? into);
+                    : ResolveSeqFolder(snapshot, patchName, autoInto ?? into);
             }
             catch (InvalidOperationException ex) { return SeqOutcome.Fail(ex.Message); }
 
@@ -388,9 +399,9 @@ public sealed partial class LoadOrderService
 
     /// <summary>The given stem if it is free, else the first free "<c>&lt;stem&gt;_NNN</c>"; free means no mod folder of that name exists AND no active plugin is named "<c>&lt;stem&gt;.esp</c>". Auto-suffix rule and its two refusing lanes in docs/architecture/output-and-artifacts.md.
     /// <para><paramref name="writes"/> is the calling lane's own statement of the file it emits and the parameter that names it, so a shadow refusal never sends a caller to a parameter their tool lacks. Both refusals need <paramref name="stemFromCaller"/>: a shadow, and a taken stem under <paramref name="refuseTaken"/>, refuse only the name the CALLER passed, while a defaulted stem is suffixed either way.</para></summary>
-    string UniqueStem(Mo2Roots roots, string stem, bool stemFromCaller, PatchStemShadow.Target? writes, StemRefusal? refuseTaken = null)
+    string UniqueStem(Mo2Roots roots, IReadOnlySet<string> active, string stem, bool stemFromCaller, PatchStemShadow.Target? writes,
+                      StemRefusal? refuseTaken = null)
     {
-        var active = ActivePluginBasenames(roots);
         // The shadow sweep needs to know what the order loads, so without that it does not run and folder plus
         // active-order uniqueness stand; a lane that writes no plugin does not pay the profile parse at all.
         var comp = active.Count == 0 || writes is null ? null : ReadCompositionForShadow(roots);
@@ -445,13 +456,13 @@ public sealed partial class LoadOrderService
     /// <summary>One lane's statement that its artifact's exact basename is load-bearing, so a taken stem the CALLER named refuses instead of auto-suffixing, naming the artifact and that lane's own remedy.</summary>
     public readonly record struct StemRefusal(string Artifact, string Remedy);
 
-    /// <summary>The active load order's plugin filenames for the UniqueStem collision check, read from the built resolver if present else the cheap composition — deliberately not via the <see cref="Resolver"/> getter, which refuses a zero-plugin instance. Best-effort: an empty set leaves folder-only uniqueness.</summary>
-    IReadOnlySet<string> ActivePluginBasenames(Mo2Roots roots)
+    /// <summary>The active load order's plugin filenames for the UniqueStem collision check: <paramref name="builtNames"/>, the built resolver's names read in the same <c>_gate</c> hold as <paramref name="roots"/>, else the order built from those roots — deliberately not via the <see cref="Resolver"/> getter, which refuses a zero-plugin instance. Best-effort: an empty set leaves folder-only uniqueness.</summary>
+    static IReadOnlySet<string> ActivePluginBasenames(Mo2Roots roots, IReadOnlyList<string>? builtNames)
     {
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            IReadOnlyList<string>? names = _resolver?.PluginNames;
+            var names = builtNames;
             if (names is null)
                 names = Mo2LoadOrder.Build(roots.ProfileDir, roots.ModsDir, roots.DataDir, roots.OverwriteDir)
                     .OrderedPaths.Select(Path.GetFileName).Where(n => !string.IsNullOrEmpty(n)).ToList()!;
