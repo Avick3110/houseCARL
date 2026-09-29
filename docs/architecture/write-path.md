@@ -462,7 +462,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - `WriteReadbackFromFileTests.ThePerEditLineMatchesAFreshReadOfTheFile` and `TheJsonOpCarriesTheFilesOwnReading` —
   the verify ran and rendered its compact per-op clause with no `full_readback=true` passed; `ApplyGuardVerifyTests`
   drives the same clause off the written file on the in-place lane, which is the forced half.
-- `dry-run-guard`'s RENDER HONESTY arm — a dry outcome leads with DRY RUN and nothing-written and never reads like a
+- `DryRunGuardPatchLaneTests` and `DryRunGuardForwardTests` (the former `dry-run-guard` RENDER HONESTY arm) — a dry outcome leads with DRY RUN and nothing-written and never reads like a
   write, with the `full_readback` dump labelled as the IN-MEMORY preview.
 - `SeqWriteToolLaneTests` and `SeqWriteUnchangedTests` (the former `seq-write-guard` arms TOOL-LANE and UNCHANGED /
   -DIFFERS / RENDER-UNCHANGED / JSON-UNCHANGED) — `out_path=` wins
