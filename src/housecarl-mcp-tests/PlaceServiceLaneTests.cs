@@ -137,22 +137,22 @@ public sealed class PlaceServiceLaneTests
         Assert.Null(allFail.LeftoverFolder);
     }
 
-    // The same cleanup never reaches an into= folder the caller already owns: an all-failed batch into it leaves it
-    // and what it holds.
+    // The same cleanup never reaches an into= folder the caller already owns, even one holding nothing but its owner
+    // marker — the shape the fresh-folder cleanup deletes.
     [Fact]
     public void AnAllFailedBatchIntoAnExistingFolderLeavesThatFolder()
     {
         using var p = new PlaceInstance();
-        Loose(p.Mod("GMod"), FacegenRel, new byte[] { 5, 5 });
         p.ProfileWithDummy("GMod", "+GMod");
         var svc = p.Open();
-        var first = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, null) }, "Owned", null);
-        Assert.NotNull(first.ModFolder);
+        var owned = svc.ResolvePatchModFolder("Owned", null, "houseCARL_Assets", null).ModFolder;
+        Assert.True(File.Exists(Path.Combine(owned, "meta.ini")));
 
-        var allFail = svc.PlaceAssets(new[] { new PlaceRequest(@"meshes\absent\x.nif", null) }, null, "Owned");
+        var allFail = svc.PlaceAssets(new[] { new PlaceRequest(@"meshes\absent\x.nif", null) }, null, Path.GetFileName(owned));
 
-        Assert.False(allFail.Results[0].Placed);
-        Assert.True(File.Exists(Path.Combine(first.ModFolder!, FacegenRel)));
+        Assert.False(allFail.Results[0].Placed, allFail.Error);
+        Assert.Null(allFail.Error);
+        Assert.True(Directory.Exists(owned));
     }
 
     // Probe G: "a PARTIAL batch keeps the folder with the good file present".
