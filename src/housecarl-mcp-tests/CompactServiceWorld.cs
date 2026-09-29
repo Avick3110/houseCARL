@@ -11,7 +11,9 @@ namespace HousecarlMcpTests;
 /// <summary>A fresh synthetic MO2 instance for the compact service lane, one per test: several arms compact in place
 /// or add plugins, so no two tests share one. Five plugins, each in its own mod folder, in load order:
 /// HcCsBase.esm (an interior cell), HcCsSelf.esp (a self-contained weapon, cell and placed ref), HcCsLib.esp (a
-/// weapon), HcCsOver.esp (overrides Base's cell and adds a placed ref), HcCsDep.esp (a FormList naming Lib's weapon).</summary>
+/// weapon), HcCsOver.esp (overrides Base's cell and adds a placed ref), HcCsDep.esp (a FormList naming Lib's weapon).
+/// Records a compact renumbers start at 0x1A01, above the light window, so a compact that renumbers nothing fails
+/// the window asserts.</summary>
 public sealed class CompactServiceWorld : IDisposable
 {
     public static readonly ModKey SelfKey = new("HcCsSelf", ModType.Plugin);
@@ -20,7 +22,7 @@ public sealed class CompactServiceWorld : IDisposable
     public static readonly ModKey LibKey = new("HcCsLib", ModType.Plugin);
     public static readonly ModKey DepKey = new("HcCsDep", ModType.Plugin);
     public static readonly FormKey BaseCell = new(BaseKey, 0xA01);
-    public static readonly FormKey LibWeapon = new(LibKey, 0xA01);
+    public static readonly FormKey LibWeapon = new(LibKey, 0x1A01);
 
     public string Root { get; }
     public string Mods { get; }
@@ -40,9 +42,9 @@ public sealed class CompactServiceWorld : IDisposable
 
         WriteMod("SelfMod", SelfKey, m =>
         {
-            m.Weapons.Add(new Weapon(new FormKey(SelfKey, 0xA01), SkyrimRelease.SkyrimSE) { EditorID = "HcCsWeap", BasicStats = new WeaponBasicStats { Damage = 5 } });
-            var c = new Cell(new FormKey(SelfKey, 0xA02), SkyrimRelease.SkyrimSE) { EditorID = "HcCsCell", Flags = Cell.Flag.IsInteriorCell };
-            c.Temporary.Add(new PlacedObject(new FormKey(SelfKey, 0xA03), SkyrimRelease.SkyrimSE) { EditorID = "HcCsRef" });
+            m.Weapons.Add(new Weapon(new FormKey(SelfKey, 0x1A01), SkyrimRelease.SkyrimSE) { EditorID = "HcCsWeap", BasicStats = new WeaponBasicStats { Damage = 5 } });
+            var c = new Cell(new FormKey(SelfKey, 0x1A02), SkyrimRelease.SkyrimSE) { EditorID = "HcCsCell", Flags = Cell.Flag.IsInteriorCell };
+            c.Temporary.Add(new PlacedObject(new FormKey(SelfKey, 0x1A03), SkyrimRelease.SkyrimSE) { EditorID = "HcCsRef" });
             FileInterior(m, c);
         });
 
@@ -55,8 +57,8 @@ public sealed class CompactServiceWorld : IDisposable
             var dir = Path.Combine(Mods, "OverMod"); Directory.CreateDirectory(dir);
             var o = new SkyrimMod(OverKey, SkyrimRelease.SkyrimSE);
             var ovCell = (ICell)WriteEngine.GenericGetOrAddAsOverride(o, baseCell, baseOv.ToImmutableLinkCache());
-            ovCell.Temporary.Add(new PlacedObject(new FormKey(OverKey, 0xA01), SkyrimRelease.SkyrimSE) { EditorID = "HcCsOverRef" });
-            o.ModHeader.Stats.NextFormID = 0xA02;
+            ovCell.Temporary.Add(new PlacedObject(new FormKey(OverKey, 0x1A01), SkyrimRelease.SkyrimSE) { EditorID = "HcCsOverRef" });
+            o.ModHeader.Stats.NextFormID = 0x1A02;
             o.BeginWrite.ToPath(Path.Combine(dir, OverKey.FileName.String)).WithLoadOrder(new[] { baseOv }).NoNextFormIDProcessing().Write();
         }
 
@@ -132,6 +134,7 @@ public sealed class CompactServiceWorld : IDisposable
 public sealed class LocalizedCompactWorld : IDisposable
 {
     readonly string _root;
+    readonly List<string> _denied = new();
     internal LocalizedStringsFixture.Built Fx { get; }
     public LoadOrderService Svc { get; }
 
@@ -149,8 +152,16 @@ public sealed class LocalizedCompactWorld : IDisposable
 
     public static bool NoStaging(string pluginPath) => !Directory.Exists(Path.Combine(Path.GetDirectoryName(pluginPath)!, ".housecarl-tmp"));
 
+    /// <summary>Deny listing <paramref name="dir"/> until this world is disposed, and report whether the deny took.</summary>
+    public bool DenyListing(string dir)
+    {
+        if (!TryDenyListing(dir)) return false;
+        _denied.Add(dir);
+        return true;
+    }
+
     /// <summary>Deny the current user ListDirectory on <paramref name="dir"/>, and report whether the deny took.</summary>
-    public static bool TryDenyListing(string dir)
+    static bool TryDenyListing(string dir)
     {
         try
         {
@@ -171,25 +182,26 @@ public sealed class LocalizedCompactWorld : IDisposable
         catch { return false; }
     }
 
-    /// <summary>Lift the deny <see cref="TryDenyListing"/> added.</summary>
-    public static void UndenyListing(string dir)
+    /// <summary>Lift the deny <see cref="TryDenyListing"/> added; a failure throws, so a denied folder never sits in TEMP unseen.</summary>
+    static void UndenyListing(string dir)
     {
-        try
-        {
-            var me = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
-            var di = new DirectoryInfo(dir);
-            var sec = di.GetAccessControl();
-            sec.RemoveAccessRuleAll(new System.Security.AccessControl.FileSystemAccessRule(
-                me, System.Security.AccessControl.FileSystemRights.ListDirectory,
-                System.Security.AccessControl.AccessControlType.Deny));
-            di.SetAccessControl(sec);
-        }
-        catch { /* best effort */ }
+        var me = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+        var di = new DirectoryInfo(dir);
+        var sec = di.GetAccessControl();
+        sec.RemoveAccessRuleAll(new System.Security.AccessControl.FileSystemAccessRule(
+            me, System.Security.AccessControl.FileSystemRights.ListDirectory,
+            System.Security.AccessControl.AccessControlType.Deny));
+        di.SetAccessControl(sec);
     }
 
     public void Dispose()
     {
         Svc.Dispose();
+        foreach (var dir in _denied)
+        {
+            try { UndenyListing(dir); }
+            catch (Exception ex) { throw new InvalidOperationException($"could not lift the listing deny on {dir}; remove it by hand: {ex.Message}", ex); }
+        }
         try { Directory.Delete(_root, true); } catch { /* best effort */ }
     }
 }

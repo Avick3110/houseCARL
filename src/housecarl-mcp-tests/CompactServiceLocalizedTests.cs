@@ -190,10 +190,9 @@ public sealed class CompactServiceLocalizedTests
         var ls = new LocalizedStringsFixture.Spec("LockedSrc", new ModKey("HcCsLocked", ModType.Plugin), "LOCKED NAME", "LOCKED DESC", StringsBeside: true);
         using var w = new LocalizedCompactWorld(ls);
         var strings = Path.Combine(w.Fx.Mods, ls.ModFolder, "Strings");
-        Assert.True(LocalizedCompactWorld.TryDenyListing(strings), "the deny-listing ACE did not take on this host");
-        WritePatchBuilder.CompactOutcome o;
-        try { o = w.Svc.CompactPlugin(ls.Key.FileName.String); }
-        finally { LocalizedCompactWorld.UndenyListing(strings); }
+        Assert.True(w.DenyListing(strings), "the deny-listing ACE did not take on this host");
+
+        var o = w.Svc.CompactPlugin(ls.Key.FileName.String);
 
         Assert.False(o.Success);
         Assert.Contains("fix its permissions", o.Error);
@@ -235,6 +234,23 @@ public sealed class CompactServiceLocalizedTests
         Assert.Contains("has the file open", inPlace.Error);
         // UNREADABLE-SRC and the held source is byte-identical afterwards.
         Assert.True(LocalizedCompactWorld.Same(path, before));
+    }
+
+    // UNREADABLE-SRC unheld, the same source one lock apart: the service that just hit the held file compacts it
+    // once the file is free, and still says nothing about localization.
+    [Fact]
+    public void TheSameServiceCompactsTheSourceOnceTheHoldIsReleased()
+    {
+        var ur = new LocalizedStringsFixture.Spec("UrSrc", new ModKey("HcCsUr", ModType.Plugin), "UR NAME", "UR DESC", Localized: false);
+        using var w = new LocalizedCompactWorld(ur);
+        var path = w.PluginPath(ur);
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            Assert.False(w.Svc.CompactPlugin(ur.Key.FileName.String).Success);
+
+        var o = w.Svc.CompactPlugin(ur.Key.FileName.String);
+
+        Assert.True(o.Success, o.Error);
+        Assert.DoesNotContain("localized", o.Note ?? "", StringComparison.OrdinalIgnoreCase);
     }
 
     // UNREADABLE-SRC unheld, the same source compacts and still says nothing about localization.
