@@ -401,6 +401,9 @@ public static class WritePatchBuilder
                 $"refused — {problems.Count} of {edits.Count} edit(s) rejected by resolve/pre-flight; NO patch written:\n  - "
                 + string.Join("\n  - ", problems.Select(p => p.Message)));
         }
+        // into= re-serializes the whole existing patch, so it runs the same round-trip check as the in-place lane.
+        if (extend && RoundTripRefusal(patchMod, outPath, session, SubrecordInventory.Remedy.Extend) is { } lost)
+            return PatchOutcome.Fail(lost);
 
         // Is another patch already overriding one of these records? Off the captured view, and a warning, never a block.
         var forkWarning = ForkWarning.For(view, resolved.Select(r => r.edit.Target), fileName);
@@ -1088,6 +1091,10 @@ public static class WritePatchBuilder
             return RemovalOutcome.Fail(
                 $"refused — {problems.Count} of {targets.Count} target(s) not carried by the patch; NOTHING removed:\n  - "
                 + string.Join("\n  - ", problems));
+        // The whole patch is re-serialized, so it runs the round-trip check; the removed records are not counted.
+        if (RoundTripRefusal(patchMod, outPath, session, SubrecordInventory.Remedy.Remove,
+                DroppedWith(patchMod, toRemove.Select(rr => rr.Target))) is { } lost)
+            return RemovalOutcome.Fail(lost);
 
         // Literal drop-from-group via the typed overload, which reaches NESTED records but not a SINGULAR owned child.
         try
@@ -1600,6 +1607,10 @@ public static class WritePatchBuilder
         return set;
     }
 
+    /// <summary>The round-trip check for an into= lane outside this class (copy), over the session's master set.</summary>
+    public static string? ExtendRoundTripRefusal(SkyrimMod patch, string path, LoadOrderResolver.OverlaySession session)
+        => RoundTripRefusal(patch, path, session, SubrecordInventory.Remedy.Extend);
+
     /// <summary>The lead of a serialize fault met by the round-trip check, which the write would meet the same way.</summary>
     static string CheckSerializeLead(string path) =>
         $"'{Path.GetFileName(path)}' is UNTOUCHED: re-serializing it unedited for the round-trip check failed, so the write would fail the same way: ";
@@ -1825,6 +1836,10 @@ public static class WritePatchBuilder
         var mastersBefore = extend
             ? patchMod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : null;
+        // into= re-serializes the whole existing patch; a record the forward replaces goes whole and is not counted.
+        if (extend && RoundTripRefusal(patchMod, outPath, session, SubrecordInventory.Remedy.Extend,
+                resolved.Select(r => r.spec.Target)) is { } lost)
+            return ForwardOutcome.Fail(lost);
 
         // --- Phase 3: deep-copy each source body in as an override; a FormKey the patch ALREADY carries is dropped first. ---
         var alreadyCarried = new Dictionary<FormKey, IMajorRecord>();

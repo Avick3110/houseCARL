@@ -498,7 +498,8 @@ public sealed partial class LoadOrderService
                     mk => view.ContainsPlugin(mk.FileName.String),
                     pf => { session.ReleaseOverlay(pf); return session.AllMastersExcept(pf); },
                     consulted,
-                    ex => WritePatchBuilder.SerializeFailure("", ex, session, ""));
+                    ex => WritePatchBuilder.SerializeFailure("", ex, session, ""),
+                    patch => WritePatchBuilder.ExtendRoundTripRefusal(patch, outPath, session));
 
                 wrote = outcome.Success;
                 return outcome;
