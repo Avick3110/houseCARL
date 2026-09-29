@@ -17,27 +17,29 @@ public sealed partial class LoadOrderService
     /// <summary>Resolve a houseCARL-owned mod folder under ModsDir for a non-.esp output: a fresh marker-stamped folder, auto-suffixed so a prior one is never clobbered, or <paramref name="into"/> an existing owned one. Derives ModsDir with no index build, and throws the unconfigured prompt when there is no instance.</summary>
     public RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming)
     {
-        lock (_gate)
+        if (ConfigPromptOrNull() is not null) throw NotConfigured();
+        return ResolvePatchModFolder(((ILoadOrderHost)this).CaptureRoots(), patchName, into, defaultStem, naming);   // cheap: roots only, NO resolver build
+    }
+
+    /// <summary>The body of <see cref="ResolvePatchModFolder(string?, string?, string, RiderNaming?)"/> over roots the caller captured; no lock held, so the create runs outside the index lock.</summary>
+    RiderFolder ResolvePatchModFolder(Mo2Roots roots, string? patchName, string? into, string defaultStem, RiderNaming? naming)
+    {
+        if (!Directory.Exists(roots.ModsDir))
+            throw new InvalidOperationException($"cannot write: ModsDir '{roots.ModsDir}' does not exist.");
+
+        if (!string.IsNullOrWhiteSpace(into))
         {
-            if (!_configured) throw NotConfigured();
-            EnsurePathsDerived();                          // cheap: derive ModsDir from the instance, NO resolver build
-            if (!Directory.Exists(_modsDir))
-                throw new InvalidOperationException($"cannot write: ModsDir '{_modsDir}' does not exist.");
-
-            if (!string.IsNullOrWhiteSpace(into))
-            {
-                // needEsp:false because a rider targets the FOLDER, and the fresh remedy is the CALLING LANE's (#357).
-                var folder = ResolveOwnedPatchFolder(into, needEsp: false, FreshPatchRemedy.None, riderNaming: naming);
-                return new RiderFolder(folder, folder, CreatedFresh: false, FolderStem(folder));   // reused — the user owns it; cleanup leaves it
-            }
-
-            var newStem = UniqueStem(PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!),
-                                     !string.IsNullOrWhiteSpace(patchName), writes: null, naming?.RefuseTaken);
-            var newFolder = Path.Combine(_modsDir, ModFolderName(newStem));
-            Directory.CreateDirectory(newFolder);
-            WriteOwnerMeta(newFolder, "(houseCARL output)");   // ownership marker; this folder may hold scripts / a .bsa / loose files, not an .esp
-            return new RiderFolder(newFolder, newFolder, CreatedFresh: true, newStem);
+            // needEsp:false because a rider targets the FOLDER, and the fresh remedy is the CALLING LANE's (#357).
+            var folder = ResolveOwnedPatchFolder(roots, into, needEsp: false, FreshPatchRemedy.None, riderNaming: naming);
+            return new RiderFolder(folder, folder, CreatedFresh: false, FolderStem(folder));   // reused — the user owns it; cleanup leaves it
         }
+
+        var newStem = UniqueStem(roots, PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!),
+                                 !string.IsNullOrWhiteSpace(patchName), writes: null, naming?.RefuseTaken);
+        var newFolder = Path.Combine(roots.ModsDir, ModFolderName(newStem));
+        Directory.CreateDirectory(newFolder);
+        WriteOwnerMeta(newFolder, "(houseCARL output)");   // ownership marker; this folder may hold scripts / a .bsa / loose files, not an .esp
+        return new RiderFolder(newFolder, newFolder, CreatedFresh: true, newStem);
     }
 
     /// <summary>The <c>Scripts\</c> output folder for a compiled .pex, under a houseCARL mod folder, which MO2 deploys into the game's Data\Scripts.</summary>
@@ -57,36 +59,46 @@ public sealed partial class LoadOrderService
     public RiderFolder ResolveExplicitSeqFolder(string outputDir, out string? deployWarning)
         => ResolveExplicitRiderFolder(outputDir, "SEQ", SeqOutputContract, out deployWarning);
 
+    /// <summary><see cref="ResolveExplicitSeqFolder(string, out string?)"/> over roots the caller captured.</summary>
+    RiderFolder ResolveExplicitSeqFolder(Mo2Roots roots, string outputDir, out string? deployWarning)
+        => ResolveExplicitRiderFolder(roots, outputDir, "SEQ", SeqOutputContract, out deployWarning);
+
     /// <summary>The shared body of the out_path= lanes: refuse an unusable path, normalize the root, apply <paramref name="contract"/>, create the folder, and hand back a user-owned RiderFolder. One body, so the rules cannot drift per artifact.</summary>
     RiderFolder ResolveExplicitRiderFolder(
         string outputDir, string sub,
         Func<string, string, string, string, (string dir, bool appended, string? deployWarning)> contract,
         out string? deployWarning)
     {
-        lock (_gate)
-        {
-            if (!_configured) throw NotConfigured();
-            EnsurePathsDerived();                          // cheap: derive ModsDir/DataDir for the deployability check, NO resolver build
-            var given = (outputDir ?? "").Trim().Trim('"');
-            if (PathArguments.NotAbsolute(given, "out_path", $"the mod-folder root to write into (houseCARL appends {sub}\\)",
-                                          "C:\\MO2\\mods\\MyMod") is { } notAbsolute)
-                throw new InvalidOperationException(notAbsolute);
-            string root;
-            try { root = Path.GetFullPath(given); }
-            catch (Exception ex) { throw new InvalidOperationException($"out_path '{outputDir}' is not a usable path ({ex.Message})."); }
-            if (File.Exists(root))
-                throw new InvalidOperationException($"out_path '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
+        if (ConfigPromptOrNull() is not null) throw NotConfigured();
+        // cheap: roots for the deployability check, NO resolver build
+        return ResolveExplicitRiderFolder(((ILoadOrderHost)this).CaptureRoots(), outputDir, sub, contract, out deployWarning);
+    }
 
-            var (outDir, appended, warn) = contract(root, _modsDir, _dataDir, _overwriteDir);
-            // A plain message for a folder that cannot be created, rather than a generic internal failure.
-            try { Directory.CreateDirectory(outDir); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            { throw new InvalidOperationException($"out_path: couldn't create the output folder '{outDir}' ({ex.Message}). Check the path and that it's writable."); }
-            deployWarning = warn;
-            // ModFolder stays accurate though cleanup is bypassed: the subfolder's parent, else the path given.
-            var modRoot = appended ? root : (Path.GetDirectoryName(outDir.TrimEnd('\\', '/')) ?? outDir);
-            return new RiderFolder(outDir, modRoot, CreatedFresh: false, FolderStem(modRoot));   // user-owned: residue cleanup never touches it
-        }
+    /// <summary>The out_path= body over roots the caller captured; no lock held, so the create runs outside the index lock.</summary>
+    RiderFolder ResolveExplicitRiderFolder(
+        Mo2Roots roots, string outputDir, string sub,
+        Func<string, string, string, string, (string dir, bool appended, string? deployWarning)> contract,
+        out string? deployWarning)
+    {
+        var given = (outputDir ?? "").Trim().Trim('"');
+        if (PathArguments.NotAbsolute(given, "out_path", $"the mod-folder root to write into (houseCARL appends {sub}\\)",
+                                      "C:\\MO2\\mods\\MyMod") is { } notAbsolute)
+            throw new InvalidOperationException(notAbsolute);
+        string root;
+        try { root = Path.GetFullPath(given); }
+        catch (Exception ex) { throw new InvalidOperationException($"out_path '{outputDir}' is not a usable path ({ex.Message})."); }
+        if (File.Exists(root))
+            throw new InvalidOperationException($"out_path '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
+
+        var (outDir, appended, warn) = contract(root, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
+        // A plain message for a folder that cannot be created, rather than a generic internal failure.
+        try { Directory.CreateDirectory(outDir); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { throw new InvalidOperationException($"out_path: couldn't create the output folder '{outDir}' ({ex.Message}). Check the path and that it's writable."); }
+        deployWarning = warn;
+        // ModFolder stays accurate though cleanup is bypassed: the subfolder's parent, else the path given.
+        var modRoot = appended ? root : (Path.GetDirectoryName(outDir.TrimEnd('\\', '/')) ?? outDir);
+        return new RiderFolder(outDir, modRoot, CreatedFresh: false, FolderStem(modRoot));   // user-owned: residue cleanup never touches it
     }
 
     /// <summary>Pure, filesystem-free resolution of the out_path= contract for <c>Scripts\</c>, so it is testable without an MO2 instance; returns the final dir, whether the segment was appended, and the deployWarning.</summary>
@@ -202,17 +214,24 @@ public sealed partial class LoadOrderService
     /// <summary>The <c>SEQ\</c> output folder for a generated <c>.seq</c>, under a houseCARL mod folder, which MO2 deploys into the game's <c>Data\SEQ</c>.</summary>
     public RiderFolder ResolveSeqFolder(string? patchName, string? into)
     {
-        var f = ResolvePatchModFolder(patchName, into, "houseCARL_SEQ", new RiderNaming("patch"));
+        if (ConfigPromptOrNull() is not null) throw NotConfigured();
+        return ResolveSeqFolder(((ILoadOrderHost)this).CaptureRoots(), patchName, into);
+    }
+
+    /// <summary><see cref="ResolveSeqFolder(string?, string?)"/> over roots the caller captured.</summary>
+    RiderFolder ResolveSeqFolder(Mo2Roots roots, string? patchName, string? into)
+    {
+        var f = ResolvePatchModFolder(roots, patchName, into, "houseCARL_SEQ", new RiderNaming("patch"));
         var seq = Path.Combine(f.ModFolder, "SEQ");
         Directory.CreateDirectory(seq);
         return f with { OutputDir = seq };
     }
 
     /// <summary>The patch stem of the houseCARL folder <paramref name="pluginPath"/> lives in, so the <c>.seq</c> defaults beside the <c>.esp</c>; only when that folder is the canonical one for this plugin, so a later <c>into=</c> resolves to exactly it, else null.</summary>
-    string? OwnedPluginFolderStem(string pluginPath)
+    string? OwnedPluginFolderStem(Mo2Roots roots, string pluginPath)
     {
         var dir = Path.GetDirectoryName(pluginPath);
-        if (dir is null || Path.GetDirectoryName(dir) is not { } parent || !PathEquals(parent, _modsDir)) return null;
+        if (dir is null || Path.GetDirectoryName(dir) is not { } parent || !PathEquals(parent, roots.ModsDir)) return null;
         if (!IsHouseCarlOwned(dir)) return null;
         var stem = PatchStem(Path.GetFileName(pluginPath));
         return Path.GetFileName(dir).Equals(ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? stem : null;
@@ -226,33 +245,32 @@ public sealed partial class LoadOrderService
             return SeqOutcome.Fail("no source given. Pass source= the plugin whose start-game-enabled quests need a .seq — its filename (e.g. 'MyQuestMod.esp') or an absolute path.");
         plugin = plugin.Trim().Trim('"');
 
-        // Source resolution through the shared locate contract; the arm that resolved decides which .seq you get.
-        string pluginPath, resolvedFrom;
-        try
-        {
-            string modsDir, dataDir, overwriteDir, profileDir;
-            lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
-            var comp = Mo2LoadOrder.ReadComposition(profileDir);        // cheap text parse — no index build
-            var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, null, offerModParam: false);
-            // The locate refusal names what it could not find; this adds what THIS tool accepts.
-            if (loc.Error is not null)
-                return SeqOutcome.Fail($"{loc.Error} Pass source= the plugin's FILENAME (located across your MO2 mod folders, the overwrite folder and game Data) or an ABSOLUTE path to the .esp/.esm/.esl.");
-            if (loc.Ambiguous is { } hits)
-                return SeqOutcome.Fail($"'{Path.GetFileName(plugin)}' is provided by {hits.Count} locations — name the one you mean by absolute path: "
-                                     + string.Join("; ", hits.Select(h => $"{h.Where} -> {h.Path}")));
-            pluginPath = loc.Path!;
-            resolvedFrom = loc.Where;
-        }
-        catch (Exception ex) { return SeqOutcome.Fail(ex.Message); }
-
-        if (!PluginExts.Contains(Path.GetExtension(pluginPath), StringComparer.OrdinalIgnoreCase))
-            return SeqOutcome.Fail($"'{Path.GetFileName(pluginPath)}' is not a plugin (.esp/.esm/.esl).");
-
         // Lock order is _writeGate then _gate; contract in docs/architecture/load-order-service.md.
-        lock (_writeGate)                                                // one write at a time: build, resolve, commit
+        lock (_writeGate)                                                // one write at a time: locate, build, resolve, commit
         {
-            if (ConfigPromptOrNull() is { } cfgPrompt) return SeqOutcome.Fail(cfgPrompt);   // need ModsDir for the output folder
-            lock (_gate) EnsurePathsDerived();                          // derive ModsDir for the owned-folder check
+            if (ConfigPromptOrNull() is { } cfgPrompt) return SeqOutcome.Fail(cfgPrompt);   // need the roots for the locate and the output folder
+
+            // Source resolution through the shared locate contract; the arm that resolved decides which .seq you get.
+            Mo2Roots roots;
+            string pluginPath, resolvedFrom;
+            try
+            {
+                roots = ((ILoadOrderHost)this).CaptureRoots();          // one capture for the locate, the owned-folder check and the folder resolve
+                var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);   // cheap text parse — no index build
+                var loc = LocatePluginFileOnDisk(comp, roots, plugin, null, offerModParam: false);
+                // The locate refusal names what it could not find; this adds what THIS tool accepts.
+                if (loc.Error is not null)
+                    return SeqOutcome.Fail($"{loc.Error} Pass source= the plugin's FILENAME (located across your MO2 mod folders, the overwrite folder and game Data) or an ABSOLUTE path to the .esp/.esm/.esl.");
+                if (loc.Ambiguous is { } hits)
+                    return SeqOutcome.Fail($"'{Path.GetFileName(plugin)}' is provided by {hits.Count} locations — name the one you mean by absolute path: "
+                                         + string.Join("; ", hits.Select(h => $"{h.Where} -> {h.Path}")));
+                pluginPath = loc.Path!;
+                resolvedFrom = loc.Where;
+            }
+            catch (Exception ex) { return SeqOutcome.Fail(ex.Message); }
+
+            if (!PluginExts.Contains(Path.GetExtension(pluginPath), StringComparer.OrdinalIgnoreCase))
+                return SeqOutcome.Fail($"'{Path.GetFileName(pluginPath)}' is not a plugin (.esp/.esm/.esl).");
 
             // Build the .seq from the plugin: a read-only overlay, disposed inside, so no handle is held at rest.
             SeqFile.SeqBuild built;
@@ -268,14 +286,14 @@ public sealed partial class LoadOrderService
             // Output folder: out_path= wins, else the plugin's own houseCARL folder, else a fresh one or into=/patch.
             bool chosenOutput = !string.IsNullOrWhiteSpace(outputDir);
             string? autoInto = (!chosenOutput && string.IsNullOrWhiteSpace(into) && string.IsNullOrWhiteSpace(patchName))
-                ? OwnedPluginFolderStem(pluginPath) : null;
+                ? OwnedPluginFolderStem(roots, pluginPath) : null;
             RiderFolder rf;
             string? deployWarning = null;
             try
             {
                 rf = chosenOutput
-                    ? ResolveExplicitSeqFolder(outputDir!, out deployWarning)
-                    : ResolveSeqFolder(patchName, autoInto ?? into);
+                    ? ResolveExplicitSeqFolder(roots, outputDir!, out deployWarning)
+                    : ResolveSeqFolder(roots, patchName, autoInto ?? into);
             }
             catch (InvalidOperationException ex) { return SeqOutcome.Fail(ex.Message); }
 
@@ -374,12 +392,12 @@ public sealed partial class LoadOrderService
 
     /// <summary>The given stem if it is free, else the first free "<c>&lt;stem&gt;_NNN</c>"; free means no mod folder of that name exists AND no active plugin is named "<c>&lt;stem&gt;.esp</c>". Auto-suffix rule and its two refusing lanes in docs/architecture/output-and-artifacts.md.
     /// <para><paramref name="writes"/> is the calling lane's own statement of the file it emits and the parameter that names it, so a shadow refusal never sends a caller to a parameter their tool lacks. Both refusals need <paramref name="stemFromCaller"/>: a shadow, and a taken stem under <paramref name="refuseTaken"/>, refuse only the name the CALLER passed, while a defaulted stem is suffixed either way.</para></summary>
-    string UniqueStem(string stem, bool stemFromCaller, PatchStemShadow.Target? writes, StemRefusal? refuseTaken = null)
+    string UniqueStem(Mo2Roots roots, string stem, bool stemFromCaller, PatchStemShadow.Target? writes, StemRefusal? refuseTaken = null)
     {
-        var active = ActivePluginBasenames();
+        var active = ActivePluginBasenames(roots);
         // The shadow sweep needs to know what the order loads, so without that it does not run and folder plus
         // active-order uniqueness stand; a lane that writes no plugin does not pay the profile parse at all.
-        var comp = active.Count == 0 || writes is null ? null : ReadCompositionForShadow();
+        var comp = active.Count == 0 || writes is null ? null : ReadCompositionForShadow(roots);
         if (Takeable(stem)) return stem;
         for (int i = 1; i < 10000; i++)
         {
@@ -391,7 +409,7 @@ public sealed partial class LoadOrderService
         // Free of a folder and an active plugin, and shadowing nothing; only a shadow on the CALLER's name refuses.
         bool Takeable(string s)
         {
-            if (StemCollision(s, active) is { } taken)
+            if (StemCollision(roots, s, active) is { } taken)
             {
                 if (refuseTaken is { } r && stemFromCaller && s == stem)
                     throw new InvalidOperationException(
@@ -401,7 +419,7 @@ public sealed partial class LoadOrderService
             }
             if (comp is null || writes is not { } w) return true;
             var file = w.PluginFor(s);
-            if (PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, file, active) is not { } hit) return true;
+            if (PatchStemShadow.Find(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, file, active) is not { } hit) return true;
             if (stemFromCaller && s == stem)
                 throw new InvalidOperationException(PatchStemShadow.Refusal(file, hit, w.Param));
             return false;
@@ -409,11 +427,11 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The profile composition the shadow sweep walks, or null when the profile cannot tell a shadow from a loaded plugin. The test is whether the composition is USABLE, not whether the read threw: a missing modlist.txt returns empty mod lists, under which every folder reads as unlisted and a genuinely loaded plugin would be refused. A PARTIAL modlist.txt is not detectable here and is not claimed to be.</summary>
-    Mo2Composition? ReadCompositionForShadow()
+    Mo2Composition? ReadCompositionForShadow(Mo2Roots roots)
     {
         try
         {
-            var comp = Mo2LoadOrder.ReadComposition(_profileDir);
+            var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
             // No mod named in either list is an unusable profile.
             return comp.EnabledMods.Count == 0 && comp.DisabledMods.Count == 0 ? null : comp;
         }
@@ -421,8 +439,8 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>Null when a stem is free to claim, else the sentence naming WHICH of the two tests is in the way, so a refusing lane can say it.</summary>
-    string? StemCollision(string stem, IReadOnlySet<string> activePlugins)
-        => Directory.Exists(Path.Combine(_modsDir, ModFolderName(stem)))
+    string? StemCollision(Mo2Roots roots, string stem, IReadOnlySet<string> activePlugins)
+        => Directory.Exists(Path.Combine(roots.ModsDir, ModFolderName(stem)))
             ? $"a mod folder '{ModFolderName(stem)}' already exists"
             : activePlugins.Contains(stem + ".esp")
                 ? $"a plugin named '{stem}.esp' is already active in your load order"
@@ -432,14 +450,14 @@ public sealed partial class LoadOrderService
     public readonly record struct StemRefusal(string Artifact, string Remedy);
 
     /// <summary>The active load order's plugin filenames for the UniqueStem collision check, read from the built resolver if present else the cheap composition — deliberately not via the <see cref="Resolver"/> getter, which refuses a zero-plugin instance. Best-effort: an empty set leaves folder-only uniqueness.</summary>
-    IReadOnlySet<string> ActivePluginBasenames()
+    IReadOnlySet<string> ActivePluginBasenames(Mo2Roots roots)
     {
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             IReadOnlyList<string>? names = _resolver?.PluginNames;
             if (names is null)
-                names = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir)
+                names = Mo2LoadOrder.Build(roots.ProfileDir, roots.ModsDir, roots.DataDir, roots.OverwriteDir)
                     .OrderedPaths.Select(Path.GetFileName).Where(n => !string.IsNullOrEmpty(n)).ToList()!;
             foreach (var n in names) set.Add(n);
         }
@@ -447,9 +465,9 @@ public sealed partial class LoadOrderService
         return set;
     }
 
-    /// <summary>The four-step <c>into=</c> extend resolver, shared by the .esp write path and the rider and asset path so "extend my renamed patch" behaves identically everywhere; the arms and their ownership gate are in docs/architecture/output-and-artifacts.md. <paramref name="needEsp"/> tightens the canonical arm for the record lane. Caller holds <see cref="_gate"/>.
+    /// <summary>The four-step <c>into=</c> extend resolver, shared by the .esp write path and the rider and asset path so "extend my renamed patch" behaves identically everywhere; the arms and their ownership gate are in docs/architecture/output-and-artifacts.md. <paramref name="needEsp"/> tightens the canonical arm for the record lane. Works over the caller's captured <paramref name="roots"/>.
     /// <para><paramref name="freshPatch"/> is the calling operation's own statement of how it can create a patch, and <paramref name="noFreshRule"/> the same statement from a lane the enum cannot express, saying WHY there is no fresh route; each refusal is ONE sentence with the nearest owned patches named inside it (#359, #380).</para></summary>
-    string ResolveOwnedPatchFolder(string into, bool needEsp,
+    string ResolveOwnedPatchFolder(Mo2Roots roots, string into, bool needEsp,
                                    FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? noFreshRule = null,
                                    RiderNaming? riderNaming = null)
     {
@@ -457,12 +475,12 @@ public sealed partial class LoadOrderService
         var espName = stem + ".esp";
 
         // Canonical fast path, with no scan; the record lane also requires the folder to hold <stem>.esp.
-        var canonical = Path.Combine(_modsDir, ModFolderName(stem));
+        var canonical = Path.Combine(roots.ModsDir, ModFolderName(stem));
         if (Directory.Exists(canonical) && IsHouseCarlOwned(canonical) && (!needEsp || File.Exists(Path.Combine(canonical, espName))))
             return canonical;
 
         // By plugin name: the owned folder holding <stem>.esp, whatever it is now called — the renamed-folder case.
-        var byEsp = OwnedFoldersHolding(espName)
+        var byEsp = OwnedFoldersHolding(roots, espName)
             .Select(p => Path.GetDirectoryName(p)!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (byEsp.Count == 1) return byEsp[0];
         // Ambiguous: refuse and name every candidate folder as a ready-to-paste into= value.
@@ -473,14 +491,14 @@ public sealed partial class LoadOrderService
                 string.Join("  |  ", byEsp.Select(d => $"into=\"{Path.GetFileName(d)}\"")) + ".");
 
         // Folder catch-all: into= names the mod folder itself, the same-named-plugin disambiguator.
-        var named = ResolveOwnedFolderByName(into);
+        var named = ResolveOwnedFolderByName(roots, into);
         if (named is not null) return named;
 
         // Nothing matched: a foreign un-owned collision and a genuine miss get different refusals.
         var bareName = Path.GetFileName(into.Trim());
         foreach (var cand in new[] { ModFolderName(stem), bareName })
         {
-            var candPath = string.IsNullOrEmpty(cand) ? null : Path.Combine(_modsDir, cand);
+            var candPath = string.IsNullOrEmpty(cand) ? null : Path.Combine(roots.ModsDir, cand);
             if (candPath is not null && Directory.Exists(candPath) && !IsHouseCarlOwned(candPath))
                 // No fresh stem is handed back — two same-named plugins cannot both be active (#359) — and the
                 // in-place lane is not offered here, staying on the tool that declares it (Aaron, 2026-09-05).
@@ -488,7 +506,7 @@ public sealed partial class LoadOrderService
                     $"mod folder '{cand}' exists but was NOT created by houseCARL (no marker), so writing into it "
                     + "would touch a mod houseCARL doesn't own (originals untouched, Q3)",
                     noFreshRule,
-                    OwnedPatchCandidates(needEsp, stem),
+                    OwnedPatchCandidates(roots, needEsp, stem),
                     riderNaming is { } fr
                         ? $"dropping into= and passing {fr.Param}= a name no mod folder already uses for a fresh folder"
                         : freshPatch switch
@@ -504,7 +522,7 @@ public sealed partial class LoadOrderService
             + $"'{ModFolderName(stem)}'"
             + (string.Equals(bareName, ModFolderName(stem), StringComparison.OrdinalIgnoreCase) ? "" : $" or '{bareName}'"),
             noFreshRule,
-            OwnedPatchCandidates(needEsp, stem),
+            OwnedPatchCandidates(roots, needEsp, stem),
             riderNaming is { } rn
                 ? $"dropping into= and passing {rn.Param}=\"{stem}\" for a fresh folder (auto-suffixed if that name is taken)"
                 : freshPatch switch
@@ -555,10 +573,10 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>houseCARL-owned mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/> at their root, as full .esp paths. Ownership-gated, so a user mod sharing the basename is never returned.</summary>
-    List<string> OwnedFoldersHolding(string espFileName)
+    List<string> OwnedFoldersHolding(Mo2Roots roots, string espFileName)
     {
         var hits = new List<string>();
-        foreach (var dir in Directory.EnumerateDirectories(_modsDir))
+        foreach (var dir in Directory.EnumerateDirectories(roots.ModsDir))
         {
             var esp = Path.Combine(dir, espFileName);
             if (File.Exists(esp) && IsHouseCarlOwned(dir)) hits.Add(esp);
@@ -570,14 +588,14 @@ public sealed partial class LoadOrderService
     readonly record struct OwnedPatch(string Dir, string Name, IReadOnlyList<string> Plugins);
 
     /// <summary>The houseCARL-owned patches an extend refusal may name as <c>into=</c> spellings (#380). Every spelling emitted is one that RESOLVES back to the patch it stands for, run through this resolver's own arms against the folders read here, so a caller who takes one literally never meets a second refusal; a patch no token reaches is counted instead. Nearest <paramref name="stem"/> first, capped at three with the drops counted. Best-effort: an unreadable ModsDir yields no candidates rather than a partial set, and its failure is carried out.</summary>
-    PatchCandidates OwnedPatchCandidates(bool needEsp, string stem)
+    PatchCandidates OwnedPatchCandidates(Mo2Roots roots, bool needEsp, string stem)
     {
         const int cap = 3;
         var owned = new List<OwnedPatch>();
         var scanFailed = false;
         try
         {
-            foreach (var dir in Directory.EnumerateDirectories(_modsDir).OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+            foreach (var dir in Directory.EnumerateDirectories(roots.ModsDir).OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
             {
                 if (!IsHouseCarlOwned(dir)) continue;
                 var plugins = Directory.EnumerateFiles(dir)
@@ -658,13 +676,13 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>A houseCARL-owned mod folder named exactly <paramref name="rawName"/> or "<c>houseCARL - &lt;rawName&gt;</c>" — the folder catch-all behind <c>into=</c>. Bare name only, so it cannot escape ModsDir; null when no such folder is owned.</summary>
-    string? ResolveOwnedFolderByName(string rawName)
+    string? ResolveOwnedFolderByName(Mo2Roots roots, string rawName)
     {
         var bare = Path.GetFileName(rawName.Trim());
         foreach (var cand in new[] { bare, ModFolderName(PatchStem(rawName)) })
         {
             if (string.IsNullOrEmpty(cand)) continue;
-            var folder = Path.Combine(_modsDir, cand);
+            var folder = Path.Combine(roots.ModsDir, cand);
             if (Directory.Exists(folder) && IsHouseCarlOwned(folder)) return folder;
         }
         return null;
