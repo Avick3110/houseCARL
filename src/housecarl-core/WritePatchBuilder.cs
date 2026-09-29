@@ -1308,8 +1308,6 @@ public static class WritePatchBuilder
         var resolved = new List<(ForwardSpec spec, IMajorRecordGetter body, string? priorWinner, bool wasWinner, bool offOrderBody)>(specs.Count);
         var problems = new List<string>();
         var seen = new HashSet<FormKey>();
-        // AbsenceClause costs a profile parse plus a whole-install sweep, so it is memoized per CALL, never per resolver.
-        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         // One walk per SOURCE plugin for the whole call (#723), declared under the same guards the loop refuses on first.
         var gather = new BodyGather(view, session);
         var wantSeen = new HashSet<FormKey>();
@@ -1323,11 +1321,7 @@ public static class WritePatchBuilder
             if (view.ContainsPlugin(s.FromPlugin)) gather.Want(s.FromPlugin, s.Target);
         }
         gather.Gather();
-        string Absence(string plugin)
-        {
-            if (!absenceMemo.TryGetValue(plugin, out var clause)) absenceMemo[plugin] = clause = view.AbsenceClause(plugin);
-            return clause;
-        }
+        string Absence(string plugin) => view.AbsenceClause(plugin);   // the view reads each absent plugin once per pin
 
         foreach (var s in specs)
         {
