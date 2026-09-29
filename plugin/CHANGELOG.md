@@ -36,6 +36,8 @@ made the change.
 - **An in-place or `into=` write now refuses before touching the file when houseCARL's parser would drop a subrecord
   or change its length, naming the record and the subrecords.** An `in_place=` apply to a plugin with the #961 ARMA
   order is refused.
+- **`housecarl_records` delta and tree now time their reads as they go and refuse only once the call would pass ten
+  minutes, naming the measured rate.** A whole-record delta over 1,276 ids runs.
 
 ## 2.0.3 — 2026-09-23
 
