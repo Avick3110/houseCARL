@@ -148,6 +148,9 @@ internal sealed partial class RecordReads
         refusal = null;
         var resolver = _host.Resolver;
         var view = resolver.Capture();
+        var counters = resolver.Counters;
+        counters.WalkBodyHighWater = 0;   // reset before any refusal, so a refused walk never shows the last walk's gauges
+        counters.WalkBodiesHeldAtReturn = 0;
         epoch = view.Stamp;
         if (demand is not null && demand.Epoch != view.Epoch)
         {
@@ -166,9 +169,6 @@ internal sealed partial class RecordReads
         bool templateFollow = followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase);
 
         var bodyCache = new Dictionary<FormKey, IMajorRecordGetter?>();
-        var counters = resolver.Counters;
-        counters.WalkBodyHighWater = 0;
-        counters.WalkBodiesHeldAtReturn = 0;
         IMajorRecordGetter? Fetch(FormKey k)
         {
             if (bodyCache.TryGetValue(k, out var c)) return c;

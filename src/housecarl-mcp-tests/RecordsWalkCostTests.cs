@@ -273,6 +273,24 @@ public sealed class RecordsWalkCostTests
         Assert.Equal(0, Svc.Counters.WalkBodiesHeldAtReturn);
     }
 
+    /// <summary>A walk refused before it reads anything still resets the body gauges, so they never carry the last
+    /// walk's figures into an assert about this one.</summary>
+    [Fact]
+    public void AWalkRefusedBeforeItReadsResetsTheBodyGauges()
+    {
+        RecordsTools.Records(Svc, types: Npc, plugins: Scope(),
+                             walk: new RecordsTools.RecordsWalk { depth = 1 }, project: Chain(), counts_only: true);
+        Assert.True(Svc.Counters.WalkBodyHighWater > 0, "the walk this test resets after read no bodies.");
+
+        var refused = RecordsTools.Records(Svc, types: Npc, plugins: Scope(),
+                                           walk: new RecordsTools.RecordsWalk { depth = 1, follow = "." },
+                                           project: Chain(), counts_only: true);
+
+        Assert.Contains("is not a usable field path", refused);
+        Assert.Equal(0, Svc.Counters.WalkBodyHighWater);
+        Assert.Equal(0, Svc.Counters.WalkBodiesHeldAtReturn);
+    }
+
     /// <summary>The gather pass size lowered on one service is not seen by another over the same world: it is a
     /// per-service setting, so a walk test that shrinks its own pass cannot split another world's walk.</summary>
     [Fact]
