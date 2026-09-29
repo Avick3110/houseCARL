@@ -279,7 +279,7 @@ internal sealed partial class RecordReads
                 // memoise every record seen, so one enumeration pass serves the whole batch.
                 covers = false;   // the file's content sits outside the epoch fingerprint
                 offOrderArm = arm;
-                var lazy = new OffOrderPoleCache(arm, fields, wanted);
+                var lazy = new OffOrderPoleCache(arm, fields, wanted, session.Counters);
                 if (gather is not null) { gather.Prime = lazy.Prime; gather.Holds = fk => lazy.Find(fk) is { Fields: not null, Error: null }; }
                 return (fk, _) =>
                 {
@@ -349,6 +349,7 @@ internal sealed partial class RecordReads
             try
             {
                 // The batch took the asset hold on the same ReplaysOverlay test that chose this branch.
+                Interlocked.Increment(ref session.Counters.ReplayOpens);
                 replay = _host.OpenSkyPatcherReplay(assets!(), view, session, out var draftRefusal, spec.Draft, overlayWarnings);
                 if (draftRefusal is not null) setupError = draftRefusal;
             }
@@ -368,10 +369,10 @@ internal sealed partial class RecordReads
         }
         return (fk, _) =>
         {
+            // An id with no winner has nothing to replay, so it is answered as unresolved whatever the layer did.
+            if (view.ResolveWinner(fk) is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
             if (setupError is not null) return new PoleReading(null, null, null, setupError);
             if (postMemo.TryGetValue(fk, out var memoized)) return memoized;
-            // An id with no winner has nothing to replay, so it is answered without opening the layer.
-            if (view.ResolveWinner(fk) is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
             Setup();
             if (setupError is not null) return new PoleReading(null, null, null, setupError);
             var r = replay!.Replay(fk);
@@ -401,8 +402,10 @@ internal sealed partial class RecordReads
         Dictionary<FormKey, RecordFields>? _all;
         string? _error;
 
-        public OffOrderPoleCache(PoleInfo arm, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted)
-        { _arm = arm; _fields = fields; _wanted = wanted is null ? null : new HashSet<FormKey>(wanted); }
+        readonly CostCounters _counters;
+
+        public OffOrderPoleCache(PoleInfo arm, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted, CostCounters counters)
+        { _arm = arm; _fields = fields; _wanted = wanted is null ? null : new HashSet<FormKey>(wanted); _counters = counters; }
 
         /// <summary>Sweep now rather than on the first lookup; a failure is kept for every lookup to name.</summary>
         public void Prime()
@@ -419,6 +422,7 @@ internal sealed partial class RecordReads
 
         string? Sweep()
         {
+            Interlocked.Increment(ref _counters.OffOrderSweeps);
             ISkyrimModGetter ov;
             try { ov = LoadOrderResolver.OpenOverlay(_arm.Path!, string.IsNullOrEmpty(_arm.DataDir) ? null : _arm.DataDir); }
             catch (Exception ex) { return $"could not open '{_arm.Path}' as a Skyrim plugin: {ex.Message}"; }
