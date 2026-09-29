@@ -29,7 +29,7 @@ made the change.
   profiles.**
 - **A `housecarl_records` call with a SkyPatcher overlay source or pole now replays the INI layer over the same asset
   build its winners came from, so a profile switch mid-call can no longer mix two profiles.**
-- **`housecarl_skypatcher_layer` now says when `max_chars` cut its scan notes, with a `showing N of M note(s)` count,
+- **`housecarl_skypatcher_layer` now says when `max_chars` cut its notes (replay and scan), with a `showing N of M note(s)` count,
   instead of dropping them without a word.**
 
 ## 2.0.3 — 2026-09-23
