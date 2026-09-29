@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using HousecarlMcp;
 using Xunit;
@@ -51,5 +52,83 @@ public sealed class CheckPluginListAtFileTests : IClassFixture<CheckWorldFixture
 
         Assert.StartsWith("error:", text);
         Assert.Contains("plugins=[\"@<path>\"] alone", text);
+    }
+
+    [Fact]
+    public void AnAtFileBesideAnInlineNameOnExcludeIsRefusedNamingTheSpellingToPass()
+    {
+        var text = CheckTools.CheckTool(W.Svc, exclude: new[] { W.BaseMasterName, "@" + ListFile(W.BaseMasterName) });
+
+        Assert.StartsWith("error:", text);
+        Assert.Contains("exclude=[\"@<path>\"] alone", text);
+    }
+
+    /// <summary>The file's names go through check's own resolution: a case mismatch resolves, as it does inline.</summary>
+    [Fact]
+    public void AListFileNameInAnotherCaseResolvesAsItDoesInline()
+    {
+        var text = CheckTools.CheckTool(W.Svc, plugins: new[] { "@" + ListFile("hccewiremod.ESP") });
+
+        Assert.Equal((1, 2), Totals(text));
+    }
+
+    /// <summary>A name in the file that is nowhere is refused by check's own sentence, as it is inline.</summary>
+    [Fact]
+    public void AListFileNameFoundNowhereIsRefusedAsItIsInline()
+    {
+        var fromFile = CheckTools.CheckTool(W.Svc, plugins: new[] { "@" + ListFile("NoSuchPlugin931.esp") });
+        var inline = CheckTools.CheckTool(W.Svc, plugins: new[] { "NoSuchPlugin931.esp" });
+
+        Assert.Contains("NoSuchPlugin931.esp", fromFile);
+        Assert.Equal(inline, fromFile);
+    }
+
+    [Fact]
+    public void AListFileThatDoesNotExistIsRefusedNamingPlugins()
+    {
+        var text = CheckTools.CheckTool(W.Svc, plugins: new[] { "@" + Path.Combine(W.Root, "missing-" + Guid.NewGuid().ToString("N") + ".txt") });
+
+        Assert.StartsWith("error:", text);
+        Assert.Contains("could not read plugins= list file", text);
+    }
+
+    [Fact]
+    public void AFormIdArtifactIsRefusedByItsIdentity()
+    {
+        var artifact = Path.Combine(W.Root, "npcs-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        RecordsTools.Records(W.Svc, types: new[] { "NPC_" }, to_file: artifact);
+
+        var text = CheckTools.CheckTool(W.Svc, plugins: new[] { "@" + artifact });
+
+        Assert.StartsWith("error:", text);
+        Assert.Contains("there is no plugin list in it for plugins=", text);
+    }
+
+    /// <summary>'@@' names a plugin whose filename starts with '@', on both lists: the name reaches check's own
+    /// resolution, which refuses it as a name rather than reading a file.</summary>
+    [Fact]
+    public void ADoubledAtIsAPluginNameOnPluginsAndOnExclude()
+    {
+        var plugins = CheckTools.CheckTool(W.Svc, plugins: new[] { "@@HcCeWireMod.esp" });
+        var exclude = CheckTools.CheckTool(W.Svc, exclude: new[] { "@@HcCeWireMod.esp" });
+
+        foreach (var text in new[] { plugins, exclude })
+        {
+            Assert.Contains("'@HcCeWireMod.esp'", text);
+            Assert.DoesNotContain("list file", text);
+        }
+    }
+
+    /// <summary>A to_file manifest echoes the list file, not the names it held.</summary>
+    [Fact]
+    public void AToFileManifestEchoesTheListFile()
+    {
+        var list = ListFile("HcCeWireMod.esp");
+        var artifact = Path.Combine(W.Root, "check-" + Guid.NewGuid().ToString("N") + ".jsonl");
+
+        CheckTools.CheckTool(W.Svc, plugins: new[] { "@" + list }, to_file: artifact);
+
+        var manifest = JsonDocument.Parse(File.ReadLines(artifact).First()).RootElement;
+        Assert.Equal("@" + list, manifest.GetProperty("query").GetProperty("plugins").GetString());
     }
 }

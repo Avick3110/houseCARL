@@ -17,7 +17,8 @@ public sealed class ScopeNamesWorld : IDisposable
     public const string Apostrophe = "'Til Dawn Patch.esp";
     public const string At = "@HcAt Patch.esp";
     public const string Plain = "HcScopePlain.esp";
-    const string Master = "HcScopeMaster.esm";
+    public const string Master = "HcScopeMaster.esm";
+    public const string OffOrder = "HcScopeOff.esp";
 
     /// <summary>Each plugin's own weapon, by EditorID.</summary>
     public static readonly IReadOnlyDictionary<string, string> Own = new Dictionary<string, string>
@@ -47,6 +48,10 @@ public sealed class ScopeNamesWorld : IDisposable
             WriteMod(inst, folder, mod, new ISkyrimModGetter[] { master });
             mods.Add(folder);
         }
+        // A disabled mod's plugin, off the order, for the off-order scan.
+        var off = new SkyrimMod(ModKey.FromFileName(OffOrder), SkyrimRelease.SkyrimSE);
+        off.Weapons.GetOrAddAsOverride(weapon);
+        WriteMod(inst, "OffMod", off, new ISkyrimModGetter[] { master });
 
         File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -57,7 +62,7 @@ public sealed class ScopeNamesWorld : IDisposable
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), string.Concat(order.Select(p => "*" + p + "\r\n")));
         File.WriteAllText(Path.Combine(prof, "modlist.txt"),
-            "# header\r\n" + string.Concat(Enumerable.Reverse(mods).Select(m => "+" + m + "\r\n")));
+            "# header\r\n-OffMod\r\n" + string.Concat(Enumerable.Reverse(mods).Select(m => "+" + m + "\r\n")));
         Svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
     }
 
@@ -167,7 +172,68 @@ public sealed class RecordsScopeAtFileTests : RecordsTestBase, IClassFixture<Sco
     {
         var text = RecordsTools.Records(Svc, plugins: Scope("@" + TempPath(".txt")), types: new[] { "WEAP" });
 
-        Refused(text, "could not read plugins={\"names\": […]} list file");
+        Refused(text, "could not read plugins.names= list file");
+    }
+
+    /// <summary>A relative list path is refused with a plain-text list as the example, not a result artifact.</summary>
+    [Fact]
+    public void ARelativeListPathIsRefusedWithATextFileExample()
+    {
+        var text = RecordsTools.Records(Svc, plugins: Scope("@plugins.txt"), types: new[] { "WEAP" });
+
+        Refused(text, "plugins.names= list file", "list.txt");
+    }
+
+    /// <summary>A list file's lines are read as written: a line starting with '@' is that plugin, with no escape.</summary>
+    [Fact]
+    public void AFileLineStartingWithAtNamesThatPlugin()
+    {
+        var file = TempPath(".txt");
+        File.WriteAllText(file, ScopeNamesWorld.At + "\n");
+        try
+        {
+            var text = RecordsTools.Records(_names.Svc, plugins: Scope("@" + file), types: new[] { "WEAP" });
+
+            Served(text);
+            Assert.DoesNotContain("note:", text);
+            Assert.Equal(new[] { ScopeNamesWorld.At }, OwnIn(text));
+        }
+        finally { File.Delete(file); }
+    }
+
+    /// <summary>The off-order scan's manifest echoes the list file too.</summary>
+    [Fact]
+    public void AnOffOrderScanManifestEchoesTheListFile()
+    {
+        var file = TempPath(".txt");
+        var artifact = TempPath(".jsonl");
+        File.WriteAllText(file, ScopeNamesWorld.Master + "\n");
+        try
+        {
+            var text = RecordsTools.Records(_names.Svc, plugins: Scope("@" + file), source: Plugin(ScopeNamesWorld.OffOrder),
+                                            types: new[] { "WEAP" }, to_file: artifact);
+
+            Served(text);
+            var manifest = Je(File.ReadLines(artifact).First());
+            Assert.Equal("@" + file, manifest.GetProperty("query").GetProperty("plugins").GetString());
+        }
+        finally { File.Delete(file); File.Delete(artifact); }
+    }
+
+    /// <summary>A scoped tree states its selection with the list file, not the names it held.</summary>
+    [Fact]
+    public void AScopedTreeStatesItsSelectionWithTheListFile()
+    {
+        var file = TempPath(".txt");
+        File.WriteAllText(file, ScopeNamesWorld.Comma + "\n");
+        try
+        {
+            var text = RecordsTools.Records(_names.Svc, plugins: Scope("@" + file), source: Plugin(ScopeNamesWorld.Plain),
+                                            project: Form("tree"), types: new[] { "WEAP" });
+
+            Served(text, "scope-selected (@" + file + ")");
+        }
+        finally { File.Delete(file); }
     }
 
     /// <summary>A json caller gets the refusal as a document with an error member.</summary>
