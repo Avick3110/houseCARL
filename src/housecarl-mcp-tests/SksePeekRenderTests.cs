@@ -118,7 +118,7 @@ public sealed class SksePeekRenderTests
             Assert.Empty(comp.ActivePluginNames);
             Assert.Empty(comp.ImplicitPluginNames);
             Assert.NotEmpty(warn);
-            Assert.Null(AssetLayers.PeekPluginSet(comp));
+            Assert.Null(AssetLayers.PeekPluginSet(comp, []));
         }
         finally { try { Directory.Delete(prof, true); } catch { /* temp scratch */ } }
     }
@@ -129,7 +129,7 @@ public sealed class SksePeekRenderTests
     {
         var healthy = new Mo2Composition([], [], ["Skyrim.esm", "Dawnguard.esm"],
             new HashSet<string>(["Skyrim.esm"], StringComparer.OrdinalIgnoreCase), [], ["Dawnguard.esm"]);
-        var set = AssetLayers.PeekPluginSet(healthy);
+        var set = AssetLayers.PeekPluginSet(healthy, []);
         Assert.NotNull(set);
         Assert.Contains("Skyrim.esm", set);
         Assert.Contains("Dawnguard.esm", set);
@@ -141,7 +141,7 @@ public sealed class SksePeekRenderTests
     {
         var noOrderFile = new Mo2Composition([], [], [],
             new HashSet<string>(["SomeMod.esp"], StringComparer.OrdinalIgnoreCase), [], []);
-        Assert.Null(AssetLayers.PeekPluginSet(noOrderFile));
+        Assert.Null(AssetLayers.PeekPluginSet(noOrderFile, []));
     }
 
     // ---- I3: a peek that matched nothing peekable says so ----

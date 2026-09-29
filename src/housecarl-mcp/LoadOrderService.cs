@@ -437,8 +437,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     string? ExplainPluginAbsence(string name)
     {
         // Snapshot the roots together under the gate so the four cannot be read across a mid-switch reassignment.
-        string profileDir, modsDir, dataDir, overwriteDir;
-        lock (_gate) { profileDir = _profileDir; modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; }
+        string profileDir, modsDir, dataDir, overwriteDir; IReadOnlyList<UnservedPlugin> unserved;
+        lock (_gate) { profileDir = _profileDir; modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; unserved = _orderUnserved; }
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(profileDir)) return null;
         var fn = Path.GetFileName(name.Trim());
         if (fn.Length == 0) return null;
@@ -468,12 +468,11 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         {
             // Ticked and provided by an enabled layer yet not indexed — nothing honest left to say, so say nothing.
             if (hits.Any(h => h.Enabled)) return null;
-            // Ticked, and the only copies sit in a mod folder MO2 has switched off: the VFS does not serve it.
-            var off = comp.DisabledMods.FirstOrDefault(m => hits.Any(h =>
-                string.Equals(Path.GetFileName(Path.GetDirectoryName(h.Path)), m, StringComparison.OrdinalIgnoreCase)));
+            // Ticked, and the order build found its only copy in a mod folder MO2 has switched off.
+            var off = unserved.FirstOrDefault(u => u.Name.Equals(fn, StringComparison.OrdinalIgnoreCase))?.SwitchedOffMod;
             if (off is not null)
-                return $"'{fn}' is ticked in plugins.txt, but {Mo2LoadOrder.ProvidedBySwitchedOffMod(off)}, so it is not active — " +
-                       $"or read the file as-is with {ToolNames.Records} source={{\"file\": \"{fn}\", \"mod\": \"{off}\"}} types=[…] " +
+                return $"'{fn}' is ticked in plugins.txt, but it is not active: {Mo2LoadOrder.ProvidedBySwitchedOffMod(off)}. " +
+                       $"To read the file as-is, use {ToolNames.Records} source={{\"file\": \"{fn}\", \"mod\": \"{off}\"}} types=[…] " +
                        "(source= names the version to read; the read still needs a selection).";
             return $"'{fn}' is ticked in plugins.txt, but no enabled mod, the overwrite folder, or the game Data folder " +
                    "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
@@ -740,13 +739,14 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>Inspect a named profile's composition without switching to it, off the cheap text-only <see cref="Mo2LoadOrder.ReadComposition"/>. Instance mode only; an unmatched name is reported with the available ones.</summary>
     public NamedProfileResult NamedProfileComposition(string? requested)
     {
-        string? instanceDir; string profilesRoot;
+        string? instanceDir; string profilesRoot; string modsDir, dataDir, overwriteDir;
         lock (_gate)
         {
             if (!_configured) throw NotConfigured();              // fresh install → the tool returns the prompt for the MO2 path
             EnsurePathsDerived();                                 // instance mode: derive the active ProfileDir (cheap ini read; throws if the instance is unusable)
             instanceDir = _instanceDir;
             profilesRoot = instanceDir is null ? "" : (Path.GetDirectoryName(_profileDir.TrimEnd('\\', '/')) ?? "");
+            modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir;
         }
 
         var name = string.IsNullOrWhiteSpace(requested) ? null : requested.Trim();
@@ -764,7 +764,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var dir = Path.Combine(profilesRoot, match);
         var warnings = new List<string>();                       // read notes (e.g. a missing modlist.txt), so a 0-mod profile is not mistaken for empty
         var comp = Mo2LoadOrder.ReadComposition(dir, warnings);  // cheap text parse of THAT profile's loadorder/modlist/plugins — no index build, no switch
-        return new NamedProfileResult(true, available, match, dir, comp, warnings);
+        // The order build's served decision over that profile's mod list, so its active count agrees with status.
+        return new NamedProfileResult(true, available, match, dir, comp, warnings,
+                                      Mo2LoadOrder.Unserved(comp, modsDir, dataDir, overwriteDir));
     }
 
     /// <summary>The usable profile names under <paramref name="profilesRoot"/>: one subfolder each, skipping folders with no loadorder.txt, sorted case-insensitively. Never throws.</summary>

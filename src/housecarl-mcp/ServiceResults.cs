@@ -152,7 +152,8 @@ public sealed record NamedProfileResult(
     string? RequestedName,
     string? ResolvedProfileDir,
     Mo2Composition? Composition,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<UnservedPlugin>? Unserved = null);   // that profile's plugins listed as loading that no enabled layer serves
 
 /// <summary>The outcome of housecarl_write_seq: a non-null <see cref="Error"/> means the call was rejected, else the <see cref="Quests"/> covered — empty is a clean no-op with no file written — the written <see cref="SeqPath"/> and its <see cref="ModFolder"/>, and whether it defaulted into the plugin's OWN folder.</summary>
 public sealed record SeqOutcome(

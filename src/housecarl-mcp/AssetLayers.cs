@@ -187,7 +187,10 @@ internal sealed partial class AssetLayers
         if (peekFilter is { Length: > 0 })
         {
             var compWarnings = new List<string>();
-            activePlugins = PeekPluginSet(Mo2LoadOrder.ReadComposition(profileDir, compWarnings));
+            var comp = Mo2LoadOrder.ReadComposition(profileDir, compWarnings);
+            // The order build's served decision, so a ticked plugin nothing serves is not adjudicated as loaded.
+            var roots = captured.Roots;
+            activePlugins = PeekPluginSet(comp, Mo2LoadOrder.Unserved(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir));
             if (compWarnings.Count > 0) warnings = [.. warnings, .. compWarnings];
         }
         // Outside the gate: the view is pinned and handle-free, so this cannot race a refresh into wrongness.
@@ -253,12 +256,11 @@ internal sealed partial class AssetLayers
     }
 
     /// <summary>The plugin names a peek adjudicates an embedded reference against — active plus the force-loaded
-    /// implicit masters. Returns null, never a partial set, when the answer is unknowable.</summary>
-    internal static IReadOnlySet<string>? PeekPluginSet(Mo2Composition comp)
+    /// implicit masters, less those no enabled layer serves. Returns null, never a partial set, when the answer is unknowable.</summary>
+    internal static IReadOnlySet<string>? PeekPluginSet(Mo2Composition comp, IReadOnlyList<UnservedPlugin> unserved)
     {
         if (comp.OrderedPluginNames.Count == 0) return null;   // no loadorder.txt ⇒ the implicit masters are unknowable, not absent
-        var set = new HashSet<string>(comp.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
-        set.UnionWith(comp.ImplicitPluginNames);
+        var set = Mo2LoadOrder.ActiveNames(comp, unserved);
         return set.Count > 0 ? set : null;
     }
 

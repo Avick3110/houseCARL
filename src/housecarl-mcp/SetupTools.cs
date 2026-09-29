@@ -85,11 +85,11 @@ public static class SetupTools
         sb.Append("  overwrite  : ").Append(p.OverwriteDir)
           .Append(Directory.Exists(p.OverwriteDir) ? "" : "  (none yet — MO2 creates it when a tool writes here)").Append('\n');
 
-        // Reads the three profile text files only. A read failure here is non-fatal but is named, since this line is what tells the user the setup worked.
+        // Reads the three profile text files and lists the enabled mod folders for the served check. A read failure here is non-fatal but is named, since this line is what tells the user the setup worked.
         try
         {
             var comp = Mo2LoadOrder.ReadComposition(p.ProfileDir);
-            int active = comp.ActivePluginNames.Count + comp.ImplicitPluginNames.Count;
+            int active = Mo2LoadOrder.ActiveNames(comp, Mo2LoadOrder.Unserved(comp, p.ModsDir, p.DataDir, p.OverwriteDir)).Count;
             sb.Append("sees: ").Append(comp.EnabledMods.Count).Append(" enabled mods · ")
               .Append(comp.OrderedPluginNames.Count).Append(" plugins in the load order (").Append(active).Append(" active)\n");
         }

@@ -5,8 +5,7 @@ namespace HousecarlCore;
 /// <summary>The resolved active order plus any non-fatal problems — surfaced, not swallowed; <see cref="OrderedPaths"/> is in resolver winner order, highest priority last.</summary>
 /// <param name="Unserved">The plugins the profile lists as loading that no enabled layer serves, so the game does not load them whatever plugins.txt says.</param>
 public sealed record Mo2OrderResult(
-    IReadOnlyList<string> OrderedPaths, IReadOnlyList<string> Warnings, int ActiveCount,
-    IReadOnlyList<UnservedPlugin> Unserved)
+    IReadOnlyList<string> OrderedPaths, IReadOnlyList<string> Warnings, IReadOnlyList<UnservedPlugin> Unserved)
 {
     public int ResolvedCount => OrderedPaths.Count;
 }
@@ -65,21 +64,45 @@ public static class Mo2LoadOrder
 
         // loadorder.txt order → drop unchecked plugins; resolve the rest to their winning path (winner last).
         var orderedPaths = new List<string>(comp.OrderedPluginNames.Count);
+        foreach (var name in comp.OrderedPluginNames)
+            if (!inactive.Contains(name) && winningPath.TryGetValue(name, out var path))   // unchecked in MO2 → not loaded
+                orderedPaths.Add(path);
+
+        var unserved = UnservedIn(comp, winningPath, modsDir);
+        foreach (var u in unserved)
+            warnings.Add(u.SwitchedOffMod is { } offMod
+                ? $"load order lists '{u.Name}', but {ProvidedBySwitchedOffMod(offMod)}."
+                : $"load order lists '{u.Name}' but {searchedPlaces} provides it (stale loadorder.txt? " +
+                  "trigger an MO2 refresh / re-sort so it re-writes the profile files).");
+
+        return new Mo2OrderResult(orderedPaths, warnings, unserved);
+    }
+
+    /// <summary>The plugins <paramref name="comp"/> lists as loading that no enabled layer serves — the same decision <see cref="Build"/> makes, for a reader that has a composition but no order build.</summary>
+    public static IReadOnlyList<UnservedPlugin> Unserved(Mo2Composition comp, string modsDir, string dataDir, string overwriteDir) =>
+        UnservedIn(comp, BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir), modsDir);
+
+    /// <summary>Every name listed as loading (not unchecked) with no entry in the served map, and the switched-off mod folder holding a copy.</summary>
+    static List<UnservedPlugin> UnservedIn(Mo2Composition comp, IReadOnlyDictionary<string, string> served, string modsDir)
+    {
+        var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
         var unserved = new List<UnservedPlugin>();
         foreach (var name in comp.OrderedPluginNames)
         {
-            if (inactive.Contains(name)) continue;                  // present-but-unchecked in MO2 → not loaded
-            if (winningPath.TryGetValue(name, out var path)) { orderedPaths.Add(path); continue; }
-            // Listed as loading but served by no enabled layer: MO2's VFS does not present the file, so it is not active.
-            var offMod = comp.DisabledMods.FirstOrDefault(m => File.Exists(Path.Combine(modsDir, m, name)));
-            unserved.Add(new UnservedPlugin(name, offMod));
-            warnings.Add(offMod is not null
-                ? $"load order lists '{name}', but {ProvidedBySwitchedOffMod(offMod)}."
-                : $"load order lists '{name}' but {searchedPlaces} provides it (stale loadorder.txt? " +
-                  "trigger an MO2 refresh / re-sort so it re-writes the profile files).");
+            if (inactive.Contains(name) || served.ContainsKey(name)) continue;
+            // Served by no enabled layer: MO2's VFS does not present the file, so it is not active.
+            unserved.Add(new UnservedPlugin(name, comp.DisabledMods.FirstOrDefault(m => File.Exists(Path.Combine(modsDir, m, name)))));
         }
+        return unserved;
+    }
 
-        return new Mo2OrderResult(orderedPaths, warnings, orderedPaths.Count, unserved);
+    /// <summary>The composition's active plugin names: ticked or implicit, minus <paramref name="unserved"/>.</summary>
+    public static IReadOnlySet<string> ActiveNames(Mo2Composition comp, IReadOnlyList<UnservedPlugin> unserved)
+    {
+        var set = new HashSet<string>(comp.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
+        set.UnionWith(comp.ImplicitPluginNames);
+        foreach (var u in unserved) set.Remove(u.Name);
+        return set;
     }
 
     /// <summary>The one sentence for a plugin whose copy sits in a mod folder MO2 has switched off.</summary>

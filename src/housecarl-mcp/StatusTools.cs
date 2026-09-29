@@ -188,7 +188,7 @@ static class StatusWire
             return;
         }
         var c = p.Composition;
-        int active = c.ActivePluginNames.Count + c.ImplicitPluginNames.Count;
+        int active = HousecarlCore.Mo2LoadOrder.ActiveNames(c, p.Unserved ?? []).Count;
         sb.Append("\n— inspecting profile '").Append(p.RequestedName).Append("' (read-only; the active profile is unchanged):\n");
         sb.Append("  mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
         sb.Append("  plugins: ").Append(c.OrderedPluginNames.Count).Append(" in order · ").Append(active).Append(" active · ")

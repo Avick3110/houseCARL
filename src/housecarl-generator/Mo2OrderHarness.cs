@@ -31,8 +31,8 @@ static class Mo2OrderHarness
         sw.Stop();
 
         Console.WriteLine($"built in {sw.ElapsedMilliseconds} ms");
-        Console.WriteLine($"  active plugins in load order : {result.ActiveCount}");
         Console.WriteLine($"  resolved to a real path      : {result.ResolvedCount}");
+        Console.WriteLine($"  listed but not served        : {result.Unserved.Count}");
         Console.WriteLine($"  warnings                     : {result.Warnings.Count}");
 
         var paths = result.OrderedPaths;
@@ -79,7 +79,7 @@ static class Mo2OrderHarness
         // Structural sanity only — that the winners are the RIGHT records is checked against xEdit by hand.
         bool firstIsMaster = paths.Count > 0 && Path.GetFileName(paths[0]).Equals("Skyrim.esm", StringComparison.OrdinalIgnoreCase);
         bool plausibleCount = result.ResolvedCount > 3000;
-        Console.WriteLine($"\nchecks: first==Skyrim.esm={firstIsMaster}  resolved>3000={plausibleCount}  resolved==active={result.ResolvedCount == result.ActiveCount}");
+        Console.WriteLine($"\nchecks: first==Skyrim.esm={firstIsMaster}  resolved>3000={plausibleCount}  unserved={result.Unserved.Count}");
         if (!firstIsMaster || !plausibleCount) { Console.WriteLine("FAIL: structural sanity check failed."); return 1; }
         Console.WriteLine("mo2-order: OK");
         return 0;
