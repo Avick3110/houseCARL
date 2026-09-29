@@ -65,5 +65,6 @@ public sealed class FaceGenCheckPinTests : IDisposable
         var after = Sweep();
         Assert.Equal("tint_absent", ClassOf(after, "HcFgSplit"));
         Assert.Null(ClassOf(after, "HcFgStale"));
+        _w.AssertNoHandlesLeft();
     }
 }
