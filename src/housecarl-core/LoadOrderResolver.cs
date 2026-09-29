@@ -276,9 +276,12 @@ public sealed class LoadOrderResolver : IDisposable
         Counters = counters;
         _dataDir = ComputeDataDir(nameToIdx, paths);
         _snap = BuildIndex();
-        // Settle the heap ONCE here, on the first build only; a re-index does not repay it. Measured in #728, landed in #802.
-        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        // Settle the heap on the process's first build only; a rebuild does not repay it. Measured in #728, landed in #802.
+        if (System.Threading.Interlocked.Exchange(ref _heapSettled, 1) == 0)
+            GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
+
+    static int _heapSettled;   // process-wide on purpose: the heap is one per process, so the settle is a one-time GC, not a count
 
     /// <summary>The trailing clause for a refusal naming a plugin this order does not contain: the injected explanation when there is one, else the did-you-mean. One home.</summary>
     internal string AbsenceClause(string pluginName) => AbsenceClause(pluginName, out _);
