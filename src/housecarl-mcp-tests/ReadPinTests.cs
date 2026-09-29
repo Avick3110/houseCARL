@@ -229,7 +229,7 @@ public sealed class ReadPinTests : IDisposable
     RecordReads.DeltaRow Delta(RecordReads.PoleSpec subject, RecordReads.PoleSpec reference)
     {
         var rows = _svc.DeltaBatch(new[] { _patched }, subject, reference, new[] { "BasicStats.Damage" }, null,
-                                   out _, out _, out _, out var refusal, out _);
+                                   out _, out _, out _, out var refusal, out _, ComparisonMeter.Unmetered());
         Assert.Null(refusal);
         var row = Assert.Single(rows);
         Assert.Null(row.Error);
@@ -278,7 +278,7 @@ public sealed class ReadPinTests : IDisposable
 
     RecordReads.TreeRow Tree(RecordReads.PoleSpec reference)
     {
-        var rows = _svc.TreeBatch(new[] { _patched }, reference, new[] { "BasicStats.Damage" }, null, out _, out _, out var refusal, out _);
+        var rows = _svc.TreeBatch(new[] { _patched }, reference, new[] { "BasicStats.Damage" }, null, out _, out _, out var refusal, out _, ComparisonMeter.Unmetered());
         Assert.Null(refusal);
         var row = Assert.Single(rows);
         Assert.Null(row.Error);
@@ -366,7 +366,7 @@ public sealed class ReadPinTests : IDisposable
             // On a pole the same sentence is the row's error, under the epoch the call reports.
             _svc.ReadArea.AfterReadPinForGuard = HoldModlist;
             var rows = _svc.DeltaBatch(new[] { _patched }, OverlayPost, RecordReads.PoleSpec.Winner, new[] { "BasicStats.Damage" }, null,
-                                       out _, out _, out _, out var deltaRefusal, out var epoch);
+                                       out _, out _, out _, out var deltaRefusal, out var epoch, ComparisonMeter.Unmetered());
             Assert.Null(deltaRefusal);
             Assert.NotNull(epoch);
             Assert.StartsWith("subject: the SkyPatcher layer could not be discovered for the overlay pole: ", Assert.Single(rows).Error);

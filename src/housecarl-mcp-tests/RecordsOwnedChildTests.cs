@@ -928,7 +928,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     string TreeRender(FormKey fk, int cap, out bool truncated)
     {
         var rows = Svc.TreeBatch(new[] { OwnedChildWorld.Fid(fk) }, RecordReads.PoleSpec.Winner, null, null,
-                                 out _, out _, out var refusal, out _);
+                                 out _, out _, out var refusal, out _, ComparisonMeter.Unmetered());
         Assert.Null(refusal);
         return RecordsTools.RenderRecordsTree(rows, rows.Count, 0, 0, false, TreeHeader, null, cap, null, out truncated)
                            .Replace("\r\n", "\n");
@@ -940,7 +940,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     string TreeRender(FormKey[] fks, int cap)
     {
         var rows = Svc.TreeBatch(fks.Select(OwnedChildWorld.Fid).ToArray(), RecordReads.PoleSpec.Winner,
-                                 null, null, out _, out _, out var refusal, out _);
+                                 null, null, out _, out _, out var refusal, out _, ComparisonMeter.Unmetered());
         Assert.Null(refusal);
         return RecordsTools.RenderRecordsTree(rows, rows.Count, 0, 0, false, TreeHeader, null, cap, null, out _)
                            .Replace("\r\n", "\n");
