@@ -245,6 +245,7 @@ public sealed class SkyPatcherConflictsTests
             "attackDamage=60",
             $"filterByWeaponsExcluded={Target}:reach=2",
             $"filterByWeapons={Target}",
+            $"filterByWeaponsExcluded={Target}",   // op-less with no bare primary: not a broad write either
         })
             SkyPatcherConflicts.CollectExplicitPrimaryTargets(SkyPatcherParse.ParseLine(line), Catalog, WeapCat, forms, eids, ref broad);
         Assert.Single(forms);
