@@ -178,11 +178,12 @@ public sealed class ExcludedMasterBaselineOrder : ExcludedMasterOrder
 }
 
 /// <summary>#316 (1): a compact subject that declares the broken plugin as a master. The compact runs once here and
-/// its outcome and the mod-folder count either side of it are kept for the tests.</summary>
+/// its outcome (or the exception it let escape) and the mod-folder count either side of it are kept for the tests.</summary>
 public sealed class ExcludedMasterCompactOutcome : ExcludedMasterOrder
 {
     public const string BrokenName = "HcXCmBroken.esp";
-    public WritePatchBuilder.CompactOutcome Outcome { get; }
+    public WritePatchBuilder.CompactOutcome? Outcome { get; }
+    public Exception? Escaped { get; }
     public int FoldersBefore { get; }
     public int FoldersAfter { get; }
 
@@ -207,8 +208,12 @@ public sealed class ExcludedMasterCompactOutcome : ExcludedMasterOrder
         Open(("CmBroken", brkKey), ("CmSubject", subKey));
 
         FoldersBefore = Directory.GetDirectories(Mods).Length;
-        Outcome = Svc.CompactPlugin(subKey.FileName.String, esl: true, inPlace: false, repointExternals: false,
-            acknowledge: false, patchName: null);
+        try
+        {
+            Outcome = Svc.CompactPlugin(subKey.FileName.String, esl: true, inPlace: false, repointExternals: false,
+                acknowledge: false, patchName: null);
+        }
+        catch (Exception ex) { Escaped = ex; }
         FoldersAfter = Directory.GetDirectories(Mods).Length;
     }
 }

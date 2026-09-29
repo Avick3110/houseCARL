@@ -68,6 +68,7 @@ public sealed class ExcludedMasterWriteTests :
     {
         var r = ForwardTools.Forward(_main.Svc, formids: new[] { _main.SubjectFid }, source: ExcludedMasterMainOrder.BrokenName, patch: "X314Bad");
         Assert.StartsWith("error:", r);
+        Assert.Contains("was excluded", r);
     }
 
     // probe: "a baseline-less order: a patch whose record ORIGINATES in the unopenable plugin still WRITES, mastering on it"
@@ -209,7 +210,8 @@ public sealed class ExcludedMasterWriteTests :
     [Fact]
     public void ACompactOverAnUnopenableDeclaredMasterIsANamedFail()
     {
-        Assert.False(_compact.Outcome.Success);
+        Assert.Null(_compact.Escaped);
+        Assert.False(_compact.Outcome!.Success);
         var e = _compact.Outcome.Error ?? "";
         Assert.Contains(ExcludedMasterCompactOutcome.BrokenName, e, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("could not be opened for the serialize", e);
