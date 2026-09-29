@@ -263,7 +263,7 @@ a miss, stating that form is not provided either; the generic lane does not, bec
 - *Naming a source*: `PlaceProbe` (`place-asset-guard`) arm M — naming an unticked mod reads its loose copy, then its
   root archives, and no other pole widens with it; M7 and M16 — a name the built universe knows never reaches a mods
   folder of that name; M22 — a trailing-dot spelling never reaches disk.
-- *Naming a source*: `NifSourceLaneProbe` (`nif-source-lane-guard`) — every printed provider token is one
+- *Naming a source*: `NifSourceLaneTokenTests` and `NifSourceLaneReachTests` — every printed provider token is one
   `source_provider=` accepts, and naming a mod reaches its loose files and its root archives.
 - *Naming a source*: `RawModsPathRefusalTests` — a raw path into MO2's mods tree is refused and handed the address
   form.
