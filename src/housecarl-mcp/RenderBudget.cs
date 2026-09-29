@@ -15,14 +15,20 @@ internal static class RenderBudget
     /// <summary>The declared cost of one <c>form='identity'</c> row: an UNTYPED whole-plugin seek per FormID.</summary>
     internal const double MillisPerIdentityRow = 15.0;
 
-    /// <summary>The price of a comparison row that reads every field of each pole, delta or tree alike (quiet machine: 83–96 ms, #932).</summary>
-    internal const double MillisPerWholeComparisonRow = 100.0;
+    /// <summary>The price of reading every field of one version of a top-level record (quiet delta: 42 ms a version, #932).</summary>
+    internal const double MillisPerWholeComparisonRead = 50.0;
 
-    /// <summary>The price of a comparison row narrowed by fields= on a top-level record (quiet machine: 0.14 ms, #932).</summary>
-    internal const double MillisPerNarrowComparisonRow = 0.2;
+    /// <summary>The price of reading every field of one version of a record a cell or topic contains (LAND, NAVM: 97–102 ms, #932).</summary>
+    internal const double MillisPerWholeContainedComparisonRead = 100.0;
 
-    /// <summary>The price of a narrowed comparison row on a record a cell or topic contains (quiet machine: 14 ms on REFR, #932).</summary>
-    internal const double MillisPerNarrowContainedComparisonRow = 15.0;
+    /// <summary>The price of reading named fields off one version of a top-level record (#932).</summary>
+    internal const double MillisPerNarrowComparisonRead = 0.1;
+
+    /// <summary>The price of reading named fields off one version of a record a cell or topic contains (quiet REFR: 9 ms, #932).</summary>
+    internal const double MillisPerNarrowContainedComparisonRead = 10.0;
+
+    /// <summary>What a narrowed comparison pays per megabyte of provider plugin each chunk walks (ARR: 0.34–1.05 ms, #932).</summary>
+    internal const double MillisPerNarrowComparisonMegabyteWalked = 1.1;
 
     /// <summary>What a SkyPatcher post-state pole adds to a comparison row's price (quiet machine: 129 less 83 ms, #932).</summary>
     internal const double MillisPerOverlayReplayRow = 45.0;
@@ -162,7 +168,9 @@ internal static class RenderBudget
         var perRowText = perRow >= 100 ? $"{perRow / 1000:0.##} s" : $"{perRow:0.#} ms";
         return $"error: this {form} reads {(form == "delta" ? "two versions" : "every override")} of each of {shape.Rows:N0} records — " +
                $"{ProjectedAt(shape.Rows, perRow)} at the {perRowText} a row priced for {shape.Describe()}, " +
-               $"past the {bound:N0}-row bound that shape is given; " +
+               (shape.Counted || bounds.ComparisonRows is not null
+                   ? $"past the {bound:N0}-row bound that shape is given; "
+                   : $"past the {bound:N0}-row bound that shape is given at most, before its providers and contained records are counted; ") +
                lever;
     }
 
@@ -170,26 +178,35 @@ internal static class RenderBudget
     internal static int ComparisonBound(ComparisonShape shape, double budgetMillis = ComparisonBudgetMillis) =>
         (int)Math.Min(int.MaxValue, Math.Floor(budgetMillis / shape.MillisPerRow));
 
-    /// <summary>What a comparison's row cost depends on: whether fields= narrows it, how many of its records a cell or
-    /// topic contains, and whether a pole replays the SkyPatcher layer.</summary>
-    internal readonly record struct ComparisonShape(int Rows, int ContainedRows, bool Narrowed, bool ReplaysOverlay)
+    /// <summary>What a comparison's cost depends on: the versions it reads, how many of those belong to records a cell or
+    /// topic contains, whether fields= narrows each read, and whether a pole replays the SkyPatcher layer.</summary>
+    internal readonly record struct ComparisonShape(int Rows, long Reads, long ContainedReads, int ContainedRows,
+                                                    bool Narrowed, bool ReplaysOverlay, bool Tree, bool Counted,
+                                                    double MegabytesWalked = 0)
     {
+        /// <summary>The cheapest this many rows can be: every record top-level, a tree's with one version (plus a named versus=).</summary>
+        internal static ComparisonShape Floor(int rows, bool tree, bool namedVersus, bool narrowed, bool replaysOverlay) =>
+            new(rows, (long)rows * (tree ? 1 + (namedVersus ? 1 : 0) : 2), 0, 0, narrowed, replaysOverlay, tree, false);
+
         /// <summary>The mean price of one row of this shape.</summary>
         internal double MillisPerRow
         {
             get
             {
-                double topLevel = Narrowed ? MillisPerNarrowComparisonRow : MillisPerWholeComparisonRow;
-                double contained = Narrowed ? MillisPerNarrowContainedComparisonRow : MillisPerWholeComparisonRow;
-                int c = Math.Clamp(ContainedRows, 0, Rows);
-                double mean = Rows == 0 ? topLevel : (topLevel * (Rows - c) + contained * c) / Rows;
-                return mean + (ReplaysOverlay ? MillisPerOverlayReplayRow : 0);
+                double top = Narrowed ? MillisPerNarrowComparisonRead : MillisPerWholeComparisonRead;
+                double inner = Narrowed ? MillisPerNarrowContainedComparisonRead : MillisPerWholeContainedComparisonRead;
+                long c = Math.Clamp(ContainedReads, 0, Reads);
+                double total = top * (Reads - c) + inner * c
+                             + (Narrowed ? MegabytesWalked * MillisPerNarrowComparisonMegabyteWalked : 0);
+                return (Rows == 0 ? top : total / Rows) + (ReplaysOverlay ? MillisPerOverlayReplayRow : 0);
             }
         }
 
         internal string Describe() =>
             (Narrowed ? "a comparison over named fields" : "a comparison of whole records") +
-            (Narrowed && ContainedRows > 0 ? $", {ContainedRows:N0} of them records a cell or topic contains" : "") +
+            (Tree && Counted && Rows > 0 ? $", {(double)Reads / Rows:0.#} versions read a record" : "") +
+            (ContainedRows > 0 ? $", {ContainedRows:N0} of them records a cell or topic contains" : "") +
+            (Narrowed && MegabytesWalked > 0 ? $", walking {MegabytesWalked / 1000:N1} GB of provider plugins" : "") +
             (ReplaysOverlay ? ", replaying the SkyPatcher layer" : "");
     }
 

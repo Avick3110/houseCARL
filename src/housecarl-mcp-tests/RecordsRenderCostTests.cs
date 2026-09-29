@@ -57,6 +57,11 @@ public sealed class RenderCostWorld : IDisposable
     /// scan lane has its own cancellation path and its own catch-all, so it needs a world to run in.</summary>
     public string OffOrderName { get; }
 
+    /// <summary>A second off-order plugin holding one new interior cell and its placed references, so a comparison
+    /// over the file prices records only the file's own containment places.</summary>
+    public string OffOrderCellName { get; }
+    public const int OffOrderRefs = 3;
+
     public LoadOrderService Svc { get; }
 
     public RenderCostWorld()
@@ -165,6 +170,16 @@ public sealed class RenderCostWorld : IDisposable
         Directory.CreateDirectory(Path.Combine(mods, "CostOffMod"));
         off.BeginWrite.ToPath(Path.Combine(mods, "CostOffMod", OffOrderName))
            .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        var cellKey = new ModKey("HcCostOffCell", ModType.Plugin);
+        OffOrderCellName = cellKey.FileName.String;
+        var offCell = new SkyrimMod(cellKey, SkyrimRelease.SkyrimSE);
+        var cell = new Cell(new FormKey(cellKey, 0x900), SkyrimRelease.SkyrimSE) { EditorID = "HcOffCell", Flags = Cell.Flag.IsInteriorCell };
+        for (int i = 0; i < OffOrderRefs; i++)
+            cell.Temporary.Add(new PlacedObject(new FormKey(cellKey, (uint)(0x910 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOffRef{i}" });
+        OwnedChildWorld.FileInterior(offCell, cell);
+        offCell.BeginWrite.ToPath(Path.Combine(mods, "CostOffMod", OffOrderCellName))
+               .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -499,13 +514,14 @@ public sealed class RecordsRenderCostTests
     }
 
     /// <summary>An estimate just over a one-minute comparison bound reads in seconds up to 90 s, never "about 1 minutes":
-    /// one whole-record row past a 60 s budget is 60.1 s.</summary>
+    /// one whole-record row past a 60 s budget is 60.05 s.</summary>
     [Fact]
     public void TheEstimateReadsProperlyJustOverTheComparisonBound()
     {
         var bounds = RenderBounds.Default with { ComparisonMillis = 60_000 };
-        var whole = new RenderBudget.ComparisonShape(1, 0, Narrowed: false, ReplaysOverlay: false);
-        var justOver = whole with { Rows = RenderBudget.ComparisonBound(whole, 60_000) + 1 };
+        var whole = RenderBudget.ComparisonShape.Floor(1, tree: true, namedVersus: false, narrowed: false, replaysOverlay: false);
+        var justOver = RenderBudget.ComparisonShape.Floor(RenderBudget.ComparisonBound(whole, 60_000) + 1, tree: true,
+                                                          namedVersus: false, narrowed: false, replaysOverlay: false);
         var r = RenderBudget.RefuseComparison(bounds, justOver, "tree", "x");
         Assert.NotNull(r);
         Assert.DoesNotContain(" 1 minutes", r);

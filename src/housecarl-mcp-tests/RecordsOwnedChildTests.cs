@@ -308,7 +308,7 @@ public sealed class OwnedChildWorld : IDisposable
     }
 
     /// <summary>Mutagen writes interior cells through the group tree, not a flat list.</summary>
-    static void FileInterior(SkyrimMod mod, Cell cell)
+    internal static void FileInterior(SkyrimMod mod, Cell cell)
     {
         uint id = cell.FormKey.ID;
         int blockN = (int)(id % 10), subN = (int)((id / 10) % 10);
