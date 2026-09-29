@@ -76,6 +76,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     {
         var svc = new LoadOrderService(null, "", "", "", configured: true, maxPlugins: 0, store);
         svc._resolver = resolver;
+        svc.Counters = resolver.Counters;   // one object, so the service reads what its resolver counts
         return svc;
     }
 
@@ -276,8 +277,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>The records render bounds in force on this service; production keeps the default, a test lowers its own world's.</summary>
     internal RenderBounds Bounds { get; set; } = RenderBounds.Default;
 
-    /// <summary>What this service's reads cost, carried by every resolver it builds; only the cost tests read it.</summary>
-    internal CostCounters Counters { get; } = new();
+    /// <summary>What this service's reads cost, carried by every resolver it builds, or its prebuilt resolver's own; only the cost tests read it.</summary>
+    internal CostCounters Counters { get; private set; } = new();
 
     // The reads area's tool-facing surface; the bodies are in RecordReads.cs, RecordPoles.cs, RecordWalk.cs, RecordQuery.cs and TreeFold.cs.
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
