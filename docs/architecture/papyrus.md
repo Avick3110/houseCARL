@@ -90,11 +90,11 @@ The decompiler itself is [`papyrus-decompile.md`](papyrus-decompile.md).
   `.APartialSiblingFailureCountsOnlyTheFileItLost` for the rendered note.
 
 ## Pinned by
-- `compile-ergonomics-guard` (generator) — part G pins the two layouts, the `.psc` gate, the
-  precedence order, the dedup and `SplitGameData`'s exact match and blank-data-dir arm; part H pins
+- `PapyrusSourceRootsDiscoverTests` — the two layouts, the `.psc` gate, the precedence order, the
+  dedup and `SplitGameData`'s exact match and blank-data-dir arm; `PapyrusDependencyWalkTests` —
   the transitive walk, first-provider precedence, the unreferenced drop and the unreadable target;
-  its render arms pin the summary's narrowing count, the unresolved-symbol class, and the
-  missing-imports banner's three-diagnostic floor and two-thirds bar.
+  `CompileRenderImportPathTests` and `CompileRenderBannerTests` — the summary's narrowing count, the
+  unresolved-symbol class, and the missing-imports banner's three-diagnostic floor and two-thirds bar.
 - `import-order-guard` (generator) — the import-path order, vanilla last even when re-passed or
   re-found, case-insensitive dedup, the provenance labels, the caller-outranks-scan rule, and the
   vanilla-missing claim agreeing with the assembled path.
