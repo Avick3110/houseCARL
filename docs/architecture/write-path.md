@@ -76,8 +76,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   edited field is excluded. Payload bytes are NOT compared: a subrecord kept at its length with a changed value passes.
   Two allowances, both data: `Renames`, a lost signature paired with a gained one in the same record, holds
   `BODT`→`BOD2` alone; `InformationFree` holds the measured losses that carry no information and nothing beyond them
-  (Aaron, 2026-09-29): an LTEX `INAM` below form version 43, the `NAME` of a REFR flagged deleted, and a REFR `XRMR`
-  of all zero bytes (dev/plans/INPLACE_ROUNDTRIP_MEASURE_2026-09-28.md). When the check cannot run — the file does not
+  (Aaron, 2026-09-29): an LTEX `INAM` of all zero bytes below form version 43, the `NAME` of a REFR flagged deleted, a
+  REFR `XRMR` of all zero bytes, and a RACE `PHWT` every occurrence of which is written back as its own leading bytes
+  with only an all-zero tail cut (dev/plans/INPLACE_ROUNDTRIP_MEASURE_2026-09-28.md). An `INAM` with a flag set, or a
+  `PHWT` whose cut tail holds a value, still refuses. When the check cannot run — the file does not
   parse, cannot be read, or the walk faults — the call is refused in the check's own sentence, never passed; a master
   that fails to open gets its own sentence, and a serialize fault is reported as one the write would meet the same way.
   A localized target is not walked: the service lanes refuse it before consent and `WriteInPlace` and `WritePatch`
@@ -87,7 +89,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   reads the target through the full parse while the in-place compact copies from the overlay, so on compact it
   approximates that write rather than repeating it. Every in-place render that ran the check carries
   `WriteSentences.RoundTripChecked`, which claims only that: every subrecord kept at its length, gains, the rename and
-  the three measured losses allowed, values not compared; the `into=` renders claim nothing about it.
+  the four measured losses allowed, values not compared; the `into=` renders claim nothing about it.
 - A read-back proves what is in the file, never what wins in the ORDER.
 - A walk's source universe is the caller's pole list in order, resolved first-hit-wins, with no separate single-pole
   path: a length-1 list is the same loop running once.
@@ -389,7 +391,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   forward, and apply, create, forward and remove on `into=`, each naming `MOD2, MO2T, MOD4, MO4T` with the file
   byte-identical; removing or forwarding over that record itself writes; create's spec error comes before the check;
   the standard order writes, keeps the male models and renders `RoundTripChecked`; a `BODT` record writes (the rename);
-  each of the three allowed losses writes, and a loss outside their conditions still refuses; a subrecord grown past
+  each of the four allowed losses writes, and a loss outside their conditions (an `INAM` with IsSnow set, a `PHWT` tail with a value) still refuses; a subrecord grown past
   its length refuses; a file the check cannot read or parse is refused in the check's own words; a target linking an
   inactive plugin still gets the lane's "NOT active" sentence; and
   `TheParserStillReadsTheReproductionWithoutTheMaleModels` pins Mutagen 0.54.4's read of that order.
