@@ -65,61 +65,48 @@ public static class SubrecordInventory
             "fix those records in xEdit first, or compact without repoint_externals and handle that plugin's references yourself");
     }
 
-    /// <summary>Null when the unedited round trip keeps every subrecord signature the file holds, else the one refusal
-    /// sentence. The serialize is handed the target's own declared masters, opened through <paramref name="masterPath"/>
-    /// (null for one that is absent or unopenable). A localized target returns null: <see cref="WriteEngine.WriteInPlace"/>
-    /// refuses it before staging, so no write this check could have stopped ever lands. Any serialize fault other than a
-    /// missing master propagates for the caller's own serialize-failure arm.</summary>
-    public static string? RoundTripRefusal(SkyrimMod parsed, string path, Func<string, string?> masterPath, Remedy remedy)
+    /// <summary>Null when the unedited round trip over the write's own masters keeps every signature, else one refusal; a serialize fault throws.</summary>
+    public static string? RoundTripRefusal(SkyrimMod parsed, string path, IReadOnlyList<ISkyrimModGetter> masters, Remedy remedy)
     {
-        if (parsed.UsingLocalization) return null;
-        var overlays = new List<ISkyrimModDisposableGetter>();
-        try
-        {
-            foreach (var mr in parsed.ModHeader.MasterReferences)
-                if (masterPath(mr.Master.FileName.String) is { } mp && File.Exists(mp))
-                    overlays.Add(SkyrimMod.CreateFromBinaryOverlay(mp, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(mp)));
-            var fileBytes = File.ReadAllBytes(path);
-            var written = SerializeToMemory(parsed, overlays, path);
-            var losses = Losses(Diff(Walk(fileBytes, parsed.ModKey), Walk(written, parsed.ModKey)), Renames);
-            return losses.Count == 0 ? null : Refusal(Path.GetFileName(path), losses, parsed, remedy);
-        }
-        finally { foreach (var o in overlays) { try { o.Dispose(); } catch { /* best-effort; never mask the check */ } } }
+        if (parsed.UsingLocalization) return null;   // WriteInPlace and WritePatch refuse a localized file before staging
+        var fileName = Path.GetFileName(path);
+        byte[]? written;
+        try { written = SerializeToMemory(parsed, masters, path); }
+        catch (Exception ex) when (Find<CaptureUnsupportedException>(ex) is { } cu) { return CouldNotRun(fileName, cu.Message); }
+        if (written is null) return CouldNotRun(fileName, "the in-memory serialize produced no bytes");
+        List<RecordDiff> losses;
+        try { losses = Losses(Diff(Walk(File.ReadAllBytes(path), parsed.ModKey), Walk(written, parsed.ModKey)), Renames); }
+        catch (Exception ex) { return CouldNotRun(fileName, WriteEngine.Describe(ex)); }
+        return losses.Count == 0 ? null : Refusal(fileName, losses, parsed, remedy);
     }
 
-    /// <summary>The same check over a plugin this call has not opened yet. A file that does not parse returns null,
-    /// because the lane that would rewrite it refuses an unparseable plugin itself before writing.</summary>
-    public static string? RoundTripRefusalAt(string path, Func<string, string?> masterPath, Remedy remedy)
-    {
-        SkyrimMod parsed;
-        try { parsed = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path)); }
-        catch { return null; }
-        return RoundTripRefusal(parsed, path, masterPath, remedy);
-    }
+    /// <summary>The refusal when the check itself cannot run on a file, so nothing is written unchecked.</summary>
+    public static string CouldNotRun(string fileName, string why) =>
+        $"refused: houseCARL's round-trip check could not run on '{fileName}' ({why}), so it cannot tell whether rewriting " +
+        $"that file would drop subrecords; '{fileName}' is UNTOUCHED — check the file in xEdit, close anything that holds " +
+        "it open, and retry.";
 
-    /// <summary>The bytes the in-place write would stage for this mod, through the same serialize, held in memory only.
-    /// A master the load order lacks is re-tried with no load order at all: the order only sorts the header's master
-    /// list, which the walk maps away, and the lane's own write still meets that missing master in its own words.</summary>
-    public static byte[] SerializeToMemory(SkyrimMod parsed, IReadOnlyList<ISkyrimModGetter> masters, string path)
+    /// <summary>The bytes the write would stage, held in memory; a missing master retries with no load order, which only the header feels.</summary>
+    public static byte[]? SerializeToMemory(SkyrimMod parsed, IReadOnlyList<ISkyrimModGetter> masters, string path)
     {
         var ordered = masters as ISkyrimModGetter[] ?? masters.ToArray();
         try { return Capture(parsed, ordered, path); }
-        catch (Exception ex) when (IsMissingMod(ex)) { return Capture(parsed, null, path); }
+        catch (Exception ex) when (Find<Mutagen.Bethesda.Plugins.Exceptions.MissingModException>(ex) is not null)
+            { return Capture(parsed, null, path); }
     }
 
-    static byte[] Capture(SkyrimMod parsed, ISkyrimModGetter[]? ordered, string path)
+    static byte[]? Capture(SkyrimMod parsed, ISkyrimModGetter[]? ordered, string path)
     {
         var capture = new CaptureFileSystem();
         WriteEngine.SerializeInPlace(parsed, ordered, path, path, capture);
-        return capture.Bytes ?? throw new InvalidOperationException(
-            $"the in-memory round trip of '{Path.GetFileName(path)}' produced no bytes, so its subrecords could not be compared.");
+        return capture.Bytes;
     }
 
-    static bool IsMissingMod(Exception? ex)
+    static T? Find<T>(Exception? ex) where T : Exception
     {
         for (; ex is not null; ex = ex.InnerException)
-            if (ex is Mutagen.Bethesda.Plugins.Exceptions.MissingModException) return true;
-        return false;
+            if (ex is T hit) return hit;
+        return null;
     }
 
     /// <summary>Every major record in a plugin's bytes, keyed by FormKey through that file's own master list, with its
@@ -268,9 +255,12 @@ public static class SubrecordInventory
         public IFileVersionInfoFactory FileVersionInfo => throw Unsupported(nameof(FileVersionInfo));
         public System.IO.Abstractions.IPath Path => throw Unsupported(nameof(Path));
 
-        internal static NotSupportedException Unsupported(string what) =>
-            new($"the in-memory round trip supports only a FileStream create, and the serializer asked for {what}.");
+        internal static CaptureUnsupportedException Unsupported(string what) =>
+            new($"the in-memory serialize supports only a FileStream create, and the serializer asked for {what}");
     }
+
+    /// <summary>The capture refusing a file-system call the serialize made: a fault of the check, not of the file.</summary>
+    sealed class CaptureUnsupportedException(string message) : NotSupportedException(message);
 
     sealed class CaptureStreams : IFileStreamFactory
     {

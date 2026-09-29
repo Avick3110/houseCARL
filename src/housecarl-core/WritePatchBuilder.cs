@@ -781,7 +781,7 @@ public static class WritePatchBuilder
         // The author's DECLARED masters before any mutation, diffed against the re-opened header for the re-sort note.
         var mastersBefore = targetMod.ModHeader.MasterReferences
             .Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (RoundTripRefusal(targetMod, targetPath, view, session) is { } lost)
+        if (RoundTripRefusal(targetMod, targetPath, session, SubrecordInventory.Remedy.RecordLane) is { } lost)
             return PatchOutcome.Fail(lost);
 
         // --- Phase 2b: SNAPSHOT every same-file copy source BEFORE any op mutates anything, ONE snapshot PER OP. ---
@@ -1227,32 +1227,35 @@ public static class WritePatchBuilder
             return RemovalOutcome.Fail(
                 $"refused — {problems.Count} of {targets.Count} target(s) not carried by '{fileName}'; NOTHING removed:\n  - "
                 + string.Join("\n  - ", problems));
-        if (RoundTripRefusal(targetMod, targetPath, view, session) is { } lost) return RemovalOutcome.Fail(lost);
-
-        // --- Phase 4: literal drop-from-group via the typed overload; a singular owned child goes through the detach below. ---
-        try
-        {
-            foreach (var rr in toRemove)
-                ((IMajorRecordEnumerable)targetMod).Remove(rr.Target, carried[rr.Target].runtime, throwIfUnknown: true);
-        }
-        catch (Exception ex)
-        {
-            return RemovalOutcome.Fail(
-                $"present-check passed but Remove threw — a real engine inconsistency, surfaced not swallowed (Q3): "
-                + $"{ex.GetType().Name}: {ex.Message}");
-        }
-        if (DetachOwnedChildren(targetMod, toRemove) is { } detachFailed)
-            return RemovalOutcome.Fail(detachFailed + $" Your original '{fileName}' is UNTOUCHED.");
-        if (RemoveSurvivors(targetMod, toRemove) is { } survived)
-            return RemovalOutcome.Fail(survived + $" Your original '{fileName}' is UNTOUCHED.");
-
-        // --- Phase 5: re-serialize the target over itself against its OWN declared masters, self-lock first. ---
-        session.ReleaseOverlay(fileName);
+        // The target's OWN declared masters, opened once for both the round-trip check and the Phase-5 write.
         var masterOverlays = new List<IDisposable>();
         try
         {
             ISkyrimModGetter[] ownMasters = ResolveOwnMasters(view, targetMod, masterOverlays, out var missing);
             if (missing is not null) return RemovalOutcome.Fail(missing);
+            if (RoundTripRefusal(targetMod, targetPath, () => ownMasters,
+                    ex => SerializeFailure(CheckSerializeLead(targetPath), ex, session), SubrecordInventory.Remedy.RecordLane) is { } lost)
+                return RemovalOutcome.Fail(lost);
+
+            // --- Phase 4: literal drop-from-group via the typed overload; a singular owned child goes through the detach below. ---
+            try
+            {
+                foreach (var rr in toRemove)
+                    ((IMajorRecordEnumerable)targetMod).Remove(rr.Target, carried[rr.Target].runtime, throwIfUnknown: true);
+            }
+            catch (Exception ex)
+            {
+                return RemovalOutcome.Fail(
+                    $"present-check passed but Remove threw — a real engine inconsistency, surfaced not swallowed (Q3): "
+                    + $"{ex.GetType().Name}: {ex.Message}");
+            }
+            if (DetachOwnedChildren(targetMod, toRemove) is { } detachFailed)
+                return RemovalOutcome.Fail(detachFailed + $" Your original '{fileName}' is UNTOUCHED.");
+            if (RemoveSurvivors(targetMod, toRemove) is { } survived)
+                return RemovalOutcome.Fail(survived + $" Your original '{fileName}' is UNTOUCHED.");
+
+            // --- Phase 5: re-serialize the target over itself against its OWN declared masters, self-lock first. ---
+            session.ReleaseOverlay(fileName);
             try { WriteEngine.WriteInPlace(targetMod, ownMasters, targetPath, resolver.DataDir); }
             // The localized-target refusal names its own whole sentence, which this lane's lead would contradict.
             catch (LocalizedTargetUnsupportedException ex) { return RemovalOutcome.Fail(ex.Message); }
@@ -1446,7 +1449,7 @@ public static class WritePatchBuilder
         // Declared masters before any mutation — diffed against the re-opened header (see MasterGrowNote).
         var mastersBefore = targetMod.ModHeader.MasterReferences
             .Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (RoundTripRefusal(targetMod, targetPath, view, session) is { } lost)
+        if (RoundTripRefusal(targetMod, targetPath, session, SubrecordInventory.Remedy.RecordLane) is { } lost)
             return ForwardOutcome.Fail(lost);
 
         // --- Phase 3: replace-or-copy each source body into the TARGET; nothing is serialized until Phase 4. ---
@@ -1559,21 +1562,32 @@ public static class WritePatchBuilder
                "in MO2 and retry — writes that do NOT reference their records are unaffected.";
     }
 
-    /// <summary>The in-place round-trip check (#961) before any op runs, over the target's own declared masters as the
-    /// view resolves them: its refusal, or any other serialize fault in the lanes' own words.</summary>
-    static string? RoundTripRefusal(SkyrimMod targetMod, string targetPath, LoadOrderResolver.IndexView view,
-                                    LoadOrderResolver.OverlaySession session)
+    /// <summary>The round-trip check (#961) over the session's master set, the one the lane's write hands the serializer.</summary>
+    static string? RoundTripRefusal(SkyrimMod mod, string path, LoadOrderResolver.OverlaySession session,
+                                    SubrecordInventory.Remedy remedy)
+        => RoundTripRefusal(mod, path, () => session.AllMastersExcept(Path.GetFileName(path)),
+                            ex => SerializeFailure(CheckSerializeLead(path), ex, session), remedy);
+
+    /// <summary>The round-trip check (#961) over the given masters: its refusal, the master-open refusal, or the serialize fault's.</summary>
+    static string? RoundTripRefusal(SkyrimMod mod, string path, Func<IReadOnlyList<ISkyrimModGetter>> masters,
+                                    Func<Exception, string> serializeFailure, SubrecordInventory.Remedy remedy)
     {
-        try { return SubrecordInventory.RoundTripRefusal(targetMod, targetPath, MasterPathIn(view), SubrecordInventory.Remedy.RecordLane); }
+        var fileName = Path.GetFileName(path);
+        IReadOnlyList<ISkyrimModGetter> set;
+        try { set = masters(); }
+        catch (UnopenableBaselineMasterException ex) { return ex.Message; }
         catch (Exception ex)
         {
-            return SerializeFailure($"writing '{Path.GetFileName(targetPath)}' in place failed (serialize or commit; the existing file is untouched): ", ex, session);
+            return $"cannot re-serialize '{fileName}': a plugin in the load order could not be opened for the round-trip " +
+                   $"check ({WriteEngine.Describe(ex)}). Repair or remove that plugin in MO2 and retry. The file is UNTOUCHED.";
         }
+        try { return SubrecordInventory.RoundTripRefusal(mod, path, set, remedy); }
+        catch (Exception ex) { return serializeFailure(ex); }
     }
 
-    /// <summary>A declared master's path in the view, or null when it is absent or cannot be opened.</summary>
-    public static Func<string, string?> MasterPathIn(LoadOrderResolver.IndexView view)
-        => name => view.IsUnopenable(name) ? null : view.PluginPath(name);
+    /// <summary>The lead of a serialize fault met by the round-trip check, which the write would meet the same way.</summary>
+    static string CheckSerializeLead(string path) =>
+        $"'{Path.GetFileName(path)}' is UNTOUCHED: re-serializing it unedited for the round-trip check failed, so the write would fail the same way: ";
 
     /// <summary>Render a serialize-failure message, except that a BASELINE refusal SUBSTITUTES its own message for the lot.</summary>
     public static string SerializeFailure(string lead, Exception ex, LoadOrderResolver.OverlaySession session, string trailer = "")
@@ -2025,25 +2039,34 @@ public static class WritePatchBuilder
         public static CompactBuildResult Fail(string error) => new(false, error, Array.Empty<string>(), 0, 0, 0);
     }
 
-    /// <summary>The round-trip check (#961) over every file an in-place compact rewrites — the target, then each referencer
-    /// it repoints — run before anything is written; the first refusal, or null.</summary>
+    /// <summary>The round-trip check (#961) over the compact's target and each referencer it repoints; the first refusal, or null.</summary>
     public static string? CompactRoundTripRefusal(
         LoadOrderResolver.IndexView view, string srcPath, bool overwriteTarget, IReadOnlyList<string>? referencers)
     {
-        var masterPath = MasterPathIn(view);
         var files = new List<(string Path, SubrecordInventory.Remedy Remedy)>();
         if (overwriteTarget) files.Add((srcPath, SubrecordInventory.Remedy.CompactTarget));
         foreach (var r in referencers ?? Array.Empty<string>())
             if (view.PluginPath(r) is { } rp) files.Add((rp, SubrecordInventory.Remedy.Referencer));
         foreach (var (path, remedy) in files)
-        {
-            try { if (SubrecordInventory.RoundTripRefusalAt(path, masterPath, remedy) is { } lost) return lost; }
-            catch (Exception ex)
-            {
-                return $"writing '{Path.GetFileName(path)}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}";
-            }
-        }
+            if (RoundTripRefusalAt(view, path, remedy) is { } lost) return lost;
         return null;
+    }
+
+    /// <summary>The round-trip check over a file this call has not opened, against its own declared masters as the compact writes it.</summary>
+    public static string? RoundTripRefusalAt(LoadOrderResolver.IndexView view, string path, SubrecordInventory.Remedy remedy)
+    {
+        SkyrimMod parsed;
+        try { parsed = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path)); }
+        catch (Exception ex)
+            { return SubrecordInventory.CouldNotRun(Path.GetFileName(path), $"it does not parse: {WriteEngine.Describe(ex)}"); }
+        var overlays = new List<IDisposable>();
+        try
+        {
+            var own = ResolveOwnMasters(view, parsed, overlays, out var missing);
+            if (missing is not null) return missing;
+            return RoundTripRefusal(parsed, path, () => own, ex => CheckSerializeLead(path) + WriteEngine.Describe(ex), remedy);
+        }
+        finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* best-effort; never mask the check */ } } }
     }
 
     /// <summary>Build the compacted plugin P′ and write it to <paramref name="outPath"/>, which in place is <paramref name="srcPath"/> itself.</summary>
@@ -2314,7 +2337,7 @@ public static class WritePatchBuilder
         var mastersBefore = inPlace || extend
             ? patchMod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : null;
-        if (inPlace && RoundTripRefusal(patchMod, outPath, view, session) is { } lost)
+        if (inPlace && RoundTripRefusal(patchMod, outPath, session, SubrecordInventory.Remedy.RecordLane) is { } lost)
             return CreateOutcome.Fail(lost);
 
         // --- Phase 1: pre-flight EVERY spec before any mutation; creatability is STRUCTURAL, the FormID unknown until Phase 3. ---

@@ -249,6 +249,31 @@ public sealed class InPlaceRoundTripTests
         AssertRefusedUntouched(o.Success, o.Error, path, before);
     }
 
+    // A fault of the check itself is refused in the check's own words, never passed as clean or blamed on a serialize.
+    [Fact]
+    public void AFileTheCheckCannotReadIsRefusedInTheChecksOwnWords()
+    {
+        var (path, _) = StagePlugin();
+        var parsed = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE);
+        File.Delete(path);
+        var refusal = SubrecordInventory.RoundTripRefusal(parsed, path, Array.Empty<ISkyrimModGetter>(), SubrecordInventory.Remedy.RecordLane);
+        Assert.NotNull(refusal);
+        Assert.Contains("round-trip check could not run", refusal);
+        Assert.DoesNotContain("serialize or commit", refusal);
+    }
+
+    [Fact]
+    public void AFileThatDoesNotParseIsRefusedRatherThanPassed()
+    {
+        var path = Path.Combine(_w.NewDir(), PluginName);
+        File.WriteAllBytes(path, Encoding.ASCII.GetBytes("TES4 not a plugin"));
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath });
+        var refusal = WritePatchBuilder.RoundTripRefusalAt(r.Capture(), path, SubrecordInventory.Remedy.CompactTarget);
+        Assert.NotNull(refusal);
+        Assert.Contains("round-trip check could not run", refusal);
+        Assert.Contains("does not parse", refusal);
+    }
+
     // A target whose own record links a plugin the order lacks still gets the lane's own sentence, not a serialize one.
     [Fact]
     public void ATargetLinkingAnInactivePluginStillGetsTheNotActiveSentence()
