@@ -19,6 +19,9 @@ public sealed class CostCounters
     /// <summary>Record bodies the chunk gather was asked for.</summary>
     public long KeysWanted;
 
+    /// <summary>Times an absent plugin was explained from the MO2 profile.</summary>
+    public long AbsenceExplains;
+
     /// <summary>Identify passes run by compact and merge.</summary>
     public int IdentifyPasses;
 
