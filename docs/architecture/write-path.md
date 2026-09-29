@@ -418,8 +418,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   the read render shares.
 - `InsertAtIndexApplyTests` and `InsertAtIndexSerializeTests` — insert's append-inclusive bound, and a tail that
   keeps the same objects in the same order through a real serialize and re-read.
-- `flags-bit-verb-guard` — a flags `Add` / `Remove` flips one bit and preserves every unlisted one, gate and apply
-  keyed off the same test.
+- `FlagsBitVerbGateTests` and `FlagsBitVerbApplyTests` — a flags `Add` / `Remove` flips one bit and preserves every
+  unlisted one, gate and apply keyed off the same test.
 - `formlink-remove-guard` — `Remove` clears a nullable FormLink instead of throwing, and fails loud on a required
   one when pre-flight is bypassed.
 - `subclass-remove-guard` — `RemovalTypeFor` routes the typed remove through the flat group's `T`, so a record whose
