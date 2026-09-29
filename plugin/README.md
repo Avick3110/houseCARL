@@ -118,7 +118,7 @@ On first use, houseCARL asks for the MO2 instance folder, the one containing `Mo
 
 ## Writing
 
-Three lanes, mutually exclusive. `patch=` is the default: a new mod folder `houseCARL - <name>` holding one plugin, with existing files untouched. `into=` extends an existing houseCARL patch, and touches that patch only. `in_place=` overwrites the named plugin, including one houseCARL did not author; it keeps no backup and has no undo, and the first in-place write to a given plugin returns a confirmation instead of writing. An in-place write is refused, file untouched, if re-serializing the unedited plugin would drop a subrecord houseCARL's parser cannot represent; the refusal names the record and the subrecords.
+Three lanes, mutually exclusive. `patch=` is the default: a new mod folder `houseCARL - <name>` holding one plugin, with existing files untouched. `into=` extends an existing houseCARL patch, and touches that patch only. `in_place=` overwrites the named plugin, including one houseCARL did not author; it keeps no backup and has no undo, and the first in-place write to a given plugin returns a confirmation instead of writing. An in-place or `into=` write is refused, file untouched, if re-serializing the unedited plugin would drop a subrecord or change its length; the refusal names the record and the subrecords.
 
 Every op is checked before any file is opened for writing: record type, field path, enum value, verb against cardinality, value range, writability, record identity, the target type of every FormLink. One failing op refuses the whole call. `dry_run=true` runs the full pipeline and stops before disk.
 

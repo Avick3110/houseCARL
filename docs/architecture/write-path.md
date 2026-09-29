@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-29
 covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/WriteSentences.cs, src/housecarl-core/WriteEngine.cs,
   src/housecarl-core/WriteVerbs.cs, src/housecarl-core/RemapEngine.cs, src/housecarl-core/ClosureCopy.cs,
   src/housecarl-core/MergeInjection.cs, src/housecarl-core/MergeLoadPosition.cs,
@@ -53,27 +53,38 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - A write response states only what it re-read from the written FILE: the file's value, `not-checked` where the file
   could not answer, and a did-not-land verdict only off a walk that succeeded. Never the applied in-memory value.
   An opaque `bytes` leaf re-reads as a byte count with its structure NOT checked.
-- Every in-place lane that rewrites a file it read — apply, create, remove and forward after the target is opened and
-  before any op touches it, dry run included, and the in-place compact over its target and every referencer it would
-  repoint, before the consent gate and before the compacted plugin is written — runs the round-trip check in
-  `SubrecordInventory`. The unedited target is serialized through `WriteEngine.SerializeInPlace`, the one builder chain
-  the staged write also uses, handed the target's own declared masters, into a capture that holds the bytes in memory
-  and refuses every other file-system call; a master the order lacks is retried with no load order, which only the
-  header's master list feels, so the lane's own write still meets it in its own words. The file's bytes and those bytes
-  are walked the same way — per FormKey through each side's own master list, a multiset of subrecord signatures,
-  compressed records inflated, `XXXX` folded into the length it carries — and any record whose written side lacks a
-  signature the file holds refuses the whole call in one sentence naming the record and the signatures, with nothing
-  written. An unedited round trip isolates what the writer cannot keep from what the ops remove, so no edited field is
-  excluded. Values are NOT compared: a subrecord kept with a changed payload passes. The only allowance is `Renames`, a
-  lost signature paired with a gained one in the same record; it holds `BODT`→`BOD2` alone, the one rename a round trip
-  of every plugin in the ARR instance showed (dev/plans/INPLACE_ROUNDTRIP_MEASURE_2026-09-28.md). A localized target is
-  not walked: the service lanes refuse it before consent and `WriteInPlace` refuses it before staging, so no write the
-  check could stop lands. The header is out of scope (unused masters are dropped there on purpose). Merge and a compact
-  into a new plugin do not run it: their output is a new file whose content is the parse, which is the read half of
-  #961, not a write that destroys the original. The check reads the target through the full parse while the in-place
-  compact copies from the overlay, so on compact it approximates that write rather than repeating it. Every in-place render that ran the check carries
-  `WriteSentences.RoundTripChecked`, which claims only that: no signature lost, gains and the rename allowed, values
-  not compared.
+- Every lane that rewrites a file it read runs the round-trip check in `SubrecordInventory` before any op touches
+  it, dry run included: apply, create, remove and forward in place; apply, create, forward, copy and remove on an
+  existing patch (`into=`); and the in-place compact over its target and every referencer it would repoint, on the
+  acknowledged call and before the compacted plugin is written. Create runs it after its spec pre-flight, as apply
+  does. The unedited file is serialized through `WriteEngine.SerializeInPlace` into a capture that holds the bytes in
+  memory and refuses every other file-system call, handed the masters the lane's own write uses: the session's master
+  set on apply, create and forward and on every `into=` lane, the target's own declared masters (opened once, for the
+  check and the write) on the in-place remove, and those masters on compact, where an absent or unopenable one is left
+  to the compact's own write. A master the order lacks is retried with no load order, which only the header's master
+  list feels, so the lane's own write still meets it in its own words. The `into=` lanes stage through `WritePatch`,
+  whose chain differs only in the header masters, the FormID floor and the text encoding, none of which a subrecord's
+  signature or length feels. The file's bytes and those bytes are walked the same way — per FormKey through each side's
+  own master list, a multiset of (signature, payload length), compressed records inflated, `XXXX` folded into the
+  length it carries — and any record whose written side lacks a subrecord the file holds, or keeps it at another
+  length, refuses the whole call in one sentence naming the record and the subrecords, with nothing written. A record
+  the op drops whole is not counted: a removed record and everything nested under it, a forwarded record, and a record
+  create's upsert replaces. An unedited round trip isolates what the writer cannot keep from what the ops remove, so no
+  edited field is excluded. Payload bytes are NOT compared: a subrecord kept at its length with a changed value passes.
+  Two allowances, both data: `Renames`, a lost signature paired with a gained one in the same record, holds
+  `BODT`→`BOD2` alone; `InformationFree` holds the measured losses that carry no information and nothing beyond them
+  (Aaron, 2026-09-29): an LTEX `INAM` below form version 43, any subrecord of a REFR flagged deleted, and a REFR `XRMR`
+  of all zero bytes (dev/plans/INPLACE_ROUNDTRIP_MEASURE_2026-09-28.md). When the check cannot run — the file does not
+  parse, cannot be read, or the walk faults — the call is refused in the check's own sentence, never passed; a master
+  that fails to open gets its own sentence, and a serialize fault is reported as one the write would meet the same way.
+  A localized target is not walked: the service lanes refuse it before consent and `WriteInPlace` and `WritePatch`
+  refuse it before staging, so no write the check could stop lands. The header is out of scope (unused masters are
+  dropped there on purpose). Merge, a compact into a new plugin and a fresh patch do not run it: their output is a new
+  file whose content is the parse, which is the read half of #961, not a write that destroys the original. The check
+  reads the target through the full parse while the in-place compact copies from the overlay, so on compact it
+  approximates that write rather than repeating it. Every in-place render that ran the check carries
+  `WriteSentences.RoundTripChecked`, which claims only that: every subrecord kept at its length, gains, the rename and
+  the three measured losses allowed, values not compared; the `into=` renders claim nothing about it.
 - A read-back proves what is in the file, never what wins in the ORDER.
 - A walk's source universe is the caller's pole list in order, resolved first-hit-wins, with no separate single-pole
   path: a length-1 list is the same loop running once.
@@ -372,11 +383,16 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   four readings.
 - `OpaqueBytesVerifyTests.TheVerifySentenceNamesTheOpaqueFieldItReReadAsBytesOnly` — the opaque-leaf caveat.
 - `InPlaceRoundTripTests` — the #961 subrecord order refuses the in-place apply and its dry run, create, remove and
-  forward, each naming `MOD2, MO2T, MOD4, MO4T` with the file byte-identical; the standard order writes, keeps the male
-  models and renders `RoundTripChecked`; a `BODT` record writes (the rename); a target linking an inactive plugin still
-  gets the lane's "NOT active" sentence; and `TheParserStillReadsTheReproductionWithoutTheMaleModels` pins Mutagen
-  0.54.4's read of that order. `CompactRoundTripTests` — an in-place compact of such a target, and a repoint of such a
-  referencer, refused with every file byte-identical.
+  forward, and apply, create, forward and remove on `into=`, each naming `MOD2, MO2T, MOD4, MO4T` with the file
+  byte-identical; removing or forwarding over that record itself writes; create's spec error comes before the check;
+  the standard order writes, keeps the male models and renders `RoundTripChecked`; a `BODT` record writes (the rename);
+  each of the three allowed losses writes, and a loss outside their conditions still refuses; a subrecord grown past
+  its length refuses; a file the check cannot read or parse is refused in the check's own words; a target linking an
+  inactive plugin still gets the lane's "NOT active" sentence; and
+  `TheParserStillReadsTheReproductionWithoutTheMaleModels` pins Mutagen 0.54.4's read of that order.
+  `CompactRoundTripTests` — an in-place compact of such a target, and a repoint of such a referencer, refused with
+  every file byte-identical; the unacknowledged compact asks for consent without the check; a copy `into=` such a
+  patch refused.
 - `WriteSurfaceTwinParityTests` — every `WriteSentences` const decides and still states its declared phrases, every `Twins`
   member is rendered by both lanes, and every outer `[MustState]` sentence reaches a render.
 - `formid-floor-guard` — the 0x800 floor before an allocation and the in-memory counter persisted verbatim by the
