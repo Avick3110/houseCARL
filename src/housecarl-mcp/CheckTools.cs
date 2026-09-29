@@ -48,7 +48,7 @@ public static class CheckTools
              "houseCARL just wrote. On the SCRIPTS family the .pex chain is still read from the ACTIVE order, so a " +
              "script shipped only inside the not-yet-enabled mod reads UNVERIFIABLE rather than clean. Omit to " +
              "sweep the WHOLE active order — thorough but heavier; scope to one plugin for a fast, focused check " +
-             "like the CK's per-plugin 'Check For Errors'. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line; a filename that itself starts with '@' is written '@@' inline.")]
+             "like the CK's per-plugin 'Check For Errors'. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line, each line read as written; a filename that itself starts with '@' is written '@@' inline.")]
             string[]? plugins = null,
         [Description("Optional. Record types to sweep — signatures ('WEAP') or catalog names ('Weapon'); one type is a set of one, and the sweep is the sweep over their UNION with the findings merged. Applied at the record STREAM, so it is the CHEAPEST scope: skipped records cost nothing (no link walk, no .pex chain read), and a two-type sweep costs the two type groups, not the order. An unknown type is refused by name, naming what is expected.")]
             string[]? types = null,
@@ -70,7 +70,7 @@ public static class CheckTools
              "exclusion that removes the whole scope is refused too rather than sweeping nothing in silence. " +
              "A group member that is not in this order " +
              "is the ordinary case and is simply dropped. This does not change what " +
-             "counts as the vanilla BASELINE the errors family splits out (see limit=) — that is always Mutagen's own base-master set. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line; a filename that itself starts with '@' is written '@@' inline.")]
+             "counts as the vanilla BASELINE the errors family splits out (see limit=) — that is always Mutagen's own base-master set. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line, each line read as written; a filename that itself starts with '@' is written '@@' inline.")]
             string[]? exclude = null,
         [Description("Optional. Which finding FAMILIES and CLASSES to look for, in one vocabulary. Families: " +
              "'errors', 'scripts', 'dialogue', 'facegen'. Classes inside them: 'dangling', 'missing_masters' (errors); " +
