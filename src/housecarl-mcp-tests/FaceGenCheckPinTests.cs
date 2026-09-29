@@ -29,11 +29,7 @@ public sealed class FaceGenCheckPinTests : IDisposable
         File.WriteAllText(Path.Combine(other, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
     }
 
-    public void Dispose()
-    {
-        _w.Svc.Dispose();
-        _w.Dispose();
-    }
+    public void Dispose() => _w.Dispose();
 
     void SelectOtherProfile()
         => File.WriteAllText(_ini, File.ReadAllText(_ini).Replace("selected_profile=@ByteArray(Default)",
