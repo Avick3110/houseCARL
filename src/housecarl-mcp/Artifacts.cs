@@ -443,14 +443,14 @@ internal static class Artifacts
 
     /// <summary>Expand a list-valued tool input under the <c>@file</c> convention: one <c>"@&lt;absolute path&gt;"</c> element stands in place of the whole list, never splicing, and an artifact also yields the epoch demand the consuming call must check.
     /// <para><paramref name="identity"/> is the column this parameter's list is made of — "formid" on the record lanes' FormID lists, "path" on the asset lane, "plugin" on a plugin-filename list. Only a "formid" list splits on commas; every other identity is a list of names in which a comma is legal, so it splits on line breaks. Re-entry contract in docs/architecture/output-and-artifacts.md.</para>
-    /// <para><paramref name="spelling"/> is how a caller writes the parameter, <c>{0}</c> standing for the list, when that is not <c>name=[…]</c>; the refusals name it so their remedy is a spelling the tool accepts.</para></summary>
+    /// <para><paramref name="spelling"/> is how a caller writes the parameter, <c>{0}</c> standing for the list, when that is not <c>name=[…]</c>; a refusal's remedy names it so it is a spelling the tool accepts.</para></summary>
     public static (string[]? Tokens, ArtifactDemand? Demand, string? EchoSource, string? Error) ExpandListInput(
         string[] items, string paramName, string identity = "formid", string? spelling = null)
     {
         // The null/length guards keep a whitespace-only element on the per-item "not a FormID" path.
         int atCount = items.Count(i => i is not null && i.TrimStart() is { Length: > 0 } t && t[0] == '@');
         if (atCount == 0) return (items, null, null, null);
-        var label = spelling is null ? paramName + "=" : string.Format(spelling, "…");
+        var label = paramName + "=";
         var alone = spelling is null ? $"{paramName}=[\"@<path>\"]" : string.Format(spelling, "\"@<path>\"");
         if (items.Length > 1)
             return (null, null, null, $"error: {label} mixes an '@file' entry with inline entries — '@<path>' stands IN PLACE OF the whole list. " +
@@ -458,7 +458,8 @@ internal static class Artifacts
         var path = items[0].TrimStart().Substring(1).Trim().Trim('"', '\'');
         if (path.Length == 0)
             return (null, null, null, $"error: {label} '@' names a list file but no path follows it — pass {alone}.");
-        if (PathArguments.NotAbsolute(path, $"{label} list file", "the file the list is in", "C:\\work\\list.jsonl") is { } notAbsolute)
+        if (PathArguments.NotAbsolute(path, $"{label} list file", "the file the list is in",
+                identity.Equals("formid", StringComparison.OrdinalIgnoreCase) ? "C:\\work\\list.jsonl" : "C:\\work\\list.txt") is { } notAbsolute)
             return (null, null, null, "error: " + notAbsolute);
         string content;
         try { content = File.ReadAllText(path); }
