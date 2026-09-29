@@ -191,20 +191,19 @@ worse.
   a count past its block's stored size and a block that reads past it (both keyed, count wording), an unknown block and
   a header count larger than the file (damaged-file wording), and the write refusal ending "Nothing was written."
 - *Coverage comes from the library, never a hand list*: `NifShaderDecodeTests` and `NifInspectRenderTests` pin both
-  branches of `ReallyReads`, `NifSetGuardProbe` (`nif-set-guard`) pins all three `ReallyWrites` states including the
+  branches of `ReallyReads`, `NifSetShaderValueTests` pins all three `ReallyWrites` states including the
   unmarshalable one via a stand-in type, and the flag decode's gap and combo-peel behaviour is pinned rather than
   assumed (`NifShaderDecodeTests.AnUnnamedBitIsAResidualMaskAndAComboPeelsBeforeItsParts`).
 - *The Skyrim-layout gate*: `NifShaderDecodeTests` and `NifInspectRenderTests` — the FO4-layout Glossiness default
   `ReallyReads` cannot see, and a texture slot nothing determines stays unnamed rather than getting a plausible label
   (`NifShaderDecodeTests.AnUndeterminedSlotStaysUnnamed`).
-- *The two write gates*: both gates are fed a collateral change and a no-op write directly, which `NifSetGuardProbe`
-  does — gate 1 refuses the collateral change and gate 2 the no-op; its refusal arms — a target not found or
-  ambiguous, an op that cannot apply, and a non-SE stream (that arm prints SKIP rather than failing when its fixture
-  cannot be built on the NiflySharp in use).
+- *The two write gates*: both gates are fed a collateral change and a no-op write directly, which
+  `NifSetVerifyGateTests` does — gate 1 refuses the collateral change and gate 2 the no-op; `NifSetRefusalTests` —
+  a target not found or ambiguous, an op that cannot apply, and a non-SE stream.
 - *The two write gates*: `NifSetBlockOrderTests.SetPathWritesOnAMeshWhoseStoredBlockOrderIsNotTheSaveOrder` — block
   ids are resolved after the save's re-sort; `TheFixtureMeshStoresItsTextureSetAtADifferentIdThanASaveGivesIt` in the
   same class — the fixture really is out of save order.
-- *Refusals, and what a green verify proves*: `NifSetGuardProbe`'s `set_path` header-string arm — a shape's NAME is
+- *Refusals, and what a green verify proves*: `NifSetHeaderStringTests.AShapeNameIsSentToRenameShape` — a shape's NAME is
   refused and sent to `rename_shape`. No arm sends `set_path` onto a node's name, so that half is not pinned.
 
 ## Where
