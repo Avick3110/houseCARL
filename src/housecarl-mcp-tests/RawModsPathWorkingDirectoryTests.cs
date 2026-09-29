@@ -4,9 +4,9 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>The one raw-mods-path test that sets the process working directory, apart from the others so only it
-/// runs serial (ruling N6, SEAMS_903 scoping page).</summary>
+/// runs serial: the working directory is one per process, so no other test may run while it is changed.</summary>
 [Trait("tier", "integration")]
-[Collection(SerialCollection.Name)]   // sets the process working directory, ruling N6
+[Collection(SerialCollection.Name)]   // sets the process working directory
 public sealed class RawModsPathWorkingDirectoryTests : IClassFixture<AssetSelectWorld>
 {
     readonly AssetSelectWorld _w;
