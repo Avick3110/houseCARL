@@ -999,7 +999,8 @@ public static class WritePatchBuilder
 
     /// <summary>Resolve the target's OWN declared masters to overlays in declared order; one absent from the order is a loud refusal.</summary>
     static ISkyrimModGetter[] ResolveOwnMasters(
-        LoadOrderResolver.IndexView view, SkyrimMod targetMod, List<IDisposable> overlays, out string? missing)
+        LoadOrderResolver.IndexView view, SkyrimMod targetMod, List<IDisposable> overlays, out string? missing,
+        bool skipAbsent = false)
     {
         missing = null;
         var resolved = new List<ISkyrimModGetter>();
@@ -1007,6 +1008,8 @@ public static class WritePatchBuilder
         {
             var mfn = mr.Master.FileName.String;
             var mpath = view.PluginPath(mfn);
+            // The compact's check leaves an absent or unopenable master to the write, which refuses it in its own words.
+            if (skipAbsent && (mpath is null || view.IsUnopenable(mfn))) continue;
             if (mpath is null)
             {
                 missing = $"cannot re-serialize '{targetMod.ModKey.FileName}' in place: its declared master '{mfn}' is not active " +
@@ -2092,7 +2095,7 @@ public static class WritePatchBuilder
         var overlays = new List<IDisposable>();
         try
         {
-            var own = ResolveOwnMasters(view, parsed, overlays, out var missing);
+            var own = ResolveOwnMasters(view, parsed, overlays, out var missing, skipAbsent: true);
             if (missing is not null) return missing;
             return RoundTripRefusal(parsed, path, () => own, ex => CheckSerializeLead(path) + WriteEngine.Describe(ex), remedy);
         }
