@@ -18,18 +18,17 @@ Nothing under `src/housecarl-mcp`, `src/housecarl-core` or `src/housecarl-genera
 
 `WritePex` / `Decl` / `AutoObj` / `AutoScalar` were lifted from `src/housecarl-generator/ScriptPropertyCheckProbe.cs`
 (modulo accessibility and namespace) while that file still existed; #486 PR 2 deleted it, and the
-generator's surviving copy now lives in `CheckMergeProbe.cs`, its one remaining caller there. They write a byte-valid single-object Skyrim `.pex` carrying a chosen
+generator's last copy went with `CheckMergeProbe.cs` when the `check-guard` probe moved to this project's
+`CheckMergeFixture`, which uses this writer. They write a byte-valid single-object Skyrim `.pex` carrying a chosen
 table of Auto properties: the property record plus its `::Name_var` backing variable, Flags =
 `Read|Write|AutoVar`, no handler functions, a non-null DocString, an empty auto-state and the empty `''`
 state.
 
 It is a **port rather than a project reference** because #486 PR 2 deleted the probe file that held the
-generator's copy. Two copies still exist — this one and `CheckMergeProbe.cs`'s, which PR 2 re-derived
-there rather than moving to a third shared file, because `CheckMergeProbe` is the sole remaining
-`housecarl-generator` caller and it dies with its own conversion. This one is the survivor of the two, and
-the only one that models a baked initializer at all: at Aaron's PR #496 gate the generator's `AutoScalar`
-lost its `int? initInt` parameter, since neither of its two call sites passed a value — removing the
-divergent shape rather than describing it. The
+generator's copy. It is now the only copy: the generator's re-derived one lived in `CheckMergeProbe.cs`, its
+sole remaining caller, and was deleted with that probe. This one is also the only one that ever modelled a
+baked initializer: at Aaron's PR #496 gate the generator's `AutoScalar` lost its `int? initInt` parameter,
+since neither of its two call sites passed a value. The
 probe's copy carried a stale `Mutagen 0.53.1` comment that was deliberately not carried over — the csproj
 pins 0.54.4.
 
