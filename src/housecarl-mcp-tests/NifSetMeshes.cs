@@ -137,20 +137,16 @@ static class NifSetMeshes
         return Save(f);
     }
 
-    /// <summary>A stream-83 (Oldrim) mesh, or null when this NiflySharp build will not author one that reads back non-SE.</summary>
-    public static byte[]? TryNonSe()
+    /// <summary>A stream-83 (Oldrim) mesh; authoring failures surface as the exception or a failed assert with the reason.</summary>
+    public static byte[] NonSe()
     {
-        try
-        {
-            var f = new NifFile();
-            f.Create(new NiVersion { FileVersion = NiVersion.ToFile("20.2.0.7"), UserVersion = 12, StreamVersion = 83 }, withRootNode: true);
-            var root = f.GetRootNodes().First(); root.Name = new NiStringRef("GuardShape"); root.Flags_ui = 0xE;
-            using var ms = new MemoryStream();
-            if (f.Save(ms) != 0) return null;
-            var bytes = ms.ToArray();
-            return NifService.Inspect(bytes).Inspect is { IsSkyrimSE: false } ? bytes : null;
-        }
-        catch { return null; }
+        var f = new NifFile();
+        f.Create(new NiVersion { FileVersion = NiVersion.ToFile("20.2.0.7"), UserVersion = 12, StreamVersion = 83 }, withRootNode: true);
+        var root = f.GetRootNodes().First(); root.Name = new NiStringRef("GuardShape"); root.Flags_ui = 0xE;
+        var bytes = Save(f);
+        var back = NifService.Inspect(bytes);
+        Assert.True(back.Inspect is { IsSkyrimSE: false }, $"the stream-83 fixture did not read back as non-SE: {back.Error ?? "it read as SE"}");
+        return bytes;
     }
 
     /// <summary>The Guard mesh with GuardShape's flags AND GuardChildA's flags changed, plus both block ids.</summary>

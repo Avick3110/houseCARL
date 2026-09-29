@@ -198,8 +198,8 @@ worse.
   `ReallyReads` cannot see, and a texture slot nothing determines stays unnamed rather than getting a plausible label
   (`NifShaderDecodeTests.AnUndeterminedSlotStaysUnnamed`).
 - *The two write gates*: both gates are fed a collateral change and a no-op write directly, which
-  `NifSetVerifyGateTests` does — gate 1 refuses the collateral change and gate 2 the no-op; `NifSetRefusalTests` —
-  a target not found or ambiguous, an op that cannot apply, and a non-SE stream.
+  `NifSetVerifyGateTests` does — gate 1 refuses the collateral change and gate 2 the no-op; `NifSetRefusalTests` pins
+  the refusals — a target not found or ambiguous, an op that cannot apply, and a non-SE stream.
 - *The two write gates*: `NifSetBlockOrderTests.SetPathWritesOnAMeshWhoseStoredBlockOrderIsNotTheSaveOrder` — block
   ids are resolved after the save's re-sort; `TheFixtureMeshStoresItsTextureSetAtADifferentIdThanASaveGivesIt` in the
   same class — the fixture really is out of save order.

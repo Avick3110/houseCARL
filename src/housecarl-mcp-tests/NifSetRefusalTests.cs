@@ -70,8 +70,6 @@ public sealed class NifSetRefusalTests
     [Fact]
     public void ANonSeStreamRefuses()
     {
-        var le = TryNonSe();
-        Assert.NotNull(le);
-        Assert.Contains("NOT a Skyrim SE", NifService.Set(le!, new[] { new NifSetOp(NifSetOpKind.SetFlags, "GuardShape", Flags: 1) }).Error);
+        Assert.Contains("NOT a Skyrim SE", NifService.Set(NonSe(), new[] { new NifSetOp(NifSetOpKind.SetFlags, "GuardShape", Flags: 1) }).Error);
     }
 }
