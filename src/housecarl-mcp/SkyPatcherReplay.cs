@@ -40,6 +40,7 @@ internal sealed partial class AssetLayers
         readonly SkyrimMod _scratch = new(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
         readonly SkyPatcherServiceResolver _formResolver;
         readonly Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>> _linesCache = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, string> _absenceMemo = new(StringComparer.OrdinalIgnoreCase);   // one profile read per absent plugin, not per row
 
         /// <summary>The asset build the layer was scanned from.</summary>
         internal AssetResolver.AssetView Assets { get; }
@@ -75,7 +76,7 @@ internal sealed partial class AssetLayers
         {
             var winner = _view.ResolveWinner(fk);
             if (winner is null)
-                return SkyPatcherReplayResult.Fail(RecordReads.UnresolvedFormId(_view, fk));
+                return SkyPatcherReplayResult.Fail(RecordReads.UnresolvedFormId(_view, fk, _absenceMemo));
 
             var body = _view.GetRecord(_session, winner.Value.WinnerPlugin, fk);
             if (body is null)
