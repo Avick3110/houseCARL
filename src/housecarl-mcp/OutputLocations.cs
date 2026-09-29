@@ -399,7 +399,7 @@ public sealed partial class LoadOrderService
 
     /// <summary>The given stem if it is free, else the first free "<c>&lt;stem&gt;_NNN</c>"; free means no mod folder of that name exists AND no active plugin is named "<c>&lt;stem&gt;.esp</c>". Auto-suffix rule and its two refusing lanes in docs/architecture/output-and-artifacts.md.
     /// <para><paramref name="writes"/> is the calling lane's own statement of the file it emits and the parameter that names it, so a shadow refusal never sends a caller to a parameter their tool lacks. Both refusals need <paramref name="stemFromCaller"/>: a shadow, and a taken stem under <paramref name="refuseTaken"/>, refuse only the name the CALLER passed, while a defaulted stem is suffixed either way.</para></summary>
-    string UniqueStem(Mo2Roots roots, IReadOnlySet<string> active, string stem, bool stemFromCaller, PatchStemShadow.Target? writes,
+    static string UniqueStem(Mo2Roots roots, IReadOnlySet<string> active, string stem, bool stemFromCaller, PatchStemShadow.Target? writes,
                       StemRefusal? refuseTaken = null)
     {
         // The shadow sweep needs to know what the order loads, so without that it does not run and folder plus
@@ -434,7 +434,7 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The profile composition the shadow sweep walks, or null when the profile cannot tell a shadow from a loaded plugin. The test is whether the composition is USABLE, not whether the read threw: a missing modlist.txt returns empty mod lists, under which every folder reads as unlisted and a genuinely loaded plugin would be refused. A PARTIAL modlist.txt is not detectable here and is not claimed to be.</summary>
-    Mo2Composition? ReadCompositionForShadow(Mo2Roots roots)
+    static Mo2Composition? ReadCompositionForShadow(Mo2Roots roots)
     {
         try
         {
@@ -446,7 +446,7 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>Null when a stem is free to claim, else the sentence naming WHICH of the two tests is in the way, so a refusing lane can say it.</summary>
-    string? StemCollision(Mo2Roots roots, string stem, IReadOnlySet<string> activePlugins)
+    static string? StemCollision(Mo2Roots roots, string stem, IReadOnlySet<string> activePlugins)
         => Directory.Exists(Path.Combine(roots.ModsDir, ModFolderName(stem)))
             ? $"a mod folder '{ModFolderName(stem)}' already exists"
             : activePlugins.Contains(stem + ".esp")
