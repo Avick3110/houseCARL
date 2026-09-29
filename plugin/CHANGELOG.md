@@ -38,6 +38,8 @@ made the change.
   order is refused.
 - **`housecarl_records` delta and tree now time their reads as they go and refuse only once the call would pass ten
   minutes, naming the measured rate.** A whole-record delta over 1,276 ids runs.
+- **A plugin ticked in `plugins.txt` whose only copy sits in a mod folder switched off in MO2 is no longer
+  reported active; `housecarl_load_order_status` names the folder holding it.** Filter status on that plugin.
 
 ## 2.0.3 — 2026-09-23
 

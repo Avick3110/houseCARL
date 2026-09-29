@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-30
 covers: [src/housecarl-core/Mo2Instance.cs, src/housecarl-core/Mo2LoadOrder.cs, src/housecarl-core/QtIniEscapes.cs, src/housecarl-core/Mo2ModMeta.cs, src/housecarl-core/UserConfig.cs, src/housecarl-mcp/SetupTools.cs, src/housecarl-mcp/StatusTools.cs, src/housecarl-mcp/UpdateStatusTools.cs]
 ---
 # The MO2 instance
@@ -58,6 +58,14 @@ it until a tool writes there.
   skipped from both lists.
 - `plugins.txt` — the `*` active flag. Listed without a `*` = present but unchecked, and dropped
   from the order. Absent from the file entirely = an implicit force-loaded base/CC master.
+
+A tick is half of active. A plugin the profile lists as loading (ticked, or an implicit master) that no
+enabled layer serves is NOT active, whatever `plugins.txt` says: MO2's VFS does not present the file.
+`Build` decides this once, returning each such plugin in `Unserved` with the switched-off mod folder holding a
+copy when there is one. Status takes the answer from there; the record, check and locate lanes read the
+order `Build` resolved. Two readers still take the tick alone: the setup summary's active count, which reads
+the profile text files only, and the SKSE peek's plugin set. A copy in a switched-off folder is named with the
+same sentence the locate lane uses (`ProvidedBySwitchedOffMod`), never as a stale profile.
 
 MO2 holds `loadorder.txt` and `plugins.txt` open while it re-sorts, so a read landing in that
 window is a transient, not a failure: only the Win32 sharing and lock violations become
@@ -122,6 +130,9 @@ swallows the note turns a recoverable state into a silent loss.
   half-derived.
 - *The profile files*: `ProfileRewriteTests.AColdAssetCallOnAHeldProfileNamesTheHoldInsteadOfAnInternalFailure` — a
   held profile file is a named transient, not an internal failure.
+- *The profile files*: `TickedPluginSwitchedOffModTests` — a ticked plugin whose only copy sits in a switched-off
+  mod folder is not counted or reported active by status, a winner read into it names the folder and the
+  `{"file", "mod"}` spelling, and both `source=` spellings read the folder copy.
 - *The Qt/QSettings value grammar*: `Mo2IniEscapeTests` — the quoted wrapper, the greedy hex runs, the named escapes,
   and a value with a lone backslash left as it stands (`HandWrittenPathsAreLeftAlone`).
 - *The Qt/QSettings value grammar*: `Mo2ModMetaReadTests` — the `[General]` Nexus cache fields read
