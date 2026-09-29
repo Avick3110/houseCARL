@@ -3,11 +3,16 @@ namespace HousecarlCore;
 // The active load order, read from an MO2 portable instance's profile files on disk, never from the USVFS; the priority model and the three profile files are in docs/architecture/mo2-instance.md.
 
 /// <summary>The resolved active order plus any non-fatal problems — surfaced, not swallowed; <see cref="OrderedPaths"/> is in resolver winner order, highest priority last.</summary>
+/// <param name="Unserved">The plugins the profile lists as loading that no enabled layer serves, so the game does not load them whatever plugins.txt says.</param>
 public sealed record Mo2OrderResult(
-    IReadOnlyList<string> OrderedPaths, IReadOnlyList<string> Warnings, int ActiveCount)
+    IReadOnlyList<string> OrderedPaths, IReadOnlyList<string> Warnings, int ActiveCount,
+    IReadOnlyList<UnservedPlugin> Unserved)
 {
     public int ResolvedCount => OrderedPaths.Count;
 }
+
+/// <summary>A plugin the profile lists as loading (ticked, or an implicit master) that no enabled layer serves; <paramref name="SwitchedOffMod"/> is the switched-off mod folder holding a copy, null when none does.</summary>
+public sealed record UnservedPlugin(string Name, string? SwitchedOffMod);
 
 /// <summary>The MO2 profile's enabled/disabled composition, parsed from the three profile text files only, so it is cheap to re-read on demand; names are verbatim from the files.</summary>
 public sealed record Mo2Composition(
@@ -60,21 +65,26 @@ public static class Mo2LoadOrder
 
         // loadorder.txt order → drop unchecked plugins; resolve the rest to their winning path (winner last).
         var orderedPaths = new List<string>(comp.OrderedPluginNames.Count);
-        int active = 0;
+        var unserved = new List<UnservedPlugin>();
         foreach (var name in comp.OrderedPluginNames)
         {
             if (inactive.Contains(name)) continue;                  // present-but-unchecked in MO2 → not loaded
-            active++;
-            if (winningPath.TryGetValue(name, out var path))
-                orderedPaths.Add(path);
-            else
-                warnings.Add(
-                    $"load order lists '{name}' but {searchedPlaces} provides it (stale loadorder.txt? " +
-                    "trigger an MO2 refresh / re-sort so it re-writes the profile files).");
+            if (winningPath.TryGetValue(name, out var path)) { orderedPaths.Add(path); continue; }
+            // Listed as loading but served by no enabled layer: MO2's VFS does not present the file, so it is not active.
+            var offMod = comp.DisabledMods.FirstOrDefault(m => File.Exists(Path.Combine(modsDir, m, name)));
+            unserved.Add(new UnservedPlugin(name, offMod));
+            warnings.Add(offMod is not null
+                ? $"load order lists '{name}', but {ProvidedBySwitchedOffMod(offMod)}."
+                : $"load order lists '{name}' but {searchedPlaces} provides it (stale loadorder.txt? " +
+                  "trigger an MO2 refresh / re-sort so it re-writes the profile files).");
         }
 
-        return new Mo2OrderResult(orderedPaths, warnings, active);
+        return new Mo2OrderResult(orderedPaths, warnings, orderedPaths.Count, unserved);
     }
+
+    /// <summary>The one sentence for a plugin whose copy sits in a mod folder MO2 has switched off.</summary>
+    public static string ProvidedBySwitchedOffMod(string modFolder) =>
+        $"it is provided by mod '{modFolder}', which is switched OFF in MO2 — switch it on, then re-sort";
 
     /// <summary>Parse the profile's enabled/disabled composition from the three profile text files; the diagnostic re-reads this fresh each call, and <see cref="Build"/> adds the physical-path resolution on top.</summary>
     public static Mo2Composition ReadComposition(string profileDir, List<string>? warnings = null)

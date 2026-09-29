@@ -776,7 +776,7 @@ public sealed partial class LoadOrderService
                     case ServedStanding.ModDisabled:
                         parts.Add(WhereNamesLayer
                             ? "that mod folder is switched OFF in MO2 — switch it on, then re-sort"
-                            : $"it is provided by mod '{CauseDetail}', which is switched OFF in MO2 — switch it on, then re-sort");
+                            : Mo2LoadOrder.ProvidedBySwitchedOffMod(CauseDetail!));
                         break;
                     case ServedStanding.ModUnregisteredLayer:
                         parts.Add(WhereNamesLayer

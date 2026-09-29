@@ -59,8 +59,10 @@ static class StatusWire
                                 string? filter, HousecarlCore.LocalizedFlagRead? localized, int cap)
     {
         var c = d.Composition;
-        int checkedActive = c.ActivePluginNames.Count;
-        int impl = c.ImplicitPluginNames.Count;
+        // A name listed as loading that no enabled layer serves is not active, so neither count carries it.
+        var unserved = new HashSet<string>((d.Unserved ?? []).Select(u => u.Name), StringComparer.OrdinalIgnoreCase);
+        int checkedActive = c.ActivePluginNames.Count(n => !unserved.Contains(n));
+        int impl = c.ImplicitPluginNames.Count(n => !unserved.Contains(n));
         int inactive = c.InactivePluginNames.Count;
         int gameLoaded = checkedActive + impl;
 
@@ -73,6 +75,8 @@ static class StatusWire
         sb.Append("plugins in load order: ").Append(c.OrderedPluginNames.Count).Append('\n');
         sb.Append("  active:   ").Append(gameLoaded).Append("  (").Append(checkedActive).Append(" checked + ").Append(impl).Append(" implicit masters/CC)\n");
         sb.Append("  inactive: ").Append(inactive).Append("  (present but unchecked — houseCARL excludes these)\n");
+        if (unserved.Count > 0)
+            sb.Append("  not served: ").Append(unserved.Count).Append("  (listed as loading, but no enabled layer provides the file — see warnings)\n");
         sb.Append("resolver: ").Append(d.ResolvedPluginCount).Append(" plugins resolved to real files");
         if (d.MaxPlugins > 0) sb.Append(" [capped at MaxPlugins=").Append(d.MaxPlugins).Append(']');
         if (d.Epoch is not null) sb.Append("  epoch=").Append(d.Epoch);   // the current build's fingerprint — bulk responses stamp the build they read, matched against this
@@ -89,7 +93,7 @@ static class StatusWire
 
         if (filter is { Length: > 0 })
         {
-            AppendLookup(sb, c, d.ExcludedPlugins, filter.Trim(), localized);
+            AppendLookup(sb, c, d.ExcludedPlugins, d.Unserved ?? [], filter.Trim(), localized);
             return sb.ToString().TrimEnd('\n');
         }
 
@@ -223,7 +227,8 @@ static class StatusWire
     }
 
     static void AppendLookup(StringBuilder sb, HousecarlCore.Mo2Composition c,
-                             IReadOnlyDictionary<string, string> excluded, string name,
+                             IReadOnlyDictionary<string, string> excluded,
+                             IReadOnlyList<HousecarlCore.UnservedPlugin> unserved, string name,
                              HousecarlCore.LocalizedFlagRead? localized = null)
     {
         sb.Append("\nfilter '").Append(name).Append("':\n");
@@ -241,7 +246,15 @@ static class StatusWire
 
         bool pluginMiss = !c.ActivePluginNames.Contains(name) && !Contains(c.ImplicitPluginNames, name)
                           && !Contains(c.InactivePluginNames, name);
+        // Ticked or implicit is half of active; the other half is an enabled layer serving the file.
+        var notServed = unserved.FirstOrDefault(u => u.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        bool listedLoading = c.ActivePluginNames.Contains(name) || Contains(c.ImplicitPluginNames, name);
         string asPlugin =
+            notServed is not null && listedLoading
+                ? "NOT ACTIVE — " + (c.ActivePluginNames.Contains(name) ? "ticked in plugins.txt" : "an implicit master/CC") + ", but " +
+                  (notServed.SwitchedOffMod is { } off
+                      ? HousecarlCore.Mo2LoadOrder.ProvidedBySwitchedOffMod(off)
+                      : "no enabled mod, the overwrite folder, or the game Data folder provides it") :
             c.ActivePluginNames.Contains(name)   ? "ACTIVE (checked in plugins.txt — houseCARL reads/writes it)" :
             Contains(c.ImplicitPluginNames, name) ? "ACTIVE (implicit master/CC, force-loaded — houseCARL reads/writes it)" :
             Contains(c.InactivePluginNames, name) ? "INACTIVE (present but unchecked — houseCARL EXCLUDES it)" :

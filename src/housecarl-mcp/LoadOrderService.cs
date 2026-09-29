@@ -30,6 +30,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     readonly Lazy<CorpusRulebook> _rulebook = new(() => CorpusRulebook.Load(), LazyThreadSafetyMode.PublicationOnly);   // one instance; a failed load is not kept
     readonly Lazy<TypeLookup> _typeLookup = new(() => new TypeLookup());   // one per service; construction reads nothing
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
+    IReadOnlyList<UnservedPlugin> _orderUnserved = Array.Empty<UnservedPlugin>();   // listed as loading, served by no enabled layer, as of the last order build
     // The VFS-aware asset resolver, built lazily on an asset query and dropped when the active profile changes.
     AssetResolver? _assetResolver;
     IReadOnlyList<string> _assetWarnings = Array.Empty<string>();   // discovery warnings from the asset build (e.g. a Skyrim.ini we couldn't find → base BSAs unscanned)
@@ -153,6 +154,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     var profileStamps = StatProfileFiles(_profileDir);   // stat BEFORE the read: a profile write during the build is caught next call, not missed
                     var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
                     _orderWarnings = order.Warnings;
+                    _orderUnserved = order.Unserved;
                     var paths = order.OrderedPaths;
                     if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
                     if (paths.Count == 0)
@@ -463,11 +465,19 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         catch { hits = Array.Empty<PluginFileHit>(); }
 
         if (ticked)
+        {
             // Ticked and provided by an enabled layer yet not indexed — nothing honest left to say, so say nothing.
-            return hits.Any(h => h.Enabled)
-                ? null
-                : $"'{fn}' is ticked in plugins.txt, but no enabled mod, the overwrite folder, or the game Data folder " +
-                  "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
+            if (hits.Any(h => h.Enabled)) return null;
+            // Ticked, and the only copies sit in a mod folder MO2 has switched off: the VFS does not serve it.
+            var off = comp.DisabledMods.FirstOrDefault(m => hits.Any(h =>
+                string.Equals(Path.GetFileName(Path.GetDirectoryName(h.Path)), m, StringComparison.OrdinalIgnoreCase)));
+            if (off is not null)
+                return $"'{fn}' is ticked in plugins.txt, but {Mo2LoadOrder.ProvidedBySwitchedOffMod(off)}, so it is not active — " +
+                       $"or read the file as-is with {ToolNames.Records} source={{\"file\": \"{fn}\", \"mod\": \"{off}\"}} types=[…] " +
+                       "(source= names the version to read; the read still needs a selection).";
+            return $"'{fn}' is ticked in plugins.txt, but no enabled mod, the overwrite folder, or the game Data folder " +
+                   "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
+        }
 
         if (hits.Length == 0) return null;           // nothing on disk by that name → a typo; let the suggester answer
 
@@ -629,11 +639,12 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public LoadOrderStatusData StatusData()
     {
         // The view and the per-build fields beside it are snapshotted under ONE gate hold, so no status line mixes two builds.
-        LoadOrderResolver.IndexView view; IReadOnlyList<string> warnings; bool profileChanged; string profileDir; string profileName; string? instanceDir;
+        LoadOrderResolver.IndexView view; IReadOnlyList<string> warnings; IReadOnlyList<UnservedPlugin> unserved; bool profileChanged; string profileDir; string profileName; string? instanceDir;
         lock (_gate)
         {
             view = Resolver.Capture();                             // force build/refresh; one build for count + exclusions
             warnings = _orderWarnings;
+            unserved = _orderUnserved;
             profileChanged = ProfileFilesChanged();
             profileDir = _profileDir;
             profileName = _profileName;                            // captured under the same gate — one snapshot, never re-derived at render
@@ -642,7 +653,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var comp = Mo2LoadOrder.ReadComposition(profileDir);       // fresh composition (always current)
         return new LoadOrderStatusData(
             comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, profileName, instanceDir, view.ExcludedPlugins,
-            view.Epoch, view.ContainedRecordCount);
+            view.Epoch, view.ContainedRecordCount, unserved);
     }
 
     /// <summary>Whole-order stats (forces the lazy build). A test seam: the probes warm the lazy index through it. No shipped caller.</summary>
@@ -846,6 +857,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             }
             _resolvedPaths = paths;
             _orderWarnings = order.Warnings;
+            _orderUnserved = order.Unserved;
             _profileStamps = profileStamps;
             return true;
         }
@@ -854,6 +866,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             // The profile was touched but the resolved order is identical, so no deep re-index; the asset resolver still drops and the baseline advances.
             InvalidateAssetResolver();
             _orderWarnings = order.Warnings;
+            _orderUnserved = order.Unserved;
             _profileStamps = profileStamps;
             return true;
         }
@@ -991,6 +1004,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             _resolvedPaths = Array.Empty<string>();
             _profileStamps = new FileStamp[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
             _orderWarnings = Array.Empty<string>();
+            _orderUnserved = Array.Empty<UnservedPlugin>();
             InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too
             System.Threading.Interlocked.Increment(ref _gameRootsGen);   // a new instance may be a different game install — the runtime memo must re-probe rather than adjudicate against the old exe
         }
