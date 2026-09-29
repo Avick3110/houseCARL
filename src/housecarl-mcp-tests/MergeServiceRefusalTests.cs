@@ -3,7 +3,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The merge refusals, each loud with nothing written (the former merge-service-guard arm REFUSE).</summary>
+/// <summary>The merge refusals, each named with its fix (the former merge-service-guard arm REFUSE).</summary>
 [Trait("tier", "integration")]
 [Collection("merge-service")]
 public sealed class MergeServiceRefusalTests
