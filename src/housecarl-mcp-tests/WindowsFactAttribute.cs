@@ -7,6 +7,6 @@ public sealed class WindowsFactAttribute : FactAttribute
 {
     public WindowsFactAttribute()
     {
-        if (!OperatingSystem.IsWindows()) Skip = "Windows only: it needs a file lock that blocks a delete.";
+        if (!OperatingSystem.IsWindows()) Skip = "Windows only.";
     }
 }
