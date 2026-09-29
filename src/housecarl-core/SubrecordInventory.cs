@@ -120,13 +120,14 @@ public static class SubrecordInventory
             "fix those records in xEdit first, or compact without repoint_externals and handle that plugin's references yourself");
     }
 
-    /// <summary>Null when the unedited round trip loses nothing outside the records the op drops whole, else one refusal; a serialize fault throws.</summary>
-    public static string? RoundTripRefusal(SkyrimMod parsed, string path, Remedy remedy, IReadOnlySet<FormKey>? dropped = null)
+    /// <summary>Null when the unedited round trip over the target's own masters loses nothing outside the records the op drops whole, else one refusal; a serialize fault throws.</summary>
+    public static string? RoundTripRefusal(SkyrimMod parsed, string path, IReadOnlyList<ISkyrimModGetter> masters, Remedy remedy,
+                                           IReadOnlySet<FormKey>? dropped = null)
     {
         if (parsed.UsingLocalization) return null;   // WriteInPlace and WritePatch refuse a localized file before staging
         var fileName = Path.GetFileName(path);
         ReadOnlyMemorySlice<byte>? written;
-        try { written = SerializeToMemory(parsed, path); }
+        try { written = SerializeToMemory(parsed, masters, path); }
         catch (Exception ex) when (Find<CaptureUnsupportedException>(ex) is { } cu) { return CouldNotRun(fileName, cu.Message); }
         if (written is null) return CouldNotRun(fileName, "the in-memory serialize produced no bytes");
         List<RecordDiff> losses;
@@ -148,11 +149,19 @@ public static class SubrecordInventory
         $"that file would drop subrecords; '{fileName}' is UNTOUCHED — check the file in xEdit, close anything that holds " +
         "it open, and retry.";
 
-    /// <summary>The bytes the in-place serialize produces, held in memory, with no load order: only the header's master list feels one.</summary>
-    public static ReadOnlyMemorySlice<byte>? SerializeToMemory(SkyrimMod parsed, string path)
+    /// <summary>The bytes the in-place serialize produces, held in memory; a master the order lacks retries with no load order, which only the header feels.</summary>
+    public static ReadOnlyMemorySlice<byte>? SerializeToMemory(SkyrimMod parsed, IReadOnlyList<ISkyrimModGetter> masters, string path)
+    {
+        var ordered = masters as ISkyrimModGetter[] ?? masters.ToArray();
+        try { return Capture(parsed, ordered, path); }
+        catch (Exception ex) when (Find<Mutagen.Bethesda.Plugins.Exceptions.MissingModException>(ex) is not null)
+            { return Capture(parsed, null, path); }
+    }
+
+    static ReadOnlyMemorySlice<byte>? Capture(SkyrimMod parsed, ISkyrimModGetter[]? ordered, string path)
     {
         var capture = new CaptureFileSystem();
-        WriteEngine.SerializeInPlace(parsed, null, path, path, capture);
+        WriteEngine.SerializeInPlace(parsed, ordered, path, path, capture);
         return capture.Bytes;
     }
 

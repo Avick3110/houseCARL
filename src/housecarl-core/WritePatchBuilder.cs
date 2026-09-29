@@ -1570,11 +1570,27 @@ public static class WritePatchBuilder
                "in MO2 and retry — writes that do NOT reference their records are unaffected.";
     }
 
-    /// <summary>The round-trip check (#961): its refusal, or a fault the in-place write would meet too, or on into= one the check met.</summary>
+    /// <summary>The round-trip check (#961) over the target's own declared masters, opened through the session the write reuses.</summary>
     static string? RoundTripRefusal(SkyrimMod mod, string path, SubrecordInventory.Remedy remedy, bool inPlace,
-                                    LoadOrderResolver.OverlaySession? session, IEnumerable<FormKey>? dropped = null)
+                                    LoadOrderResolver.OverlaySession session, IEnumerable<FormKey>? dropped = null)
+        => RoundTripRefusal(mod, path, remedy, inPlace,
+                            () => session.MastersNamed(mod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String)),
+                            session, dropped);
+
+    /// <summary>The round-trip check (#961): its refusal, a master-open refusal, or a fault the in-place write would meet too, or on into= one the check met.</summary>
+    static string? RoundTripRefusal(SkyrimMod mod, string path, SubrecordInventory.Remedy remedy, bool inPlace,
+                                    Func<IReadOnlyList<ISkyrimModGetter>> masters, LoadOrderResolver.OverlaySession? session,
+                                    IEnumerable<FormKey>? dropped = null)
     {
-        try { return SubrecordInventory.RoundTripRefusal(mod, path, remedy, dropped?.ToHashSet()); }
+        var fileName = Path.GetFileName(path);
+        IReadOnlyList<ISkyrimModGetter> set;
+        try { set = masters(); }
+        catch (Exception ex)
+        {
+            return $"refused: a master the round-trip check on '{fileName}' reads could not be opened " +
+                   $"({WriteEngine.Describe(ex)}), so '{fileName}' is UNTOUCHED — repair or remove that plugin in MO2 and retry.";
+        }
+        try { return SubrecordInventory.RoundTripRefusal(mod, path, set, remedy, dropped?.ToHashSet()); }
         catch (Exception ex)
         {
             return inPlace ? CheckSerializeFailure(path, ex, session)
@@ -2069,18 +2085,35 @@ public static class WritePatchBuilder
         foreach (var r in referencers ?? Array.Empty<string>())
             if (view.PluginPath(r) is { } rp) files.Add((rp, SubrecordInventory.Remedy.Referencer));
         foreach (var (path, remedy) in files)
-            if (RoundTripRefusalAt(path, remedy) is { } lost) return lost;
+            if (RoundTripRefusalAt(view, path, remedy) is { } lost) return lost;
         return null;
     }
 
-    /// <summary>The round-trip check over a file this call has not opened, which the compact rewrites in place.</summary>
-    public static string? RoundTripRefusalAt(string path, SubrecordInventory.Remedy remedy)
+    /// <summary>The round-trip check over a file this call has not opened, which the compact rewrites in place, over its own declared masters.</summary>
+    public static string? RoundTripRefusalAt(LoadOrderResolver.IndexView view, string path, SubrecordInventory.Remedy remedy)
     {
         SkyrimMod parsed;
         try { parsed = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path)); }
         catch (Exception ex)
             { return SubrecordInventory.CouldNotRun(Path.GetFileName(path), $"it does not parse: {WriteEngine.Describe(ex)}"); }
-        return RoundTripRefusal(parsed, path, remedy, true, null);
+        var overlays = new List<IDisposable>();
+        try { return RoundTripRefusal(parsed, path, remedy, true, () => OpenOwnMasters(view, parsed, overlays), null); }
+        finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* best-effort; never mask the check */ } } }
+    }
+
+    /// <summary>A file's declared masters opened from the view; one absent or unopenable is left to the compact's own write.</summary>
+    static IReadOnlyList<ISkyrimModGetter> OpenOwnMasters(LoadOrderResolver.IndexView view, SkyrimMod mod, List<IDisposable> overlays)
+    {
+        var list = new List<ISkyrimModGetter>();
+        foreach (var mr in mod.ModHeader.MasterReferences)
+        {
+            var name = mr.Master.FileName.String;
+            if (view.PluginPath(name) is not { } mp || view.IsUnopenable(name)) continue;
+            var ov = SkyrimMod.CreateFromBinaryOverlay(mp, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(mp));
+            overlays.Add(ov);
+            list.Add(ov);
+        }
+        return list;
     }
 
     /// <summary>Build the compacted plugin P′ and write it to <paramref name="outPath"/>, which in place is <paramref name="srcPath"/> itself.</summary>

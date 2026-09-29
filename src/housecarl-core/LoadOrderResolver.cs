@@ -232,6 +232,11 @@ public sealed class LoadOrderResolver : IDisposable
             return list;
         }
 
+        /// <summary>The named plugins' overlays in priority order, shared with this session's later master sets; one absent or unopenable is left out.</summary>
+        public IReadOnlyList<ISkyrimModGetter> MastersNamed(IEnumerable<string> names) =>
+            names.Select(n => _r._nameToIdx.TryGetValue(n, out var i) ? i : -1)
+                 .Where(i => i >= 0 && !_r._snap.Unopenable.Contains(i)).Distinct().OrderBy(i => i).Select(Overlay).ToList();
+
         /// <summary>Is this index the could-not-be-OPENED exclusion class, which no master set can contain? Records the name, because a sorted multi-master header then refuses naming it.</summary>
         bool SkipUnopenable(int i)
         {

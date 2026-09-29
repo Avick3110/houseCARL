@@ -565,7 +565,7 @@ public sealed class InPlaceRoundTripTests
         var (path, _) = StagePlugin();
         var parsed = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE);
         File.Delete(path);
-        var refusal = SubrecordInventory.RoundTripRefusal(parsed, path, SubrecordInventory.Remedy.RecordLane);
+        var refusal = SubrecordInventory.RoundTripRefusal(parsed, path, Array.Empty<ISkyrimModGetter>(), SubrecordInventory.Remedy.RecordLane);
         Assert.NotNull(refusal);
         Assert.Contains("round-trip check could not run", refusal);
         Assert.DoesNotContain("serialize or commit", refusal);
@@ -576,7 +576,8 @@ public sealed class InPlaceRoundTripTests
     {
         var path = Path.Combine(_w.NewDir(), PluginName);
         File.WriteAllBytes(path, Encoding.ASCII.GetBytes("TES4 not a plugin"));
-        var refusal = WritePatchBuilder.RoundTripRefusalAt(path, SubrecordInventory.Remedy.CompactTarget);
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath });
+        var refusal = WritePatchBuilder.RoundTripRefusalAt(r.Capture(), path, SubrecordInventory.Remedy.CompactTarget);
         Assert.NotNull(refusal);
         Assert.Contains("round-trip check could not run", refusal);
         Assert.Contains("does not parse", refusal);
