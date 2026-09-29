@@ -168,12 +168,12 @@ public sealed class InsertAtIndexApplyTests
     public void InsertingAtZeroShiftsEveryOriginalRowRightByOne()
     {
         var fac = Conditions(1f, 2f, 3f);
-        var before = fac.Conditions.ToArray();
+        var before = fac.Conditions!.ToArray();
         Insert(fac, 0, 9f);
-        Assert.Equal(new[] { 9f, 1f, 2f, 3f }, Values(fac.Conditions));
-        Assert.Same(before[0], fac.Conditions[1]);
-        Assert.Same(before[1], fac.Conditions[2]);
-        Assert.Same(before[2], fac.Conditions[3]);
+        Assert.Equal(new[] { 9f, 1f, 2f, 3f }, Values(fac.Conditions!));
+        Assert.Same(before[0], fac.Conditions![1]);
+        Assert.Same(before[1], fac.Conditions![2]);
+        Assert.Same(before[2], fac.Conditions![3]);
     }
 
     // APPLY-MID: inserting mid-list leaves the rows BEFORE it untouched and shifts only the rows after it
@@ -181,12 +181,12 @@ public sealed class InsertAtIndexApplyTests
     public void InsertingMidListShiftsOnlyTheRowsAfterIt()
     {
         var fac = Conditions(1f, 2f, 3f);
-        var before = fac.Conditions.ToArray();
+        var before = fac.Conditions!.ToArray();
         Insert(fac, 1, 9f);
-        Assert.Equal(new[] { 1f, 9f, 2f, 3f }, Values(fac.Conditions));
-        Assert.Same(before[0], fac.Conditions[0]);
-        Assert.Same(before[1], fac.Conditions[2]);
-        Assert.Same(before[2], fac.Conditions[3]);
+        Assert.Equal(new[] { 1f, 9f, 2f, 3f }, Values(fac.Conditions!));
+        Assert.Same(before[0], fac.Conditions![0]);
+        Assert.Same(before[1], fac.Conditions![2]);
+        Assert.Same(before[2], fac.Conditions![3]);
     }
 
     // APPLY-AT-COUNT-IS-ADD: inserting AT the list's length yields the identical list an Add yields (why the bound includes count)
@@ -196,10 +196,10 @@ public sealed class InsertAtIndexApplyTests
         var viaAdd = Conditions(1f, 2f, 3f);
         Add(viaAdd, 9f);
         var viaInsert = Conditions(1f, 2f, 3f);
-        Insert(viaInsert, viaInsert.Conditions.Count, 9f);
+        Insert(viaInsert, viaInsert.Conditions!.Count, 9f);
         // Pinned to the literal list too, so a broken Add cannot make the two agree by both being wrong.
-        Assert.Equal(new[] { 1f, 2f, 3f, 9f }, Values(viaInsert.Conditions));
-        Assert.Equal(Values(viaAdd.Conditions), Values(viaInsert.Conditions));
+        Assert.Equal(new[] { 1f, 2f, 3f, 9f }, Values(viaInsert.Conditions!));
+        Assert.Equal(Values(viaAdd.Conditions!), Values(viaInsert.Conditions!));
     }
 
     // APPLY-REJ-OOB: one past the append slot refuses, stating the APPEND-INCLUSIVE bound (0..count), and changes nothing
@@ -210,7 +210,7 @@ public sealed class InsertAtIndexApplyTests
         var msg = Refused(() => Insert(fac, 4, 9f));
         Assert.Contains("0..3", msg);
         Assert.DoesNotContain("0..2", msg);
-        Assert.Equal(3, fac.Conditions.Count);
+        Assert.Equal(3, fac.Conditions!.Count);
     }
 
     // APPLY-REJ-NEGIDX: a negative index refuses at APPLY as the EXPECTED kind, naming the index, for a call that never met the gate
@@ -219,7 +219,7 @@ public sealed class InsertAtIndexApplyTests
     {
         var fac = Conditions(1f, 2f);
         Assert.Contains("Index -1 out of range", Refused(() => Insert(fac, -1, 9f)));
-        Assert.Equal(2, fac.Conditions.Count);
+        Assert.Equal(2, fac.Conditions!.Count);
     }
 
     // APPLY-SIBLING-SETATINDEX-MSG: an out-of-range SetAtIndex still offers Add and still states its own bound (0..count-1), not insert's
@@ -245,7 +245,7 @@ public sealed class InsertAtIndexApplyTests
         var fac = Conditions(1f);
         WriteEngine.ApplyVerb(fac, new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Remove", Key = "0" });
         Assert.NotNull(fac.Conditions);
-        Assert.Empty(fac.Conditions);
+        Assert.Empty(fac.Conditions!);
         var msg = Refused(() => WriteEngine.ApplyVerb(fac, new WriteRequest
         { RecordType = "Faction", Path = new[] { "Conditions" }, Verb = "Remove", Key = "0" }));
         Assert.Contains("nothing to remove", msg);
@@ -269,7 +269,8 @@ public sealed class InsertAtIndexApplyTests
     public void AnEmptyListTakesAnInsertAtZero()
     {
         var fac = new Faction(NextFk(), SkyrimRelease.SkyrimSE);
-        Assert.Equal(0, fac.Conditions?.Count ?? 0);
+        // Absent, not merely empty, so the insert goes through the materialize.
+        Assert.Null(fac.Conditions);
         Insert(fac, 0, 7f);
         Assert.Equal(new[] { 7f }, Values(fac.Conditions!));
     }
@@ -328,7 +329,7 @@ public sealed class InsertAtIndexSerializeTests : IDisposable
         mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         using var back = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
-        var conds = back.Factions.Single(f => f.EditorID == "HcInsertSerializeFaction").Conditions.ToArray();
+        var conds = back.Factions.Single(f => f.EditorID == "HcInsertSerializeFaction").Conditions!.ToArray();
         Assert.Equal(new[] { 1f, 9f, 2f, 3f }, conds.Select(c => c is IConditionFloatGetter f ? f.ComparisonValue : float.NaN));
         Assert.Equal(new[] { true, true, false, false }, conds.Select(c => c.Flags.HasFlag(Condition.Flag.OR)));
     }
