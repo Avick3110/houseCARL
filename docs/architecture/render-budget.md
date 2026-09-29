@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-29
 covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/housecarl-mcp/SweepEmission.cs, src/housecarl-mcp/SweepDemand.cs, src/housecarl-mcp/BodyAllocation.cs, src/housecarl-mcp/BatchRender.cs, src/housecarl-mcp/TransportAccounting.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-core/CharCountedStream.cs, src/housecarl-core/JsonTextEncoder.cs]
 ---
 # The render budget: what `max_chars` counts, and who gets to spend it
@@ -176,8 +176,37 @@ bound the scan and nothing bounded the render (#582). Each lane carries its own 
 own row bound, because the lanes are orders of magnitude apart: named fields, whole-record
 (`form='everything'`), identity, the comparison forms (delta/tree), and asset-path resolution. Every bound is
 ten minutes at that lane's per-row cost — a third of the 30-minute idle timeout a Claude Code client gives a
-call — except the comparison forms, whose bound is about a minute because their row is. What a call spent
-comes back as `render_ms`, which is how the estimates are checked against a real order. The bounds are
+call. What a call spent comes back as `render_ms`, which is how the estimates are checked against a real order.
+
+The comparison forms (delta/tree) get the same ten minutes, but their row cost is not one number: it is
+priced from the shape being run (`RenderBudget.ComparisonShape`), and the row bound is ten minutes divided
+by that price. Three things move it: whether `fields=` narrows the comparison, how many of the records a cell
+or topic contains (the containment index answers that per id before any body is read), and whether a pole
+replays the SkyPatcher layer. The comparison responses carry no `render_ms` of their own, so the figures
+below are client wall clock. The old rule, one 250 ms floor against a 250-row bound (#716, measured on REFR scans
+before the per-plugin gather of #765), refused the battery's 1,276-record post-state delta as "about 5
+minutes" (#932): that estimate was near the truth, but a one-minute budget refused a five-minute job every
+other lane would have run, and it refused a narrowed comparison that takes a third of a second.
+
+The figures, measured 2026-09-29 on `E:/Authoria - Requiem Reforged` (3,254 plugins) through a private
+Release server over stdio, warm, with other sessions running on the same machine:
+
+| form | source / reference | fields | records | seconds | ms a row |
+|---|---|---|---|---|---|
+| delta | SkyPatcher post vs winner | whole | 1,276 ARMO/WEAP | 297.7 | 233 |
+| delta | winner vs previous_provider | whole | 1,276 ARMO/WEAP | 180.6 | 142 |
+| tree | every provider vs winner | whole | 1,276 ARMO/WEAP | 237.0 | 186 |
+| tree | every provider vs winner | whole | 5,798 REFR | 894.8 | 154 |
+| tree | every provider vs winner | whole | 1,000 REFR | 144.4 | 144 |
+| delta | SkyPatcher post vs winner | Keywords | 1,276 ARMO/WEAP | 54.4 | 43 |
+| delta | winner vs previous_provider | Keywords | 1,276 ARMO/WEAP | 0.33 | 0.26 |
+| tree | every provider vs winner | Keywords | 1,276 ARMO/WEAP | 0.33 | 0.26 |
+| tree | every provider vs winner | Base | 1,000 REFR | 20.7 | 21 |
+
+The prices, each the measured figure rounded up: a whole-record row 190 ms (delta or tree, top-level or
+contained); a narrowed row 1 ms on a top-level record and 25 ms on a contained one; a post-state pole adds
+45 ms. So the battery's call is priced at 235 ms a row, about 5 minutes, and runs; the 5,798-REFR tree is
+priced at about 18 minutes against its measured 15 and is refused. The bounds are
 per-service settings (`Bounds` on the service, `MaxAssetPaths` on the assets area) so a test lowers only its
 own world's; production never assigns them. `AccountingReserve` is held back from
 `max_chars` so the accounting line is paid for inside the cap.
@@ -212,6 +241,9 @@ own world's; production never assigns them. `AccountingReserve` is held back fro
 - *The render bound is a time budget, not a width one*: `RecordsRenderCostTests.TheAccountingLineIsReservedFromTheRowBudget`
   — the accounting line at its widest fits inside `AccountingReserve`. It renders nothing against a cap, so that the
   reserve is taken out of `max_chars` is not asserted.
+- *The render bound is a time budget, not a width one* (the comparison forms): `ComparisonBoundTests` — the battery's
+  post-state delta and a narrowed catalogue fit, a REFR-scale tree is refused with an estimate within a factor of two
+  of its measured cost, and a narrowed comparison over contained records is charged their own price.
 
 ## Where
 
