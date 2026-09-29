@@ -45,7 +45,7 @@ public sealed partial class LoadOrderService
         }
     }
 
-    /// <summary>Serializes every mod-folder allocation (check-then-create) off the index lock; taken last, and nothing takes <c>_gate</c> while holding it.</summary>
+    /// <summary>Serializes the check-then-create of a fresh houseCARL mod folder off the index lock; taken last, and nothing takes <c>_gate</c> while holding it.</summary>
     readonly object _folderAllocationGate = new();
 
     /// <summary>The <c>Scripts\</c> output folder for a compiled .pex, under a houseCARL mod folder, which MO2 deploys into the game's Data\Scripts.</summary>
@@ -93,20 +93,14 @@ public sealed partial class LoadOrderService
         string root;
         try { root = Path.GetFullPath(given); }
         catch (Exception ex) { throw new InvalidOperationException($"out_path '{outputDir}' is not a usable path ({ex.Message})."); }
-        string outDir;
-        string? warn;
-        bool appended;
-        lock (_folderAllocationGate)                       // the exists check and the create, on the one allocation lock
-        {
-            if (File.Exists(root))
-                throw new InvalidOperationException($"out_path '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
+        if (File.Exists(root))
+            throw new InvalidOperationException($"out_path '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
 
-            (outDir, appended, warn) = contract(root, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
-            // A plain message for a folder that cannot be created, rather than a generic internal failure.
-            try { Directory.CreateDirectory(outDir); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            { throw new InvalidOperationException($"out_path: couldn't create the output folder '{outDir}' ({ex.Message}). Check the path and that it's writable."); }
-        }
+        var (outDir, appended, warn) = contract(root, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
+        // A plain message for a folder that cannot be created, rather than a generic internal failure.
+        try { Directory.CreateDirectory(outDir); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { throw new InvalidOperationException($"out_path: couldn't create the output folder '{outDir}' ({ex.Message}). Check the path and that it's writable."); }
         deployWarning = warn;
         // ModFolder stays accurate though cleanup is bypassed: the subfolder's parent, else the path given.
         var modRoot = appended ? root : (Path.GetDirectoryName(outDir.TrimEnd('\\', '/')) ?? outDir);
