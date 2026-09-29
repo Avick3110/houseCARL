@@ -84,6 +84,12 @@ internal sealed partial class RecordReads
             return Array.Empty<DeltaRow>();
         }
 
+        // Whether the subject holds a version of the record: the index for an in-order arm, the file's own sweep for an
+        // off-order arm. A post replay with no winner needs no test: no in-order reference declares a record nothing holds.
+        bool SubjectHolds(FormKey fk, string? subjectPlugin) =>
+            sGather.PluginOf is not null ? subjectPlugin is { } sp && Holds(view, fk, sp)
+            : sOffOrder is null || sReader(fk, null).Error is null;
+
         var rows = new List<DeltaRow>(formids.Count);
         // A chunk of rows at a time, so each pole walks a plugin once for the whole chunk.
         for (int start = 0; start < parsed.Count; start = ChunkEnd(start, parsed.Count))
@@ -96,12 +102,12 @@ internal sealed partial class RecordReads
             // subject resolved to.
             var subjects = new string?[chunkKeys.Count];
             for (int j = 0; j < chunkKeys.Count; j++) subjects[j] = sGather.PluginOf?.Invoke(chunkKeys[j], null);
-            // A row whose in-order subject holds no version refuses on the subject, so its reference is never read and not walked.
+            // A row whose subject holds no version refuses on the subject, so its reference is never read and not walked.
             var refKeys = new List<FormKey>(chunkKeys.Count);
             var refSubjects = new List<string?>(chunkKeys.Count);
             for (int j = 0; j < chunkKeys.Count; j++)
             {
-                if (sGather.PluginOf is not null && !(subjects[j] is { } sp && Holds(view, chunkKeys[j], sp))) continue;
+                if (!SubjectHolds(chunkKeys[j], subjects[j])) continue;
                 refKeys.Add(chunkKeys[j]);
                 refSubjects.Add(subjects[j]);
             }
@@ -250,10 +256,12 @@ internal sealed partial class RecordReads
                         error = exclMsg;
                         return (_, _) => new PoleReading(null, null, null, exclMsg);
                     }
-                    if (gather is not null) gather.PluginOf = (_, _) => arm.Plugin;
+                    // A record the index says the plugin lacks is neither declared nor sought: the refusal is built from the index anyway.
+                    if (gather is not null) gather.PluginOf = (fk, _) => Holds(view, fk, arm.Plugin) ? arm.Plugin : null;
                     return (fk, _) =>
                     {
-                        var body = gather is { Live: true } ? gather.Body(arm.Plugin, fk) : view.GetRecord(session, arm.Plugin, fk);
+                        var body = !Holds(view, fk, arm.Plugin) ? null
+                                 : gather is { Live: true } ? gather.Body(arm.Plugin, fk) : view.GetRecord(session, arm.Plugin, fk);
                         if (body is null)
                         {
                             // Name the actual touchers, never a silent absence.
