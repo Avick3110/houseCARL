@@ -13,7 +13,7 @@ namespace HousecarlGenerator;
 /// compact tool is CLOSED: compacting an NPC mod renumbers its records AND carries the FormID-keyed FaceGen files
 /// (head mesh + face tint) to the NEW FormID, so the mod no longer SILENTLY dark-faces (a Q3 degraded mode in the
 /// pre-A1 tool, which renumbered the record but left the facegen at the old FormID the engine no longer looks up).
-/// Drives the REAL <see cref="LoadOrderService.CompactPlugin"/> over a synthetic MO2 instance (the CompactServiceGuard
+/// Drives the REAL <see cref="LoadOrderService.CompactPlugin"/> over a synthetic MO2 instance (the CompactServiceWorld test
 /// + PlaceAsset probe pattern), so it pins the END-TO-END wiring, not just the service in isolation.
 ///   NEW-FILE   — compact to a new file carries the NPC's facegen (mesh+tint) to the new FormID under the FRESH mod
 ///                folder, byte-exact; the outcome reports 2 files / 1 NPC; the OLD-FormID facegen is left untouched.
@@ -178,7 +178,7 @@ public static class FacegenCarryProbe
         return fail == 0 ? 0 : 1;
     }
 
-    // ---- synthetic MO2 layout helpers (the CompactServiceGuard / PlaceAsset probe pattern) ----
+    // ---- synthetic MO2 layout helpers (the CompactServiceWorld / PlaceAsset pattern) ----
 
     static (string mods, string prof) MakeInstance(string inst)
     {

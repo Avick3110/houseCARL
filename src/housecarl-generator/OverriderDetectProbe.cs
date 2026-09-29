@@ -104,7 +104,7 @@ public static class OverriderDetectProbe
         return fail == 0 ? 0 : 1;
     }
 
-    // ---- synthetic MO2 layout helpers (the CompactServiceGuard / FacegenCarry probe pattern) ----
+    // ---- synthetic MO2 layout helpers (the CompactServiceWorld / FacegenCarry pattern) ----
 
     static (string mods, string prof) MakeInstance(string inst)
     {

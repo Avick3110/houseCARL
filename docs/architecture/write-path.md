@@ -384,9 +384,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   having no serializable content.
 - `coerce-audit` — every writable scalar, enum, value, formlink and coercible-element leaf in the corpus resolves to
   a coercible type; `coerce-selftest` — each value-type rule builds an instance assignable to its target.
-- `compact-service-guard`'s REPOINT-MIXED arm — both refusals split on the shape `LocalizedAmong` returns, rendered
-  on the real renderers. It does not pin the fail-closed half: the arm's own note says a held referencer never
-  reaches the pre-flight, because the identify pass drops it first, so that half is unpinned.
+- `CompactRepointReferencerTests`, the REPOINT-MIXED tests — both refusals split on the shape `LocalizedAmong`
+  returns, rendered on the real renderers. They do not pin the fail-closed half:
+  `AHeldReferencerIsDroppedByTheIdentifyPassBeforeThePreflight` shows a held referencer never reaches the
+  pre-flight, because the identify pass drops it first, so that half is unpinned.
 - `freshness-capture-guard` arm 4 — one call's patch carries ONE build's bodies. The two captures agreeing about
   membership is not separately pinned.
 - `remedy-verbs-guard` arms population / routes / agreement / sites — the shape-indexed verb table: every shape's
