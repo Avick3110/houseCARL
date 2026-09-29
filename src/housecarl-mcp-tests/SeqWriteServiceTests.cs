@@ -53,6 +53,7 @@ public sealed class SeqWriteServiceTests : IDisposable
     {
         var o = W.Svc.WriteSeq(Path.Combine(W.Root, "does-not-exist.esp"), null, null);
         Assert.False(o.Success);
+        Assert.Contains("no file at path", o.Error);
         Assert.Contains("FILENAME", o.Error);
         Assert.Contains("ABSOLUTE", o.Error);
     }
