@@ -11,9 +11,7 @@ using W = HousecarlMcpTests.InPlaceGuardWorld;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The in-place round-trip check (#961): before any op runs, the unedited target is serialized in memory and
-/// every record must keep the subrecord signatures its file holds, less the measured renames. Each test stages its own
-/// one-ARMA plugin in a fresh folder of the in-place world.</summary>
+/// <summary>The round-trip check (#961) on the in-place and into= lanes, each test on its own staged plugin.</summary>
 [Trait("tier", "integration")]
 [Collection(InPlaceGuardCollection.Name)]
 public sealed class InPlaceRoundTripTests
@@ -73,38 +71,17 @@ public sealed class InPlaceRoundTripTests
     (string Path, FormKey Arma) StageBodt()
     {
         var (path, arma) = StagePlugin();
-        var subs = RecordSubrecords(File.ReadAllBytes(path), "ARMA", out var bytes, out var start, out var end);
-        int i = subs.FindIndex(s => s.Sig == "BOD2");
-        var bod2 = subs[i].Raw;
-        var bodt = new byte[6 + 12];
-        Encoding.ASCII.GetBytes("BODT").CopyTo(bodt, 0);
-        BinaryPrimitives.WriteUInt16LittleEndian(bodt.AsSpan(4), 12);
-        bod2.AsSpan(6, 4).CopyTo(bodt.AsSpan(6));          // first-person flags
-        bod2.AsSpan(10, 4).CopyTo(bodt.AsSpan(14));        // armor type, after the general flags byte and 3 unused
-        subs[i] = ("BODT", bodt);
-        var body = subs.SelectMany(s => s.Raw).ToArray();
-        int grow = body.Length - (end - start);
-        var outBytes = bytes[..start].Concat(body).Concat(bytes[end..]).ToArray();
-        // The one ARMA record's size and its top-level group's size, both grown by the same delta.
-        int rec = start - 24;
-        BinaryPrimitives.WriteUInt32LittleEndian(outBytes.AsSpan(rec + 4), (uint)body.Length);
-        int grup = TopGroupOf(outBytes, rec);
-        BinaryPrimitives.WriteUInt32LittleEndian(outBytes.AsSpan(grup + 4),
-            BinaryPrimitives.ReadUInt32LittleEndian(outBytes.AsSpan(grup + 4)) + (uint)grow);
-        File.WriteAllBytes(path, outBytes);
-        return (path, arma);
-    }
-
-    static int TopGroupOf(byte[] b, int recordAt)
-    {
-        int p = 24 + (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(4));
-        while (p < b.Length)
+        EditRecord(path, "ARMA", edit: subs =>
         {
-            int size = (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p + 4));
-            if (recordAt > p && recordAt < p + size) return p;
-            p += size;
-        }
-        throw new InvalidOperationException("the record is in no top-level group");
+            int i = subs.FindIndex(s => s.Sig == "BOD2");
+            var bod2 = subs[i].Raw;
+            var bodt = new byte[12];
+            bod2.AsSpan(6, 4).CopyTo(bodt);                 // first-person flags
+            bod2.AsSpan(10, 4).CopyTo(bodt.AsSpan(8));      // armor type, after the general flags byte and 3 unused
+            subs[i] = ("BODT", Subrecord("BODT", bodt));
+            return subs;
+        });
+        return (path, arma);
     }
 
     /// <summary>The first record of that signature: its subrecords as raw slices, and where its body sits in the file.</summary>
@@ -205,8 +182,7 @@ public sealed class InPlaceRoundTripTests
         Assert.False(HasSubrecord(path, "BODT"));
     }
 
-    /// <summary>Rewrite the first record of that signature: its subrecords through <paramref name="edit"/>, its 24-byte
-    /// header through <paramref name="header"/>, and the sizes of the record and every group around it to fit.</summary>
+    /// <summary>Rewrite the first record of that signature, its body and header, with its size and every enclosing group's grown to fit.</summary>
     internal static void EditRecord(string path, string recordSig,
         Func<List<(string Sig, byte[] Raw)>, List<(string Sig, byte[] Raw)>>? edit = null, Action<byte[]>? header = null)
     {
@@ -543,8 +519,7 @@ public sealed class InPlaceRoundTripTests
     }
 }
 
-/// <summary>The same check on the compact lanes that rewrite in place (#961): the target of an in-place compact, and a
-/// referencer a repoint would rewrite, each refused before anything is written. Its own MO2 instance per test.</summary>
+/// <summary>The same check on the compact and copy lanes, each test on its own MO2 instance.</summary>
 [Trait("tier", "integration")]
 public sealed class CompactRoundTripTests
 {
