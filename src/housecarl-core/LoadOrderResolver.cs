@@ -301,7 +301,6 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>ONLY the injected explanation, or null — the half a caller needs when the presence of a real CAUSE changes more than one sentence.</summary>
     internal string? ExplainAbsence(string pluginName)
     {
-        if (_explainAbsence is not null) System.Threading.Interlocked.Increment(ref Counters.AbsenceExplains);
         try { return _explainAbsence?.Invoke(pluginName); }
         catch { return null; }   /* an explainer that throws (an unreadable profile mid-call) must never turn a clean
                                     refusal into a crash — fall through to the suggester. */
@@ -553,13 +552,30 @@ public sealed class LoadOrderResolver : IDisposable
             : new RuntimeAddress(null, RuntimeFormId.OutOfWindowNote(name, fk.ID));
     }
 
+    /// <summary>One pin's absence clauses per plugin name (case-sensitive, so each spelling is echoed as given); the map is made on first use.</summary>
+    sealed class AbsenceCache
+    {
+        Dictionary<string, (string Clause, string? Cause)>? _map;
+
+        public string Get(LoadOrderResolver r, string pluginName, out string? cause)
+        {
+            lock (this)
+            {
+                _map ??= new Dictionary<string, (string, string?)>(StringComparer.Ordinal);
+                if (!_map.TryGetValue(pluginName, out var hit)) _map[pluginName] = hit = (r.AbsenceClause(pluginName, out var c), c);
+                cause = hit.Cause;
+                return hit.Clause;
+            }
+        }
+    }
+
     /// <summary>A read view pinned to ONE captured build (see <see cref="Capture"/>): every member answers from the SAME build, while bodies are still fetched from disk.</summary>
     public readonly struct IndexView
     {
         readonly LoadOrderResolver _r;
         readonly IndexSnapshot _s;
-        readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Clause, string? Cause)> _absences;   // one explanation per absent plugin per pin
-        internal IndexView(LoadOrderResolver r, IndexSnapshot s) { _r = r; _s = s; _absences = new(StringComparer.Ordinal); }   // only Capture() constructs
+        readonly AbsenceCache _absences;
+        internal IndexView(LoadOrderResolver r, IndexSnapshot s) { _r = r; _s = s; _absences = new(); }   // only Capture() constructs
 
         public int PluginCount => _r._paths.Length;
 
@@ -608,13 +624,8 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>The trailing clause for a refusal naming a plugin <see cref="ContainsPlugin"/> just returned false for; always safe to append, and "" when there is nothing to add.</summary>
         public string AbsenceClause(string pluginName) => AbsenceClause(pluginName, out _);
 
-        public string AbsenceClause(string pluginName, out string? cause)
-        {
-            var r = _r;
-            var (clause, why) = _absences.GetOrAdd(pluginName, n => (r.AbsenceClause(n, out var c), c));
-            cause = why;
-            return clause;
-        }
+        /// <summary>The same clause and the cause it found (null when it fell back to the did-you-mean), read once per plugin per pin.</summary>
+        public string AbsenceClause(string pluginName, out string? cause) => _absences.Get(_r, pluginName, out cause);
 
         /// <summary>Is this plugin LIGHT — ESL-flagged in its header, or a <c>.esl</c> — in THIS build? A refusal about ESL compaction asks the index rather than inferring it from a FormID.</summary>
         public bool IsLightFlagged(string pluginName)
@@ -623,14 +634,6 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>Is this plugin in the MASTER BLOCK (a header Master flag, or a .esm/.esl filename)? See <see cref="IndexSnapshot.MasterBlock"/> for why it is not the light flag.</summary>
         public bool IsMasterBlock(string pluginName)
             => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.MasterBlock[i];
-
-        public string? ExplainAbsence(string pluginName)
-        {
-            AbsenceClause(pluginName, out var cause);
-            return cause;
-        }
-
-        public string NameSuggestion(string pluginName) => _r.NameSuggestion(pluginName);
 
         /// <summary>The on-disk PATH of the active plugin named <paramref name="pluginName"/>, or null — the minimal name→path exposure the dialogue validator's SEQ lint needs.</summary>
         public string? PluginPath(string pluginName)

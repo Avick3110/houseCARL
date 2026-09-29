@@ -90,11 +90,11 @@ public sealed class ComparisonBatchReadTests : IClassFixture<OwnedChildFixture>
         var project = new RecordsTools.RecordsProject { form = form, fields = form == "info_order" ? null : new[] { "EditorID" } };
         System.Text.Json.JsonElement? versus = form == "delta" ? Je("\"winner\"") : null;
         System.Text.Json.JsonElement? src = source is null ? null : Je(source);
-        long before = _w.Svc.Counters.AbsenceExplains;
+        int before = _w.Svc.AbsenceExplanations;
         var r = RecordsTools.Records(_w.Svc, formids: AbsentIds, source: src, versus: versus, project: project);
         Assert.False(r.StartsWith("error:"), r);
         Assert.Contains("HcAbsentComparison.esp", r);
-        Assert.Equal(1, _w.Svc.Counters.AbsenceExplains - before);
+        Assert.Equal(1, _w.Svc.AbsenceExplanations - before);
     }
 }
 

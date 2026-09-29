@@ -64,10 +64,8 @@ internal sealed partial class RecordReads
         // invites re-issuing the ops. houseCARL does not read disabled plugins off disk.
         if (plugin is not null && !view.ContainsPlugin(plugin))
         {
-            // ExplainAbsence, not AbsenceClause: the latter returns a non-empty string for a typo too, so its
-            // length cannot distinguish "a cause was stated" from "a spelling was guessed".
-            var cause = view.ExplainAbsence(plugin);
-            var why = cause is not null ? " " + cause : view.NameSuggestion(plugin);
+            // The cause, not the clause's length, says whether a cause was stated or a spelling was guessed.
+            var why = view.AbsenceClause(plugin, out var cause);
             // The write-verify guidance is a fact about the tool, not a guess about the cause, so it is
             // unconditional; only the posture line, which would contradict a stated cause, is conditional.
             var verify = $" To verify a write BEFORE enabling, use the write call's own read-back (readback=true " +

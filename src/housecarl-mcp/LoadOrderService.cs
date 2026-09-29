@@ -412,7 +412,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     internal RecordChecks CheckArea => _checks;   // the checks area instance, for tests that set its seams
     internal bool GateHeldByThisThread => Monitor.IsEntered(_gate);   // for a test seam that must know whether it runs inside the hold
 
-    internal int AbsenceExplanations;   // how many times the explainer has parsed the profile — a test seam for the memo
+    internal int AbsenceExplanations;   // how many times the explainer has parsed the profile, for the cost tests
 
     /// <summary>MO2's mods root as this service currently has it, or null when it has none yet; taken under the gate.</summary>
     internal string? ModsRootOrNull
@@ -430,8 +430,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     /// <summary>The injected answer to "why is this plugin filename not in the active order?": the profile and the roots
     /// are read FRESH on each call rather than captured, and the count of those reads is <see cref="AbsenceExplanations"/>,
-    /// which <c>AbsentMasterLinkTests.ResolveNamesExplainsAnAbsentMasterOncePerPluginNotOncePerDanglingLink</c> holds the
-    /// caller's per-plugin memo to. Returns null when nothing can be said, and the refusal falls back to a did-you-mean.</summary>
+    /// which <c>AbsentMasterLinkTests</c> and <c>ComparisonBatchReadTests</c> hold the pinned view's per-plugin cache to.
+    /// Returns null when nothing can be said, and the refusal falls back to a did-you-mean.</summary>
     string? ExplainPluginAbsence(string name)
     {
         // Snapshot the roots together under the gate so the four cannot be read across a mid-switch reassignment.
