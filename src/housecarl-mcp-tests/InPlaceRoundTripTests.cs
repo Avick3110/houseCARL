@@ -300,12 +300,15 @@ public sealed class InPlaceRoundTripTests
         Assert.DoesNotContain(e.Subs.Keys, k => k.Sig == "XXXX");
     }
 
-    // A truncated trailing subrecord faults the walk rather than being dropped from the count.
-    [Fact]
-    public void ATruncatedTrailingSubrecordIsNotSilentlyDropped()
+    // A trailing piece shorter than a subrecord header, or a payload cut short, faults the walk rather than being dropped.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ATruncatedTrailingSubrecordIsNotSilentlyDropped(bool shortHeader)
     {
         var e = new SubrecordInventory.RecordEntry { Signature = "KYWD" };
-        var body = Subrecord("EDID", Encoding.ASCII.GetBytes("HcRT\0"))[..8];
+        var edid = Subrecord("EDID", Encoding.ASCII.GetBytes("HcRT\0"));
+        var body = shortHeader ? edid.Concat(edid[..3]).ToArray() : edid[..8];
         Assert.ThrowsAny<Exception>(() => e.AddBody(new Noggog.ReadOnlyMemorySlice<byte>(body)));
     }
 
