@@ -42,26 +42,84 @@ public static class SubrecordInventory
     public sealed record RecordDiff(FormKey Key, string Signature, IReadOnlyList<(string Sig, int Count)> Lost,
                                     IReadOnlyList<(string Sig, int Count)> Gained);
 
-    /// <summary>Null when the unedited round trip keeps every subrecord the file holds, else the one refusal sentence.
-    /// A localized target returns null: <see cref="WriteEngine.WriteInPlace"/> refuses it before staging, so no write this
-    /// check could have stopped ever lands. A serialize fault propagates for the caller's own serialize-failure arm.</summary>
-    public static string? RoundTripRefusal(SkyrimMod parsed, string path, IReadOnlyList<ISkyrimModGetter> masters)
+    /// <summary>What the refusal tells the caller to do instead, per lane, for one record and for several.</summary>
+    public sealed record Remedy(string One, string Many)
     {
-        if (parsed.UsingLocalization) return null;
-        var fileBytes = File.ReadAllBytes(path);
-        var written = SerializeToMemory(parsed, masters, path);
-        var losses = Losses(Diff(Walk(fileBytes, parsed.ModKey), Walk(written, parsed.ModKey)), Renames);
-        return losses.Count == 0 ? null : Refusal(Path.GetFileName(path), losses, parsed);
+        /// <summary>The record lanes: apply, create, remove, forward.</summary>
+        public static readonly Remedy RecordLane = new(
+            "drop in_place= and write the change into a new plugin, leaving that record out of it (an override of it loses " +
+            "the same subrecords), or fix that record in xEdit first",
+            "drop in_place= and write the change into a new plugin, leaving those records out of it (an override of one " +
+            "loses the same subrecords), or fix those records in xEdit first");
+
+        /// <summary>An in-place compact of the target itself.</summary>
+        public static readonly Remedy CompactTarget = new(
+            "fix that record in xEdit first; compacting into a new plugin (in_place=false) leaves the original alone, but " +
+            "its copy of that record loses the same subrecords",
+            "fix those records in xEdit first; compacting into a new plugin (in_place=false) leaves the original alone, but " +
+            "its copies of those records lose the same subrecords");
+
+        /// <summary>An external referencer the compact would repoint in place.</summary>
+        public static readonly Remedy Referencer = new(
+            "fix that record in xEdit first, or compact without repoint_externals and handle that plugin's references yourself",
+            "fix those records in xEdit first, or compact without repoint_externals and handle that plugin's references yourself");
     }
 
-    /// <summary>The bytes the in-place write would stage for this mod, through the same serialize, held in memory only.</summary>
+    /// <summary>Null when the unedited round trip keeps every subrecord signature the file holds, else the one refusal
+    /// sentence. The serialize is handed the target's own declared masters, opened through <paramref name="masterPath"/>
+    /// (null for one that is absent or unopenable). A localized target returns null: <see cref="WriteEngine.WriteInPlace"/>
+    /// refuses it before staging, so no write this check could have stopped ever lands. Any serialize fault other than a
+    /// missing master propagates for the caller's own serialize-failure arm.</summary>
+    public static string? RoundTripRefusal(SkyrimMod parsed, string path, Func<string, string?> masterPath, Remedy remedy)
+    {
+        if (parsed.UsingLocalization) return null;
+        var overlays = new List<ISkyrimModDisposableGetter>();
+        try
+        {
+            foreach (var mr in parsed.ModHeader.MasterReferences)
+                if (masterPath(mr.Master.FileName.String) is { } mp && File.Exists(mp))
+                    overlays.Add(SkyrimMod.CreateFromBinaryOverlay(mp, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(mp)));
+            var fileBytes = File.ReadAllBytes(path);
+            var written = SerializeToMemory(parsed, overlays, path);
+            var losses = Losses(Diff(Walk(fileBytes, parsed.ModKey), Walk(written, parsed.ModKey)), Renames);
+            return losses.Count == 0 ? null : Refusal(Path.GetFileName(path), losses, parsed, remedy);
+        }
+        finally { foreach (var o in overlays) { try { o.Dispose(); } catch { /* best-effort; never mask the check */ } } }
+    }
+
+    /// <summary>The same check over a plugin this call has not opened yet. A file that does not parse returns null,
+    /// because the lane that would rewrite it refuses an unparseable plugin itself before writing.</summary>
+    public static string? RoundTripRefusalAt(string path, Func<string, string?> masterPath, Remedy remedy)
+    {
+        SkyrimMod parsed;
+        try { parsed = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path)); }
+        catch { return null; }
+        return RoundTripRefusal(parsed, path, masterPath, remedy);
+    }
+
+    /// <summary>The bytes the in-place write would stage for this mod, through the same serialize, held in memory only.
+    /// A master the load order lacks is re-tried with no load order at all: the order only sorts the header's master
+    /// list, which the walk maps away, and the lane's own write still meets that missing master in its own words.</summary>
     public static byte[] SerializeToMemory(SkyrimMod parsed, IReadOnlyList<ISkyrimModGetter> masters, string path)
     {
-        var capture = new CaptureFileSystem();
         var ordered = masters as ISkyrimModGetter[] ?? masters.ToArray();
+        try { return Capture(parsed, ordered, path); }
+        catch (Exception ex) when (IsMissingMod(ex)) { return Capture(parsed, null, path); }
+    }
+
+    static byte[] Capture(SkyrimMod parsed, ISkyrimModGetter[]? ordered, string path)
+    {
+        var capture = new CaptureFileSystem();
         WriteEngine.SerializeInPlace(parsed, ordered, path, path, capture);
         return capture.Bytes ?? throw new InvalidOperationException(
             $"the in-memory round trip of '{Path.GetFileName(path)}' produced no bytes, so its subrecords could not be compared.");
+    }
+
+    static bool IsMissingMod(Exception? ex)
+    {
+        for (; ex is not null; ex = ex.InnerException)
+            if (ex is Mutagen.Bethesda.Plugins.Exceptions.MissingModException) return true;
+        return false;
     }
 
     /// <summary>Every major record in a plugin's bytes, keyed by FormKey through that file's own master list, with its
@@ -168,7 +226,7 @@ public static class SubrecordInventory
     }
 
     /// <summary>The one refusal: which records, which subrecords, why, and what to do instead.</summary>
-    static string Refusal(string fileName, IReadOnlyList<RecordDiff> losses, SkyrimMod parsed)
+    static string Refusal(string fileName, IReadOnlyList<RecordDiff> losses, SkyrimMod parsed, Remedy remedy)
     {
         var named = losses.Take(RecordsNamed).Select(d => d.Key).ToHashSet();
         var types = new Dictionary<FormKey, string>();
@@ -176,18 +234,15 @@ public static class SubrecordInventory
             if (named.Contains(r.FormKey)) types.TryAdd(r.FormKey, RecordNaming.StripOverlay(r.GetType().Name));
         string Name(RecordDiff d) => (types.TryGetValue(d.Key, out var t) ? t : d.Signature) + " " + FormIdToken.Of(d.Key);
         string Sigs(RecordDiff d) => string.Join(", ", d.Lost.Select(x => x.Count > 1 ? $"{x.Sig} x{x.Count}" : x.Sig));
-        var parser = $"houseCARL's parser (Mutagen {MutagenVersion})";
+        var who = $"houseCARL (Mutagen {MutagenVersion})";
         if (losses.Count == 1)
-            return $"refused: {parser} cannot represent {Name(losses[0])} as the file holds it, so rewriting '{fileName}' " +
-                   $"in place would drop its {Sigs(losses[0])} (#961); the file is UNTOUCHED — drop in_place= and write the " +
-                   "change into a new plugin, leaving that record out of it (an override of it is parsed the same way), or " +
-                   "fix that record in xEdit first.";
+            return $"refused: {who} cannot write {Name(losses[0])} back as the file holds it, so rewriting '{fileName}' " +
+                   $"in place would drop its {Sigs(losses[0])} (#961); '{fileName}' is UNTOUCHED — {remedy.One}.";
         var list = string.Join("; ", losses.Take(RecordsNamed).Select(d => $"{Name(d)} ({Sigs(d)})"));
         var more = losses.Count > RecordsNamed ? $"; and {losses.Count - RecordsNamed} more record(s)" : "";
-        return $"refused: {parser} cannot represent {losses.Count} records as the file holds them, so rewriting " +
-               $"'{fileName}' in place would drop subrecords from each — {list}{more} (#961); the file is UNTOUCHED — drop " +
-               "in_place= and write the change into a new plugin, leaving those records out of it (an override of one is " +
-               "parsed the same way), or fix those records in xEdit first.";
+        return $"refused: {who} cannot write {losses.Count} records back as the file holds them, so rewriting " +
+               $"'{fileName}' in place would drop subrecords from each — {list}{more} (#961); '{fileName}' is UNTOUCHED — " +
+               $"{remedy.Many}.";
     }
 
     /// <summary>The Mutagen release the parser is, off the assembly houseCARL loaded rather than a copy of the pin.</summary>
