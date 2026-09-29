@@ -59,7 +59,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   acknowledged call, after the writable-folder pre-flight and before the compacted plugin is written. Create runs it after its spec pre-flight, as apply
   does. The unedited file is serialized through `WriteEngine.SerializeInPlace` into a capture that holds the bytes in
   memory and refuses every other file-system call, over the target's own declared masters only: the session's overlays
-  of them on every session lane (which the write then reuses), opened from the view on compact. The whole order is not
+  of them on apply, create, forward and every `into=` lane (the write reuses them), the ones the write itself opens on
+  the in-place remove, and ones opened from the view on compact. The whole order is not
   opened: beyond the declared masters it only sorts the header's master list, which the walk maps away. No load order at
   all is not used, because it changes what the serialize does (a record below the FormID floor refuses, a FormID 0
   record is written differently). A master the order lacks or cannot open is left out and retried with no load order,
