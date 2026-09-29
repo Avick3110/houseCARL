@@ -45,9 +45,6 @@ public sealed partial class LoadOrderService
         }
     }
 
-    /// <summary>Serializes the check-then-create of a fresh houseCARL mod folder off the index lock; taken last, and nothing takes <c>_gate</c> while holding it.</summary>
-    readonly object _folderAllocationGate = new();
-
     /// <summary>The <c>Scripts\</c> output folder for a compiled .pex, under a houseCARL mod folder, which MO2 deploys into the game's Data\Scripts.</summary>
     public RiderFolder ResolveCompiledScriptFolder(string? patchName, string? into)
     {
