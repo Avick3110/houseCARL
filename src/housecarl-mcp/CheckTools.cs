@@ -48,7 +48,7 @@ public static class CheckTools
              "houseCARL just wrote. On the SCRIPTS family the .pex chain is still read from the ACTIVE order, so a " +
              "script shipped only inside the not-yet-enabled mod reads UNVERIFIABLE rather than clean. Omit to " +
              "sweep the WHOLE active order — thorough but heavier; scope to one plugin for a fast, focused check " +
-             "like the CK's per-plugin 'Check For Errors'.")]
+             "like the CK's per-plugin 'Check For Errors'. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line; a filename that itself starts with '@' is written '@@' inline.")]
             string[]? plugins = null,
         [Description("Optional. Record types to sweep — signatures ('WEAP') or catalog names ('Weapon'); one type is a set of one, and the sweep is the sweep over their UNION with the findings merged. Applied at the record STREAM, so it is the CHEAPEST scope: skipped records cost nothing (no link walk, no .pex chain read), and a two-type sweep costs the two type groups, not the order. An unknown type is refused by name, naming what is expected.")]
             string[]? types = null,
@@ -70,7 +70,7 @@ public static class CheckTools
              "exclusion that removes the whole scope is refused too rather than sweeping nothing in silence. " +
              "A group member that is not in this order " +
              "is the ordinary case and is simply dropped. This does not change what " +
-             "counts as the vanilla BASELINE the errors family splits out (see limit=) — that is always Mutagen's own base-master set.")]
+             "counts as the vanilla BASELINE the errors family splits out (see limit=) — that is always Mutagen's own base-master set. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line; a filename that itself starts with '@' is written '@@' inline.")]
             string[]? exclude = null,
         [Description("Optional. Which finding FAMILIES and CLASSES to look for, in one vocabulary. Families: " +
              "'errors', 'scripts', 'dialogue', 'facegen'. Classes inside them: 'dangling', 'missing_masters' (errors); " +
@@ -227,6 +227,21 @@ public static class CheckTools
         if (!SweepFamilySelection.TryParse(findings, out var selection, out var famErr)) return Wire.Refuse(json, "error: " + famErr);
         int lim = limit <= 0 ? 1000 : limit;
 
+        // plugins= and exclude= are plugin-filename lists, so they take the @file spelling housecarl_records' scope takes.
+        string? pluginsEcho = null;
+        if (plugins is { Length: > 0 })
+        {
+            var (names, echo, perr) = Artifacts.ExpandPluginList(plugins, "plugins");
+            if (perr is not null) return Wire.Refuse(json, perr);
+            plugins = names; pluginsEcho = echo;
+        }
+        if (exclude is { Length: > 0 })
+        {
+            var (names, _, xerr) = Artifacts.ExpandPluginList(exclude, "exclude");
+            if (xerr is not null) return Wire.Refuse(json, xerr);
+            exclude = names;
+        }
+
         // What every family agrees is malformed, checked before any is dispatched and rendered through the normal
         // refusal path so format='json' still gets a document. Syntax refuses here, scope matching stays family-local.
         if (SweepSharedInput.Error(svc, plugins, types, formids, editorid_contains, exclude) is { } inputErr)
@@ -315,7 +330,7 @@ public static class CheckTools
             var query = new[]
             {
                 new KeyValuePair<string, string>("findings", string.Join(",", selection.Ran.Select(SweepFamilySelection.Token))),
-                new KeyValuePair<string, string>("plugins", plugins is { Length: > 0 } ? string.Join(",", plugins) : "<whole order>"),
+                new KeyValuePair<string, string>("plugins", plugins is { Length: > 0 } ? pluginsEcho ?? string.Join(",", plugins) : "<whole order>"),
                 new KeyValuePair<string, string>("limit", lim.ToString()),
             };
             // No family answered, so nothing is written and the sweep renders as it would without to_file=, which is
