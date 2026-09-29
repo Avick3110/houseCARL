@@ -456,7 +456,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - The seam `freshness-capture-guard` arm 4 parks the write on is `WritePatchBuilder.InsidePhase1ResolveForGuard`,
   which is why that flip is staged rather than timed and no runner can be too fast to land it inside the resolve loop.
   The field has no product caller.
-- `excluded-master-guard` — the unopenable-reference threshold, pinned BOTH ways on BOTH lanes: a one-master header
+- `ExcludedMasterWriteTests` — the unopenable-reference threshold, pinned BOTH ways on BOTH lanes: a one-master header
   WRITES and a two-master header REFUSES naming the unopenable plugin and its remedy, on the patch lane and on the
   in-place lane, with the dry run predicting the real call's refusal verbatim and still predicting success for a write
   that does not reference it.
