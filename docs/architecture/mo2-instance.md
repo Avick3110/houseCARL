@@ -61,11 +61,13 @@ it until a tool writes there.
 
 A tick is half of active. A plugin the profile lists as loading (ticked, or an implicit master) that no
 enabled layer serves is NOT active, whatever `plugins.txt` says: MO2's VFS does not present the file.
-`Build` decides this once, returning each such plugin in `Unserved` with the switched-off mod folder holding a
-copy when there is one. Status takes the answer from there; the record, check and locate lanes read the
-order `Build` resolved. Two readers still take the tick alone: the setup summary's active count, which reads
-the profile text files only, and the SKSE peek's plugin set. A copy in a switched-off folder is named with the
-same sentence the locate lane uses (`ProvidedBySwitchedOffMod`), never as a stale profile.
+One decision, `Mo2LoadOrder.Unserved`, names each such plugin with the switched-off mod folder holding a copy
+when there is one; `Build` makes it and returns the answer as `Unserved`. Status and the absence explainer read
+that answer from the last build; the record, check and locate lanes read the order `Build` resolved. Readers with
+a composition but no order build call the same decision: the SKSE peek's plugin set, the `profile=` inspection
+(over that profile's mod list) and the setup summary, and `ActiveNames` gives them the tick-or-implicit set less
+the unserved. A copy in a switched-off folder is named with the same sentence the locate lane uses
+(`ProvidedBySwitchedOffMod`), never as a stale profile.
 
 MO2 holds `loadorder.txt` and `plugins.txt` open while it re-sorts, so a read landing in that
 window is a transient, not a failure: only the Win32 sharing and lock violations become
@@ -131,8 +133,9 @@ swallows the note turns a recoverable state into a silent loss.
 - *The profile files*: `ProfileRewriteTests.AColdAssetCallOnAHeldProfileNamesTheHoldInsteadOfAnInternalFailure` — a
   held profile file is a named transient, not an internal failure.
 - *The profile files*: `TickedPluginSwitchedOffModTests` — a ticked plugin whose only copy sits in a switched-off
-  mod folder is not counted or reported active by status, a winner read into it names the folder and the
-  `{"file", "mod"}` spelling, and both `source=` spellings read the folder copy.
+  mod folder is not counted or reported active by status, the `profile=` inspection, the setup summary or the SKSE
+  peek; the filter answers the no-copy and implicit-master cases; a winner read into it names the folder and the
+  `{"file", "mod"}` spelling; and both `source=` spellings read the folder copy.
 - *The Qt/QSettings value grammar*: `Mo2IniEscapeTests` — the quoted wrapper, the greedy hex runs, the named escapes,
   and a value with a lone backslash left as it stands (`HandWrittenPathsAreLeftAlone`).
 - *The Qt/QSettings value grammar*: `Mo2ModMetaReadTests` — the `[General]` Nexus cache fields read
