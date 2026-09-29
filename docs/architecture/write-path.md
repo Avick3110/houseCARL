@@ -416,8 +416,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - `GenderedNavReadTests`, `GenderedNavWriteTests`, `GenderedNavRefusalTests` and `GenderedArmShapeTests` — the
   `[0]` / `[1]` alias navigates and writes an absent pair or arm back through the named-hop setter, off the mapping
   the read render shares.
-- `insert-at-index-guard` — insert's append-inclusive bound, and a tail that keeps the same objects in the same
-  order through a real serialize and re-read.
+- `InsertAtIndexApplyTests` and `InsertAtIndexSerializeTests` — insert's append-inclusive bound, and a tail that
+  keeps the same objects in the same order through a real serialize and re-read.
 - `flags-bit-verb-guard` — a flags `Add` / `Remove` flips one bit and preserves every unlisted one, gate and apply
   keyed off the same test.
 - `formlink-remove-guard` — `Remove` clears a nullable FormLink instead of throwing, and fails loud on a required
