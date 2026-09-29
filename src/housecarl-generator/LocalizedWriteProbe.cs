@@ -21,7 +21,7 @@ namespace HousecarlGenerator;
 /// what the shipped classifier rests on); what changed is the ruling they fed. M1 drives its own commit helper rather
 /// than the shipped write, so it still measures what it always did — but nothing in the product performs that commit
 /// on a user's own file, and no arm here should be read as describing shipped behaviour. The behaviour that ships is
-/// pinned by <c>localized-write-guard</c>. Kept rather than deleted because the ruling's reversal is only legible
+/// pinned by <c>LocalizedInPlaceRefusalTests</c>. Kept rather than deleted because the ruling's reversal is only legible
 /// alongside the evidence it was made on.</para>
 ///
 /// <para><b>M1 — round-trip fidelity.</b> Re-serialize a localized plugin, commit the emitted .STRINGS/.DLSTRINGS/
