@@ -82,16 +82,22 @@ public sealed class ComparisonBoundTests
         Assert.Contains("7,000 of them records a cell or topic contains", r);
     }
 
-    /// <summary>Narrowed NPC_ trees on ARR, priced by the plugins their chunks walk: rows, versions a row, megabytes
-    /// walked and measured seconds. Each is priced within a factor of two of what it took; reads alone would not be.</summary>
+    /// <summary>Narrowed NPC_ comparisons on ARR, every measured run: rows, versions a row, megabytes walked and
+    /// seconds. Each price sits in the band render-budget.md states, from about 1.7 times low to 2.3 times high.</summary>
     [Theory]
     [InlineData(1_000, 1.0, 7_992, 3.52)]
+    [InlineData(1_000, 1.0, 7_992, 2.88)]
     [InlineData(10_000, 1.66, 27_761, 9.48)]
+    [InlineData(10_000, 1.66, 27_761, 8.09)]
+    [InlineData(65_748, 1.36, 204_967, 199.7)]
     [InlineData(65_748, 1.36, 204_967, 215.7)]
+    [InlineData(65_748, 1.36, 204_967, 158.6)]
+    [InlineData(65_748, 1.36, 204_967, 173.2)]
+    [InlineData(65_748, 1.20, 178_020, 184.1)]   // the delta against previous_provider
     public void ANarrowedComparisonIsPricedByThePluginsItWalks(int rows, double versions, double megabytes, double seconds)
     {
         var walked = Shape(rows, versions, narrowed: true, tree: true) with { MegabytesWalked = megabytes };
-        Assert.InRange(walked.MillisPerRow * rows / 1000, seconds / 2, seconds * 2);
+        Assert.InRange(walked.MillisPerRow * rows / 1000, seconds / 1.7, seconds * 2.3);
         Assert.Null(Refuse(walked, "tree"));
     }
 
@@ -104,11 +110,23 @@ public sealed class ComparisonBoundTests
         Assert.Contains("walking 1,229.8 GB of provider plugins", r);
     }
 
+    /// <summary>A plugin asked for a key it lacks is walked to its end: 8,174 MB of HearthFires.esm walked that way by
+    /// a delta over every NPC_ took 38 s, which the hit-walk price alone would put at 5.</summary>
+    [Fact]
+    public void AMissWalkIsPricedAtItsOwnRate()
+    {
+        var hit = Shape(65_748, 42.0 / 65_748, narrowed: true) with { MegabytesWalked = 8_174 };
+        Assert.InRange(hit.MillisPerRow * 65_748 / 1000, 0, 38.25 / 2);
+        var miss = Shape(65_748, 42.0 / 65_748, narrowed: true) with { MegabytesMissWalked = 8_174 };
+        Assert.InRange(miss.MillisPerRow * 65_748 / 1000, 38.25 / 1.7, 38.25 * 2.3);
+        Assert.Contains("to their end for records they lack", Refuse(miss with { MegabytesMissWalked = 200_000 })!);
+    }
+
     /// <summary>A refusal on the floor, before providers and contained records are counted, says its bound is an upper one.</summary>
     [Fact]
     public void AFloorRefusalSaysItsBoundIsAtMost()
     {
-        var floor = RenderBudget.ComparisonShape.Floor(4_000_000, tree: false, namedVersus: false, narrowed: true, replaysOverlay: false);
+        var floor = RenderBudget.ComparisonShape.Floor(8_000_000, tree: false, narrowed: true, replaysOverlay: false);
         var r = Refuse(floor);
         Assert.NotNull(r);
         Assert.Contains("at least", r);
@@ -176,6 +194,78 @@ public sealed class ComparisonBoundCallSiteTests : IClassFixture<OwnedChildFixtu
         Assert.Contains("4 versions read a record", r);
     }
 
+    /// <summary>A tree against a named versus= that holds no version stops at the winner: CellG's two providers are
+    /// not read past it, so one whole version fits a 60 ms budget that three would not.</summary>
+    [Fact]
+    public void ATreeAgainstAVersusThatHoldsNothingReadsOnlyTheWinner()
+    {
+        var view = _w.Svc.CaptureView();
+        Assert.Equal(2, view.TouchingPlugins(_w.CellG)!.Count);
+        Assert.DoesNotContain(_w.TopName, view.TouchingPlugins(_w.CellG)!);
+        var top = System.Text.Json.JsonDocument.Parse("\"" + _w.TopName + "\"").RootElement.Clone();
+        var r = _w.Svc.WithBounds(b => b with { ComparisonMillis = 60 },
+                                  () => RecordsTools.Records(_w.Svc, formids: new[] { OwnedChildWorld.Fid(_w.CellG) }, versus: top, project: Tree()));
+        Assert.False(r.StartsWith("error:"), r);
+        var counted = ComparisonCount.Count(new FormKey?[] { _w.CellG }, view, tree: true, RecordReads.PoleSpec.Winner,
+                                            new RecordReads.PoleSpec(RecordReads.PoleKind.Named, _w.TopName), null, null, null);
+        Assert.Equal(1, counted.Reads);
+        double topMb = new FileInfo(Directory.GetFiles(_w.Root, _w.TopName, SearchOption.AllDirectories)[0]).Length / 1_000_000.0;
+        Assert.Equal(topMb, counted.MegabytesMissWalked, 6);   // the versus= plugin, walked to its end for a record it lacks
+    }
+
+    /// <summary>A delta whose subject holds no version of a row refuses on the subject, so the reference plugin is
+    /// neither walked nor charged: one plugin walk, counted as a walk to the subject plugin's end and nothing else.</summary>
+    [Fact]
+    public void ADeltaWhoseSubjectHoldsNothingDoesNotWalkTheReference()
+    {
+        var view = _w.Svc.CaptureView();
+        Assert.DoesNotContain(_w.TopName, view.TouchingPlugins(_w.CellG)!);
+        double mb = new FileInfo(Directory.GetFiles(_w.Root, _w.TopName, SearchOption.AllDirectories)[0]).Length / 1_000_000.0;
+        var top = System.Text.Json.JsonDocument.Parse("\"" + _w.TopName + "\"").RootElement.Clone();
+        var winner = System.Text.Json.JsonDocument.Parse("\"winner\"").RootElement.Clone();
+        var project = new RecordsTools.RecordsProject { form = "delta", fields = new[] { "EditorID" } };
+        string Run(double perMb) => _w.Svc.WithBounds(b => b with { ComparisonMillis = RenderBudget.MillisPerNarrowComparisonRead + mb * perMb * 1.5 },
+            () => RecordsTools.Records(_w.Svc, formids: new[] { OwnedChildWorld.Fid(_w.CellG) }, source: top, versus: winner, project: project));
+        var counted = ComparisonCount.Count(new FormKey?[] { _w.CellG }, view, tree: false,
+                                            new RecordReads.PoleSpec(RecordReads.PoleKind.Named, _w.TopName), RecordReads.PoleSpec.Winner,
+                                            null, null, null);
+        Assert.Equal(0, counted.Reads);
+        Assert.Equal(0, counted.MegabytesWalked);
+        Assert.Equal(mb, counted.MegabytesMissWalked, 6);
+        long before = _w.Svc.Counters.CollectPasses;
+        var r = Run(RenderBudget.MillisPerComparisonMegabyteMissWalked);
+        Assert.False(r.StartsWith("error:"), r);
+        Assert.Equal(1, _w.Svc.Counters.CollectPasses - before);
+    }
+
+    /// <summary>A scan of cells against a versus= plugin that lacks most of them prices that plugin's walk to its end,
+    /// and says so; the scan lane has no floor, so the counted shape is what refuses.</summary>
+    [Fact]
+    public void AScanAgainstAVersusThatLacksItsRecordsIsChargedTheMissWalk()
+    {
+        var top = System.Text.Json.JsonDocument.Parse("\"" + _w.TopName + "\"").RootElement.Clone();
+        var r = _w.Svc.WithBounds(b => b with { ComparisonMillis = 1e-9 },
+                                  () => RecordsTools.Records(_w.Svc, types: new[] { "CELL" }, versus: top, project: Tree("EditorID")));
+        Assert.StartsWith("error:", r);
+        Assert.Contains("to their end for records they lack", r);
+    }
+
+    /// <summary>Rows the index settles as absent read no body, and the absent plugin is explained from the profile
+    /// once for the call, not once a row.</summary>
+    [Theory]
+    [InlineData("tree")]
+    [InlineData("delta")]
+    public void AbsentIdsExplainTheirPluginOnce(string form)
+    {
+        var ids = Enumerable.Range(0x800, 50).Select(i => $"{i:X6}:HcAbsentComparison.esp").ToArray();
+        var project = new RecordsTools.RecordsProject { form = form, fields = new[] { "EditorID" } };
+        var winner = form == "delta" ? System.Text.Json.JsonDocument.Parse("\"winner\"").RootElement.Clone() : (System.Text.Json.JsonElement?)null;
+        long before = _w.Svc.Counters.AbsenceExplains;
+        var r = RecordsTools.Records(_w.Svc, formids: ids, versus: winner, project: project, counts_only: true);
+        Assert.False(r.StartsWith("error:"), r);
+        Assert.Equal(1, _w.Svc.Counters.AbsenceExplains - before);
+    }
+
     [Fact]
     public void ANarrowedTreeOnAPlacedReferenceIsPricedAsContained()
     {
@@ -238,8 +328,10 @@ public sealed class ComparisonBoundCallSiteTests : IClassFixture<OwnedChildFixtu
     {
         var post = System.Text.Json.JsonDocument.Parse("{\"overlay\":\"skypatcher\",\"state\":\"post\"}").RootElement.Clone();
         var winner = System.Text.Json.JsonDocument.Parse("\"winner\"").RootElement.Clone();
-        var r = Call(() => RecordsTools.Records(_w.Svc, formids: new[] { Weapon }, source: post, versus: winner,
-                                                project: new RecordsTools.RecordsProject { form = "delta", fields = new[] { "EditorID" } }));
+        // 45.15 ms: the floor's one version and the replay fit, the delta's two versions do not.
+        var r = _w.Svc.WithBounds(b => b with { ComparisonMillis = 45.15 },
+            () => RecordsTools.Records(_w.Svc, formids: new[] { Weapon }, source: post, versus: winner,
+                                       project: new RecordsTools.RecordsProject { form = "delta", fields = new[] { "EditorID" } }));
         Assert.StartsWith("error:", r);
         Assert.Contains("45.2 ms a row", r);
     }

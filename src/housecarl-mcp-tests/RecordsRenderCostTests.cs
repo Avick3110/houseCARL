@@ -519,9 +519,8 @@ public sealed class RecordsRenderCostTests
     public void TheEstimateReadsProperlyJustOverTheComparisonBound()
     {
         var bounds = RenderBounds.Default with { ComparisonMillis = 60_000 };
-        var whole = RenderBudget.ComparisonShape.Floor(1, tree: true, namedVersus: false, narrowed: false, replaysOverlay: false);
-        var justOver = RenderBudget.ComparisonShape.Floor(RenderBudget.ComparisonBound(whole, 60_000) + 1, tree: true,
-                                                          namedVersus: false, narrowed: false, replaysOverlay: false);
+        var whole = RenderBudget.ComparisonShape.Floor(1, tree: true, narrowed: false, replaysOverlay: false);
+        var justOver = RenderBudget.ComparisonShape.Floor(RenderBudget.ComparisonBound(whole, 60_000) + 1, tree: true, narrowed: false, replaysOverlay: false);
         var r = RenderBudget.RefuseComparison(bounds, justOver, "tree", "x");
         Assert.NotNull(r);
         Assert.DoesNotContain(" 1 minutes", r);

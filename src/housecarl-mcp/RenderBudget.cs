@@ -30,6 +30,9 @@ internal static class RenderBudget
     /// <summary>What a narrowed comparison pays per megabyte of provider plugin each chunk walks (ARR: median of 0.23–1.05 ms, #932).</summary>
     internal const double MillisPerNarrowComparisonMegabyteWalked = 0.6;
 
+    /// <summary>What any comparison pays per megabyte of a plugin walked to its end because it lacks a key it was asked for (ARR: 4.7–12 ms, #932).</summary>
+    internal const double MillisPerComparisonMegabyteMissWalked = 6.0;
+
     /// <summary>What a SkyPatcher post-state pole adds to a comparison row's price (quiet machine: 129 less 83 ms, #932).</summary>
     internal const double MillisPerOverlayReplayRow = 45.0;
 
@@ -183,11 +186,11 @@ internal static class RenderBudget
     /// topic contains, whether fields= narrows each read, and whether a pole replays the SkyPatcher layer.</summary>
     internal readonly record struct ComparisonShape(int Rows, long Reads, long ContainedReads, int ContainedRows,
                                                     bool Narrowed, bool ReplaysOverlay, bool Tree, bool Counted,
-                                                    double MegabytesWalked = 0)
+                                                    double MegabytesWalked = 0, double MegabytesMissWalked = 0)
     {
-        /// <summary>The cheapest this many rows can be: every record top-level, a tree's with one version (plus a named versus=).</summary>
-        internal static ComparisonShape Floor(int rows, bool tree, bool namedVersus, bool narrowed, bool replaysOverlay) =>
-            new(rows, (long)rows * (tree ? 1 + (namedVersus ? 1 : 0) : 2), 0, 0, narrowed, replaysOverlay, tree, false);
+        /// <summary>The cheapest this many rows can be when each reads anything: every record top-level, one version a row.</summary>
+        internal static ComparisonShape Floor(int rows, bool tree, bool narrowed, bool replaysOverlay) =>
+            new(rows, rows, 0, 0, narrowed, replaysOverlay, tree, false);
 
         /// <summary>The mean price of one row of this shape.</summary>
         internal double MillisPerRow
@@ -198,7 +201,8 @@ internal static class RenderBudget
                 double inner = Narrowed ? MillisPerNarrowContainedComparisonRead : MillisPerWholeContainedComparisonRead;
                 long c = Math.Clamp(ContainedReads, 0, Reads);
                 double total = top * (Reads - c) + inner * c
-                             + (Narrowed ? MegabytesWalked * MillisPerNarrowComparisonMegabyteWalked : 0);
+                             + (Narrowed ? MegabytesWalked * MillisPerNarrowComparisonMegabyteWalked : 0)
+                             + MegabytesMissWalked * MillisPerComparisonMegabyteMissWalked;
                 return (Rows == 0 ? top : total / Rows) + (ReplaysOverlay ? MillisPerOverlayReplayRow : 0);
             }
         }
@@ -208,6 +212,7 @@ internal static class RenderBudget
             (Tree && Counted && Rows > 0 ? $", {(double)Reads / Rows:0.##} versions read a record" : "") +
             (ContainedRows > 0 ? $", {ContainedRows:N0} of them records a cell or topic contains" : "") +
             (Narrowed && MegabytesWalked > 0 ? $", walking {MegabytesWalked / 1000:N1} GB of provider plugins" : "") +
+            (MegabytesMissWalked > 0 ? $", walking {MegabytesMissWalked / 1000:N1} GB of plugins to their end for records they lack" : "") +
             (ReplaysOverlay ? ", replaying the SkyPatcher layer" : "");
     }
 
