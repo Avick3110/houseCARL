@@ -362,8 +362,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   none, so the backstop naming no lane is unpinned.
 - `nullarm-guard` part B — a composed record missing a required arm surfaces as the named null-arm refusal, bare or
   aggregate-wrapped, with nothing on disk.
-- `gendered-nav-guard` — the `[0]` / `[1]` alias navigates and writes an absent pair or arm back through the
-  named-hop setter, off the mapping the read render shares.
+- `GenderedNavReadTests`, `GenderedNavWriteTests`, `GenderedNavRefusalTests` and `GenderedArmShapeTests` — the
+  `[0]` / `[1]` alias navigates and writes an absent pair or arm back through the named-hop setter, off the mapping
+  the read render shares.
 - `insert-at-index-guard` — insert's append-inclusive bound, and a tail that keeps the same objects in the same
   order through a real serialize and re-read.
 - `flags-bit-verb-guard` — a flags `Add` / `Remove` flips one bit and preserves every unlisted one, gate and apply
