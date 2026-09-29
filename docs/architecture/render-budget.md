@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-23
-covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/housecarl-mcp/SweepEmission.cs, src/housecarl-mcp/SweepDemand.cs, src/housecarl-mcp/BodyAllocation.cs, src/housecarl-mcp/BatchRender.cs, src/housecarl-mcp/TransportAccounting.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-core/CharCountedStream.cs, src/housecarl-core/JsonTextEncoder.cs]
+updated: 2026-09-29
+covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/housecarl-mcp/RenderBounds.cs, src/housecarl-mcp/ComparisonMeter.cs, src/housecarl-mcp/SweepEmission.cs, src/housecarl-mcp/SweepDemand.cs, src/housecarl-mcp/BodyAllocation.cs, src/housecarl-mcp/BatchRender.cs, src/housecarl-mcp/TransportAccounting.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-core/CharCountedStream.cs, src/housecarl-core/JsonTextEncoder.cs]
 ---
 # The render budget: what `max_chars` counts, and who gets to spend it
 
@@ -174,13 +174,45 @@ length is excluded, because it disappears the moment the response fits.
 `RenderBudget` states up front what a scan's RENDER will cost and refuses past it, because the scan terms
 bound the scan and nothing bounded the render (#582). Each lane carries its own measured per-row cost and its
 own row bound, because the lanes are orders of magnitude apart: named fields, whole-record
-(`form='everything'`), identity, the comparison forms (delta/tree), and asset-path resolution. Every bound is
+(`form='everything'`), identity, and asset-path resolution; the comparison forms are metered instead (below). Every bound is
 ten minutes at that lane's per-row cost — a third of the 30-minute idle timeout a Claude Code client gives a
-call — except the comparison forms, whose bound is about a minute because their row is. What a call spent
-comes back as `render_ms`, which is how the estimates are checked against a real order. The bounds are
+call. What a call spent comes back as `render_ms`, which is how the estimates are checked against a real order. The bounds are
 per-service settings (`Bounds` on the service, `MaxAssetPaths` on the assets area) so a test lowers only its
 own world's; production never assigns them. `AccountingReserve` is held back from
 `max_chars` so the accounting line is paid for inside the cap.
+
+The comparison forms (delta/tree) are **measured, not predicted** (#932). The first reset dropped a predicted
+per-row cost, because each of four reviews found a read path it missed. The second dropped a flat worst-row price,
+because it was no ceiling either (a tree over records with 30–40 providers, a heavy `fields=` list, both poles
+replaying) while it over-refused deltas about threefold.
+
+So a comparison first meets a **floor** (30 ms a row reading whole records, 0.04 ms with `fields=` named, each under
+the cheapest row #976 measured; a SkyPatcher post-state pole adds nothing), which refuses before any read only a count
+past ten minutes even at that price, so it can never refuse a feasible job.
+
+What passes is **metered** (`ComparisonMeter`):
+
+- **Only rows that read are chunked.** Both batches settle up front, with no body read, the rows whose pole holds no
+  version (a malformed id, one the order does not hold, one a named `source=` does not touch, one the off-order file
+  lacks), and chunk only the live rows. Each pole's one-time work (the off-order sweep, the SkyPatcher replay's open)
+  runs before the first chunk, and only when a row will read.
+- **The check.** After a chunk, the batch takes its rate so far (time since its first chunk began over the rows read),
+  projects it over the rows left, and adds the time spent since the call began, so the scan, the index build and that
+  one-time work count as time spent, not as rate. The moment that passes ten minutes it refuses naming the rate, with
+  every row dropped and nothing further read; under it the batch runs on, so nothing is read twice.
+- **When it checks.** Never on the first chunk alone, since on ARR a cold first chunk measured about 1.4 times the
+  steady rate: at most two chunks (64 rows) are read before the first check can refuse. Never with one chunk or less
+  left, since that work is kept rather than thrown away to save it. Otherwise after every chunk, so warm-up the first
+  chunk pays (lazy plugin opens, the replay's INI parse and EditorID sweep) dilutes, and a list sorted cheap-first is
+  caught at the chunk that shows it. A refused call spends at most the budget plus one chunk. The budget covers the call
+  up to the batch's end; the render after it is not charged.
+- **The figure it names.** "About K rows fit" is 90% of the budget left after the time spent before the batch, at that
+  rate, rounded down, so feeding it back as `limit=` or as fewer ids clears the refusal on a steady rate. A census or a
+  `to_file=` artifact says "narrow the selection to about K matches" instead, since `limit=` does not lower what it
+  reads. When the time before the batch leaves no room, the refusal names that time as the cause and gives no figure.
+
+`RenderBounds.ComparisonRows` overrides the floor for tests, and `ComparisonMeter.TestClock` (an `AsyncLocal`, so it
+reaches only the calling test's flow) is the meter's clock for tests.
 
 ## Pinned by
 
@@ -209,6 +241,23 @@ own world's; production never assigns them. `AccountingReserve` is held back fro
 - *What a merged response's accounting may claim*:
   `CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` — the overrun notice states the finished
   response's length, and its remedy clears the overrun in one step.
+- *The comparison forms' floor and meter*: `ComparisonBoundTests` — the battery delta, the 5,798-REFR whole tree and the
+  all-NPC_ narrowed tree pass the floor, a count past it refuses before any read, and a whole-record refusal leads with
+  `fields=`. `ComparisonMeterTests`, on a clock read in order or driven by the read counters:
+  - on each lane (list delta, list tree, scan, off-order), a projection past ten minutes refuses after two chunks naming
+    the clock's rate, with nothing read past them;
+  - the first chunk alone never refuses, a dear first chunk then a cheap second runs, and one chunk left is never
+    refused;
+  - a list dear in the middle refuses at the third chunk;
+  - the named figure runs when fed back, through two checks;
+  - a projection just past the budget reads 10.1 minutes, not 10;
+  - time before the batch is named as the cause, and a census names a narrower selection;
+  - a delta chunks only rows that read: malformed and unresolved ids, ids the off-order file lacks, and a named source
+    that does not touch an id walks no plugin for it;
+  - a call under the budget reads every row once.
+
+  `RecordsRenderCostTests.TheEstimateReadsProperlyJustOverTheComparisonBound` — the floor constants: 20,000 whole and
+  15,000,000 narrowed rows run, one more refuses.
 - *The render bound is a time budget, not a width one*: `RecordsRenderCostTests.TheAccountingLineIsReservedFromTheRowBudget`
   — the accounting line at its widest fits inside `AccountingReserve`. It renders nothing against a cap, so that the
   reserve is taken out of `max_chars` is not asserted.
