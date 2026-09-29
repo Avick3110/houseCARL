@@ -14,10 +14,6 @@ internal static class BodyPrefetch
 
     internal static int ChunkStart(int i) => i / ChunkRows * ChunkRows;
 
-    /// <summary>How many record bodies the gather has been asked for in this process; pinned by
-    /// RecordsWalkCostTests.ACappedSeedGathersNoBodiesPastItsCap.</summary>
-    internal static long KeysWanted;
-
     /// <summary>The chunk covering rows <paramref name="start"/> to <paramref name="end"/>, ready to walk a plugin
     /// when a row asks. <paramref name="sourceAt"/> names the plugin whose body a row displays, or null for the
     /// winner; <paramref name="getterTypes"/> narrows each walk to the GRUPs the caller's types live in.</summary>
@@ -37,7 +33,7 @@ internal static class BodyPrefetch
             gather.Want(plugin, fk);
             plugins[fk] = plugin;
         }
-        Interlocked.Add(ref KeysWanted, plugins.Count);     // what this caller asked for, whether or not a row reads it
+        Interlocked.Add(ref session.Counters.KeysWanted, plugins.Count);     // what this caller asked for, whether or not a row reads it
         return new Chunk(gather, plugins);
     }
 

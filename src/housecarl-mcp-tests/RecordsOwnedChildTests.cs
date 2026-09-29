@@ -1699,16 +1699,6 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
              i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal)) n++;
         return n;
     }
-}
-
-/// <summary>How many overlays a read opens, off the process-wide <c>LoadOrderResolver.SessionOverlayOpens</c> counter,
-/// so these run where nothing else opens one at the same time.</summary>
-[Trait("tier", "integration")]
-[Collection(SerialCollection.Name)]   // process-global seams, #903
-public sealed class RecordsOwnedChildOpenCountTests : IClassFixture<OwnedChildFixture>
-{
-    readonly OwnedChildWorld _w;
-    public RecordsOwnedChildOpenCountTests(OwnedChildFixture f) => _w = f.W;
 
     /// <summary>The union opens a body per touching plugin, so a `formids=` batch used to re-mmap every toucher
     /// once per row — the session that caches overlays died with each record, and the union memo dedupes a
@@ -1717,14 +1707,14 @@ public sealed class RecordsOwnedChildOpenCountTests : IClassFixture<OwnedChildFi
     [Fact]
     public void ABatchOpensEachPluginOnce_NotOncePerRecordItUnions()
     {
-        var before = LoadOrderResolver.SessionOverlayOpens;
-        RecordsOwnedChildTests.ReadBoth(_w, _w.CellA, _w.CellF);   // two cells whose touchers overlap; three plugins in the order
-        var opens = LoadOrderResolver.SessionOverlayOpens - before;
+        var before = Svc.Counters.SessionOverlayOpens;
+        ReadBoth(_w, _w.CellA, _w.CellF);   // two cells whose touchers overlap; three plugins in the order
+        var opens = Svc.Counters.SessionOverlayOpens - before;
 
         Assert.True(opens <= 3, $"a two-record batch paid {opens} overlay opens over a three-plugin order — " +
                                 "the session is not shared across the batch's records");
         // And the answers are the ones the per-record sessions gave: a shared overlay cache is a cost change.
-        Assert.Contains(ReadSentences.UnionLabel, RecordsOwnedChildTests.FieldLine(RecordsOwnedChildTests.ReadBoth(_w, _w.CellA, _w.CellF), "Temporary"));
+        Assert.Contains(ReadSentences.UnionLabel, FieldLine(ReadBoth(_w, _w.CellA, _w.CellF), "Temporary"));
     }
 
     /// <summary>A single named record still opens its own session and closes it — the batch's cache is the
@@ -1732,9 +1722,9 @@ public sealed class RecordsOwnedChildOpenCountTests : IClassFixture<OwnedChildFi
     [Fact]
     public void ASingleReadStillPaysItsOwnOpens()
     {
-        var before = LoadOrderResolver.SessionOverlayOpens;
-        RecordsOwnedChildTests.Read(_w, _w.CellF);
-        Assert.True(LoadOrderResolver.SessionOverlayOpens > before,
+        var before = Svc.Counters.SessionOverlayOpens;
+        Read(_w, _w.CellF);
+        Assert.True(Svc.Counters.SessionOverlayOpens > before,
                     "a read that unions three touchers opened no overlay at all");
     }
 }

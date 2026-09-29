@@ -12,10 +12,6 @@ internal sealed partial class RecordReads
     /// both hold one materialised thing per row of the chunk.</summary>
     internal const int ComparisonChunkRows = 32;
 
-    /// <summary>How many provider bodies the tree fold has READ — pinned by
-    /// <c>RecordsRenderCostTests.ATreeGathersItsProviderBodiesPerPluginNotPerRow</c>.</summary>
-    internal static long TreeBodiesRead;
-
     /// <summary>One provider's fields as the fold reaches them, <paramref name="node"/> WINNER FIRST; return false
     /// to stop this row.</summary>
     internal delegate bool TreeNodeVisitor(int row, int node, string plugin, RecordFields read, bool isWinner);
@@ -127,7 +123,7 @@ internal sealed partial class RecordReads
                     var body = sink.TryGetValue(fk, out var got)
                              ? got
                              : view.FetchRecord(session, plugin, fk, isWinner ? null : seekTypes[r]);
-                    Interlocked.Increment(ref TreeBodiesRead);
+                    Interlocked.Increment(ref session.Counters.TreeBodiesRead);
                     if (isWinner)
                     {
                         owning[r] = OwnedChildContent.Fields(body);

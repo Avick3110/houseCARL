@@ -9,14 +9,6 @@ internal sealed partial class RecordReads
 {
     // ---- the traversal construct (walk=) ---------------------------------------------------------------
 
-    /// <summary>The most record bodies one forward walk held at once — pinned, with the line above, by
-    /// <c>RecordsWalkCostTests.AWalkHoldsNoReachedBodiesPastTheGatherThatReadThem</c>.</summary>
-    internal static int WalkBodyHighWater;
-
-    /// <summary>How many record bodies the last forward walk was STILL holding when it returned — zero on every
-    /// walk, the refusal and the no-frontier returns included.</summary>
-    internal static int WalkBodiesHeldAtReturn;
-
     /// <summary>How many record bodies one forward-walk gather pass reads before it releases them;
     /// <see cref="BodyPrefetch.ChunkRows"/>, and a test lowers it to split a hop.</summary>
     internal int WalkPassRows { get; set; } = BodyPrefetch.ChunkRows;
@@ -174,8 +166,9 @@ internal sealed partial class RecordReads
         bool templateFollow = followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase);
 
         var bodyCache = new Dictionary<FormKey, IMajorRecordGetter?>();
-        WalkBodyHighWater = 0;
-        WalkBodiesHeldAtReturn = 0;
+        var counters = session.Counters;
+        counters.WalkBodyHighWater = 0;
+        counters.WalkBodiesHeldAtReturn = 0;
         IMajorRecordGetter? Fetch(FormKey k)
         {
             if (bodyCache.TryGetValue(k, out var c)) return c;
@@ -411,7 +404,7 @@ internal sealed partial class RecordReads
             states[i] = st;
         }
         // The slice's seed bodies have given up their identity and their first-hop links; they go now.
-        if (bodyCache.Count > WalkBodyHighWater) WalkBodyHighWater = bodyCache.Count;
+        if (bodyCache.Count > counters.WalkBodyHighWater) counters.WalkBodyHighWater = bodyCache.Count;
         bodyCache.Clear();
         }
 
@@ -499,9 +492,9 @@ internal sealed partial class RecordReads
                         {
                             refusal = $"the walk reached a {type} ({FormIdToken.Of(key)}, via {pulledBy}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call.";
                             // A refusal returns nothing, so the pass in hand is dead: release it here.
-                            if (bodyCache.Count > WalkBodyHighWater) WalkBodyHighWater = bodyCache.Count;
+                            if (bodyCache.Count > counters.WalkBodyHighWater) counters.WalkBodyHighWater = bodyCache.Count;
                             bodyCache.Clear();
-                            WalkBodiesHeldAtReturn = 0;
+                            counters.WalkBodiesHeldAtReturn = 0;
                             return Array.Empty<WalkSeedResult>();
                         }
                         st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, fact.EditorId, hop, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
@@ -534,7 +527,7 @@ internal sealed partial class RecordReads
             }
             // The pass is over: the bodies it gathered have given up their identity and their links, so they go
             // now rather than at the end of the call.
-            if (bodyCache.Count > WalkBodyHighWater) WalkBodyHighWater = bodyCache.Count;
+            if (bodyCache.Count > counters.WalkBodyHighWater) counters.WalkBodyHighWater = bodyCache.Count;
             bodyCache.Clear();
             }
         }
@@ -549,7 +542,7 @@ internal sealed partial class RecordReads
             st.Settle();
             results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.Cycles!, st.Truncation, templateReport, st.Error, st.CyclesCapped));
         }
-        WalkBodiesHeldAtReturn = bodyCache.Count;
+        counters.WalkBodiesHeldAtReturn = bodyCache.Count;
         return results;
     }
 

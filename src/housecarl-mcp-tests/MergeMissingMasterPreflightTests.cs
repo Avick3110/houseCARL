@@ -9,7 +9,6 @@ namespace HousecarlMcpTests;
 /// <summary>A donor whose master is not active in the load order is refused from the donor HEADERS (#729), before the
 /// whole-order identify pass the merge would otherwise run first.</summary>
 [Trait("tier", "integration")]
-[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class MergeMissingMasterPreflightTests : IClassFixture<MergeMissingMasterWorld>
 {
     readonly MergeMissingMasterWorld _w;
@@ -31,12 +30,12 @@ public sealed class MergeMissingMasterPreflightTests : IClassFixture<MergeMissin
     [Fact]
     public void TheRefusalSkipsTheIdentifyPass()
     {
-        var before = RemapEngine.IdentifyPasses;
+        var before = _w.Svc.Counters.IdentifyPasses;
 
         var o = _w.Svc.MergePlugins(new[] { MergeMissingMasterWorld.Orphan }, "HcMmNoIdentify");
 
         Assert.False(o.Success);
-        Assert.Equal(0, RemapEngine.IdentifyPasses - before);
+        Assert.Equal(0, _w.Svc.Counters.IdentifyPasses - before);
     }
 
     /// <summary>The control: a donor whose masters are all active merges, and that one does run the identify pass —
@@ -44,12 +43,12 @@ public sealed class MergeMissingMasterPreflightTests : IClassFixture<MergeMissin
     [Fact]
     public void AnIntactDonorStillRunsTheIdentifyPass()
     {
-        var before = RemapEngine.IdentifyPasses;
+        var before = _w.Svc.Counters.IdentifyPasses;
 
         var o = _w.Svc.MergePlugins(new[] { MergeMissingMasterWorld.Intact }, "HcMmIntactRename");
 
         Assert.True(o.Success, o.Error);
-        Assert.Equal(1, RemapEngine.IdentifyPasses - before);
+        Assert.Equal(1, _w.Svc.Counters.IdentifyPasses - before);
     }
 }
 

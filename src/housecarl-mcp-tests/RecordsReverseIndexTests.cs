@@ -8,7 +8,7 @@ namespace HousecarlMcpTests;
 
 /// <summary>The unbounded reverse question — <c>references=</c> with no <c>types=</c>/<c>plugins=</c> scope —
 /// answered off the reverse-reference index, driven through the tool.</summary>
-[Collection(SerialRecordsCollection.Name)]   // process-global seams, #903
+[Collection("records")]
 [Trait("tier", "integration")]
 public sealed class RecordsReverseIndexTests : RecordsTestBase
 {
@@ -394,9 +394,9 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
     [Fact]
     public void TheReverseLaneAnswersTheSameWithoutAPluginWalkPerMatch()
     {
-        var before = LoadOrderResolver.BodySeeks;
+        var before = Svc.Counters.BodySeeks;
         var refs = RecordsTools.Records(Svc, references: new[] { Fid(W.MgefA) });
-        var refSeeks = LoadOrderResolver.BodySeeks - before;
+        var refSeeks = Svc.Counters.BodySeeks - before;
 
         Assert.Equal(
             "records  form=summary  source=winner\n"
@@ -407,10 +407,10 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
             Stable(refs));
         Assert.True(refSeeks <= 1, $"a 2-match unbounded references= cost {refSeeks} per-record plugin walks.");
 
-        before = LoadOrderResolver.BodySeeks;
+        before = Svc.Counters.BodySeeks;
         var walk = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
                                         walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 6 });
-        var walkSeeks = LoadOrderResolver.BodySeeks - before;
+        var walkSeeks = Svc.Counters.BodySeeks - before;
 
         Assert.Equal(
             "records  form=summary\n"

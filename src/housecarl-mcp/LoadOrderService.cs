@@ -160,7 +160,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     // A kept asset build must not be stranded by advancing the baseline here;
                     // contract in docs/architecture/load-order-service.md.
                     bool assetBuildIsBehind = _profileHeld is not null || _resolvedPaths.Count == 0;
-                    _resolver = LoadOrderResolver.Build(paths, ExplainPluginAbsence);
+                    _resolver = LoadOrderResolver.Build(paths, ExplainPluginAbsence, Counters);
                     _resolvedPaths = paths;
                     _profileStamps = profileStamps;
                     if (assetBuildIsBehind) { InvalidateAssetResolver(); _profileHeld = null; }
@@ -275,6 +275,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     /// <summary>The records render bounds in force on this service; production keeps the default, a test lowers its own world's.</summary>
     internal RenderBounds Bounds { get; set; } = RenderBounds.Default;
+
+    /// <summary>What this service's reads cost, carried by every resolver it builds; only the cost tests read it.</summary>
+    internal CostCounters Counters { get; } = new();
 
     // The reads area's tool-facing surface; the bodies are in RecordReads.cs, RecordPoles.cs, RecordWalk.cs, RecordQuery.cs and TreeFold.cs.
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
@@ -832,7 +835,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             if (_resolver is not null)
             {
                 // The rebuild carries the explainer too, or a profile change would drop every refusal to the flat not-found.
-                var rebuilt = LoadOrderResolver.Build(paths, ExplainPluginAbsence);
+                var rebuilt = LoadOrderResolver.Build(paths, ExplainPluginAbsence, Counters);
                 // The reverse-reference index is derived from plugin bytes, not from this snapshot, so it carries over.
                 rebuilt.AdoptReverseIndexFrom(_resolver);
                 _resolver.Dispose();

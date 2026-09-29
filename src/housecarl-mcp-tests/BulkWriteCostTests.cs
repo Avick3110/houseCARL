@@ -21,7 +21,6 @@ namespace HousecarlMcpTests;
 /// nothing still looks right on every arm except N specs naming N DISTINCT parents.</para>
 /// </summary>
 [Trait("tier", "integration")]
-[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class BulkWriteCostTests : IDisposable
 {
     const int Records = 300;
@@ -72,11 +71,11 @@ public sealed class BulkWriteCostTests : IDisposable
             Target = k, Path = new[] { "BasicStats", "Damage" }, Verb = "Set", Value = "42",
         }).ToList();
 
-        var passesBefore = LoadOrderResolver.CollectPasses;
-        var seeksBefore = LoadOrderResolver.BodySeeks;
+        var passesBefore = _resolver.Counters.CollectPasses;
+        var seeksBefore = _resolver.Counters.BodySeeks;
         var outcome = WritePatchBuilder.Apply(_resolver, _rulebook, edits, Path.Combine(_root, "HcBulkCostApply.esp"), extend: false);
-        var passes = LoadOrderResolver.CollectPasses - passesBefore;
-        var seeks = LoadOrderResolver.BodySeeks - seeksBefore;
+        var passes = _resolver.Counters.CollectPasses - passesBefore;
+        var seeks = _resolver.Counters.BodySeeks - seeksBefore;
 
         Assert.True(outcome.Success, outcome.Error);
         Assert.True(passes == 1, $"{Ops} edits out of one plugin walked it {passes} times.");
@@ -90,12 +89,12 @@ public sealed class BulkWriteCostTests : IDisposable
             .Select(k => new WritePatchBuilder.ForwardSpec { Target = k, FromPlugin = _masterName })
             .ToList();
 
-        var passesBefore = LoadOrderResolver.CollectPasses;
-        var seeksBefore = LoadOrderResolver.BodySeeks;
+        var passesBefore = _resolver.Counters.CollectPasses;
+        var seeksBefore = _resolver.Counters.BodySeeks;
         var outcome = WritePatchBuilder.ForwardRecords(_resolver, specs, Path.Combine(_root, "HcBulkCostForward.esp"),
                                                        extend: false, sourceParam: "source");
-        var passes = LoadOrderResolver.CollectPasses - passesBefore;
-        var seeks = LoadOrderResolver.BodySeeks - seeksBefore;
+        var passes = _resolver.Counters.CollectPasses - passesBefore;
+        var seeks = _resolver.Counters.BodySeeks - seeksBefore;
 
         Assert.True(outcome.Success, outcome.Error);
         Assert.True(passes == 1, $"{Ops} forwards out of one plugin walked it {passes} times.");
@@ -116,11 +115,11 @@ public sealed class BulkWriteCostTests : IDisposable
     {
         var specs = ChildSpecs(Ops, "A");
 
-        var passesBefore = LoadOrderResolver.CollectPasses;
-        var seeksBefore = LoadOrderResolver.BodySeeks;
+        var passesBefore = _resolver.Counters.CollectPasses;
+        var seeksBefore = _resolver.Counters.BodySeeks;
         var outcome = WritePatchBuilder.CreateRecords(_resolver, _rulebook, specs, Path.Combine(_root, "HcBulkCostCreate.esp"), extend: false);
-        var passes = LoadOrderResolver.CollectPasses - passesBefore;
-        var seeks = LoadOrderResolver.BodySeeks - seeksBefore;
+        var passes = _resolver.Counters.CollectPasses - passesBefore;
+        var seeks = _resolver.Counters.BodySeeks - seeksBefore;
 
         Assert.True(outcome.Success, outcome.Error);
         Assert.Equal(Ops, outcome.Created.Count);
@@ -154,26 +153,26 @@ public sealed class BulkWriteCostTests : IDisposable
         Assert.True(seed.Success, seed.Error);
 
         // Now the artifact carries that topic as an override: the loop hosts the children in it and reads no body.
-        var passesBefore = LoadOrderResolver.CollectPasses;
+        var passesBefore = _resolver.Counters.CollectPasses;
         var carried = WritePatchBuilder.CreateRecords(_resolver, _rulebook,
             Enumerable.Range(0, Ops).Select(i => new WritePatchBuilder.CreateSpec
             {
                 RecordType = "DialogResponses", EditorId = "HcBulkCostCarriedInfo" + i,
                 ParentRef = carriedTopic.ToString(), Edits = Array.Empty<WriteRequest>(),
             }).ToList(), patch, extend: true);
-        var carriedPasses = LoadOrderResolver.CollectPasses - passesBefore;
+        var carriedPasses = _resolver.Counters.CollectPasses - passesBefore;
         Assert.True(carried.Success, carried.Error);
         Assert.True(carriedPasses == 0, $"a parent the artifact already carries cost {carriedPasses} plugin walk(s); the declare pass should skip it.");
 
         // Not in the load order at all: the loop refuses before any fetch, so the declare pass must too.
-        passesBefore = LoadOrderResolver.CollectPasses;
+        passesBefore = _resolver.Counters.CollectPasses;
         var absent = WritePatchBuilder.CreateRecords(_resolver, _rulebook,
             Enumerable.Range(0, Ops).Select(i => new WritePatchBuilder.CreateSpec
             {
                 RecordType = "DialogResponses", EditorId = "HcBulkCostAbsentInfo" + i,
                 ParentRef = $"{(0x800 + i):X6}:HcBulkCostNotInOrder.esm", Edits = Array.Empty<WriteRequest>(),
             }).ToList(), Path.Combine(_root, "HcBulkCostAbsent.esp"), extend: false);
-        var absentPasses = LoadOrderResolver.CollectPasses - passesBefore;
+        var absentPasses = _resolver.Counters.CollectPasses - passesBefore;
         Assert.False(absent.Success);
         Assert.True(absentPasses == 0, $"a parent the order does not hold cost {absentPasses} plugin walk(s); a refusal must stay free.");
     }
@@ -184,10 +183,10 @@ public sealed class BulkWriteCostTests : IDisposable
     {
         long Cost(int ops, string tag, string name)
         {
-            var before = LoadOrderResolver.CollectPasses + LoadOrderResolver.BodySeeks;
+            var before = _resolver.Counters.CollectPasses + _resolver.Counters.BodySeeks;
             var outcome = WritePatchBuilder.CreateRecords(_resolver, _rulebook, ChildSpecs(ops, tag), Path.Combine(_root, name), extend: false);
             Assert.True(outcome.Success, outcome.Error);
-            return LoadOrderResolver.CollectPasses + LoadOrderResolver.BodySeeks - before;
+            return _resolver.Counters.CollectPasses + _resolver.Counters.BodySeeks - before;
         }
 
         Assert.Equal(Cost(2, "B", "HcBulkCostCreateTwo.esp"), Cost(Ops, "C", "HcBulkCostCreateAll.esp"));
@@ -203,10 +202,10 @@ public sealed class BulkWriteCostTests : IDisposable
             {
                 Target = k, Path = new[] { "BasicStats", "Damage" }, Verb = "Set", Value = "42",
             }).ToList();
-            var before = LoadOrderResolver.CollectPasses + LoadOrderResolver.BodySeeks;
+            var before = _resolver.Counters.CollectPasses + _resolver.Counters.BodySeeks;
             var outcome = WritePatchBuilder.Apply(_resolver, _rulebook, edits, Path.Combine(_root, name), extend: false);
             Assert.True(outcome.Success, outcome.Error);
-            return LoadOrderResolver.CollectPasses + LoadOrderResolver.BodySeeks - before;
+            return _resolver.Counters.CollectPasses + _resolver.Counters.BodySeeks - before;
         }
 
         Assert.Equal(Cost(2, "HcBulkCostTwo.esp"), Cost(Records, "HcBulkCostAll.esp"));
