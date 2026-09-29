@@ -9,7 +9,8 @@ namespace HousecarlMcpTests;
 
 /// <summary>The allocation, cap and remedy properties of the merged check response, asked of every shape it can
 /// produce: each family subset in the listing and counts_only lanes, with a roster, a refused family, two seeds and
-/// an off-order file, in both transports, at every integer cap from 1 to past the whole answer. Moved from the
+/// an off-order file, in both transports, at every 11th cap from the shape's offset to past the whole answer (the offsets differ by
+/// shape, so the shapes together ask every residue). Moved from the
 /// generator's <c>CheckShapeMatrix</c> (run inside the <c>check-guard</c> probe); the sweep runs once and each fact
 /// asserts its own property off it.</summary>
 [Trait("tier", "integration")]
