@@ -241,6 +241,14 @@ static class BatchRender
         return string.Concat(lists.Select((l, i) => CaveatLines(l, cuts[i], "")));
     }
 
+    /// <summary>One list's lines cut to <paramref name="room"/> chars by the caveat cut: whole with no marker when it
+    /// fits, else the marker's room held back and at least one entry named.</summary>
+    public static string CutLines(CaveatList list, int room)
+    {
+        var (shown, omitted, _) = CaveatCut(list, Demand(list), room);
+        return CaveatLines(list, (shown, omitted), "");
+    }
+
     static int LineWidth(CaveatList list, string item) => list.Lead.Length + item.Length + 1;   // + the line's own newline
 
     /// <summary>What a list writes whole: its lines, with no marker.</summary>
