@@ -93,10 +93,13 @@ static class SkyPatcherWire
         string folderCut = filter is null
             ? "... [remaining folders omitted at max_chars — raise it or pass filter=]\n"
             : "... [remaining matching folders omitted at max_chars — raise it or narrow filter=]\n";
+        // The notes close the body and are counted when cut, so their marker's room is held back with the other owed notices.
+        int notes = d.NoOpNotes.Count + d.Scan.Notes.Count;
+        int notesOwed = notes > 0 ? NotesCut(notes, notes).Length : 0;
         // The header above is already in sb; the hint is advice, so it is written only where it fits beside what is owed.
-        int owed = SectionsMissed(ReportNames, maxChars).Length + (folders.Count > 0 ? folderCut.Length : 0);
+        int owed = SectionsMissed(ReportNames, maxChars).Length + notesOwed + (folders.Count > 0 ? folderCut.Length : 0);
         string hint = sb.Length + owed + Hint.Length <= cap ? Hint : "";
-        int budget = cap - hint.Length - SectionsMissed(ReportNames, maxChars).Length;
+        int budget = cap - hint.Length - SectionsMissed(ReportNames, maxChars).Length - notesOwed;
         // Each line is admitted by the width it writes, with its cut notice's room held back.
         int listRoom = budget - folderCut.Length - FileCut.Length - (filter is null ? 0 : LineCut.Length);
         bool listCut = false;
@@ -168,13 +171,16 @@ static class SkyPatcherWire
             missed.Add(ReportNames[3]);
         if (missed.Count > 0) sb.Append(SectionsMissed(missed, maxChars));
 
-        int noteRoom = cap - hint.Length;
+        // The replay notes and the scan notes are one list, cut and counted together as the zero-match block does.
+        int noteRoom = cap - hint.Length - notesOwed, shownNotes = 0;
         foreach (var note in d.NoOpNotes.Concat(d.Scan.Notes))
         {
             var line = "[!] " + note + "\n";
             if (sb.Length + line.Length > noteRoom) break;
             sb.Append(line);
+            shownNotes++;
         }
+        if (shownNotes < notes) sb.Append(NotesCut(shownNotes, notes));
         sb.Append(caveats);
         sb.Append(hint);
         return sb.ToString().TrimEnd('\n');
@@ -182,6 +188,9 @@ static class SkyPatcherWire
 
     /// <summary>The line every layer render closes with, spelled once so it is charged before the body.</summary>
     const string Hint = "\n→ " + ToolNames.Records + " formids=['<FormID>'] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' for just the type folders holding a match, each listed in full apply order with the matching files expanded to their lines.";
+
+    /// <summary>The marker a cut note list closes with, in the zero-match block and the layer render alike.</summary>
+    static string NotesCut(int shown, int total) => "... [showing " + shown + " of " + total + " note(s); raise max_chars]\n";
 
     const string FileCut = "  ... [cut at max_chars]\n";
     const string LineCut = "      ... [lines cut at max_chars]\n";
@@ -277,7 +286,6 @@ static class SkyPatcherWire
         }
         // The scan notes (shadowed copies, undocumented subfolders) are often why the filter matched nothing.
         int notes = d.NoOpNotes.Count + d.Scan.Notes.Count, shownNotes = 0;
-        static string NotesCut(int shown, int total) => "... [showing " + shown + " of " + total + " note(s); raise max_chars]\n";
         int room = cap - NotesCut(notes, notes).Length;
         foreach (var note in d.NoOpNotes.Concat(d.Scan.Notes))
         {
