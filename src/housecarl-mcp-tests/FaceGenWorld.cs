@@ -275,7 +275,7 @@ public class FaceGenWorld : IDisposable
         if (_cleanupFailure is not null) throw Leak();
     }
 
-    /// <summary>Closes the service, lifts the deny and deletes the root; a failed delete is kept, not thrown.</summary>
+    /// <summary>Closes the service, lifts the deny and deletes the root; keeps a failed delete, and throws only if Svc.Dispose does.</summary>
     public void Dispose()
     {
         try { Svc.Dispose(); }
