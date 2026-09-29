@@ -178,39 +178,78 @@ own row bound, because the lanes are orders of magnitude apart: named fields, wh
 ten minutes at that lane's per-row cost — a third of the 30-minute idle timeout a Claude Code client gives a
 call. What a call spent comes back as `render_ms`, which is how the estimates are checked against a real order.
 
-The comparison forms (delta/tree) get the same ten minutes, but their row cost is not one number: it is
-priced from the shape being run (`RenderBudget.ComparisonShape`), and the row bound is ten minutes divided
-by that price. Three things move it: whether `fields=` narrows the comparison, how many of the records a cell
-or topic contains (asked of the containment index per id, only for a narrowed comparison and only once the
-top-level price already fits, so a refusal on the id count needs no index), and whether a pole
-replays the SkyPatcher layer. The comparison responses carry no `render_ms` of their own, so the figures
+The comparison forms (delta/tree) get the same ten minutes, but their cost is not one number per row: it is
+priced from the versions the call reads (`RenderBudget.ComparisonShape`), and the row bound is ten minutes divided
+by the mean price of a row. What moves it:
+
+- **Versions read.** A delta reads two versions of each record. A tree reads every provider (the index's
+  `OverrideDepth`), plus one for a `versus=` that is not the winner.
+- **fields=.** A whole version costs tens of milliseconds; a narrowed one a fraction of a millisecond.
+- **Contained records.** A version of a record a cell or topic contains is dearer: whole, it is charged at the
+  dearest type measured (LAND and NAVM); narrowed, at the REFR figure.
+- **Plugin walks** (narrowed only). The comparison reads in chunks of 32 rows, and each chunk walks every provider
+  plugin its rows touch. With `fields=` named that walk is most of the cost, and it grows with the size of the
+  plugins walked, not with the rows: 1,000 NPC_ rows that all live in `Skyrim.esm` cost 3.5 ms a row, while 1,276
+  catalogue ids spread over small plugins cost 0.12. So a narrowed comparison is charged per megabyte of provider
+  plugin each chunk walks.
+- **SkyPatcher post-state.** A pole that replays the SkyPatcher layer adds a fixed amount per row.
+
+The scan lanes count all of this exactly, off the build the scan matched (`outcome.Pin`). The off-order lane also
+takes the file's own containment, which the active order's index does not hold. The formids= list lane first
+refuses on the list's length at the cheapest a row can be (top-level, one version for a tree), before the index is
+built, and says that bound is an upper one. Once that fits it counts exactly, and the comparison is checked
+against the build that was counted on. The comparison responses carry no `render_ms` of their own, so the figures
 below are client wall clock. The old rule, one 250 ms floor against a 250-row bound (#716, measured on REFR scans
 before the per-plugin gather of #765), refused the battery's 1,276-record post-state delta as "about 5
 minutes" (#932): that estimate was near the truth, but a one-minute budget refused a five-minute job every
 other lane would have run, and it refused a narrowed comparison that takes a third of a second.
 
-Two measurements, both 2026-09-29 on `E:/Authoria - Requiem Reforged` (3,254 plugins) through a private
-Release server over stdio, warm. The first was taken with other sessions running on the same machine; the
-second, the blind review's re-run on PR #976, on a quiet one, and is 1.5 to 2.3 times faster row for row:
+Measurements, all 2026-09-29 on `E:/Authoria - Requiem Reforged` (3,254 plugins) through a private Release server
+over stdio, warm. "Loaded" runs had other sessions on the same machine; the quiet column is the blind review's
+re-run on PR #976, 1.5 to 2.3 times faster row for row. Versions are the mean versions read a row; MB walked is the
+sum, over chunks, of the provider plugins each chunk walks.
 
-| form | source / reference | fields | loaded: records, s, ms a row | quiet: records, s, ms a row |
-|---|---|---|---|---|
-| delta | SkyPatcher post vs winner | whole | 1,276 ARMO/WEAP, 297.7, 233 | 300, 38.8, 129 |
-| delta | winner vs previous_provider | whole | 1,276 ARMO/WEAP, 180.6, 142 | 300, 24.8, 83 |
-| tree | every provider vs winner | whole | 1,276 ARMO/WEAP, 237.0, 186 | — |
-| tree | every provider vs winner | whole | 5,798 REFR, 894.8, 154 | 300 REFR, 28.7, 96 |
-| delta | SkyPatcher post vs winner | Keywords | 1,276 ARMO/WEAP, 54.4, 43 | — |
-| delta | winner vs previous_provider | Keywords | 1,276 ARMO/WEAP, 0.33, 0.26 | 1,276, 0.18, 0.14 |
-| tree | every provider vs winner | Keywords | 1,276 ARMO/WEAP, 0.33, 0.26 | — |
-| tree | every provider vs winner | Base | 1,000 REFR, 20.7, 21 | 1,000 REFR, 14.1, 14 |
+| form | source / reference | fields | records | versions | loaded s (ms a row) | quiet s (ms a row) |
+|---|---|---|---|---|---|---|
+| delta | SkyPatcher post vs winner | whole | 1,276 ARMO/WEAP | 2 | 297.7 (233) | 300: 38.8 (129) |
+| delta | winner vs previous_provider | whole | 1,276 ARMO/WEAP | 2 | 180.6 (142) | 300: 24.8 (83) |
+| tree | every provider vs winner | whole | 1,276 ARMO/WEAP | 2.34 | 237.0 (186) | — |
+| tree | every provider vs winner | whole | 5,798 REFR | 1.52 | 894.8 (154) | 300: 28.7 (96) |
+| tree | every provider vs winner | whole | 536 NPC_, 6–14 providers | 6.95 | 115.3 (215) | — |
+| tree | every provider vs winner | whole | 536 NPC_, 2 providers | 2 | 37.3 (70) | — |
+| tree | every provider vs winner | whole | 536 NPC_, 1 provider | 1 | 18.8 (35) | — |
+| tree | every provider vs winner | whole | 300 LAND, Skyrim.esm | 1 | 30.6 (102) | — |
+| tree | every provider vs winner | whole | 300 NAVM, Skyrim.esm | 1 | 29.1 (97) | — |
+| delta | SkyPatcher post vs winner | Keywords | 1,276 ARMO/WEAP | 2 | 54.4 (43) | — |
+| delta | winner vs previous_provider | Keywords | 1,276 ARMO/WEAP | 2 | 0.33 (0.26) | 1,276: 0.18 (0.14) |
+| tree | every provider vs winner | EditorID | 1,276 ARMO/WEAP, 263 MB walked | 2.34 | 0.15 (0.12) | — |
+| tree | every provider vs winner | Base | 1,000 REFR, 6,784 MB walked | 1.45 | 20.7 (21) | 14.1 (14) |
+| tree | every provider vs winner | EditorID | first 1,000 NPC_, 7,992 MB walked | 1 | 3.52 (3.5) | — |
+| tree | every provider vs winner | EditorID | first 10,000 NPC_, 27,761 MB walked | 1.66 | 9.48 (0.95) | — |
+| tree | every provider vs winner | EditorID | all 65,748 NPC_, 204,967 MB walked | 1.36 | 199.7, then 215.7 (3.3) | — |
+| delta | winner vs previous_provider | EditorID | all 65,748 NPC_ | 2 | 153.1 (2.3) | — |
 
-The prices are the quiet figures rounded up: a whole-record row 100 ms (delta or tree, top-level or contained;
-quiet 83 to 96); a narrowed row 0.2 ms on a top-level record and 15 ms on a contained one; a post-state pole adds
-45 ms (quiet 129 less 83). A loaded machine runs up to about twice the price, still inside the 30-minute client
-timeout at the ten-minute bound. The contained prices were measured on REFR only and are charged to every record a
-cell or topic contains (INFO, ACHR, NAVM, LAND and the rest); a NAVM or LAND body is larger than a REFR's and may
-cost more. So the battery's call is priced at 145 ms a row, about 3 minutes, and runs; the 5,798-REFR tree is
-priced at about 10 minutes (quiet 9.3, loaded 15) and runs; a REFR tree past 6,000 rows is refused. The bounds are
+Per version, the whole-record figures are 31 to 42 ms on top-level records (NPC_ trees loaded, the quiet delta) and
+62 to 102 ms on contained ones (quiet REFR, loaded LAND and NAVM). The narrowed figures come to 0.34 to 1.05 ms per
+megabyte walked on top-level records, where a price per row would have ranged over thirty-fold. The prices, each
+rounded up from those figures:
+
+| price | per | figure |
+|---|---|---|
+| whole version, top-level | version read | 50 ms |
+| whole version, contained | version read | 100 ms |
+| narrowed version, top-level | version read | 0.1 ms |
+| narrowed version, contained | version read | 10 ms |
+| narrowed plugin walk | megabyte walked | 1.1 ms |
+| SkyPatcher post-state | row | 45 ms |
+
+So the battery's call is priced at 145 ms a row, about 3 minutes, and runs. The 5,798-REFR whole tree is priced at
+about 15 minutes (1.52 versions at 100 ms) and is refused; it ran in 9.3 minutes quiet and 15 loaded. A narrowed
+tree over every NPC_ is priced at about 4 minutes and runs. The flat 0.2 ms a row this replaced priced that same
+call at 13 seconds, so a narrowed comparison 3,000,000 rows long, the old bound, could have run for hours. The
+whole-record prices were measured with the plugin walks inside them, which is why the walk is charged to narrowed
+comparisons only. A loaded machine runs up to about twice the price, still inside the 30-minute client timeout at
+the ten-minute bound. The bounds are
 per-service settings (`Bounds` on the service, `MaxAssetPaths` on the assets area) so a test lowers only its
 own world's; production never assigns them. `AccountingReserve` is held back from
 `max_chars` so the accounting line is paid for inside the cap.
@@ -247,9 +286,13 @@ own world's; production never assigns them. `AccountingReserve` is held back fro
   reserve is taken out of `max_chars` is not asserted.
 - *The render bound is a time budget, not a width one* (the comparison forms): `ComparisonBoundTests` — the battery's
   post-state delta and a narrowed catalogue fit, a REFR-scale tree is refused at a price within a factor of two of
-  both measured rates, and a narrowed comparison over contained records is charged their own price;
-  `ComparisonBoundCallSiteTests` — through `housecarl_records` with the derived bound, `fields=`, a placed
-  reference and a post-state pole each move the quoted price.
+  both measured rates, a tree is priced per version it reads, contained records are charged their own price whole
+  or narrowed, the all-NPC_ narrowed tree is priced within a factor of two of its measured time by the plugins it
+  walks, and a refusal on the floor says its bound is an upper one; `ComparisonBoundCallSiteTests` — through
+  `housecarl_records` with the derived bound, `fields=`, a placed reference, a post-state pole, the weapon's
+  three providers and the plugins its chunk walks each move the quoted price, a scan counts exactly, and a list
+  refused on its length says so; `ComparisonBoundOffOrderTests` — a switched-off file's new placed references are
+  priced as contained.
 
 ## Where
 

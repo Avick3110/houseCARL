@@ -33,8 +33,8 @@ made the change.
   `showing N of M note(s)` when it cuts them instead of dropping them silently.**
 - **`housecarl_records`' `plugins.names` and `housecarl_check`'s `plugins=` and `exclude=` now take `@file`, one plugin
   filename per line.** Pass `plugins={"names": ["@C:/work/plugins.txt"]}`: the scan covers exactly those plugins.
-- **The delta and tree bound is now priced by the shape being run and given the ten minutes other lanes have,
-  so narrowed comparisons at catalogue scale run instead of being refused.** A refusal quotes its shape's price.
+- **The delta and tree bound is now priced by what the call reads and given the ten minutes other lanes have,
+  so narrowed comparisons at catalogue scale run instead of being refused.** A refusal quotes its price.
 
 ## 2.0.3 — 2026-09-23
 
