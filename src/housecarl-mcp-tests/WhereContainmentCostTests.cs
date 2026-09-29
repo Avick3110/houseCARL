@@ -11,7 +11,7 @@ namespace HousecarlMcpTests;
 /// Whether the hop released a containing record's body or kept one per distinct parent for the whole call is
 /// invisible in the answer and visible only in memory — a Mutagen getter is a slice over the whole GRUP it was read
 /// from and pins that array — which is the argument these counters are added on, the same one
-/// <c>LoadOrderResolver.BodySeeks</c> and the walk's high-water counters were added on. #720: ~0.8 MB held per
+/// <c>CostCounters.BodySeeks</c> and the walk's high-water counters were added on. #720: ~0.8 MB held per
 /// parent evaluated took a 32 GB machine down over a REFR-sized scope.
 ///
 /// <para>The verdicts themselves are covered in <see cref="WhereContainmentTests"/>; these tests re-check them only

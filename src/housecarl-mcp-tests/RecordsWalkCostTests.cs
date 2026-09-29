@@ -115,8 +115,8 @@ public sealed class WalkCostFixture : IDisposable
     public void Dispose() => W.Dispose();
 }
 
-/// <summary>One collection, sharing one walk-cost world. Serial for the reason <see cref="SerialCollection"/> is (#903).</summary>
-[CollectionDefinition("walk-cost", DisableParallelization = true)]
+/// <summary>One collection, sharing one walk-cost world.</summary>
+[CollectionDefinition("walk-cost")]
 public sealed class WalkCostCollection : ICollectionFixture<WalkCostFixture> { }
 
 /// <summary>
@@ -149,10 +149,10 @@ public sealed class RecordsWalkCostTests
     [Fact]
     public void AWalkGathersItsSeedBodiesOncePerPluginNotOncePerSeed()
     {
-        var before = LoadOrderResolver.BodySeeks;
+        var before = Svc.Counters.BodySeeks;
         var response = RecordsTools.Records(Svc, types: Npc, plugins: Scope(), walk: TemplateWalk(),
                                             project: Chain(), counts_only: true);
-        var seeks = LoadOrderResolver.BodySeeks - before;
+        var seeks = Svc.Counters.BodySeeks - before;
 
         Assert.Contains($"seeds={WalkCostWorld.Seeds + 2}", response);
         Assert.True(seeks <= 1, $"{WalkCostWorld.Seeds + 2} walk seeds cost {seeks} per-record plugin walks.");
@@ -164,11 +164,11 @@ public sealed class RecordsWalkCostTests
     [Fact]
     public void AWalkGathersEachHopsBodiesTogetherNotOnePerNode()
     {
-        var before = LoadOrderResolver.BodySeeks;
+        var before = Svc.Counters.BodySeeks;
         var response = RecordsTools.Records(Svc, types: Npc, plugins: Scope(),
                                             walk: new RecordsTools.RecordsWalk { depth = 1 },
                                             project: Chain(), counts_only: true);
-        var seeks = LoadOrderResolver.BodySeeks - before;
+        var seeks = Svc.Counters.BodySeeks - before;
 
         Assert.Contains($"reached={WalkCostWorld.Seeds * (WalkCostWorld.ItemsPerSeed + 1) + 1}", response);
         Assert.True(seeks <= 1, $"a closure walk over {WalkCostWorld.Seeds} seeds cost {seeks} per-record plugin walks.");
@@ -187,9 +187,9 @@ public sealed class RecordsWalkCostTests
                                               project: Chain(), counts_only: true);
         Walk();
 
-        var before = GC.GetTotalAllocatedBytes(precise: true);
+        var before = GC.GetAllocatedBytesForCurrentThread();
         Walk();
-        var allocated = GC.GetTotalAllocatedBytes(precise: true) - before;
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         const long perSeedCeiling = 128 * 1024;
         var ceiling = perSeedCeiling * (WalkCostWorld.Seeds + 2);
@@ -210,9 +210,9 @@ public sealed class RecordsWalkCostTests
 
         var reached = WalkCostWorld.Seeds * (WalkCostWorld.ItemsPerSeed + 1) + 1;
         Assert.Contains($"reached={reached}", response);
-        Assert.Equal(0, RecordReads.WalkBodiesHeldAtReturn);
-        Assert.True(RecordReads.WalkBodyHighWater <= BodyPrefetch.ChunkRows,
-                    $"the walk held {RecordReads.WalkBodyHighWater} bodies at once — past the {BodyPrefetch.ChunkRows} one gather pass allows.");
+        Assert.Equal(0, Svc.Counters.WalkBodiesHeldAtReturn);
+        Assert.True(Svc.Counters.WalkBodyHighWater <= BodyPrefetch.ChunkRows,
+                    $"the walk held {Svc.Counters.WalkBodyHighWater} bodies at once — past the {BodyPrefetch.ChunkRows} one gather pass allows.");
     }
 
     /// <summary>The same walk with a pass small enough to SPLIT — every seed slice and every hop runs several
@@ -235,9 +235,9 @@ public sealed class RecordsWalkCostTests
 
         Assert.Equal(whole, split);
         Assert.Contains($"reached={reached}", split);
-        Assert.Equal(0, RecordReads.WalkBodiesHeldAtReturn);
-        Assert.True(RecordReads.WalkBodyHighWater <= passRows,
-                    $"a walk passing {passRows} keys at a time held {RecordReads.WalkBodyHighWater} bodies at once.");
+        Assert.Equal(0, Svc.Counters.WalkBodiesHeldAtReturn);
+        Assert.True(Svc.Counters.WalkBodyHighWater <= passRows,
+                    $"a walk passing {passRows} keys at a time held {Svc.Counters.WalkBodyHighWater} bodies at once.");
     }
 
     /// <summary>The node budget is spent across passes, not per pass: a seed capped at one node records one node and
@@ -251,7 +251,7 @@ public sealed class RecordsWalkCostTests
                                  project: Chain(), counts_only: true));
 
         Assert.Contains($"reached={WalkCostWorld.Seeds + 1}", response);
-        Assert.Equal(0, RecordReads.WalkBodiesHeldAtReturn);
+        Assert.Equal(0, Svc.Counters.WalkBodiesHeldAtReturn);
     }
 
     /// <summary>A severity 'refuse' still names the first seed in seed order at the shallowest hop, and the pass it
@@ -269,7 +269,7 @@ public sealed class RecordsWalkCostTests
 
         Assert.StartsWith("error:", whole);
         Assert.Equal(whole, split);
-        Assert.Equal(0, RecordReads.WalkBodiesHeldAtReturn);
+        Assert.Equal(0, Svc.Counters.WalkBodiesHeldAtReturn);
     }
 
     /// <summary>The gather pass size lowered on one service is not seen by another over the same world: it is a
@@ -287,11 +287,11 @@ public sealed class RecordsWalkCostTests
         try
         {
             Walk(Svc);
-            Assert.True(RecordReads.WalkBodyHighWater <= 5, $"the lowered service held {RecordReads.WalkBodyHighWater} bodies at once.");
+            Assert.True(Svc.Counters.WalkBodyHighWater <= 5, $"the lowered service held {Svc.Counters.WalkBodyHighWater} bodies at once.");
 
             Assert.Equal(BodyPrefetch.ChunkRows, other.ReadArea.WalkPassRows);
             Walk(other);
-            Assert.True(RecordReads.WalkBodyHighWater > 5, $"the other service held only {RecordReads.WalkBodyHighWater} bodies at once, so it walked in the lowered passes.");
+            Assert.True(other.Counters.WalkBodyHighWater > 5, $"the other service held only {other.Counters.WalkBodyHighWater} bodies at once, so it walked in the lowered passes.");
         }
         finally { Svc.ReadArea.WalkPassRows = prior; }
     }
@@ -319,10 +319,10 @@ public sealed class RecordsWalkCostTests
     [Fact]
     public void ATemplateReportReadsNoChainNodeTheWalkAlreadyRead()
     {
-        var before = LoadOrderResolver.BodySeeks;
+        var before = Svc.Counters.BodySeeks;
         var response = RecordsTools.Records(Svc, types: Npc, plugins: Scope(), walk: TemplateWalk(),
                                             project: Chain(), counts_only: true);
-        var seeks = LoadOrderResolver.BodySeeks - before;
+        var seeks = Svc.Counters.BodySeeks - before;
 
         Assert.DoesNotContain("error:", response);
         Assert.True(seeks <= 1, $"the template report over {WalkCostWorld.Seeds + 2} seeds cost {seeks} per-record plugin walks.");
@@ -364,13 +364,13 @@ public sealed class RecordsWalkCostTests
     [Fact]
     public void ACappedSeedGathersNoBodiesPastItsCap()
     {
-        var beforeKeys = BodyPrefetch.KeysWanted;
-        var beforeSeeks = LoadOrderResolver.BodySeeks;
+        var beforeKeys = Svc.Counters.KeysWanted;
+        var beforeSeeks = Svc.Counters.BodySeeks;
         var response = RecordsTools.Records(Svc, types: Npc, plugins: Scope(),
                                             walk: new RecordsTools.RecordsWalk { depth = 2, max_nodes = 1 },
                                             project: Chain(), counts_only: true);
-        var wanted = BodyPrefetch.KeysWanted - beforeKeys;
-        var seeks = LoadOrderResolver.BodySeeks - beforeSeeks;
+        var wanted = Svc.Counters.KeysWanted - beforeKeys;
+        var seeks = Svc.Counters.BodySeeks - beforeSeeks;
 
         // Every seed but the top of the chain proves exactly one node, which is what the cap allows.
         Assert.Contains($"reached={WalkCostWorld.Seeds + 1}", response);
@@ -391,11 +391,11 @@ public sealed class RecordsWalkCostTests
     [Fact]
     public void AHopDoesNotSpendItsGatherOnNodesTheSeedAlreadyVisited()
     {
-        var before = LoadOrderResolver.BodySeeks;
+        var before = Svc.Counters.BodySeeks;
         var response = RecordsTools.Records(Svc, formids: new[] { _w.RevisitSeed },
                                             walk: new RecordsTools.RecordsWalk { depth = 2, max_nodes = 2 * WalkCostWorld.Hubs },
                                             project: Chain(), counts_only: true);
-        var seeks = LoadOrderResolver.BodySeeks - before;
+        var seeks = Svc.Counters.BodySeeks - before;
 
         // The hubs at hop 1, their terminals at hop 2 — the same answer either way; only the cost differed.
         Assert.Contains($"reached={2 * WalkCostWorld.Hubs}", response);

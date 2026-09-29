@@ -14,7 +14,6 @@ namespace HousecarlMcpTests;
 /// null for one the plugin does not hold.
 /// </summary>
 [Trait("tier", "integration")]
-[Collection(SerialCollection.Name)]   // process-global seams, #903
 public sealed class BodyGatherEquivalenceTests : IDisposable
 {
     const int Records = 200;
@@ -127,10 +126,10 @@ public sealed class BodyGatherEquivalenceTests : IDisposable
 
         // Never declared. The Seek option fetches it one at a time; this one answers null and pays NO seek, because
         // the caller's own read raises whatever it raises.
-        var before = LoadOrderResolver.BodySeeks;
+        var before = _resolver.Counters.BodySeeks;
         Assert.Null(gather.Body(_masterName, _keys[1]));
         Assert.Null(gather.Body(_replName, _keys[10]));
-        Assert.Equal(before, LoadOrderResolver.BodySeeks);
+        Assert.Equal(before, _resolver.Counters.BodySeeks);
     }
 
     [Fact]

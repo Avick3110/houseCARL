@@ -213,8 +213,8 @@ public sealed class RenderCostFixture : IDisposable
     public void Dispose() => W.Dispose();
 }
 
-/// <summary>One collection, sharing one <see cref="RenderCostWorld"/>. Serial for the reason <see cref="SerialCollection"/> is (#903).</summary>
-[CollectionDefinition("render-cost", DisableParallelization = true)]
+/// <summary>One collection, sharing one <see cref="RenderCostWorld"/>.</summary>
+[CollectionDefinition("render-cost")]
 public sealed class RenderCostCollection : ICollectionFixture<RenderCostFixture> { }
 
 /// <summary>
@@ -266,13 +266,13 @@ public sealed class RecordsRenderCostTests
         var ids = AllArmorIds;
         Assert.Equal(RenderCostWorld.Contested, ids.Length);
 
-        var beforeBodies = RecordReads.TreeBodiesRead;
-        var beforePasses = LoadOrderResolver.CollectPasses;
-        var beforeSeeks = LoadOrderResolver.BodySeeks;
+        var beforeBodies = Svc.Counters.TreeBodiesRead;
+        var beforePasses = Svc.Counters.CollectPasses;
+        var beforeSeeks = Svc.Counters.BodySeeks;
         var response = RecordsTools.Records(Svc, formids: ids, project: Tree(), max_chars: 4_000_000);
-        var bodies = RecordReads.TreeBodiesRead - beforeBodies;
-        var passes = LoadOrderResolver.CollectPasses - beforePasses;
-        var seeks = LoadOrderResolver.BodySeeks - beforeSeeks;
+        var bodies = Svc.Counters.TreeBodiesRead - beforeBodies;
+        var passes = Svc.Counters.CollectPasses - beforePasses;
+        var seeks = Svc.Counters.BodySeeks - beforeSeeks;
 
         Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
         int stack = RenderCostWorld.Overriders + 1;
@@ -309,11 +309,11 @@ public sealed class RecordsRenderCostTests
                     .Concat(_w.PlainContestedIds.Take(RecordReads.ComparisonChunkRows / 2)).ToArray();
         Assert.Equal(RecordReads.ComparisonChunkRows, ids.Length);
 
-        var beforePasses = LoadOrderResolver.CollectPasses;
-        var beforeSeeks = LoadOrderResolver.BodySeeks;
+        var beforePasses = Svc.Counters.CollectPasses;
+        var beforeSeeks = Svc.Counters.BodySeeks;
         var response = RecordsTools.Records(Svc, formids: ids, project: Tree(), max_chars: 4_000_000);
-        var passes = LoadOrderResolver.CollectPasses - beforePasses;
-        var seeks = LoadOrderResolver.BodySeeks - beforeSeeks;
+        var passes = Svc.Counters.CollectPasses - beforePasses;
+        var seeks = Svc.Counters.BodySeeks - beforeSeeks;
 
         Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
         Assert.Equal(0, seeks);
@@ -329,10 +329,10 @@ public sealed class RecordsRenderCostTests
     public void ATreesNamedVersusPoleIsGatheredToo()
     {
         var ids = AllArmorIds;
-        var beforeSeeks = LoadOrderResolver.BodySeeks;
+        var beforeSeeks = Svc.Counters.BodySeeks;
         var response = RecordsTools.Records(Svc, formids: ids, project: Tree(), versus: Pole(_w.MasterName),
                                             max_chars: 4_000_000);
-        var seeks = LoadOrderResolver.BodySeeks - beforeSeeks;
+        var seeks = Svc.Counters.BodySeeks - beforeSeeks;
 
         Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
         Assert.Equal(0, seeks);
@@ -353,12 +353,12 @@ public sealed class RecordsRenderCostTests
     public void ADeltaGathersEachPolesBodiesPerPluginNotPerRow()
     {
         var ids = AllArmorIds;
-        var beforePasses = LoadOrderResolver.CollectPasses;
-        var beforeSeeks = LoadOrderResolver.BodySeeks;
+        var beforePasses = Svc.Counters.CollectPasses;
+        var beforeSeeks = Svc.Counters.BodySeeks;
         var response = RecordsTools.Records(Svc, formids: ids, project: DeltaForm(),
                                             versus: Pole("previous_provider"), max_chars: 4_000_000);
-        var passes = LoadOrderResolver.CollectPasses - beforePasses;
-        var seeks = LoadOrderResolver.BodySeeks - beforeSeeks;
+        var passes = Svc.Counters.CollectPasses - beforePasses;
+        var seeks = Svc.Counters.BodySeeks - beforeSeeks;
 
         Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
         Assert.Equal(0, seeks);
@@ -394,13 +394,13 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void LimitBoundsWhatATreeOverAScanReads_NotOnlyWhatItRenders()
     {
-        var before = RecordReads.TreeBodiesRead;
+        var before = Svc.Counters.TreeBodiesRead;
         var windowedResponse = RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 5);
-        var windowed = RecordReads.TreeBodiesRead - before;
+        var windowed = Svc.Counters.TreeBodiesRead - before;
 
-        before = RecordReads.TreeBodiesRead;
+        before = Svc.Counters.TreeBodiesRead;
         RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: RenderCostWorld.Weapons);
-        var whole = RecordReads.TreeBodiesRead - before;
+        var whole = Svc.Counters.TreeBodiesRead - before;
 
         Assert.False(windowedResponse.StartsWith("error:", StringComparison.Ordinal), windowedResponse);
         Assert.True(windowed * 2 < whole,
@@ -528,10 +528,10 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void ADetailRenderOpensOneOverlayPerPluginNotPerRow()
     {
-        var before = LoadOrderResolver.SessionOverlayOpens;
+        var before = Svc.Counters.SessionOverlayOpens;
         var response = RecordsTools.Records(Svc, types: Weap, format: "dense", limit: RenderCostWorld.Weapons,
                                             project: Fields(), max_chars: 4_000_000);
-        var opens = LoadOrderResolver.SessionOverlayOpens - before;
+        var opens = Svc.Counters.SessionOverlayOpens - before;
 
         Assert.Equal(RenderCostWorld.Weapons, Doc(response).GetProperty("rendered").GetInt32());
         Assert.True(opens <= 1, $"one plugin in the order and {RenderCostWorld.Weapons} rendered rows cost {opens} overlay opens.");
@@ -548,10 +548,10 @@ public sealed class RecordsRenderCostTests
         Assert.Null(q.Error);
         Assert.Equal(RenderCostWorld.Spread * RenderCostWorld.AmmoPerPlugin, q.Keys.Count);
 
-        var before = LoadOrderResolver.CollectPasses;
+        var before = Svc.Counters.CollectPasses;
         using var reader = new ScanDetailReader(Svc, q, new[] { "EditorID" }, 1, false, false, null, null, default);
         for (int i = 0; i < RenderCostWorld.AmmoPerPlugin; i++) Assert.Null(reader.Row(i).Error);   // one plugin's rows
-        var walks = LoadOrderResolver.CollectPasses - before;
+        var walks = Svc.Counters.CollectPasses - before;
 
         Assert.True(walks <= 1, $"reading {RenderCostWorld.AmmoPerPlugin} rows from one plugin walked {walks} plugins.");
     }
@@ -562,10 +562,10 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void AnEverythingRenderReadsEachPluginOnceNotOncePerRow()
     {
-        var before = LoadOrderResolver.BodySeeks;
+        var before = Svc.Counters.BodySeeks;
         var response = RecordsTools.Records(Svc, types: Weap, format: "json", limit: RenderCostWorld.Weapons,
                                             project: Everything(), max_chars: 4_000_000);
-        var seeks = LoadOrderResolver.BodySeeks - before;
+        var seeks = Svc.Counters.BodySeeks - before;
 
         Assert.Equal(RenderCostWorld.Weapons, Doc(response).GetProperty("rendered").GetInt32());
         Assert.True(seeks <= 1, $"{RenderCostWorld.Weapons} rows of form='everything' cost {seeks} per-record plugin walks.");

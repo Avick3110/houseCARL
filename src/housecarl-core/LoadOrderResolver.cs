@@ -185,12 +185,8 @@ public sealed class LoadOrderResolver : IDisposable
     /// contract in docs/architecture/load-order-resolver.md.</summary>
     public OverlaySession OpenSession() => new(this);
 
-    /// <summary>How many overlay OPENS sessions have paid in this process — what a test can hold a session-reuse claim to.</summary>
-    internal static long SessionOverlayOpens;
-
-    internal static long BodySeeks;
-
-    internal static long CollectPasses;
+    /// <summary>What this resolver's reads cost, for the cost tests; the service hands in its own so a rebuild keeps counting.</summary>
+    public CostCounters Counters { get; }
 
     public sealed class OverlaySession : IDisposable
     {
@@ -198,11 +194,13 @@ public sealed class LoadOrderResolver : IDisposable
         readonly Dictionary<int, ISkyrimModGetter> _open = new();
         internal OverlaySession(LoadOrderResolver r) => _r = r;
 
+        public CostCounters Counters => _r.Counters;
+
         internal ISkyrimModGetter Overlay(int idx)
         {
             if (!_open.TryGetValue(idx, out var ov))
             {
-                System.Threading.Interlocked.Increment(ref SessionOverlayOpens);
+                System.Threading.Interlocked.Increment(ref _r.Counters.SessionOverlayOpens);
                 _open[idx] = ov = OpenOverlay(_r._paths[idx], _r._dataDir);
             }
             return ov;
@@ -273,10 +271,11 @@ public sealed class LoadOrderResolver : IDisposable
     }
 
     LoadOrderResolver(string[] paths, string[] names, Dictionary<string, int> nameToIdx, FileStamp[] stamps,
-                      Func<string, string?>? explainAbsence)
+                      Func<string, string?>? explainAbsence, CostCounters counters)
     {
         _paths = paths; _names = names; _nameToIdx = nameToIdx; _stamps = stamps;
         _explainAbsence = explainAbsence;
+        Counters = counters;
         _dataDir = ComputeDataDir(nameToIdx, paths);
         _snap = BuildIndex();
         // Settle the heap ONCE here, on the first build only; a re-index does not repay it. Measured in #728, landed in #802.
@@ -328,7 +327,8 @@ public sealed class LoadOrderResolver : IDisposable
 
     /// <summary>Take the plugin paths already in priority order and build the index without holding any plugin open; the order is INJECTED, and open failures land in <see cref="LoadFailures"/>.</summary>
     public static LoadOrderResolver Build(IReadOnlyList<string> orderedPluginPaths,
-                                          Func<string, string?>? explainAbsence = null)
+                                          Func<string, string?>? explainAbsence = null,
+                                          CostCounters? counters = null)
     {
         var paths = new string[orderedPluginPaths.Count];
         var names = new string[orderedPluginPaths.Count];
@@ -349,7 +349,7 @@ public sealed class LoadOrderResolver : IDisposable
         // These names are the canonical spelling of every plugin in the order — every FormID token prints through them.
         FormIdToken.Publish(names);
 
-        return new LoadOrderResolver(paths, names, nameToIdx, stamps, explainAbsence);
+        return new LoadOrderResolver(paths, names, nameToIdx, stamps, explainAbsence, counters ?? new CostCounters());
     }
 
     /// <summary>Enumerate every plugin once (low→high), ONE AT A TIME, building the winner/count index for all keys and the ordered overrider list for multi-override keys only, and
@@ -766,9 +766,9 @@ public sealed class LoadOrderResolver : IDisposable
 
     /// <summary>Find one record in one open overlay: with <paramref name="getterType"/> in hand a TYPED group seek (#354), without one the flat scan. A typed walk that yields nothing falls
     /// back to the flat one, because a type Mutagen does not route would otherwise turn "this plugin has the record" into a silent "it does not".</summary>
-    static IMajorRecordGetter? SeekBody(ISkyrimModGetter ov, FormKey fk, Type? getterType)
+    IMajorRecordGetter? SeekBody(ISkyrimModGetter ov, FormKey fk, Type? getterType)
     {
-        System.Threading.Interlocked.Increment(ref BodySeeks);
+        System.Threading.Interlocked.Increment(ref Counters.BodySeeks);
         if (getterType is not null)
             foreach (var rec in ov.EnumerateMajorRecords(getterType, throwIfUnknown: false))
                 if (rec.FormKey == fk) return rec;
@@ -815,7 +815,7 @@ public sealed class LoadOrderResolver : IDisposable
         int got = 0;
         foreach (var fk in want) if (sink.ContainsKey(fk)) got++;          // already in hand from an earlier call
         if (got == want.Count) return;
-        System.Threading.Interlocked.Increment(ref CollectPasses);         // past here the plugin is actually walked
+        System.Threading.Interlocked.Increment(ref Counters.CollectPasses);         // past here the plugin is actually walked
         if (getterTypes is { Count: > 0 })
         {
             foreach (var t in getterTypes)
