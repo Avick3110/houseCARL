@@ -82,7 +82,7 @@ path walk, and containment comes off Mutagen's context walk.
   INFO answers `exists` and only a plain one answers `missing`.
 - `RecordsContainmentTests.ADeletedPlacedReferenceIsStillFilteredByTheCellThatHoldsIt` — the
   header-only-set-still-sees-deleted-records bullet, with a body-reading predicate dropping it beside.
-- `ValuePredicateProbe` test 10b (`src/housecarl-generator`) — the loud-versus-soft accounting bullet:
+- `ValuePredicateTests.Ge_OnAPathWrongForMoreThanHalfAMixedScanGetsTheSoftNote_NotTheLoudOne` — the loud-versus-soft accounting bullet:
   a path wrong for more than half a mixed scan gets "had no value on", not the loud line.
 - `RecordsArtifactTests` — `formid in @<artifact>` re-entry, its epoch check, and
   `APlainAtFileListStillEntersWithNoManifestAndNoEpochClaim` for the plain list file beside it.
@@ -94,7 +94,8 @@ path walk, and containment comes off Mutagen's context walk.
   `AContainsTermGetsNoSentence_TheHintIsForTheExactSpellingOnly` — the near-miss hint's sole-term
   rule. They assert the rendered sentence, so they pin that bullet and not `ExactEditorId` itself,
   which no test names.
-- `ValuePredicateProbe` (`src/housecarl-generator`) — the by-construction extraction over the corpus.
+- `ValuePredicateTests` — the by-construction extraction over the corpus: each operator's matched set against a
+  brute-force set from the records' known values.
 
 ## Where
 
