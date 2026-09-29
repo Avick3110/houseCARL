@@ -56,20 +56,19 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - Every lane that rewrites a file it read runs the round-trip check in `SubrecordInventory` before any op touches
   it, dry run included: apply, create, remove and forward in place; apply, create, forward, copy and remove on an
   existing patch (`into=`); and the in-place compact over its target and every referencer it would repoint, on the
-  acknowledged call and before the compacted plugin is written. Create runs it after its spec pre-flight, as apply
+  acknowledged call, after the writable-folder pre-flight and before the compacted plugin is written. Create runs it after its spec pre-flight, as apply
   does. The unedited file is serialized through `WriteEngine.SerializeInPlace` into a capture that holds the bytes in
-  memory and refuses every other file-system call, handed the masters the lane's own write uses: the session's master
-  set on apply, create and forward and on every `into=` lane, the target's own declared masters (opened once, for the
-  check and the write) on the in-place remove, and those masters on compact, where an absent or unopenable one is left
-  to the compact's own write. A master the order lacks is retried with no load order, which only the header's master
-  list feels, so the lane's own write still meets it in its own words. The `into=` lanes stage through `WritePatch`,
+  memory and refuses every other file-system call, with no load order: the order only sorts the header's master list,
+  which the walk maps away, so the check opens no master. The trade-off is that a master that cannot be opened, or is
+  not active, is met by the lane's own write in its own words rather than by the check. The `into=` lanes stage through `WritePatch`,
   whose chain differs in the header masters, the FormID floor and the text encoding: the check embeds the encoding the
   file was read in, while `WritePatch` goes to UTF-8 when `NewFileIsUtf8` holds, so a non-ASCII string in a patch read
   in the legacy encoding can come back at another length on the real write. That is a re-encode, not a loss; the check
   models the in-place encoding on purpose, since modelling the write's would refuse every such re-encode as a length
   change, and the `into=` renders claim nothing about the check. The file's bytes and those bytes are walked the same way — per FormKey through each side's
-  own master list, a multiset of (signature, payload length), compressed records inflated, `XXXX` folded into the
-  length it carries — and any record whose written side lacks a subrecord the file holds, or keeps it at another
+  own master list, a multiset of (signature, payload length), through Mutagen's record and subrecord framing
+  (`MajorRecordFrame.Decompress`, `RecordSpanExtensions.EnumerateSubrecords`, which folds `XXXX` into the length it
+  carries and faults on a truncated subrecord) — and any record whose written side lacks a subrecord the file holds, or keeps it at another
   length, refuses the whole call in one sentence naming the record and the subrecords, with nothing written. A record
   the op drops whole is not counted: a removed record and everything nested under it, a forwarded record, and a record
   create's upsert replaces. An unedited round trip isolates what the writer cannot keep from what the ops remove, so no
@@ -80,8 +79,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   REFR `XRMR` of all zero bytes, and a RACE `PHWT` every occurrence of which is written back as its own leading bytes
   with only an all-zero tail cut (dev/plans/INPLACE_ROUNDTRIP_MEASURE_2026-09-28.md). An `INAM` with a flag set, or a
   `PHWT` whose cut tail holds a value, still refuses. When the check cannot run — the file does not
-  parse, cannot be read, or the walk faults — the call is refused in the check's own sentence, never passed; a master
-  that fails to open gets its own sentence, and a serialize fault is reported as one the write would meet the same way.
+  parse, cannot be read, or the walk faults — the call is refused in the check's own sentence, never passed. A serialize
+  fault on an in-place lane is reported as one the write would meet the same way; on an `into=` lane, whose write goes
+  through another chain, it is reported as the check not running.
   A localized target is not walked: the service lanes refuse it before consent and `WriteInPlace` and `WritePatch`
   refuse it before staging, so no write the check could stop lands. The header is out of scope (unused masters are
   dropped there on purpose). Merge, a compact into a new plugin and a fresh patch do not run it: their output is a new
