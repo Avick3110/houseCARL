@@ -11,36 +11,56 @@ using Noggog;
 
 namespace HousecarlCore;
 
-/// <summary>Per record, the multiset of subrecord signatures a plugin's bytes carry, and the in-place round-trip check
-/// built on it (#961): the unedited target serialized in memory must keep every signature its file holds. Contract in
-/// docs/architecture/write-path.md.</summary>
+/// <summary>The round-trip check (#961): per record, the subrecords (signature and length) a file holds must survive an unedited re-serialize.</summary>
 public static class SubrecordInventory
 {
-    /// <summary>The (lost, gained) signature pairs the unedited round trip rewrites one for one, and nothing else; measured
-    /// over every plugin the ARR instance serves in dev/plans/INPLACE_ROUNDTRIP_MEASURE_2026-09-28.md.</summary>
+    /// <summary>The one (lost, gained) signature pair the ARR round trip rewrites one for one (INPLACE_ROUNDTRIP_MEASURE_2026-09-28).</summary>
     internal static readonly IReadOnlyList<(string Lost, string Gained)> Renames = new[] { ("BODT", "BOD2") };
+
+    /// <summary>When an allowed loss holds for the record or subrecord the file has.</summary>
+    public enum AllowWhen { FormVersionBelow, RecordDeleted, AllZeroPayload }
+
+    /// <summary>A loss the writer makes that carries no information: record type, subrecord ("*" for any), and the condition.</summary>
+    public sealed record Allowance(string Record, string Subrecord, AllowWhen When, int FormVersion = 0);
+
+    /// <summary>The measured class of information-free losses, and nothing beyond it (Aaron, 2026-09-29 ~09:10).</summary>
+    internal static readonly IReadOnlyList<Allowance> InformationFree = new[]
+    {
+        new Allowance("LTEX", "INAM", AllowWhen.FormVersionBelow, FormVersion: 43),
+        new Allowance("REFR", "*", AllowWhen.RecordDeleted),
+        new Allowance("REFR", "XRMR", AllowWhen.AllZeroPayload),
+    };
 
     /// <summary>How many records the refusal names before it falls back to a count.</summary>
     const int RecordsNamed = 5;
 
-    /// <summary>One record's signature, and its subrecord signatures counted in first-seen order.</summary>
+    /// <summary>One subrecord shape in a record: signature, payload length, how many, and whether every one is all zero bytes.</summary>
+    public sealed record Sub(string Sig, int Length, int Count, bool Zero);
+
+    /// <summary>One record as its bytes hold it: signature, form version, deleted flag, and its subrecords by (signature, length).</summary>
     public sealed class RecordEntry
     {
         public string Signature { get; init; } = "";
-        public Dictionary<string, int> Counts { get; } = new(StringComparer.Ordinal);
-        public List<string> Order { get; } = new();
+        public int FormVersion { get; init; }
+        public bool Deleted { get; init; }
+        public Dictionary<(string Sig, int Length), (int Count, bool Zero)> Subs { get; } = new();
+        public List<(string Sig, int Length)> Order { get; } = new();
 
-        internal void Add(string sig)
+        public void Add(string sig, ReadOnlySpan<byte> data)
         {
-            if (Counts.TryGetValue(sig, out var n)) { Counts[sig] = n + 1; return; }
-            Counts[sig] = 1;
-            Order.Add(sig);
+            var key = (sig, data.Length);
+            bool zero = !data.ContainsAnyExcept((byte)0);
+            if (Subs.TryGetValue(key, out var had)) { Subs[key] = (had.Count + 1, had.Zero && zero); return; }
+            Subs[key] = (1, zero);
+            Order.Add(key);
         }
+
+        internal int Count((string, int) key) => Subs.TryGetValue(key, out var v) ? v.Count : 0;
     }
 
-    /// <summary>One record's subrecords the round trip lost and gained, before any rename is paired off.</summary>
-    public sealed record RecordDiff(FormKey Key, string Signature, IReadOnlyList<(string Sig, int Count)> Lost,
-                                    IReadOnlyList<(string Sig, int Count)> Gained);
+    /// <summary>One record's subrecords the round trip lost and gained, before any rename or allowance is paired off.</summary>
+    public sealed record RecordDiff(FormKey Key, string Signature, int FormVersion, bool Deleted, IReadOnlyList<Sub> Lost,
+                                    IReadOnlyList<Sub> Gained);
 
     /// <summary>What the refusal tells the caller to do instead, per lane, for one record and for several.</summary>
     public sealed record Remedy(string One, string Many)
@@ -92,7 +112,7 @@ public static class SubrecordInventory
         {
             var file = Walk(File.ReadAllBytes(path), parsed.ModKey);
             if (dropped is not null) foreach (var k in dropped) file.Remove(k);
-            losses = Losses(Diff(file, Walk(written, parsed.ModKey)), Renames);
+            losses = Losses(Diff(file, Walk(written, parsed.ModKey)), Renames, InformationFree);
         }
         catch (Exception ex) { return CouldNotRun(fileName, WriteEngine.Describe(ex)); }
         return losses.Count == 0 ? null : Refusal(fileName, losses, parsed, remedy);
@@ -127,8 +147,7 @@ public static class SubrecordInventory
         return null;
     }
 
-    /// <summary>Every major record in a plugin's bytes, keyed by FormKey through that file's own master list, with its
-    /// subrecord signatures counted; compressed records are inflated, and an XXXX length carrier is framing, not counted.</summary>
+    /// <summary>Every major record in a plugin's bytes, keyed by FormKey through that file's own master list; compressed records inflated.</summary>
     public static Dictionary<FormKey, RecordEntry> Walk(byte[] bytes, ModKey self)
     {
         var meta = GameConstants.SkyrimSE;
@@ -157,8 +176,13 @@ public static class SubrecordInventory
             var raw = rec.FormID.Raw;
             int index = (int)(raw >> 24);
             var key = new FormKey(index < masters.Count ? masters[index] : self, raw & 0xFFFFFF);
-            if (!into.TryGetValue(key, out var entry)) into[key] = entry = new RecordEntry { Signature = rec.RecordType.Type };
-            foreach (var (sig, _) in Subrecords(rec.IsCompressed ? Inflate(rec.Content) : rec.Content)) entry.Add(sig);
+            if (!into.TryGetValue(key, out var entry))
+                into[key] = entry = new RecordEntry
+                {
+                    Signature = rec.RecordType.Type, FormVersion = rec.FormVersion ?? 0,
+                    Deleted = (rec.MajorRecordFlags & DeletedFlag) != 0,
+                };
+            foreach (var (sig, data) in Subrecords(rec.IsCompressed ? Inflate(rec.Content) : rec.Content)) entry.Add(sig, data.Span);
             p += rec.TotalLength;
         }
         return end;
@@ -192,43 +216,60 @@ public static class SubrecordInventory
 
     static string Sig(ReadOnlySpan<byte> at) => Encoding.Latin1.GetString(at.Slice(0, 4));
 
-    /// <summary>Per record of the FILE, what the written side lacks and what it added, signature by signature.</summary>
+    const int DeletedFlag = 0x20;
+
+    /// <summary>Per record of the FILE, what the written side lacks and what it added, by (signature, length).</summary>
     public static List<RecordDiff> Diff(Dictionary<FormKey, RecordEntry> file, Dictionary<FormKey, RecordEntry> written)
     {
         var diffs = new List<RecordDiff>();
         foreach (var (key, f) in file)
         {
             written.TryGetValue(key, out var w);
-            var lost = f.Order.Select(s => (s, f.Counts[s] - Count(w, s))).Where(x => x.Item2 > 0).ToList();
-            var gained = w is null ? new List<(string, int)>()
-                : w.Order.Select(s => (s, w.Counts[s] - Count(f, s))).Where(x => x.Item2 > 0).ToList();
-            if (lost.Count > 0 || gained.Count > 0) diffs.Add(new RecordDiff(key, f.Signature, lost, gained));
+            var lost = Minus(f, w);
+            var gained = w is null ? new List<Sub>() : Minus(w, f);
+            if (lost.Count > 0 || gained.Count > 0)
+                diffs.Add(new RecordDiff(key, f.Signature, f.FormVersion, f.Deleted, lost, gained));
         }
         return diffs;
     }
 
-    static int Count(RecordEntry? e, string sig) => e is not null && e.Counts.TryGetValue(sig, out var n) ? n : 0;
+    static List<Sub> Minus(RecordEntry a, RecordEntry? b) =>
+        a.Order.Select(k => new Sub(k.Sig, k.Length, a.Subs[k].Count - (b?.Count(k) ?? 0), a.Subs[k].Zero))
+               .Where(x => x.Count > 0).ToList();
 
-    /// <summary>The diffs that still lose a signature once each listed rename's loss is paired with its gain in the same record.</summary>
-    public static List<RecordDiff> Losses(List<RecordDiff> diffs, IReadOnlyList<(string Lost, string Gained)> renames)
+    /// <summary>The diffs that still lose a subrecord once each rename is paired with its gain and each allowed loss is set aside.</summary>
+    public static List<RecordDiff> Losses(List<RecordDiff> diffs, IReadOnlyList<(string Lost, string Gained)> renames,
+                                          IReadOnlyList<Allowance> allowed)
     {
         var losses = new List<RecordDiff>();
         foreach (var d in diffs)
         {
-            var lost = d.Lost.ToDictionary(x => x.Sig, x => x.Count, StringComparer.Ordinal);
-            var gained = d.Gained.ToDictionary(x => x.Sig, x => x.Count, StringComparer.Ordinal);
+            var lost = d.Lost.ToList();
             foreach (var (l, g) in renames)
-                if (lost.TryGetValue(l, out var n) && gained.TryGetValue(g, out var m))
+            {
+                int pair = Math.Min(lost.Where(x => x.Sig == l).Sum(x => x.Count), d.Gained.Where(x => x.Sig == g).Sum(x => x.Count));
+                for (int i = 0; i < lost.Count && pair > 0; i++)
                 {
-                    var paired = Math.Min(n, m);
-                    lost[l] = n - paired;
-                    gained[g] = m - paired;
+                    if (lost[i].Sig != l) continue;
+                    int take = Math.Min(pair, lost[i].Count);
+                    lost[i] = lost[i] with { Count = lost[i].Count - take };
+                    pair -= take;
                 }
-            var left = d.Lost.Where(x => lost[x.Sig] > 0).Select(x => (x.Sig, lost[x.Sig])).ToList();
+            }
+            var left = lost.Where(x => x.Count > 0 && !allowed.Any(a => Allows(a, d, x))).ToList();
             if (left.Count > 0) losses.Add(d with { Lost = left });
         }
         return losses;
     }
+
+    static bool Allows(Allowance a, RecordDiff d, Sub s) =>
+        a.Record == d.Signature && (a.Subrecord == "*" || a.Subrecord == s.Sig) && a.When switch
+        {
+            AllowWhen.FormVersionBelow => d.FormVersion < a.FormVersion,
+            AllowWhen.RecordDeleted => d.Deleted,
+            AllowWhen.AllZeroPayload => s.Zero,
+            _ => false,
+        };
 
     /// <summary>The one refusal: which records, which subrecords, why, and what to do instead.</summary>
     static string Refusal(string fileName, IReadOnlyList<RecordDiff> losses, SkyrimMod parsed, Remedy remedy)
@@ -238,7 +279,7 @@ public static class SubrecordInventory
         foreach (var r in parsed.EnumerateMajorRecords())
             if (named.Contains(r.FormKey)) types.TryAdd(r.FormKey, RecordNaming.StripOverlay(r.GetType().Name));
         string Name(RecordDiff d) => (types.TryGetValue(d.Key, out var t) ? t : d.Signature) + " " + FormIdToken.Of(d.Key);
-        string Sigs(RecordDiff d) => string.Join(", ", d.Lost.Select(x => x.Count > 1 ? $"{x.Sig} x{x.Count}" : x.Sig));
+        string Sigs(RecordDiff d) => string.Join(", ", d.Lost.Select(x => Shape(d, x)));
         var who = $"houseCARL (Mutagen {MutagenVersion})";
         if (losses.Count == 1)
             return $"refused: {who} cannot write {Name(losses[0])} back as the file holds it, so rewriting '{fileName}' " +
@@ -248,6 +289,14 @@ public static class SubrecordInventory
         return $"refused: {who} cannot write {losses.Count} records back as the file holds them, so rewriting " +
                $"'{fileName}' would drop subrecords from each — {list}{more} (#961); '{fileName}' is UNTOUCHED — " +
                $"{remedy.Many}.";
+    }
+
+    /// <summary>A lost subrecord as the refusal names it: the signature, its count, and its length when the write keeps it at another.</summary>
+    static string Shape(RecordDiff d, Sub x)
+    {
+        var name = x.Count > 1 ? $"{x.Sig} x{x.Count}" : x.Sig;
+        var other = d.Gained.Where(g => g.Sig == x.Sig).Select(g => g.Length).Distinct().ToList();
+        return other.Count == 0 ? name : $"{name} at {x.Length} bytes (written at {string.Join("/", other)})";
     }
 
     /// <summary>The Mutagen release the parser is, off the assembly houseCARL loaded rather than a copy of the pin.</summary>

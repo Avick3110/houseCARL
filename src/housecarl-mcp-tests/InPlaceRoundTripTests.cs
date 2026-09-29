@@ -205,6 +205,144 @@ public sealed class InPlaceRoundTripTests
         Assert.False(HasSubrecord(path, "BODT"));
     }
 
+    /// <summary>Rewrite the first record of that signature: its subrecords through <paramref name="edit"/>, its 24-byte
+    /// header through <paramref name="header"/>, and the sizes of the record and every group around it to fit.</summary>
+    internal static void EditRecord(string path, string recordSig,
+        Func<List<(string Sig, byte[] Raw)>, List<(string Sig, byte[] Raw)>>? edit = null, Action<byte[]>? header = null)
+    {
+        var b = File.ReadAllBytes(path);
+        var groups = new List<(int Start, int End)>();
+        int p = 24 + (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(4));
+        while (p < b.Length)
+        {
+            groups.RemoveAll(g => g.End <= p);
+            var sig = Encoding.ASCII.GetString(b, p, 4);
+            int size = (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p + 4));
+            if (sig == "GRUP") { groups.Add((p, p + size)); p += 24; continue; }
+            if (sig != recordSig) { p += 24 + size; continue; }
+            var subs = new List<(string Sig, byte[] Raw)>();
+            for (int q = p + 24; q < p + 24 + size;)
+            {
+                int len = BinaryPrimitives.ReadUInt16LittleEndian(b.AsSpan(q + 4));
+                subs.Add((Encoding.ASCII.GetString(b, q, 4), b[q..(q + 6 + len)]));
+                q += 6 + len;
+            }
+            var body = (edit is null ? subs : edit(subs)).SelectMany(s => s.Raw).ToArray();
+            int grow = body.Length - size;
+            var head = b[p..(p + 24)];
+            header?.Invoke(head);
+            BinaryPrimitives.WriteUInt32LittleEndian(head.AsSpan(4), (uint)body.Length);
+            var outBytes = b[..p].Concat(head).Concat(body).Concat(b[(p + 24 + size)..]).ToArray();
+            foreach (var g in groups)
+                BinaryPrimitives.WriteUInt32LittleEndian(outBytes.AsSpan(g.Start + 4),
+                    BinaryPrimitives.ReadUInt32LittleEndian(outBytes.AsSpan(g.Start + 4)) + (uint)grow);
+            File.WriteAllBytes(path, outBytes);
+            return;
+        }
+        throw new InvalidOperationException($"no {recordSig} record in the file");
+    }
+
+    /// <summary>The CK-order plugin plus whatever <paramref name="add"/> puts in it, written by Mutagen.</summary>
+    (string Path, FormKey Arma) StagePluginWith(Action<SkyrimMod> add)
+    {
+        var path = Path.Combine(_w.NewDir(), PluginName);
+        var mod = new SkyrimMod(ModKey.FromFileName(PluginName), SkyrimRelease.SkyrimSE);
+        var arma = AddArma(mod);
+        add(mod);
+        mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        return (path, arma);
+    }
+
+    static void AddPlacedStatic(SkyrimMod mod)
+    {
+        var stat = mod.Statics.AddNew("HcRT_Static");
+        var cell = WriteEngine.AddInteriorCell(mod, "HcRT_Cell");
+        cell.Temporary.Add(new PlacedObject(mod.GetNextFormKey(), SkyrimRelease.SkyrimSE) { Base = stat.ToNullableLink(), Placement = new Placement() });
+    }
+
+    static byte[] Subrecord(string sig, byte[] payload)
+    {
+        var raw = new byte[6 + payload.Length];
+        Encoding.ASCII.GetBytes(sig).CopyTo(raw, 0);
+        BinaryPrimitives.WriteUInt16LittleEndian(raw.AsSpan(4), (ushort)payload.Length);
+        payload.CopyTo(raw, 6);
+        return raw;
+    }
+
+    // Allowed: an LTEX INAM on a record older than form version 43, which Mutagen neither reads nor writes.
+    [Fact]
+    public void AnLtexInamBelowFormVersion43IsAnAllowedLoss()
+    {
+        var (path, arma) = StagePluginWith(m =>
+        {
+            var ltex = m.LandscapeTextures.AddNew("HcRT_Ltex");
+            ltex.Flags = LandscapeTexture.Flag.IsSnow;
+        });
+        EditRecord(path, "LTEX", header: h => BinaryPrimitives.WriteUInt16LittleEndian(h.AsSpan(20), 35));
+        Assert.Contains(RecordSubrecords(File.ReadAllBytes(path), "LTEX", out _, out _, out _), s => s.Sig == "INAM");
+        var o = SetWeaponAdjust(path, arma);
+        Assert.True(o.Success, o.Error);
+    }
+
+    // Allowed: the body of a deleted REFR, which Mutagen writes empty.
+    [Fact]
+    public void ADeletedRefrsBodyIsAnAllowedLoss()
+    {
+        var (path, arma) = StagePluginWith(AddPlacedStatic);
+        EditRecord(path, "REFR", header: h => h[8] |= 0x20);
+        Assert.Contains(RecordSubrecords(File.ReadAllBytes(path), "REFR", out _, out _, out _), s => s.Sig == "NAME");
+        var o = SetWeaponAdjust(path, arma);
+        Assert.True(o.Success, o.Error);
+    }
+
+    // Allowed: a REFR XRMR of four zero bytes, a zero room count Mutagen does not write back.
+    [Fact]
+    public void AnAllZeroRefrXrmrIsAnAllowedLoss()
+    {
+        var (path, arma) = StagePluginWith(AddPlacedStatic);
+        EditRecord(path, "REFR", edit: subs =>
+        {
+            subs.Insert(subs.FindIndex(s => s.Sig == "DATA"), ("XRMR", Subrecord("XRMR", new byte[4])));
+            return subs;
+        });
+        Assert.Contains(RecordSubrecords(File.ReadAllBytes(path), "REFR", out _, out _, out _), s => s.Sig == "XRMR");
+        var o = SetWeaponAdjust(path, arma);
+        Assert.True(o.Success, o.Error);
+    }
+
+    // The allowance is exactly the measured class: the same subrecord outside its condition, or on another type, still refuses.
+    [Theory]
+    [InlineData("LTEX", "INAM", 44, false, true)]
+    [InlineData("WEAP", "INAM", 35, false, true)]
+    [InlineData("REFR", "NAME", 44, false, true)]
+    [InlineData("ACHR", "NAME", 44, true, true)]
+    [InlineData("REFR", "XRMR", 44, false, false)]
+    public void ALossOutsideTheMeasuredClassStillRefuses(string record, string sub, int formVersion, bool deleted, bool zero)
+    {
+        var d = new SubrecordInventory.RecordDiff(new FormKey(ModKey.FromFileName(PluginName), 0x800), record, formVersion, deleted,
+            new[] { new SubrecordInventory.Sub(sub, 4, 1, zero) }, Array.Empty<SubrecordInventory.Sub>());
+        Assert.Single(SubrecordInventory.Losses(new() { d }, SubrecordInventory.Renames, SubrecordInventory.InformationFree));
+    }
+
+    // Lengths are compared: a subrecord kept at another length is a loss, which a signature count alone would pass.
+    [Fact]
+    public void ASubrecordWrittenBackAtAnotherLengthIsRefused()
+    {
+        var (path, arma) = StagePlugin();
+        EditRecord(path, "ARMA", edit: subs =>
+        {
+            int i = subs.FindIndex(s => s.Sig == "DNAM");
+            subs[i] = ("DNAM", Subrecord("DNAM", subs[i].Raw[6..].Concat(new byte[] { 1, 2, 3, 4 }).ToArray()));
+            return subs;
+        });
+        var before = File.ReadAllBytes(path);
+        var o = SetWeaponAdjust(path, arma);
+        Assert.False(o.Success);
+        Assert.Contains("DNAM at ", o.Error);
+        Assert.Contains("(written at ", o.Error);
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
     static void AssertRefusedUntouched(bool success, string? error, string path, byte[] before)
     {
         Assert.False(success);
