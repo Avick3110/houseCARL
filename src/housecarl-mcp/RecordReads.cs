@@ -35,7 +35,7 @@ internal sealed partial class RecordReads
                                    IReadOnlyCollection<string>? countFields = null)
     {
         var resolver = _host.Resolver;
-        var view = resolver.Capture();
+        var view = linkMemo is null ? resolver.Capture() : resolver.Capture(linkMemo.Absences);   // a lane's rows share one absence cache
         return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
                            new ChildUnionMemo(), depths: depths, countFields: countFields)   // one named record: the union lane
                with { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view) };   // stamped and pinned here, off the view actually read
@@ -282,7 +282,7 @@ internal sealed partial class RecordReads
     public RecordSummary ResolveSummary(FormKey fk)
     {
         var resolver = _host.Resolver;
-        return ResolveSummary(resolver, resolver.Capture(), fk);   // one capture per summary: winner, depth and fetch from one build
+        return ResolveSummary(resolver, resolver.Capture(null), fk);   // one build per summary, and no absence cache: it never explains one
     }
 
     static RecordSummary ResolveSummary(LoadOrderResolver resolver, LoadOrderResolver.IndexView view, FormKey fk)
@@ -354,11 +354,14 @@ internal sealed partial class RecordReads
     static string? ReadDisplayName(IMajorRecordGetter body) =>
         body is INamedGetter named && !string.IsNullOrEmpty(named.Name) ? named.Name : null;
 
-    /// <summary>The name-resolution cache one lane carries: a target's identity per FormKey, for ONE captured build.</summary>
+    /// <summary>The name-resolution caches one lane carries: a target's identity per FormKey, and the absence clauses its rows share.</summary>
     public sealed class LinkMemo
     {
         /// <summary>Resolved identity per target, so a keyword recurring across a batch resolves once.</summary>
         public Dictionary<FormKey, ResolvedRef> Refs { get; } = new();
+
+        /// <summary>The absence cache a lane's per-row captures share when it has no pinned view.</summary>
+        public LoadOrderResolver.AbsenceCache Absences { get; } = new();
     }
 
     /// <summary>Resolve ONE FormKey to its load-order identity off a captured view + open session, memoised so a

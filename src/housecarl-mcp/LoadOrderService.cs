@@ -429,7 +429,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     }
 
     /// <summary>The injected answer to "why is this plugin filename not in the active order?": the profile and the roots
-    /// are read FRESH on each call rather than captured, and the count of those reads is <see cref="AbsenceExplanations"/>,
+    /// are read fresh here and cached per captured view, and the count of those reads is <see cref="AbsenceExplanations"/>,
     /// which <c>AbsentMasterLinkTests</c> and <c>ComparisonBatchReadTests</c> hold the pinned view's per-plugin cache to.
     /// Returns null when nothing can be said, and the refusal falls back to a did-you-mean.</summary>
     string? ExplainPluginAbsence(string name)
