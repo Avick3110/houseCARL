@@ -6,7 +6,7 @@ covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/WriteSentences.cs,
   src/housecarl-core/WritePatchBuilder.cs,
   src/housecarl-mcp/ApplyTools.cs, src/housecarl-mcp/CreateTools.cs, src/housecarl-mcp/ForwardTools.cs,
   src/housecarl-mcp/RemoveTools.cs, src/housecarl-mcp/WriteTools.cs,
-  src/housecarl-core/LocalizedStrings.cs, src/housecarl-core/SubrecordInventory.cs]
+  src/housecarl-mcp/WriteTextRender.cs, src/housecarl-core/LocalizedStrings.cs, src/housecarl-core/SubrecordInventory.cs]
 ---
 # The write path, service side
 
@@ -559,8 +559,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - `src/housecarl-core/MergeInjection.cs` (`Renumberable`, `UnremappableLink`) and
   `src/housecarl-core/MergeLoadPosition.cs` (`Derive`, `MergeSiting`) — the two merge pre-flights.
 - The tool fronts: `src/housecarl-mcp/ApplyTools.cs`, `CreateTools.cs`, `ForwardTools.cs`, `RemoveTools.cs`
-  and `WriteTools.cs` — argument reading, the lane and transport gates, and the render helpers every
-  write tool calls.
+  and `WriteTools.cs` — argument reading and the lane and transport gates.
+- `src/housecarl-mcp/WriteTextRender.cs` — the other half of `static partial class WriteTools`: the render helpers
+  every write tool calls (`Render`, `RenderDryRun`, `RenderRemoval`, `RenderForward`, `RenderCreatePlugin`, the
+  readback and report appenders, `CreateRootFailures`), at the same `WriteTools.` addresses.
 - `src/housecarl-core/WritePatchBuilder.cs` — the core half: `Apply` / `ApplyInPlace`, `CreateRecords` /
   `CreateRecordsInPlace`, `RemoveRecords` / `RemoveRecordsInPlace`, `ForwardRecords` / `ForwardRecordsInPlace`,
   `CreatePlugin`, `CompactBuild` and `MergeBuild`. The four record lanes — apply, create, remove, forward — are the
