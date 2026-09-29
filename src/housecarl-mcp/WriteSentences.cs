@@ -85,7 +85,7 @@ internal static class WriteSentences
     internal const string RoundTripChecked =
         "round-trip check: before the write, each rewritten file re-serialized unedited in memory kept every subrecord " +
         "at its length (added ones, BODT rewritten as BOD2, and three measured losses that carry no information allowed: " +
-        "an LTEX INAM below form version 43, a deleted REFR's body, an all-zero REFR XRMR; values not compared)\n";
+        "an LTEX INAM below form version 43, a deleted REFR's NAME, an all-zero REFR XRMR; values not compared)\n";
 
     internal static string InPlaceModFolder(string modFolder) =>
         $"mod folder: {modFolder}  — already active in your load order; re-sort only if a winner changed\n";

@@ -63,8 +63,11 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   check and the write) on the in-place remove, and those masters on compact, where an absent or unopenable one is left
   to the compact's own write. A master the order lacks is retried with no load order, which only the header's master
   list feels, so the lane's own write still meets it in its own words. The `into=` lanes stage through `WritePatch`,
-  whose chain differs only in the header masters, the FormID floor and the text encoding, none of which a subrecord's
-  signature or length feels. The file's bytes and those bytes are walked the same way — per FormKey through each side's
+  whose chain differs in the header masters, the FormID floor and the text encoding: the check embeds the encoding the
+  file was read in, while `WritePatch` goes to UTF-8 when `NewFileIsUtf8` holds, so a non-ASCII string in a patch read
+  in the legacy encoding can come back at another length on the real write. That is a re-encode, not a loss; the check
+  models the in-place encoding on purpose, since modelling the write's would refuse every such re-encode as a length
+  change, and the `into=` renders claim nothing about the check. The file's bytes and those bytes are walked the same way — per FormKey through each side's
   own master list, a multiset of (signature, payload length), compressed records inflated, `XXXX` folded into the
   length it carries — and any record whose written side lacks a subrecord the file holds, or keeps it at another
   length, refuses the whole call in one sentence naming the record and the subrecords, with nothing written. A record
@@ -73,7 +76,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   edited field is excluded. Payload bytes are NOT compared: a subrecord kept at its length with a changed value passes.
   Two allowances, both data: `Renames`, a lost signature paired with a gained one in the same record, holds
   `BODT`→`BOD2` alone; `InformationFree` holds the measured losses that carry no information and nothing beyond them
-  (Aaron, 2026-09-29): an LTEX `INAM` below form version 43, any subrecord of a REFR flagged deleted, and a REFR `XRMR`
+  (Aaron, 2026-09-29): an LTEX `INAM` below form version 43, the `NAME` of a REFR flagged deleted, and a REFR `XRMR`
   of all zero bytes (dev/plans/INPLACE_ROUNDTRIP_MEASURE_2026-09-28.md). When the check cannot run — the file does not
   parse, cannot be read, or the walk faults — the call is refused in the check's own sentence, never passed; a master
   that fails to open gets its own sentence, and a serialize fault is reported as one the write would meet the same way.
