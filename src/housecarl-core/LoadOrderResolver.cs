@@ -301,6 +301,7 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>ONLY the injected explanation, or null — the half a caller needs when the presence of a real CAUSE changes more than one sentence.</summary>
     internal string? ExplainAbsence(string pluginName)
     {
+        if (_explainAbsence is not null) System.Threading.Interlocked.Increment(ref Counters.AbsenceExplains);
         try { return _explainAbsence?.Invoke(pluginName); }
         catch { return null; }   /* an explainer that throws (an unreadable profile mid-call) must never turn a clean
                                     refusal into a crash — fall through to the suggester. */
