@@ -376,9 +376,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         IReadOnlyList<FormKey>? formidSet, IReadOnlyList<ArtifactDemand>? artifactDemands,
         LoadOrderResolver.IndexView? pinnedView = null,
         IReadOnlyList<FormKey>? referencesNone = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, bool noteContainment = false)
         => _reads.OffOrderQuery(pole, typeSet, references, editoridContains, scopePlugins, definedIn, where, limit, groupBy, offset,
-                                formidSet, artifactDemands, pinnedView, referencesNone, ct);
+                                formidSet, artifactDemands, pinnedView, referencesNone, ct, noteContainment);
     public EffectChainResult ResolveEffectChain(FormKey mgef, IReadOnlyList<string>? typesNarrow, int limit)
         => _reads.ResolveEffectChain(mgef, typesNarrow, limit);
 

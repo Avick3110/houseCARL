@@ -84,6 +84,9 @@ public sealed record CrossQueryOutcome(
     /// <summary>The scan's pinned resolver and view, so the render's per-match fills read off the same build the scan matched. Never serialized.</summary>
     internal LoadOrderService.ViewPin? Pin { get; init; }
 
+    /// <summary>The kept keys an off-order file's own containment places under another record, when the caller asked. Never serialized.</summary>
+    internal IReadOnlySet<FormKey>? ContainedKeys { get; init; }
+
     public static CrossQueryOutcome Fail(string error) => new(Array.Empty<FormKey>(), null, 0, false, error);
 }
 

@@ -58,8 +58,15 @@ public sealed class ContainmentIndex
     internal static void Stage(IModContext context, List<(FormKey Child, FormKey Parent)> into)
     {
         if (context.Record is not IMajorRecordGetter child) return;
+        if (ParentIn(context) is { } parent) into.Add((child.FormKey, parent));
+    }
+
+    /// <summary>The nearest record ancestor of a context's record, or null when only groups hold it.</summary>
+    public static FormKey? ParentIn(IModContext context)
+    {
         for (var up = context.Parent; up is not null; up = up.Parent)
-            if (up.Record is IMajorRecordGetter ancestor) { into.Add((child.FormKey, ancestor.FormKey)); return; }
+            if (up.Record is IMajorRecordGetter ancestor) return ancestor.FormKey;
+        return null;
     }
 
     /// <summary>Merge one fully-enumerated plugin's edges, later-wins.</summary>

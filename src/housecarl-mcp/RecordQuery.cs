@@ -611,7 +611,7 @@ internal sealed partial class RecordReads
         IReadOnlyList<FormKey>? formidSet, IReadOnlyList<ArtifactDemand>? artifactDemands,
         LoadOrderResolver.IndexView? pinnedView,
         IReadOnlyList<FormKey>? referencesNone,
-        CancellationToken ct)
+        CancellationToken ct, bool noteContainment = false)
     {
         var resolver = _host.Resolver;
         var view = pinnedView ?? resolver.Capture();   // the caller's door build when it captured one — see CrossQuery
@@ -698,6 +698,7 @@ internal sealed partial class RecordReads
         // Records read leniently here, keyed like the in-order lane so the count is records and not copies.
         var lenientKeys = new HashSet<FormKey>();
         var lenientSamples = new List<string>();
+        var contained = noteContainment ? new HashSet<FormKey>() : null;
         LoadOrderResolver.OverlaySession? session = null;
         try
         {
@@ -719,7 +720,11 @@ internal sealed partial class RecordReads
                     parentOf: null);   // refused above: this file's containment is not in the active order's map
             }
             var seen = new HashSet<FormKey>();
-            foreach (var rec in ov.EnumerateMajorRecords())
+            // The file's own containment rides the context walk, taken only when the caller prices a comparison.
+            var walk = noteContainment
+                ? ov.EnumerateMajorRecordContexts().Select(c => (Rec: (IMajorRecordGetter)c.Record, Contained: ContainmentIndex.ParentIn(c) is not null))
+                : ov.EnumerateMajorRecords().Select(r => (Rec: r, Contained: false));
+            foreach (var (rec, isContained) in walk)
             {
                 ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
                 var fk = rec.FormKey;
@@ -761,6 +766,7 @@ internal sealed partial class RecordReads
                     {
                         var w = view.ResolveWinner(fk);
                         keys.Add(fk);
+                        if (isContained) contained?.Add(fk);
                         sources.Add(pole.Plugin);
                         matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
                         prefilled.Add(new RecordSummary(fk, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID,
@@ -798,7 +804,7 @@ internal sealed partial class RecordReads
         return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
                                      predicate?.AccountingNote(), sources, scanNote, matched, groupRows, groupBy,
                                      definedIn ? pole.Plugin : null, offset, false, null)
-               { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view) };
+               { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view), ContainedKeys = contained };
     }
 
     /// <summary>Seat every type the scan NAMED in a group_by=type census at zero, so a requested type with no records reads as a 0 row rather than being absent from the table. No-op for the other count keys.</summary>
