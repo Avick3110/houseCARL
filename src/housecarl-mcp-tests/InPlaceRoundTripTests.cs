@@ -254,6 +254,43 @@ public sealed class InPlaceRoundTripTests
     }
 
     [Fact]
+    public void AnApplyIntoAPatchThatWouldLoseSubrecordsIsRefusedWithTheFileUntouched()
+    {
+        var (path, arma) = StageReproduction();
+        var before = File.ReadAllBytes(path);
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        var o = WritePatchBuilder.Apply(r, TestCorpus.Rulebook,
+            new[] { new WritePatchBuilder.PatchEdit { Target = arma, Path = new[] { "WeaponAdjust" }, Verb = "Set", Value = "1.5" } },
+            path, extend: true);
+        AssertRefusedUntouched(o.Success, o.Error, path, before);
+    }
+
+    [Fact]
+    public void AForwardIntoAPatchThatWouldLoseSubrecordsIsRefusedWithTheFileUntouched()
+    {
+        var (path, _) = StageReproduction();
+        var before = File.ReadAllBytes(path);
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        var o = WritePatchBuilder.ForwardRecords(r,
+            new[] { new WritePatchBuilder.ForwardSpec { Target = _w.Weapon, FromPlugin = W.MasterName } }, path, extend: true, "source=");
+        AssertRefusedUntouched(o.Success, o.Error, path, before);
+    }
+
+    [Fact]
+    public void ARemoveFromAPatchChecksTheRestAndLeavesTheRemovedRecordOut()
+    {
+        var (path, arma) = StageReproduction();
+        FormKey keyword;
+        using (var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE)) keyword = ov.Keywords.Single().FormKey;
+        var before = File.ReadAllBytes(path);
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        var refused = WritePatchBuilder.RemoveRecords(r, new[] { keyword }, path);
+        AssertRefusedUntouched(refused.Success, refused.Error, path, before);
+        var o = WritePatchBuilder.RemoveRecords(r, new[] { arma }, path);
+        Assert.True(o.Success, o.Error);
+    }
+
+    [Fact]
     public void AnInPlaceRemoveFromThatPluginIsRefusedWithTheFileUntouched()
     {
         var (path, _) = StageReproduction();
@@ -394,9 +431,12 @@ public sealed class CompactRoundTripTests
             var targetKey = ModKey.FromFileName(TargetName);
             var weaponKey = new FormKey(targetKey, 0x900);
             var target = new SkyrimMod(targetKey, SkyrimRelease.SkyrimSE);
-            target.Weapons.Add(new Weapon(weaponKey, SkyrimRelease.SkyrimSE) { EditorID = "HcRtWeapon" });
+            var keyword = new Keyword(new FormKey(targetKey, 0x901), SkyrimRelease.SkyrimSE) { EditorID = "HcRtKeyword" };
+            target.Keywords.Add(keyword);
+            target.Weapons.Add(new Weapon(weaponKey, SkyrimRelease.SkyrimSE)
+                { EditorID = "HcRtWeapon", Keywords = new() { keyword.ToLink() } });
             if (lossyTarget) InPlaceRoundTripTests.AddArma(target);
-            target.ModHeader.Stats.NextFormID = 0x901;
+            target.ModHeader.Stats.NextFormID = 0x902;
             TargetPath = Path.Combine(modsDir, "TargetMod", TargetName);
             target.BeginWrite.ToPath(TargetPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).NoNextFormIDProcessing().Write();
             if (lossyTarget) InPlaceRoundTripTests.ToIssueOrder(TargetPath);
@@ -444,6 +484,20 @@ public sealed class CompactRoundTripTests
         Assert.Contains("MOD2, MO2T, MOD4, MO4T", o.Error);
         Assert.Contains(World.TargetName, o.Error);
         Assert.Equal(target, File.ReadAllBytes(w.TargetPath));
+    }
+
+    // copy into= re-serializes the whole existing patch, so it is checked like the other into= lanes.
+    [Fact]
+    public void ACopyIntoAPatchThatWouldLoseSubrecordsIsRefusedWithTheFileUntouched()
+    {
+        using var w = new World(lossyTarget: false);
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(w.ReferencerPath)!, "meta.ini"),
+            HousecarlOwnerMeta.Section + "\r\ngenerated=true\r\nplugin=" + World.ReferencerName + "\r\n");
+        var referencer = File.ReadAllBytes(w.ReferencerPath);
+        var r = CopyTools.Copy(w.Svc, "000900:" + World.TargetName, null, new[] { "Keywords" }, null, null,
+            "HcRtClone", null, World.ReferencerName);
+        Assert.Contains("MOD2, MO2T, MOD4, MO4T", r);
+        Assert.Equal(referencer, File.ReadAllBytes(w.ReferencerPath));
     }
 
     [Fact]

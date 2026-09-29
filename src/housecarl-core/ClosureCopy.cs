@@ -386,7 +386,8 @@ public static class ClosureCopy
         Func<ModKey, bool> isOnOrder,
         Func<string, IReadOnlyList<ISkyrimModGetter>> mastersFor,
         IReadOnlyList<SourceArmRef> consulted,
-        Func<Exception, string>? serializeFailure = null)
+        Func<Exception, string>? serializeFailure = null,
+        Func<SkyrimMod, string?>? roundTripRefusal = null)
     {
         var patchFileName = Path.GetFileName(outPath);
         var patchModKey = ModKey.FromFileName(patchFileName);
@@ -395,6 +396,8 @@ public static class ClosureCopy
         {
             try { patch = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath)); }
             catch (Exception ex) { return ClosureCopyOutcome.Fail(engine: ex.Message, sources: consulted); }
+            // The whole existing patch is re-serialized, so it runs the round-trip check before anything is copied in.
+            if (roundTripRefusal?.Invoke(patch) is { } lost) return ClosureCopyOutcome.Fail(engine: lost, sources: consulted);
         }
         else patch = new SkyrimMod(patchModKey, SkyrimRelease.SkyrimSE);
 
