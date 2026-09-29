@@ -15,14 +15,21 @@ public sealed class TickedPluginSwitchedOffModWorld : IDisposable
     public string Root { get; }
     public string OffName => "HcTsOff.esp";
     public string OffMod => "HcTsOffMod";
+    /// <summary>Ticked, and no copy anywhere in the install.</summary>
+    public string GoneName => "HcTsGone.esp";
+    /// <summary>An implicit master (in loadorder.txt, absent from plugins.txt) whose only copy is in the switched-off folder.</summary>
+    public string OffMasterName => "HcTsOffMaster.esm";
+    public string Instance { get; }
     public LoadOrderService Svc { get; }
     public ToolPathResolver Tools { get; }
 
     public TickedPluginSwitchedOffModWorld()
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-ticked-switched-off-" + Guid.NewGuid().ToString("N"));
-        var instance = Path.Combine(Root, "instance");
+        var instance = Instance = Path.Combine(Root, "instance");
         var profileDir = Path.Combine(instance, "profiles", "Default");
+        var otherProfileDir = Path.Combine(instance, "profiles", "Other");
+        Directory.CreateDirectory(otherProfileDir);
         var mods = Path.Combine(instance, "mods");
         Directory.CreateDirectory(profileDir);
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
@@ -42,10 +49,24 @@ public sealed class TickedPluginSwitchedOffModWorld : IDisposable
         var kw = off.Keywords.AddNew(); kw.EditorID = "HcTsOffKeyword";
         off.BeginWrite.ToPath(Path.Combine(offDir, OffName)).WithLoadOrder(new ISkyrimModGetter[] { sky }).Write();
 
-        File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), "# header\r\nSkyrim.esm\r\n" + OffName + "\r\n");
-        // The tick with nothing served behind it: the plugin is checked, its only folder is switched off.
-        File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), "*" + OffName + "\r\n");
-        File.WriteAllText(Path.Combine(profileDir, "modlist.txt"), "# header\r\n-" + OffMod + "\r\n+VanillaStub\r\n");
+        var offMaster = new SkyrimMod(new ModKey("HcTsOffMaster", ModType.Master), SkyrimRelease.SkyrimSE);
+        var mkw = offMaster.Keywords.AddNew(); mkw.EditorID = "HcTsOffMasterKeyword";
+        offMaster.BeginWrite.ToPath(Path.Combine(offDir, OffMasterName)).WithLoadOrder(new ISkyrimModGetter[] { sky }).Write();
+
+        // An enabled mod's SKSE DLL whose image names the unserved plugin and a served one.
+        var skseDir = Path.Combine(mods, "HcTsSkseMod", "SKSE", "Plugins");
+        Directory.CreateDirectory(skseDir);
+        File.WriteAllBytes(Path.Combine(skseDir, "HcTsPeek.dll"),
+            System.Text.Encoding.ASCII.GetBytes("\0\0" + OffName + "\0\0Skyrim.esm\0\0"));
+
+        foreach (var dir in new[] { profileDir, otherProfileDir })
+        {
+            File.WriteAllText(Path.Combine(dir, "loadorder.txt"),
+                "# header\r\nSkyrim.esm\r\n" + OffMasterName + "\r\n" + OffName + "\r\n" + GoneName + "\r\n");
+            // The tick with nothing served behind it: the plugin is checked, its only folder is switched off.
+            File.WriteAllText(Path.Combine(dir, "plugins.txt"), "*" + OffName + "\r\n*" + GoneName + "\r\n");
+            File.WriteAllText(Path.Combine(dir, "modlist.txt"), "# header\r\n+HcTsSkseMod\r\n-" + OffMod + "\r\n+VanillaStub\r\n");
+        }
 
         var store = new UserConfigStore(Path.Combine(Root, "houseCARL.user.json"));
         Svc = LoadOrderService.WithInstance(instance, 0, store);
@@ -91,6 +112,7 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
         var r = StatusTools.LoadOrderStatus(W.Svc, W.Tools);
         // Skyrim.esm is the one implicit master; the ticked plugin is not served, so no checked plugin is active.
         Assert.Contains("active:   1  (0 checked + 1 implicit", r);
+        Assert.Contains("not served: 3", r);
         Assert.Contains($"load order lists '{W.OffName}', but it is provided by mod '{W.OffMod}', which is switched OFF", r);
     }
 
@@ -119,4 +141,47 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
         Assert.Contains("source={\"file\": \"" + W.OffName + "\", \"mod\": \"" + W.OffMod + "\"}", r);
         Assert.DoesNotContain("stale", r);
     }
+
+    [Fact]
+    public void TheStatusFilterCallsATickedPluginWithNoCopyNotActive()
+    {
+        var r = StatusTools.LoadOrderStatus(W.Svc, W.Tools, filter: W.GoneName);
+        var line = Assert.Single(r.Split('\n'), l => l.Contains("as a plugin:", StringComparison.Ordinal));
+        Assert.Contains("NOT ACTIVE — ticked in plugins.txt, but no enabled mod", line);
+    }
+
+    [Fact]
+    public void TheStatusFilterCallsAnImplicitMasterInASwitchedOffModNotActive()
+    {
+        var r = StatusTools.LoadOrderStatus(W.Svc, W.Tools, filter: W.OffMasterName);
+        var line = Assert.Single(r.Split('\n'), l => l.Contains("as a plugin:", StringComparison.Ordinal));
+        Assert.Contains($"NOT ACTIVE — an implicit master/CC, but it is provided by mod '{W.OffMod}'", line);
+    }
+
+    [Fact]
+    public void TheProfileInspectionDoesNotCountUnservedPluginsActive()
+    {
+        var r = StatusTools.LoadOrderStatus(W.Svc, W.Tools, profile: "Other");
+        // Four in the order; only Skyrim.esm is served.
+        Assert.Contains("plugins: 4 in order · 1 active · 0 inactive", r);
+    }
+
+    [Fact]
+    public void TheSetupSummaryDoesNotCountUnservedPluginsActive()
+    {
+        var r = SetupTools.Render(Mo2Instance.Resolve(W.Instance), persisted: true, persistError: null, persistNote: null);
+        Assert.Contains("plugins in the load order (1 active)", r);
+    }
+
+    [Fact]
+    public void TheSksePeekDoesNotAdjudicateAnUnservedPluginAsLoaded()
+    {
+        var r = SkseTools.Skse(W.Svc, filter: "HcTsPeek", peek: true);
+        Assert.Contains("NOT in your load order", LineOf(r, W.OffName));
+        Assert.Contains("(in your load order)", LineOf(r, "Skyrim.esm"));
+    }
+
+    static string LineOf(string text, string needle) =>
+        text.Split('\n').FirstOrDefault(l => l.Contains(needle) && l.Contains("load order"))
+        ?? throw new Xunit.Sdk.XunitException($"no load-order line naming '{needle}' in:\n{text}");
 }
