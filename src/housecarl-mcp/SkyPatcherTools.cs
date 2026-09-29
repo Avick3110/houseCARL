@@ -64,9 +64,6 @@ static class SkyPatcherWire
         // A filter matching nothing must never fall through to the unfiltered overview — that reads as the whole layer.
         if (filter is { } zero && !folders.Any(f => f.Files.Any(x => Matches(zero, f, x))))
             return ZeroMatch(d, zero, cap, caveats);   // the block is composed ONCE; charging it twice spends it twice
-        // The notes close the body but take a bounded share charged first, so the report sections cannot spend it.
-        var notes = NoteLines(d, cap / BatchRender.CaveatShare);
-        cap -= notes.Length;
         int files = folders.Sum(f => f.Files.Count);
         int applied = folders.Sum(f => f.PatchingEnabled ? f.Files.Count(x => x.NotApplied is null) : 0);
         int lines = folders.Sum(f => f.Files.Sum(x => x.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch)));
@@ -99,6 +96,10 @@ static class SkyPatcherWire
         // The header above is already in sb; the hint is advice, so it is written only where it fits beside what is owed.
         int sectionsOwed = SectionsMissed(ReportNames, maxChars).Length;
         int owed = sectionsOwed + (folders.Count > 0 ? folderCut.Length : 0);
+        // The notes close the body but take a quarter of what the caveats leave, charged before the report sections so
+        // they cannot spend it, and never more than the header and owed notices leave.
+        var notes = NoteLines(d, Math.Min(cap / BatchRender.CaveatShare, cap - sb.Length - owed));
+        cap -= notes.Length;
         string hint = sb.Length + owed + Hint.Length <= cap ? Hint : "";
         int budget = cap - hint.Length - sectionsOwed;
         // Each line is admitted by the width it writes, with its cut notice's room held back.

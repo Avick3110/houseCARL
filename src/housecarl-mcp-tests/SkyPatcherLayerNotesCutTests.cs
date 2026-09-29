@@ -86,4 +86,26 @@ public sealed class SkyPatcherLayerNotesCutTests
         Assert.Contains("[!] scan note 5: ", text);
         Assert.DoesNotContain("note(s); raise max_chars", text);
     }
+
+    [Fact]
+    public void ANoteWiderThanItsShareIsCountedInsideTheCap()
+    {
+        var text = SkyPatcherWire.RenderLayer(Layer(), null, 1_200);   // a quarter is 300 chars, under one 450-char note
+
+        Assert.Contains("... [showing 0 of 5 note(s); raise max_chars]", text);
+        Assert.True(text.Length <= 1_200, $"{text.Length} chars against max_chars=1200.");
+    }
+
+    [Fact]
+    public void ZeroMatchCountsANoteWiderThanItsRoomInsideTheCap()
+    {
+        var bare = SkyPatcherWire.RenderLayer(Layer() with { Scan = Layer().Scan with { Notes = Array.Empty<string>() } },
+            "no-such-folder", 1_000_000);
+        int cap = bare.Length + 300;   // room for the marker, not for one 450-char note
+
+        var text = SkyPatcherWire.RenderLayer(Layer(), "no-such-folder", cap);
+
+        Assert.Contains("... [showing 0 of 5 note(s); raise max_chars]", text);
+        Assert.True(text.Length <= cap, $"{text.Length} chars against max_chars={cap}.");
+    }
 }

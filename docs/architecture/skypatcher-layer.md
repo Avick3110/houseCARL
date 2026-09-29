@@ -116,9 +116,10 @@ acquires a mapping.
 and no-op writes. Which value *should* win stays with the agent. Add/remove/mult/collection ops
 accumulate by design and are not conflicts.
 
-The replay and scan notes after the report sections are one list. It takes a bounded share of
-`max_chars` (a quarter, as the caveat block does), charged before the body so the sections cannot
-spend it; a list that fits is shown whole, and a cut one is counted with the caveat block's marker.
+The replay and scan notes after the report sections are one list. It takes a quarter of what the
+caveat block leaves of `max_chars`, never more than the header and owed notices leave, charged
+before the body so the sections cannot spend it. A list that fits is shown whole; a cut one names
+only the notes that fit, none if the first does not, and is counted with the caveat block's marker.
 
 `SkyPatcherDraft` folds an INI that is not yet placed in a mod into the live scan, so a record can
 be read as the game would see it once placed. A draft that is already one of the layer's live
