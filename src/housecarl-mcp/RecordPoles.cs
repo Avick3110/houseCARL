@@ -96,7 +96,16 @@ internal sealed partial class RecordReads
             // subject resolved to.
             var subjects = new string?[chunkKeys.Count];
             for (int j = 0; j < chunkKeys.Count; j++) subjects[j] = sGather.PluginOf?.Invoke(chunkKeys[j], null);
-            rGather.Open(view, session, chunkKeys, j => subjects[j]);
+            // A row whose in-order subject holds no version refuses on the subject, so its reference is never read and not walked.
+            var refKeys = new List<FormKey>(chunkKeys.Count);
+            var refSubjects = new List<string?>(chunkKeys.Count);
+            for (int j = 0; j < chunkKeys.Count; j++)
+            {
+                if (sGather.PluginOf is not null && !(subjects[j] is { } sp && Holds(view, chunkKeys[j], sp))) continue;
+                refKeys.Add(chunkKeys[j]);
+                refSubjects.Add(subjects[j]);
+            }
+            rGather.Open(view, session, refKeys, j => refSubjects[j]);
 
             for (int i = start; i < end; i++)
             {
@@ -122,6 +131,10 @@ internal sealed partial class RecordReads
         }
         return rows;
     }
+
+    /// <summary>Whether an in-order plugin holds a version of the record, from the index alone.</summary>
+    internal static bool Holds(LoadOrderResolver.IndexView view, FormKey fk, string plugin) =>
+        view.TouchingPlugins(fk) is { } t && t.Contains(plugin, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A comparison batch's one hold: the pin and roots, plus the asset build when a pole replays the overlay.</summary>
     (LoadOrderService.ViewPin Pin, Mo2Roots Roots, Func<AssetCapture>? Assets) CapturePolePin(bool replaysOverlay)
