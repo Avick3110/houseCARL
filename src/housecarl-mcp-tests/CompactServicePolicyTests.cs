@@ -27,6 +27,8 @@ public sealed class CompactServicePolicyTests
         Assert.Empty(o.ExternalPlugins);
         using var pp = SkyrimMod.CreateFromBinaryOverlay(o.OutputPath, SkyrimRelease.SkyrimSE);
         Assert.True(pp.IsSmallMaster);
+        // The next free id sits just above the renumbered run.
+        Assert.Equal(RemapEngine.EslFloor + 3, pp.ModHeader.Stats.NextFormID);
         Assert.All(pp.EnumerateMajorRecords().Where(r => r.FormKey.ModKey == CompactServiceWorld.SelfKey),
             r => Assert.True(CompactServiceWorld.InEslWindow(r.FormKey), r.FormKey.ToString()));
     }
@@ -40,6 +42,23 @@ public sealed class CompactServicePolicyTests
 
         Assert.True(o.Success, o.Error);
         Assert.Contains(WriteSentences.CompactRuntimeConfigs, WriteTools.RenderCompact(o));
+    }
+
+    // Not a probe assert: the probe compacted HcCsSelf.esp three times in one instance, which is what reached the
+    // taken-folder arm of the output folder picker. A second compact lands beside the first, never over it.
+    [Fact]
+    public void ASecondCompactOfTheSamePluginLandsInItsOwnFolder()
+    {
+        using var w = new CompactServiceWorld();
+        var first = w.Svc.CompactPlugin("HcCsSelf.esp");
+        Assert.True(first.Success, first.Error);
+        var firstBytes = File.ReadAllBytes(first.OutputPath);
+
+        var second = w.Svc.CompactPlugin("HcCsSelf.esp", esl: false);
+
+        Assert.True(second.Success, second.Error);
+        Assert.NotEqual(Path.GetDirectoryName(first.OutputPath), Path.GetDirectoryName(second.OutputPath));
+        Assert.True(LocalizedCompactWorld.Same(first.OutputPath, firstBytes));
     }
 
     // ESL-OFF contiguous renumber, no light flag.
