@@ -128,7 +128,8 @@ public static class WriteTools
         if (o.InPlace)
             sb.Append("edited ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
               .Append(" bytes — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
-              .Append(WriteSentences.InPlaceModFolder(modFolder));
+              .Append(WriteSentences.InPlaceModFolder(modFolder))
+              .Append(WriteSentences.RoundTripChecked);
         else
             sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         sb.Append(WriteSentences.Masters(o.Masters));
@@ -166,7 +167,7 @@ public static class WriteTools
         if (o.ReadBack is { } rb)
         {
             if (fullDump) AppendFullReadback(sb, rb, maxChars, freshPatch: !o.Extended && !o.InPlace);
-            else AppendCompactReadback(sb, o.Ops, rb, maxChars, o.InPlace);
+            else AppendCompactReadback(sb, o.Ops, rb, maxChars);
         }
         if (o.Warning is { } warn) sb.Append("warning: ").Append(warn).Append('\n');
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
@@ -267,16 +268,14 @@ public static class WriteTools
 
     /// <summary>The DEFAULT render of the touched-record verify: per record a re-read-clean marker and field count or
     /// the NAMED failure, then each op's "what landed" identity. The forced re-read still ran; this reports it
-    /// compactly, over every record and bounded by the same cap. <paramref name="inPlace"/> adds the round-trip clause,
-    /// because only the in-place lanes run that check before they write.</summary>
+    /// compactly, over every record and bounded by the same cap.</summary>
     static void AppendCompactReadback(StringBuilder sb, IReadOnlyList<WritePatchBuilder.OpResult> ops,
-        IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars, bool inPlace)
+        IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars)
     {
         int cap = WriteSentences.ReadbackCap(maxChars);
-        // The banner claims the re-read and, in place, the pre-write round trip; each per-op clause says whose answer it is.
-        sb.Append("verified — every edited record re-read off the written file")
-          .Append(inPlace ? ", after the pre-write round trip matched the file's subrecord inventory for every record" : "")
-          .Append(" (compact; pass readback=true for the full field-by-field dump):\n");
+        // The banner claims only the re-read; each per-op clause says whose answer it is.
+        sb.Append("verified — every edited record re-read off the written file (compact; pass readback=true for the ")
+          .Append("full field-by-field dump):\n");
         for (int i = 0; i < rb.Count; i++)
         {
             if (sb.Length >= cap)
@@ -357,7 +356,8 @@ public static class WriteTools
             sb.Append(" IN PLACE (").Append(o.Bytes).Append(" bytes; ")
               .Append(o.RemainingRecords).Append(o.RemainingRecords == 1 ? " record remains" : " records remain")
               .Append(" — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
-              .Append(WriteSentences.InPlaceModFolder(modFolder));
+              .Append(WriteSentences.InPlaceModFolder(modFolder))
+              .Append(WriteSentences.RoundTripChecked);
         else
         {
             sb.Append(" (").Append(o.Bytes).Append(" bytes; ")
@@ -415,7 +415,8 @@ public static class WriteTools
         else if (o.InPlace)
             sb.Append("forwarded into ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
               .Append(" bytes — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
-              .Append(WriteSentences.InPlaceModFolder(modFolder));
+              .Append(WriteSentences.InPlaceModFolder(modFolder))
+              .Append(WriteSentences.RoundTripChecked);
         else
             sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         if (!o.DryRun)
@@ -509,7 +510,8 @@ public static class WriteTools
         if (o.InPlace)
             sb.Append("compacted ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
               .Append(" bytes — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
-              .Append(WriteSentences.InPlaceModFolder(modFolder));
+              .Append(WriteSentences.InPlaceModFolder(modFolder))
+              .Append(WriteSentences.RoundTripChecked);
         else
             sb.Append("wrote compacted ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes)\n")
               .Append("mod folder: ").Append(modFolder).Append("  — enable it and DISABLE the original '").Append(file)
@@ -892,7 +894,8 @@ public static class WriteTools
             // "created into X", not "X rewritten": every sibling in-place headline is verb-then-file.
             sb.Append("created into ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
               .Append(" bytes — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
-              .Append(WriteSentences.InPlaceModFolder(modFolder));
+              .Append(WriteSentences.InPlaceModFolder(modFolder))
+              .Append(WriteSentences.RoundTripChecked);
         else
             sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         sb.Append(WriteSentences.Masters(o.Masters));
@@ -979,7 +982,7 @@ public static class WriteTools
         if (o.ReadBack is { } rb)
         {
             if (fullDump) AppendFullReadback(sb, rb, maxChars, freshPatch: !o.Extended && !o.InPlace);
-            else AppendCompactReadback(sb, Array.Empty<WritePatchBuilder.OpResult>(), rb, maxChars, o.InPlace);
+            else AppendCompactReadback(sb, Array.Empty<WritePatchBuilder.OpResult>(), rb, maxChars);
         }
         if (o.Warning is { } warn) sb.Append("warning: ").Append(warn).Append('\n');
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');

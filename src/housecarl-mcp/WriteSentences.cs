@@ -80,6 +80,12 @@ internal static class WriteSentences
         "addresses a record by an object id this compaction moved no longer reaches that record once the compacted " +
         "plugin is the one loading.\n";
 
+    /// <summary>What the in-place round-trip check proved before the write (#961), on every in-place render that ran it.</summary>
+    [MustState("lost none of its subrecord signatures", "values not compared")]
+    internal const string RoundTripChecked =
+        "round-trip check: before the write, each rewritten file re-serialized unedited in memory lost none of its " +
+        "subrecord signatures (added ones and BODT rewritten as BOD2 allowed; values not compared)\n";
+
     internal static string InPlaceModFolder(string modFolder) =>
         $"mod folder: {modFolder}  — already active in your load order; re-sort only if a winner changed\n";
 
