@@ -240,16 +240,32 @@ public sealed class FaceGenWorld : IDisposable
     /// <summary>Take the listing deny off; a failure throws, so a denied folder never leaks into temp unreported.</summary>
     void LiftDeny()
     {
-        if (_unlistedDeny is null || !OperatingSystem.IsWindows()) return;
+        if (_unlistedDeny is null || _denyLifted || !OperatingSystem.IsWindows()) return;
         var dir = new DirectoryInfo(_unlistedDir);
         var acl = dir.GetAccessControl();
         acl.RemoveAccessRule(_unlistedDeny);
         dir.SetAccessControl(acl);
+        _denyLifted = true;   // a second Dispose after a partial delete must not look for the folder again
     }
 
+    bool _denyLifted;
+
+    /// <summary>Close the service, lift the deny, delete the root; a root still there after a short retry throws
+    /// naming it, so a leaked world fails the fixture instead of staying in temp.</summary>
     public void Dispose()
     {
+        Svc.Dispose();
         LiftDeny();
-        try { Directory.Delete(Root, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        Exception? last = null;
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            if (attempt > 0) Thread.Sleep(100);   // a handle still closing is the common cause
+            try { Directory.Delete(Root, recursive: true); return; }
+            catch (DirectoryNotFoundException) { return; }
+            catch (IOException e) { last = e; }
+            catch (UnauthorizedAccessException e) { last = e; }
+        }
+        throw new IOException("The facegen world at " + Root + " could not be deleted (" + last!.Message
+                              + "); close whatever holds a file inside it and remove the folder.", last);
     }
 }
