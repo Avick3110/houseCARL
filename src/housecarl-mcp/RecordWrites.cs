@@ -1481,10 +1481,10 @@ public sealed partial class LoadOrderService
                 if (!view.ContainsPlugin(d))
                 {
                     // Once a cause is stated it carries its own remedy.
-                    var dWhy = view.ExplainAbsence(d);
+                    var dClause = view.AbsenceClause(d, out var dWhy);
                     return WritePatchBuilder.MergeOutcome.Fail(
                         $"donor '{d}' is not an active plugin in your load order." +
-                        (dWhy is not null ? " " + dWhy : view.NameSuggestion(d)) +
+                        dClause +
                         " Merge reads each donor's records and conflict position from the ACTIVE order." +
                         (dWhy is not null ? "" : " Activate it in MO2 first (pass the exact plugin filename, e.g. 'CoolMod.esp')."));
                 }
