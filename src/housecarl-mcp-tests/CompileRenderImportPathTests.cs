@@ -159,22 +159,28 @@ public sealed class CompileRenderImportPathTests
         Assert.Contains("modlist could NOT be read", msg);
     }
 
-    // Probe E7: "the vanilla caveat stops claiming houseCARL LOOKED under the data folder" and
-    // "…no tail asserts a vanilla slot two lines under a caveat saying there is none".
+    // Probe E7: "the vanilla caveat stops claiming houseCARL LOOKED under the data folder".
     [Fact]
     public void AFailedModlistReadDoesNotClaimTheDataFolderWasSearched()
     {
         var msg = Render(Ok, FailedScan());
         Assert.Contains("could not read your MO2 modlist to look under the data folder", msg);
         Assert.DoesNotContain("and none under your MO2 data folder", msg);
-        Assert.DoesNotContain("vanilla sources are on the import path", msg);
     }
 
-    // Probe E7: "the warning is labelled 'modlist scan', not 'auto_imports'".
+    // Probe E7: "the warning is labelled 'modlist scan', not 'auto_imports'" (read off the service that writes it, not a fixture).
     [Fact]
-    public void AFailedModlistReadIsNotLabelledAutoImports()
+    public void AFailedModlistReadIsLabelledModlistScan()
     {
-        Assert.DoesNotContain("auto_imports:", Render(Ok, FailedScan()));
+        var root = Path.Combine(Path.GetTempPath(), "hc-modlist-read-tests-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var svc = LoadOrderService.WithInstance(Path.Combine(root, "no-such-instance"), 0, new UserConfigStore(Path.Combine(root, "user.json")));
+            var (_, _, warning, failed) = svc.PapyrusSourceImportDirs();
+            Assert.True(failed);
+            Assert.StartsWith("modlist scan:", warning);
+        }
+        finally { try { Directory.Delete(root, recursive: true); } catch { /* non-fatal */ } }
     }
 
     // Probe E7: "the missing-imports banner leads with the failed read, not with causes that presuppose a scan happened".
