@@ -269,6 +269,29 @@ public sealed class ComparisonMeterTests : IClassFixture<RenderCostFixture>
         Assert.StartsWith("error: this delta " + DearHead, r);
     }
 
+    /// <summary>An off-order pole sweeps its file only when a row will read, and once however many ways it is asked.</summary>
+    [Fact]
+    public void AnOffOrderPoleSweepsOnlyWhenARowReads()
+    {
+        var file = OffOrderOverrides();
+        var unresolved = Enumerable.Range(0xF00000, 5).Select(i => $"{i:X6}:{_w.MasterName}").ToArray();
+        var malformed = new[] { "not-a-formid", "also-not" };
+        long Sweeps(Func<string> call) { long b = Svc.Counters.OffOrderSweeps; call(); return Svc.Counters.OffOrderSweeps - b; }
+        string AsSubject(string[] ids) => RecordsTools.Records(Svc, formids: ids, source: Json("\"" + file + "\""), versus: Json("\"winner\""),
+                                                               project: new RecordsTools.RecordsProject { form = "delta" }, counts_only: true);
+        string AsReference(string[] ids) => RecordsTools.Records(Svc, formids: ids, versus: Json("\"" + file + "\""),
+                                                                 project: new RecordsTools.RecordsProject { form = "delta" }, counts_only: true);
+        string AsTreeReference(string[] ids) => RecordsTools.Records(Svc, formids: ids, versus: Json("\"" + file + "\""),
+                                                                     project: new RecordsTools.RecordsProject { form = "tree" }, counts_only: true);
+        Assert.Equal(0, Sweeps(() => AsSubject(malformed)));          // no id to ask the sweep about
+        Assert.Equal(0, Sweeps(() => AsReference(unresolved)));       // every row settled by its subject
+        Assert.Equal(0, Sweeps(() => AsTreeReference(unresolved)));   // no row with a provider
+        var mixed = unresolved.Concat(WeaponIds.Take(3)).ToArray();
+        Assert.Equal(1, Sweeps(() => AsSubject(mixed)));
+        Assert.Equal(1, Sweeps(() => AsReference(mixed)));
+        Assert.Equal(1, Sweeps(() => AsTreeReference(mixed)));
+    }
+
     long Delta(Func<long> counter, Func<string> call)
     {
         long before = counter();

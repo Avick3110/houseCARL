@@ -19,6 +19,12 @@ public sealed class CostCounters
     /// <summary>Record bodies the chunk gather was asked for.</summary>
     public long KeysWanted;
 
+    /// <summary>SkyPatcher layers a comparison pole opened for replay.</summary>
+    public long ReplayOpens;
+
+    /// <summary>Off-order files a comparison pole swept.</summary>
+    public long OffOrderSweeps;
+
     /// <summary>Identify passes run by compact and merge.</summary>
     public int IdentifyPasses;
 
