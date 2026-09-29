@@ -484,7 +484,7 @@ internal static class ExtendResolveProbe
             //      an arm would have proved nothing. Now the default claims nothing and each lane states its own, so
             //      a deleted statement is a silently weakened refusal — the #356 shape, one lane over. apply is
             //      covered by arm 8; forward and create are cheap on this fixture; the two copy lanes need an NPC
-            //      universe, so they are pinned in their own probes (copy-service-guard, npc-copy-guard).
+            //      universe, so they are pinned elsewhere (CopyServiceLaneTests, npc-copy-guard).
             Console.WriteLine();
             Console.WriteLine("--- 8e: forward and create still state that patch= names a fresh patch ---");
             {

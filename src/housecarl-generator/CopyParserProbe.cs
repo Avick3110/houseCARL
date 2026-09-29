@@ -14,7 +14,7 @@ namespace HousecarlGenerator;
 ///
 /// <para><b>Why this guard exists as a separate lane.</b> Every claim the parameter descriptions make below the record
 /// layer is a claim about a mapping — caller string → typed argument — and a mapping is exactly what a
-/// service-level fixture cannot see: <c>copy-service-guard</c> hands <see cref="HousecarlCore.WalkExclusion"/>
+/// service-level fixture cannot see: <c>CopyServiceLaneTests</c> hand <see cref="HousecarlCore.WalkExclusion"/>
 /// values straight to <c>CopyClosure</c>, so deleting the <c>'Type:stop'</c> / <c>'Type:refuse'</c> parse would
 /// leave it green while the documented spelling stopped working. That is #339's lesson stated one layer up: an arm
 /// that drives the service does not test the wire.</para>

@@ -114,6 +114,8 @@ prefix so a throwing lane and a returning lane can both use it.
 
 - *Where output lands*, ownership: *No test pins the fail-safe direction.*
 - *Where output lands*, `into=`: *No test pins the arm order.*
+- *Where output lands*, `into=` on the copy lane: `CopyServiceLaneTests` — a patch that does not exist refuses offering
+  to create it fresh, the patch's own `.esp` name extends it, and a refusal after a fresh folder was cut leaves no folder.
 - *Where output lands*, the shadowing stem: `PatchStemShadowTests.AStemThatWouldShadowAnInactivePluginInAForeignModFolderIsRefused`,
   with `…AForeignEsmOfTheSameStemIsNoShadowForTheEspTheLaneWrites` for the boundary.
 - *Where output lands*, a caller-named taken stem: `PatchArtifactCollisionTests.Merge_folder_collision_refuses_by_name_and_writes_nothing`

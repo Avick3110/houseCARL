@@ -454,6 +454,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   caller already put in the patch survives untouched, and the arm fails if the step is removed), nullability judged
   on the record model's interface, the required-link refusal checkable in both directions, a surviving bound link
   being a leak while a pre-existing dangling one is not, and the walk's arm attribution surviving into the report.
+- `CopyServiceLaneTests`, `CopyServiceBoundUniverseTests` and `CopyServiceRefusalTests` — the closure copy wired
+  through the service over a disabled donor: attach and clone written and read back, an in-patch target on an
+  extended patch, every named arm binding, a base-game donor rendered as a transplant, the off-order refusal split
+  by cause, the post-attach leak check, an unset seed cleared on disk, and the asset paths reported.
 - The seam `freshness-capture-guard` arm 4 parks the write on is `WritePatchBuilder.InsidePhase1ResolveForGuard`,
   which is why that flip is staged rather than timed and no runner can be too fast to land it inside the resolve loop.
   The field has no product caller.
