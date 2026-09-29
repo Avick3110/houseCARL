@@ -214,14 +214,7 @@ public sealed partial class LoadOrderService
 
     // ---- write the start-game-enabled-quest .seq file ----
 
-    /// <summary>The <c>SEQ\</c> output folder for a generated <c>.seq</c>, under a houseCARL mod folder, which MO2 deploys into the game's <c>Data\SEQ</c>.</summary>
-    public RiderFolder ResolveSeqFolder(string? patchName, string? into)
-    {
-        if (ConfigPromptOrNull() is not null) throw NotConfigured();
-        return ResolveSeqFolder(((ILoadOrderHost)this).CaptureRoots(), patchName, into);
-    }
-
-    /// <summary><see cref="ResolveSeqFolder(string?, string?)"/> over roots the caller captured.</summary>
+    /// <summary>The <c>SEQ\</c> output folder for a generated <c>.seq</c>, under a houseCARL mod folder, which MO2 deploys into the game's <c>Data\SEQ</c>, over roots the caller captured.</summary>
     RiderFolder ResolveSeqFolder(Mo2Roots roots, string? patchName, string? into)
     {
         var f = ResolvePatchModFolder(roots, patchName, into, "houseCARL_SEQ", new RiderNaming("patch"));
