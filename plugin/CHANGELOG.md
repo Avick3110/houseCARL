@@ -35,8 +35,7 @@ made the change.
   filename per line.** Pass `plugins={"names": ["@C:/work/plugins.txt"]}`: the scan covers exactly those plugins.
 - **An in-place or `into=` write now refuses before touching the file when houseCARL's parser would drop a subrecord
   or change its length, naming the record and the subrecords.** An `in_place=` apply to a plugin with the #961 ARMA
-  order is refused. Three measured losses that carry no information still write: an LTEX `INAM` below form version 43,
-  a deleted REFR's body, and an all-zero REFR `XRMR`.
+  order is refused.
 
 ## 2.0.3 — 2026-09-23
 
