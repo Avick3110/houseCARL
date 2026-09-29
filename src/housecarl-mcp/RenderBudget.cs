@@ -15,11 +15,11 @@ internal static class RenderBudget
     /// <summary>The declared cost of one <c>form='identity'</c> row: an UNTYPED whole-plugin seek per FormID.</summary>
     internal const double MillisPerIdentityRow = 15.0;
 
-    /// <summary>The declared cost of one comparison row, a floor rather than an average.</summary>
-    internal const double MillisPerComparisonRow = 250.0;
+    /// <summary>The floor of a whole-record comparison row, in microseconds: under the cheapest measured (35 ms, #932).</summary>
+    internal const int FloorMicrosPerWholeComparisonRow = 30_000;
 
-    /// <summary>THE BOUND for the comparison forms: about a minute at <see cref="MillisPerComparisonRow"/> (#716).</summary>
-    internal const int DefaultMaxComparisonRows = 250;
+    /// <summary>The floor of a comparison row narrowed by fields=, in microseconds: under the cheapest measured (0.045 ms, #932).</summary>
+    internal const int FloorMicrosPerNarrowComparisonRow = 40;
 
     internal const int DefaultMaxRenderRows = 300_000;
 
@@ -143,19 +143,38 @@ internal static class RenderBudget
         return lead + (wholeRecord ? lever : char.ToUpperInvariant(lever[0]) + lever[1..]);
     }
 
-    /// <summary>The refusal for a comparison form (delta/tree) over its own bound, or null when it fits;
-    /// <paramref name="lever"/> is one of the four below, picked by the caller's lane.</summary>
-    internal static string? RefuseComparison(RenderBounds bounds, int rows, string form, string lever) =>
-        rows <= bounds.ComparisonRows
-            ? null
-            : $"error: this {form} reads {(form == "delta" ? "two versions" : "every override")} of each of {rows:N0} records — " +
-              $"{ProjectedAt(rows, MillisPerComparisonRow)} at the {MillisPerComparisonRow / 1000:0.##} s a row measured for these forms, " +
-              $"past the {bounds.ComparisonRows:N0}-row bound the comparison forms are given; " +
-              lever;
+    /// <summary>A per-row cost as the refusals print it: seconds from 100 ms up.</summary>
+    internal static string PerRowText(double perRow) => perRow >= 100 ? $"{perRow / 1000:0.##} s" : $"{perRow:0.##} ms";
+
+    /// <summary>The comparison forms' floor price for the shape, under every row measured.</summary>
+    internal static double ComparisonFloorMillis(bool narrowed) =>
+        (narrowed ? FloorMicrosPerNarrowComparisonRow : FloorMicrosPerWholeComparisonRow) / 1000.0;
+
+    /// <summary>The rows the floor lets reach the meter; <see cref="RenderBounds.ComparisonRows"/> overrides it for tests.</summary>
+    internal static int ComparisonFloorRows(RenderBounds bounds, bool narrowed) =>
+        bounds.ComparisonRows ?? (int)((long)CeilingMillis * 1000 / (narrowed ? FloorMicrosPerNarrowComparisonRow : FloorMicrosPerWholeComparisonRow));
+
+    /// <summary>The refusal, before any read, for a delta/tree count past the budget even at the floor price, or null.</summary>
+    internal static string? RefuseComparison(RenderBounds bounds, int rows, bool narrowed, string form, string lever)
+    {
+        int fits = ComparisonFloorRows(bounds, narrowed);
+        if (rows <= fits) return null;
+        var perRow = ComparisonFloorMillis(narrowed);
+        return $"error: this {form} reads {(form == "delta" ? "two versions" : "every override")} of each of {rows:N0} records — " +
+               $"at least {ProjectedAt(rows, perRow)} even at the cheapest measured row ({PerRowText(perRow)} a row " +
+               $"{(narrowed ? "comparing named fields" : "comparing whole records")}), past the ten-minute budget " +
+               $"({fits:N0} rows fit at that price); " +
+               lever;
+    }
+
+    /// <summary>A lane's lever, led by fields= on the same call when the comparison reads whole records.</summary>
+    internal static string ComparisonLever(string laneLever, bool narrowed) =>
+        narrowed ? laneLever
+                 : "name only the fields you need with fields= on this same call, a fraction of a whole-record comparison's cost, or " + laneLever;
 
     /// <summary>The comparison bound's levers, one per lane.</summary>
     internal const string ComparisonScanLever =
-        "take it in a window with limit= at or below the bound, narrow the selection with where= or types=, or read the winning value alone with project.form='fields'.";
+        "take it in a window with limit= at or below the rows that fit, narrow the selection with where= or types=, or read the winning value alone with project.form='fields'.";
 
     internal const string ComparisonWholeSelectionLever =
         "narrow the selection with where= or types= — a census and a to_file= artifact cover every selected record, so limit= does not lower what they read — or read the winning value alone with project.form='fields'.";
