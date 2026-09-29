@@ -26,10 +26,11 @@ public sealed class NifSourceLaneReachTests : IClassFixture<NifSourceLaneWorld>
         Assert.DoesNotContain("does not supply", text);
     }
 
-    // Probe: "the second mesh is ABSENT with no source_provider= (nothing active provides it)".
+    // Probe: "the second mesh is ABSENT with no source_provider= (nothing active provides it)". The per-mesh line, not
+    // the discovery hedge, which quotes the word too.
     [Fact]
     public void TheUntickedModsMeshIsAbsentWithoutSourceProvider()
-        => Assert.Contains("ABSENT", NifTools.NifInspect(_w.Svc, new[] { W.OffRel }));
+        => Assert.Contains("ABSENT — no active mod or BSA provides", NifTools.NifInspect(_w.Svc, new[] { W.OffRel }));
 
     // Probe: "naming an UNTICKED mod reads out of its own root archive, and never reports the mesh ABSENT".
     [Fact]
