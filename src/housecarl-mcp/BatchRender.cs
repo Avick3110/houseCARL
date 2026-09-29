@@ -212,8 +212,9 @@ static class BatchRender
     }
 
     /// <summary>Which entries of one list fit <paramref name="share"/> chars, how many are left out, and the width the
-    /// lines and marker take. <paramref name="demand"/> is the list's whole width, priced once by the caller.</summary>
-    static (IReadOnlyList<string> Shown, int Omitted, int Width) CaveatCut(CaveatList list, int demand, int share)
+    /// lines and marker take. <paramref name="demand"/> is the list's whole width, priced once by the caller.
+    /// <paramref name="nameOne"/> names the first entry whatever the budget; without it a list may close on its marker alone.</summary>
+    static (IReadOnlyList<string> Shown, int Omitted, int Width) CaveatCut(CaveatList list, int demand, int share, bool nameOne = true)
     {
         if (list.Items.Count == 0) return (Array.Empty<string>(), 0, 0);
         // A list whose lines fit is shown whole, with no marker to make room for.
@@ -226,7 +227,7 @@ static class BatchRender
         {
             int width = LineWidth(list, item);
             // At least one entry is NAMED whatever the budget: the count alone is the hedge this work removed.
-            if (shown.Count > 0 && used + width > room) break;
+            if ((shown.Count > 0 || !nameOne) && used + width > room) break;
             shown.Add(item);
             used += width;
         }
@@ -242,10 +243,10 @@ static class BatchRender
     }
 
     /// <summary>One list's lines cut to <paramref name="room"/> chars by the caveat cut: whole with no marker when it
-    /// fits, else the marker's room held back and at least one entry named.</summary>
+    /// fits, else the marker's room held back and only the entries that fit named, so none when the first does not.</summary>
     public static string CutLines(CaveatList list, int room)
     {
-        var (shown, omitted, _) = CaveatCut(list, Demand(list), room);
+        var (shown, omitted, _) = CaveatCut(list, Demand(list), room, nameOne: false);
         return CaveatLines(list, (shown, omitted), "");
     }
 
