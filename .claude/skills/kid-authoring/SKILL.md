@@ -86,7 +86,8 @@ Read what your task needs, not everything.
    paths live inside the form, never flat (form `identity` labels a `formids=` list, and a scan
    refuses it). For a set too large to render inline, pass `to_file` an absolute `.jsonl` path and
    re-enter it later as
-   `formids=["@<that absolute path>"]`. Leave `source` omitted, or pass `"winner"` — the load-order
+   `formids=["@<that absolute path>"]`; a long plugin scope takes the same spelling,
+   `plugins={"names": ["@<file, one plugin per line>"]}`. Leave `source` omitted, or pass `"winner"` — the load-order
    winner is the record KID acts on. To show what a String filter would have caught instead, scan
    the channels that filter actually tests (`references/filters.md` §1 and §3), which is more than
    the display name: a bare term is an exact test on the EditorID or the name, and a `*wildcard` is

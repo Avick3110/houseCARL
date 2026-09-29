@@ -24,7 +24,7 @@ public static partial class RecordsTools
     /// <summary>The plugins= SELECT scope: which records are considered, as against source=, which decides whose version is read.</summary>
     public sealed class RecordsScope
     {
-        [Description("Plugin filenames to scope the scan to (records those plugins touch), e.g. [\"Requiem.esp\"].")]
+        [Description("Plugin filenames to scope the scan to (records those plugins touch), e.g. [\"Requiem.esp\"]. Accepts [\"@<path>\"] like formids=.")]
         public string[]? names { get; set; }
 
         [Description("When true, keep only records DEFINED IN (originating from) the named plugins, dropping records they merely override.")]
@@ -157,6 +157,14 @@ public static partial class RecordsTools
         if (ferr is not null) return ferr;
         bool json = fmt is Wire.QueryFormat.Json;
         bool dense = fmt is Wire.QueryFormat.Dense;
+
+        // plugins.names takes the @file spelling formids= and references= take, read by the same expander.
+        if (plugins?.names is { Length: > 0 } scopeNames)
+        {
+            var (ptoks, _, _, perr) = Artifacts.ExpandListInput(scopeNames, "plugins.names");
+            if (perr is not null) return Wire.Refuse(json, perr);
+            plugins = new RecordsScope { names = ptoks, defined_in = plugins.defined_in };
+        }
 
         // ONE FormID door for the whole call; contract in docs/architecture/records-tool-front.md.
         var door = svc.OpenFormIdDoor();
