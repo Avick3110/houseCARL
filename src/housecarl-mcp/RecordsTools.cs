@@ -24,7 +24,7 @@ public static partial class RecordsTools
     /// <summary>The plugins= SELECT scope: which records are considered, as against source=, which decides whose version is read.</summary>
     public sealed class RecordsScope
     {
-        [Description("Plugin filenames to scope the scan to (records those plugins touch), e.g. [\"Requiem.esp\"]. Accepts [\"@<path>\"] like formids=.")]
+        [Description("Plugin filenames to scope the scan to (records those plugins touch), e.g. [\"Requiem.esp\"]. Accepts [\"@<path>\"] like formids=, the file holding one plugin filename per line.")]
         public string[]? names { get; set; }
 
         [Description("When true, keep only records DEFINED IN (originating from) the named plugins, dropping records they merely override.")]
@@ -158,12 +158,12 @@ public static partial class RecordsTools
         bool json = fmt is Wire.QueryFormat.Json;
         bool dense = fmt is Wire.QueryFormat.Dense;
 
-        // plugins.names takes the @file spelling formids= and references= take, read by the same expander.
+        // plugins.names takes the @file spelling, one plugin filename per line: a name can carry a comma or a leading '['.
         if (plugins?.names is { Length: > 0 } scopeNames)
         {
-            var (ptoks, _, _, perr) = Artifacts.ExpandListInput(scopeNames, "plugins.names");
+            var (ptoks, _, _, perr) = Artifacts.ExpandListInput(scopeNames, "plugins.names", identity: "plugin");
             if (perr is not null) return Wire.Refuse(json, perr);
-            plugins = new RecordsScope { names = ptoks, defined_in = plugins.defined_in };
+            plugins.names = ptoks;
         }
 
         // ONE FormID door for the whole call; contract in docs/architecture/records-tool-front.md.
