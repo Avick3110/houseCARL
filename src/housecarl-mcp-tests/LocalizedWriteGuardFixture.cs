@@ -33,15 +33,25 @@ public sealed class LocalizedWriteGuardFixture : IDisposable
         _root = Path.Combine(Path.GetTempPath(), "hc-locwrite-" + Guid.NewGuid().ToString("N"));
         DataDir = Path.Combine(_root, "game", "Data");
         var modDir = Path.Combine(_root, "mods", "ZRefMod");
-        Directory.CreateDirectory(DataDir);
-        Directory.CreateDirectory(modDir);
-
         var skyrimKey = new ModKey("Skyrim", ModType.Master);
         SkyrimEsm = Path.Combine(DataDir, skyrimKey.FileName.String);
+        // A build that throws never reaches Dispose, so the root is deleted here.
+        try { Plugin = Build(v, modDir, skyrimKey); }
+        catch
+        {
+            try { Directory.Delete(_root, true); } catch { /* temp scratch */ }
+            throw;
+        }
+    }
+
+    string Build(Arrangement v, string modDir, ModKey skyrimKey)
+    {
+        Directory.CreateDirectory(DataDir);
+        Directory.CreateDirectory(modDir);
         new SkyrimMod(skyrimKey, SkyrimRelease.SkyrimSE)
             .BeginWrite.ToPath(SkyrimEsm).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        Plugin = WriteLocalized(modDir, "ZRef");
+        var plugin = WriteLocalized(modDir, "ZRef");
         // A second plugin in the same folder whose name begins with the first's.
         if (v == Arrangement.SiblingStem) WriteLocalized(modDir, "ZRef_extra");
 
@@ -91,6 +101,7 @@ public sealed class LocalizedWriteGuardFixture : IDisposable
                 File.WriteAllBytes(Path.Combine(DataDir, "ZGame.bsa"), new byte[] { 0x42, 0x53, 0x41, 0x00 });
                 break;
         }
+        return plugin;
     }
 
     public void Dispose()

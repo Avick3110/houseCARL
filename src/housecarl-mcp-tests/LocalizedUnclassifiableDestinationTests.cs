@@ -112,26 +112,39 @@ public sealed class LocalizedUnclassifiableDestinationTests
         Assert.Contains("has the file open", unreadableRemove);
     }
 
-    // Probe: <shape> renders a body, and carries localized vocabulary only if its LOCALIZED flag was read.
-    [Theory]
-    [InlineData(LocalizedShape.NotLocalized, true)]
-    [InlineData(LocalizedShape.Unreadable, false)]
-    [InlineData(LocalizedShape.LooseComplete, true)]
-    [InlineData(LocalizedShape.LoosePartial, true)]
-    [InlineData(LocalizedShape.LooseWithGameDataDuplicate, true)]
-    [InlineData(LocalizedShape.BsaEmbedded, true)]
-    [InlineData(LocalizedShape.GameDataOnly, true)]
-    [InlineData(LocalizedShape.StringsFolderUnreadable, true)]
-    [InlineData(LocalizedShape.ModFolderUnreadable, true)]
-    [InlineData(LocalizedShape.Nowhere, true)]
-    public void OnlyAShapeWhoseFlagWasReadCarriesLocalizedVocabulary(LocalizedShape shape, bool mayCarry)
+    public static TheoryData<LocalizedShape> EveryShape()
+    {
+        var data = new TheoryData<LocalizedShape>();
+        foreach (var s in Enum.GetValues<LocalizedShape>()) data.Add(s);
+        return data;
+    }
+
+    /// <summary>May this shape's refusal assert that a plugin is localized? Exhaustive, so a shape added later answers false until it is decided here.</summary>
+    static bool MayAssertLocalization(LocalizedShape shape) => shape switch
+    {
+        // The file's own header was read and the flag was set.
+        LocalizedShape.LooseComplete or LocalizedShape.LoosePartial or LocalizedShape.LooseWithGameDataDuplicate
+            or LocalizedShape.BsaEmbedded or LocalizedShape.GameDataOnly or LocalizedShape.Nowhere => true,
+        // Reached only from the write, where the mod in hand is localized; no arrangement is described.
+        LocalizedShape.NotLocalized => true,
+        // The plugin's flag was read; only a folder could not be listed.
+        LocalizedShape.StringsFolderUnreadable or LocalizedShape.ModFolderUnreadable => true,
+        // Nothing was read.
+        LocalizedShape.Unreadable => false,
+        _ => false,
+    };
+
+    // Probe: <shape> renders a body, and carries localized vocabulary only if its LOCALIZED flag was read. Walked
+    // over the enum, so a shape added later that inherits another's words fails here.
+    [Theory, MemberData(nameof(EveryShape))]
+    public void OnlyAShapeWhoseFlagWasReadCarriesLocalizedVocabulary(LocalizedShape shape)
     {
         var a = new LocalizedAssessment(shape, Array.Empty<string>(), new Dictionary<string, IReadOnlyList<string>>(),
                                         Array.Empty<string>(), shape == LocalizedShape.BsaEmbedded ? "Z.bsa" : null,
                                         false, false);
         var body = LocalizedTargetUnsupportedException.ShapeBody(a);
         Assert.NotEmpty(body);
-        Assert.Equal(mayCarry, LocalizedVocabulary.Any(v => body.Contains(v, StringComparison.Ordinal)));
+        Assert.Equal(MayAssertLocalization(shape), LocalizedVocabulary.Any(v => body.Contains(v, StringComparison.Ordinal)));
     }
 
     // Probe: an unlistable Strings folder classifies as its own shape, NOT as Nowhere; its refusal asserts no absence

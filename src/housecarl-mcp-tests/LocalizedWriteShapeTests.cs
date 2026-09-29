@@ -90,6 +90,18 @@ public sealed class LocalizedWriteShapeTests
         Assert.DoesNotContain(mine, n => n!.StartsWith("ZRef_extra", StringComparison.OrdinalIgnoreCase));
     }
 
+    // Kills the stem-prefix mutant alone (LocalizedStrings.Parse's StartsWith(stem + "_") to StartsWith(stem)):
+    // a table named for the stem with no underscore before a real language is not this plugin's.
+    [Fact]
+    public void ATableWithNoUnderscoreAfterTheStemIsNotThisPluginsOwn()
+    {
+        using var f = new F(A.LooseComplete);
+        File.WriteAllBytes(Path.Combine(f.ModDir, "Strings", "ZRefXEnglish.STRINGS"), new byte[] { 0 });
+        var mine = LocalizedStrings.OwnTableFiles(f.Plugin).Select(Path.GetFileName).ToList();
+        Assert.Equal(6, mine.Count);
+        Assert.Contains("ZRefXEnglish.STRINGS", LocalizedStrings.Assess(f.Plugin, f.DataDir).UnmatchedTables.Names);
+    }
+
     // Probe: an unknown game-Data folder is recorded as unknown, not as checked.
     [Fact]
     public void AnUnknownGameDataFolderIsRecordedAsUnknown()
