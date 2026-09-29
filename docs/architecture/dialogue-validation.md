@@ -110,9 +110,10 @@ substrate throughout and the stamp caveats nothing.
   `QUST-ALIAS-LOCATION` VTCK's scope to reference aliases.
 - `DialogBranchFlagsRefusalTests` — a branch with no `Flags` is refused naming both values, and an explicit
   value, `0` included, lands.
-- `DialogueValidateGuardProbe` (`src/housecarl-generator`) arms PNAM-DANGLE / PNAM-RESOLVES — only a set but
-  unresolvable PNAM is reported; DELETED-SKIP — deleted INFOs are skipped and tallied; COND-ALIAS-FLOI — the FLOI
-  mode gate; QUEST-FANOUT — a quest expands into the topics it owns.
+- `DialogueValidateGraphTests.ASetPreviousLinkToNoInfoIsAProblem` / `APreviousLinkToARealSiblingIsNotFlagged` —
+  only a set but unresolvable PNAM is reported; `ADeletedInfoIsSkippedAndTallied` — deleted INFOs are skipped and
+  tallied; `DialogueValidateConditionTests.AnAliasModeFormParameterIsNotFlagged` — the FLOI mode gate;
+  `DialogueValidateInputTests.AQuestFansOutToTheTopicsItOwns` — a quest expands into the topics it owns.
 - `DialogueFamilyTests.AVanillaTopicNoPluginTouchesIsLabelledButNotWarnedAbout`,
   `ACreationClubOverrideAuthoringTheMismatchIsNotWarnedAbout` and
   `AnOverrideInheritingAStaleSubtypeIsNotWarnedAbout` — the subtype-disagreement ownership gate and its second
