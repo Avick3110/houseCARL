@@ -442,24 +442,27 @@ internal static class Artifacts
     static readonly char[] LineSeparators = { '\r', '\n' };
 
     /// <summary>Expand a list-valued tool input under the <c>@file</c> convention: one <c>"@&lt;absolute path&gt;"</c> element stands in place of the whole list, never splicing, and an artifact also yields the epoch demand the consuming call must check.
-    /// <para><paramref name="identity"/> is the column this parameter's list is made of — "formid" on every record lane, "path" on the asset lane; re-entry contract in docs/architecture/output-and-artifacts.md.</para></summary>
+    /// <para><paramref name="identity"/> is the column this parameter's list is made of — "formid" on the record lanes' FormID lists, "path" on the asset lane, "plugin" on a plugin-filename list. Only a "formid" list splits on commas; every other identity is a list of names in which a comma is legal, so it splits on line breaks. Re-entry contract in docs/architecture/output-and-artifacts.md.</para>
+    /// <para><paramref name="spelling"/> is how a caller writes the parameter, <c>{0}</c> standing for the list, when that is not <c>name=[…]</c>; the refusals name it so their remedy is a spelling the tool accepts.</para></summary>
     public static (string[]? Tokens, ArtifactDemand? Demand, string? EchoSource, string? Error) ExpandListInput(
-        string[] items, string paramName, string identity = "formid")
+        string[] items, string paramName, string identity = "formid", string? spelling = null)
     {
         // The null/length guards keep a whitespace-only element on the per-item "not a FormID" path.
         int atCount = items.Count(i => i is not null && i.TrimStart() is { Length: > 0 } t && t[0] == '@');
         if (atCount == 0) return (items, null, null, null);
+        var label = spelling is null ? paramName + "=" : string.Format(spelling, "…");
+        var alone = spelling is null ? $"{paramName}=[\"@<path>\"]" : string.Format(spelling, "\"@<path>\"");
         if (items.Length > 1)
-            return (null, null, null, $"error: {paramName}= mixes an '@file' entry with inline entries — '@<path>' stands IN PLACE OF the whole list. " +
-                                      $"Pass {paramName}=[\"@<path>\"] alone, or put every entry in the file.");
+            return (null, null, null, $"error: {label} mixes an '@file' entry with inline entries — '@<path>' stands IN PLACE OF the whole list. " +
+                                      $"Pass {alone} alone, or put every entry in the file.");
         var path = items[0].TrimStart().Substring(1).Trim().Trim('"', '\'');
         if (path.Length == 0)
-            return (null, null, null, $"error: {paramName}= '@' names a list file but no path follows it.");
-        if (PathArguments.NotAbsolute(path, $"{paramName}= list file", "the file the list is in", "C:\\work\\list.jsonl") is { } notAbsolute)
+            return (null, null, null, $"error: {label} '@' names a list file but no path follows it — pass {alone}.");
+        if (PathArguments.NotAbsolute(path, $"{label} list file", "the file the list is in", "C:\\work\\list.jsonl") is { } notAbsolute)
             return (null, null, null, "error: " + notAbsolute);
         string content;
         try { content = File.ReadAllText(path); }
-        catch (Exception ex) { return (null, null, null, $"error: could not read {paramName}= list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
+        catch (Exception ex) { return (null, null, null, $"error: could not read {label} list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
 
         if (ResultArtifact.LooksLikeArtifact(content))
         {
@@ -467,17 +470,30 @@ internal static class Artifacts
             if (aerr is not null) return (null, null, null, "error: " + aerr);
             if (!manifest!.Identity!.Equals(identity, StringComparison.OrdinalIgnoreCase))
                 return (null, null, null, $"error: artifact '{path}' (from {manifest.Tool}) carries '{manifest.Identity}' identities, " +
-                                          $"not '{identity}' ones — there is no {identity} list in it for {paramName}=.");
+                                          $"not '{identity}' ones — there is no {identity} list in it for {label}.");
             return (tokens!.ToArray(), new ArtifactDemand(path, manifest.Epoch), "@" + path, null);
         }
 
-        // A path list splits on line breaks ONLY — see SplitListTokens.
+        // Only a FormID list splits on commas; a path or plugin list splits on line breaks ONLY — see SplitListTokens.
         bool commaSeparates = identity.Equals("formid", StringComparison.OrdinalIgnoreCase);
         var plain = SplitListTokens(content, commaSeparates).ToArray();
         if (plain.Length == 0)
-            return (null, null, null, $"error: {paramName}= list file '{path}' is empty — give one entry per line"
+            return (null, null, null, $"error: {label} list file '{path}' is empty — give one entry per line"
                                       + (commaSeparates ? " (or comma-separated)." : "."));
         return (plain, null, "@" + path, null);
+    }
+
+    /// <summary>Expand a plugin-filename list under the <c>@file</c> convention, one filename per line, for every tool that takes one.
+    /// <para>A filename that itself starts with '@' is written '@@' inline; a list file's own lines are read as written.</para></summary>
+    public static (string[]? Names, string? EchoSource, string? Error) ExpandPluginList(
+        string[] items, string paramName, string? spelling = null)
+    {
+        static bool Escaped(string? i) => i is not null && i.TrimStart().StartsWith("@@", StringComparison.Ordinal);
+        bool anyFile = items.Any(i => i is not null && i.TrimStart().StartsWith('@') && !Escaped(i));
+        if (!anyFile)
+            return (items.Select(i => Escaped(i) ? i.TrimStart().Substring(1) : i).ToArray(), null, null);
+        var (names, _, echo, err) = ExpandListInput(items, paramName, identity: "plugin", spelling: spelling);
+        return (names, echo, err);
     }
 
     // ---- to_file validation -------------------------------------------------------------------------
