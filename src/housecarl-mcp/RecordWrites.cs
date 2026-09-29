@@ -1012,8 +1012,9 @@ public sealed partial class LoadOrderService
                     $"a houseCARL output folder '{ModFolderName(stem)}' already exists — houseCARL won't auto-rename a header-only plugin (its exact basename is what makes the trigger resolve). Remove that folder in MO2, or choose a different name.");
             // (c) a plugin of this BASENAME sits somewhere the order is NOT loading — the shadow the fresh patch lanes take (#561).
             var plugin = stem + ".esp";
-            var active = ActivePluginBasenames();
-            if (active.Count > 0 && ReadCompositionForShadow() is { } comp)
+            var roots = ((ILoadOrderHost)this).CaptureRoots();
+            var active = ActivePluginBasenames(roots);
+            if (active.Count > 0 && ReadCompositionForShadow(roots) is { } comp)
                 foreach (var ext in PluginExts)                       // .esp / .esm / .esl — the basename is what binds
                     if (PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, stem + ext, active) is { } shadow)
                         return WritePatchBuilder.CreatePluginOutcome.Fail(
@@ -2061,7 +2062,7 @@ public sealed partial class LoadOrderService
             {
                 extend = true;
                 // The .esp write lane shares the extend resolver with the rider and asset lanes; needEsp:true picks the .esp inside the folder.
-                var folder = ResolveOwnedPatchFolder(into, needEsp: true, freshPatch, noFreshRule);
+                var folder = ResolveOwnedPatchFolder(RootsLocked(), into, needEsp: true, freshPatch, noFreshRule);
                 var direct = Path.Combine(folder, PatchStem(into) + ".esp");
                 if (File.Exists(direct)) return direct;
                 var sole = SoleEspInFolder(folder, out var why);
@@ -2072,7 +2073,7 @@ public sealed partial class LoadOrderService
             extend = false;
             var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
             // Every record lane that reaches here declares patch= and writes "<stem>.esp".
-            var freeStem = UniqueStem(baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
+            var freeStem = UniqueStem(RootsLocked(), baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
                                       new PatchStemShadow.Target(s => s + ".esp", "patch"), refuseTaken);
             var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
             var plugin = freeStem + ".esp";
