@@ -118,8 +118,8 @@ public sealed class PlaceServiceLaneTests
     }
 
     // Probe G: "an all-failed batch reports no mod folder" and "a fresh folder with NOTHING placed is removed — no
-    // orphan". Strengthened: the folder is shown to have been created by the same call shape first, so its absence
-    // afterwards is the cleanup and not a folder that was never made.
+    // orphan". The first call only shows that a place under this name makes a "houseCARL - <patch>" folder; that the
+    // all-fail call made one before removing it is not observed here (the leftover->null mutant is what catches it).
     [Fact]
     public void AnAllFailedFreshBatchRemovesTheFolderItCreated()
     {

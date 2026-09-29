@@ -129,8 +129,10 @@ public sealed class PlaceSpecRefusalTests : IClassFixture<PlaceSpecWorld>
     [Fact]
     public void ABothSlotsMemberWithALooseSourceIsRefused()
     {
-        Assert.Contains(".bsa", PlaceTools.Place(_w.Svc,
-            new[] { new PlaceTarget { Formid = FacegenFormId, Source = @"C:\loose.nif" } }));
+        var text = PlaceTools.Place(_w.Svc, new[] { new PlaceTarget { Formid = FacegenFormId, Source = @"C:\loose.nif" } });
+
+        Assert.Contains("must be a FULL '.bsa' path", text);
+        Assert.DoesNotContain("mod folder:", text);
     }
 
     // Probe G: "place: a both-expansion with a RELATIVE '.bsa' source is refused (one VFS path cannot serve two slots)".
