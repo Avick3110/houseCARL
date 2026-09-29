@@ -481,7 +481,7 @@ public sealed class RecordsRenderCostTests
     {
         var r = Svc.WithBounds(b => b with { ComparisonRows = 2 }, () => RecordsTools.Records(Svc, types: Weap, project: Tree()));
         Assert.StartsWith("error:", r);
-        Assert.Contains("limit= at or below the bound", r);
+        Assert.Contains("limit= at or below the rows that fit", r);
         Assert.DoesNotContain("lower limit=", r);
     }
 
@@ -498,12 +498,19 @@ public sealed class RecordsRenderCostTests
         Assert.DoesNotContain("pass fewer formids=", r);
     }
 
-    /// <summary>The smallest refusable job on this lane lands in the minute band, which every other bound starts
-    /// above: 251 rows must not read "about 1 minutes".</summary>
-    [Fact]
-    public void TheEstimateReadsProperlyJustOverTheComparisonBound() =>
-        Assert.DoesNotContain(" 1 minutes",
-                              RenderBudget.ProjectedAt(RenderBudget.DefaultMaxComparisonRows + 1, RenderBudget.MillisPerComparisonRow));
+    /// <summary>The floor constants themselves: 20,000 whole-record rows at 30 ms and 15,000,000 narrowed rows at
+    /// 0.04 ms fit ten minutes, and one row more refuses, reading as the ten minutes it is.</summary>
+    [Theory]
+    [InlineData(false, 20_000)]
+    [InlineData(true, 15_000_000)]
+    public void TheEstimateReadsProperlyJustOverTheComparisonBound(bool narrowed, int fits)
+    {
+        Assert.Null(RenderBudget.RefuseComparison(RenderBounds.Default, fits, narrowed, "tree", "lever"));
+        var r = RenderBudget.RefuseComparison(RenderBounds.Default, fits + 1, narrowed, "tree", "lever");
+        Assert.NotNull(r);
+        Assert.Contains("at least about 10 minutes", r);
+        Assert.Contains($"({fits:N0} rows fit at that price)", r);
+    }
 
     /// <summary>A census and a to_file= artifact cover the whole selection whatever limit= says, so the sentence
     /// they get names the scan terms and says limit= is not the lever.</summary>
