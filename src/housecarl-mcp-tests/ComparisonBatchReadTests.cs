@@ -4,10 +4,7 @@ using static HousecarlMcpTests.ApplyGuardWorld;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// What a comparison batch reads: a delta walks no pole plugin for a row that pole holds nothing of, and an absent
-/// plugin is explained from the profile once a call, not once a row, on every list lane that names it.
-/// </summary>
+/// <summary>What a comparison batch walks, and how often an absent plugin is explained.</summary>
 [Trait("tier", "integration")]
 public sealed class ComparisonBatchReadTests : IClassFixture<OwnedChildFixture>
 {
@@ -51,8 +48,7 @@ public sealed class ComparisonBatchReadTests : IClassFixture<OwnedChildFixture>
         finally { _w.Svc.ReadArea.AfterReadPinForGuard = null; }
     }
 
-    /// <summary>A post-state subject that holds its records declares them to the reference, which walks each winner's
-    /// plugin once for the chunk.</summary>
+    /// <summary>A post-state subject that holds its records still gathers the reference.</summary>
     [Fact]
     public void APostStateSubjectThatHoldsItsRecordsGathersTheReference()
     {
@@ -62,20 +58,36 @@ public sealed class ComparisonBatchReadTests : IClassFixture<OwnedChildFixture>
                                     r => r.Contains(" 0 error(s)")));
     }
 
-    /// <summary>An off-order subject that holds its record declares it to the reference, which walks the winner's plugin.</summary>
+    /// <summary>An off-order subject that holds its record still gathers the reference.</summary>
     [Fact]
     public void AnOffOrderSubjectThatHoldsItsRecordGathersTheReference()
     {
         var dir = Path.Combine(_w.Root, "instance", "mods", "OffTopMod");
+        var copy = Path.Combine(dir, "HcOcTopOff.esp");
         Directory.CreateDirectory(dir);
-        File.Copy(_w.PluginPaths[2], Path.Combine(dir, "HcOcTopOff.esp"), overwrite: true);
-        Assert.Equal(1, Walks(new[] { OwnedChildWorld.Fid(_w.Weapon) }, "\"HcOcTopOff.esp\"", "\"winner\"", r => r.Contains(" 0 error(s)")));
+        File.Copy(_w.PluginPaths.Single(p => Path.GetFileName(p) == _w.TopName), copy, overwrite: true);
+        try
+        {
+            Assert.Equal(1, Walks(new[] { OwnedChildWorld.Fid(_w.Weapon) }, "\"HcOcTopOff.esp\"", "\"winner\"", r => r.Contains(" 0 error(s)")));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
     }
 
     /// <summary>A winner subject that holds CellG against a named versus= that does not walks only the winner's plugin.</summary>
     [Fact]
     public void ANamedReferenceThatHoldsNothingIsNotWalked() =>
         Assert.Equal(1, Walks(new[] { OwnedChildWorld.Fid(_w.CellG) }, "\"winner\"", "\"" + _w.TopName + "\""));
+
+    /// <summary>A pinned view's DeclaredMasters explains an absent plugin once, however often it is asked.</summary>
+    [Fact]
+    public void DeclaredMastersOnAViewExplainsAnAbsentPluginOnce()
+    {
+        var view = _w.Svc.CaptureView();
+        int before = _w.Svc.AbsenceExplanations;
+        for (int i = 0; i < 3; i++)
+            Assert.Contains("HcAbsentComparison.esp", Assert.Throws<ArgumentException>(() => view.DeclaredMasters("HcAbsentComparison.esp")).Message);
+        Assert.Equal(1, _w.Svc.AbsenceExplanations - before);
+    }
 
     [Theory]
     [InlineData("tree", null)]
