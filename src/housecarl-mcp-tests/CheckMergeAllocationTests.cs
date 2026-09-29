@@ -198,7 +198,8 @@ public class CheckMergeAllocationTests
             }
     }
 
-    // CAP-LADDER: at every integer cap neither transport returns more than it was given, bar the floor, json parses
+    // CAP-LADDER: at one cap in every three (the offset rotates, so each case asks all three residues) neither
+    // transport returns more than it was given, bar the floor, and the json parses
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -207,8 +208,9 @@ public class CheckMergeAllocationTests
         var s = allFamilies ? All() : Both();
         int textFloor = Text(s, 1).Length;
         int jsonFloor = Json(s, 1).Length;
-        // Every third cap, offset per theory case; the probe swept every integer.
-        foreach (int cap in Enumerable.Range(0, 4000).Select(i => 1 + (allFamilies ? 1 : 0) + 3 * i).Append(40000))
+        // One cap in each block of three, the offset rotating per block and per case; the probe swept every integer.
+        int shift = allFamilies ? 1 : 0;
+        foreach (int cap in Enumerable.Range(0, 4000).Select(i => 1 + 3 * i + (i + shift) % 3).Append(40000))
         {
             var text = Text(s, cap);
             var json = Json(s, cap);
