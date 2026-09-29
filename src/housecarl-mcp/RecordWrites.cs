@@ -1004,25 +1004,28 @@ public sealed partial class LoadOrderService
                 if (view.ContainsPlugin(stem + ext))
                     return WritePatchBuilder.CreatePluginOutcome.Fail(
                         $"a plugin named '{stem + ext}' is already active in your load order — a header-only trigger needs a UNIQUE basename (a second one would shadow it, MO2 picking the winner by mod order). Choose a different name.");
-            // (b) a houseCARL mod folder of this exact name already exists — don't overwrite (could clobber a real patch
-            //     sharing the name) and don't auto-rename (would break the basename trigger): refuse and point at it.
+            var roots = ((ILoadOrderHost)this).CaptureRoots();           // before the allocation lock, which never wraps a _gate hold
             var folder = Path.Combine(_modsDir, ModFolderName(stem));
-            if (Directory.Exists(folder))
-                return WritePatchBuilder.CreatePluginOutcome.Fail(
-                    $"a houseCARL output folder '{ModFolderName(stem)}' already exists — houseCARL won't auto-rename a header-only plugin (its exact basename is what makes the trigger resolve). Remove that folder in MO2, or choose a different name.");
-            // (c) a plugin of this BASENAME sits somewhere the order is NOT loading — the shadow the fresh patch lanes take (#561).
             var plugin = stem + ".esp";
-            var roots = ((ILoadOrderHost)this).CaptureRoots();
-            var active = ActivePluginBasenames(roots);
-            if (active.Count > 0 && ReadCompositionForShadow(roots) is { } comp)
-                foreach (var ext in PluginExts)                       // .esp / .esm / .esl — the basename is what binds
-                    if (PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, stem + ext, active) is { } shadow)
-                        return WritePatchBuilder.CreatePluginOutcome.Fail(
-                            PatchStemShadow.Refusal(plugin, shadow, "patch", stem + ext,
-                                                    "a header-only trigger needs a UNIQUE basename"));
+            lock (_folderAllocationGate)                                 // the same allocation lock as the other fresh-folder sites
+            {
+                // (b) a houseCARL mod folder of this exact name already exists — don't overwrite (could clobber a real patch
+                //     sharing the name) and don't auto-rename (would break the basename trigger): refuse and point at it.
+                if (Directory.Exists(folder))
+                    return WritePatchBuilder.CreatePluginOutcome.Fail(
+                        $"a houseCARL output folder '{ModFolderName(stem)}' already exists — houseCARL won't auto-rename a header-only plugin (its exact basename is what makes the trigger resolve). Remove that folder in MO2, or choose a different name.");
+                // (c) a plugin of this BASENAME sits somewhere the order is NOT loading — the shadow the fresh patch lanes take (#561).
+                var active = ActivePluginBasenames(roots);
+                if (active.Count > 0 && ReadCompositionForShadow(roots) is { } comp)
+                    foreach (var ext in PluginExts)                       // .esp / .esm / .esl — the basename is what binds
+                        if (PatchStemShadow.Find(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, stem + ext, active) is { } shadow)
+                            return WritePatchBuilder.CreatePluginOutcome.Fail(
+                                PatchStemShadow.Refusal(plugin, shadow, "patch", stem + ext,
+                                                        "a header-only trigger needs a UNIQUE basename"));
 
-            Directory.CreateDirectory(folder);
-            WriteOwnerMeta(folder, plugin);
+                Directory.CreateDirectory(folder);
+                WriteOwnerMeta(folder, plugin);
+            }
             var outPath = Path.Combine(folder, plugin);
 
             var outcome = WritePatchBuilder.CreatePlugin(outPath, esl, author, description);
