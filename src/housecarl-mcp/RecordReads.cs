@@ -525,7 +525,7 @@ internal sealed partial class RecordReads
             if (start != chunkStart)
             {
                 chunkStart = start;
-                chunk = BodyPrefetch.Gather(view, batchSession, keys, start, Math.Min(start + BodyPrefetch.ChunkRows, keys.Length),
+                chunk = BodyPrefetch.Gather(view, batchSession, resolver.Counters, keys, start, Math.Min(start + BodyPrefetch.ChunkRows, keys.Length),
                                             _ => plugin, getterTypes, ct);
             }
             var fk = keys[i];
@@ -670,7 +670,7 @@ internal sealed partial class RecordReads
                 if (start != chunkStart)
                 {
                     chunkStart = start;
-                    chunk = BodyPrefetch.Gather(view, batchSession, keys, start, Math.Min(start + BodyPrefetch.ChunkRows, keys.Length),
+                    chunk = BodyPrefetch.Gather(view, batchSession, resolver.Counters, keys, start, Math.Min(start + BodyPrefetch.ChunkRows, keys.Length),
                                                 _ => plugin, getterTypes, ct);
                 }
                 var fk = keys[i];

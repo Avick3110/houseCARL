@@ -18,7 +18,7 @@ internal static class BodyPrefetch
     /// when a row asks. <paramref name="sourceAt"/> names the plugin whose body a row displays, or null for the
     /// winner; <paramref name="getterTypes"/> narrows each walk to the GRUPs the caller's types live in.</summary>
     internal static Chunk Gather(
-        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, CostCounters counters,
         IReadOnlyList<FormKey> keys, int start, int end, Func<int, string?> sourceAt,
         IReadOnlyList<Type>? getterTypes, CancellationToken ct)
     {
@@ -33,7 +33,7 @@ internal static class BodyPrefetch
             gather.Want(plugin, fk);
             plugins[fk] = plugin;
         }
-        Interlocked.Add(ref session.Counters.KeysWanted, plugins.Count);     // what this caller asked for, whether or not a row reads it
+        Interlocked.Add(ref counters.KeysWanted, plugins.Count);     // what this caller asked for, whether or not a row reads it
         return new Chunk(gather, plugins);
     }
 

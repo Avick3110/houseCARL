@@ -186,15 +186,13 @@ public sealed class LoadOrderResolver : IDisposable
     public OverlaySession OpenSession() => new(this);
 
     /// <summary>What this resolver's reads cost, for the cost tests; the service hands in its own so a rebuild keeps counting.</summary>
-    internal CostCounters Counters { get; }
+    public CostCounters Counters { get; }
 
     public sealed class OverlaySession : IDisposable
     {
         readonly LoadOrderResolver _r;
         readonly Dictionary<int, ISkyrimModGetter> _open = new();
         internal OverlaySession(LoadOrderResolver r) => _r = r;
-
-        public CostCounters Counters => _r.Counters;
 
         internal ISkyrimModGetter Overlay(int idx)
         {
