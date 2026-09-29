@@ -34,13 +34,19 @@ public sealed partial class LoadOrderService
             return new RiderFolder(folder, folder, CreatedFresh: false, FolderStem(folder));   // reused — the user owns it; cleanup leaves it
         }
 
-        var newStem = UniqueStem(roots, PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!),
-                                 !string.IsNullOrWhiteSpace(patchName), writes: null, naming?.RefuseTaken);
-        var newFolder = Path.Combine(roots.ModsDir, ModFolderName(newStem));
-        Directory.CreateDirectory(newFolder);
-        WriteOwnerMeta(newFolder, "(houseCARL output)");   // ownership marker; this folder may hold scripts / a .bsa / loose files, not an .esp
-        return new RiderFolder(newFolder, newFolder, CreatedFresh: true, newStem);
+        lock (_folderAllocationGate)                       // the stem check and the create, race-free only together
+        {
+            var newStem = UniqueStem(roots, PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!),
+                                     !string.IsNullOrWhiteSpace(patchName), writes: null, naming?.RefuseTaken);
+            var newFolder = Path.Combine(roots.ModsDir, ModFolderName(newStem));
+            Directory.CreateDirectory(newFolder);
+            WriteOwnerMeta(newFolder, "(houseCARL output)");   // ownership marker; this folder may hold scripts / a .bsa / loose files, not an .esp
+            return new RiderFolder(newFolder, newFolder, CreatedFresh: true, newStem);
+        }
     }
+
+    /// <summary>Serializes every mod-folder allocation (check-then-create) off the index lock; taken last, and nothing takes <c>_gate</c> while holding it.</summary>
+    readonly object _folderAllocationGate = new();
 
     /// <summary>The <c>Scripts\</c> output folder for a compiled .pex, under a houseCARL mod folder, which MO2 deploys into the game's Data\Scripts.</summary>
     public RiderFolder ResolveCompiledScriptFolder(string? patchName, string? into)
@@ -87,14 +93,20 @@ public sealed partial class LoadOrderService
         string root;
         try { root = Path.GetFullPath(given); }
         catch (Exception ex) { throw new InvalidOperationException($"out_path '{outputDir}' is not a usable path ({ex.Message})."); }
-        if (File.Exists(root))
-            throw new InvalidOperationException($"out_path '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
+        string outDir;
+        string? warn;
+        bool appended;
+        lock (_folderAllocationGate)                       // the exists check and the create, on the one allocation lock
+        {
+            if (File.Exists(root))
+                throw new InvalidOperationException($"out_path '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
 
-        var (outDir, appended, warn) = contract(root, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
-        // A plain message for a folder that cannot be created, rather than a generic internal failure.
-        try { Directory.CreateDirectory(outDir); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        { throw new InvalidOperationException($"out_path: couldn't create the output folder '{outDir}' ({ex.Message}). Check the path and that it's writable."); }
+            (outDir, appended, warn) = contract(root, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
+            // A plain message for a folder that cannot be created, rather than a generic internal failure.
+            try { Directory.CreateDirectory(outDir); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            { throw new InvalidOperationException($"out_path: couldn't create the output folder '{outDir}' ({ex.Message}). Check the path and that it's writable."); }
+        }
         deployWarning = warn;
         // ModFolder stays accurate though cleanup is bypassed: the subfolder's parent, else the path given.
         var modRoot = appended ? root : (Path.GetDirectoryName(outDir.TrimEnd('\\', '/')) ?? outDir);

@@ -2073,18 +2073,21 @@ public sealed partial class LoadOrderService
             extend = false;
             var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
             // Every record lane that reaches here declares patch= and writes "<stem>.esp".
-            var freeStem = UniqueStem(RootsLocked(), baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
-                                      new PatchStemShadow.Target(s => s + ".esp", "patch"), refuseTaken);
-            var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
-            var plugin = freeStem + ".esp";
-            // A dry run (create:false) resolves the would-be path only — no folder, no meta.ini.
-            if (create)
+            lock (_folderAllocationGate)                                // the same allocation lock as the rider lanes
             {
-                Directory.CreateDirectory(newFolder);
-                createdFolder = true;
-                WriteOwnerMeta(newFolder, plugin);
+                var freeStem = UniqueStem(RootsLocked(), baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
+                                          new PatchStemShadow.Target(s => s + ".esp", "patch"), refuseTaken);
+                var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
+                var plugin = freeStem + ".esp";
+                // A dry run (create:false) resolves the would-be path only — no folder, no meta.ini.
+                if (create)
+                {
+                    Directory.CreateDirectory(newFolder);
+                    createdFolder = true;
+                    WriteOwnerMeta(newFolder, plugin);
+                }
+                return Path.Combine(newFolder, plugin);
             }
-            return Path.Combine(newFolder, plugin);
         }
     }
 
