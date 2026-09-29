@@ -260,12 +260,12 @@ public sealed class InPlaceRoundTripTests
         Assert.True(o.Success, o.Error);
     }
 
-    // Allowed: the body of a deleted REFR, which Mutagen writes empty.
+    // Allowed: a deleted REFR whose body is only its NAME, the measured shape; Mutagen writes it empty.
     [Fact]
     public void ADeletedRefrsBodyIsAnAllowedLoss()
     {
         var (path, arma) = StagePluginWith(AddPlacedStatic);
-        EditRecord(path, "REFR", header: h => h[8] |= 0x20);
+        EditRecord(path, "REFR", edit: subs => subs.Where(s => s.Sig == "NAME").ToList(), header: h => h[8] |= 0x20);
         Assert.Contains(RecordSubrecords(File.ReadAllBytes(path), "REFR", out _, out _, out _), s => s.Sig == "NAME");
         var o = SetWeaponAdjust(path, arma);
         Assert.True(o.Success, o.Error);
@@ -292,6 +292,7 @@ public sealed class InPlaceRoundTripTests
     [InlineData("WEAP", "INAM", 35, false, true)]
     [InlineData("REFR", "NAME", 44, false, true)]
     [InlineData("ACHR", "NAME", 44, true, true)]
+    [InlineData("REFR", "DATA", 44, true, false)]
     [InlineData("REFR", "XRMR", 44, false, false)]
     public void ALossOutsideTheMeasuredClassStillRefuses(string record, string sub, int formVersion, bool deleted, bool zero)
     {

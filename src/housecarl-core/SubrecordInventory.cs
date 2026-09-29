@@ -20,14 +20,14 @@ public static class SubrecordInventory
     /// <summary>When an allowed loss holds for the record or subrecord the file has.</summary>
     public enum AllowWhen { FormVersionBelow, RecordDeleted, AllZeroPayload }
 
-    /// <summary>A loss the writer makes that carries no information: record type, subrecord ("*" for any), and the condition.</summary>
+    /// <summary>A loss the writer makes that carries no information: record type, subrecord, and the condition.</summary>
     public sealed record Allowance(string Record, string Subrecord, AllowWhen When, int FormVersion = 0);
 
     /// <summary>The measured class of information-free losses, and nothing beyond it (Aaron, 2026-09-29 ~09:10).</summary>
     internal static readonly IReadOnlyList<Allowance> InformationFree = new[]
     {
         new Allowance("LTEX", "INAM", AllowWhen.FormVersionBelow, FormVersion: 43),
-        new Allowance("REFR", "*", AllowWhen.RecordDeleted),
+        new Allowance("REFR", "NAME", AllowWhen.RecordDeleted),
         new Allowance("REFR", "XRMR", AllowWhen.AllZeroPayload),
     };
 
@@ -263,7 +263,7 @@ public static class SubrecordInventory
     }
 
     static bool Allows(Allowance a, RecordDiff d, Sub s) =>
-        a.Record == d.Signature && (a.Subrecord == "*" || a.Subrecord == s.Sig) && a.When switch
+        a.Record == d.Signature && a.Subrecord == s.Sig && a.When switch
         {
             AllowWhen.FormVersionBelow => d.FormVersion < a.FormVersion,
             AllowWhen.RecordDeleted => d.Deleted,
@@ -283,11 +283,11 @@ public static class SubrecordInventory
         var who = $"houseCARL (Mutagen {MutagenVersion})";
         if (losses.Count == 1)
             return $"refused: {who} cannot write {Name(losses[0])} back as the file holds it, so rewriting '{fileName}' " +
-                   $"would drop its {Sigs(losses[0])} (#961); '{fileName}' is UNTOUCHED — {remedy.One}.";
+                   $"would drop or resize its {Sigs(losses[0])} (#961); '{fileName}' is UNTOUCHED — {remedy.One}.";
         var list = string.Join("; ", losses.Take(RecordsNamed).Select(d => $"{Name(d)} ({Sigs(d)})"));
         var more = losses.Count > RecordsNamed ? $"; and {losses.Count - RecordsNamed} more record(s)" : "";
         return $"refused: {who} cannot write {losses.Count} records back as the file holds them, so rewriting " +
-               $"'{fileName}' would drop subrecords from each — {list}{more} (#961); '{fileName}' is UNTOUCHED — " +
+               $"'{fileName}' would drop or resize subrecords in each — {list}{more} (#961); '{fileName}' is UNTOUCHED — " +
                $"{remedy.Many}.";
     }
 
