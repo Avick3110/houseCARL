@@ -408,10 +408,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   serialize.
 - `AtomicCommitGuardTests` — the staged commit lands a fresh file, replaces an existing one
   byte-exact, and throws with the prior target intact when the source is missing or the target is held.
-- `localized-write-guard` — the in-place refusal over every arrangement, each named accurately, the plugin and its
+- `LocalizedWriteShapeTests`, `LocalizedInPlaceRefusalTests` and `LocalizedUnclassifiableDestinationTests` — the
+  in-place refusal over every arrangement, each named accurately and ending on no lane clause, the plugin and its
   tables byte-untouched, and a destination that cannot be classified refusing rather than reading as not-localized.
-  It also pins what `RemedyFor` does with a lane clause passed IN, but not that the engine's own refusal carries
-  none, so the backstop naming no lane is unpinned.
 - `nullarm-guard` part B — a composed record missing a required arm surfaces as the named null-arm refusal, bare or
   aggregate-wrapped, with nothing on disk.
 - `GenderedNavReadTests`, `GenderedNavWriteTests`, `GenderedNavRefusalTests` and `GenderedArmShapeTests` — the
