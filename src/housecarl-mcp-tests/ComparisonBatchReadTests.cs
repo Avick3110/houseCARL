@@ -1,11 +1,12 @@
 using HousecarlMcp;
 using Xunit;
+using static HousecarlMcpTests.ApplyGuardWorld;
 
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// What a comparison batch reads: a delta row whose subject holds nothing walks no reference plugin, and an absent
-/// plugin is explained from the profile once a call, not once a row, on the tree, the delta and the post-state pole.
+/// What a comparison batch reads: a delta walks no pole plugin for a row that pole holds nothing of, and an absent
+/// plugin is explained from the profile once a call, not once a row, on every list lane that names it.
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class ComparisonBatchReadTests : IClassFixture<OwnedChildFixture>
@@ -13,22 +14,23 @@ public sealed class ComparisonBatchReadTests : IClassFixture<OwnedChildFixture>
     readonly OwnedChildWorld _w;
     public ComparisonBatchReadTests(OwnedChildFixture f) => _w = f.W;
 
-    static System.Text.Json.JsonElement Json(string s) => System.Text.Json.JsonDocument.Parse(s).RootElement.Clone();
+    const string Post = "{\"overlay\": \"skypatcher\", \"state\": \"post\"}";
+    const string Pre = "{\"overlay\": \"skypatcher\", \"state\": \"pre\"}";
 
     static RecordsTools.RecordsProject Delta => new() { form = "delta", fields = new[] { "EditorID" } };
 
-    long Walks(string[] ids, string source, string versus)
+    static string[] AbsentIds => Enumerable.Range(0x800, 50).Select(i => $"{i:X6}:HcAbsentComparison.esp").ToArray();
+
+    long Walks(string[] ids, string source, string versus, Func<string, bool>? expect = null)
     {
         long before = _w.Svc.Counters.CollectPasses;
-        var r = RecordsTools.Records(_w.Svc, formids: ids, source: Json(source), versus: Json(versus), project: Delta);
+        var r = RecordsTools.Records(_w.Svc, formids: ids, source: Je(source), versus: Je(versus), project: Delta);
         Assert.False(r.StartsWith("error:"), r);
+        if (expect is not null) Assert.True(expect(r), r);
         return _w.Svc.Counters.CollectPasses - before;
     }
 
-    static string[] AbsentIds => Enumerable.Range(0x800, 50).Select(i => $"{i:X6}:HcAbsentComparison.esp").ToArray();
-
-    /// <summary>The top plugin holds no version of CellG, so the row refuses on the subject from the index: neither
-    /// the subject plugin nor the winner's is walked.</summary>
+    /// <summary>The top plugin holds no version of CellG, so neither the subject plugin nor the winner's is walked.</summary>
     [Fact]
     public void ADeltaWhoseSubjectHoldsNothingDoesNotWalkTheReference()
     {
@@ -36,14 +38,41 @@ public sealed class ComparisonBatchReadTests : IClassFixture<OwnedChildFixture>
         Assert.Equal(0, Walks(new[] { OwnedChildWorld.Fid(_w.CellG) }, "\"" + _w.TopName + "\"", "\"winner\""));
     }
 
-    /// <summary>A post-state subject holds nothing when the record has no winner, so a named reference is not walked
-    /// for those rows.</summary>
+    /// <summary>A post-state subject whose replay cannot be set up holds nothing, so the winners are not walked.</summary>
     [Fact]
-    public void APostStateSubjectThatHoldsNothingDoesNotWalkTheReference() =>
-        Assert.Equal(0, Walks(AbsentIds, "{\"overlay\": \"skypatcher\", \"state\": \"post\"}", "\"" + _w.TopName + "\""));
+    public void APostStateSubjectWhoseReplayIsUnavailableDoesNotWalkTheReference()
+    {
+        var ids = new[] { OwnedChildWorld.Fid(_w.Weapon), OwnedChildWorld.Fid(_w.CellG) };
+        _w.Svc.ReadArea.AfterReadPinForGuard = () => throw new IOException("the asset build is down for this test");
+        try
+        {
+            Assert.Equal(0, Walks(ids, Post, "\"winner\"", r => r.Contains("could not be discovered")));
+        }
+        finally { _w.Svc.ReadArea.AfterReadPinForGuard = null; }
+    }
 
-    /// <summary>The mirror: a winner subject that holds CellG against a named versus= that does not walks only the
-    /// winner's plugin, not the versus plugin to its end.</summary>
+    /// <summary>A post-state subject that holds its records declares them to the reference, which walks each winner's
+    /// plugin once for the chunk.</summary>
+    [Fact]
+    public void APostStateSubjectThatHoldsItsRecordsGathersTheReference()
+    {
+        var view = _w.Svc.CaptureView();
+        int winners = new[] { _w.Weapon, _w.CellG }.Select(k => view.ResolveWinner(k)!.Value.WinnerPlugin).Distinct().Count();
+        Assert.Equal(winners, Walks(new[] { OwnedChildWorld.Fid(_w.Weapon), OwnedChildWorld.Fid(_w.CellG) }, Post, "\"winner\"",
+                                    r => r.Contains(" 0 error(s)")));
+    }
+
+    /// <summary>An off-order subject that holds its record declares it to the reference, which walks the winner's plugin.</summary>
+    [Fact]
+    public void AnOffOrderSubjectThatHoldsItsRecordGathersTheReference()
+    {
+        var dir = Path.Combine(_w.Root, "instance", "mods", "OffTopMod");
+        Directory.CreateDirectory(dir);
+        File.Copy(_w.PluginPaths[2], Path.Combine(dir, "HcOcTopOff.esp"), overwrite: true);
+        Assert.Equal(1, Walks(new[] { OwnedChildWorld.Fid(_w.Weapon) }, "\"HcOcTopOff.esp\"", "\"winner\"", r => r.Contains(" 0 error(s)")));
+    }
+
+    /// <summary>A winner subject that holds CellG against a named versus= that does not walks only the winner's plugin.</summary>
     [Fact]
     public void ANamedReferenceThatHoldsNothingIsNotWalked() =>
         Assert.Equal(1, Walks(new[] { OwnedChildWorld.Fid(_w.CellG) }, "\"winner\"", "\"" + _w.TopName + "\""));
@@ -51,17 +80,20 @@ public sealed class ComparisonBatchReadTests : IClassFixture<OwnedChildFixture>
     [Theory]
     [InlineData("tree", null)]
     [InlineData("delta", null)]
-    [InlineData("delta", "{\"overlay\": \"skypatcher\", \"state\": \"post\"}")]
-    [InlineData("delta", "{\"overlay\": \"skypatcher\", \"state\": \"pre\"}")]
+    [InlineData("delta", Post)]
+    [InlineData("delta", Pre)]
+    [InlineData("fields", null)]
+    [InlineData("fields", Post)]
+    [InlineData("info_order", null)]
     public void AbsentIdsExplainTheirPluginOnce(string form, string? source)
     {
-        var ids = AbsentIds;
-        var project = new RecordsTools.RecordsProject { form = form, fields = new[] { "EditorID" } };
-        System.Text.Json.JsonElement? versus = form == "delta" ? Json("\"winner\"") : null;
-        System.Text.Json.JsonElement? src = source is null ? null : Json(source);
+        var project = new RecordsTools.RecordsProject { form = form, fields = form == "info_order" ? null : new[] { "EditorID" } };
+        System.Text.Json.JsonElement? versus = form == "delta" ? Je("\"winner\"") : null;
+        System.Text.Json.JsonElement? src = source is null ? null : Je(source);
         long before = _w.Svc.Counters.AbsenceExplains;
-        var r = RecordsTools.Records(_w.Svc, formids: ids, source: src, versus: versus, project: project, counts_only: true);
+        var r = RecordsTools.Records(_w.Svc, formids: AbsentIds, source: src, versus: versus, project: project);
         Assert.False(r.StartsWith("error:"), r);
+        Assert.Contains("HcAbsentComparison.esp", r);
         Assert.Equal(1, _w.Svc.Counters.AbsenceExplains - before);
     }
 }
@@ -76,12 +108,10 @@ public sealed class ComparisonBatchOffOrderReadTests : IClassFixture<RenderCostF
     [Fact]
     public void AnOffOrderSubjectThatHoldsNothingDoesNotWalkTheReference()
     {
-        static System.Text.Json.JsonElement Json(string s) => System.Text.Json.JsonDocument.Parse(s).RootElement.Clone();
-        var ids = _w.PlainContestedIds.ToArray();
         var project = new RecordsTools.RecordsProject { form = "delta", fields = new[] { "EditorID" } };
         long before = _w.Svc.Counters.CollectPasses;
-        var r = RecordsTools.Records(_w.Svc, formids: ids, source: Json("\"" + _w.OffOrderName + "\""),
-                                     versus: Json("\"" + _w.MasterName + "\""), project: project);
+        var r = RecordsTools.Records(_w.Svc, formids: _w.PlainContestedIds.ToArray(), source: Je("\"" + _w.OffOrderName + "\""),
+                                     versus: Je("\"" + _w.MasterName + "\""), project: project);
         Assert.False(r.StartsWith("error:"), r);
         Assert.Contains("subject:", r);
         Assert.Equal(0, _w.Svc.Counters.CollectPasses - before);
