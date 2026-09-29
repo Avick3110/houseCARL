@@ -22,11 +22,9 @@ public sealed class InPlaceRoundTripTests
     readonly W _w;
     public InPlaceRoundTripTests(W w) { _w = w; }
 
-    /// <summary>A plugin defining one ARMA with both genders' world and first-person models, written by Mutagen in the CK order.</summary>
-    (string Path, FormKey Arma) StagePlugin()
+    /// <summary>One ARMA with both genders' world and first-person models, which Mutagen writes in the CK order.</summary>
+    internal static FormKey AddArma(SkyrimMod mod)
     {
-        var path = Path.Combine(_w.NewDir(), PluginName);
-        var mod = new SkyrimMod(ModKey.FromFileName(PluginName), SkyrimRelease.SkyrimSE);
         var arma = mod.ArmorAddons.AddNew();
         arma.EditorID = "HcRT_Arma";
         arma.BodyTemplate = new BodyTemplate { FirstPersonFlags = BipedObjectFlag.Body, ArmorType = ArmorType.Clothing };
@@ -34,14 +32,31 @@ public sealed class InPlaceRoundTripTests
             new Model { File = "hc\\male.nif", Data = new byte[12] }, new Model { File = "hc\\female.nif" });
         arma.FirstPersonModel = new GenderedItem<Model?>(
             new Model { File = "hc\\male1st.nif", Data = new byte[12] }, new Model { File = "hc\\female1st.nif" });
+        return arma.FormKey;
+    }
+
+    /// <summary>A plugin defining that ARMA and one keyword, written by Mutagen in the CK order.</summary>
+    (string Path, FormKey Arma) StagePlugin()
+    {
+        var path = Path.Combine(_w.NewDir(), PluginName);
+        var mod = new SkyrimMod(ModKey.FromFileName(PluginName), SkyrimRelease.SkyrimSE);
+        var arma = AddArma(mod);
+        mod.Keywords.AddNew().EditorID = "HcRT_Kw";
         mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-        return (path, arma.FormKey);
+        return (path, arma);
     }
 
     /// <summary>The #961 order: MOD2, MO2T, MOD4, MO4T, MOD3, MOD5 — the CK file with MOD3 moved after MO4T.</summary>
     (string Path, FormKey Arma) StageReproduction()
     {
         var (path, arma) = StagePlugin();
+        ToIssueOrder(path);
+        return (path, arma);
+    }
+
+    /// <summary>Rewrite the file's one ARMA into the #961 order in place; sizes are unchanged.</summary>
+    internal static void ToIssueOrder(string path)
+    {
         var subs = RecordSubrecords(File.ReadAllBytes(path), "ARMA", out var bytes, out var start, out var end);
         Assert.Equal(new[] { "MOD2", "MO2T", "MOD3", "MOD4", "MO4T", "MOD5" },
             subs.Select(s => s.Sig).Where(s => s.StartsWith("MO")).ToArray());
@@ -52,7 +67,6 @@ public sealed class InPlaceRoundTripTests
         Assert.Equal(end - start, body.Length);
         body.CopyTo(bytes, start);
         File.WriteAllBytes(path, bytes);
-        return (path, arma);
     }
 
     /// <summary>The CK file with its 8-byte BOD2 replaced by the older 12-byte BODT, record and group sizes grown to fit.</summary>
@@ -176,7 +190,7 @@ public sealed class InPlaceRoundTripTests
         Assert.True(o.Success, o.Error);
         Assert.True(HasSubrecord(path, "MOD2"));
         Assert.True(HasSubrecord(path, "MOD4"));
-        Assert.Contains("pre-write round trip matched", WriteTools.Render(o));
+        Assert.Contains(WriteSentences.RoundTripChecked, WriteTools.Render(o));
     }
 
     // The allow-list: BODT is rewritten as BOD2, one for one, which is not a loss.
@@ -189,5 +203,165 @@ public sealed class InPlaceRoundTripTests
         Assert.True(o.Success, o.Error);
         Assert.True(HasSubrecord(path, "BOD2"));
         Assert.False(HasSubrecord(path, "BODT"));
+    }
+
+    static void AssertRefusedUntouched(bool success, string? error, string path, byte[] before)
+    {
+        Assert.False(success);
+        Assert.Contains("MOD2, MO2T, MOD4, MO4T", error);
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.False(Directory.Exists(Path.Combine(Path.GetDirectoryName(path)!, ".housecarl-tmp")));
+    }
+
+    [Fact]
+    public void AnInPlaceCreateIntoThatPluginIsRefusedWithTheFileUntouched()
+    {
+        var (path, _) = StageReproduction();
+        var before = File.ReadAllBytes(path);
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        var o = WritePatchBuilder.CreateRecordsInPlace(r, TestCorpus.Rulebook,
+            new[] { new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcRT_New", Edits = Array.Empty<WriteRequest>() } },
+            path, PluginName);
+        AssertRefusedUntouched(o.Success, o.Error, path, before);
+    }
+
+    [Fact]
+    public void AnInPlaceRemoveFromThatPluginIsRefusedWithTheFileUntouched()
+    {
+        var (path, _) = StageReproduction();
+        FormKey keyword;
+        using (var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE)) keyword = ov.Keywords.Single().FormKey;
+        var before = File.ReadAllBytes(path);
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        var o = WritePatchBuilder.RemoveRecordsInPlace(r, new[] { keyword }, path, PluginName);
+        AssertRefusedUntouched(o.Success, o.Error, path, before);
+    }
+
+    [Fact]
+    public void AnInPlaceForwardIntoThatPluginIsRefusedWithTheFileUntouched()
+    {
+        var (path, _) = StageReproduction();
+        var before = File.ReadAllBytes(path);
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        var o = WritePatchBuilder.ForwardRecordsInPlace(r,
+            new[] { new WritePatchBuilder.ForwardSpec { Target = _w.Weapon, FromPlugin = W.MasterName } },
+            path, PluginName, "source=");
+        AssertRefusedUntouched(o.Success, o.Error, path, before);
+    }
+
+    // A target whose own record links a plugin the order lacks still gets the lane's own sentence, not a serialize one.
+    [Fact]
+    public void ATargetLinkingAnInactivePluginStillGetsTheNotActiveSentence()
+    {
+        var path = Path.Combine(_w.NewDir(), W.UserName);
+        using (var mOv = SkyrimMod.CreateFromBinaryOverlay(_w.MasterPath, SkyrimRelease.SkyrimSE))
+        using (var hOv = SkyrimMod.CreateFromBinaryOverlay(_w.HighPath, SkyrimRelease.SkyrimSE))
+        {
+            var u = new SkyrimMod(ModKey.FromFileName(W.UserName), SkyrimRelease.SkyrimSE);
+            var uw = u.Weapons.GetOrAddAsOverride(mOv.Weapons.First(x => x.FormKey == _w.Weapon));
+            uw.Keywords = new() { _w.HighKeyword };
+            u.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { mOv, hOv }).Write();
+        }
+        var before = File.ReadAllBytes(path);
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        var o = WritePatchBuilder.ApplyInPlace(r, TestCorpus.Rulebook,
+            new[] { new WritePatchBuilder.PatchEdit { Target = _w.Weapon, Path = new[] { "BasicStats", "Damage" }, Verb = "Set", Value = "7" } },
+            path, W.UserName);
+        Assert.False(o.Success);
+        Assert.Contains("NOT active", o.Error, StringComparison.Ordinal);
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+}
+
+/// <summary>The same check on the compact lanes that rewrite in place (#961): the target of an in-place compact, and a
+/// referencer a repoint would rewrite, each refused before anything is written. Its own MO2 instance per test.</summary>
+[Trait("tier", "integration")]
+public sealed class CompactRoundTripTests
+{
+    sealed class World : IDisposable
+    {
+        public string Root { get; }
+        public string TargetPath { get; }
+        public string ReferencerPath { get; }
+        public const string TargetName = "HcRtCompactTarget.esp";
+        public const string ReferencerName = "HcRtCompactRef.esp";
+        public LoadOrderService Svc { get; }
+
+        public World(bool lossyTarget)
+        {
+            Root = Path.Combine(Path.GetTempPath(), "hc-compact-roundtrip-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
+            var inst = Path.Combine(Root, "inst");
+            var modsDir = Path.Combine(inst, "mods");
+            Directory.CreateDirectory(Path.Combine(modsDir, "TargetMod"));
+            Directory.CreateDirectory(Path.Combine(modsDir, "RefMod"));
+
+            var targetKey = ModKey.FromFileName(TargetName);
+            var weaponKey = new FormKey(targetKey, 0x900);
+            var target = new SkyrimMod(targetKey, SkyrimRelease.SkyrimSE);
+            target.Weapons.Add(new Weapon(weaponKey, SkyrimRelease.SkyrimSE) { EditorID = "HcRtWeapon" });
+            if (lossyTarget) InPlaceRoundTripTests.AddArma(target);
+            target.ModHeader.Stats.NextFormID = 0x901;
+            TargetPath = Path.Combine(modsDir, "TargetMod", TargetName);
+            target.BeginWrite.ToPath(TargetPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).NoNextFormIDProcessing().Write();
+            if (lossyTarget) InPlaceRoundTripTests.ToIssueOrder(TargetPath);
+
+            using (var targetOverlay = SkyrimMod.CreateFromBinaryOverlay(TargetPath, SkyrimRelease.SkyrimSE))
+            {
+                var refKey = ModKey.FromFileName(ReferencerName);
+                var referencer = new SkyrimMod(refKey, SkyrimRelease.SkyrimSE);
+                var list = new FormList(new FormKey(refKey, 0x900), SkyrimRelease.SkyrimSE) { EditorID = "HcRtList" };
+                list.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(weaponKey));
+                referencer.FormLists.Add(list);
+                if (!lossyTarget) InPlaceRoundTripTests.AddArma(referencer);
+                ReferencerPath = Path.Combine(modsDir, "RefMod", ReferencerName);
+                referencer.BeginWrite.ToPath(ReferencerPath).WithLoadOrder(new[] { targetOverlay }).Write();
+            }
+            if (!lossyTarget) InPlaceRoundTripTests.ToIssueOrder(ReferencerPath);
+
+            File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
+                "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+                + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
+            var prof = Path.Combine(inst, "profiles", "Default");
+            Directory.CreateDirectory(prof);
+            File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + TargetName + "\r\n" + ReferencerName + "\r\n");
+            File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + TargetName + "\r\n*" + ReferencerName + "\r\n");
+            File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+RefMod\r\n+TargetMod\r\n");
+
+            Svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
+            Svc.Stats();
+        }
+
+        public void Dispose()
+        {
+            Svc.Dispose();
+            try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
+        }
+    }
+
+    [Fact]
+    public void AnInPlaceCompactOfAPluginThatWouldLoseSubrecordsIsRefusedBeforeAnythingIsWritten()
+    {
+        using var w = new World(lossyTarget: true);
+        var target = File.ReadAllBytes(w.TargetPath);
+        var o = w.Svc.CompactPlugin(World.TargetName, esl: true, inPlace: true, repointExternals: true, acknowledge: true);
+        Assert.False(o.Success);
+        Assert.Contains("MOD2, MO2T, MOD4, MO4T", o.Error);
+        Assert.Contains(World.TargetName, o.Error);
+        Assert.Equal(target, File.ReadAllBytes(w.TargetPath));
+    }
+
+    [Fact]
+    public void ARepointOfAReferencerThatWouldLoseSubrecordsIsRefusedBeforeTheCompactIsWritten()
+    {
+        using var w = new World(lossyTarget: false);
+        var target = File.ReadAllBytes(w.TargetPath);
+        var referencer = File.ReadAllBytes(w.ReferencerPath);
+        var o = w.Svc.CompactPlugin(World.TargetName, esl: true, inPlace: true, repointExternals: true, acknowledge: true);
+        Assert.False(o.Success);
+        Assert.Contains("MOD2, MO2T, MOD4, MO4T", o.Error);
+        Assert.Contains(World.ReferencerName, o.Error);
+        Assert.Equal(target, File.ReadAllBytes(w.TargetPath));
+        Assert.Equal(referencer, File.ReadAllBytes(w.ReferencerPath));
     }
 }
