@@ -17,9 +17,12 @@ public sealed class FaceGenWorldDisposeTests
             var e = Assert.Throws<IOException>(w.Dispose);
             Assert.Contains(w.Root, e.Message, StringComparison.OrdinalIgnoreCase);
         }
-        finally { held.Dispose(); }
+        finally
+        {
+            held.Dispose();
+            w.Dispose();
+        }
 
-        w.Dispose();
         Assert.False(Directory.Exists(w.Root));
     }
 }
