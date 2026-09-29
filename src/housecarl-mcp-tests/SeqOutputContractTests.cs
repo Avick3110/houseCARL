@@ -14,7 +14,7 @@ public sealed class SeqOutputContractTests
     const string Mods = @"C:\MO2\mods", Data = @"C:\Game\Skyrim Special Edition\Data", Over = @"C:\MO2\overwrite";
 
     static (string seqDir, bool appendedSeq, string? deployWarning) Contract(string outDir, string overwrite = "")
-        => LoadOrderService.SeqOutputContract(outDir, Mods, Data, overwrite);
+        => OutputLocations.SeqOutputContract(outDir, Mods, Data, overwrite);
 
     // Probe PURE-SEQ-CONTRACT: "SEQ\ appended once" (a bare root).
     [Fact]

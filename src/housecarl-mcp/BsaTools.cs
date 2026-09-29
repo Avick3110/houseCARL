@@ -98,9 +98,9 @@ public static class BsaTools
     /// <summary>How the repack lane names its mod folder, for the into= not-found refusal. That name is load-bearing
     /// — the game auto-loads an archive only as &lt;activePluginBasename&gt;.bsa — so a taken stem REFUSES here
     /// rather than suffixing the archive to a name nothing loads.</summary>
-    public static readonly LoadOrderService.RiderNaming RepackNaming = new(
+    internal static readonly OutputLocations.RiderNaming RepackNaming = new(
         "patch",
-        new LoadOrderService.StemRefusal(
+        new OutputLocations.StemRefusal(
             "the .bsa (the game auto-loads an archive only under its plugin's exact basename)",
             "Remove it in MO2, pass patch= a different name, or pass into= to place the archive in an existing houseCARL patch folder."));
 
@@ -141,7 +141,7 @@ public static class BsaTools
 
         // patch= names the mod FOLDER and the .bsa inside takes that folder's name. A caller who spells the archive
         // itself means that name, so the extension is stripped rather than doubled on the file.
-        LoadOrderService.RiderFolder rf;
+        OutputLocations.RiderFolder rf;
         var stem = patch?.Trim().Trim('"');
         if (stem is not null && stem.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) stem = stem[..^4];
         try { rf = svc.ResolvePatchModFolder(stem, into, new DirectoryInfo(source_folder).Name, RepackNaming); }

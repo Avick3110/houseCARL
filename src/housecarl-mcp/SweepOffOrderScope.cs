@@ -50,7 +50,7 @@ internal static class SweepOffOrderScope
             if (n.Length == 0) return new Refusal(SweepSharedInput.BlankPluginName, Stamped: false);
             if (view.ContainsPlugin(n)) { active.Add(n); continue; }
             comp ??= readComposition();
-            var loc = LoadOrderService.LocatePluginFileOnDisk(comp, roots, n, null);
+            var loc = OutputLocations.LocatePluginFileOnDisk(comp, roots, n, null);
             if (loc.Error is not null)
                 // The did-you-mean rides along: a name found neither in the order nor on disk is usually a typo.
                 return new Refusal(

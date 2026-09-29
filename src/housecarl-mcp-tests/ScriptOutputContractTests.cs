@@ -13,7 +13,7 @@ public sealed class ScriptOutputContractTests
     const string Mods = @"C:\MO2\mods", Data = @"C:\Game\Skyrim Special Edition\Data", Over = @"C:\MO2\overwrite";
 
     static (string scriptsDir, bool appendedScripts, string? deployWarning) Contract(string outDir, string overwrite = "")
-        => LoadOrderService.ScriptOutputContract(outDir, Mods, Data, overwrite);
+        => OutputLocations.ScriptOutputContract(outDir, Mods, Data, overwrite);
 
     // Probe B1: "a bare mod-folder root gets Scripts\ appended".
     [Fact]

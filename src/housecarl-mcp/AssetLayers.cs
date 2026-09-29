@@ -15,10 +15,10 @@ internal interface IAssetHost : ILoadOrderHost
     string? InstalledGameRuntime();
 
     // Relayed from output until output is its own class.
-    LoadOrderService.RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, LoadOrderService.RiderNaming? naming);
+    OutputLocations.RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, OutputLocations.RiderNaming? naming);
 
     // Relayed from output until output is its own class.
-    string? RemoveOrNameRiderResidue(LoadOrderService.RiderFolder folder);
+    string? RemoveOrNameRiderResidue(OutputLocations.RiderFolder folder);
 
     // Relayed from writes (the consent store) until in-place consent is its own type.
     bool IsInPlaceAcknowledged(string path);
@@ -907,8 +907,8 @@ internal sealed partial class AssetLayers
         }
 
         // ---- DEFAULT (new-folder) lane ----
-        LoadOrderService.RiderFolder rf;
-        try { rf = _host.ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new LoadOrderService.RiderNaming("patch")); }
+        OutputLocations.RiderFolder rf;
+        try { rf = _host.ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new OutputLocations.RiderNaming("patch")); }
         catch (InvalidOperationException ex) { return NifSetResult.Fail(ex.Message, providers, profileName); }
 
         var dest = Path.Combine(rf.OutputDir, rel);
@@ -974,8 +974,8 @@ internal sealed partial class AssetLayers
         lock (_host.WriteGate)                                             // one placement batch at a time: resolve, stage, commit
         {
             // Precondition: the write gate is held for the WHOLE method, which straddles two gate holds. Do not call PlaceOne or capture assets outside that hold.
-            LoadOrderService.RiderFolder rf;
-            try { rf = _host.ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new LoadOrderService.RiderNaming("patch")); }   // neutral default stem; a caller with a better name passes patch
+            OutputLocations.RiderFolder rf;
+            try { rf = _host.ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new OutputLocations.RiderNaming("patch")); }   // neutral default stem; a caller with a better name passes patch
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
 
             // One asset build for the whole batch, captured rather than live, so no two placements describe two builds.

@@ -156,7 +156,7 @@ public static class CompileTools
                    "dependencies this script needs via import_dirs= (save_import_set= will keep that list for next time).";
 
         // 7) output folder: out_path= is user-owned, takes Scripts\ appended, and supersedes patch=/into= saying so.
-        LoadOrderService.RiderFolder rf;
+        OutputLocations.RiderFolder rf;
         string? deployWarning = null, outputNote = null;
         if (!string.IsNullOrWhiteSpace(out_path))
         {
