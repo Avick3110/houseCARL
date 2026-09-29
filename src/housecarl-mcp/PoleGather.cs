@@ -37,16 +37,20 @@ internal sealed class PoleGather
     /// chunk's rows — <see cref="RecordReads.ComparisonChunkRows"/> of them — rather than the one body the
     /// per-record read held. That is the retention the chunk size is the bound on.</para></summary>
     internal void Open(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                       IReadOnlyList<FormKey> keys, Func<int, string?> subjectAt)
+                       IReadOnlyList<(FormKey Key, string? Subject)> rows)
     {
         _gather = null;
-        if (PluginOf is null || keys.Count == 0) return;
+        if (PluginOf is null || rows.Count == 0) return;
         var g = new BodyGather(view, session);
-        for (int j = 0; j < keys.Count; j++)
-            if (PluginOf(keys[j], subjectAt(j)) is { } plugin) g.Want(plugin, keys[j]);
+        foreach (var (key, subject) in rows)
+            if (PluginOf(key, subject) is { } plugin) g.Want(plugin, key);
         g.Gather();
         _gather = g;
     }
+
+    /// <summary>The same, for a pole whose rows are not measured from a subject.</summary>
+    internal void Open(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IReadOnlyList<FormKey> keys)
+        => Open(view, session, keys.Select(k => (k, (string?)null)).ToList());
 
     /// <summary>Drop the chunk's gathered bodies. A caller that has finished READING through this gather while the
     /// call goes on doing other reads calls it, so the chunk's share is not held alongside them.</summary>
