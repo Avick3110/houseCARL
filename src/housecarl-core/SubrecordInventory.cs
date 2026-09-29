@@ -304,8 +304,7 @@ public static class SubrecordInventory
         typeof(SkyrimMod).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
         ?? typeof(SkyrimMod).Assembly.GetName().Version?.ToString(3) ?? "unknown";
 
-    /// <summary>A file system that accepts the one create the serialize makes and keeps it in memory; anything else throws,
-    /// so a Mutagen change that touched another path fails loud instead of reaching the disk.</summary>
+    /// <summary>A file system that keeps the serialize's one create in memory and refuses every other call.</summary>
     sealed class CaptureFileSystem : IFileSystem
     {
         readonly CaptureStreams _streams;
