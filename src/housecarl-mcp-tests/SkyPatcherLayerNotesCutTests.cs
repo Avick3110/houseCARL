@@ -52,6 +52,16 @@ public sealed class SkyPatcherLayerNotesCutTests
     }
 
     [Fact]
+    public void ReplayNotesAndScanNotesAreCountedAsOneList()
+    {
+        var d = Layer(60) with { NoOpNotes = new[] { "replay note 1", "replay note 2" } };
+
+        var text = SkyPatcherWire.RenderLayer(d, null, 9_000);
+
+        Assert.Matches(@"\.\.\. \[showing \d+ of 7 note\(s\); raise max_chars\]", text);
+    }
+
+    [Fact]
     public void ScanNotesThatFitAreAllShownWithNoMarker()
     {
         var text = SkyPatcherWire.RenderLayer(Layer(60), null, 80_000);
