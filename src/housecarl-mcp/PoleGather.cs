@@ -23,6 +23,9 @@ internal sealed class PoleGather
     /// body, which leaves every row of it on its own read.</summary>
     internal Func<FormKey, string?, string?>? PluginOf;
 
+    /// <summary>Whether this pole holds a version of the record, for an arm with no in-order plugin (the post replay, an off-order file); null leaves it to <see cref="PluginOf"/>.</summary>
+    internal Func<FormKey, bool>? Holds;
+
     BodyGather? _gather;
 
     /// <summary>Whether this chunk is gathered, so a caller reads through it rather than seeking per record.</summary>

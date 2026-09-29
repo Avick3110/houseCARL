@@ -84,11 +84,8 @@ internal sealed partial class RecordReads
             return Array.Empty<DeltaRow>();
         }
 
-        // Whether the subject holds a version of the record: the index for an in-order arm, the file's own sweep for an
-        // off-order arm. A post replay with no winner needs no test: no in-order reference declares a record nothing holds.
-        bool SubjectHolds(FormKey fk, string? subjectPlugin) =>
-            sGather.PluginOf is not null ? subjectPlugin is { } sp && Holds(view, fk, sp)
-            : sOffOrder is null || sReader(fk, null).Error is null;
+        // Whether the subject holds a version of the record, as the subject pole itself answers it.
+        bool SubjectHolds(FormKey fk, string? subjectPlugin) => sGather.Holds?.Invoke(fk) ?? subjectPlugin is not null;
 
         var rows = new List<DeltaRow>(formids.Count);
         // A chunk of rows at a time, so each pole walks a plugin once for the whole chunk.
@@ -102,7 +99,7 @@ internal sealed partial class RecordReads
             // subject resolved to.
             var subjects = new string?[chunkKeys.Count];
             for (int j = 0; j < chunkKeys.Count; j++) subjects[j] = sGather.PluginOf?.Invoke(chunkKeys[j], null);
-            // A row whose subject holds no version refuses on the subject, so its reference is never read and not walked.
+            // Declare to the reference only the rows whose subject holds a version.
             var refKeys = new List<FormKey>(chunkKeys.Count);
             var refSubjects = new List<string?>(chunkKeys.Count);
             for (int j = 0; j < chunkKeys.Count; j++)
@@ -137,10 +134,6 @@ internal sealed partial class RecordReads
         }
         return rows;
     }
-
-    /// <summary>Whether an in-order plugin holds a version of the record, from the index alone.</summary>
-    internal static bool Holds(LoadOrderResolver.IndexView view, FormKey fk, string plugin) =>
-        view.TouchingPlugins(fk) is { } t && t.Contains(plugin, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A comparison batch's one hold: the pin and roots, plus the asset build when a pole replays the overlay.</summary>
     (LoadOrderService.ViewPin Pin, Mo2Roots Roots, Func<AssetCapture>? Assets) CapturePolePin(bool replaysOverlay)
@@ -182,7 +175,6 @@ internal sealed partial class RecordReads
         error = null; covers = true; offOrderArm = null;
         // '*parent' on fields=: every in-order arm reads through this captured view and open session.
         var hop = ContainmentIndex.ReadHop(view, session);
-        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // one profile read per absent plugin, not per row
         switch (spec.Kind)
         {
             case PoleKind.Winner:
@@ -192,7 +184,7 @@ internal sealed partial class RecordReads
                 {
                     var w = view.ResolveWinner(fk);
                     if (w is null)
-                        return new PoleReading(null, null, null, UnresolvedFormId(view, fk, absenceMemo));
+                        return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
                     var body = gather is { Live: true } ? gather.Body(w.Value.WinnerPlugin, fk)
                                                         : view.GetRecord(session, w.Value.WinnerPlugin, fk);
                     if (body is null)
@@ -256,11 +248,11 @@ internal sealed partial class RecordReads
                         error = exclMsg;
                         return (_, _) => new PoleReading(null, null, null, exclMsg);
                     }
-                    // A record the index says the plugin lacks is neither declared nor sought: the refusal is built from the index anyway.
-                    if (gather is not null) gather.PluginOf = (fk, _) => Holds(view, fk, arm.Plugin) ? arm.Plugin : null;
+                    // A record the index says this plugin lacks is neither declared nor sought.
+                    if (gather is not null) gather.PluginOf = (fk, _) => view.Touches(fk, arm.Plugin) ? arm.Plugin : null;
                     return (fk, _) =>
                     {
-                        var body = !Holds(view, fk, arm.Plugin) ? null
+                        var body = !view.Touches(fk, arm.Plugin) ? null
                                  : gather is { Live: true } ? gather.Body(arm.Plugin, fk) : view.GetRecord(session, arm.Plugin, fk);
                         if (body is null)
                         {
@@ -282,6 +274,7 @@ internal sealed partial class RecordReads
                 covers = false;   // the file's content sits outside the epoch fingerprint
                 offOrderArm = arm;
                 var lazy = new OffOrderPoleCache(arm, fields, wanted);
+                if (gather is not null) gather.Holds = fk => lazy.Find(fk) is { Fields: not null, Error: null };
                 return (fk, _) =>
                 {
                     var (rec, oerr) = lazy.Find(fk);
@@ -309,7 +302,6 @@ internal sealed partial class RecordReads
     {
         error = null;
         var hop = ContainmentIndex.ReadHop(view, session);   // both overlay arms read through the order's own index
-        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // one profile read per absent plugin, not per row
         if (spec.State is not ("pre" or "post"))
         {
             armStatement = null; covers = true;
@@ -326,7 +318,7 @@ internal sealed partial class RecordReads
             return (fk, _) =>
             {
                 var w = view.ResolveWinner(fk);
-                if (w is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk, absenceMemo));
+                if (w is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
                 var body = gather is { Live: true } ? gather.Body(w.Value.WinnerPlugin, fk)
                                                      : view.GetRecord(session, w.Value.WinnerPlugin, fk);
                 if (body is null) return new PoleReading(null, null, null, $"the winner body of {FormIdToken.Of(fk)} could not be read from '{w.Value.WinnerPlugin}'.");
@@ -345,6 +337,7 @@ internal sealed partial class RecordReads
         // would re-apply every INI line onto the already-mutated copy.
         var postMemo = new Dictionary<FormKey, PoleReading>();
         string? setupError = null;
+        if (gather is not null) gather.Holds = fk => { Setup(); return setupError is null && view.ResolveWinner(fk) is not null; };
         void Setup()
         {
             if (replay is not null || setupError is not null) return;
@@ -579,7 +572,6 @@ internal sealed partial class RecordReads
         var liveRow = new List<int>();
         var liveKey = new List<FormKey>();
         var liveTouchers = new List<IReadOnlyList<string>>();
-        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // one profile read per absent plugin, not per row
         for (int i = 0; i < parsedT.Count; i++)
         {
             var (raw, fkOpt, parseError) = parsedT[i];
@@ -593,7 +585,7 @@ internal sealed partial class RecordReads
             if (t.Count == 0)
             {
                 rows[i] = new TreeRow(FormIdToken.Of(fk0), null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(),
-                                      UnresolvedFormId(view, fk0, absenceMemo), Array.Empty<ChildDeclarers>());
+                                      UnresolvedFormId(view, fk0), Array.Empty<ChildDeclarers>());
                 continue;
             }
             liveRow.Add(i); liveKey.Add(fk0); liveTouchers.Add(t);
