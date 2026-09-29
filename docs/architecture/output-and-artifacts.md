@@ -138,8 +138,8 @@ prefix so a throwing lane and a returning lane can both use it.
 
 - *Re-entering an artifact*: `RecordsArtifactEpochTests.StaleReEntry_TheBodyLaneRefusalNamesBothEpochsAndTheNoOverridePosture`
   — the epoch mismatch refuses naming both epochs, with no override. `RecordsArtifactTests.AnArtifactDeclaringNoIdentityColumnRefusesReEntryByName`
-  — an artifact with no identity column refuses re-entry by name. No test pins the refusal of an artifact whose
-  identity column is not the one the parameter takes.
+  — an artifact with no identity column refuses re-entry by name. `RecordsScopeAtFileTests.AFormIdArtifactIsRefusedByItsIdentityInOneShortSentence`
+  — an artifact whose identity column is not the one the parameter takes is refused by that identity in one sentence.
 - *Re-entering an artifact*, error rows: pinned across `RecordsArtifactTests`' re-entry facts —
   `AMixedArtifactReEntersOnItsResolvedRowsWithNoWasItEditedMisdiagnosis` (error rows are skipped) and
   `AnAllErrorArtifactIsRefusedByItsRealCauseNeverByAccusingTheFile` (an all-error artifact refuses by its real cause).

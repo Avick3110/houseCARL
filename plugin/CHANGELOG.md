@@ -32,7 +32,8 @@ made the change.
 - **`housecarl_skypatcher_layer` keeps a share of `max_chars` for its replay and scan notes, and says
   `showing N of M note(s)` when it cuts them instead of dropping them silently.**
 - **`plugins.names` now takes `@file` like `formids=` and `references=`.** Pass `plugins={"names": ["@C:/work/plugins.txt"]}`
-  with one plugin filename per line: the scan covers exactly those plugins.
+  with one plugin filename per line: the scan covers exactly those plugins. `housecarl_check`'s `plugins=` and `exclude=`
+  take the same spelling, and a plugin filename that itself starts with `@` is written `@@` inline.
 
 ## 2.0.3 — 2026-09-23
 
