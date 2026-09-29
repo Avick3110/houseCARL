@@ -176,6 +176,7 @@ internal sealed partial class RecordReads
         error = null; covers = true; offOrderArm = null;
         // '*parent' on fields=: every in-order arm reads through this captured view and open session.
         var hop = ContainmentIndex.ReadHop(view, session);
+        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // one profile read per absent plugin, not per row
         switch (spec.Kind)
         {
             case PoleKind.Winner:
@@ -185,7 +186,7 @@ internal sealed partial class RecordReads
                 {
                     var w = view.ResolveWinner(fk);
                     if (w is null)
-                        return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
+                        return new PoleReading(null, null, null, UnresolvedFormId(view, fk, absenceMemo));
                     var body = gather is { Live: true } ? gather.Body(w.Value.WinnerPlugin, fk)
                                                         : view.GetRecord(session, w.Value.WinnerPlugin, fk);
                     if (body is null)
@@ -300,6 +301,7 @@ internal sealed partial class RecordReads
     {
         error = null;
         var hop = ContainmentIndex.ReadHop(view, session);   // both overlay arms read through the order's own index
+        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // one profile read per absent plugin, not per row
         if (spec.State is not ("pre" or "post"))
         {
             armStatement = null; covers = true;
@@ -316,7 +318,7 @@ internal sealed partial class RecordReads
             return (fk, _) =>
             {
                 var w = view.ResolveWinner(fk);
-                if (w is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
+                if (w is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk, absenceMemo));
                 var body = gather is { Live: true } ? gather.Body(w.Value.WinnerPlugin, fk)
                                                      : view.GetRecord(session, w.Value.WinnerPlugin, fk);
                 if (body is null) return new PoleReading(null, null, null, $"the winner body of {FormIdToken.Of(fk)} could not be read from '{w.Value.WinnerPlugin}'.");
@@ -569,6 +571,7 @@ internal sealed partial class RecordReads
         var liveRow = new List<int>();
         var liveKey = new List<FormKey>();
         var liveTouchers = new List<IReadOnlyList<string>>();
+        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // one profile read per absent plugin, not per row
         for (int i = 0; i < parsedT.Count; i++)
         {
             var (raw, fkOpt, parseError) = parsedT[i];
@@ -582,7 +585,7 @@ internal sealed partial class RecordReads
             if (t.Count == 0)
             {
                 rows[i] = new TreeRow(FormIdToken.Of(fk0), null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(),
-                                      UnresolvedFormId(view, fk0), Array.Empty<ChildDeclarers>());
+                                      UnresolvedFormId(view, fk0, absenceMemo), Array.Empty<ChildDeclarers>());
                 continue;
             }
             liveRow.Add(i); liveKey.Add(fk0); liveTouchers.Add(t);
