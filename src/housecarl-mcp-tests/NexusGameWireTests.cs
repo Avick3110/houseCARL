@@ -138,7 +138,7 @@ public sealed class NexusGameWireTests
         Assert.Null(error);
         Assert.Equal(100, game?.Id);
         Assert.Equal(domain, game?.Domain);
-        Assert.Contains("domainName", Assert.Single(stub.Bodies));
+        Assert.Contains("game(domainName:", Assert.Single(stub.Bodies));
     }
 
     // Probe: "a resolved game is named by the graph's name, not its domain".
