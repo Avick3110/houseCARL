@@ -97,9 +97,10 @@ static class SkyPatcherWire
             ? "... [remaining folders omitted at max_chars — raise it or pass filter=]\n"
             : "... [remaining matching folders omitted at max_chars — raise it or narrow filter=]\n";
         // The header above is already in sb; the hint is advice, so it is written only where it fits beside what is owed.
-        int owed = SectionsMissed(ReportNames, maxChars).Length + (folders.Count > 0 ? folderCut.Length : 0);
+        int sectionsOwed = SectionsMissed(ReportNames, maxChars).Length;
+        int owed = sectionsOwed + (folders.Count > 0 ? folderCut.Length : 0);
         string hint = sb.Length + owed + Hint.Length <= cap ? Hint : "";
-        int budget = cap - hint.Length - SectionsMissed(ReportNames, maxChars).Length;
+        int budget = cap - hint.Length - sectionsOwed;
         // Each line is admitted by the width it writes, with its cut notice's room held back.
         int listRoom = budget - folderCut.Length - FileCut.Length - (filter is null ? 0 : LineCut.Length);
         bool listCut = false;
