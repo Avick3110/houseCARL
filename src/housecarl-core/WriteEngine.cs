@@ -1439,7 +1439,7 @@ public static class WriteEngine
         }
     }
 
-    /// <summary>The one in-place serialize, shared by the staged write and the round-trip check; a null order is the check's missing-master retry.</summary>
+    /// <summary>The one in-place serialize, shared by the staged write and the round-trip check; a null order is the check's serialize with no load order.</summary>
     internal static void SerializeInPlace(SkyrimMod targetMod, ISkyrimModGetter[]? ordered, string outputPath,
                                           string writePath, System.IO.Abstractions.IFileSystem? fileSystem)
     {
