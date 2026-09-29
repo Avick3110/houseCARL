@@ -101,8 +101,12 @@ public sealed class NexusFileVerdictTests
 
     // Probe J3: "found=false, files present, no fileid → NoFileId fallback (exists), not NotFound".
     [Fact]
-    public void ASearchAbsentModWithFilesAndNoFileIdIsNoFileId() =>
-        Assert.Equal(UpdateVerdict.NoFileId, Amon(false, "2.0.0.0").Verdict);
+    public void ASearchAbsentModWithFilesAndNoFileIdIsNoFileId()
+    {
+        var s = Amon(false, "2.0.0.0");
+        Assert.Equal(UpdateVerdict.NoFileId, s.Verdict);
+        Assert.True(s.Found);
+    }
 
     // Probe J4: "found=false + files present + installed fileid absent → FileGone (loud), not NotFound".
     [Fact]
