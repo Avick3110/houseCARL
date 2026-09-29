@@ -59,7 +59,8 @@ public sealed class FaceGenWorld : IDisposable
     public bool UnlistedStaged { get; }
 
     readonly string _unlistedDir;
-    readonly FileSystemAccessRule? _unlistedDeny;
+    FileSystemAccessRule? _unlistedDeny;
+    Exception? _cleanupFailure;
 
     /// <summary>A plugin the order does not load, whose orphaned facegen folder is one of the inert rows.</summary>
     public const string OffOrderFolder = "HcFgNotLoaded.esp";
@@ -223,7 +224,7 @@ public sealed class FaceGenWorld : IDisposable
         }
 
         try { Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json"))); }
-        catch { LiftDeny(); throw; }   // xUnit skips Dispose when the constructor throws, so the deny comes off here
+        catch { Release(); throw; }   // xUnit never disposes a world whose constructor threw
     }
 
     static string GeomDir(string master) => @"meshes\actors\character\facegendata\facegeom\" + master;
@@ -237,35 +238,39 @@ public sealed class FaceGenWorld : IDisposable
         File.WriteAllText(p, "x");
     }
 
-    /// <summary>Take the listing deny off; a failure throws, so a denied folder never leaks into temp unreported.</summary>
-    void LiftDeny()
+    /// <summary>Lifts the listing deny and deletes the root, keeping any failure for <see cref="AssertNoHandlesLeft"/>.</summary>
+    void Release()
     {
-        if (_unlistedDeny is null || _denyLifted || !OperatingSystem.IsWindows()) return;
-        var dir = new DirectoryInfo(_unlistedDir);
-        var acl = dir.GetAccessControl();
-        acl.RemoveAccessRule(_unlistedDeny);
-        dir.SetAccessControl(acl);
-        _denyLifted = true;   // a second Dispose after a partial delete must not look for the folder again
+        try
+        {
+            if (_unlistedDeny is not null && OperatingSystem.IsWindows())
+            {
+                var dir = new DirectoryInfo(_unlistedDir);
+                var acl = dir.GetAccessControl();
+                acl.RemoveAccessRule(_unlistedDeny);
+                dir.SetAccessControl(acl);
+                _unlistedDeny = null;
+            }
+            if (Directory.Exists(Root)) Directory.Delete(Root, recursive: true);
+            _cleanupFailure = null;
+        }
+        catch (Exception e) { _cleanupFailure = e; }
     }
 
-    bool _denyLifted;
+    IOException Leak() => new("The facegen world at " + Root + " could not be deleted (" + _cleanupFailure!.Message
+                              + "); close whatever holds a file inside it and remove the folder.", _cleanupFailure);
 
-    /// <summary>Close the service, lift the deny, delete the root; a root still there after a short retry throws
-    /// naming it, so a leaked world fails the fixture instead of staying in temp.</summary>
+    /// <summary>Disposes the world and throws naming <see cref="Root"/> if it is still there; call it as a test's last line.</summary>
+    public void AssertNoHandlesLeft()
+    {
+        Dispose();
+        if (_cleanupFailure is not null) throw Leak();
+    }
+
+    /// <summary>Closes the service, lifts the deny and deletes the root; a failed delete is kept, not thrown.</summary>
     public void Dispose()
     {
-        Svc.Dispose();
-        LiftDeny();
-        Exception? last = null;
-        for (var attempt = 0; attempt < 5; attempt++)
-        {
-            if (attempt > 0) Thread.Sleep(100);   // a handle still closing is the common cause
-            try { Directory.Delete(Root, recursive: true); return; }
-            catch (DirectoryNotFoundException e) { if (!Directory.Exists(Root)) return; last = e; }
-            catch (IOException e) { last = e; }
-            catch (UnauthorizedAccessException e) { last = e; }
-        }
-        throw new IOException("The facegen world at " + Root + " could not be deleted (" + last!.Message
-                              + "); close whatever holds a file inside it and remove the folder.", last);
+        try { Svc.Dispose(); }
+        finally { Release(); }
     }
 }
