@@ -96,7 +96,16 @@ internal sealed partial class RecordReads
             // subject resolved to.
             var subjects = new string?[chunkKeys.Count];
             for (int j = 0; j < chunkKeys.Count; j++) subjects[j] = sGather.PluginOf?.Invoke(chunkKeys[j], null);
-            rGather.Open(view, session, chunkKeys, j => subjects[j]);
+            // A row whose in-order subject holds no version refuses on the subject, so its reference is never read and not walked.
+            var refKeys = new List<FormKey>(chunkKeys.Count);
+            var refSubjects = new List<string?>(chunkKeys.Count);
+            for (int j = 0; j < chunkKeys.Count; j++)
+            {
+                if (sGather.PluginOf is not null && !(subjects[j] is { } sp && Holds(view, chunkKeys[j], sp))) continue;
+                refKeys.Add(chunkKeys[j]);
+                refSubjects.Add(subjects[j]);
+            }
+            rGather.Open(view, session, refKeys, j => refSubjects[j]);
 
             for (int i = start; i < end; i++)
             {
@@ -122,6 +131,10 @@ internal sealed partial class RecordReads
         }
         return rows;
     }
+
+    /// <summary>Whether an in-order plugin holds a version of the record, from the index alone.</summary>
+    internal static bool Holds(LoadOrderResolver.IndexView view, FormKey fk, string plugin) =>
+        view.TouchingPlugins(fk) is { } t && t.Contains(plugin, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A comparison batch's one hold: the pin and roots, plus the asset build when a pole replays the overlay.</summary>
     (LoadOrderService.ViewPin Pin, Mo2Roots Roots, Func<AssetCapture>? Assets) CapturePolePin(bool replaysOverlay)
@@ -163,6 +176,7 @@ internal sealed partial class RecordReads
         error = null; covers = true; offOrderArm = null;
         // '*parent' on fields=: every in-order arm reads through this captured view and open session.
         var hop = ContainmentIndex.ReadHop(view, session);
+        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // one profile read per absent plugin, not per row
         switch (spec.Kind)
         {
             case PoleKind.Winner:
@@ -172,7 +186,7 @@ internal sealed partial class RecordReads
                 {
                     var w = view.ResolveWinner(fk);
                     if (w is null)
-                        return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
+                        return new PoleReading(null, null, null, UnresolvedFormId(view, fk, absenceMemo));
                     var body = gather is { Live: true } ? gather.Body(w.Value.WinnerPlugin, fk)
                                                         : view.GetRecord(session, w.Value.WinnerPlugin, fk);
                     if (body is null)
@@ -287,6 +301,7 @@ internal sealed partial class RecordReads
     {
         error = null;
         var hop = ContainmentIndex.ReadHop(view, session);   // both overlay arms read through the order's own index
+        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // one profile read per absent plugin, not per row
         if (spec.State is not ("pre" or "post"))
         {
             armStatement = null; covers = true;
@@ -303,7 +318,7 @@ internal sealed partial class RecordReads
             return (fk, _) =>
             {
                 var w = view.ResolveWinner(fk);
-                if (w is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
+                if (w is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk, absenceMemo));
                 var body = gather is { Live: true } ? gather.Body(w.Value.WinnerPlugin, fk)
                                                      : view.GetRecord(session, w.Value.WinnerPlugin, fk);
                 if (body is null) return new PoleReading(null, null, null, $"the winner body of {FormIdToken.Of(fk)} could not be read from '{w.Value.WinnerPlugin}'.");
@@ -556,6 +571,7 @@ internal sealed partial class RecordReads
         var liveRow = new List<int>();
         var liveKey = new List<FormKey>();
         var liveTouchers = new List<IReadOnlyList<string>>();
+        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // one profile read per absent plugin, not per row
         for (int i = 0; i < parsedT.Count; i++)
         {
             var (raw, fkOpt, parseError) = parsedT[i];
@@ -569,7 +585,7 @@ internal sealed partial class RecordReads
             if (t.Count == 0)
             {
                 rows[i] = new TreeRow(FormIdToken.Of(fk0), null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(),
-                                      UnresolvedFormId(view, fk0), Array.Empty<ChildDeclarers>());
+                                      UnresolvedFormId(view, fk0, absenceMemo), Array.Empty<ChildDeclarers>());
                 continue;
             }
             liveRow.Add(i); liveKey.Add(fk0); liveTouchers.Add(t);
