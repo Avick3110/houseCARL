@@ -46,7 +46,7 @@ public and anonymous — and it never downloads, installs or endorses; that stay
 ## Pinned by
 - `NexusFileVerdictTests`, `NexusUpdateRenderTests` and `NexusUpdateInputTests` — the per-file currency verdicts, the withdrawn-over-retired order, the NoFileId and LatestOnly degrade, the nxm-only fall-through, the `LiveMainCount` sentence (arms E and H), the id#fileid parse, and the mod id grouping.
 - `NexusGraphqlProbe` (`nexus-graphql-guard`) — the mutation and subscription refusal with no false refusal, and the literal, bounded raw-query rendering sentence.
-- `RenderClampProbe` (`render-clamp-guard`) — the surrogate-safe clamp in the last sentence above.
+- `NexusRenderClampTests` — the surrogate-safe clamp in the last sentence above, and the `&amp;`-last entity decode.
 - `NexusGameMappingTests`, `NexusGameRenderTests` and `NexusGameWireTests` — the `game=` domain and id mapping including the Skyrim SE default, the unknown value that does not map, the mod URL parse, the rendered page URL and the not-found label (the default's wording unchanged), the requested game's id on the wire, and the refusal that separates `GAME_NOT_FOUND` from an HTTP 404, an HTTP 500, another GraphQL error and an unreachable endpoint.
 
 ## Where
