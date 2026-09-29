@@ -133,7 +133,8 @@ internal static class DialogueValidateWorld
             Data = new GetIsAliasRefConditionData { ReferenceAliasIndex = 0, RunOnType = Condition.RunOnType.Subject } });
         {
             var d = new HasPerkConditionData { RunOnType = Condition.RunOnType.Subject, UseAliases = true };
-            d.Perk = new FormLinkOrIndex<IPerkGetter>(d, 7u);   // alias index 7: index mode, a bogus low link on the overlay
+            // Alias 3, not the probe's 7: 7 reads back as 000007:Skyrim.esm, the engine-implicit Player, which is exempt anyway.
+            d.Perk = new FormLinkOrIndex<IPerkGetter>(d, 3u);
             Conditioned("cond-alias-floi", "HcDvCondAliasFloi", new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = d });
         }
         {
