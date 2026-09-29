@@ -993,7 +993,7 @@ public sealed partial class LoadOrderService
 
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
-            // Touch Resolver FIRST: in instance mode _modsDir is derived lazily inside the getter.
+            // The view first: check (a) reads it, and the capture below then carries the built plugin names.
             var view = Resolver.Capture();
             var snapshot = ConfiguredRoots();                             // before the allocation lock, which never wraps a _gate hold
             var roots = snapshot.Roots;
