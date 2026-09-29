@@ -126,7 +126,7 @@ swallows the note turns a recoverable state into a silent loss.
   and a value with a lone backslash left as it stands (`HandWrittenPathsAreLeftAlone`).
 - *The Qt/QSettings value grammar*: `Mo2ModMetaReadTests` — the `[General]` Nexus cache fields read
   raw, and the `[installedFiles]` file ids.
-- *houseCARL's own config file*: all four are pinned. `tool-bridge` (`ToolBridgeProbe`) writes a corrupt file and
+- *houseCARL's own config file*: all four are pinned. `UserConfigStoreClobberTests` writes a corrupt file and
   asserts the load comes back blank with a note naming the backup, that the backup is byte-identical, and that two
   `UserConfigStore` instances on one file — each with its own process-local gate, the way the two hosts share it —
   hammering different fields for 200 rounds each leave BOTH concerns' last values intact. The commit itself is
