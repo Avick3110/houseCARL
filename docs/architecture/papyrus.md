@@ -95,9 +95,10 @@ The decompiler itself is [`papyrus-decompile.md`](papyrus-decompile.md).
   the transitive walk, first-provider precedence, the unreferenced drop and the unreadable target;
   `CompileRenderImportPathTests` and `CompileRenderBannerTests` — the summary's narrowing count, the
   unresolved-symbol class, and the missing-imports banner's three-diagnostic floor and two-thirds bar.
-- `import-order-guard` (generator) — the import-path order, vanilla last even when re-passed or
-  re-found, case-insensitive dedup, the provenance labels, the caller-outranks-scan rule, and the
-  vanilla-missing claim agreeing with the assembled path.
+- `ImportOrderBuildImportsTests` — the import-path order, vanilla last even when re-passed or
+  re-found, case-insensitive dedup, and when the modlist is read; `ImportOrderPlanTests` — the
+  provenance labels, the caller-outranks-scan rule, and the vanilla-missing claim agreeing with the
+  assembled path.
 - `compile-probe` (generator) — diagnostic parsing, and that a failed recompile leaves the prior
   `.pex` intact while a successful one advances its write-time.
 
