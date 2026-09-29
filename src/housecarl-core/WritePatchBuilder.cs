@@ -1321,7 +1321,6 @@ public static class WritePatchBuilder
             if (view.ContainsPlugin(s.FromPlugin)) gather.Want(s.FromPlugin, s.Target);
         }
         gather.Gather();
-        string Absence(string plugin) => view.AbsenceClause(plugin);   // the view reads each absent plugin once per pin
 
         foreach (var s in specs)
         {
@@ -1341,7 +1340,7 @@ public static class WritePatchBuilder
             // The ORIGIN plugin must be active, since the patch overrides the ORIGIN FormKey — except when the ORIGIN is this artifact.
             var originMaster = s.Target.ModKey.FileName.String;
             if (!string.Equals(originMaster, fileName, StringComparison.OrdinalIgnoreCase) && !view.ContainsPlugin(originMaster))
-            { problems.Add($"{FormIdToken.Of(s.Target)}: the record ORIGINATES in '{originMaster}', which is not active — a forward overrides the record's origin FormKey, so the patch would need '{originMaster}' as a master. Enable it first (forwarding copies FROM source, but it cannot invent the origin master).{Absence(originMaster)}"); continue; }
+            { problems.Add($"{FormIdToken.Of(s.Target)}: the record ORIGINATES in '{originMaster}', which is not active — a forward overrides the record's origin FormKey, so the patch would need '{originMaster}' as a master. Enable it first (forwarding copies FROM source, but it cannot invent the origin master).{view.AbsenceClause(originMaster)}"); continue; }
             IMajorRecordGetter? body;
             bool offOrderBody = IsOffOrderSource(offOrder, s, view);
             if (offOrderBody)
@@ -1353,7 +1352,7 @@ public static class WritePatchBuilder
             else
             {
                 if (!view.ContainsPlugin(s.FromPlugin))
-                { problems.Add($"{FormIdToken.Of(s.Target)}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record.{Absence(s.FromPlugin)}"); continue; }
+                { problems.Add($"{FormIdToken.Of(s.Target)}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record.{view.AbsenceClause(s.FromPlugin)}"); continue; }
                 if (view.ExcludedPlugins.TryGetValue(s.FromPlugin, out var why))
                 { problems.Add($"{FormIdToken.Of(s.Target)}: source plugin '{s.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
                 body = gather.Body(s.FromPlugin, s.Target);
