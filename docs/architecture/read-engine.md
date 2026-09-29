@@ -114,7 +114,7 @@ the corpus rulebook, the pin-and-roots capture and the pin-plus-assets hold are 
 `CapturePinAndRoots(afterPin)` and `CapturePinAndAssets(afterPin)` on the shared door. The members every area
 shares come through the door it extends,
 `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs` ([`load-order-service.md`](load-order-service.md)).
-Outside the interface it calls one static of the head's output code, `LoadOrderService.LocatePluginFileOnDisk`
+Outside the interface it calls one static of the output area, `OutputLocations.LocatePluginFileOnDisk`
 in `OutputLocations.cs`, and names the head's `LoadOrderService.ViewPin` record. The path helpers it shares with
 the write and output lanes (`LooksLikePath`, `SamePluginFile`, `ActiveNameForPath`) are the static class
 `PluginPaths` in `src/housecarl-mcp/PluginPaths.cs`, which belongs to no area.
