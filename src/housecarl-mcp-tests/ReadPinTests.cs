@@ -374,6 +374,45 @@ public sealed class ReadPinTests : IDisposable
         finally { held?.Dispose(); }
     }
 
+    /// <summary>With the layer failing, an unresolved id says unresolved wherever it sits, and the patched id names the layer.</summary>
+    [Fact]
+    public void AnUnresolvedIdSaysSoWhereverItSitsWhenTheLayerFails()
+    {
+        _svc.CaptureView();
+        var modlist = Path.Combine(_instance, "profiles", "Default", "modlist.txt");
+        FileStream? held = null;
+        void HoldModlist() { _svc.ReadArea.AfterReadPinForGuard = null; held = new FileStream(modlist, FileMode.Open, FileAccess.Read, FileShare.None); }
+        var bad = $"000FFE:{BaseName}";
+        try
+        {
+            _svc.ReadArea.AfterReadPinForGuard = HoldModlist;
+            var rows = _svc.DeltaBatch(new[] { bad, _patched, bad }, OverlayPost, RecordReads.PoleSpec.Winner, new[] { "BasicStats.Damage" }, null,
+                                       out _, out _, out _, out var refusal, out _, ComparisonMeter.Unmetered());
+            Assert.Null(refusal);
+            Assert.Equal(3, rows.Count);
+            Assert.Equal(rows[0].Error, rows[2].Error);
+            Assert.DoesNotContain("SkyPatcher layer", rows[0].Error);
+            Assert.StartsWith("subject: the SkyPatcher layer could not be discovered for the overlay pole: ", rows[1].Error);
+        }
+        finally { held?.Dispose(); }
+    }
+
+    /// <summary>A post-state pole opens the layer only when a row will read: never for an all-unresolved list, once for a mixed one.</summary>
+    [Fact]
+    public void APostPoleOpensTheLayerOnlyWhenARowReads()
+    {
+        var bad = new[] { $"000FFE:{BaseName}", $"000FFD:{BaseName}" };
+        long Opens(Action call) { long b = _svc.Counters.ReplayOpens; call(); return _svc.Counters.ReplayOpens - b; }
+        void Delta(string[] ids) => _svc.DeltaBatch(ids, OverlayPost, RecordReads.PoleSpec.Winner, new[] { "BasicStats.Damage" }, null,
+                                                    out _, out _, out _, out _, out _, ComparisonMeter.Unmetered());
+        void Tree(string[] ids) => _svc.TreeBatch(ids, OverlayPost, new[] { "BasicStats.Damage" }, null,
+                                                  out _, out _, out _, out _, ComparisonMeter.Unmetered());
+        Assert.Equal(0, Opens(() => Delta(bad)));
+        Assert.Equal(0, Opens(() => Tree(bad)));
+        Assert.Equal(1, Opens(() => Delta(bad.Append(_patched).ToArray())));
+        Assert.Equal(1, Opens(() => Tree(bad.Append(_patched).ToArray())));
+    }
+
     /// <summary>A one-item list that runs <paramref name="onFirstRead"/> the first time its item is read.</summary>
     sealed class JoinOnFirstRead(string item, Action onFirstRead) : IReadOnlyList<string>
     {

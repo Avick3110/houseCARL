@@ -194,6 +194,9 @@ public sealed class LoadOrderResolver : IDisposable
         readonly Dictionary<int, ISkyrimModGetter> _open = new();
         internal OverlaySession(LoadOrderResolver r) => _r = r;
 
+        /// <summary>The counters of the resolver this session reads through.</summary>
+        public CostCounters Counters => _r.Counters;
+
         internal ISkyrimModGetter Overlay(int idx)
         {
             if (!_open.TryGetValue(idx, out var ov))
