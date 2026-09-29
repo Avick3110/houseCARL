@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-29
 covers: [src/housecarl-core/PapyrusDecompiler.cs, src/housecarl-mcp/DecompileTools.cs]
 ---
 # Papyrus: decompile
@@ -43,9 +43,10 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   overwritten.
 
 ## Pinned by
-- `decompile-guard` (generator) — the golden source for a canonical `.pex`, zero optimizer hints on
+- `DecompileGuardTests` — the golden source for a canonical `.pex`, zero optimizer hints on
   canonical output, the hint firing on a statement-level `JMPT`, the refusal on an existing target
-  leaving it byte-untouched, and the upcast suppression with and without a class map.
+  leaving it byte-untouched, the Hidden flag kept on both objects of a two-object `.pex`, and the upcast
+  suppression with and without a class map.
 - `DecompileNoneResultTests.ACallArgumentNeverOvertakesACallProducedAfterIt` and its property-set,
   array-set and while-body siblings — the ordering refusal (#792);
   `…APureValueHeldBackPastAStoreIsNotRefused` — that the refusal is scoped to values that can
