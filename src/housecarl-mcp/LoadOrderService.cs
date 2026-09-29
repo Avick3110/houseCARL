@@ -24,6 +24,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     // Serializes every plugin write's resolve, stage and commit; contract in docs/architecture/load-order-service.md.
     readonly object _writeGate = new();
     object ILoadOrderHost.WriteGate => _writeGate;
+    // Serializes a fresh houseCARL folder's check-then-create; taken last, after _writeGate and _gate, and never takes _gate.
+    readonly object _folderAllocationGate = new();
     LoadOrderResolver? _resolver;
     readonly Lazy<CorpusRulebook> _rulebook = new(() => CorpusRulebook.Load(), LazyThreadSafetyMode.PublicationOnly);   // one instance; a failed load is not kept
     readonly Lazy<TypeLookup> _typeLookup = new(() => new TypeLookup());   // one per service; construction reads nothing
