@@ -6,10 +6,9 @@ namespace HousecarlMcpTests;
 [Trait("tier", "integration")]
 public sealed class FaceGenWorldDisposeTests
 {
-    [Fact]
+    [WindowsFact]
     public void AFileHeldOpenFailsTheAssertNamingTheFolderAndTheWorldIsDeletedOnceReleased()
     {
-        if (!OperatingSystem.IsWindows()) return;   // only Windows refuses to delete a file held with FileShare.None
         var w = new FaceGenWorld();
         HeldOpen? held = null;
         try
