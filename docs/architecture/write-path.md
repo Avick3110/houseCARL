@@ -376,7 +376,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   on the outcome rather than silently, and the three collisions refused loud with the file untouched.
 - `create-abstract-group-guard` arms G1 / G2 — a concrete arm of either abstract group creates, keyed off the
   runtime hierarchy rather than a per-type case.
-- `nested-create-guard` and `coord-cell-guard` arms EXTERIOR / INTERIOR / PLACED — the modeled-slot nested create,
+- `NestedCreateSlotTests`, and `coord-cell-guard` arms EXTERIOR / INTERIOR / PLACED — the modeled-slot nested create,
   and the coordinate-keyed cell routes through a real serialize and re-open.
 - `OwnedChildLifecycleTests.EveryChildBearingPropertyIsASlotCreateCanNameOrACoordinateRouteItNames` — every
   child-bearing property the reflected set answers is a slot create can name or a coordinate route it names.

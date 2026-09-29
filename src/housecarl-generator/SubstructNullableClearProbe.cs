@@ -21,7 +21,7 @@ namespace HousecarlGenerator;
 ///                       Remove) touched nullability data, not the Set path, so a bare Value="0" (no compose) opens nothing.
 ///                       (VMAD's type DialogResponsesAdapter is itself composable, so the bare value is rerouted to the
 ///                       compose-or-navigate guidance — NOT a coercion failure; the refusal is what this control asserts.
-///                       A COMPOSE Set on a composable substruct IS separately accepted — nested-create-guard SUBSTRUCT-SET-*.)
+///                       A COMPOSE Set on a composable substruct IS separately accepted — SubstructComposeSetTests.)
 ///   E2E-UNFRAGMENT    — an in-memory INFO carrying a VMAD, driven through the REAL WriteEngine.ApplyVerb Remove,
 ///                       comes back with VirtualMachineAdapter == null (was non-null) — the apply half, un-fragmented.
 ///   PREFLIGHT-POLY(2) — Remove a nullable standalone polymorphic field (Book.Teaches; Npc.Sound) PASSES — the same
@@ -69,7 +69,7 @@ public static class SubstructNullableClearProbe
         // CONTROL-SET: a PLAIN-VALUE substruct Set (Value="0", no compose) is still refused — the nullable-clear (Remove)
         // fix touched nullability data, not the Set path. VMAD's DialogResponsesAdapter is composable, so the bare value is
         // rerouted to the compose-or-navigate guidance (a plain value can't express a struct) — the refusal is the point.
-        // (A COMPOSE Set on a composable substruct is separately accepted — nested-create-guard SUBSTRUCT-SET-*.)
+        // (A COMPOSE Set on a composable substruct is separately accepted — SubstructComposeSetTests.)
         var setReject = rulebook.Validate(new WriteRequest { RecordType = "DialogResponses", Path = new[] { "VirtualMachineAdapter" }, Verb = "Set", Value = "0" });
         bool setOk = setReject is not null;
         Console.WriteLine($"   CONTROL-SET       plain-value Set refused    : {(setOk ? "PASS — a bare Value=\"0\" Set on VirtualMachineAdapter is still refused (nullable-clear opened Remove, not the Set path)" : "FAIL — a plain-value Set on a substruct was accepted")}");
