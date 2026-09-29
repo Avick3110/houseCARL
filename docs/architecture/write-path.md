@@ -425,11 +425,11 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - `remap-wave2-compact-guard` arms NESTED / EXTERNAL — the structural renumber keeping every nesting shape
   (cell→placed, worldspace→exterior cell→placed, topic→INFO) with internal references repointed, and the
   identify-plus-repoint half over it.
-- `merge-service-guard` arms MERGE / WINNER / GRAFT — the first donor's ids kept, a later donor's collision
-  renumbered, the cross-donor reference repointed, conflicts resolved to the load-order winner and reported with
-  winner and loser named, and the losing donor's un-relisted INFO grafted into the winning topic; arm HEADER — the
-  light, master and header-text notes keyed on what the donors carried; arm DECLARER — a declarer-only dependent
-  reaching the rendered report.
+- `MergeServiceCombineTests` (the former `merge-service-guard` arms MERGE / WINNER / GRAFT) — the first donor's ids
+  kept, a later donor's collision renumbered, the cross-donor reference repointed, conflicts resolved to the
+  load-order winner and reported with winner and loser named, and the losing donor's un-relisted INFO grafted into the
+  winning topic; `MergeServiceRenameTests` (arm HEADER) — the light, master and header-text notes keyed on what the
+  donors carried; `MergeServiceDeclarerTests` (arm DECLARER) — a declarer-only dependent reaching the rendered report.
 - `overrider-detect-guard` arms OVERRIDER / REFERENCER — an overrider is a warn that lets the compaction succeed
   while a referencer is refused and named, the contrast that holds the two apart.
 - `MasterDeclarerScanTests.ADeclarerOnlyDependentIsFoundAndNamed`, `AReferencerIsNotAlsoListedAsADeclarer`,
