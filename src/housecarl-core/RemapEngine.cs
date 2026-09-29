@@ -745,12 +745,6 @@ public static class RemapEngine
                 "refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED.");
         }
 
-        try { targetMod.RemapLinks(dict); }
-        catch (Exception ex)
-        {
-            return RepointResult.Fail($"RemapLinks failed on '{pluginName}' ({WriteEngine.Describe(ex)}) — the file is untouched.");
-        }
-
         // The target's OWN declared masters as overlays in load order, the faithful re-serialize set WriteInPlace
         // hands Mutagen. They resolve FormID and master-table references only, never localized strings.
         var overlays = new List<IDisposable>();
@@ -781,6 +775,22 @@ public static class RemapEngine
                 }
                 overlays.Add((IDisposable)ov);
                 resolved.Add(ov);
+            }
+
+            // The unedited round trip must keep every subrecord the file holds (#961), before the remap touches anything.
+            string? lost;
+            try { lost = SubrecordInventory.RoundTripRefusal(targetMod, path, resolved); }
+            catch (Exception ex)
+            {
+                return RepointResult.Fail(
+                    $"writing '{pluginName}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}");
+            }
+            if (lost is not null) return RepointResult.Fail(lost);
+
+            try { targetMod.RemapLinks(dict); }
+            catch (Exception ex)
+            {
+                return RepointResult.Fail($"RemapLinks failed on '{pluginName}' ({WriteEngine.Describe(ex)}) — the file is untouched.");
             }
 
             try { WriteEngine.WriteInPlace(targetMod, resolved, path, resolver.DataDir); }
