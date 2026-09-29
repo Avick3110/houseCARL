@@ -33,7 +33,7 @@ Consequences the render depends on:
 - "PNAM absent" and "PNAM present but zero" place at OPPOSITE ends, and `PnamZeroIsDistinguishable` says the reader
   does tell them apart. That is the fidelity ceiling of the whole merge. Re-verifying it needs a zero PNAM
   constructed ON DISK, because of the writer limit [`docs/dialogue.md`](../dialogue.md) states, so a round-trip
-  fixture measures the writer rather than the reader. Pinned by `DialogueInfoOrderProbe`'s `PNAM-ZERO-AXIS` and
+  fixture measures the writer rather than the reader. Pinned by `InfoOrderMergeTests`' `PNAM-ZERO-AXIS` and
   `WRITER-DROPS-NULL`.
 - `Moved` is not "the index changed" — moving one line to the bottom shifts every line after it. It flags only lines
   that changed RELATIVE order, the minimal set outside a longest common subsequence against the defining plugin's
@@ -104,8 +104,8 @@ and did not set `SubtypeName` — gating on "this call set Subtype" is the calle
 off the countless vanilla topics whose number is legitimately noisy.
 
 ## Pinned by
-- `DialogueInfoOrderProbe` (`src/housecarl-generator`) — the merged INFO order, by the arms named beside its
-  sentences above.
+- `InfoOrderMergeTests`, `InfoOrderDegradeTests` and `InfoOrderRenderTests` — the merged INFO order, by the arms
+  named beside its sentences above.
 - `DialogueFamilyTests.FactD1_TheShippedRenderStatesTheMergeModel` — the `info_order` render states the merge
   model and never says a line is dropped; `FactD3_UnreadWired` — a touching plugin that could not be read makes
   the view INCOMPLETE and is named.
