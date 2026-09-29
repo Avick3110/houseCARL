@@ -87,7 +87,8 @@ public sealed class StatusInstanceProfileTests : IClassFixture<StatusProfileWorl
         Assert.Contains("inspecting profile 'Second'", text);
         Assert.Contains("active profile is unchanged", text);
         Assert.Contains("  mods:    2 enabled", text);
-        Assert.StartsWith("load order status — profile 'Default'", text);
+        // A later status call still heads with Default: this call's own header is read before the named read runs.
+        Assert.StartsWith("load order status — profile 'Default'", Status(svc));
         // The discovery line is left out when a profile was asked for.
         Assert.DoesNotContain("profiles available", text);
     }
