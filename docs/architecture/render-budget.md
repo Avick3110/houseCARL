@@ -181,32 +181,36 @@ call. What a call spent comes back as `render_ms`, which is how the estimates ar
 The comparison forms (delta/tree) get the same ten minutes, but their row cost is not one number: it is
 priced from the shape being run (`RenderBudget.ComparisonShape`), and the row bound is ten minutes divided
 by that price. Three things move it: whether `fields=` narrows the comparison, how many of the records a cell
-or topic contains (the containment index answers that per id before any body is read), and whether a pole
+or topic contains (asked of the containment index per id, only for a narrowed comparison and only once the
+top-level price already fits, so a refusal on the id count needs no index), and whether a pole
 replays the SkyPatcher layer. The comparison responses carry no `render_ms` of their own, so the figures
 below are client wall clock. The old rule, one 250 ms floor against a 250-row bound (#716, measured on REFR scans
 before the per-plugin gather of #765), refused the battery's 1,276-record post-state delta as "about 5
 minutes" (#932): that estimate was near the truth, but a one-minute budget refused a five-minute job every
 other lane would have run, and it refused a narrowed comparison that takes a third of a second.
 
-The figures, measured 2026-09-29 on `E:/Authoria - Requiem Reforged` (3,254 plugins) through a private
-Release server over stdio, warm, with other sessions running on the same machine:
+Two measurements, both 2026-09-29 on `E:/Authoria - Requiem Reforged` (3,254 plugins) through a private
+Release server over stdio, warm. The first was taken with other sessions running on the same machine; the
+second, the blind review's re-run on PR #976, on a quiet one, and is 1.5 to 2.3 times faster row for row:
 
-| form | source / reference | fields | records | seconds | ms a row |
-|---|---|---|---|---|---|
-| delta | SkyPatcher post vs winner | whole | 1,276 ARMO/WEAP | 297.7 | 233 |
-| delta | winner vs previous_provider | whole | 1,276 ARMO/WEAP | 180.6 | 142 |
-| tree | every provider vs winner | whole | 1,276 ARMO/WEAP | 237.0 | 186 |
-| tree | every provider vs winner | whole | 5,798 REFR | 894.8 | 154 |
-| tree | every provider vs winner | whole | 1,000 REFR | 144.4 | 144 |
-| delta | SkyPatcher post vs winner | Keywords | 1,276 ARMO/WEAP | 54.4 | 43 |
-| delta | winner vs previous_provider | Keywords | 1,276 ARMO/WEAP | 0.33 | 0.26 |
-| tree | every provider vs winner | Keywords | 1,276 ARMO/WEAP | 0.33 | 0.26 |
-| tree | every provider vs winner | Base | 1,000 REFR | 20.7 | 21 |
+| form | source / reference | fields | loaded: records, s, ms a row | quiet: records, s, ms a row |
+|---|---|---|---|---|
+| delta | SkyPatcher post vs winner | whole | 1,276 ARMO/WEAP, 297.7, 233 | 300, 38.8, 129 |
+| delta | winner vs previous_provider | whole | 1,276 ARMO/WEAP, 180.6, 142 | 300, 24.8, 83 |
+| tree | every provider vs winner | whole | 1,276 ARMO/WEAP, 237.0, 186 | — |
+| tree | every provider vs winner | whole | 5,798 REFR, 894.8, 154 | 300 REFR, 28.7, 96 |
+| delta | SkyPatcher post vs winner | Keywords | 1,276 ARMO/WEAP, 54.4, 43 | — |
+| delta | winner vs previous_provider | Keywords | 1,276 ARMO/WEAP, 0.33, 0.26 | 1,276, 0.18, 0.14 |
+| tree | every provider vs winner | Keywords | 1,276 ARMO/WEAP, 0.33, 0.26 | — |
+| tree | every provider vs winner | Base | 1,000 REFR, 20.7, 21 | 1,000 REFR, 14.1, 14 |
 
-The prices, each the measured figure rounded up: a whole-record row 190 ms (delta or tree, top-level or
-contained); a narrowed row 1 ms on a top-level record and 25 ms on a contained one; a post-state pole adds
-45 ms. So the battery's call is priced at 235 ms a row, about 5 minutes, and runs; the 5,798-REFR tree is
-priced at about 18 minutes against its measured 15 and is refused. The bounds are
+The prices are the quiet figures rounded up: a whole-record row 100 ms (delta or tree, top-level or contained;
+quiet 83 to 96); a narrowed row 0.2 ms on a top-level record and 15 ms on a contained one; a post-state pole adds
+45 ms (quiet 129 less 83). A loaded machine runs up to about twice the price, still inside the 30-minute client
+timeout at the ten-minute bound. The contained prices were measured on REFR only and are charged to every record a
+cell or topic contains (INFO, ACHR, NAVM, LAND and the rest); a NAVM or LAND body is larger than a REFR's and may
+cost more. So the battery's call is priced at 145 ms a row, about 3 minutes, and runs; the 5,798-REFR tree is
+priced at about 10 minutes (quiet 9.3, loaded 15) and runs; a REFR tree past 6,000 rows is refused. The bounds are
 per-service settings (`Bounds` on the service, `MaxAssetPaths` on the assets area) so a test lowers only its
 own world's; production never assigns them. `AccountingReserve` is held back from
 `max_chars` so the accounting line is paid for inside the cap.
@@ -242,8 +246,10 @@ own world's; production never assigns them. `AccountingReserve` is held back fro
   — the accounting line at its widest fits inside `AccountingReserve`. It renders nothing against a cap, so that the
   reserve is taken out of `max_chars` is not asserted.
 - *The render bound is a time budget, not a width one* (the comparison forms): `ComparisonBoundTests` — the battery's
-  post-state delta and a narrowed catalogue fit, a REFR-scale tree is refused with an estimate within a factor of two
-  of its measured cost, and a narrowed comparison over contained records is charged their own price.
+  post-state delta and a narrowed catalogue fit, a REFR-scale tree is refused at a price within a factor of two of
+  both measured rates, and a narrowed comparison over contained records is charged their own price;
+  `ComparisonBoundCallSiteTests` — through `housecarl_records` with the derived bound, `fields=`, a placed
+  reference and a post-state pole each move the quoted price.
 
 ## Where
 

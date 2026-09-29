@@ -498,14 +498,17 @@ public sealed class RecordsRenderCostTests
         Assert.DoesNotContain("pass fewer formids=", r);
     }
 
-    /// <summary>The smallest refusable job on this lane lands in the minute band, which every other bound starts
-    /// above: one row past a whole-record comparison's bound must not read "about 1 minutes".</summary>
+    /// <summary>An estimate just over a one-minute comparison bound reads in seconds up to 90 s, never "about 1 minutes":
+    /// one whole-record row past a 60 s budget is 60.1 s.</summary>
     [Fact]
     public void TheEstimateReadsProperlyJustOverTheComparisonBound()
     {
+        var bounds = RenderBounds.Default with { ComparisonMillis = 60_000 };
         var whole = new RenderBudget.ComparisonShape(1, 0, Narrowed: false, ReplaysOverlay: false);
-        Assert.DoesNotContain(" 1 minutes",
-                              RenderBudget.ProjectedAt(RenderBudget.ComparisonBound(whole) + 1, whole.MillisPerRow));
+        var justOver = whole with { Rows = RenderBudget.ComparisonBound(whole, 60_000) + 1 };
+        var r = RenderBudget.RefuseComparison(bounds, justOver, "tree", "x");
+        Assert.NotNull(r);
+        Assert.DoesNotContain(" 1 minutes", r);
     }
 
     /// <summary>A census and a to_file= artifact cover the whole selection whatever limit= says, so the sentence
