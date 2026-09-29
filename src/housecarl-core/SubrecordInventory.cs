@@ -45,12 +45,17 @@ public static class SubrecordInventory
     /// <summary>What the refusal tells the caller to do instead, per lane, for one record and for several.</summary>
     public sealed record Remedy(string One, string Many)
     {
-        /// <summary>The record lanes: apply, create, remove, forward.</summary>
+        /// <summary>The in-place record lanes: apply, create, forward.</summary>
         public static readonly Remedy RecordLane = new(
             "drop in_place= and write the change into a new plugin, leaving that record out of it (an override of it loses " +
             "the same subrecords), or fix that record in xEdit first",
             "drop in_place= and write the change into a new plugin, leaving those records out of it (an override of one " +
             "loses the same subrecords), or fix those records in xEdit first");
+
+        /// <summary>Both remove lanes; a record being removed is never counted, so fixing the other one is the way on.</summary>
+        public static readonly Remedy Remove = new(
+            "fix that record in xEdit first, or remove it in the same call if it should go too",
+            "fix those records in xEdit first, or remove them in the same call if they should go too");
 
         /// <summary>An in-place compact of the target itself.</summary>
         public static readonly Remedy CompactTarget = new(
@@ -65,8 +70,9 @@ public static class SubrecordInventory
             "fix those records in xEdit first, or compact without repoint_externals and handle that plugin's references yourself");
     }
 
-    /// <summary>Null when the unedited round trip over the write's own masters keeps every signature, else one refusal; a serialize fault throws.</summary>
-    public static string? RoundTripRefusal(SkyrimMod parsed, string path, IReadOnlyList<ISkyrimModGetter> masters, Remedy remedy)
+    /// <summary>Null when the unedited round trip over the write's masters loses nothing outside the records the op drops whole, else one refusal.</summary>
+    public static string? RoundTripRefusal(SkyrimMod parsed, string path, IReadOnlyList<ISkyrimModGetter> masters, Remedy remedy,
+                                           IReadOnlySet<FormKey>? dropped = null)
     {
         if (parsed.UsingLocalization) return null;   // WriteInPlace and WritePatch refuse a localized file before staging
         var fileName = Path.GetFileName(path);
@@ -75,7 +81,12 @@ public static class SubrecordInventory
         catch (Exception ex) when (Find<CaptureUnsupportedException>(ex) is { } cu) { return CouldNotRun(fileName, cu.Message); }
         if (written is null) return CouldNotRun(fileName, "the in-memory serialize produced no bytes");
         List<RecordDiff> losses;
-        try { losses = Losses(Diff(Walk(File.ReadAllBytes(path), parsed.ModKey), Walk(written, parsed.ModKey)), Renames); }
+        try
+        {
+            var file = Walk(File.ReadAllBytes(path), parsed.ModKey);
+            if (dropped is not null) foreach (var k in dropped) file.Remove(k);
+            losses = Losses(Diff(file, Walk(written, parsed.ModKey)), Renames);
+        }
         catch (Exception ex) { return CouldNotRun(fileName, WriteEngine.Describe(ex)); }
         return losses.Count == 0 ? null : Refusal(fileName, losses, parsed, remedy);
     }
@@ -224,11 +235,11 @@ public static class SubrecordInventory
         var who = $"houseCARL (Mutagen {MutagenVersion})";
         if (losses.Count == 1)
             return $"refused: {who} cannot write {Name(losses[0])} back as the file holds it, so rewriting '{fileName}' " +
-                   $"in place would drop its {Sigs(losses[0])} (#961); '{fileName}' is UNTOUCHED — {remedy.One}.";
+                   $"would drop its {Sigs(losses[0])} (#961); '{fileName}' is UNTOUCHED — {remedy.One}.";
         var list = string.Join("; ", losses.Take(RecordsNamed).Select(d => $"{Name(d)} ({Sigs(d)})"));
         var more = losses.Count > RecordsNamed ? $"; and {losses.Count - RecordsNamed} more record(s)" : "";
         return $"refused: {who} cannot write {losses.Count} records back as the file holds them, so rewriting " +
-               $"'{fileName}' in place would drop subrecords from each — {list}{more} (#961); '{fileName}' is UNTOUCHED — " +
+               $"'{fileName}' would drop subrecords from each — {list}{more} (#961); '{fileName}' is UNTOUCHED — " +
                $"{remedy.Many}.";
     }
 
