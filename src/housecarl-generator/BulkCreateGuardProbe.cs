@@ -8,7 +8,7 @@ namespace HousecarlGenerator;
 
 /// <summary>
 /// SELF-CONTAINED CI REGRESSION GUARD for the CREATE-TOOL WIRE (housecarl_create_record's parent/collection +
-/// the new housecarl_bulk_create batch tool, nested/dialogue plan Layer A). Where nested-create-guard pins the
+/// the new housecarl_bulk_create batch tool, nested/dialogue plan Layer A). Where NestedCreateSlotTests pins the
 /// CORE (WritePatchBuilder.CreateRecords) against a bare resolver, this pins the SERVICE LAYER —
 /// LoadOrderService.CreateRecords (single, with parent/collection) + CreateRecordsBatch (the array) — driven over a
 /// synthetic MO2 instance in temp (the write-mutex-guard synth pattern: real ModOrganizer.ini + profile + a master
