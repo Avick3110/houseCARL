@@ -1244,7 +1244,7 @@ public static class WritePatchBuilder
             ISkyrimModGetter[] ownMasters = ResolveOwnMasters(view, targetMod, masterOverlays, out var missing);
             if (missing is not null) return RemovalOutcome.Fail(missing);
             if (RoundTripRefusal(targetMod, targetPath, () => ownMasters,
-                    ex => SerializeFailure(CheckSerializeLead(targetPath), ex, session), SubrecordInventory.Remedy.Remove,
+                    ex => CheckSerializeFailure(targetPath, ex, session), SubrecordInventory.Remedy.Remove,
                     DroppedWith(targetMod, toRemove.Select(rr => rr.Target))) is { } lost)
                 return RemovalOutcome.Fail(lost);
 
@@ -1557,12 +1557,12 @@ public static class WritePatchBuilder
 
 
     /// <summary>The NAMED cause when a serialize failed on a master skipped as unopenable; empty string otherwise.</summary>
-    public static string UnopenableMasterClause(Exception ex, LoadOrderResolver.OverlaySession session)
+    public static string UnopenableMasterClause(Exception ex, LoadOrderResolver.OverlaySession? session)
     {
         // NOT the baseline class: its Message IS the whole refusal, and SerializeFailure SUBSTITUTES rather than appends.
         for (Exception? b = ex; b is not null; b = b.InnerException)
             if (b is UnopenableBaselineMasterException) return "";
-        if (session.SkippedUnopenable.Count == 0) return "";
+        if (session is null || session.SkippedUnopenable.Count == 0) return "";
         var hit = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         CollectMissingMods(ex, session, hit, depth: 0);
         if (hit.Count == 0) return "";
@@ -1578,7 +1578,7 @@ public static class WritePatchBuilder
     static string? RoundTripRefusal(SkyrimMod mod, string path, LoadOrderResolver.OverlaySession session,
                                     SubrecordInventory.Remedy remedy, IEnumerable<FormKey>? dropped = null)
         => RoundTripRefusal(mod, path, () => session.AllMastersExcept(Path.GetFileName(path)),
-                            ex => SerializeFailure(CheckSerializeLead(path), ex, session), remedy, dropped);
+                            ex => CheckSerializeFailure(path, ex, session), remedy, dropped);
 
     /// <summary>The round-trip check (#961) over the given masters: its refusal, the master-open refusal, or the serialize fault's.</summary>
     static string? RoundTripRefusal(SkyrimMod mod, string path, Func<IReadOnlyList<ISkyrimModGetter>> masters,
@@ -1591,8 +1591,8 @@ public static class WritePatchBuilder
         catch (UnopenableBaselineMasterException ex) { return ex.Message; }
         catch (Exception ex)
         {
-            return $"cannot re-serialize '{fileName}': a plugin in the load order could not be opened for the round-trip " +
-                   $"check ({WriteEngine.Describe(ex)}). Repair or remove that plugin in MO2 and retry. The file is UNTOUCHED.";
+            return $"refused: a plugin the round-trip check on '{fileName}' needs could not be opened " +
+                   $"({WriteEngine.Describe(ex)}), so '{fileName}' is UNTOUCHED — repair or remove that plugin in MO2 and retry.";
         }
         try { return SubrecordInventory.RoundTripRefusal(mod, path, set, remedy, dropped?.ToHashSet()); }
         catch (Exception ex) { return serializeFailure(ex); }
@@ -1614,12 +1614,16 @@ public static class WritePatchBuilder
     public static string? ExtendRoundTripRefusal(SkyrimMod patch, string path, LoadOrderResolver.OverlaySession session)
         => RoundTripRefusal(patch, path, session, SubrecordInventory.Remedy.Extend);
 
-    /// <summary>The lead of a serialize fault met by the round-trip check, which the write would meet the same way.</summary>
-    static string CheckSerializeLead(string path) =>
-        $"'{Path.GetFileName(path)}' is UNTOUCHED: re-serializing it unedited for the round-trip check failed, so the write would fail the same way: ";
+    /// <summary>A serialize fault met by the round-trip check, which the write would meet the same way, with its remedy.</summary>
+    static string CheckSerializeFailure(string path, Exception ex, LoadOrderResolver.OverlaySession? session)
+    {
+        var name = Path.GetFileName(path);
+        return SerializeFailure($"refused: re-serializing '{name}' unedited for the round-trip check failed, so the write would fail the same way: ",
+            ex, session, $" '{name}' is UNTOUCHED — check that plugin in xEdit and retry.");
+    }
 
     /// <summary>Render a serialize-failure message, except that a BASELINE refusal SUBSTITUTES its own message for the lot.</summary>
-    public static string SerializeFailure(string lead, Exception ex, LoadOrderResolver.OverlaySession session, string trailer = "")
+    public static string SerializeFailure(string lead, Exception ex, LoadOrderResolver.OverlaySession? session, string trailer = "")
     {
         for (Exception? b = ex; b is not null; b = b.InnerException)
         {
@@ -2097,7 +2101,7 @@ public static class WritePatchBuilder
         {
             var own = ResolveOwnMasters(view, parsed, overlays, out var missing, skipAbsent: true);
             if (missing is not null) return missing;
-            return RoundTripRefusal(parsed, path, () => own, ex => CheckSerializeLead(path) + WriteEngine.Describe(ex), remedy);
+            return RoundTripRefusal(parsed, path, () => own, ex => CheckSerializeFailure(path, ex, null), remedy);
         }
         finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* best-effort; never mask the check */ } } }
     }
