@@ -87,8 +87,8 @@ Read what your task needs, not everything.
    refuses it). For a set too large to render inline, pass `to_file` an absolute `.jsonl` path and
    re-enter it later as
    `formids=["@<that absolute path>"]`; a long plugin scope takes the same spelling,
-   `plugins={"names": ["@<file, one plugin per line>"]}`. Leave `source` omitted, or pass `"winner"` — the load-order
-   winner is the record KID acts on. To show what a String filter would have caught instead, scan
+   `plugins={"names": ["@<file, one plugin filename per line>"]}`. Leave `source` omitted, or
+   pass `"winner"` — the load-order winner is the record KID acts on. To show what a String filter would have caught instead, scan
    the channels that filter actually tests (`references/filters.md` §1 and §3), which is more than
    the display name: a bare term is an exact test on the EditorID or the name, and a `*wildcard` is
    a substring test on the EditorID, the name **and** the item's own keyword EditorIDs. So a

@@ -1,35 +1,117 @@
+using Mutagen.Bethesda;
+using Mutagen.Bethesda.Plugins.Records;
+using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Skyrim;
 using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
 
+/// <summary>A small MO2 instance whose plugin names carry the characters a FormID list strips: a comma and a
+/// leading '['. A master defines one weapon, and three plugins override it.</summary>
+public sealed class ScopeNamesWorld : IDisposable
+{
+    public const string Bracket = "[Hc] Bracket Patch.esp";
+    public const string Comma = "HcScope Eyes, Standalone.esp";
+    public const string Plain = "HcScopePlain.esp";
+    const string Master = "HcScopeMaster.esm";
+
+    readonly string _root = Path.Combine(Path.GetTempPath(), "hc-scope-names-" + Guid.NewGuid().ToString("N"));
+    public LoadOrderService Svc { get; }
+
+    public ScopeNamesWorld()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
+        var inst = Path.Combine(_root, "inst");
+        var master = new SkyrimMod(ModKey.FromFileName(Master), SkyrimRelease.SkyrimSE);
+        var weapon = master.Weapons.AddNew();
+        weapon.EditorID = "HcScopeWeapon";
+        var mods = new List<string> { "MasterMod" };
+        WriteMod(inst, "MasterMod", master, Array.Empty<ISkyrimModGetter>());
+        foreach (var name in new[] { Bracket, Comma, Plain })
+        {
+            var mod = new SkyrimMod(ModKey.FromFileName(name), SkyrimRelease.SkyrimSE);
+            mod.Weapons.GetOrAddAsOverride(weapon);
+            var folder = "Mod" + mods.Count;
+            WriteMod(inst, folder, mod, new ISkyrimModGetter[] { master });
+            mods.Add(folder);
+        }
+
+        File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
+        var prof = Path.Combine(inst, "profiles", "Default");
+        Directory.CreateDirectory(prof);
+        var order = new[] { Master, Bracket, Comma, Plain };
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"), string.Concat(order.Select(p => "*" + p + "\r\n")));
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"),
+            "# header\r\n" + string.Concat(Enumerable.Reverse(mods).Select(m => "+" + m + "\r\n")));
+        Svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
+    }
+
+    static void WriteMod(string inst, string folder, SkyrimMod mod, ISkyrimModGetter[] masters)
+    {
+        var dir = Path.Combine(inst, "mods", folder);
+        Directory.CreateDirectory(dir);
+        mod.BeginWrite.ToPath(Path.Combine(dir, mod.ModKey.FileName)).WithLoadOrder(masters).Write();
+    }
+
+    public void Dispose()
+    {
+        Svc.Dispose();
+        try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
+    }
+}
+
 /// <summary>plugins.names takes the '@file' spelling formids= and references= take: one '@&lt;absolute path&gt;'
-/// entry stands in place of the list, read by the same expander, with the same refusals (#931).</summary>
+/// entry stands in place of the list, one plugin filename per line, with the expander's own refusals (#931).</summary>
 [Collection("records")]
 [Trait("tier", "integration")]
-public sealed class RecordsScopeAtFileTests : RecordsTestBase
+public sealed class RecordsScopeAtFileTests : RecordsTestBase, IClassFixture<ScopeNamesWorld>
 {
+    readonly ScopeNamesWorld _names;
+
     static string TempPath(string ext) => Path.Combine(Path.GetTempPath(), "hc-scope-atfile-" + Guid.NewGuid().ToString("N") + ext);
 
-    /// <summary>The scan's scope is the file's two plugins and not the third active one; the artifact's manifest is
-    /// where the response states the scope it scanned.</summary>
+    /// <summary>The scope is the file's two plugins, a comma and a leading '[' kept, and not the third; the artifact's
+    /// manifest is where the response states the scope it scanned.</summary>
     [Fact]
-    public void AnAtFileScopeScansExactlyThePluginsTheFileLists()
+    public void AnAtFileScopeScansExactlyThePluginsTheFileLists_ACommaAndABracketKept()
     {
         var file = TempPath(".txt");
         var artifact = TempPath(".jsonl");
-        File.WriteAllText(file, W.MasterName + "\n" + W.OverrideName + "\n");
+        File.WriteAllText(file, ScopeNamesWorld.Bracket + "\n" + ScopeNamesWorld.Comma + "\n");
         try
         {
-            var text = RecordsTools.Records(Svc, plugins: Scope("@" + file), types: new[] { "WEAP" }, to_file: artifact);
+            var text = RecordsTools.Records(_names.Svc, plugins: Scope("@" + file), types: new[] { "WEAP" }, to_file: artifact);
 
             Assert.DoesNotContain("error:", text);
+            Assert.DoesNotContain("note:", text);   // a split or trimmed name would be reported as missing here
             var manifest = File.ReadLines(artifact).First();
-            Assert.Contains(W.MasterName, manifest);
-            Assert.Contains(W.OverrideName, manifest);
-            Assert.DoesNotContain(W.MidName, manifest);
+            Assert.Contains(ScopeNamesWorld.Bracket, manifest);
+            Assert.Contains(ScopeNamesWorld.Comma, manifest);
+            Assert.DoesNotContain(ScopeNamesWorld.Plain, manifest);
         }
         finally { File.Delete(file); File.Delete(artifact); }
+    }
+
+    /// <summary>A FormID result artifact names no plugins, so it is refused by its identity in one sentence rather
+    /// than having every FormID reach the scope as a plugin name.</summary>
+    [Fact]
+    public void AFormIdArtifactIsRefusedByItsIdentityInOneShortSentence()
+    {
+        var artifact = TempPath(".jsonl");
+        try
+        {
+            RecordsTools.Records(Svc, plugins: Scope(W.MasterName), types: new[] { "WEAP" }, to_file: artifact);
+
+            var text = RecordsTools.Records(Svc, plugins: Scope("@" + artifact), types: new[] { "WEAP" });
+
+            Refused(text, "identities");
+            Assert.True(text.Length < 400, $"refusal is {text.Length} chars");
+        }
+        finally { File.Delete(artifact); }
     }
 
     [Fact]
@@ -56,5 +138,5 @@ public sealed class RecordsScopeAtFileTests : RecordsTestBase
         finally { File.Delete(file); }
     }
 
-    public RecordsScopeAtFileTests(RecordsFixture f) : base(f) { }
+    public RecordsScopeAtFileTests(RecordsFixture f, ScopeNamesWorld names) : base(f) => _names = names;
 }
