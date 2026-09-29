@@ -92,6 +92,20 @@ public class InfoOrderDegradeTests
         Assert.Null(atCeiling.Note);
     }
 
+    // DEGRADE-CEILINGS (move analysis, moved set): a real move is reported at 400 lines and withheld at 401.
+    [Fact]
+    public void ARealMoveIsReportedAtTheLineCeilingAndWithheldPastIt()
+    {
+        InfoOrderView Relisted(int n)
+        {
+            var lines = Numbered(n, "big.esp");
+            return DialogueInfoOrder.Compute(new List<(string, IReadOnlyList<InfoLine>)>
+                { ("big.esp", lines), ("patch.esp", new[] { lines[0] }) }, _ => null);
+        }
+        Assert.Single(Relisted(400).Moved);
+        Assert.Empty(Relisted(401).Moved);
+    }
+
     // DEGRADE-CEILINGS (hop ceiling): a 600-deep forward PNAM chain places every line and the note names the 'hop ceiling'.
     [Fact]
     public void AForwardPnamChainPastTheHopCeilingDegradesAndSaysSo()
