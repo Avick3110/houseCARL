@@ -64,10 +64,12 @@ public sealed class NexusGameMappingTests
     [Fact]
     public void ABareIdCarriesNoGame() => Assert.Equal((12604, (string?)null, (string?)null), NexusTools.ParseModRef("12604"));
 
-    // Probe: "bare id tolerates surrounding space".
-    [Fact]
-    public void ABareIdToleratesSurroundingSpace() =>
-        Assert.Equal((12604, (string?)null, (string?)null), NexusTools.ParseModRef(" 12604 "));
+    // Probe: "bare id tolerates surrounding space"; the non-breaking-space row needs the Trim, which int.TryParse lacks.
+    [Theory]
+    [InlineData(" 12604 ")]
+    [InlineData(" 12604 ")]
+    public void ABareIdToleratesSurroundingSpace(string mod) =>
+        Assert.Equal((12604, (string?)null, (string?)null), NexusTools.ParseModRef(mod));
 
     // Probe: "SSE mod URL → id + its domain".
     [Fact]
