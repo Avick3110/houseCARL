@@ -48,6 +48,16 @@ public sealed class NexusRenderClampTests
     public void OneLineTrimsTheClampedTextBeforeTheEllipsis() =>
         Assert.Equal("aaa…", Render.OneLine("aaa bbb", 4));
 
+    // Not a probe arm: HTML tags are stripped before the entities decode, so a decoded "&lt;" survives as text.
+    [Fact]
+    public void StripMarkupStripsHtmlTagsAndDecodesLt() =>
+        Assert.Equal("bold <3", Render.StripMarkup("<b>bold</b> &lt;3", 400));
+
+    // Not a probe arm: OneLine folds line breaks and space runs into single spaces.
+    [Fact]
+    public void OneLineFoldsLineBreaksAndSpaceRuns() =>
+        Assert.Equal("a b c", Render.OneLine("a\r\nb   c", 50));
+
     // True if the string holds an unpaired surrogate: a high not followed by a low, or a stray low.
     static bool HasLoneSurrogate(string s)
     {
