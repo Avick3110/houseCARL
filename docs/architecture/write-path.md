@@ -70,7 +70,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   not walked: the service lanes refuse it before consent and `WriteInPlace` refuses it before staging, so no write the
   check could stop lands. The header is out of scope (unused masters are dropped there on purpose). Merge and a compact
   into a new plugin do not run it: their output is a new file whose content is the parse, which is the read half of
-  #961, not a write that destroys the original. Every in-place render that ran the check carries
+  #961, not a write that destroys the original. The check reads the target through the full parse while the in-place
+  compact copies from the overlay, so on compact it approximates that write rather than repeating it. Every in-place render that ran the check carries
   `WriteSentences.RoundTripChecked`, which claims only that: no signature lost, gains and the rename allowed, values
   not compared.
 - A read-back proves what is in the file, never what wins in the ORDER.
