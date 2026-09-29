@@ -168,6 +168,13 @@ public sealed class CompileRenderImportPathTests
         Assert.DoesNotContain("and none under your MO2 data folder", msg);
     }
 
+    // Probe E7: "…and no tail asserts a vanilla slot two lines under a caveat saying there is none".
+    [Fact]
+    public void AFailedModlistReadClaimsNoVanillaSlot()
+    {
+        Assert.DoesNotContain("; vanilla sources last", Render(Ok, FailedScan()));
+    }
+
     // Probe E7: "the warning is labelled 'modlist scan', not 'auto_imports'" (read off the service that writes it, not a fixture).
     [Fact]
     public void AFailedModlistReadIsLabelledModlistScan()
@@ -230,10 +237,11 @@ public sealed class CompileRenderImportPathTests
 
     // Probe closure: "[name] SUPPRESS: the conclusion phrase is withheld on the success render", "…and the banner does not
     // assert it either", "[name] EXEMPT: the conclusion phrase still prints, deliberately", "[name]: carries a ⚠ caveat either way".
+    public static IEnumerable<object[]> ClassifiedWithASample() =>
+        Classification.Where(e => e.Value.Sample is not null).Select(e => new object[] { e.Key });
+
     [Theory]
-    [InlineData("ScanFailed")]
-    [InlineData("TargetUnreadable")]
-    [InlineData("BudgetExhausted")]
+    [MemberData(nameof(ClassifiedWithASample))]
     public void EachDegradedStateRendersAsClassified(string name)
     {
         var (suppress, sample) = Classification[name];
