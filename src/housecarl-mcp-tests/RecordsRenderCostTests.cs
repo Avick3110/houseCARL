@@ -499,11 +499,14 @@ public sealed class RecordsRenderCostTests
     }
 
     /// <summary>The smallest refusable job on this lane lands in the minute band, which every other bound starts
-    /// above: 251 rows must not read "about 1 minutes".</summary>
+    /// above: one row past a whole-record comparison's bound must not read "about 1 minutes".</summary>
     [Fact]
-    public void TheEstimateReadsProperlyJustOverTheComparisonBound() =>
+    public void TheEstimateReadsProperlyJustOverTheComparisonBound()
+    {
+        var whole = new RenderBudget.ComparisonShape(1, 0, Narrowed: false, ReplaysOverlay: false);
         Assert.DoesNotContain(" 1 minutes",
-                              RenderBudget.ProjectedAt(RenderBudget.DefaultMaxComparisonRows + 1, RenderBudget.MillisPerComparisonRow));
+                              RenderBudget.ProjectedAt(RenderBudget.ComparisonBound(whole) + 1, whole.MillisPerRow));
+    }
 
     /// <summary>A census and a to_file= artifact cover the whole selection whatever limit= says, so the sentence
     /// they get names the scan terms and says limit= is not the lever.</summary>

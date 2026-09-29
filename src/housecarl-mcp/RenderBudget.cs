@@ -15,11 +15,20 @@ internal static class RenderBudget
     /// <summary>The declared cost of one <c>form='identity'</c> row: an UNTYPED whole-plugin seek per FormID.</summary>
     internal const double MillisPerIdentityRow = 15.0;
 
-    /// <summary>The declared cost of one comparison row, a floor rather than an average.</summary>
-    internal const double MillisPerComparisonRow = 250.0;
+    /// <summary>A comparison row that reads every field of each pole, delta or tree alike (measured 142–186 ms, #932).</summary>
+    internal const double MillisPerWholeComparisonRow = 190.0;
 
-    /// <summary>THE BOUND for the comparison forms: about a minute at <see cref="MillisPerComparisonRow"/> (#716).</summary>
-    internal const int DefaultMaxComparisonRows = 250;
+    /// <summary>A comparison row narrowed by fields= on a top-level record (measured 0.26 ms, #932).</summary>
+    internal const double MillisPerNarrowComparisonRow = 1.0;
+
+    /// <summary>A comparison row narrowed by fields= on a record a cell or topic contains (measured 21 ms on REFR, #932).</summary>
+    internal const double MillisPerNarrowContainedComparisonRow = 25.0;
+
+    /// <summary>What replaying the SkyPatcher layer adds to a comparison row with a post-state pole (measured 43 ms, #932).</summary>
+    internal const double MillisPerOverlayReplayRow = 45.0;
+
+    /// <summary>What a comparison may spend before it refuses: the ceiling every other lane is given.</summary>
+    internal const double ComparisonBudgetMillis = CeilingMillis;
 
     internal const int DefaultMaxRenderRows = 300_000;
 
@@ -145,13 +154,44 @@ internal static class RenderBudget
 
     /// <summary>The refusal for a comparison form (delta/tree) over its own bound, or null when it fits;
     /// <paramref name="lever"/> is one of the four below, picked by the caller's lane.</summary>
-    internal static string? RefuseComparison(RenderBounds bounds, int rows, string form, string lever) =>
-        rows <= bounds.ComparisonRows
-            ? null
-            : $"error: this {form} reads {(form == "delta" ? "two versions" : "every override")} of each of {rows:N0} records — " +
-              $"{ProjectedAt(rows, MillisPerComparisonRow)} at the {MillisPerComparisonRow / 1000:0.##} s a row measured for these forms, " +
-              $"past the {bounds.ComparisonRows:N0}-row bound the comparison forms are given; " +
-              lever;
+    internal static string? RefuseComparison(RenderBounds bounds, ComparisonShape shape, string form, string lever)
+    {
+        int bound = bounds.ComparisonRows ?? ComparisonBound(shape);
+        if (shape.Rows <= bound) return null;
+        var perRow = shape.MillisPerRow;
+        var perRowText = perRow >= 100 ? $"{perRow / 1000:0.##} s" : $"{perRow:0.#} ms";
+        return $"error: this {form} reads {(form == "delta" ? "two versions" : "every override")} of each of {shape.Rows:N0} records — " +
+               $"{ProjectedAt(shape.Rows, perRow)} at the {perRowText} a row measured for {shape.Describe()}, " +
+               $"past the {bound:N0}-row bound that shape is given; " +
+               lever;
+    }
+
+    /// <summary>The rows a comparison of this shape fits in <see cref="ComparisonBudgetMillis"/>.</summary>
+    internal static int ComparisonBound(ComparisonShape shape) =>
+        (int)Math.Min(int.MaxValue, Math.Floor(ComparisonBudgetMillis / shape.MillisPerRow));
+
+    /// <summary>What a comparison's row cost depends on: whether fields= narrows it, how many of its records a cell or
+    /// topic contains, and whether a pole replays the SkyPatcher layer.</summary>
+    internal readonly record struct ComparisonShape(int Rows, int ContainedRows, bool Narrowed, bool ReplaysOverlay)
+    {
+        /// <summary>The mean measured cost of one row of this shape.</summary>
+        internal double MillisPerRow
+        {
+            get
+            {
+                double topLevel = Narrowed ? MillisPerNarrowComparisonRow : MillisPerWholeComparisonRow;
+                double contained = Narrowed ? MillisPerNarrowContainedComparisonRow : MillisPerWholeComparisonRow;
+                int c = Math.Clamp(ContainedRows, 0, Rows);
+                double mean = Rows == 0 ? topLevel : (topLevel * (Rows - c) + contained * c) / Rows;
+                return mean + (ReplaysOverlay ? MillisPerOverlayReplayRow : 0);
+            }
+        }
+
+        internal string Describe() =>
+            (Narrowed ? "a comparison over named fields" : "a comparison of whole records") +
+            (ContainedRows > 0 ? $", {ContainedRows:N0} of them records a cell or topic contains" : "") +
+            (ReplaysOverlay ? ", replaying the SkyPatcher layer" : "");
+    }
 
     /// <summary>The comparison bound's levers, one per lane.</summary>
     internal const string ComparisonScanLever =
