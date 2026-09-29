@@ -27,8 +27,8 @@ internal static class RenderBudget
     /// <summary>The price of reading named fields off one version of a record a cell or topic contains (quiet REFR: 9 ms, #932).</summary>
     internal const double MillisPerNarrowContainedComparisonRead = 10.0;
 
-    /// <summary>What a narrowed comparison pays per megabyte of provider plugin each chunk walks (ARR: 0.34–1.05 ms, #932).</summary>
-    internal const double MillisPerNarrowComparisonMegabyteWalked = 1.1;
+    /// <summary>What a narrowed comparison pays per megabyte of provider plugin each chunk walks (ARR: median of 0.23–1.05 ms, #932).</summary>
+    internal const double MillisPerNarrowComparisonMegabyteWalked = 0.6;
 
     /// <summary>What a SkyPatcher post-state pole adds to a comparison row's price (quiet machine: 129 less 83 ms, #932).</summary>
     internal const double MillisPerOverlayReplayRow = 45.0;
@@ -166,12 +166,13 @@ internal static class RenderBudget
         if (shape.Rows <= bound) return null;
         var perRow = shape.MillisPerRow;
         var perRowText = perRow >= 100 ? $"{perRow / 1000:0.##} s" : $"{perRow:0.#} ms";
-        return $"error: this {form} reads {(form == "delta" ? "two versions" : "every override")} of each of {shape.Rows:N0} records — " +
-               $"{ProjectedAt(shape.Rows, perRow)} at the {perRowText} a row priced for {shape.Describe()}, " +
-               (shape.Counted || bounds.ComparisonRows is not null
-                   ? $"past the {bound:N0}-row bound that shape is given; "
-                   : $"past the {bound:N0}-row bound that shape is given at most, before its providers and contained records are counted; ") +
-               lever;
+        var reads = $"error: this {form} reads {(form == "delta" ? "two versions" : "every override")} of each of {shape.Rows:N0} records — ";
+        // A floor is priced before providers, containment and plugin walks are counted, so its time and bound are both bounds.
+        if (!shape.Counted && bounds.ComparisonRows is null)
+            return reads + $"{ProjectedAt(shape.Rows, perRow).Replace("about ", "at least ")} at the {perRowText} a row the cheapest resolved record costs, " +
+                   $"past the {bound:N0} rows that shape could fit at most before its providers and contained records are counted; " + lever;
+        return reads + $"{ProjectedAt(shape.Rows, perRow)} at the {perRowText} a row priced for {shape.Describe()}, " +
+               $"past the {bound:N0}-row bound that shape is given; " + lever;
     }
 
     /// <summary>The rows a comparison of this shape fits in <paramref name="budgetMillis"/>.</summary>
@@ -204,7 +205,7 @@ internal static class RenderBudget
 
         internal string Describe() =>
             (Narrowed ? "a comparison over named fields" : "a comparison of whole records") +
-            (Tree && Counted && Rows > 0 ? $", {(double)Reads / Rows:0.#} versions read a record" : "") +
+            (Tree && Counted && Rows > 0 ? $", {(double)Reads / Rows:0.##} versions read a record" : "") +
             (ContainedRows > 0 ? $", {ContainedRows:N0} of them records a cell or topic contains" : "") +
             (Narrowed && MegabytesWalked > 0 ? $", walking {MegabytesWalked / 1000:N1} GB of provider plugins" : "") +
             (ReplaysOverlay ? ", replaying the SkyPatcher layer" : "");

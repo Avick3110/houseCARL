@@ -36,12 +36,12 @@ public sealed class ComparisonBoundTests
     public void ANarrowedComparisonAtCatalogueScaleIsNotRefused() =>
         Assert.Null(Refuse(Shape(100_000, 2, narrowed: true)));
 
-    /// <summary>A whole-record REFR tree measured 96 ms a row quiet and 154 under load, at 1.54 versions a row.
+    /// <summary>A whole-record REFR tree measured 96 ms a row quiet and 154 under load, at 1.52 versions a row.
     /// Twelve thousand rows is about 19 to 31 minutes: refused, at a price within a factor of two of both.</summary>
     [Fact]
     public void AReferenceScaleTreeIsRefusedAtAPriceNearItsMeasuredCost()
     {
-        var shape = Shape(12_000, 1.54, contained: 12_000, tree: true);
+        var shape = Shape(12_000, 1.52, contained: 12_000, tree: true);
         var r = Refuse(shape, "tree");
         Assert.NotNull(r);
         Assert.Contains("minutes", r);
@@ -82,18 +82,26 @@ public sealed class ComparisonBoundTests
         Assert.Contains("7,000 of them records a cell or topic contains", r);
     }
 
-    /// <summary>A narrowed tree over all 65,748 NPC_ walked 205 GB of provider plugins and took 216 s; its reads alone price it at 9 s.</summary>
-    [Fact]
-    public void ANarrowedComparisonIsPricedByThePluginsItWalks()
+    /// <summary>Narrowed NPC_ trees on ARR, priced by the plugins their chunks walk: rows, versions a row, megabytes
+    /// walked and measured seconds. Each is priced within a factor of two of what it took; reads alone would not be.</summary>
+    [Theory]
+    [InlineData(1_000, 1.0, 7_992, 3.52)]
+    [InlineData(10_000, 1.66, 27_761, 9.48)]
+    [InlineData(65_748, 1.36, 204_967, 215.7)]
+    public void ANarrowedComparisonIsPricedByThePluginsItWalks(int rows, double versions, double megabytes, double seconds)
     {
-        var reads = Shape(65_748, 1.36, narrowed: true, tree: true);
-        Assert.InRange(reads.MillisPerRow * 65_748 / 1000, 0, 20);
-        var walked = reads with { MegabytesWalked = 204_967 };
-        Assert.InRange(walked.MillisPerRow * 65_748 / 1000, 216 / 2.0, 216 * 2.0);
+        var walked = Shape(rows, versions, narrowed: true, tree: true) with { MegabytesWalked = megabytes };
+        Assert.InRange(walked.MillisPerRow * rows / 1000, seconds / 2, seconds * 2);
         Assert.Null(Refuse(walked, "tree"));
-        var r = Refuse(walked with { MegabytesWalked = 3 * 204_967 }, "tree");
+    }
+
+    /// <summary>A narrowed tree that walks six times the all-NPC_ megabytes is refused, and says what it walks.</summary>
+    [Fact]
+    public void ANarrowedRefusalNamesThePluginsItWalks()
+    {
+        var r = Refuse(Shape(65_748, 1.36, narrowed: true, tree: true) with { MegabytesWalked = 6 * 204_967 }, "tree");
         Assert.NotNull(r);
-        Assert.Contains("walking 614.9 GB of provider plugins", r);
+        Assert.Contains("walking 1,229.8 GB of provider plugins", r);
     }
 
     /// <summary>A refusal on the floor, before providers and contained records are counted, says its bound is an upper one.</summary>
@@ -103,8 +111,11 @@ public sealed class ComparisonBoundTests
         var floor = RenderBudget.ComparisonShape.Floor(4_000_000, tree: false, namedVersus: false, narrowed: true, replaysOverlay: false);
         var r = Refuse(floor);
         Assert.NotNull(r);
-        Assert.Contains("given at most, before its providers and contained records are counted", r);
-        Assert.DoesNotContain("at most", Refuse(Shape(4_000_000, 2, narrowed: true))!);
+        Assert.Contains("at least", r);
+        Assert.Contains("rows that shape could fit at most before its providers and contained records are counted", r);
+        var counted = Refuse(Shape(4_000_000, 2, narrowed: true))!;
+        Assert.DoesNotContain("at most", counted);
+        Assert.DoesNotContain("at least", counted);
     }
 
     /// <summary>The refusal names the shape it priced, and still ends on the lane's lever.</summary>
@@ -155,6 +166,17 @@ public sealed class ComparisonBoundCallSiteTests : IClassFixture<OwnedChildFixtu
     }
 
     [Fact]
+    public void ATreeAgainstANamedVersusReadsThatVersionToo()
+    {
+        var mid = System.Text.Json.JsonDocument.Parse("\"" + _w.MidName + "\"").RootElement.Clone();
+        var r = _w.Svc.WithBounds(b => b with { ComparisonMillis = 100 },
+                                  () => RecordsTools.Records(_w.Svc, formids: new[] { Weapon }, versus: mid, project: Tree()));
+        Assert.StartsWith("error:", r);
+        Assert.Contains("0.2 s a row", r);                 // three providers and the versus= version at 50 ms each
+        Assert.Contains("4 versions read a record", r);
+    }
+
+    [Fact]
     public void ANarrowedTreeOnAPlacedReferenceIsPricedAsContained()
     {
         var r = Call(() => RecordsTools.Records(_w.Svc, formids: new[] { PlacedRef }, project: Tree("EditorID")));
@@ -176,6 +198,21 @@ public sealed class ComparisonBoundCallSiteTests : IClassFixture<OwnedChildFixtu
         Assert.Contains("GB of provider plugins", r);
     }
 
+    /// <summary>A delta's chunk walks only its two poles' plugins: the weapon's winner (top) and the provider below it
+    /// (mid). It fits a budget that covers those two and half the third provider, which a walk of every provider would not.</summary>
+    [Fact]
+    public void ANarrowedDeltaIsChargedOnlyForItsPolesPlugins()
+    {
+        double Mb(string name) => new FileInfo(Directory.GetFiles(_w.Root, name, SearchOption.AllDirectories)[0]).Length / 1_000_000.0;
+        double budget = 2 * RenderBudget.MillisPerNarrowComparisonRead
+                      + (Mb(_w.TopName) + Mb(_w.MidName) + Mb(_w.BaseName) / 2) * RenderBudget.MillisPerNarrowComparisonMegabyteWalked;
+        var previous = System.Text.Json.JsonDocument.Parse("\"previous_provider\"").RootElement.Clone();
+        var project = new RecordsTools.RecordsProject { form = "delta", fields = new[] { "EditorID" } };
+        var r = _w.Svc.WithBounds(b => b with { ComparisonMillis = budget },
+                                  () => RecordsTools.Records(_w.Svc, formids: new[] { Weapon }, versus: previous, project: project));
+        Assert.False(r.StartsWith("error:"), r);
+    }
+
     /// <summary>A scan counts its own matches' providers and containment exactly, so its refusal quotes the bound that shape is given.</summary>
     [Fact]
     public void ANarrowedScanOverPlacedReferencesIsCountedExactly()
@@ -193,7 +230,7 @@ public sealed class ComparisonBoundCallSiteTests : IClassFixture<OwnedChildFixtu
         var r = _w.Svc.WithBounds(b => b with { ComparisonMillis = 0.05 },
                                   () => RecordsTools.Records(_w.Svc, formids: new[] { Weapon }, project: Tree("EditorID")));
         Assert.StartsWith("error:", r);
-        Assert.Contains("given at most, before its providers and contained records are counted", r);
+        Assert.Contains("could fit at most before its providers and contained records are counted", r);
     }
 
     [Fact]
@@ -225,8 +262,49 @@ public sealed class ComparisonBoundOffOrderTests : IClassFixture<RenderCostFixtu
         var winner = System.Text.Json.JsonDocument.Parse("\"winner\"").RootElement.Clone();
         var r = _w.Svc.WithBounds(b => b with { ComparisonMillis = 5 },
             () => RecordsTools.Records(_w.Svc, types: new[] { "REFR" }, source: source, versus: winner,
-                                       project: new RecordsTools.RecordsProject { form = "delta", fields = new[] { "EditorID" } }));
+                                       project: new RecordsTools.RecordsProject { form = "delta", fields = new[] { "EditorID" } },
+                                       counts_only: true));
         Assert.StartsWith("error:", r);
-        Assert.Contains($"{RenderCostWorld.OffOrderRefs} of them records a cell or topic contains", r);
+        Assert.Contains("10 ms a row", r);                 // the file's version alone: the winner holds none of them
+        Assert.Contains($"{RenderCostWorld.OffOrderRefs:N0} of them records a cell or topic contains", r);
+    }
+
+    /// <summary>A tree reads only in-order providers, and a new record has none, so a tree over a switched-off
+    /// file's 10,000 new placed references reads nothing and is not refused.</summary>
+    [Fact]
+    public void ATreeOverAFilesNewRecordsReadsNothingAndIsNotRefused()
+    {
+        var source = System.Text.Json.JsonDocument.Parse("\"" + _w.OffOrderCellName + "\"").RootElement.Clone();
+        var r = RecordsTools.Records(_w.Svc, types: new[] { "REFR" }, source: source,
+                                     project: new RecordsTools.RecordsProject { form = "tree" }, counts_only: true);
+        Assert.False(r.StartsWith("error:"), r);
+    }
+}
+
+/// <summary>
+/// The formids= comparison lane counts its price on one captured build and reads on another capture; a load-order
+/// change between the two refuses rather than mixing builds. Its own world, since the test changes a plugin on disk.
+/// </summary>
+[Trait("tier", "integration")]
+public sealed class ComparisonBoundSeamTests
+{
+    [Theory]
+    [InlineData("delta")]
+    [InlineData("tree")]
+    public void AnOrderChangeBetweenPricingAndReadingRefuses(string form)
+    {
+        using var w = new OwnedChildWorld();
+        var weapon = OwnedChildWorld.Fid(w.Weapon);
+        var project = new RecordsTools.RecordsProject { form = form, fields = new[] { "EditorID" } };
+        var previous = form == "delta" ? System.Text.Json.JsonDocument.Parse("\"previous_provider\"").RootElement.Clone() : (System.Text.Json.JsonElement?)null;
+        Assert.False(RecordsTools.Records(w.Svc, formids: new[] { weapon }, versus: previous, project: project).StartsWith("error:"));
+        w.Svc.ReadArea.AfterComparisonPriceForGuard = () =>
+        {
+            w.Svc.ReadArea.AfterComparisonPriceForGuard = null;
+            File.SetLastWriteTimeUtc(w.MidPath, File.GetLastWriteTimeUtc(w.MidPath).AddHours(1));
+        };
+        var r = RecordsTools.Records(w.Svc, formids: new[] { weapon }, versus: previous, project: project);
+        Assert.StartsWith("error:", r);
+        Assert.Contains("the load order changed between deriving the selection", r);
     }
 }

@@ -60,7 +60,7 @@ public sealed class RenderCostWorld : IDisposable
     /// <summary>A second off-order plugin holding one new interior cell and its placed references, so a comparison
     /// over the file prices records only the file's own containment places.</summary>
     public string OffOrderCellName { get; }
-    public const int OffOrderRefs = 3;
+    public const int OffOrderRefs = 10_000;
 
     public LoadOrderService Svc { get; }
 
@@ -176,7 +176,7 @@ public sealed class RenderCostWorld : IDisposable
         var offCell = new SkyrimMod(cellKey, SkyrimRelease.SkyrimSE);
         var cell = new Cell(new FormKey(cellKey, 0x900), SkyrimRelease.SkyrimSE) { EditorID = "HcOffCell", Flags = Cell.Flag.IsInteriorCell };
         for (int i = 0; i < OffOrderRefs; i++)
-            cell.Temporary.Add(new PlacedObject(new FormKey(cellKey, (uint)(0x910 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOffRef{i}" });
+            cell.Temporary.Add(new PlacedObject(new FormKey(cellKey, (uint)(0x1000 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOffRef{i}" });
         OwnedChildWorld.FileInterior(offCell, cell);
         offCell.BeginWrite.ToPath(Path.Combine(mods, "CostOffMod", OffOrderCellName))
                .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();

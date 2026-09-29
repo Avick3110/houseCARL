@@ -138,7 +138,7 @@ public static partial class RecordsTools
             RecordsWalk? walk = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (machine-readable document; same accounting in-band) | 'dense' (scan lane: positional columnar cells 1:1 with the requested fields — the compact bulk-enumeration form; by that definition depth expansion and the 'everything' form are inexpressible in it). On 'json' a record's fields are an ORDERED LIST of {path, value} — a field that read NO value carries {path, note} instead, saying why — and the emission order is the answer's own, and a path REPEATS under a quantified step ('Effects[*].Data.Magnitude'), which a map keyed by path could not hold; 'dense' is the column table to join on. Every response carries the epoch stamp — the identity of the index build it was answered from — spelled epoch=<hex> on 'text' and 'dense', and as an 'epoch' member on 'json'.")]
             string? format = null,
-        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page a scan in exact windows with offset=. DECLARED COST: a delta or tree row reads every PROVIDER of its record, so on a scan limit= and offset= bound the WORK there and not just the render — only the windowed rows are read — and past what fits in ten minutes at the cost measured for what it reads (about 50 ms for each version read whole, 100 ms on records a cell or topic contains; with fields= named, a fraction of a millisecond a version plus about a millisecond for each megabyte of provider plugin read; plus 45 ms a row when a pole replays the SkyPatcher layer) the call refuses up front with the count and the estimate instead of going quiet. A census or a to_file= artifact on those forms still covers the WHOLE selection and is held to the same bound, so what narrows those is the scan terms. The other derived-selection forms (chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them. RENDER COST: a row that READS a record's body is what costs, and a scan's accounting reports what that cost as render_ms; a render too big to finish REFUSES up front rather than going silent, naming the shapes that fit. The bound holds on every lane that reads bodies — a scan, an off-order source=, a formids= list — and is per form, because the row costs differ by orders of magnitude: 300,000 rows for a named-fields row (fields/rows, and the one cheap leaf summary/aggregate take), 15,000 for form='everything', whose row materialises the WHOLE record — name the fields you need and the same selection fits — and 40,000 for form='identity', whose row is an UNTYPED whole-plugin seek for the winner's body and is the dearest row here rather than a free one: form='summary' answers the same identity question off a gathered read. On a formids= read every one of those six forms reads a body and is bounded on the LIST's length, not this window's: the ids are read before limit= and offset= apply, so pass fewer ids rather than paging. delta and tree are bounded on the list's length the same way, at their own shape's bound. The accounting beside it counts the bodies READ, which a source= pole holding no version of an id, or a malformed id, leaves short of the list.")]
+        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page a scan in exact windows with offset=. DECLARED COST: a delta or tree row reads every PROVIDER of its record, so on a scan limit= and offset= bound the WORK there and not just the render — only the windowed rows are read — and past what fits in ten minutes at the cost measured for what it reads (about 50 ms for each version read whole, 100 ms on records a cell or topic contains; with fields= named, a fraction of a millisecond a version plus about 0.6 ms for each megabyte of provider plugin read; plus 45 ms a row when a pole replays the SkyPatcher layer) the call refuses up front with the count and the estimate instead of going quiet. A census or a to_file= artifact on those forms still covers the WHOLE selection and is held to the same bound, so what narrows those is the scan terms. The other derived-selection forms (chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them. RENDER COST: a row that READS a record's body is what costs, and a scan's accounting reports what that cost as render_ms; a render too big to finish REFUSES up front rather than going silent, naming the shapes that fit. The bound holds on every lane that reads bodies — a scan, an off-order source=, a formids= list — and is per form, because the row costs differ by orders of magnitude: 300,000 rows for a named-fields row (fields/rows, and the one cheap leaf summary/aggregate take), 15,000 for form='everything', whose row materialises the WHOLE record — name the fields you need and the same selection fits — and 40,000 for form='identity', whose row is an UNTYPED whole-plugin seek for the winner's body and is the dearest row here rather than a free one: form='summary' answers the same identity question off a gathered read. On a formids= read every one of those six forms reads a body and is bounded on the LIST's length, not this window's: the ids are read before limit= and offset= apply, so pass fewer ids rather than paging. delta and tree are bounded on the list's length the same way, at their own shape's bound. The accounting beside it counts the bodies READ, which a source= pole holding no version of an id, or a malformed id, leaves short of the list.")]
             int limit = DefaultLimit,
         [Description("TRANSPORT: skip the first N matches (exact windows: offset=0/500/1000…). Windows tile only WITHIN one epoch — if two pages' epochs differ the load order changed mid-pagination; re-run from offset=0, do not stitch the pages. offset= RE-SCANS the selection from the start rather than seeking into it, so every window pays the whole scan again and a deep window costs more than a shallow one — narrowing the scan terms beats paging far into one. Refused with to_file=, with the aggregate form and with counts_only=, none of which renders a selection window: a count table caps with limit= and does not page.")]
             int offset = 0,
@@ -574,44 +574,13 @@ public static partial class RecordsTools
                                IReadOnlySet<FormKey>? containedHere, string lever, string? offOrderPath = null)
         {
             var floor = ComparisonFloor(keys.Count);
-            int extra = floor.Tree && versusSpec is { Kind: not RecordReads.PoleKind.Winner } ? 1 : 0;
-            long reads = 0, containedReads = 0;
-            int containedRows = 0;
-            foreach (var fk in keys)
-            {
-                int n = floor.Tree ? Math.Max(1, view.ResolveWinner(fk)?.OverrideDepth ?? 1) + extra : 2;
-                reads += n;
-                if (containedHere?.Contains(fk) == true || view.ParentOf(fk) is not null) { containedReads += n; containedRows++; }
-            }
+            var c = ComparisonCount.Count(keys, view, floor.Tree, srcSpec, versusSpec ?? RecordReads.PoleSpec.Winner,
+                                          containedHere, offOrderPath);
             return RenderBudget.RefuseComparison(svc.Bounds, floor with
             {
-                Reads = reads, ContainedReads = containedReads, ContainedRows = containedRows, Counted = true,
-                MegabytesWalked = floor.Narrowed ? MegabytesWalked(keys, view, offOrderPath) : 0,
+                Reads = c.Reads, ContainedReads = c.ContainedReads, ContainedRows = c.ContainedRows, Counted = true,
+                MegabytesWalked = c.MegabytesWalked,
             }, form, lever);
-        }
-
-        // A narrowed comparison's cost is mostly its chunks' plugin walks: each chunk walks every provider plugin its rows touch.
-        static double MegabytesWalked(IReadOnlyList<FormKey> keys, LoadOrderResolver.IndexView view, string? offOrderPath)
-        {
-            var sizes = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-            double Size(string? path) =>
-                path is null ? 0
-                : sizes.TryGetValue(path, out var known) ? known
-                : sizes[path] = File.Exists(path) ? new FileInfo(path).Length / 1_000_000.0 : 0;
-            double total = 0;
-            var chunk = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < keys.Count; i++)
-            {
-                if (i % RecordReads.ComparisonChunkRows == 0)
-                {
-                    foreach (var p in chunk) total += Size(view.PluginPath(p));
-                    total += i > 0 ? Size(offOrderPath) : 0;
-                    chunk.Clear();
-                }
-                foreach (var p in view.TouchingPlugins(keys[i]) ?? Array.Empty<string>()) chunk.Add(p);
-            }
-            foreach (var p in chunk) total += Size(view.PluginPath(p));
-            return total + (keys.Count > 0 ? Size(offOrderPath) : 0);
         }
 
         // A walk hands its reached set to the list lane as formids=, already bounded by walk.max_nodes, so the list
@@ -1133,7 +1102,9 @@ public static partial class RecordsTools
                     try { keys.Add(view.ParseFormId(id)); }
                     catch (Exception) { }   // a malformed id: the batch refuses it per row
                 }
-                return ComparisonCost(keys, view, null, lever);
+                var priced = ComparisonCost(keys, view, null, lever);
+                svc.ReadArea.AfterComparisonPriceForGuard?.Invoke();
+                return priced;
             }
 
             if (form == "delta")

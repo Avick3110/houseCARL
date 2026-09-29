@@ -25,6 +25,9 @@ internal sealed partial class RecordReads
     /// <summary>Test seam: invoked in the pole lanes and the overlay source after the pin and before the roots or the asset build; null in the product.</summary>
     internal Action? AfterReadPinForGuard;
 
+    /// <summary>Test seam: invoked on the formids= comparison lane after the price is counted and before the batch reads; null in the product.</summary>
+    internal Action? AfterComparisonPriceForGuard;
+
     /// <summary>Resolve + read one record: the WINNER's body by default, or a named <paramref name="plugin"/>'s
     /// override; with <paramref name="conflictTree"/> also the ordered touching-plugin list. Every failure is a
     /// recoverable NAMED error, never a silent empty result; contracts in docs/architecture/read-engine.md.</summary>
