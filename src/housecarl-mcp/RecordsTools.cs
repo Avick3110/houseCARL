@@ -570,8 +570,8 @@ public static partial class RecordsTools
             var shape = new RenderBudget.ComparisonShape(ids.Count, 0, narrowed,
                                                          srcSpec.ReplaysOverlay || (versusSpec?.ReplaysOverlay ?? false));
             // Contained records only raise a narrowed row's price, so the top-level price refuses before any index work.
-            if (RenderBudget.RefuseComparison(svc.Bounds, shape, form, lever) is { } floorRefusal) return floorRefusal;
-            if (!narrowed) return null;
+            var floor = RenderBudget.RefuseComparison(svc.Bounds, shape, form, lever);
+            if (floor is not null || !narrowed) return floor;
             var view = svc.CaptureView();
             int contained = 0;
             foreach (var id in ids)
