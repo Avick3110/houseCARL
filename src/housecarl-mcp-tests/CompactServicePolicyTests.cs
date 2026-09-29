@@ -134,7 +134,7 @@ public sealed class CompactServicePolicyTests
         using var w = new CompactServiceWorld();
         var offKey = new ModKey("HcCsOff", ModType.Plugin);
         w.WriteMod("OffOrderMod", offKey, m =>
-            m.Weapons.Add(new Weapon(new FormKey(offKey, 0xA01), SkyrimRelease.SkyrimSE) { EditorID = "HcCsOffWeap", BasicStats = new WeaponBasicStats { Damage = 3 } }));
+            m.Weapons.Add(new Weapon(new FormKey(offKey, 0x1A01), SkyrimRelease.SkyrimSE) { EditorID = "HcCsOffWeap", BasicStats = new WeaponBasicStats { Damage = 3 } }));
 
         var o = w.Svc.CompactPlugin("HcCsOff.esp");
 
