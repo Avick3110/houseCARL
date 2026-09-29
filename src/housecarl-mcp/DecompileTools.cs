@@ -79,11 +79,11 @@ public static class DecompileTools
                    + LaneNoteFail(sayNothingWritten: false);
 
         // 5) output folder, resolved before the hierarchy build so a folder error costs nothing.
-        LoadOrderService.RiderFolder rf;
+        OutputLocations.RiderFolder rf;
         try
         {
             rf = chosenOutput
-                ? LoadOrderService.ResolveExplicitSourceFolder(out_path!)
+                ? OutputLocations.ResolveExplicitSourceFolder(out_path!)
                 : svc.ResolveDecompiledSourceFolder(patch, into);
         }
         catch (InvalidOperationException ex)

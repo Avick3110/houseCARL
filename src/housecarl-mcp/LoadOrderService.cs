@@ -6,7 +6,7 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlMcp;
 
 /// <summary>Owns the load-order resolver's lifecycle and is the one place the tools reach the core engines; contract in docs/architecture/load-order-service.md.</summary>
-public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHost, IReadHost
+public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHost, IReadHost, IOutputHost
 {
     string? _instanceDir;                          // INSTANCE-mode source of truth; null in explicit/unconfigured mode
     string _dataDir;                               // DERIVED (instance mode) or configured (explicit); mutable for a live profile switch
@@ -18,14 +18,13 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
     readonly int _maxPlugins;
     readonly object _gate = new();
+    readonly OutputLocations _outputLocations;     // the output area; built in the constructor over this head
     readonly AssetLayers _assetLayers;             // the assets area; built in the constructor over this head
     readonly RecordReads _reads;                   // the reads area; built in the constructor over this head
     readonly RecordChecks _checks;                 // the checks area; built in the constructor over this head
     // Serializes every plugin write's resolve, stage and commit; contract in docs/architecture/load-order-service.md.
     readonly object _writeGate = new();
     object ILoadOrderHost.WriteGate => _writeGate;
-    // Serializes a fresh houseCARL folder's check-then-create; taken last, after _writeGate and _gate, and never takes _gate.
-    readonly object _folderAllocationGate = new();
     LoadOrderResolver? _resolver;
     readonly Lazy<CorpusRulebook> _rulebook = new(() => CorpusRulebook.Load(), LazyThreadSafetyMode.PublicationOnly);   // one instance; a failed load is not kept
     readonly Lazy<TypeLookup> _typeLookup = new(() => new TypeLookup());   // one per service; construction reads nothing
@@ -59,6 +58,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         // full file path always has a parent folder; only a bare root has none, and that is its own folder.
         var storePath = Path.GetFullPath(store.FilePath);
         ResultsDir = Path.Combine(Path.GetDirectoryName(storePath) ?? storePath, "results");
+        _outputLocations = new OutputLocations(this);
         _assetLayers = new AssetLayers(this);
         _reads = new RecordReads(this);
         _checks = new RecordChecks(this);
@@ -247,8 +247,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         new(view, AssetWarningsLocked(), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild);
 
     // Rows the areas take from one another, relayed here: output and writes until those are their own classes; the assets replay for reads.
-    RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);
-    string? IAssetHost.RemoveOrNameRiderResidue(RiderFolder folder) => RemoveOrNameRiderResidue(folder);
+    OutputLocations.RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, OutputLocations.RiderNaming? naming) => _outputLocations.ResolvePatchModFolder(patchName, into, defaultStem, naming);
+    string? IAssetHost.RemoveOrNameRiderResidue(OutputLocations.RiderFolder folder) => _outputLocations.RemoveOrNameRiderResidue(folder);
     bool IAssetHost.IsInPlaceAcknowledged(string path) => _store.IsInPlaceAcknowledged(path);
     string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
     bool IAssetHost.InPlaceParentUnwritable(string targetPath, out string why) => InPlaceParentUnwritable(targetPath, out why);
@@ -272,6 +272,18 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public PlaceOutcome PlaceAssets(IReadOnlyList<PlaceRequest> requests, string? patchName, string? into) => _assetLayers.PlaceAssets(requests, patchName, into);
 
     internal AssetLayers AssetArea => _assetLayers;   // the assets area instance, for tests that set its seams
+
+    // The output area's tool-facing surface; the bodies are in OutputLocations.cs.
+    internal OutputLocations.RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, OutputLocations.RiderNaming? naming)
+        => _outputLocations.ResolvePatchModFolder(patchName, into, defaultStem, naming);
+    internal string? RemoveOrNameRiderResidue(OutputLocations.RiderFolder folder) => _outputLocations.RemoveOrNameRiderResidue(folder);
+    internal OutputLocations.RiderFolder ResolveCompiledScriptFolder(string? patchName, string? into) => _outputLocations.ResolveCompiledScriptFolder(patchName, into);
+    internal OutputLocations.RiderFolder ResolveExplicitScriptFolder(string outputDir, out string? deployWarning)
+        => _outputLocations.ResolveExplicitScriptFolder(outputDir, out deployWarning);
+    internal OutputLocations.RiderFolder ResolveDecompiledSourceFolder(string? patchName, string? into) => _outputLocations.ResolveDecompiledSourceFolder(patchName, into);
+    public SeqOutcome WriteSeq(string plugin, string? patchName, string? into, string? outputDir = null) => _outputLocations.WriteSeq(plugin, patchName, into, outputDir);
+
+    internal OutputLocations OutputArea => _outputLocations;   // the output area instance, for tests and probes
 
     /// <summary>The auto-spill results directory: <c>results</c> beside houseCARL.user.json.</summary>
     internal string ResultsDir { get; }
@@ -670,7 +682,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                         || comp.InactivePluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase))
                         || comp.ImplicitPluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
         if (!isPlugin) return null;
-        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, pluginName, null, offerModParam: false);
+        var loc = OutputLocations.LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, pluginName, null, offerModParam: false);
         if (loc.Path is { } path) return WriteEngine.PluginIsLocalized(path);
         // Several folders provide the name: MO2 priority already decides which copy serves, so that copy answers.
         if (loc.Ambiguous is { Count: > 0 } hits && hits.FirstOrDefault(h => h.Enabled) is { } served)
@@ -877,6 +889,22 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     {
         lock (_gate) { EnsurePathsDerived(); return RootsLocked(); }
     }
+
+    /// <summary>The roots and the built resolver's plugin names, null when none is built, from one <c>_gate</c> hold, so a stem check never mixes two instances.</summary>
+    internal readonly record struct OutputRoots(Mo2Roots Roots, IReadOnlyList<string>? BuiltPluginNames);
+
+    /// <summary>One <c>_gate</c> hold: the configured check, the roots and the built plugin names; throws the unconfigured prompt when there is no instance.</summary>
+    internal OutputRoots ConfiguredRoots()
+    {
+        lock (_gate)
+        {
+            if (!_configured) throw NotConfigured();
+            EnsurePathsDerived();
+            return new OutputRoots(RootsLocked(), _resolver?.PluginNames);
+        }
+    }
+
+    OutputRoots IOutputHost.ConfiguredRoots() => ConfiguredRoots();
 
     /// <summary>The four roots as they stand; caller holds <see cref="_gate"/>.</summary>
     Mo2Roots RootsLocked() => new(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir);

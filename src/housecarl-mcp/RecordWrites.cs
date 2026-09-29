@@ -123,7 +123,7 @@ public sealed partial class LoadOrderService
                 catch (Exception ex) { return $"CopyFrom off-order source locate failed to derive the MO2 roots: {ex.Message}"; }
                 comp = Mo2LoadOrder.ReadComposition(profileDir);
             }
-            var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, e.FromPlugin!, null);
+            var loc = OutputLocations.LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, e.FromPlugin!, null);
             if (loc.Error is not null) { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{e.FromPlugin}' is not in the load order and {loc.Error}"); continue; }
             if (loc.Ambiguous is not null) { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{e.FromPlugin}' matches several mod folders on disk — pass an exact path to disambiguate."); continue; }
             ISkyrimModGetter ov;
@@ -187,7 +187,7 @@ public sealed partial class LoadOrderService
 
         var comp = Mo2LoadOrder.ReadComposition(profileDir);
         // offerModParam is false: this tool has no mod= parameter, and a direct path is this lane's disambiguator.
-        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, fromPlugin, null, offerModParam: false);
+        var loc = OutputLocations.LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, fromPlugin, null, offerModParam: false);
         if (loc.Error is not null)
         {
             // A did-you-mean over every plugin the locate SEARCHED, empty when nothing is close.
@@ -362,7 +362,7 @@ public sealed partial class LoadOrderService
             }
 
             // offerModParam is false: this refusal names a LIST element, whose disambiguator is a full path in that element.
-            var loc = LocatePluginFileOnDisk(comp, roots, spelling, null, offerModParam: false);
+            var loc = OutputLocations.LocatePluginFileOnDisk(comp, roots, spelling, null, offerModParam: false);
             if (loc.Error is not null)
             {
                 // Suggested from every plugin the locate SEARCHED, not just the active order; empty when nothing is close.
@@ -397,8 +397,8 @@ public sealed partial class LoadOrderService
             if (layer is { Kind: SourceLayerKind.ModFolder })
                 layer = loc.Served switch
                 {
-                    ServedStanding.ModDisabled => layer with { Folder = ModFolderStanding.SwitchedOff },
-                    ServedStanding.ModUnregisteredLayer => layer with { Folder = ModFolderStanding.Unregistered },
+                    OutputLocations.ServedStanding.ModDisabled => layer with { Folder = ModFolderStanding.SwitchedOff },
+                    OutputLocations.ServedStanding.ModUnregisteredLayer => layer with { Folder = ModFolderStanding.Unregistered },
                     _ => layer,
                 };
             arms.Add(new SourceArm(spelling, SourceArmKind.File, where,
@@ -594,8 +594,8 @@ public sealed partial class LoadOrderService
         resolvedName = raw;
         var direct = view.PluginPath(raw);
         if (direct is not null) return direct;
-        if (!PluginExts.Any(e => raw.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
-            foreach (var ext in PluginExts)
+        if (!OutputLocations.PluginExts.Any(e => raw.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+            foreach (var ext in OutputLocations.PluginExts)
             {
                 var cand = raw + ext;
                 var p = view.PluginPath(cand);
@@ -987,7 +987,7 @@ public sealed partial class LoadOrderService
             return WritePatchBuilder.CreatePluginOutcome.Fail(
                 "patch is required — a header-only plugin has no record to derive a name from, so name it explicitly (e.g. 'Authoria - CraftingCategories').");
 
-        var stem = PatchStem(pluginName);
+        var stem = OutputLocations.PatchStem(pluginName);
         if (string.IsNullOrWhiteSpace(stem))
             return WritePatchBuilder.CreatePluginOutcome.Fail(
                 $"patch '{pluginName}' has no usable name once path parts and the plugin extension are stripped — give a plain name like 'MyTrigger'.");
@@ -1003,30 +1003,30 @@ public sealed partial class LoadOrderService
 
             // The basename is load-bearing for a trigger, so a collision is never auto-suffixed — refuse instead.
             // (a) an active plugin already owns this basename — a second one would shadow it (MO2 picks one by mod order).
-            foreach (var ext in PluginExts)                              // .esp / .esm / .esl
+            foreach (var ext in OutputLocations.PluginExts)                              // .esp / .esm / .esl
                 if (view.ContainsPlugin(stem + ext))
                     return WritePatchBuilder.CreatePluginOutcome.Fail(
                         $"a plugin named '{stem + ext}' is already active in your load order — a header-only trigger needs a UNIQUE basename (a second one would shadow it, MO2 picking the winner by mod order). Choose a different name.");
-            var folder = Path.Combine(roots.ModsDir, ModFolderName(stem));
+            var folder = Path.Combine(roots.ModsDir, OutputLocations.ModFolderName(stem));
             var plugin = stem + ".esp";
-            var active = ActivePluginBasenames(roots, snapshot.BuiltPluginNames);   // before the lock: may build the order
-            lock (_folderAllocationGate)                                 // the same allocation lock as the other fresh-folder sites
+            var active = OutputLocations.ActivePluginBasenames(roots, snapshot.BuiltPluginNames);   // before the lock: may build the order
+            lock (_outputLocations.FolderAllocationGate)                                 // the same allocation lock as the other fresh-folder sites
             {
                 // (b) a houseCARL mod folder of this exact name already exists — don't overwrite (could clobber a real patch
                 //     sharing the name) and don't auto-rename (would break the basename trigger): refuse and point at it.
                 if (Directory.Exists(folder))
                     return WritePatchBuilder.CreatePluginOutcome.Fail(
-                        $"a houseCARL output folder '{ModFolderName(stem)}' already exists — houseCARL won't auto-rename a header-only plugin (its exact basename is what makes the trigger resolve). Remove that folder in MO2, or choose a different name.");
+                        $"a houseCARL output folder '{OutputLocations.ModFolderName(stem)}' already exists — houseCARL won't auto-rename a header-only plugin (its exact basename is what makes the trigger resolve). Remove that folder in MO2, or choose a different name.");
                 // (c) a plugin of this BASENAME sits somewhere the order is NOT loading — the shadow the fresh patch lanes take (#561).
-                if (active.Count > 0 && ReadCompositionForShadow(roots) is { } comp)
-                    foreach (var ext in PluginExts)                       // .esp / .esm / .esl — the basename is what binds
+                if (active.Count > 0 && OutputLocations.ReadCompositionForShadow(roots) is { } comp)
+                    foreach (var ext in OutputLocations.PluginExts)                       // .esp / .esm / .esl — the basename is what binds
                         if (PatchStemShadow.Find(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, stem + ext, active) is { } shadow)
                             return WritePatchBuilder.CreatePluginOutcome.Fail(
                                 PatchStemShadow.Refusal(plugin, shadow, "patch", stem + ext,
                                                         "a header-only trigger needs a UNIQUE basename"));
 
                 Directory.CreateDirectory(folder);
-                WriteOwnerMeta(folder, plugin);
+                OutputLocations.WriteOwnerMeta(folder, plugin);
             }
             var outPath = Path.Combine(folder, plugin);
 
@@ -1071,7 +1071,7 @@ public sealed partial class LoadOrderService
                 string modsDir, dataDir, overwriteDir, profileDir;
                 lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
                 var comp = Mo2LoadOrder.ReadComposition(profileDir);
-                var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, name, null);
+                var loc = OutputLocations.LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, name, null);
                 if (loc.Error is not null)
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"'{name}' is not an active plugin in your load order, and no on-disk copy was found either ({loc.Error})");
@@ -1228,14 +1228,14 @@ public sealed partial class LoadOrderService
                 return WritePatchBuilder.CompactOutcome.Fail(lost);
 
             // Output location: in place over the original, or a new file keeping the source's exact basename.
-            string outPath; bool createdFresh = false; RiderFolder rf = default;
+            string outPath; bool createdFresh = false; OutputLocations.RiderFolder rf = default;
             if (inPlace) outPath = srcPath;
             else
             {
-                try { rf = ResolvePatchModFolder(patchName, null, Path.GetFileNameWithoutExtension(name) + " compacted", naming: null); }
+                try { rf = _outputLocations.ResolvePatchModFolder(patchName, null, Path.GetFileNameWithoutExtension(name) + " compacted", naming: null); }
                 catch (InvalidOperationException ex) { return WritePatchBuilder.CompactOutcome.Fail(ex.Message); }
                 createdFresh = rf.CreatedFresh;
-                WriteOwnerMeta(rf.ModFolder, name);                       // the output keeps the source's exact basename
+                OutputLocations.WriteOwnerMeta(rf.ModFolder, name);                       // the output keeps the source's exact basename
                 outPath = Path.Combine(rf.OutputDir, name);
             }
 
@@ -1243,7 +1243,7 @@ public sealed partial class LoadOrderService
             var build = WritePatchBuilder.CompactBuild(srcPath, modKey, remapDict, view.PluginPath, outPath, esl, floor, view.DataDir);
             if (!build.Success)
             {
-                if (!inPlace && createdFresh) RemoveOrNameRiderResidue(rf);   // a refused build leaves no orphan folder
+                if (!inPlace && createdFresh) _outputLocations.RemoveOrNameRiderResidue(rf);   // a refused build leaves no orphan folder
                 return WritePatchBuilder.CompactOutcome.Fail(build.Error!);
             }
 
@@ -1443,7 +1443,7 @@ public sealed partial class LoadOrderService
             return WritePatchBuilder.MergeOutcome.Fail(
                 "patch is required — name the NEW mod folder to create (e.g. 'MyMerge'). The merged plugin inside it takes that name ('MyMerge.esp'), and it must not already exist in your load order.");
         // patch= names the FOLDER and the plugin takes the folder's name, the rule on every tool that writes one.
-        var outName = PatchStem(patchName) + ".esp";
+        var outName = OutputLocations.PatchStem(patchName) + ".esp";
         ModKey outKey;
         try { outKey = ModKey.FromFileName(outName); }
         catch (Exception ex) { return WritePatchBuilder.MergeOutcome.Fail($"patch='{patchName}' does not name a valid plugin: '{outName}' ({ex.Message})."); }
@@ -1454,7 +1454,7 @@ public sealed partial class LoadOrderService
                 $"refused — patch='{patchName}' asks for the .esl extension, which the game engine force-treats as a LIGHT master regardless " +
                 "of the header flag, but a merge never constrains object ids to the light window: it renumbers only what it must " +
                 "(cross-donor collisions, and ids below the write floor), so an id above 0xFFF would be misread in game. Pass " +
-                $"patch='{PatchStem(patchName)}' instead, which writes '{outName}': if every donor was light and every merged id landed in the window, the output is written LIGHT " +
+                $"patch='{OutputLocations.PatchStem(patchName)}' instead, which writes '{outName}': if every donor was light and every merged id landed in the window, the output is written LIGHT " +
                 "already; otherwise the report says so, and " + ToolNames.CompactPlugin + " on it renumbers every id into the light " +
                 "window (the tools compose). Nothing was written.");
         if (donorsRaw.Any(d => string.Equals(d, outName, StringComparison.OrdinalIgnoreCase)))
@@ -1566,7 +1566,7 @@ public sealed partial class LoadOrderService
             try
             {
                 outPath = ResolveOutputPath(patchName, into: null, out _, out createdFolder,
-                    refuseTaken: new StemRefusal(
+                    refuseTaken: new OutputLocations.StemRefusal(
                         "the merged plugin",
                         "Remove it in MO2, or pass patch= a name no mod folder or active plugin already carries."));
             }
@@ -2059,7 +2059,7 @@ public sealed partial class LoadOrderService
     /// docs/architecture/output-and-artifacts.md.</summary>
     string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
                              FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? noFreshRule = null,
-                             bool? stemFromCaller = null, StemRefusal? refuseTaken = null)
+                             bool? stemFromCaller = null, OutputLocations.StemRefusal? refuseTaken = null)
     {
         lock (_gate)
         {
@@ -2072,8 +2072,8 @@ public sealed partial class LoadOrderService
             {
                 extend = true;
                 // The .esp write lane shares the extend resolver with the rider and asset lanes; needEsp:true picks the .esp inside the folder.
-                var folder = ResolveOwnedPatchFolder(roots, into, needEsp: true, freshPatch, noFreshRule);
-                var direct = Path.Combine(folder, PatchStem(into) + ".esp");
+                var folder = _outputLocations.ResolveOwnedPatchFolder(roots, into, needEsp: true, freshPatch, noFreshRule);
+                var direct = Path.Combine(folder, OutputLocations.PatchStem(into) + ".esp");
                 if (File.Exists(direct)) return direct;
                 var sole = SoleEspInFolder(folder, out var why);
                 if (sole is not null) return sole;
@@ -2081,21 +2081,21 @@ public sealed partial class LoadOrderService
             }
 
             extend = false;
-            var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
-            var active = ActivePluginBasenames(roots, _resolver?.PluginNames);   // under _gate, before the allocation lock
+            var baseStem = OutputLocations.PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
+            var active = OutputLocations.ActivePluginBasenames(roots, _resolver?.PluginNames);   // under _gate, before the allocation lock
             // Every record lane that reaches here declares patch= and writes "<stem>.esp".
-            lock (_folderAllocationGate)                                // the same allocation lock as the rider lanes
+            lock (_outputLocations.FolderAllocationGate)                                // the same allocation lock as the rider lanes
             {
-                var freeStem = UniqueStem(roots, active, baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
+                var freeStem = OutputLocations.UniqueStem(roots, active, baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
                                           new PatchStemShadow.Target(s => s + ".esp", "patch"), refuseTaken);
-                var newFolder = Path.Combine(roots.ModsDir, ModFolderName(freeStem));
+                var newFolder = Path.Combine(roots.ModsDir, OutputLocations.ModFolderName(freeStem));
                 var plugin = freeStem + ".esp";
                 // A dry run (create:false) resolves the would-be path only — no folder, no meta.ini.
                 if (create)
                 {
                     Directory.CreateDirectory(newFolder);
                     createdFolder = true;
-                    WriteOwnerMeta(newFolder, plugin);
+                    OutputLocations.WriteOwnerMeta(newFolder, plugin);
                 }
                 return Path.Combine(newFolder, plugin);
             }
@@ -2106,7 +2106,7 @@ public sealed partial class LoadOrderService
     static string? SoleEspInFolder(string folder, out string reason)
     {
         var plugins = Directory.EnumerateFiles(folder)
-            .Where(f => PluginExts.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+            .Where(f => OutputLocations.PluginExts.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
             .ToList();
         if (plugins.Count == 1) { reason = ""; return plugins[0]; }
         reason = plugins.Count == 0

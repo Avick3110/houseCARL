@@ -127,7 +127,7 @@ public sealed class SeqWriteServiceTests : IDisposable
     [Fact]
     public void ResidueCleanupLeavesAnOutPathFolderStanding()
     {
-        var rf = W.Svc.ResolveExplicitSeqFolder(W.UserMod, out _);
+        var rf = W.Svc.OutputArea.ResolveExplicitSeqFolder(W.UserMod, out _);
         Assert.False(rf.CreatedFresh);
         Assert.Null(W.Svc.RemoveOrNameRiderResidue(rf));
         Assert.True(Directory.Exists(rf.OutputDir));

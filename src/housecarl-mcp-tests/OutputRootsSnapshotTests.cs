@@ -61,7 +61,7 @@ public sealed class OutputRootsSnapshotTests : IDisposable
         _svc.SetInstance(_instanceB);
         _ = ((ILoadOrderHost)_svc).Resolver;
 
-        var folder = _svc.ResolvePatchModFolder(snapshotA, TakenStem, null, "HcSnapDefault", null);
+        var folder = _svc.OutputArea.ResolvePatchModFolder(snapshotA, TakenStem, null, "HcSnapDefault", null);
 
         // TakenStem.esp is active in A, whose mods folder the new folder lands in, so the stem is suffixed.
         Assert.Equal(TakenStem + "_001", folder.Stem);
