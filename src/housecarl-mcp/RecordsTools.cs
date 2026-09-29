@@ -1318,7 +1318,7 @@ public static partial class RecordsTools
                     scopePlusPole = true;
                     // The scope statement is only truthful for forms that READ the pole's bodies; a scoped tree
                     // reads every provider, so it states the selection without the pole clause.
-                    if (form == "tree") Arm($"{probe.Plugin} — scope-selected ({string.Join(", ", plugins!.names!)}); the tree reads every provider");
+                    if (form == "tree") Arm($"{probe.Plugin} — scope-selected ({pluginsEcho ?? string.Join(", ", plugins!.names!)}); the tree reads every provider");
                     else if (!pipelineArms) Arm($"{probe.Plugin} — active in the load order (the plugins= scope selects; this pole's version is read)");
                 }
                 else if (!pipelineArms)
@@ -1396,7 +1396,7 @@ public static partial class RecordsTools
                 Add("types", types is { Length: > 0 } ? string.Join(", ", types) : null);
                 Add("references", refEcho ?? (refs is { Length: > 0 } ? string.Join(", ", refs) : null));
                 if (conflicts_only) Add("conflicts_only", "true");
-                Add("plugins", scanPlugins is { Length: > 0 } ? string.Join(", ", scanPlugins) : null);
+                Add("plugins", scanPlugins is { Length: > 0 } ? (ReferenceEquals(scanPlugins, plugins?.names) ? pluginsEcho : null) ?? string.Join(", ", scanPlugins) : null);
                 if (definedIn) Add("defined_in", "true");
                 Add("where", where is { Length: > 0 } ? string.Join(" AND ", where) : null);
                 Add("where_source", where_source);
@@ -1738,7 +1738,7 @@ public static partial class RecordsTools
                 Add("formids", fidEcho ?? (formidSet is not null ? $"{formidSet.Count} inline formid(s)" : null));
                 Add("types", types is { Length: > 0 } ? string.Join(", ", types) : null);
                 Add("references", refEcho ?? (refs is { Length: > 0 } ? string.Join(", ", refs) : null));
-                Add("plugins", plugins?.names is { Length: > 0 } ? string.Join(", ", plugins.names) : null);
+                Add("plugins", plugins?.names is { Length: > 0 } ? pluginsEcho ?? string.Join(", ", plugins.names) : null);
                 if (plugins?.defined_in ?? false) Add("defined_in", "true");
                 Add("where", where is { Length: > 0 } ? string.Join(" AND ", where) : null);
                 Add("where_source", where_source);
