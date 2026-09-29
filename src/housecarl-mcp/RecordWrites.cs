@@ -1218,15 +1218,14 @@ public sealed partial class LoadOrderService
                 c.Append("Re-call with acknowledge=true to proceed.");
                 return WritePatchBuilder.CompactOutcome.Confirm(c.ToString());
             }
-            // Acknowledged, before ANY write: every file this call rewrites in place must survive the round trip (#961),
-            // because the referencer rewrites run only after the compacted plugin is on disk.
-            if ((willOverwriteTarget || willRepoint) &&
-                WritePatchBuilder.CompactRoundTripRefusal(view, srcPath, willOverwriteTarget, willRepoint ? id.ExternalPlugins : null) is { } lost)
-                return WritePatchBuilder.CompactOutcome.Fail(lost);
-
             // Pre-flight that the in-place target's parent is writable before any work.
             if (inPlace && InPlaceParentUnwritable(srcPath, out var unwritable))
                 return WritePatchBuilder.CompactOutcome.Fail(unwritable);
+
+            // The round-trip check (#961) on every file this call rewrites in place, before any of them is written.
+            if ((willOverwriteTarget || willRepoint) &&
+                WritePatchBuilder.CompactRoundTripRefusal(view, srcPath, willOverwriteTarget, willRepoint ? id.ExternalPlugins : null) is { } lost)
+                return WritePatchBuilder.CompactOutcome.Fail(lost);
 
             // Output location: in place over the original, or a new file keeping the source's exact basename.
             string outPath; bool createdFresh = false; RiderFolder rf = default;
