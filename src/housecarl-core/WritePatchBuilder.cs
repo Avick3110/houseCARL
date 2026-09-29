@@ -2352,8 +2352,6 @@ public static class WritePatchBuilder
         var mastersBefore = inPlace || extend
             ? patchMod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : null;
-        if (inPlace && RoundTripRefusal(patchMod, outPath, session, SubrecordInventory.Remedy.RecordLane) is { } lost)
-            return CreateOutcome.Fail(lost);
 
         // --- Phase 1: pre-flight EVERY spec before any mutation; creatability is STRUCTURAL, the FormID unknown until Phase 3. ---
         var problems = new List<string>();
@@ -2590,6 +2588,21 @@ public static class WritePatchBuilder
         if (problems.Count > 0)
             return CreateOutcome.Fail(
                 $"refused — {problems.Count} problem(s) creating {specs.Count} record(s); NOTHING created:\n  - " + string.Join("\n  - ", problems));
+
+        // The round-trip check after the spec pre-flight; a flat create the upsert turns into a replace drops that record whole.
+        if (inPlace || extend)
+        {
+            var replacedWhole = new List<FormKey>();
+            for (int i = 0; i < specs.Count; i++)
+                if (cellKinds[i] == CellCreate.None && specs[i].ParentRef is null
+                    && CarriedUnder(specs[i].EditorId) is { Count: > 0 } clash
+                    && WriteEngine.UpsertWouldReplace(patchMod, specs[i].RecordType, clash))
+                    replacedWhole.Add(clash[0].FormKey);
+            if (RoundTripRefusal(patchMod, outPath, session,
+                    inPlace ? SubrecordInventory.Remedy.RecordLane : SubrecordInventory.Remedy.Extend,
+                    DroppedWith(patchMod, replacedWhole)) is { } lost)
+                return CreateOutcome.Fail(lost);
+        }
 
         // --- Phase 3: UPSERT each record, then apply its edits; the upsert is what makes into= idempotent. ---
         var created = new List<CreatedRecord>(specs.Count);

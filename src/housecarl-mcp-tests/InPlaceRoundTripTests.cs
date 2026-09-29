@@ -225,6 +225,34 @@ public sealed class InPlaceRoundTripTests
         AssertRefusedUntouched(o.Success, o.Error, path, before);
     }
 
+    // A spec error comes before the round trip, as on apply.
+    [Fact]
+    public void AnInPlaceCreateWithABadSpecGetsTheSpecErrorFirst()
+    {
+        var (path, _) = StageReproduction();
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        var o = WritePatchBuilder.CreateRecordsInPlace(r, TestCorpus.Rulebook,
+            new[] { new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "", Edits = Array.Empty<WriteRequest>() } },
+            path, PluginName);
+        Assert.False(o.Success);
+        Assert.Contains("an editorid is required", o.Error);
+        Assert.DoesNotContain("MOD2", o.Error);
+    }
+
+    // into= re-serializes the whole existing patch, so it is checked like an in-place write.
+    [Fact]
+    public void ACreateIntoAPatchThatWouldLoseSubrecordsIsRefusedWithTheFileUntouched()
+    {
+        var (path, _) = StageReproduction();
+        var before = File.ReadAllBytes(path);
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        var o = WritePatchBuilder.CreateRecords(r, TestCorpus.Rulebook,
+            new[] { new WritePatchBuilder.CreateSpec { RecordType = "Keyword", EditorId = "HcRT_New", Edits = Array.Empty<WriteRequest>() } },
+            path, extend: true);
+        AssertRefusedUntouched(o.Success, o.Error, path, before);
+        Assert.Contains("drop into=", o.Error);
+    }
+
     [Fact]
     public void AnInPlaceRemoveFromThatPluginIsRefusedWithTheFileUntouched()
     {

@@ -52,6 +52,13 @@ public static class SubrecordInventory
             "drop in_place= and write the change into a new plugin, leaving those records out of it (an override of one " +
             "loses the same subrecords), or fix those records in xEdit first");
 
+        /// <summary>The into= lanes, which rewrite an existing patch: apply, create, forward, copy.</summary>
+        public static readonly Remedy Extend = new(
+            "drop into= and write the change into a new patch, leaving that record out of it (an override of it loses the " +
+            "same subrecords), or fix that record in xEdit first",
+            "drop into= and write the change into a new patch, leaving those records out of it (an override of one loses " +
+            "the same subrecords), or fix those records in xEdit first");
+
         /// <summary>Both remove lanes; a record being removed is never counted, so fixing the other one is the way on.</summary>
         public static readonly Remedy Remove = new(
             "fix that record in xEdit first, or remove it in the same call if it should go too",
