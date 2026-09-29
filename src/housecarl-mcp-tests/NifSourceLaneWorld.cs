@@ -13,12 +13,15 @@ namespace HousecarlMcpTests;
 /// <item><see cref="BsaOnlyMod"/> — a space and parentheses; its ONLY copy of <see cref="FaceRel"/> is inside its own
 ///   <c>Test.bsa</c>, bound to the active <c>Test.esp</c>.</item>
 /// <item><see cref="OffMod"/> — unticked; <see cref="OffRel"/> lives only inside its own <c>Off.bsa</c>.</item>
+/// <item><see cref="PrefixMod"/> — unticked, a strict prefix of <see cref="BsaOnlyMod"/>; a loose copy of
+///   <see cref="FaceRel"/>, reachable only by naming it exactly.</item>
 /// </list></summary>
 public sealed class NifSourceLaneWorld : IDisposable
 {
     public const string BsaOnlyMod = "Donor Mod (SE)";
     public const string LooseMod = "JK's Skyrim";
     public const string OffMod = "Unticked Donor";
+    public const string PrefixMod = "Donor";
 
     /// <summary>The facegeom path for <see cref="NpcFormId"/>, so the same file is reachable as a path AND as npc=.</summary>
     public const string FaceRel = @"meshes\actors\character\facegendata\facegeom\Test.esp\00000001.nif";
@@ -41,13 +44,14 @@ public sealed class NifSourceLaneWorld : IDisposable
         File.WriteAllBytes(Path.Combine(bsaMod, "Test.bsa"), NifSourceLaneInstance.Archive(FaceRel, mesh));
 
         NifSourceLaneInstance.Loose(Path.Combine(mods, LooseMod), FaceRel, mesh);
+        NifSourceLaneInstance.Loose(Path.Combine(mods, PrefixMod), FaceRel, mesh);
 
         var offDir = Path.Combine(mods, OffMod);
         Directory.CreateDirectory(offDir);
         File.WriteAllBytes(Path.Combine(offDir, "Off.bsa"), NifSourceLaneInstance.Archive(OffRel, mesh));
 
         NifSourceLaneInstance.Profile(prof, new[] { "Test.esp" }, new[] { "*Test.esp" },
-                                      new[] { "+" + LooseMod, "+" + BsaOnlyMod, "-" + OffMod });
+                                      new[] { "+" + LooseMod, "+" + BsaOnlyMod, "-" + OffMod, "-" + PrefixMod });
         Svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(Root, "u.json")));
     }
 

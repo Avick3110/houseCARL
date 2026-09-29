@@ -57,11 +57,14 @@ public sealed class NifSourceLaneReachTests : IClassFixture<NifSourceLaneWorld>
     public void AnEngineLoadedArchiveReachedByItsModsNameCarriesNoOffOrderNote()
         => Assert.DoesNotContain("[!] read from", NifTools.NifInspect(_w.Svc, new[] { W.FaceRel }, source_provider: W.BsaOnlyMod));
 
-    // Probe: "in_place refuses a copy the game is not loading".
+    // Probe: "in_place refuses a copy the game is not loading". Its own instance: if the refusal regressed, the write
+    // would overwrite Off.bsa under every other test in this class.
     [Fact]
     public void InPlaceRefusesACopyTheGameIsNotLoading()
     {
-        var r = _w.Svc.NifSet(W.OffRel, Flags(), W.OffMod, null, null, inPlace: true, acknowledge: true);
+        using var own = new NifSourceLaneWorld();
+
+        var r = own.Svc.NifSet(W.OffRel, Flags(), W.OffMod, null, null, inPlace: true, acknowledge: true);
 
         Assert.Contains("in-place edits the copy the game loads", r.Error);
         Assert.False(r.InPlace);
@@ -77,6 +80,12 @@ public sealed class NifSourceLaneReachTests : IClassFixture<NifSourceLaneWorld>
         Assert.Contains("no MO2 mod folder of that name", text);
         Assert.DoesNotContain("ABSENT", text);
     }
+
+    // Review of #974: a mod name that is a strict prefix of another selects its own copy, not the longer mod's archive.
+    [Fact]
+    public void AModNameThatIsAPrefixOfAnotherSelectsItsOwnCopy()
+        => Assert.Contains("read from: \"" + W.PrefixMod + "\"",
+                           NifTools.NifInspect(_w.Svc, new[] { W.FaceRel }, source_provider: W.PrefixMod));
 
     // Probe: "nif_set's refusal is the same sentence".
     [Fact]
