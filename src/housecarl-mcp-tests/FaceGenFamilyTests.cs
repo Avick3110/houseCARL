@@ -380,6 +380,7 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
         Assert.Contains(doc.RootElement.GetProperty("warnings").EnumerateArray(),
                         e => e.GetString()!.Contains("sResourceArchiveList", StringComparison.Ordinal));
         Assert.True(doc.RootElement.GetProperty("families").GetProperty("facegen").GetProperty("read_incomplete").GetBoolean());
+        w.AssertNoHandlesLeft();
     }
 
     [Fact]
@@ -409,6 +410,7 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
         var lead = BatchRender.ArchiveFailureList(archives).Lead;
         Assert.Equal(Shared(cap).Shown.Count,
                      Call(cap, "text").Split('\n').Count(l => l.StartsWith(lead, StringComparison.Ordinal)));
+        w.AssertNoHandlesLeft();
     }
 
     [Fact]
@@ -445,6 +447,7 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
         var both = RootBlock(CheckTools.CheckTool(w.Svc, findings: new[] { "facegen", "scripts" }, max_chars: 60000));
         Assert.Equal(1, ArchiveLinesNaming(both, "HcFgOverhaul.bsa"));
         Assert.Equal(1, both.Split("sResourceArchiveList").Length - 1);
+        w.AssertNoHandlesLeft();
     }
 
     [Fact]
@@ -464,6 +467,7 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
                                                                 max_chars: 60000));
         Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("warnings").ValueKind);
         Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("archive_read_failures").ValueKind);
+        w.AssertNoHandlesLeft();
     }
 }
 
@@ -528,6 +532,7 @@ public sealed class FaceGenBakedPlayerTests : IDisposable
         var text = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" }, max_chars: 60000);
         Assert.Contains("[TINT_ABSENT]", RowFor(text, "Player"));
         Assert.Contains("0 Player)", text, StringComparison.Ordinal);
+        _w.AssertNoHandlesLeft();
     }
 
     static string RowFor(string response, string editorId)
