@@ -81,7 +81,7 @@ public sealed class SkyPatcherLayerNotesCutTests
     {
         var full = SkyPatcherWire.RenderLayer(Layer(), "no-such-folder", 1_000_000);
 
-        var text = SkyPatcherWire.RenderLayer(Layer(), "no-such-folder", full.Length + 1);   // + the trimmed final newline
+        var text = SkyPatcherWire.RenderLayer(Layer(), "no-such-folder", full.Length);
 
         Assert.Contains("[!] scan note 5: ", text);
         Assert.DoesNotContain("note(s); raise max_chars", text);

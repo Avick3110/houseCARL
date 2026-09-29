@@ -279,7 +279,8 @@ static class SkyPatcherWire
               .Append(". Omit filter= for the whole-layer overview.\n");
         }
         // The scan notes (shadowed copies, undocumented subfolders) are often why the filter matched nothing.
-        sb.Append(NoteLines(d, cap - sb.Length));
+        // With no caveats the notes close the reply, and their last newline is trimmed, so it is not charged.
+        sb.Append(NoteLines(d, cap - sb.Length + (caveats.Length == 0 ? 1 : 0)));
         sb.Append(caveats);   // always rendered, as in the filtered and unfiltered renders
         return sb.ToString().TrimEnd('\n');
     }
