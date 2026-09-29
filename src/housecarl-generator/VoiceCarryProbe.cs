@@ -16,7 +16,7 @@ namespace HousecarlGenerator;
 /// no longer looks up, and only PRINTED a "verify voice yourself" reminder). CarryVoice DISCOVERS by scanning the
 /// plugin's Sound\Voice\&lt;plugin&gt;\ prefix and rewriting the embedded id segment of every file whose FormID was
 /// renumbered (strategy b — catches radiant/quest-alias lines a graph re-derivation would miss). Drives the REAL
-/// <see cref="LoadOrderService.CompactPlugin"/> over a synthetic MO2 instance (the FacegenCarry / CompactServiceGuard
+/// <see cref="LoadOrderService.CompactPlugin"/> over a synthetic MO2 instance (the FacegenCarry / CompactServiceWorld
 /// pattern), so it pins the END-TO-END wiring, not the service in isolation.
 ///   NEW-FILE   — compact to a new file carries an INFO's .fuz + .lip to the new FormID under the FRESH mod folder,
 ///                byte-exact; the outcome reports 2 files / 1 line; the OLD-FormID voice is left untouched.
@@ -197,7 +197,7 @@ public static class VoiceCarryProbe
         return topic?.Responses.FirstOrDefault()?.FormKey;
     }
 
-    // ---- synthetic MO2 layout helpers (the FacegenCarry / CompactServiceGuard probe pattern) ----
+    // ---- synthetic MO2 layout helpers (the FacegenCarry / CompactServiceWorld pattern) ----
 
     static (string mods, string prof) MakeInstance(string inst)
     {
