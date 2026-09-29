@@ -114,8 +114,10 @@ acquires a mapping.
 `SkyPatcherConflicts` is report-only: it names same-field, same-target SET collisions across files
 (the later-sorted file wins), plus the ITM classes — intra-file dead writes, cross-INI duplicates,
 and no-op writes. Which value *should* win stays with the agent. Add/remove/mult/collection ops
-accumulate by design and are not conflicts. The replay and scan notes after the report sections are one list, and a
-note cut at `max_chars` is counted with the same marker as the zero-match block's.
+accumulate by design and are not conflicts.
+
+The replay and scan notes after the report sections are one list, and a note cut at `max_chars`
+is counted with the same marker as the zero-match block's.
 
 `SkyPatcherDraft` folds an INI that is not yet placed in a mod into the live scan, so a record can
 be read as the game would see it once placed. A draft that is already one of the layer's live
