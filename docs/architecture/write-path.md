@@ -440,7 +440,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   returns, rendered on the real renderers. They do not pin the fail-closed half:
   `AHeldReferencerIsDroppedByTheIdentifyPassBeforeThePreflight` shows a held referencer never reaches the
   pre-flight, because the identify pass drops it first, so that half is unpinned.
-- `freshness-capture-guard` arm 4 — one call's patch carries ONE build's bodies. The two captures agreeing about
+- `FreshnessCaptureTests.OneMultiEditWrite_ResolvesEveryEditAgainstOneBuild` — one call's patch carries ONE build's bodies. The two captures agreeing about
   membership is not separately pinned.
 - `RemedyVerbsAgreementTests` (population / routes / agreement) and `RemedyVerbsSiteTests` (sites) — the shape-indexed verb table: every shape's
   corpus population stated out loud, the schema and runtime routes agreeing on every collection field, the measured
@@ -512,7 +512,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   through the service over a disabled donor: attach and clone written and read back, an in-patch target on an
   extended patch, every named arm binding, a base-game donor rendered as a transplant, the off-order refusal split
   by cause, the post-attach leak check, an unset seed cleared on disk, and the asset paths reported.
-- The seam `freshness-capture-guard` arm 4 parks the write on is `WritePatchBuilder.InsidePhase1ResolveForGuard`,
+- The seam `FreshnessCaptureTests.OneMultiEditWrite_ResolvesEveryEditAgainstOneBuild` parks the write on is `WritePatchBuilder.InsidePhase1ResolveForGuard`,
   which is why that flip is staged rather than timed and no runner can be too fast to land it inside the resolve loop.
   The field has no product caller.
 - `ExcludedMasterWriteTests` — the unopenable-reference threshold, pinned BOTH ways on BOTH lanes: a one-master header
