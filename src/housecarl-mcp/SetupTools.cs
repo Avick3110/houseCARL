@@ -73,7 +73,7 @@ public static class SetupTools
         return sb.ToString();
     });
 
-    /// <summary>The confirmation text: the instance, the derived roots, the auto-detected profile, a cheap enabled/active summary, and whether the choice was persisted.</summary>
+    /// <summary>The confirmation text: the instance, the derived roots, the auto-detected profile, an enabled/active summary (a text parse plus one listing of every enabled mod folder for the served check, about 150–200 ms on a 3,000-mod list), and whether the choice was persisted.</summary>
     internal static string Render(Mo2InstancePaths p, bool persisted, string? persistError, string? persistNote)
     {
         var sb = new StringBuilder();
