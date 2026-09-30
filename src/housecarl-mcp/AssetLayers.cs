@@ -11,6 +11,9 @@ internal interface IAssetHost : ILoadOrderHost
     /// <summary>An asset capture and an index capture in one <c>_gate</c> hold, so neither is from a later build than the other.</summary>
     (AssetCapture Assets, LoadOrderResolver.IndexView Index) CaptureAssetsAndIndex();
 
+    /// <summary>An asset capture and the unserved plugins of the order build published with its roots, in one <c>_gate</c> hold.</summary>
+    (AssetCapture Assets, IReadOnlyList<UnservedPlugin> Unserved) CaptureAssetsAndUnserved();
+
     /// <summary>The installed game runtime version, or null.</summary>
     string? InstalledGameRuntime();
 
@@ -179,15 +182,15 @@ internal sealed partial class AssetLayers
     /// <param name="peekFilter">When non-null, a matching DLL entry is also string-scanned; per-DLL, because the scan reads the whole image.</param>
     public SkseInventoryData SkseInventory(string? peekFilter)
     {
-        var captured = _host.CaptureAssets();   // build/refresh the asset resolver under the gate, ONCE
+        var (captured, unserved) = _host.CaptureAssetsAndUnserved();   // build/refresh the asset resolver under the gate, ONCE
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName; var profileDir = captured.Roots.ProfileDir;
         // The plugin names a peek's cross-check adjudicates against, skipped entirely without peek=. The set is what
-        // the game loads: plugins.txt entries plus the force-loaded base and CC masters, which never appear there.
+        // the game loads: plugins.txt entries plus the force-loaded base and CC masters, less those no enabled layer serves.
         IReadOnlySet<string>? activePlugins = null;
         if (peekFilter is { Length: > 0 })
         {
             var compWarnings = new List<string>();
-            activePlugins = PeekPluginSet(Mo2LoadOrder.ReadComposition(profileDir, compWarnings));
+            activePlugins = PeekPluginSet(Mo2LoadOrder.ReadComposition(profileDir, compWarnings), unserved);
             if (compWarnings.Count > 0) warnings = [.. warnings, .. compWarnings];
         }
         // Outside the gate: the view is pinned and handle-free, so this cannot race a refresh into wrongness.
@@ -253,13 +256,11 @@ internal sealed partial class AssetLayers
     }
 
     /// <summary>The plugin names a peek adjudicates an embedded reference against — active plus the force-loaded
-    /// implicit masters. Returns null, never a partial set, when the answer is unknowable.</summary>
-    internal static IReadOnlySet<string>? PeekPluginSet(Mo2Composition comp)
+    /// implicit masters, less <paramref name="unserved"/>. Null only when the answer is unknowable; empty means nothing listed is served.</summary>
+    internal static IReadOnlySet<string>? PeekPluginSet(Mo2Composition comp, IReadOnlyList<UnservedPlugin> unserved)
     {
         if (comp.OrderedPluginNames.Count == 0) return null;   // no loadorder.txt ⇒ the implicit masters are unknowable, not absent
-        var set = new HashSet<string>(comp.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
-        set.UnionWith(comp.ImplicitPluginNames);
-        return set.Count > 0 ? set : null;
+        return Mo2LoadOrder.ActiveNames(comp, unserved);
     }
 
     /// <summary>The immediate subfolder under SKSE\Plugins a file sits in ("" = top level) — the DERIVED grouping key, since a hardcoded framework list would miscategorize anything not on it.</summary>

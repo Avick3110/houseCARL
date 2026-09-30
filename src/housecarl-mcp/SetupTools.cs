@@ -73,7 +73,7 @@ public static class SetupTools
         return sb.ToString();
     });
 
-    /// <summary>The confirmation text: the instance, the derived roots, the auto-detected profile, a cheap enabled/active summary, and whether the choice was persisted.</summary>
+    /// <summary>The confirmation text: the instance, the derived roots, the auto-detected profile, an enabled/active summary (a text parse plus a listing of every enabled mod folder for the served check), and whether the choice was persisted.</summary>
     internal static string Render(Mo2InstancePaths p, bool persisted, string? persistError, string? persistNote)
     {
         var sb = new StringBuilder();
@@ -85,11 +85,11 @@ public static class SetupTools
         sb.Append("  overwrite  : ").Append(p.OverwriteDir)
           .Append(Directory.Exists(p.OverwriteDir) ? "" : "  (none yet — MO2 creates it when a tool writes here)").Append('\n');
 
-        // Reads the three profile text files only. A read failure here is non-fatal but is named, since this line is what tells the user the setup worked.
+        // Reads the three profile text files and lists the enabled mod folders, as the order build does. A read failure here is non-fatal but is named, since this line is what tells the user the setup worked.
         try
         {
             var comp = Mo2LoadOrder.ReadComposition(p.ProfileDir);
-            int active = comp.ActivePluginNames.Count + comp.ImplicitPluginNames.Count;
+            int active = Mo2LoadOrder.ActiveNames(comp, Mo2LoadOrder.Unserved(comp, p.ModsDir, p.DataDir, p.OverwriteDir)).Count;
             sb.Append("sees: ").Append(comp.EnabledMods.Count).Append(" enabled mods · ")
               .Append(comp.OrderedPluginNames.Count).Append(" plugins in the load order (").Append(active).Append(" active)\n");
         }

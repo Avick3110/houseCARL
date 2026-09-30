@@ -4,7 +4,7 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>Read-only view of the active MO2 profile's load-order composition; the enabled/disabled picture is read fresh each call, while the resolved and record counts reflect the resolver's last build.</summary>
+/// <summary>Read-only view of the active MO2 profile's load-order composition; the enabled/disabled picture is read fresh each call, while the resolved and record counts and which plugins are served reflect the resolver's last build.</summary>
 [McpServerToolType]
 public static class StatusTools
 {
@@ -13,7 +13,8 @@ public static class StatusTools
          "Report what houseCARL sees in the active MO2 profile: enabled vs DISABLED mods, active vs INACTIVE plugins, " +
          "the implicit force-loaded masters/CC, how many plugins resolved to real files, and any load-order warnings. " +
          "The enabled/disabled picture is read FRESH each call, so a mod/plugin you just toggled in MO2 shows " +
-         "immediately; the resolved count reflects the resolver's last build, which houseCARL refreshes AUTOMATICALLY on " +
+         "immediately; the resolved count, and whether an enabled mod serves each plugin (the active count and the " +
+         "'not served' line), reflect the resolver's last build, which houseCARL refreshes AUTOMATICALLY on " +
          "each call when the profile changed — no restart needed (a 'refresh still pending' note appears only in the rare " +
          "case MO2 was mid-write). Pass filter= a mod folder name (e.g. 'Requiem " +
          "Lite 2') or a plugin filename (e.g. 'Requiem.esp') to ask whether houseCARL sees that one as enabled/disabled " +
@@ -42,7 +43,7 @@ public static class StatusTools
         if (svc.ConfigPromptOrNull() is { } prompt) return StatusWire.ServerLine + prompt;
         var data = svc.StatusData();
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
-        var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inactive-profile inspection: text parse only, no index build, no switch
+        var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inspection: no index build, no switch; another profile lists the mod folders it enables
         // Read only for a filter: the flag is a per-plugin header read, and the whole-profile summary asks about none.
         var localized = filter is { Length: > 0 } ? svc.PluginLocalizedFlag(filter.Trim()) : null;
         return StatusWire.Render(data, logs, profiles, filter, localized, max_chars > 0 ? max_chars : 80_000);
@@ -59,10 +60,11 @@ static class StatusWire
                                 string? filter, HousecarlCore.LocalizedFlagRead? localized, int cap)
     {
         var c = d.Composition;
-        int checkedActive = c.ActivePluginNames.Count;
-        int impl = c.ImplicitPluginNames.Count;
+        // A plugin listed as loading that no enabled layer serves is not active, so neither count nor the implicit list carries it.
+        var active = HousecarlCore.Mo2LoadOrder.ActiveNames(c, d.Unserved);
+        int checkedActive = c.ActivePluginNames.Count(active.Contains);
+        var implicitActive = c.ImplicitPluginNames.Where(active.Contains).ToList();
         int inactive = c.InactivePluginNames.Count;
-        int gameLoaded = checkedActive + impl;
 
         var sb = new StringBuilder();
         sb.Append("load order status — profile '").Append(d.ProfileName).Append("'\n");
@@ -71,8 +73,10 @@ static class StatusWire
         sb.Append("instance: ").Append(d.InstanceDir ?? "explicit-paths mode (no MO2 instance configured)").Append('\n');
         sb.Append("mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
         sb.Append("plugins in load order: ").Append(c.OrderedPluginNames.Count).Append('\n');
-        sb.Append("  active:   ").Append(gameLoaded).Append("  (").Append(checkedActive).Append(" checked + ").Append(impl).Append(" implicit masters/CC)\n");
+        sb.Append("  active:   ").Append(active.Count).Append("  (").Append(checkedActive).Append(" checked + ").Append(implicitActive.Count).Append(" implicit masters/CC)\n");
         sb.Append("  inactive: ").Append(inactive).Append("  (present but unchecked — houseCARL excludes these)\n");
+        if (d.Unserved.Count > 0)
+            sb.Append("  not served: ").Append(d.Unserved.Count).Append("  (listed as loading, but no enabled layer provides the file — see warnings)\n");
         sb.Append("resolver: ").Append(d.ResolvedPluginCount).Append(" plugins resolved to real files");
         if (d.MaxPlugins > 0) sb.Append(" [capped at MaxPlugins=").Append(d.MaxPlugins).Append(']');
         if (d.Epoch is not null) sb.Append("  epoch=").Append(d.Epoch);   // the current build's fingerprint — bulk responses stamp the build they read, matched against this
@@ -89,7 +93,7 @@ static class StatusWire
 
         if (filter is { Length: > 0 })
         {
-            AppendLookup(sb, c, d.ExcludedPlugins, filter.Trim(), localized);
+            AppendLookup(sb, c, d.ExcludedPlugins, d.Unserved, filter.Trim(), localized);
             return sb.ToString().TrimEnd('\n');
         }
 
@@ -99,7 +103,7 @@ static class StatusWire
 
         AppendList(sb, "disabled mods", c.DisabledMods, cap);
         AppendList(sb, "inactive plugins", c.InactivePluginNames, cap);
-        AppendList(sb, "implicit masters / CC", c.ImplicitPluginNames, cap);
+        AppendList(sb, "implicit masters / CC", implicitActive, cap);   // an unserved one is named under warnings instead
 
         if (d.Warnings.Count > 0)
         {
@@ -184,16 +188,19 @@ static class StatusWire
             return;
         }
         var c = p.Composition;
-        int active = c.ActivePluginNames.Count + c.ImplicitPluginNames.Count;
+        int active = HousecarlCore.Mo2LoadOrder.ActiveNames(c, p.Unserved).Count;
         sb.Append("\n— inspecting profile '").Append(p.RequestedName).Append("' (read-only; the active profile is unchanged):\n");
         sb.Append("  mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
         sb.Append("  plugins: ").Append(c.OrderedPluginNames.Count).Append(" in order · ").Append(active).Append(" active · ")
-          .Append(c.InactivePluginNames.Count).Append(" inactive\n");
+          .Append(c.InactivePluginNames.Count).Append(" inactive");
+        if (p.Unserved.Count > 0) sb.Append(" · ").Append(p.Unserved.Count).Append(" not served (listed as loading, but no enabled layer provides the file)");
+        sb.Append('\n');
         // Any read note, e.g. a missing modlist.txt, so a zero-enabled-mods inspection is not mistaken for an empty profile.
         foreach (var warn in p.Warnings)
             sb.Append("  [!] ").Append(warn).Append('\n');
         AppendList(sb, "  disabled mods", c.DisabledMods, cap);
         AppendList(sb, "  inactive plugins", c.InactivePluginNames, cap);
+        if (p.Unserved.Count > 0) AppendList(sb, "  not served", p.Unserved.Select(u => u.Name).ToList(), cap);
     }
 
     /// <summary>The available profile names, so the inactive-profile read is discoverable; suppressed in explicit-paths mode and when profile= was asked for, which lists them on a miss.</summary>
@@ -223,7 +230,8 @@ static class StatusWire
     }
 
     static void AppendLookup(StringBuilder sb, HousecarlCore.Mo2Composition c,
-                             IReadOnlyDictionary<string, string> excluded, string name,
+                             IReadOnlyDictionary<string, string> excluded,
+                             IReadOnlyList<HousecarlCore.UnservedPlugin> unserved, string name,
                              HousecarlCore.LocalizedFlagRead? localized = null)
     {
         sb.Append("\nfilter '").Append(name).Append("':\n");
@@ -241,7 +249,11 @@ static class StatusWire
 
         bool pluginMiss = !c.ActivePluginNames.Contains(name) && !Contains(c.ImplicitPluginNames, name)
                           && !Contains(c.InactivePluginNames, name);
+        // Ticked or implicit is half of active; the other half is an enabled layer serving the file.
+        var notServed = unserved.FirstOrDefault(u => u.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         string asPlugin =
+            notServed is not null ? "NOT ACTIVE — " + (c.ActivePluginNames.Contains(name) ? "ticked in plugins.txt" : "an implicit master/CC") +
+                                    ", but " + notServed.Reason :
             c.ActivePluginNames.Contains(name)   ? "ACTIVE (checked in plugins.txt — houseCARL reads/writes it)" :
             Contains(c.ImplicitPluginNames, name) ? "ACTIVE (implicit master/CC, force-loaded — houseCARL reads/writes it)" :
             Contains(c.InactivePluginNames, name) ? "INACTIVE (present but unchecked — houseCARL EXCLUDES it)" :

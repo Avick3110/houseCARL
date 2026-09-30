@@ -3,10 +3,26 @@ namespace HousecarlCore;
 // The active load order, read from an MO2 portable instance's profile files on disk, never from the USVFS; the priority model and the three profile files are in docs/architecture/mo2-instance.md.
 
 /// <summary>The resolved active order plus any non-fatal problems — surfaced, not swallowed; <see cref="OrderedPaths"/> is in resolver winner order, highest priority last.</summary>
+/// <param name="Unserved">The plugins listed as loading that no enabled layer serves, decided in the same pass that picked each winner.</param>
+/// <param name="Composition">The profile parse this order was built from.</param>
 public sealed record Mo2OrderResult(
-    IReadOnlyList<string> OrderedPaths, IReadOnlyList<string> Warnings, int ActiveCount)
+    IReadOnlyList<string> OrderedPaths, IReadOnlyList<string> Warnings, int ActiveCount,
+    IReadOnlyList<UnservedPlugin> Unserved, Mo2Composition Composition)
 {
     public int ResolvedCount => OrderedPaths.Count;
+
+    /// <summary>The mods folder the switched-off lookup read, so a later build can reuse its answers.</summary>
+    internal string ModsDir { get; init; } = "";
+}
+
+/// <summary>A plugin listed as loading (ticked, or an implicit master) that no enabled layer serves, so the game does not load it; <paramref name="SwitchedOffMod"/> is the switched-off mod folder holding a copy, or null.</summary>
+/// <param name="SearchedPlaces">The places the build searched, as the subject of "… provides it".</param>
+public sealed record UnservedPlugin(string Name, string? SwitchedOffMod, string SearchedPlaces)
+{
+    /// <summary>Why it is not served: the one sentence the build warning, the status filter and the absence explainer all use.</summary>
+    public string Reason => SwitchedOffMod is { } off
+        ? $"it is provided by mod '{off}', which is switched OFF in MO2 — switch it on, then re-sort"
+        : $"{SearchedPlaces} provides it — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files)";
 }
 
 /// <summary>The MO2 profile's enabled/disabled composition, parsed from the three profile text files only, so it is cheap to re-read on demand; names are verbatim from the files.</summary>
@@ -41,39 +57,85 @@ public static class Mo2LoadOrder
 
     static readonly string[] PluginExts = PluginFile.Extensions;   // the one shared home (HousecarlCore.PluginFile) — no divergent copy
 
-    /// <summary>Read the active order from <paramref name="profileDir"/>'s three profile files, resolving each active plugin to its winning real path; the returned paths are in load order, winner last.</summary>
-    public static Mo2OrderResult Build(string profileDir, string modsDir, string dataDir, string overwriteDir = "")
+    /// <summary>Read the active order from <paramref name="profileDir"/>'s three profile files, resolving each active plugin to its winning real path; the returned paths are in load order, winner last.
+    /// <paramref name="previous"/> is the last published build, whose switched-off answers are reused while the disabled mod list is unchanged.</summary>
+    public static Mo2OrderResult Build(string profileDir, string modsDir, string dataDir, string overwriteDir = "", Mo2OrderResult? previous = null)
     {
         var warnings = new List<string>();
 
         // The enabled/disabled COMPOSITION (text files only — cheap). The diagnostic re-reads this same parse fresh.
         var comp = ParseComposition(profileDir, warnings);
+        var (orderedPaths, active, unserved) = Serve(comp, modsDir, dataDir, overwriteDir, previous);
+        foreach (var u in unserved)
+            warnings.Add(comp.OrderedPluginNames.Contains(u.Name, StringComparer.OrdinalIgnoreCase)
+                ? $"load order lists '{u.Name}', but {u.Reason}."
+                : $"plugins.txt ticks '{u.Name}', which loadorder.txt does not list, and {u.Reason}.");
+        return new Mo2OrderResult(orderedPaths, warnings, active, unserved, comp) { ModsDir = modsDir };
+    }
 
+    /// <summary>The plugins <paramref name="comp"/> lists as loading that no enabled layer serves, through the build's own pass; for a reader with no build to take it from (another profile, the setup summary), and it lists every enabled mod folder.</summary>
+    public static IReadOnlyList<UnservedPlugin> Unserved(Mo2Composition comp, string modsDir, string dataDir, string overwriteDir) =>
+        Serve(comp, modsDir, dataDir, overwriteDir, previous: null).Unserved;
+
+    /// <summary>The ticked and implicit plugin names less <paramref name="unserved"/>: what the game loads.</summary>
+    public static IReadOnlySet<string> ActiveNames(Mo2Composition comp, IReadOnlyList<UnservedPlugin> unserved)
+    {
+        var set = new HashSet<string>(comp.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
+        set.UnionWith(comp.ImplicitPluginNames);
+        foreach (var u in unserved) set.Remove(u.Name);
+        return set;
+    }
+
+    /// <summary>One pass: each listed-as-loading plugin's winning path in load order, the active count, and the listed ones with no winner.</summary>
+    static (List<string> Paths, int Active, List<UnservedPlugin> Unserved) Serve(
+        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, Mo2OrderResult? previous)
+    {
         // filename → WINNING real path: overwrite first, then highest-priority enabled mod (first-seen wins), data folder as base.
         var winningPath = BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir);
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
 
-        // The can't-resolve warning names only the places actually searched: explicit-paths mode passes no overwrite dir.
-        var searchedPlaces = string.IsNullOrWhiteSpace(overwriteDir)
-            ? "no enabled mod or the game Data folder"
-            : "no enabled mod, the overwrite folder, or the game Data folder";
-
         // loadorder.txt order → drop unchecked plugins; resolve the rest to their winning path (winner last).
         var orderedPaths = new List<string>(comp.OrderedPluginNames.Count);
+        var unservedNames = new List<string>();
         int active = 0;
         foreach (var name in comp.OrderedPluginNames)
         {
             if (inactive.Contains(name)) continue;                  // present-but-unchecked in MO2 → not loaded
             active++;
-            if (winningPath.TryGetValue(name, out var path))
-                orderedPaths.Add(path);
-            else
-                warnings.Add(
-                    $"load order lists '{name}' but {searchedPlaces} provides it (stale loadorder.txt? " +
-                    "trigger an MO2 refresh / re-sort so it re-writes the profile files).");
+            if (winningPath.TryGetValue(name, out var path)) orderedPaths.Add(path);
+            else unservedNames.Add(name);
         }
+        // Ticked but missing from loadorder.txt: unserved too when no layer has it.
+        var ordered = new HashSet<string>(comp.OrderedPluginNames, StringComparer.OrdinalIgnoreCase);
+        foreach (var name in comp.ActivePluginNames)
+            if (!ordered.Contains(name) && !inactive.Contains(name) && !winningPath.ContainsKey(name)) unservedNames.Add(name);
 
-        return new Mo2OrderResult(orderedPaths, warnings, active);
+        if (unservedNames.Count == 0) return (orderedPaths, active, []);
+        var offMod = SwitchedOffCopies(comp, modsDir, unservedNames, previous);
+        // The can't-resolve reason names only the places actually searched: explicit-paths mode passes no overwrite dir.
+        var searched = string.IsNullOrWhiteSpace(overwriteDir)
+            ? "no enabled mod or the game Data folder"
+            : "no enabled mod, the overwrite folder, or the game Data folder";
+        return (orderedPaths, active, unservedNames.Select(n => new UnservedPlugin(n, offMod.GetValueOrDefault(n), searched)).ToList());
+    }
+
+    /// <summary>For each name, the first switched-off mod folder in modlist.txt order holding a copy (null for none): the previous build's answer while its disabled list and mods folder are unchanged, else one listing per disabled folder, stopping once every name is placed.</summary>
+    static Dictionary<string, string?> SwitchedOffCopies(Mo2Composition comp, string modsDir, IReadOnlyList<string> names, Mo2OrderResult? previous)
+    {
+        var found = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var pending = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
+        if (previous is not null && string.Equals(previous.ModsDir, modsDir, StringComparison.OrdinalIgnoreCase)
+            && previous.Composition.DisabledMods.SequenceEqual(comp.DisabledMods, StringComparer.OrdinalIgnoreCase))
+            foreach (var u in previous.Unserved)
+                if (pending.Remove(u.Name)) found[u.Name] = u.SwitchedOffMod;
+        if (string.IsNullOrWhiteSpace(modsDir)) return found;
+        foreach (var mod in comp.DisabledMods)
+        {
+            if (pending.Count == 0) break;
+            foreach (var (fn, _) in EnumeratePlugins(Path.Combine(modsDir, mod)))
+                if (pending.Remove(fn)) found[fn] = mod;
+        }
+        return found;
     }
 
     /// <summary>Parse the profile's enabled/disabled composition from the three profile text files; the diagnostic re-reads this fresh each call, and <see cref="Build"/> adds the physical-path resolution on top.</summary>

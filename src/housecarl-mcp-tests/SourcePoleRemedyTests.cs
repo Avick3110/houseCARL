@@ -112,9 +112,7 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
     [Fact]
     public void TheOnDiskNotListedAdvisoryNamesASelectionBesideItsSourcePole()
     {
-        var m = typeof(LoadOrderService).GetMethod("ExplainPluginAbsence",
-                    BindingFlags.NonPublic | BindingFlags.Instance)!;
-        var text = (string?)m.Invoke(Svc, new object[] { W.OldName });
+        Svc.CaptureView().AbsenceClause(W.OldName, out var text);   // the explainer's own answer, through a view
 
         Assert.NotNull(text);
         Assert.Contains(ToolNames.Records, text!);   // never a silent skip

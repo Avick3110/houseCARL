@@ -78,7 +78,10 @@ public sealed class LoadOrderResolver : IDisposable
 
     /// <summary>Optional: why a plugin filename this index does NOT contain isn't in the active order, or null. Injected, because the resolver knows nothing of MO2;
     /// contract in docs/architecture/load-order-resolver.md.</summary>
-    readonly Func<string, string?>? _explainAbsence;
+    volatile Func<string, string?>? _explainAbsence;
+
+    /// <summary>Replace the explainer for views captured from now on; a view already captured keeps the one it was captured with.</summary>
+    public void ExplainAbsenceWith(Func<string, string?>? explainAbsence) => _explainAbsence = explainAbsence;
 
     /// <summary>One index build's ENTIRE output, swapped in as a SINGLE reference write so no reader sees a torn view; contract in docs/architecture/load-order-resolver.md.</summary>
     internal sealed class IndexSnapshot   // internal (not private) so IndexView's ctor can take it; never leaves the assembly
@@ -295,16 +298,21 @@ public sealed class LoadOrderResolver : IDisposable
     internal string AbsenceClause(string pluginName) => AbsenceClause(pluginName, out _);
 
     /// <summary>The same clause, also handing back the CAUSE it found (null when it fell through to the did-you-mean); one explainer invocation serves both.</summary>
-    internal string AbsenceClause(string pluginName, out string? cause)
+    internal string AbsenceClause(string pluginName, out string? cause) => AbsenceClause(_explainAbsence, pluginName, out cause);
+
+    /// <summary>The same clause through <paramref name="explain"/>, the explainer a view was captured with.</summary>
+    internal string AbsenceClause(Func<string, string?>? explain, string pluginName, out string? cause)
     {
-        cause = ExplainAbsence(pluginName);
+        cause = ExplainAbsence(explain, pluginName);
         return cause is { } why ? " " + why : NameSuggestion(pluginName);
     }
 
     /// <summary>ONLY the injected explanation, or null — the half a caller needs when the presence of a real CAUSE changes more than one sentence.</summary>
-    internal string? ExplainAbsence(string pluginName)
+    internal string? ExplainAbsence(string pluginName) => ExplainAbsence(_explainAbsence, pluginName);
+
+    static string? ExplainAbsence(Func<string, string?>? explain, string pluginName)
     {
-        try { return _explainAbsence?.Invoke(pluginName); }
+        try { return explain?.Invoke(pluginName); }
         catch { return null; }   /* an explainer that throws (an unreadable profile mid-call) must never turn a clean
                                     refusal into a crash — fall through to the suggester. */
     }
@@ -492,10 +500,10 @@ public sealed class LoadOrderResolver : IDisposable
     // ---- Snapshot-scoped reads: one build per logical operation --------------------
 
     /// <summary>Capture the CURRENT build as a pinned read view for one logical operation; it carries that call's absence cache, so it must not outlive the call.</summary>
-    public IndexView Capture() => new(this, _snap, new AbsenceCache());
+    public IndexView Capture() => new(this, _snap, new AbsenceCache(), _explainAbsence);
 
     /// <summary>The same view sharing <paramref name="absences"/> across a call's per-row captures, or with no cache when null, which allocates nothing.</summary>
-    public IndexView Capture(AbsenceCache? absences) => new(this, _snap, absences);
+    public IndexView Capture(AbsenceCache? absences) => new(this, _snap, absences, _explainAbsence);
 
     // ---- runtime FormIDs: the eight-hex form the game, the console and the logs print --------------------
 
@@ -564,11 +572,11 @@ public sealed class LoadOrderResolver : IDisposable
         Dictionary<string, (string Clause, string? Cause)>? _map;
 
         /// <summary>The cached clause, or the explainer's; lock order: this lock is never held while the explainer takes the service gate.</summary>
-        internal string Get(LoadOrderResolver r, string pluginName, out string? cause)
+        internal string Get(LoadOrderResolver r, Func<string, string?>? explain, string pluginName, out string? cause)
         {
             lock (this)
                 if (_map is not null && _map.TryGetValue(pluginName, out var hit)) { cause = hit.Cause; return hit.Clause; }
-            var clause = r.AbsenceClause(pluginName, out var why);
+            var clause = r.AbsenceClause(explain, pluginName, out var why);
             lock (this)
             {
                 _map ??= new Dictionary<string, (string, string?)>(StringComparer.Ordinal);
@@ -579,8 +587,8 @@ public sealed class LoadOrderResolver : IDisposable
         }
 
         /// <summary>The clause through <paramref name="cache"/>, or straight from the resolver when there is none.</summary>
-        internal static string Clause(AbsenceCache? cache, LoadOrderResolver r, string pluginName) =>
-            cache is null ? r.AbsenceClause(pluginName) : cache.Get(r, pluginName, out _);
+        internal static string Clause(AbsenceCache? cache, LoadOrderResolver r, Func<string, string?>? explain, string pluginName) =>
+            cache is null ? r.AbsenceClause(explain, pluginName, out _) : cache.Get(r, explain, pluginName, out _);
     }
 
     /// <summary>A read view pinned to ONE captured build (see <see cref="Capture"/>): every member answers from the SAME build, while bodies are still fetched from disk.</summary>
@@ -589,7 +597,9 @@ public sealed class LoadOrderResolver : IDisposable
         readonly LoadOrderResolver _r;
         readonly IndexSnapshot _s;
         readonly AbsenceCache? _absences;   // null on a single-shot view, which explains each absence afresh
-        internal IndexView(LoadOrderResolver r, IndexSnapshot s, AbsenceCache? absences) { _r = r; _s = s; _absences = absences; }   // only Capture() constructs
+        readonly Func<string, string?>? _explain;   // the explainer at capture, so a later order build does not explain this view
+        internal IndexView(LoadOrderResolver r, IndexSnapshot s, AbsenceCache? absences, Func<string, string?>? explain)
+        { _r = r; _s = s; _absences = absences; _explain = explain; }   // only Capture() constructs
 
         public int PluginCount => _r._paths.Length;
 
@@ -641,8 +651,8 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>The same clause and the cause it found (null when it fell back to the did-you-mean), read once per plugin per pin.</summary>
         public string AbsenceClause(string pluginName, out string? cause)
         {
-            if (_absences is null) return _r.AbsenceClause(pluginName, out cause);
-            return _absences.Get(_r, pluginName, out cause);
+            if (_absences is null) return _r.AbsenceClause(_explain, pluginName, out cause);
+            return _absences.Get(_r, _explain, pluginName, out cause);
         }
 
         /// <summary>Is this plugin LIGHT — ESL-flagged in its header, or a <c>.esl</c> — in THIS build? A refusal about ESL compaction asks the index rather than inferring it from a FormID.</summary>
@@ -699,7 +709,7 @@ public sealed class LoadOrderResolver : IDisposable
 
         public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
             IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
-            => _r.RecordsIn(plugins, getterTypes, _s, _absences);
+            => _r.RecordsIn(plugins, getterTypes, _s, _absences, _explain);
 
         /// <summary>One record's body from a named plugin, with the excluded-plugin check judged against THIS view's build, so a winner and its body are never vetted by two builds.</summary>
         public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, Type? getterType = null)
@@ -714,7 +724,7 @@ public sealed class LoadOrderResolver : IDisposable
             => _r.CollectRecords(session, pluginName, wanted, getterTypes, sink, _s);
 
         /// <summary>The master filenames a plugin DECLARES in its header, in declared order; throws on a name not in the order or excluded this build.</summary>
-        public IReadOnlyList<string> DeclaredMasters(string pluginName) => _r.DeclaredMasters(pluginName, _s, _absences);
+        public IReadOnlyList<string> DeclaredMasters(string pluginName) => _r.DeclaredMasters(pluginName, _s, _absences, _explain);
 
         public ConflictTree? ResolveTree(OverlaySession session, FormKey fk) => _r.ResolveTree(session, fk, _s);
 
@@ -825,12 +835,12 @@ public sealed class LoadOrderResolver : IDisposable
 
     /// <summary>The master filenames a plugin declares in its header: opens the overlay, reads <c>ModHeader.MasterReferences</c>, disposes. Throws on a name not in the order or excluded this
     /// build, and <see cref="PluginUnreadableException"/> on a plugin that opened at index time but cannot be opened now.</summary>
-    public IReadOnlyList<string> DeclaredMasters(string pluginName) => DeclaredMasters(pluginName, _snap, null);
+    public IReadOnlyList<string> DeclaredMasters(string pluginName) => DeclaredMasters(pluginName, _snap, null, _explainAbsence);
 
-    IReadOnlyList<string> DeclaredMasters(string pluginName, IndexSnapshot s, AbsenceCache? absences)
+    IReadOnlyList<string> DeclaredMasters(string pluginName, IndexSnapshot s, AbsenceCache? absences, Func<string, string?>? explain)
     {
         if (!_nameToIdx.TryGetValue(pluginName, out int idx))
-            throw new ArgumentException($"plugin not in the load order: {pluginName}.{AbsenceCache.Clause(absences, this, pluginName)}");
+            throw new ArgumentException($"plugin not in the load order: {pluginName}.{AbsenceCache.Clause(absences, this, explain, pluginName)}");
         if (s.Excluded.Contains(idx))
             throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {s.ExcludedPlugins[pluginName]}");
         ISkyrimModGetter ov;
@@ -936,12 +946,12 @@ public sealed class LoadOrderResolver : IDisposable
     /// yielded once per plugin and the SERVICE de-dupes. Throws <see cref="PluginUnreadableException"/> on a scoped plugin that cannot be opened now, ending the stream.</summary>
     public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
         IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
-        => RecordsIn(plugins, getterTypes, _snap, null);                   // ONE build for the whole scan (captured here, at the call)
+        => RecordsIn(plugins, getterTypes, _snap, null, _explainAbsence);   // ONE build for the whole scan (captured here, at the call)
 
     IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
-        IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes, IndexSnapshot s, AbsenceCache? absences)
+        IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes, IndexSnapshot s, AbsenceCache? absences, Func<string, string?>? explain)
     {
-        foreach (int i in ScopeIndices(plugins, s, absences))
+        foreach (int i in ScopeIndices(plugins, s, absences, explain))
         {
             ISkyrimModGetter ov;
             // A plugin that opened at build time but not now became unreadable after it; surfaced with the name.
@@ -961,7 +971,7 @@ public sealed class LoadOrderResolver : IDisposable
     }
 
     /// <summary>Resolve a scope (plugin filenames) to overlay indices; null or empty = the whole order. Throws on a name not in the order, naming it, off the caller's captured snapshot.</summary>
-    IReadOnlyList<int> ScopeIndices(IReadOnlyList<string>? scopePlugins, IndexSnapshot s, AbsenceCache? absences)
+    IReadOnlyList<int> ScopeIndices(IReadOnlyList<string>? scopePlugins, IndexSnapshot s, AbsenceCache? absences, Func<string, string?>? explain)
     {
         if (scopePlugins is null || scopePlugins.Count == 0)
             return Enumerable.Range(0, _paths.Length).Where(i => !s.Excluded.Contains(i)).ToArray();  // whole order, minus excluded
@@ -969,7 +979,7 @@ public sealed class LoadOrderResolver : IDisposable
         foreach (var name in scopePlugins)
         {
             if (!_nameToIdx.TryGetValue(name, out int i))
-                throw new ArgumentException($"plugin not in the load order: {name}.{AbsenceCache.Clause(absences, this, name)}");
+                throw new ArgumentException($"plugin not in the load order: {name}.{AbsenceCache.Clause(absences, this, explain, name)}");
             if (s.Excluded.Contains(i))                                    // explicitly scoped to an excluded plugin → fail loud with the reason, don't silently scan nothing
                 throw new ArgumentException($"plugin '{name}' was excluded from this session: {s.ExcludedPlugins[name]}");
             idxs.Add(i);

@@ -128,6 +128,7 @@ public sealed record LoadOrderStatusData(
     string ProfileName,         // the ACTIVE profile (instance mode: MO2's selected_profile; explicit: the dir name) — captured under the gate, not re-derived at render
     string? InstanceDir,        // the resolved MO2 instance folder houseCARL is pointed at; null ⇒ explicit-paths / unconfigured mode
     IReadOnlyDictionary<string, string> ExcludedPlugins,
+    IReadOnlyList<UnservedPlugin> Unserved,   // listed as loading, but no enabled layer served the file at the build the counts come from
     string? Epoch = null,       // the resolver's current build fingerprint (SPEC §2.1.1) — the status line names it so a caller can match responses/artifacts to the build; nullable like every other carrier
     int ContainedRecordCount = 0);  // children this build recorded a containing record for — the '*parent' map's size, declared in band per SPEC §2.1 rather than left for a user to discover as memory
 
@@ -151,7 +152,8 @@ public sealed record NamedProfileResult(
     string? RequestedName,
     string? ResolvedProfileDir,
     Mo2Composition? Composition,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<UnservedPlugin> Unserved);   // that profile's plugins listed as loading that no enabled layer serves; empty when none was read
 
 /// <summary>The outcome of housecarl_write_seq: a non-null <see cref="Error"/> means the call was rejected, else the <see cref="Quests"/> covered — empty is a clean no-op with no file written — the written <see cref="SeqPath"/> and its <see cref="ModFolder"/>, and whether it defaulted into the plugin's OWN folder.</summary>
 public sealed record SeqOutcome(
