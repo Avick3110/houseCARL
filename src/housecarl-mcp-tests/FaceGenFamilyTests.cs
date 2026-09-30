@@ -408,8 +408,9 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenClassFixture>
         using var cut = JsonDocument.Parse(Call(cap, "json"));
         Assert.Equal(Shared(cap).Omitted, cut.RootElement.GetProperty("archive_read_failures_omitted").GetInt32());
         var lead = BatchRender.ArchiveFailureList(archives).Lead;
+        // The text render is read through the seam where the cap is below its floor (#986).
         Assert.Equal(Shared(cap).Shown.Count,
-                     Call(cap, "text").Split('\n').Count(l => l.StartsWith(lead, StringComparison.Ordinal)));
+                     RenderCap.Unheld(() => Call(cap, "text")).Split('\n').Count(l => l.StartsWith(lead, StringComparison.Ordinal)));
         w.AssertNoHandlesLeft();
     }
 

@@ -122,14 +122,16 @@ public class CheckCapCharsTests
         JsonOverrun.StatesItsLengthAndCap(json, 200);
     }
 
-    /// <summary>The text lane says the same length about the same sweep — it counts its StringBuilder, which was
-    /// always characters, so the two transports agreeing is what "one cap, one unit" means.</summary>
+    /// <summary>The text lane counts the same unit about the same sweep — its StringBuilder, which was always
+    /// characters. Below its floor it is refused (#986), naming the cap its render fits in characters.</summary>
     [Fact]
-    public void TheTextLaneStatesItsOwnLengthOnTheSameSweep()
+    public void TheTextLaneNamesItsFloorInCharactersOnTheSameSweep()
     {
-        var text = Text(NonAsciiResult(), 200);
+        var r = NonAsciiResult();
+        var refused = Text(r, 200);
 
-        Assert.Contains(AccentedPlugin, text, StringComparison.Ordinal);
-        Assert.Equal(text.Length, Stated(text, "This response is "));
+        var served = RenderFloorAssert.RefusesAndTheNamedCapFits(refused, 200, c => Text(r, c));
+        Assert.Contains(AccentedPlugin, served, StringComparison.Ordinal);
+        Assert.Equal(RenderFloorAssert.Named(refused), served.Length);
     }
 }

@@ -89,8 +89,10 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     [Fact]
     public void TheOffOrderScansEverythingLaneDropsItToo_ThreeLanesOneRule()
     {
-        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, source: Plugin(W.OldName), max_chars: 12,
-                                     project: Form("everything"));
+        // Read below the floor, where the call is refused (#986): the notice the cut render lays is under test.
+        var r = RenderCap.Unheld(() => RecordsTools.Records(Svc, types: new[] { "WEAP" }, source: Plugin(W.OldName), max_chars: 12,
+                                                            project: Form("everything")));
+        Assert.False(RenderFloorAssert.IsFloorRefusal(r), r);
         Assert.Contains("max_chars", r);
         Assert.DoesNotContain("project.fields=", r);
     }
@@ -98,8 +100,8 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     [Fact]
     public void TheFieldsFormStillNamesItsSelector_TheVocabularyIsPerFormNotPerTool()
     {
-        var r = RecordsTools.Records(Svc, formids: AllWeaponIds, max_chars: 220,
-                                     project: Fields("BasicStats.Damage", "EditorID", "Name"));
+        var r = RenderCap.Unheld(() => RecordsTools.Records(Svc, formids: AllWeaponIds, max_chars: 220,
+                                                            project: Fields("BasicStats.Damage", "EditorID", "Name")));
         Assert.Contains("project.fields=", r);
     }
 

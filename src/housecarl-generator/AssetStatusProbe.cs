@@ -255,9 +255,10 @@ internal static class AssetStatusProbe
                 Check(r2.Contains("not scanned this build") && r2.Contains("\"absent\" may be incomplete"),
                       "an ABSENT also hedges when base archives weren't DISCOVERED (missing Skyrim.ini) — symmetric with the read-failure caveat");
 
-                // (3) a tiny max_chars over many paths → an explicit cut notice (Q3, never silent truncation).
+                // (3) a max_chars under many paths → an explicit cut notice (Q3, never silent truncation). Above the
+                // render's floor: below it the call is refused (#986).
                 var many = Enumerable.Range(0, 60).Select(i => Absent($@"meshes\m{i}.nif")).ToArray();
-                var rCut = AssetWire.Render(new AssetStatusData(many, Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>(), "Default"), 300);
+                var rCut = AssetWire.Render(new AssetStatusData(many, Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>(), "Default"), 2_000);
                 Check(rCut.Contains("omitted at max_chars="), "the per-path list is cut with an explicit notice at max_chars");
 
                 // (4) contention is rendered NEUTRALLY (a verify signal, not a problem).

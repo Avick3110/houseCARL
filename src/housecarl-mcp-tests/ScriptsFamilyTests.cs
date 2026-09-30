@@ -215,7 +215,10 @@ public sealed class ScriptsFamilyTests
         bool sawCut = false;
         foreach (var cap in new[] { 200, 1850, 2040, 2910 })
         {
-            var t = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: full), cap);
+            string At(int c) => CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: full), c);
+            var t = At(cap);
+            // Below the floor the call is refused naming a cap it fits (#986).
+            if (RenderFloorAssert.IsFloorRefusal(t)) { RenderFloorAssert.RefusesAndTheNamedCapFits(t, cap, At); continue; }
             int sections = t.Split('\n').Count(l => l.StartsWith("[UNBOUND] ", StringComparison.Ordinal)
                                                   || l.StartsWith("[CHECK] ", StringComparison.Ordinal));
             if (sections < full.Reports.Count)
@@ -242,9 +245,12 @@ public sealed class ScriptsFamilyTests
         var counts = Svc.ValidateScripts(null, 1000, countsOnly: true);
         int distinct = counts.Histogram!.Count;
         bool sawCut = false;
-        for (int cap = 300; cap <= 1400; cap += 20)
+        for (int cap = 300; cap <= 4000; cap += 20)
         {
-            var t = CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: counts), cap);
+            string At(int c) => CheckTextRender.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: counts), c);
+            var t = At(cap);
+            // Below the floor the call is refused naming a cap it fits (#986).
+            if (RenderFloorAssert.IsFloorRefusal(t)) { RenderFloorAssert.RefusesAndTheNamedCapFits(t, cap, At); continue; }
             Assert.Contains("unbound properties by NAME", t);
             var m = System.Text.RegularExpressions.Regex.Match(t, @"\[(\d+) more row\(s\) — raise max_chars= to see them\]");
             if (m.Success) { sawCut = true; Assert.True(int.Parse(m.Groups[1].Value) <= distinct); }
@@ -324,7 +330,7 @@ public sealed class ScriptsFamilyTests
         foreach (var fixture in new[] { listing, counts, withExcluded })
         {
             var sweep = new CheckSweep(Sel("scripts"), Scripts: fixture);
-            int textFloor = CheckTextRender.RenderCheck(sweep, 1).Length;
+            int textFloor = RenderFloorAssert.Named(CheckTextRender.RenderCheck(sweep, 1));   // refused at 1, naming its floor
             int jsonFloor = JsonWire.RenderCheck(sweep, 1).Length;
             foreach (int cap in Enumerable.Range(1, 12000).Append(40000))
             {

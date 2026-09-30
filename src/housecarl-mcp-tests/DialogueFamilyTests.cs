@@ -72,14 +72,22 @@ public sealed class DialogueFamilyTests
     [InlineData(8_000)]
     public void AnInfoOrderRenderIsNeverWiderThanItsCap(int cap)
     {
-        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
-                                     project: new RecordsTools.RecordsProject { form = "info_order" },
-                                     max_chars: cap);
+        string Call(int c) => RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
+                                                   project: new RecordsTools.RecordsProject { form = "info_order" },
+                                                   max_chars: c);
 
-        if (r.Length <= cap) return;
-        Assert.Contains($"over the max_chars={cap} it was given", r);
-        var needed = int.Parse(Regex.Match(r, @"raise max_chars to at least (\d+)").Groups[1].Value);
-        Assert.Equal(r.Length, needed);
+        RenderFloorAssert.FitsOrRefuses(Call(cap), cap, Call, drift: 16);
+    }
+
+    /// <summary>Below its floor the info_order render is refused naming a cap it fits (#986).</summary>
+    [Fact]
+    public void AnInfoOrderRenderBelowItsFloorIsRefusedNamingACapItFits()
+    {
+        string Call(int c) => RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
+                                                   project: new RecordsTools.RecordsProject { form = "info_order" },
+                                                   max_chars: c);
+
+        RenderFloorAssert.RefusesAndTheNamedCapFits(Call(50), 50, Call, drift: 16);
     }
 
     /// <summary>And what the cap held back is counted, not dropped in silence. The cap is derived rather than
@@ -92,24 +100,23 @@ public sealed class DialogueFamilyTests
                                                    project: new RecordsTools.RecordsProject { form = "info_order" },
                                                    max_chars: cap);
         int cap = At(0).Length - 100;
-        var r = At(cap);
+        // Read through the seam: this one topic is narrower than its spill block, so the cut is below its floor (#986).
+        var r = RenderCap.Unheld(() => At(cap));
 
         Assert.Matches(@"\[rendered \d+ of 1 rows at max_chars=" + cap + @"\]", r);
         Assert.Contains("spilled: complete result", r);
     }
 
-    /// <summary>The info_order census is a text render too: at a max_chars it cannot fit in it says so and names
-    /// the number that clears it, rather than answering over the cap in silence.</summary>
+    /// <summary>The info_order census is a text render too: a max_chars it cannot fit in is refused naming the
+    /// number that clears it, rather than answering over the cap.</summary>
     [Fact]
-    public void AnInfoOrderCensusTooBigForItsCapSaysSoAndNamesTheNumberThatClearsIt()
+    public void AnInfoOrderCensusTooBigForItsCapIsRefusedNamingTheNumberThatClearsIt()
     {
-        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
-                                     project: new RecordsTools.RecordsProject { form = "info_order" },
-                                     counts_only: true, max_chars: 50);
+        string Call(int c) => RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
+                                                   project: new RecordsTools.RecordsProject { form = "info_order" },
+                                                   counts_only: true, max_chars: c);
 
-        Assert.True(r.Length > 50, "the census fits 50 chars, so it cannot show the overrun arm");
-        Assert.Contains("over the max_chars=50 it was given", r);
-        Assert.Equal(r.Length, int.Parse(Regex.Match(r, @"raise max_chars to at least (\d+)").Groups[1].Value));
+        RenderFloorAssert.RefusesAndTheNamedCapFits(Call(50), 50, Call);
     }
 
     /// <summary>And the other side: a render whose complete output fits inside max_chars IS that output. The

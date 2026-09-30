@@ -202,7 +202,8 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
     {
         var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir });
 
-        var text = AssetWire.Render(d, 200);
+        // Read through the seam: 200 is below this render's floor, where the call is refused (#986).
+        var text = RenderCap.Unheld(() => AssetWire.Render(d, 200));
 
         Assert.Contains("[accounting] total=5 rendered=", text);
         Assert.Matches(@"truncated=[1-9]", text);
@@ -356,6 +357,8 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         foreach (var cap in new[] { 400, 900, 1200, 1600, 80_000 })
         {
             var text = AssetWire.Render(d, cap);
+            // Below the floor the call is refused naming a cap it fits, so there is no block to measure (#986).
+            if (RenderFloorAssert.IsFloorRefusal(text)) { RenderFloorAssert.RefusesAndTheNamedCapFits(text, cap, c => AssetWire.Render(d, c)); continue; }
             int at = text.IndexOf("\n\n[accounting]", StringComparison.Ordinal);
             Assert.True(at >= 0, $"max_chars={cap} dropped the accounting block");
             // The overrun sentence a too-small cap earns is written after the block and is not part of it, so the

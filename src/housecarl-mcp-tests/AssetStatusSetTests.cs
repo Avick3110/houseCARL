@@ -550,7 +550,9 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         var spills = SpillFolders.Emptied(_w.Svc);
         try
         {
-            var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, max_chars: 900);
+            // Read through the seam: this world's five paths are narrower than their spill block, so a cut is
+            // below the floor, where the call is refused (#986); the spill it lays is what is under test.
+            var text = RenderCap.Unheld(() => AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, max_chars: 900));
 
             var file = Assert.Single(Directory.GetFiles(spills, "*.jsonl"));
             Assert.Contains("spilled: complete result", text);
@@ -603,8 +605,9 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         var spills = SpillFolders.Emptied(_w.Svc);
         try
         {
-            var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
-                                              limit: limit, offset: offset, max_chars: 700);
+            // Read through the seam, as above: the cut window is below its floor (#986).
+            var text = RenderCap.Unheld(() => AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                                                     limit: limit, offset: offset, max_chars: 700));
 
             Assert.Contains("spilled: the returned WINDOW", text);
             Assert.Contains("outside the returned window are in NO file", text);
@@ -660,7 +663,8 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             var epoch = w.Svc.CaptureView().Stamp.Epoch;
             Assert.NotEqual("", epoch);
 
-            var text = AssetTools.AssetStatus(w.Svc, under: new[] { DegradedOrderWorld.SweepDir }, max_chars: 700);
+            // Read through the seam: the cut is below its floor, where the call is refused (#986).
+            var text = RenderCap.Unheld(() => AssetTools.AssetStatus(w.Svc, under: new[] { DegradedOrderWorld.SweepDir }, max_chars: 700));
 
             Assert.Contains("spilled: complete result", text);
             Assert.Contains("epoch=" + epoch, text);

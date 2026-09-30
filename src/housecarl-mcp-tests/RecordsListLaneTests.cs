@@ -93,12 +93,13 @@ public sealed class RecordsListLaneTests : RecordsTestBase
         Served(whole, "group_by=type");
         int cap = whole.Length - 40;   // derived, not pinned to a number that would only hold on one machine
 
-        var cut = RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, max_chars: cap);
+        // The cut the render lays is read through the seam: this table is narrower than its floor (#986).
+        var cut = RenderCap.Unheld(() => RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, max_chars: cap));
         Served(cut, "truncated: rendered", "groups before hitting max_chars=" + cap);
         Assert.True(CountOf(cut, "\n  ") < CountOf(whole, "\n  "), "the capped render laid as many rows as the uncapped one");
-        // The ceiling holds, or the fixed part the response owes whatever the budget names its own overrun.
-        if (cut.Length > cap)
-            Assert.Contains($"over the max_chars={cap} it was given", cut);
+        // The ceiling holds, or the call is refused below its floor naming a cap it fits.
+        string Call(int c) => RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, max_chars: c);
+        RenderFloorAssert.FitsOrRefuses(Call(cap), cap, Call, drift: 16);
     }
 
     [Fact]
@@ -156,8 +157,9 @@ public sealed class RecordsListLaneTests : RecordsTestBase
         var types = new[] { "SPEL", "SCRL" };
         var walk = new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" };
         var whole = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, walk: walk, types: types, project: project);
-        var cut = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, walk: walk, types: types, project: project,
-                                       max_chars: whole.Length / 2);
+        // Read through the seam: half this table is below its floor, where the call is refused (#986).
+        var cut = RenderCap.Unheld(() => RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, walk: walk, types: types,
+                                                              project: project, max_chars: whole.Length / 2));
         Served(cut, "no records: Scroll");
     }
 }

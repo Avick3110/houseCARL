@@ -113,8 +113,9 @@ public sealed class RecordsScanLaneTests : RecordsTestBase
         var project = new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" };
         var whole = RecordsTools.Records(Svc, types: new[] { "WEAP", "ARMO", "SPEL", "AMMO" }, project: project);
         Served(whole, "no records: Ammunition");
-        var cut = RecordsTools.Records(Svc, types: new[] { "WEAP", "ARMO", "SPEL", "AMMO" }, project: project,
-                                       max_chars: whole.Length / 2);
+        // Read through the seam: half this table is below its floor, where the call is refused (#986).
+        var cut = RenderCap.Unheld(() => RecordsTools.Records(Svc, types: new[] { "WEAP", "ARMO", "SPEL", "AMMO" },
+                                                              project: project, max_chars: whole.Length / 2));
         Served(cut, "no records: Ammunition");
     }
 

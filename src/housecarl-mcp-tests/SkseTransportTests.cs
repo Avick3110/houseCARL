@@ -799,17 +799,40 @@ public sealed class SkseTransportTests
         }
     }
 
-    /// <summary>The one arm left: a cap too small for what a family carries whatever the budget says so, and names
-    /// the cap that clears it, rather than quietly answering over the ceiling.</summary>
+    /// <summary>The one arm left: a cap too small for what a family carries whatever the budget is refused, naming the
+    /// cap that clears it (#986), rather than answering over the ceiling.</summary>
     [Fact]
-    public void ACapTooSmallForTheFixedPartSaysSoInsteadOfOverrunningSilently()
+    public void ACapTooSmallForTheFixedPartIsRefusedNamingTheCapThatClearsIt()
     {
         var renders = new StubRenders(Inventory(300, configs: 300, folders: 60), Pairing(300), ConfigAudit(300, refs: 4));
 
-        var text = SkseTools.Dispatch(renders, SkseTools.SkseFamily.Inventory, filter: null, peek: false, max_chars: 200);
+        RenderFloorAssert.RefusesBelowAndServesAt(
+            c => SkseTools.Dispatch(renders, SkseTools.SkseFamily.Inventory, filter: null, peek: false, max_chars: c), tooSmall: 200);
+    }
 
-        Assert.Contains("over the max_chars=200 it was given", text);
-        Assert.Contains("raise max_chars to at least ", text);
+    /// <summary>Each family's views owe their own notices: unfiltered, filtered, and a filter matching nothing. Each is
+    /// refused below its floor naming a cap it fits, the footer Dispatch closes on included (#986).</summary>
+    [Theory]
+    [InlineData("inventory", null)]
+    [InlineData("inventory", "Mod1")]
+    [InlineData("inventory", "zzz")]
+    [InlineData("pairing", null)]
+    [InlineData("pairing", "Mod1")]
+    [InlineData("pairing", "zzz")]
+    [InlineData("config", null)]
+    [InlineData("config", "Mod1")]
+    [InlineData("config", "zzz")]
+    public void EveryFamilyViewBelowItsFloorIsRefusedNamingTheCapThatClearsIt(string name, string? filter)
+    {
+        var family = name switch { "inventory" => SkseTools.SkseFamily.Inventory, "pairing" => SkseTools.SkseFamily.Pairing, _ => SkseTools.SkseFamily.Config };
+        var renders = new StubRenders(Inventory(30, configs: 30, folders: 6, warnings: Warnings(3)),
+                                      Pairing(30, unreadable: 2, warnings: Warnings(3)),
+                                      ConfigAudit(30, refs: 2, warnings: Warnings(3)));
+
+        RenderFloorAssert.RefusesBelowAndServesAt(
+            c => SkseTools.Dispatch(renders, family, filter: filter, peek: false, max_chars: c), tooSmall: 100);
+        if (filter is not null)
+            Assert.Contains("omit filter=", SkseTools.Dispatch(renders, family, filter: filter, peek: false, max_chars: 100));
     }
 
     /// <summary>The json twin of the arm above (#809): an over-cap skse json document says so IN the document, as

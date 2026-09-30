@@ -129,7 +129,8 @@ public sealed class CheckErrorsFamilyTests
         var whole = Text(r, 20000);
         Assert.DoesNotContain("plugin(s) that could not be parsed are named above", whole);
 
-        var cut = Text(r, 400);
+        // At the floor, the cap its refusal at 1 names, the response is whole but no row fits (#986).
+        var cut = Text(r, RenderFloorAssert.Named(Text(r, 1)));
         // Anchored on the PRECEDING clause's own full stop so a line inserted right after the sentence's
         // leading space (before the "0") cannot hide behind a same-suffix match.
         Assert.Contains("plugin section(s) were rendered. 0 of 1 plugin(s) that could not be parsed are named " +
@@ -190,9 +191,10 @@ public sealed class CheckErrorsFamilyTests
     {
         var r = Svc.CheckErrors(null, 1000, findings: null);
 
-        var text = Text(r, 400);
+        int cap = RenderFloorAssert.Named(Text(r, 1));   // the floor: the response is whole and no row fits (#986)
+        var text = Text(r, cap);
         Assert.Contains("[accounting: 0 of the 6 dangling ref(s) found by this sweep appear above. 6 did not fit " +
-                         "this response (max_chars=400). 0 of 3 plugin section(s) were rendered.", text);
+                         $"this response (max_chars={cap}). 0 of 3 plugin section(s) were rendered.", text);
         // Positive control for EntryLines: a reworded dangling-entry render would make it return empty for every
         // response, and the emptiness assertion below would pass whatever was emitted. Six is the accounting
         // line's own number, one line up.
@@ -210,9 +212,10 @@ public sealed class CheckErrorsFamilyTests
     {
         var r = Svc.CheckErrors(null, 3, findings: null);   // limit=3 of 6 admitted
 
-        var text = Text(r, 900);
+        int cap = RenderFloorAssert.Named(Text(r, 1));   // the floor: the response is whole and no row fits (#986)
+        var text = Text(r, cap);
         Assert.Contains("3 were never listed: the listing budget (limit=3) ran out, 3 did not fit this response " +
-                         "(max_chars=900).", text);
+                         $"(max_chars={cap}).", text);
         // found (6) - visible (0) == byBudget (3) + byCut (3)
         Assert.Contains("0 of the 6 dangling ref(s) found by this sweep appear above.", text);
     }
@@ -345,7 +348,8 @@ public sealed class CheckErrorsFamilyTests
     {
         var r = Svc.CheckErrors(null, 1000, findings: null, countsOnly: true);
 
-        var text = Text(r, 900, histogramLimit: 1);
+        // At the text floor both axes are cut before their first row fits (#986); json still cuts them at 900.
+        var text = Text(r, RenderFloorAssert.Named(Text(r, 1, histogramLimit: 1)), histogramLimit: 1);
         Assert.Contains("dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO) (2 distinct):", text);
         Assert.Contains("... [2 more row(s) — raise max_chars= to see them]", text);
         Assert.Contains("dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM) (3 distinct):", text);
@@ -387,7 +391,7 @@ public sealed class CheckErrorsFamilyTests
         var r = Svc.CheckErrors(null, 1000, findings: null, countsOnly: true);
 
         // A cap wide enough for the head but too tight for any histogram row: both axes still speak.
-        var text = Text(r, 400, histogramLimit: 1000);
+        var text = Text(r, RenderFloorAssert.Named(Text(r, 1, histogramLimit: 1000)), histogramLimit: 1000);   // the floor (#986)
         Assert.Contains("dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO) (2 distinct):", text);
         Assert.Contains("dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM) (3 distinct):", text);
     }
@@ -425,7 +429,8 @@ public sealed class CheckErrorsFamilyTests
         var floorNarrow = Text(Result(reports: new[] { narrow }, scanned: 1, totalDangling: 1), 1);
         var floorWide = Text(Result(reports: new[] { wide }, scanned: 1, totalDangling: 1), 1);
 
-        Assert.Equal(floorNarrow.Length, floorWide.Length);
+        // Refused at max_chars=1, each naming its floor (#986).
+        Assert.Equal(RenderFloorAssert.Named(floorNarrow), RenderFloorAssert.Named(floorWide));
     }
 
     // ---- fact 23 ----------------------------------------------------------------------------------------
@@ -433,16 +438,11 @@ public sealed class CheckErrorsFamilyTests
     // band, and a json document one character over says so too (both transports).
 
     [Fact]
-    public void Fact23_EveryOverCapResponseNamesTheFixedPartAsTheCause_AcrossABand()
+    public void Fact23_EveryTextCallBelowTheFixedPartIsRefusedNamingACapItFits_AcrossABand()
     {
         var r = Svc.CheckErrors(null, 1000, findings: null);
         foreach (var cap in new[] { 1, 100, 400, 900 })
-        {
-            var text = Text(r, cap);
-            Assert.True(text.Length > cap, $"expected an overrun at cap={cap}");
-            Assert.Contains("over the max_chars=" + cap + " it was given", text);
-            Assert.Contains("does not fit in that many chars, so raise max_chars to at least ", text);
-        }
+            RenderFloorAssert.RefusesAndTheNamedCapFits(Text(r, cap), cap, c => Text(r, c));
     }
 
     // ---- fact 25 -----------------------------------------------------------------------------------------
@@ -525,8 +525,10 @@ public sealed class CheckErrorsFamilyTests
     [Fact]
     public void Fact30_TheOverrunSentenceEnumeratesTheUndroppableLines_TrueEvenWhenOnlyOneCauseFired()
     {
-        // Only a max_chars cut fires here; limit is ample, so nothing is missing for want of listing budget.
-        var text = Text(Svc.CheckErrors(null, 1000, findings: null), 400);
+        // Only a max_chars cut fires here; limit is ample, so nothing is missing for want of listing budget. The text
+        // lane refuses this cap (#986), so the sentence is read where it still rides, the json document.
+        var text = JsonDocument.Parse(Json(Svc.CheckErrors(null, 1000, findings: null), 400)).RootElement
+                               .GetProperty("max_chars_overrun").GetString()!;
 
         Assert.Contains("what it must carry whatever the budget — its header, the accounting above, the closing " +
                          "line for anything it cut short, the boundary — does not fit in that many chars", text);

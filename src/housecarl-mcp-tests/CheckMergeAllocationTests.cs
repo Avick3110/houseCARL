@@ -28,9 +28,10 @@ public class CheckMergeAllocationTests
     public void TheSecondFamilyRendersBeforeTheFirstIsWhole()
     {
         var both = Both();
-        int floor = Text(both, 1).Length;
+        // Refused at max_chars=1, each names its floor (#986).
+        int floor = RenderFloorAssert.Named(Text(both, 1));
         var errorsOnly = new CheckSweep(Sel("errors"), Errors);
-        int errorsWholeBody = Text(errorsOnly, 0).Length - Text(errorsOnly, 1).Length;
+        int errorsWholeBody = Text(errorsOnly, 0).Length - RenderFloorAssert.Named(Text(errorsOnly, 1));
         int first = -1;
         for (int cap = floor; cap <= 20000; cap += 20)
         {
@@ -206,7 +207,7 @@ public class CheckMergeAllocationTests
     public void NoCapReturnsMoreThanItWasGivenBarTheFloor(bool allFamilies)
     {
         var s = allFamilies ? All() : Both();
-        int textFloor = Text(s, 1).Length;
+        int textFloor = RenderFloorAssert.Named(Text(s, 1));   // refused at 1, naming its floor (#986)
         int jsonFloor = Json(s, 1).Length;
         // One cap in each block of three, the offset rotating per block and per case; the probe swept every integer.
         int shift = allFamilies ? 1 : 0;
@@ -215,9 +216,16 @@ public class CheckMergeAllocationTests
             var text = Text(s, cap);
             var json = Json(s, cap);
             int slack = 8 * cap.ToString().Length;
-            Assert.True(text.Length <= Math.Max(cap, textFloor + slack), $"text@{cap}={text.Length} (floor {textFloor})");
             Assert.True(json.Length <= Math.Max(cap, jsonFloor + slack), $"json@{cap}={json.Length} (floor {jsonFloor})");
-            Assert.Contains(CheckSentences.SweepMergedTitle, text);
+            // Below the floor the text call is refused, naming a cap past this one; at or above it the text fits.
+            if (RenderFloorAssert.IsFloorRefusal(text))
+                Assert.True(cap < RenderFloorAssert.Named(text) && RenderFloorAssert.Named(text) <= textFloor + slack,
+                            $"text@{cap} refused naming {RenderFloorAssert.Named(text)} (floor {textFloor})");
+            else
+            {
+                Assert.True(text.Length <= cap, $"text@{cap}={text.Length} (floor {textFloor})");
+                Assert.Contains(CheckSentences.SweepMergedTitle, text);
+            }
             using var doc = JsonDocument.Parse(json);
             Assert.True(doc.RootElement.TryGetProperty("families", out _), $"json@{cap} is not a merged document");
         }

@@ -63,7 +63,8 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
     [Fact]
     public void AnAggregateTableClippedByMaxCharsStillReportsTheExactTotal()
     {
-        var r = RecordsTools.Records(Svc, plugins: BothScope, project: Aggregate("type"), max_chars: 60);
+        // Read through the seam: 60 is below this table's floor, where the call is refused (#986).
+        var r = RenderCap.Unheld(() => RecordsTools.Records(Svc, plugins: BothScope, project: Aggregate("type"), max_chars: 60));
         Served(r, "7 matches across 3 groups", "the total above is exact");
         Assert.Contains("before hitting max_chars=", r);
     }
