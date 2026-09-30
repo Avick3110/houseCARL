@@ -20,6 +20,24 @@ public class CheckMergeShapeMatrixTests
     [Fact]
     public void EveryShapeStaysInsideItsCapBarTheFloor() => Assert.Empty(CheckMergeShapes.Swept.OverCap);
 
+    // TEXT-OVER-ITS-CAP-IS-REFUSED (#986): whatever put the response over, the text lane refuses it rather than ship it
+    [Fact]
+    public void TheTextLaneRefusesEveryResponseOverItsCap()
+    {
+        var shipped = new List<string>();
+        foreach (var shape in CheckMergeShapes.Shapes)
+        {
+            int whole = CheckTextRender.RenderCheck(shape.Sweep, 0, 1000).Length;
+            for (int cap = 1; cap <= whole + 50 && shipped.Count < 6; cap += 3)
+            {
+                var r = CheckTextRender.RenderCheck(shape.Sweep, cap, 1000);
+                if (r.Length > cap && !RenderFloorAssert.IsFloorRefusal(r))
+                    shipped.Add($"{shape.Name} @{cap}: {r.Length} chars shipped");
+            }
+        }
+        Assert.Empty(shipped);
+    }
+
     // MATRIX-MONOTONE-IN-MAX-CHARS: no subject of any shape spends fewer characters at a wider cap
     [Fact]
     public void NoShapesSubjectSpendsLessAtAWiderCap() => Assert.Empty(CheckMergeShapes.Swept.NonMonotone);
