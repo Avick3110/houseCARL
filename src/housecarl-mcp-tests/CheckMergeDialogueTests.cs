@@ -263,19 +263,25 @@ public class CheckMergeDialogueTests
     {
         var two = DialogueRun(new[] { "000A01:A.esp", "000B02:A.esp" }, 1000);
         var sweep = Only(two);
-        int cap = Text(sweep, 1).Length + TopicBlockWidth(two) * (Topics * 2 / 3);
+        int cap = RenderFloorAssert.Named(Text(sweep, 1)) + TopicBlockWidth(two) * (Topics * 2 / 3);   // the floor its refusal names (#986)
         var text = Text(sweep, cap);
         int topics = Count(text, "  topic ");
         Assert.Equal(2, Count(text, "\nseed "));
         Assert.InRange(topics, 1, Topics * 2 - 1);
     }
 
-    // DIALOGUE-BOUNDARY-UNREFUSABLE: the standing-limits boundary is written at every cap
+    // DIALOGUE-BOUNDARY-UNREFUSABLE: the standing-limits boundary is written at every cap that serves; below the
+    // floor the call is refused (#986), and the cap it names serves the boundary
     [Theory]
     [InlineData(1)] [InlineData(2)] [InlineData(5)] [InlineData(10)] [InlineData(50)] [InlineData(200)]
     [InlineData(800)] [InlineData(2000)] [InlineData(6000)] [InlineData(12000)] [InlineData(40000)]
     public void TheDialogueBoundaryIsWrittenAtEveryCap(int cap)
-        => Assert.Contains("does NOT mean the dialogue will play as intended", Text(Only(Dialogue()), cap));
+    {
+        var sweep = Only(Dialogue());
+        var t = Text(sweep, cap);
+        if (RenderFloorAssert.IsFloorRefusal(t)) t = RenderFloorAssert.RefusesAndTheNamedCapFits(t, cap, c => Text(sweep, c));
+        Assert.Contains("does NOT mean the dialogue will play as intended", t);
+    }
 
     // DIALOGUE-A-RECORD-LEVEL-SEED-STATES-ITS-VERDICT: passing DLVW/DLBR carry their own OK line; failing, the issue
     [Fact]

@@ -91,14 +91,17 @@ public sealed class RecordsListLaneTests : RecordsTestBase
         var project = new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" };
         var whole = RecordsTools.Records(Svc, formids: ManyTypedIds, project: project);
         Served(whole, "group_by=type");
-        int cap = whole.Length - 40;   // derived, not pinned to a number that would only hold on one machine
-
-        var cut = RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, max_chars: cap);
+        string Call(int c) => RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, max_chars: c);
+        // This selection is served cut only in a band a few chars wide (#986: whole first, refused below the floor), too
+        // thin to hold on another machine, so the cut is read off the text render driven directly over thirty groups.
+        var rows = Enumerable.Range(1, 30).Select(i => new KeyValuePair<string, int>($"Type{i:D2}", 100 - i)).ToList();
+        string Raw(int c) => RecordsTools.RenderListAggregateText(rows, Array.Empty<string>(), "type", 1_000, 0, null,
+                                                                   "records  form=aggregate", (1_000, 5), c, 0);
+        var (cap, cut) = RenderFloorAssert.ServedCut(Raw, t => t.Contains("truncated: rendered", StringComparison.Ordinal));
         Served(cut, "truncated: rendered", "groups before hitting max_chars=" + cap);
-        Assert.True(CountOf(cut, "\n  ") < CountOf(whole, "\n  "), "the capped render laid as many rows as the uncapped one");
-        // The ceiling holds, or the fixed part the response owes whatever the budget names its own overrun.
-        if (cut.Length > cap)
-            Assert.Contains($"over the max_chars={cap} it was given", cut);
+        Assert.True(CountOf(cut, "\n  ") < CountOf(Raw(RenderCap.Whole), "\n  "), "the capped render laid as many rows as the uncapped one");
+        // Below that cap the ceiling holds too: the call fits or is refused naming a cap it fits.
+        RenderFloorAssert.FitsOrRefuses(Call(whole.Length - 40), whole.Length - 40, Call);
     }
 
     [Fact]
@@ -156,8 +159,14 @@ public sealed class RecordsListLaneTests : RecordsTestBase
         var types = new[] { "SPEL", "SCRL" };
         var walk = new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" };
         var whole = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, walk: walk, types: types, project: project);
-        var cut = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, walk: walk, types: types, project: project,
-                                       max_chars: whole.Length / 2);
+        Served(whole, "no records: Scroll");
+        // This selection's table is narrower than its floor, so a call is served it whole or refused (#986): the text
+        // render is driven directly over a thirty-row table, at the first cap it lays cut inside.
+        var rows = Enumerable.Range(1, 30).Select(i => new KeyValuePair<string, int>($"Type{i:D2}", 100 - i)).ToList();
+        var (_, cut) = RenderFloorAssert.ServedCut(
+            c => RecordsTools.RenderListAggregateText(rows, new[] { "Scroll" }, "type", 1_000, 0, null, "records  form=aggregate",
+                                                      (1_000, 5), c, 0),
+            t => t.Contains("truncated: rendered", StringComparison.Ordinal));
         Served(cut, "no records: Scroll");
     }
 }

@@ -68,7 +68,12 @@ public sealed class NifInspectRenderTests
     [Fact]
     public void AShapesDetailCutCountsTheRemainder()
     {
-        var text = Render(FakeData(FakeInspect(6, 0, false), null), new[] { "shapes" }, cap: 1_100);
+        // Read at the first cap it is served cut after at least one shape (#986: a whole answer that fits is served
+        // whole); a count of the total rather than the remainder never reads under six there, so no cap is found.
+        var d = FakeData(FakeInspect(6, 0, false), null);
+        var (_, text) = RenderFloorAssert.ServedCut(c => Render(d, new[] { "shapes" }, cap: c),
+                                                    t => t.Contains("more omitted", StringComparison.Ordinal)
+                                                         && !t.Contains("6 more omitted", StringComparison.Ordinal));
         Assert.Contains("more omitted", text);
         Assert.DoesNotContain("6 more omitted", text);
     }

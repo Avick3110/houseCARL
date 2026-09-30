@@ -190,8 +190,10 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("re-call with limit=2 offset=2 for the next page", paged);
 
         // No limit passed: the advice still names one, so the follow-up call is a page and not the whole remainder.
-        var unlimited = AssetWire.Render(
-            _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }), 1_500);
+        // Read at the first cap it is served cut: a whole answer that fits is served whole (#986).
+        var all = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir });
+        var (_, unlimited) = RenderFloorAssert.ServedCut(c => AssetWire.Render(all, c),
+                                                         t => t.Contains("for the next page", StringComparison.Ordinal));
         Assert.Matches(@"re-call with limit=[1-9]\d* offset=\d+ for the next page", unlimited);
     }
 
@@ -202,7 +204,8 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
     {
         var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir });
 
-        var text = AssetWire.Render(d, 200);
+        // The first cap the server serves the call cut (#986: below the floor a text call is refused).
+        var (_, text) = RenderFloorAssert.ServedCut(c => AssetWire.Render(d, c), t => t.Contains("max_chars cut", StringComparison.Ordinal));
 
         Assert.Contains("[accounting] total=5 rendered=", text);
         Assert.Matches(@"truncated=[1-9]", text);
@@ -356,6 +359,8 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         foreach (var cap in new[] { 400, 900, 1200, 1600, 80_000 })
         {
             var text = AssetWire.Render(d, cap);
+            // Below the floor the call is refused naming a cap it fits, so there is no block to measure (#986).
+            if (RenderFloorAssert.IsFloorRefusal(text)) { RenderFloorAssert.RefusesAndTheNamedCapFits(text, cap, c => AssetWire.Render(d, c)); continue; }
             int at = text.IndexOf("\n\n[accounting]", StringComparison.Ordinal);
             Assert.True(at >= 0, $"max_chars={cap} dropped the accounting block");
             // The overrun sentence a too-small cap earns is written after the block and is not part of it, so the

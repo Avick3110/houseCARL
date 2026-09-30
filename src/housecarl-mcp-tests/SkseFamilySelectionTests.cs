@@ -128,9 +128,18 @@ public sealed class SkseFamilySelectionTests
         public string? Called;
         public int Cap;
         public SkseTools.FamilyCall Call;
-        public string Inventory(SkseTools.FamilyCall c) { Called = "inventory"; Cap = c.Cap; Call = c; return "INVENTORY-BODY"; }
-        public string Pairing(SkseTools.FamilyCall c) { Called = "pairing"; Cap = c.Cap; Call = c; return "PAIRING-BODY"; }
-        public string Config(SkseTools.FamilyCall c) { Called = "config"; Cap = c.Cap; Call = c; return "CONFIG-BODY"; }
+        /// <summary>Every call the dispatch made, in order: the whole-first pass comes first (#986).</summary>
+        public readonly List<SkseTools.FamilyCall> Calls = new();
+        /// <summary>How wide the body is, so a test can make its whole answer wider than the cap it passes.</summary>
+        public int BodyLength;
+        string Body(string name, SkseTools.FamilyCall c)
+        {
+            Called = name; Cap = c.Cap; Call = c; Calls.Add(c);
+            return (name.ToUpperInvariant() + "-BODY").PadRight(BodyLength, 'x');
+        }
+        public string Inventory(SkseTools.FamilyCall c) => Body("inventory", c);
+        public string Pairing(SkseTools.FamilyCall c) => Body("pairing", c);
+        public string Config(SkseTools.FamilyCall c) => Body("config", c);
     }
 
     /// <summary>Each findings= value runs its OWN family's render, and the answer ends on that family's footer. Without
@@ -158,11 +167,12 @@ public sealed class SkseFamilySelectionTests
     [Fact]
     public void TheFooterIsChargedAsTheRendersTrailerNotTakenOffItsCap()
     {
-        var renders = new RecordingRenders();
+        // A body wider than the cap, so the render is asked at the caller's cap and not only whole (#986).
+        var renders = new RecordingRenders { BodyLength = 6_000 };
         SkseTools.Dispatch(renders, SkseTools.SkseFamily.Pairing, filter: null, peek: false, max_chars: 5_000);
 
-        Assert.Equal(5_000, renders.Cap);
-        Assert.Equal(SkseTools.FamilyFooter(SkseTools.SkseFamily.Pairing).Length, renders.Call.Trailer);
+        Assert.Contains(renders.Calls, c => c.Cap == 5_000);
+        Assert.All(renders.Calls, c => Assert.Equal(SkseTools.FamilyFooter(SkseTools.SkseFamily.Pairing).Length, c.Trailer));
     }
 
     /// <summary>Every TRANSPORT knob the dispatch takes reaches the render on the call it composes. Without this the

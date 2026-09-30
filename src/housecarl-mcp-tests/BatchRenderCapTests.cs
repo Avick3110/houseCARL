@@ -256,18 +256,33 @@ public class BatchRenderCapTests
         Assert.Matches(@"\[\d+ more path\(s\) omitted", text);
     }
 
-    /// <summary>The one arm a bounded render may still exceed on: a cap too small for the header, the alarms and the
-    /// accounting it carries whatever the budget. It ships the answer and NAMES the overrun, the same shape the check
-    /// sweep has carried since #537 — never a silent overrun and never a mid-token trim.</summary>
+    /// <summary>A cap too small for the header, the alarms and the accounting the render carries whatever the budget
+    /// is refused, naming the cap that clears it (#986) — never an answer over the cap, never a mid-token trim.</summary>
     [Fact]
-    public void ACapTooSmallForTheFixedPartSaysSoAndNamesTheCapThatClearsIt()
+    public void ACapTooSmallForTheFixedPartIsRefusedNamingTheCapThatClearsIt()
     {
-        var text = AssetWire.Render(ThreePaths(), 60);
+        var d = ThreePaths();
 
-        Assert.Contains("over the max_chars=60 it was given", text);
-        Assert.Contains("raise max_chars to at least ", text);
-        var needed = int.Parse(System.Text.RegularExpressions.Regex.Match(text, @"raise max_chars to at least (\d+)").Groups[1].Value);
-        Assert.Equal(text.Length, needed);
+        // asset_status names its floor plus what a next call's spill name can add, so no ladder one below it.
+        RenderFloorAssert.RefusesAndTheNamedCapFits(AssetWire.Render(d, 60), 60, c => AssetWire.Render(d, c));
+    }
+
+    /// <summary>The nif batch owes its alarms and cut notice but no accounting trailer: its own floor (#986).</summary>
+    [Fact]
+    public void ANifBatchBelowItsFloorIsRefusedNamingTheCapThatClearsIt()
+    {
+        var d = Meshes(3);
+
+        RenderFloorAssert.RefusesAndTheNamedCapFits(RenderNif(d, 60), 60, c => RenderNif(d, c));
+    }
+
+    /// <summary>The asset_status census owes its alarms, its counters and its axis's fixed lines (#986).</summary>
+    [Fact]
+    public void AnAssetCensusBelowItsFloorIsRefusedNamingTheCapThatClearsIt()
+    {
+        var d = ThreePaths();
+
+        RenderFloorAssert.RefusesAndTheNamedCapFits(AssetCensus.Render(d, 60, 0), 60, c => AssetCensus.Render(d, c, 0));
     }
 
     // ---- the alarm lists ------------------------------------------------------------------------------
@@ -290,25 +305,30 @@ public class BatchRenderCapTests
     [Fact]
     public void ACutReadFailureListNamesTheArchivesItHeldBack()
     {
-        var text = AssetWire.Render(ThreeReadFailures(), 620);
+        // Forty failures, read at the first cap the call is served with its alarm list cut (#986: below the floor it is
+        // refused, and three short failures are served whole wherever they are not refused).
+        var d = ManyReadFailures(40, 20);
+        var (cap, text) = RenderFloorAssert.ServedCut(c => AssetWire.Render(d, c),
+                                                      t => t.Contains("archive(s) omitted at max_chars=", StringComparison.Ordinal));
 
-        Assert.Contains("3 archive(s) could NOT be read this build", text);
-        Assert.Contains("archive(s) omitted at max_chars=620", text);
+        Assert.Contains("40 archive(s) could NOT be read this build", text);
+        Assert.Contains($"archive(s) omitted at max_chars={cap}", text);
         Assert.Contains("  … [", text);
         var held = int.Parse(System.Text.RegularExpressions.Regex.Match(text, @"\[(\d+) more archive\(s\) omitted").Groups[1].Value);
-        var listed = System.Text.RegularExpressions.Regex.Matches(text, @"  - Broken - \w+\.bsa").Count;
-        Assert.Equal(3, held + listed);
+        var listed = System.Text.RegularExpressions.Regex.Matches(text, @"  - A Mod With A Long Folder Name \d+ - Textures\.bsa").Count;
+        Assert.Equal(40, held + listed);
     }
 
-    /// <summary>An alarm the budget cannot hold is NEVER dropped in silence: the heading and its count ship, and the
-    /// overrun that costs is named. A response that quietly loses the archive-read alarm reads as a clean sweep.</summary>
+    /// <summary>An alarm the budget cannot hold is NEVER dropped in silence: the call is refused naming the cap that
+    /// holds the heading and its count (#986). A response that quietly loses the archive-read alarm reads as a clean
+    /// sweep.</summary>
     [Fact]
-    public void AnAlarmTooWideForTheBudgetIsStillSaidAndTheOverrunIsNamed()
+    public void AnAlarmTooWideForTheBudgetIsRefusedNamingTheCapThatSaysIt()
     {
-        var text = AssetWire.Render(ThreeReadFailures(), 300);
+        var d = ThreeReadFailures();
 
-        Assert.Contains("3 archive(s) could NOT be read this build", text);
-        Assert.Contains("over the max_chars=300 it was given", text);
+        var served = RenderFloorAssert.RefusesAndTheNamedCapFits(AssetWire.Render(d, 300), 300, c => AssetWire.Render(d, c));
+        Assert.Contains("3 archive(s) could NOT be read this build", served);
     }
 
     /// <summary>The two batch renders agree under the same cap: each names its cut with the same marker, in the same

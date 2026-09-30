@@ -63,7 +63,12 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
     [Fact]
     public void AnAggregateTableClippedByMaxCharsStillReportsTheExactTotal()
     {
-        var r = RecordsTools.Records(Svc, plugins: BothScope, project: Aggregate("type"), max_chars: 60);
+        // The group render at one cap, driven directly: this table is narrower than its floor, so a call is served it
+        // whole or refused (#986). Read at the first cap it lays cut inside.
+        var q = Svc.CrossQuery(null, null, null, false, BothScope.names, null, 100_000, groupBy: "type");
+        using var rows = new ScanRows(Svc, q, null, 1, false, false, null, default);
+        var (_, r) = RenderFloorAssert.ServedCut(c => Wire.RenderCrossQuery(rows, q, null, c, false, null, out _),
+                                                 t => t.Contains("before hitting max_chars=", StringComparison.Ordinal));
         Served(r, "7 matches across 3 groups", "the total above is exact");
         Assert.Contains("before hitting max_chars=", r);
     }

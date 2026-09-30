@@ -86,20 +86,18 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
         Assert.DoesNotContain("project.fields=", r);
     }
 
-    [Fact]
-    public void TheOffOrderScansEverythingLaneDropsItToo_ThreeLanesOneRule()
-    {
-        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, source: Plugin(W.OldName), max_chars: 12,
-                                     project: Form("everything"));
-        Assert.Contains("max_chars", r);
-        Assert.DoesNotContain("project.fields=", r);
-    }
+    // TheOffOrderScansEverythingLaneDropsItToo_ThreeLanesOneRule moved to WideCutLaneTests: the band of caps this
+    // world's off-order file is served cut in is a few chars wide and closes on a longer temp path.
 
     [Fact]
     public void TheFieldsFormStillNamesItsSelector_TheVocabularyIsPerFormNotPerTool()
     {
-        var r = RecordsTools.Records(Svc, formids: AllWeaponIds, max_chars: 220,
-                                     project: Fields("BasicStats.Damage", "EditorID", "Name"));
+        // A cut the server serves (#986): the cut notice is the only place project.fields= is named here.
+        // Seven records of seven types: the weapons alone are served cut in a band a few dozen chars wide.
+        string[] ids = { Fid(W.Weapons[0]), Fid(W.Armor), Fid(W.MgefA), Fid(W.SpellA), Fid(W.BigList), Fid(W.Package), Fid(W.NpcParent) };
+        var r = RenderFloorAssert.ServedCut(c => RecordsTools.Records(Svc, formids: ids, max_chars: c,
+                                                                      project: Fields("BasicStats.Damage", "EditorID", "Name")),
+                                            t => t.Contains("truncated", StringComparison.Ordinal)).Text;
         Assert.Contains("project.fields=", r);
     }
 

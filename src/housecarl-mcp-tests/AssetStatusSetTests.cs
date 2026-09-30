@@ -550,9 +550,12 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         var spills = SpillFolders.Emptied(_w.Svc);
         try
         {
-            var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, max_chars: 900);
+            // This world's whole answer is narrower than a spill block, so its text call is refused below the floor
+            // rather than cut (#986): the spill is written through the json transport and spelled by the text lane.
+            AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, format: "json", max_chars: 900);
 
             var file = Assert.Single(Directory.GetFiles(spills, "*.jsonl"));
+            var text = TextSpillOf(file);
             Assert.Contains("spilled: complete result", text);
             Assert.Contains(file, text);
             Assert.Contains("the inline render hit max_chars", text);
@@ -566,6 +569,17 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Equal("path", manifest.GetProperty("identity").GetString());
         }
         finally { try { Directory.Delete(spills, true); } catch { } }
+    }
+
+    /// <summary>The text lane's own spill block for a ceiling spill that landed at <paramref name="file"/>.</summary>
+    static string TextSpillOf(string file) =>
+        Wire.SpillText(SpillState.Spilled(new SpillInfo(file, ManifestOfSpill(file), "ceiling"), manifestOnly: false));
+
+    static HousecarlCore.ResultArtifact.Manifest ManifestOfSpill(string file)
+    {
+        var (m, _, err) = HousecarlCore.ResultArtifact.ReadIdentity(file, File.ReadAllText(file));
+        Assert.Null(err);
+        return m!;
     }
 
     /// <summary>The json lane carries the same marker as data, with the reason a consumer branches on.</summary>
@@ -603,8 +617,11 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         var spills = SpillFolders.Emptied(_w.Svc);
         try
         {
-            var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
-                                              limit: limit, offset: offset, max_chars: 700);
+            // This world's whole answer is narrower than a spill block, so its text call is refused below the floor
+            // rather than cut (#986): the spill is written through the json transport and spelled by the text lane.
+            AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, limit: limit, offset: offset,
+                                   format: "json", max_chars: 700);
+            var text = TextSpillOf(Assert.Single(Directory.GetFiles(spills, "*.jsonl")));
 
             Assert.Contains("spilled: the returned WINDOW", text);
             Assert.Contains("outside the returned window are in NO file", text);
@@ -660,7 +677,10 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             var epoch = w.Svc.CaptureView().Stamp.Epoch;
             Assert.NotEqual("", epoch);
 
-            var text = AssetTools.AssetStatus(w.Svc, under: new[] { DegradedOrderWorld.SweepDir }, max_chars: 700);
+            // This world's whole answer is narrower than a spill block, so its text call is refused below the floor
+            // rather than cut (#986): the spill is written through the json transport and spelled by the text lane.
+            AssetTools.AssetStatus(w.Svc, under: new[] { DegradedOrderWorld.SweepDir }, format: "json", max_chars: 700);
+            var text = TextSpillOf(Assert.Single(Directory.GetFiles(spills, "*.jsonl")));
 
             Assert.Contains("spilled: complete result", text);
             Assert.Contains("epoch=" + epoch, text);

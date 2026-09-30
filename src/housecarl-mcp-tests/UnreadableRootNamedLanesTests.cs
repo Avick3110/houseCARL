@@ -371,8 +371,11 @@ public sealed class UnreadableRootNamedLanesTests : IDisposable
         Assert.True(_w.Blocked, BlockedSweepWorld.NotStaged);
         var families = new[] { "facegen", "scripts" };
 
-        int text = CountOf(CheckTools.CheckTool(_w.Svc, findings: families, max_chars: cap),
-                           BatchRender.RootFailureLead);
+        // Below the sweep's floor the text call is refused (#986); both renders are then read at the cap it names.
+        var served = CheckTools.CheckTool(_w.Svc, findings: families, max_chars: cap);
+        if (RenderFloorAssert.IsFloorRefusal(served))
+            served = CheckTools.CheckTool(_w.Svc, findings: families, max_chars: cap = RenderFloorAssert.Named(served));
+        int text = CountOf(served, BatchRender.RootFailureLead);
         var json = CheckTools.CheckTool(_w.Svc, findings: families, format: "json", max_chars: cap);
 
         Assert.True(text > 0, $"the text render named no root at max_chars={cap}");

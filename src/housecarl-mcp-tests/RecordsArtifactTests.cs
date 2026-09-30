@@ -186,22 +186,26 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 
     // ---- auto-spill at the inline ceiling ----------------------------------------------------------
 
-    const int TinyScan = 200;    // below the scan render's floor for this world
-    const int TinyList = 120;    // below the identity render's floor for three rows
+    const int TinyScan = 200;    // below the scan render's floor for this world; the json lane still spills here
+    const int TinyList = 120;    // below the identity render's floor for three rows; the json lane still spills here
     const int TinyBody = 300;    // below the full-body render's floor for three records
+    // A text render below its floor is refused (#986), so the text spill tests cut a render whose whole is wider
+    // than its spill block: the WEAP scan's full bodies, and the list lane's.
+    const int SpillScan = 2_500;   // cuts the full-body WEAP scan and fits its spill block
+    const int SpillBody = 1_500;   // cuts the full-body list lane and fits its spill block
 
     [Fact]
     public void Control_MaxCharsTruncatesTheInlineTextRender()
     {
         var d = OwnResults();
-        Assert.Contains("[truncated:", RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: TinyScan));
+        Assert.Contains("[truncated:", RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: SpillScan));
     }
 
     [Fact]
     public void AnAutoSpillAnnouncesTheCompleteResultWithItsRowCountNotTheRenderedPrefix()
     {
         var d = OwnResults();
-        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: TinyScan);
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: SpillScan);
         Assert.Contains($"spilled: complete result ({WeaponTotal} rows)", r);
     }
 
@@ -210,7 +214,10 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void AnAutoSpillNamesTheResultsDirFileThatActuallyExists(string format)
     {
         var d = OwnResults();
-        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, format: format, max_chars: TinyScan);
+        // A text scan below its floor is refused, so the text transport cuts the full-body scan instead.
+        var r = format == "text"
+            ? RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: SpillScan)
+            : RecordsTools.Records(Svc, types: new[] { "WEAP" }, format: format, max_chars: TinyScan);
         var path = TheSpill(d);
         // The file NAME, not the full path: a json render escapes the path's separators, and the name is
         // unique inside this test's own results directory.
@@ -275,20 +282,19 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.True(r.Length <= cap, $"the summary returned {r.Length} chars at max_chars={cap}");
     }
 
-    /// <summary>And under a cap too small for the spill block it must carry, it says so and names the cap that
-    /// clears it — where before it answered a thousand characters over the ceiling in silence, this lane never
-    /// having settled its own overrun at all.</summary>
+    /// <summary>And under a cap too small for the spill block it must carry, it is refused naming a cap that
+    /// clears it — where before #546 it answered a thousand characters over the ceiling in silence, and before #986
+    /// it answered over it with a note.</summary>
     [Fact]
-    public void ASummaryTooSmallForWhatItMustCarrySaysSoInsteadOfOverrunningSilently()
+    public void ASummaryTooSmallForWhatItMustCarryIsRefusedNamingACapThatFits()
     {
         var d = OwnResults();
-        var r = RecordsTools.Records(Svc, formids: SummaryIds,
-                                     project: new RecordsTools.RecordsProject { form = "summary" }, max_chars: 900);
+        string Call(int cap) => RecordsTools.Records(Svc, formids: SummaryIds,
+                                                     project: new RecordsTools.RecordsProject { form = "summary" }, max_chars: cap);
 
-        Assert.Matches(@"\[rendered \d+ of \d+ at max_chars=900\]", r);   // what it held back is counted
-        Assert.Contains("over the max_chars=900 it was given", r);
-        var needed = int.Parse(Regex.Match(r, @"raise max_chars to at least (\d+)").Groups[1].Value);
-        Assert.Equal(r.Length, needed);
+        // What a summary served cut holds back is counted: WideCutLaneTests.AListSummaryServedCutCountsWhatItHeldBack,
+        // since this selection is served whole wherever it is not refused (#986).
+        RenderFloorAssert.RefusesAndTheNamedCapFits(Call(900), 900, Call);
     }
 
     /// <summary>The list-lane selection the summary tests render.</summary>
@@ -300,16 +306,13 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     // Each of these tested the ceiling BEFORE the block it was about to write, so the record, node or carrier row
     // that crossed went in whole and the notice and the spilled: block on top of it.
 
-    /// <summary>The bound, both arms: the response is inside its cap, or it is the one arm a bounded render may
-    /// still exceed it on — a max_chars too small for what the response carries whatever the budget, its spill
-    /// block included — and it says so, naming the number that clears it in one step.</summary>
-    static void InsideItsCap(string r, int cap, string what)
+    /// <summary>The bound, both arms: the response is inside its cap, or the cap is below what the response carries
+    /// whatever the budget, its spill block included, and the call is refused naming a cap the same call fits.</summary>
+    static void InsideItsCap(string r, int cap, string what, Func<int, string> call)
     {
-        if (r.Length <= cap) return;
-        Assert.True(r.Contains($"over the max_chars={cap} it was given", StringComparison.Ordinal),
-                    $"the {what} returned {r.Length} chars at max_chars={cap} and did not say so");
-        var needed = int.Parse(Regex.Match(r, @"raise max_chars to at least (\d+)").Groups[1].Value);
-        Assert.Equal(r.Length, needed);
+        if (RenderFloorAssert.IsFloorRefusal(r)) { RenderFloorAssert.RefusesAndTheNamedCapFits(r, cap, call); return; }
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.True(r.Length <= cap, $"the {what} returned {r.Length} chars at max_chars={cap}");
     }
 
     [Theory]
@@ -320,11 +323,10 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void ADeltaRenderIsNeverWiderThanItsCap(int cap)
     {
         var d = OwnResults();
-        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("delta"),
-                                     versus: Je("\"" + W.MasterName + "\""), max_chars: cap);
+        string Call(int c) => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("delta"),
+                                                   versus: Je("\"" + W.MasterName + "\""), max_chars: c);
 
-        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
-        InsideItsCap(r, cap, "delta");
+        InsideItsCap(Call(cap), cap, "delta", Call);
     }
 
     [Theory]
@@ -335,10 +337,9 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void ATreeRenderIsNeverWiderThanItsCap(int cap)
     {
         var d = OwnResults();
-        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("tree"), max_chars: cap);
+        string Call(int c) => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("tree"), max_chars: c);
 
-        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
-        InsideItsCap(r, cap, "tree");
+        InsideItsCap(Call(cap), cap, "tree", Call);
     }
 
     [Theory]
@@ -349,11 +350,10 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void AChainRenderIsNeverWiderThanItsCap(int cap)
     {
         var d = OwnResults();
-        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk(),
-                                     project: Form("chain"), max_chars: cap);
+        string Call(int c) => RecordsTools.Records(Svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk(),
+                                                   project: Form("chain"), max_chars: c);
 
-        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
-        InsideItsCap(r, cap, "chain");
+        InsideItsCap(Call(cap), cap, "chain", Call);
     }
 
     [Theory]
@@ -364,12 +364,11 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void AReverseEffectChainRenderIsNeverWiderThanItsCap(int cap)
     {
         var d = OwnResults();
-        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
-                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
-                                     project: Form("chain"), max_chars: cap);
+        string Call(int c) => RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
+                                                   walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
+                                                   project: Form("chain"), max_chars: c);
 
-        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
-        InsideItsCap(r, cap, "effect chain");
+        InsideItsCap(Call(cap), cap, "effect chain", Call);
     }
 
     /// <summary>At a cap the render cannot hold — 100 short of what it takes uncapped, so it is derived rather
@@ -392,18 +391,29 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
             int cap = call(0).Length - 100;   // the whole render spills nothing; 100 short of it cannot hold
             var r = call(cap);
 
+            // This world's whole chain is narrower than its spill block, so a cut chain is refused; the cap it names is
+            // the one its whole answer fits, never the cut with a spill block that call would not write.
+            if (name == "chain")
+            {
+                var served = RenderFloorAssert.RefusesAndTheNamedCapFits(r, cap, call);
+                // The named cap is no wider than the whole answer plus the next-call allowance, and the call at it
+                // carries no spill block.
+                Assert.True(RenderFloorAssert.Named(r) <= call(0).Length + RenderCap.NextCallGrowth,
+                            $"chain refusal named {RenderFloorAssert.Named(r)}, wider than its whole answer {call(0).Length}");
+                Assert.DoesNotContain("spilled:", served);
+                continue;
+            }
             Assert.Contains("at max_chars=" + cap + "]", r);          // the notice quotes what the caller passed
             Assert.Contains("spilled: complete result", r);           // and the artifact still holds it all
-            InsideItsCap(r, cap, name);
+            InsideItsCap(r, cap, name, call);
         }
     }
 
     /// <summary>The census is a text render too, and the ceiling is stated over every one of them: a counts_only
-    /// response carries the header's source and selection statements whatever the budget, so at a max_chars it
-    /// cannot fit in it says so and names the number that clears it, rather than answering several times over the
-    /// cap in silence.</summary>
+    /// response carries the header's source and selection statements whatever the budget, so a max_chars it cannot
+    /// fit in is refused naming a number that clears it, rather than answering several times over the cap.</summary>
     [Fact]
-    public void ACensusTooBigForItsCapSaysSoAndNamesTheNumberThatClearsIt()
+    public void ACensusTooBigForItsCapIsRefusedNamingTheNumberThatClearsIt()
     {
         foreach (var (name, call) in new (string, Func<int, string>)[]
         {
@@ -421,11 +431,40 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
                                                            project: Form("chain"), counts_only: true, max_chars: cap)),
         })
         {
-            var r = call(50);
+            RenderFloorAssert.RefusesAndTheNamedCapFits(call(50), 50, call);
+        }
+    }
 
-            Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
-            Assert.True(r.Length > 50, $"the {name} fits 50 chars, so it cannot show the overrun arm");
-            InsideItsCap(r, 50, name);
+    /// <summary>Every records text form owes its own header and notices, the spill block among them once it is cut:
+    /// each is refused below that floor naming a cap the same call fits (#986).</summary>
+    [Fact]
+    public void EveryRecordsTextFormBelowItsFloorIsRefusedNamingACapItFits()
+    {
+        foreach (var (name, call) in new (string, Func<int, string>)[]
+        {
+            ("identity", cap => RecordsTools.Records(Svc, formids: Ids, project: Identity, max_chars: cap)),
+            ("list bodies", cap => RecordsTools.Records(Svc, formids: Ids, project: Everything, max_chars: cap)),
+            ("scan summary", cap => RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: cap)),
+            ("scan bodies", cap => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: cap)),
+            ("scan groups", cap => RecordsTools.Records(Svc, types: new[] { "WEAP", "SPEL" },
+                                                        project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" }, max_chars: cap)),
+            ("list groups", cap => RecordsTools.Records(Svc, formids: SummaryIds,
+                                                        project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" }, max_chars: cap)),
+            ("summary", cap => RecordsTools.Records(Svc, formids: SummaryIds, project: Form("summary"), max_chars: cap)),
+            ("delta", cap => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("delta"),
+                                                  versus: Je("\"" + W.MasterName + "\""), max_chars: cap)),
+            ("tree", cap => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("tree"), max_chars: cap)),
+            ("chain", cap => RecordsTools.Records(Svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk(),
+                                                  project: Form("chain"), max_chars: cap)),
+            ("effect chain", cap => RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
+                                                         walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
+                                                         project: Form("chain"), max_chars: cap)),
+            ("scan census", cap => RecordsTools.Records(Svc, types: new[] { "SPEL" }, counts_only: true, max_chars: cap)),
+        })
+        {
+            var d = OwnResults();
+            RenderFloorAssert.RefusesAndTheNamedCapFits(call(50), 50, call);
+            Assert.Empty(Directory.GetFiles(d, "*.tmp-*"));
         }
     }
 
@@ -462,25 +501,24 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     }
 
     /// <summary>The one arm left: a max_chars smaller than the spill block the response must carry — the block that
-    /// names the artifact holding the complete result — says so and names the cap that clears it, rather than
-    /// answering over the ceiling in silence.</summary>
+    /// names the artifact holding the complete result — is refused naming a cap that clears it, the spill block
+    /// included, and the spill it would have named is not left behind.</summary>
     [Fact]
-    public void ACapTooSmallForTheSpillBlockSaysSoAndNamesTheCapThatClearsIt()
+    public void ACapTooSmallForTheSpillBlockIsRefusedNamingACapThatClearsIt()
     {
         var d = OwnResults();
-        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: TinyBody);
+        string Call(int cap) => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: cap);
 
-        Assert.Contains($"over the max_chars={TinyBody} it was given", r);
-        Assert.Contains("raise max_chars to at least ", r);
-        var needed = int.Parse(Regex.Match(r, @"raise max_chars to at least (\d+)").Groups[1].Value);
-        Assert.Equal(r.Length, needed);
+        var r = Call(TinyBody);
+        Assert.Empty(Directory.GetFiles(d, "*.jsonl"));   // a refused call leaves no spill behind
+        Assert.Contains("spilled: complete result", RenderFloorAssert.RefusesAndTheNamedCapFits(r, TinyBody, Call));
     }
 
     [Fact]
     public void AnAutoSpilledArtifactHoldsEveryRowStampedWithTheScannedBuild()
     {
         var d = OwnResults();
-        RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: TinyScan);
+        RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: SpillScan);
         var m = ManifestOf(TheSpill(d));
         Assert.Equal(WeaponTotal, m.RowCount);
         Assert.Equal(W.Epoch0, m.Epoch);
@@ -504,7 +542,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         var d = OwnResults();
         using (var scanner = new GrabbingScanner(d))
         {
-            var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: TinyScan);
+            var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: SpillScan);
             Assert.Contains("spilled:", r);
             Assert.DoesNotContain("could NOT be written", r);
             // Without this the test goes vacuous when the watcher is slow: nothing held the file, so nothing was
@@ -565,7 +603,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void TheBodyLaneAutoSpillsItsCompleteRowsWhenTheRenderIsTruncated()
     {
         var d = OwnResults();
-        var r = RecordsTools.Records(Svc, formids: Ids, project: Everything, max_chars: TinyBody);
+        var r = RecordsTools.Records(Svc, formids: Ids, project: Everything, max_chars: SpillBody);
         Assert.Contains("spilled:", r);
         Assert.Equal(Ids.Length, ManifestOf(TheSpill(d)).RowCount);
     }
@@ -574,8 +612,9 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void TheIdentityLaneAutoSpillsUnderTheSameContract()
     {
         var d = OwnResults();
-        var r = RecordsTools.Records(Svc, formids: Ids, project: Identity, max_chars: TinyList);
-        Assert.Contains("spilled:", r);
+        // This world's whole identity render is narrower than a spill block, so the json lane carries the spill.
+        var doc = Je(RecordsTools.Records(Svc, formids: Ids, project: Identity, format: "json", max_chars: TinyList));
+        Assert.True(doc.TryGetProperty("spilled", out _));
         Assert.Equal(Ids.Length, ManifestOf(TheSpill(d)).RowCount);
     }
 
@@ -584,7 +623,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     {
         // Prose-only: the failure has no value to report — the datum is that no file was produced.
         using var svc = UncreatableResults("failed-text");
-        var r = RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: TinyScan);
+        var r = RecordsTools.Records(svc, types: new[] { "WEAP" }, project: Everything, max_chars: SpillScan);
         Assert.Contains("[truncated:", r);
         Assert.Contains("could NOT be written", r);
         Assert.Contains("exists NOWHERE", r);
@@ -642,11 +681,21 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 
     // ---- the spill marker tells the truth about what it holds --------------------------------------
 
+    /// <summary>The text wording of the window spill the scan lane writes. A two-row text window is narrower than its
+    /// spill block, so its text render is refused below that floor (#986): the spill is written through the json
+    /// transport and its manifest spelled by the text lane's own spill block.</summary>
+    string WindowSpillText()
+    {
+        var d = OwnResults();
+        RecordsTools.Records(Svc, types: new[] { "WEAP" }, limit: 2, format: "json", max_chars: TinyScan);
+        var path = TheSpill(d);
+        return Wire.SpillText(SpillState.Spilled(new SpillInfo(path, ManifestOf(path), "ceiling"), manifestOnly: false));
+    }
+
     [Fact]
     public void AWindowedAutoSpillSaysWindowAndNeverClaimsTheCompleteResult()
     {
-        var d = OwnResults();
-        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, limit: 2, max_chars: TinyScan);
+        var r = WindowSpillText();
         Assert.Contains($"spilled: the returned WINDOW (2 rows of {WeaponTotal} total matches)", r);
         Assert.DoesNotContain("complete result", r);
     }
@@ -656,9 +705,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     {
         // Prose-only: "nowhere" is not a value the response can carry as a number. The sentence names the WINDOW,
         // not limit=, because offset= alone makes a window too and the matches it drops are the ones before it.
-        var d = OwnResults();
-        Assert.Contains("outside the returned window are in NO file",
-                        RecordsTools.Records(Svc, types: new[] { "WEAP" }, limit: 2, max_chars: TinyScan));
+        Assert.Contains("outside the returned window are in NO file", WindowSpillText());
     }
 
     [Fact]

@@ -124,11 +124,20 @@ public sealed class CheckTypesSetTests
         Assert.Equal(2, r.TotalDangling);
 
         // Each lane reserves its own room, so the cap that cuts one need not cut the other: each is searched for
-        // the cut on its own terms and then asked what it says about it.
+        // the cut on its own terms and then asked what it says about it. Two rows are narrower than the text lane's
+        // floor, so a text call is served them whole or refused (#986): the text lane reads the same listing with
+        // its dangling rows repeated forty times, wide enough to be served cut.
+        var rep = r.Reports.First(p => p.Dangling.Count > 0);
+        var many = Enumerable.Range(0, 40).SelectMany(_ => rep.Dangling).ToList();
+        var wide = r with
+        {
+            Reports = r.Reports.Select(p => ReferenceEquals(p, rep) ? p with { Dangling = many } : p).ToList(),
+            TotalDangling = r.TotalDangling - rep.Dangling.Count + many.Count,
+        };
         string? cutText = null;
         for (int cap = 400; cap <= 20_000; cap += 25)
         {
-            var t = CheckErrorsFixtures.Text(r, cap);
+            var t = CheckErrorsFixtures.Text(wide, cap);
             if (!t.Contains("did not fit this response", StringComparison.Ordinal)) continue;
             cutText = t;
             break;

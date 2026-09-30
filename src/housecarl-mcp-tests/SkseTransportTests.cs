@@ -799,18 +799,90 @@ public sealed class SkseTransportTests
         }
     }
 
-    /// <summary>The one arm left: a cap too small for what a family carries whatever the budget says so, and names
-    /// the cap that clears it, rather than quietly answering over the ceiling.</summary>
+    /// <summary>The one arm left: a cap too small for what a family carries whatever the budget is refused, naming a
+    /// cap the same call fits (#986), rather than answering over the ceiling.</summary>
     [Fact]
-    public void ACapTooSmallForTheFixedPartSaysSoInsteadOfOverrunningSilently()
+    public void ACapTooSmallForTheFixedPartIsRefusedNamingACapTheCallFits()
     {
         var renders = new StubRenders(Inventory(300, configs: 300, folders: 60), Pairing(300), ConfigAudit(300, refs: 4));
+        string Call(int c) => SkseTools.Dispatch(renders, SkseTools.SkseFamily.Inventory, filter: null, peek: false, max_chars: c);
 
-        var text = SkseTools.Dispatch(renders, SkseTools.SkseFamily.Inventory, filter: null, peek: false, max_chars: 200);
-
-        Assert.Contains("over the max_chars=200 it was given", text);
-        Assert.Contains("raise max_chars to at least ", text);
+        RenderFloorAssert.RefusesAndTheNamedCapFits(Call(200), 200, Call);
     }
+
+    /// <summary>Each family's views owe their own notices: unfiltered, filtered, and a filter matching nothing. Each is
+    /// refused below its floor naming a cap it fits, the footer Dispatch closes on included (#986).</summary>
+    [Theory]
+    [InlineData("inventory", null)]
+    [InlineData("inventory", "Mod1")]
+    [InlineData("inventory", "zzz")]
+    [InlineData("pairing", null)]
+    [InlineData("pairing", "Mod1")]
+    [InlineData("pairing", "zzz")]
+    [InlineData("config", null)]
+    [InlineData("config", "Mod1")]
+    [InlineData("config", "zzz")]
+    public void EveryFamilyViewBelowItsFloorIsRefusedNamingACapItFits(string name, string? filter)
+    {
+        var family = Family(name);
+        var renders = SmallRenders();
+        string Call(int c) => SkseTools.Dispatch(renders, family, filter: filter, peek: false, max_chars: c);
+
+        RenderFloorAssert.RefusesAndTheNamedCapFits(Call(100), 100, Call);
+    }
+
+    /// <summary>A filtered refusal offers dropping the filter only where the unfiltered view fits the cap it was given:
+    /// at 100 the unfiltered view is refused too, so it is not offered.</summary>
+    [Theory]
+    [InlineData("inventory")]
+    [InlineData("pairing")]
+    [InlineData("config")]
+    public void AFilteredRefusalDoesNotOfferOmittingTheFilterWhereTheUnfilteredViewIsRefusedToo(string name)
+    {
+        var text = SkseTools.Dispatch(SmallRenders(), Family(name), filter: "zzz", peek: false, max_chars: 100);
+
+        Assert.True(RenderFloorAssert.IsFloorRefusal(text), text);
+        Assert.DoesNotContain("omit filter=", text);
+    }
+
+    /// <summary>A filter that matches nothing and is wider than <paramref name="width"/>, so its view's floor is too.</summary>
+    static string WideFilter(int width) => "zzz" + new string('q', width);
+
+    /// <summary>...and offers it at a cap the unfiltered view fits and the filtered one does not.</summary>
+    [Theory]
+    [InlineData("inventory")]
+    [InlineData("pairing")]
+    [InlineData("config")]
+    public void AFilteredRefusalOffersOmittingTheFilterWhereTheUnfilteredViewFits(string name)
+    {
+        var renders = SmallRenders();
+        int unfilteredFits = RenderFloorAssert.Named(SkseTools.Dispatch(renders, Family(name), filter: null, peek: false, max_chars: 100));
+
+        var text = SkseTools.Dispatch(renders, Family(name), filter: WideFilter(unfilteredFits), peek: false, max_chars: unfilteredFits);
+
+        Assert.True(RenderFloorAssert.IsFloorRefusal(text), text);
+        Assert.Contains("omit filter=", text);
+    }
+
+    /// <summary>peek= needs its filter, so a peek refusal never offers dropping it, even where the unfiltered view fits.</summary>
+    [Fact]
+    public void APeekRefusalNeverOffersOmittingTheFilter()
+    {
+        var renders = SmallRenders();
+        int unfilteredFits = RenderFloorAssert.Named(SkseTools.Dispatch(renders, SkseTools.SkseFamily.Inventory, filter: null, peek: false, max_chars: 100));
+
+        var text = SkseTools.Dispatch(renders, SkseTools.SkseFamily.Inventory, filter: WideFilter(unfilteredFits), peek: true, max_chars: unfilteredFits);
+
+        Assert.True(RenderFloorAssert.IsFloorRefusal(text), text);
+        Assert.DoesNotContain("omit filter=", text);
+    }
+
+    static SkseTools.SkseFamily Family(string name) =>
+        name switch { "inventory" => SkseTools.SkseFamily.Inventory, "pairing" => SkseTools.SkseFamily.Pairing, _ => SkseTools.SkseFamily.Config };
+
+    static StubRenders SmallRenders() => new(Inventory(30, configs: 30, folders: 6, warnings: Warnings(3)),
+                                             Pairing(30, unreadable: 2, warnings: Warnings(3)),
+                                             ConfigAudit(30, refs: 2, warnings: Warnings(3)));
 
     /// <summary>The json twin of the arm above (#809): an over-cap skse json document says so IN the document, as
     /// every other json document does. It used to have the TEXT notice glued on past its root close by Dispatch's

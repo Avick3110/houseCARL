@@ -117,8 +117,12 @@ public sealed class SkyPatcherLayerFilterTests
     [Fact]
     public void ARootIsNamedEvenWhenNotOneLineFitsTheShare()
     {
-        var text = SkyPatcherWire.RenderLayer(WithRootFailures(OneNpcFolder(), 5), null, 400);
+        var d = WithRootFailures(OneNpcFolder(), 5);
+        // 400 is below this layer's floor, so the cap is the floor its refusal names: a share still under one line.
+        int cap = RenderFloorAssert.Named(SkyPatcherWire.RenderLayer(d, null, 400));
+        var text = SkyPatcherWire.RenderLayer(d, null, cap);
 
+        Assert.True(cap / 4 < text.Split('\n').First(l => l.Contains("BlockedMod01")).Length + 1, "one root line fits the share");
         Assert.Contains("BlockedMod01", text);
         Assert.Matches(@"showing 1 of 5 loose root read failure\(s\)", text);
         Assert.DoesNotContain("showing 0 of", text);
@@ -199,7 +203,7 @@ public sealed class SkyPatcherLayerFilterTests
         };
     }
 
-    /// <summary>Over a sweep of caps and filters, every render fits its cap or, below its fixed part, states its true length.</summary>
+    /// <summary>Over a sweep of caps and filters, every render fits its cap or, below its floor, refuses naming a cap it fits.</summary>
     [Fact]
     public void NoCapLandsTheRenderPastItWithReportSectionsAndExpandedLines()
     {
@@ -208,22 +212,27 @@ public sealed class SkyPatcherLayerFilterTests
         var reached = new HashSet<string>();
         string[] sites = { "remaining folders omitted", "  ... [cut at max_chars]", "lines cut at max_chars",
                            "entries cut at max_chars", "of 25; raise max_chars", "of 25 finding(s)", "section(s) omitted at max_chars=",
-                           "over the max_chars=" };
+                           "error: max_chars=" };
         foreach (var filter in new string?[] { null, "Mod003", "type3", "nosuchthing" })
             for (int cap = 200; cap <= 20_000; cap += 7)
             {
                 var text = SkyPatcherWire.RenderLayer(d, filter, cap);
                 reached.UnionWith(sites.Where(text.Contains));
+                if (RenderFloorAssert.IsFloorRefusal(text))
+                {
+                    // Refused only below the floor, naming a cap the same render fits.
+                    int named = RenderFloorAssert.Named(text);
+                    var at = SkyPatcherWire.RenderLayer(d, filter, named);
+                    if (cap >= 1_500 || named <= cap || RenderFloorAssert.IsFloorRefusal(at) || at.Length > named)
+                        over.Add($"filter={filter ?? "none"} cap={cap}: refused naming {named}, which rendered {at.Length}");
+                    continue;
+                }
                 // The omitted-sections line names exactly the report sections whose heading is missing.
                 var omitted = text.Split('\n').FirstOrDefault(l => l.Contains("section(s) omitted at max_chars=")) ?? "";
                 foreach (var (name, heading) in filter == "nosuchthing" ? [] : Reports)
                     if (text.Contains(heading) == omitted.Contains(name))
                         over.Add($"filter={filter ?? "none"} cap={cap}: '{name}' heading shown={text.Contains(heading)}, named={omitted.Contains(name)}");
-                if (text.Length <= cap) continue;
-                // Over the cap only below the fixed part, listing nothing optional and stating its own length.
-                bool stated = cap < 1_500 && text.Contains($"this response is {text.Length} chars, over the max_chars={cap}")
-                              && !text.Contains("  - Mod") && !text.Contains("→ housecarl_records");
-                if (!stated) over.Add($"filter={filter ?? "none"} cap={cap}: {text.Length}");
+                if (text.Length > cap) over.Add($"filter={filter ?? "none"} cap={cap}: {text.Length}");
             }
 
         Assert.True(over.Count == 0, $"{over.Count} failures, first: {over.FirstOrDefault()}");
