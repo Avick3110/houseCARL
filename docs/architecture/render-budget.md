@@ -45,17 +45,18 @@ its body is the widest those notices can be, so the exact floor is known only on
 is therefore `RenderCap.Hold`, the call every such render already closes on in place of `Settle`. A finished
 render longer than its cap is its floor alone, so the call is refused in one sentence naming the least
 `max_chars` the same call fits. `Hold` re-renders at the floor until it fits there (the floor grows with the
-`max_chars` it prints back and the caveat share it grants; if it never settles, the answer ships with the overrun
-notice instead), then searches down to the refused cap for the least cap that fits. A spilling lane is measured
+`max_chars` it prints back and the caveat share it grants; if it never settles in sixteen tries, the call is refused
+saying no cap up to the last floor was found), then searches down to the refused cap for the least cap that fits. A spilling lane is measured
 through `Artifacts.AtCap`: at each cap the call is rendered without its spill, and with the spill block only where
 that render cuts, since a call that cuts nothing spills nothing. A records or `asset_status` refusal adds
-`RenderCap.NextCallGrowth` to the cap it names, for the read timing and spill file name a next call can print
-wider. A refused call on a spilling lane has written its spill, as `main` also did; the spill is deleted. The json
+`RenderCap.NextCallGrowth` to the cap it names, an allowance for the read timing and spill file name a next call can
+print wider. A refused call on a spilling lane has written its spill, as `main` also did; the spill is deleted. The json
 lanes keep `max_chars_overrun`.
 
-Four text renders take `max_chars` as a point to stop at rather than a ceiling, and overshoot it whenever they
-cut, not only below a floor: `housecarl_load_order_status`, `housecarl_update_status`, `housecarl_bsa_list` and
-dialogue validate. `Hold`'s premise does not hold for them, so they are not refused yet (#1016).
+Three text renders take `max_chars` as a point to stop at rather than a ceiling, and overshoot it whenever they
+cut, not only below a floor: `housecarl_load_order_status`, `housecarl_update_status` and `housecarl_bsa_list`.
+`Hold`'s premise does not hold for them, so they are not refused yet (#1016). Dialogue validate is covered: its text
+reply is the merged check render, and `DialogueWire`'s own cut paths are only ever handed `int.MaxValue`.
 
 Two text renders are not refused, because their write already happened: `housecarl_place`'s report, and a
 `to_file=` manifest. There the answer ships and `RenderCap.Settle` appends an overrun notice naming the number that

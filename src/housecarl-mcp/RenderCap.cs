@@ -47,8 +47,10 @@ internal readonly record struct RenderCap(int Cap, int Budget)
                 if (at <= floor) fits = true;
                 else floor = at;
             }
-            // A floor that never settled is not named: the answer ships with the overrun notice instead.
-            if (!fits) return Settle(response, cap);
+            // A floor that never settled names no cap: the call is refused saying so, never shipped over the cap.
+            if (!fits)
+                return FloorLead + cap + " is too small for this response, and no max_chars up to " + floor +
+                       " was found that it fits: raise max_chars past " + floor + alsoTry + ".";
             // The least cap that fits lies between the refused cap and the floor; the high end always fits.
             int lo = cap;
             least = floor;
@@ -65,7 +67,8 @@ internal readonly record struct RenderCap(int Cap, int Budget)
     }
 
     /// <summary>How much wider a records or asset_status call can print on the next call: its read timing (three more
-    /// digits of milliseconds) and a spill file's name taking a -NN counter where it is printed, at most three places.</summary>
+    /// digits of milliseconds) and a spill file's name taking a -NN counter where it is printed, at most three places.
+    /// An allowance, not a bound: a next call four digits slower, or a counter past 99, is wider still.</summary>
     internal const int NextCallGrowth = 3 + 3 * 3;
 
     [ThreadStatic] static bool _measuring;
