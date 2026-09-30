@@ -19,6 +19,8 @@ public sealed class TickedPluginSwitchedOffModWorld : IDisposable
     public string GoneName => "HcTsGone.esp";
     /// <summary>An implicit master (in loadorder.txt, absent from plugins.txt) whose only copy is in the switched-off folder.</summary>
     public string OffMasterName => "HcTsOffMaster.esm";
+    /// <summary>A loose-free path only the unserved plugin's same-named archive carries; that archive sits in an enabled mod.</summary>
+    public string ArchiveOnlyAsset => "textures/hcts/probe.dds";
     public string Instance { get; }
     public LoadOrderService Svc { get; }
     public ToolPathResolver Tools { get; }
@@ -59,14 +61,25 @@ public sealed class TickedPluginSwitchedOffModWorld : IDisposable
         File.WriteAllBytes(Path.Combine(skseDir, "HcTsPeek.dll"),
             System.Text.Encoding.ASCII.GetBytes("\0\0" + OffName + "\0\0Skyrim.esm\0\0"));
 
+        // An enabled mod serving 'HcTsOff.bsa', the archive the game would load only if HcTsOff.esp loaded.
+        var archiveDir = Path.Combine(mods, "HcTsArchiveMod");
+        Directory.CreateDirectory(archiveDir);
+        File.WriteAllBytes(Path.Combine(archiveDir, "HcTsOff.bsa"),
+            NifSourceLaneInstance.Archive(ArchiveOnlyAsset.Replace('/', '\\'), System.Text.Encoding.ASCII.GetBytes("DDS probe")));
+
         foreach (var dir in new[] { profileDir, otherProfileDir })
         {
             File.WriteAllText(Path.Combine(dir, "loadorder.txt"),
                 "# header\r\nSkyrim.esm\r\n" + OffMasterName + "\r\n" + OffName + "\r\n" + GoneName + "\r\n");
             // The tick with nothing served behind it: the plugin is checked, its only folder is switched off.
             File.WriteAllText(Path.Combine(dir, "plugins.txt"), "*" + OffName + "\r\n*" + GoneName + "\r\n");
-            File.WriteAllText(Path.Combine(dir, "modlist.txt"), "# header\r\n+HcTsSkseMod\r\n-" + OffMod + "\r\n+VanillaStub\r\n");
+            File.WriteAllText(Path.Combine(dir, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
         }
+        File.WriteAllText(Path.Combine(profileDir, "modlist.txt"),
+            "# header\r\n+HcTsArchiveMod\r\n+HcTsSkseMod\r\n-" + OffMod + "\r\n+VanillaStub\r\n");
+        // Other switches the folder ON, so its served set differs from Default's.
+        File.WriteAllText(Path.Combine(otherProfileDir, "modlist.txt"),
+            "# header\r\n+HcTsArchiveMod\r\n+HcTsSkseMod\r\n+" + OffMod + "\r\n+VanillaStub\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "houseCARL.user.json"));
         Svc = LoadOrderService.WithInstance(instance, 0, store);
@@ -113,6 +126,8 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
         // Skyrim.esm is the one implicit master; the ticked plugin is not served, so no checked plugin is active.
         Assert.Contains("active:   1  (0 checked + 1 implicit", r);
         Assert.Contains("not served: 3", r);
+        // The list comes from the same served set as the count.
+        Assert.Contains("implicit masters / CC (1):", r);
         Assert.Contains($"load order lists '{W.OffName}', but it is provided by mod '{W.OffMod}', which is switched OFF", r);
     }
 
@@ -162,8 +177,8 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
     public void TheProfileInspectionDoesNotCountUnservedPluginsActive()
     {
         var r = StatusTools.LoadOrderStatus(W.Svc, W.Tools, profile: "Other");
-        // Four in the order; only Skyrim.esm is served.
-        Assert.Contains("plugins: 4 in order · 1 active · 0 inactive", r);
+        // Other has the folder on: four in the order, only the no-copy plugin unserved. Default would say 1.
+        Assert.Contains("plugins: 4 in order · 3 active · 0 inactive", r);
     }
 
     [Fact]
@@ -179,6 +194,22 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
         var r = SkseTools.Skse(W.Svc, filter: "HcTsPeek", peek: true);
         Assert.Contains("NOT in your load order", LineOf(r, W.OffName));
         Assert.Contains("(in your load order)", LineOf(r, "Skyrim.esm"));
+    }
+
+    [Fact]
+    public void AWinnerReadRefusalForAnUnservedImplicitMasterNamesTheSwitchedOffFolder()
+    {
+        var r = RecordsTools.Records(W.Svc, formids: new[] { "000800:" + W.OffMasterName });
+        Assert.Contains($"'{W.OffMasterName}' is an implicit master listed in loadorder.txt, but it is not active", r);
+        Assert.Contains($"mod '{W.OffMod}', which is switched OFF", r);
+        Assert.DoesNotContain("tick the plugin", r);
+    }
+
+    [Fact]
+    public void AnUnservedPluginsSameNamedArchiveIsNotLoaded()
+    {
+        var r = AssetTools.AssetStatus(W.Svc, new[] { W.ArchiveOnlyAsset });
+        Assert.DoesNotContain("HcTsOff.bsa", r);
     }
 
     static string LineOf(string text, string needle) =>
