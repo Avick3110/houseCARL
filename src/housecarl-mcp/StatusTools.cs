@@ -192,12 +192,15 @@ static class StatusWire
         sb.Append("\n— inspecting profile '").Append(p.RequestedName).Append("' (read-only; the active profile is unchanged):\n");
         sb.Append("  mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
         sb.Append("  plugins: ").Append(c.OrderedPluginNames.Count).Append(" in order · ").Append(active).Append(" active · ")
-          .Append(c.InactivePluginNames.Count).Append(" inactive\n");
+          .Append(c.InactivePluginNames.Count).Append(" inactive");
+        if (p.Unserved.Count > 0) sb.Append(" · ").Append(p.Unserved.Count).Append(" not served (listed as loading, but no enabled layer provides the file)");
+        sb.Append('\n');
         // Any read note, e.g. a missing modlist.txt, so a zero-enabled-mods inspection is not mistaken for an empty profile.
         foreach (var warn in p.Warnings)
             sb.Append("  [!] ").Append(warn).Append('\n');
         AppendList(sb, "  disabled mods", c.DisabledMods, cap);
         AppendList(sb, "  inactive plugins", c.InactivePluginNames, cap);
+        if (p.Unserved.Count > 0) AppendList(sb, "  not served", p.Unserved.Select(u => u.Name).ToList(), cap);
     }
 
     /// <summary>The available profile names, so the inactive-profile read is discoverable; suppressed in explicit-paths mode and when profile= was asked for, which lists them on a miss.</summary>

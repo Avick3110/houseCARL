@@ -179,7 +179,8 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
     {
         var r = StatusTools.LoadOrderStatus(W.Svc, W.Tools, profile: "Other");
         // Other has the folder on: six in the order, the three with no copy in an enabled layer unserved. Default would say 1.
-        Assert.Contains("plugins: 6 in order · 3 active · 0 inactive", r);
+        Assert.Contains("plugins: 6 in order · 3 active · 0 inactive · 3 not served", r);
+        Assert.Contains("  not served (3):", r);
     }
 
     [Fact]
