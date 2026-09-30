@@ -1243,7 +1243,7 @@ public sealed partial class LoadOrderService
             var build = WritePatchBuilder.CompactBuild(srcPath, modKey, remapDict, view.PluginPath, outPath, esl, floor, view.DataDir);
             if (!build.Success)
             {
-                if (!inPlace && createdFresh) _outputLocations.RemoveOrNameRiderResidue(rf);   // a refused build leaves no orphan folder
+                if (!inPlace && createdFresh) OutputLocations.RemoveOrNameRiderResidue(rf);   // a refused build leaves no orphan folder
                 return WritePatchBuilder.CompactOutcome.Fail(build.Error!);
             }
 
@@ -2072,7 +2072,7 @@ public sealed partial class LoadOrderService
             {
                 extend = true;
                 // The .esp write lane shares the extend resolver with the rider and asset lanes; needEsp:true picks the .esp inside the folder.
-                var folder = _outputLocations.ResolveOwnedPatchFolder(roots, into, needEsp: true, freshPatch, noFreshRule);
+                var folder = OutputLocations.ResolveOwnedPatchFolder(roots, into, needEsp: true, freshPatch, noFreshRule);
                 var direct = Path.Combine(folder, OutputLocations.PatchStem(into) + ".esp");
                 if (File.Exists(direct)) return direct;
                 var sole = SoleEspInFolder(folder, out var why);
