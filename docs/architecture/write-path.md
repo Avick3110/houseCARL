@@ -372,8 +372,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 
 ## Pinned by
 - `InPlaceGuardContractTests` — the `in_place`⇔`target=` contract and the `into=` / `patch=` exclusion on the edit,
-  create and remove lanes, and a target that is not an active plugin refused; `forward-from-plugin-guard`'s
-  INPLACE-CONTRACT arm for the forward lane's three halves.
+  create and remove lanes, and a target that is not an active plugin refused; `ForwardFromPluginTests`'
+  `TheInPlaceContractIsRefusedByNameOnTheForwardLane` for the forward lane's three halves.
 - `InPlaceGuardConsentTests` — the handshake refuses, then writes under `acknowledge=true`, does not re-prompt,
   persists, and one acknowledgement covers the edit and remove lanes; a refused in-place write spends no consent on
   any of the four lanes, one that lands records it, and the prompt states when it stops and keeps its file claim
@@ -411,7 +411,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - `LocalizedWriteShapeTests`, `LocalizedInPlaceRefusalTests` and `LocalizedUnclassifiableDestinationTests` — the
   in-place refusal over every arrangement, each named accurately and ending on no lane clause, the plugin and its
   tables byte-untouched, and a destination that cannot be classified refusing rather than reading as not-localized.
-- `nullarm-guard` part B — a composed record missing a required arm surfaces as the named null-arm refusal, bare or
+- `NullArmSerializeTests` — a composed record missing a required arm surfaces as the named null-arm refusal, bare or
   aggregate-wrapped, with nothing on disk.
 - `GenderedNavReadTests`, `GenderedNavWriteTests`, `GenderedNavRefusalTests` and `GenderedArmShapeTests` — the
   `[0]` / `[1]` alias navigates and writes an absent pair or arm back through the named-hop setter, off the mapping
@@ -424,9 +424,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   one when pre-flight is bypassed.
 - `subclass-remove-guard` — `RemovalTypeFor` routes the typed remove through the flat group's `T`, so a record whose
   concrete class is a subclass of it is really removed rather than silently skipped.
-- `upsert-guard` arms RERUN / OVERRIDE / CROSS-TYPE / DUP — the replace at a stable FormKey, every replace surfaced
+- `UpsertCreateTests` (RERUN / OVERRIDE / CROSS-TYPE / DUP) — the replace at a stable FormKey, every replace surfaced
   on the outcome rather than silently, and the three collisions refused loud with the file untouched.
-- `create-abstract-group-guard` arms G1 / G2 — a concrete arm of either abstract group creates, keyed off the
+- `AbstractGroupCreateTests` (G1 / G2) — a concrete arm of either abstract group creates, keyed off the
   runtime hierarchy rather than a per-type case.
 - `NestedCreateSlotTests`, and `coord-cell-guard` arms EXTERIOR / INTERIOR / PLACED — the modeled-slot nested create,
   and the coordinate-keyed cell routes through a real serialize and re-open.
@@ -442,11 +442,11 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   pre-flight, because the identify pass drops it first, so that half is unpinned.
 - `freshness-capture-guard` arm 4 — one call's patch carries ONE build's bodies. The two captures agreeing about
   membership is not separately pinned.
-- `remedy-verbs-guard` arms population / routes / agreement / sites — the shape-indexed verb table: every shape's
+- `RemedyVerbsAgreementTests` (population / routes / agreement) and `RemedyVerbsSiteTests` (sites) — the shape-indexed verb table: every shape's
   corpus population stated out loud, the schema and runtime routes agreeing on every collection field, the measured
   accept-and-refuse sweep through the real gate in both directions, and each consuming message carrying this
   cardinality's verbs and not the other's.
-- `remedy-verbs-guard`'s SITE-BRACKET-ORDER arm — the bracketed-leaf remedy names `SetAtIndex` before
+- `RemedyVerbsSiteTests.TheBracketRemedyNamesSetAtIndexBeforeInsertAtIndex` — the bracketed-leaf remedy names `SetAtIndex` before
   `InsertAtIndex`, asserted as a POSITION comparison so a reorder of the table fails it where membership would not;
   `ElementRefusalRemedyTests.AListElementRemedyNamesOnlyVerbsThatTakeTheKeyItPrinted` asserts the same ordering on
   the rendered remedy, beside the keyless `Add` being withheld.
