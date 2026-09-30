@@ -2,9 +2,7 @@ namespace HousecarlCore;
 
 // The active load order, read from an MO2 portable instance's profile files on disk, never from the USVFS; the priority model and the three profile files are in docs/architecture/mo2-instance.md.
 
-/// <summary>The resolved active order plus any non-fatal problems — surfaced, not swallowed; <see cref="OrderedPaths"/> is in resolver winner order, highest priority last.</summary>
-/// <param name="Unserved">The plugins listed as loading that no enabled layer serves, decided in the same pass that picked each winner.</param>
-/// <param name="Composition">The profile parse this order was built from.</param>
+/// <summary>The resolved active order (winner last), its warnings, the listed plugins no enabled layer serves, and the profile parse it came from.</summary>
 public sealed record Mo2OrderResult(
     IReadOnlyList<string> OrderedPaths, IReadOnlyList<string> Warnings, int ActiveCount,
     IReadOnlyList<UnservedPlugin> Unserved, Mo2Composition Composition)
@@ -12,8 +10,7 @@ public sealed record Mo2OrderResult(
     public int ResolvedCount => OrderedPaths.Count;
 }
 
-/// <summary>A plugin listed as loading (ticked, or an implicit master) that no enabled layer serves, so the game does not load it; <paramref name="SwitchedOffMod"/> is the switched-off mod folder holding a copy, or null.</summary>
-/// <param name="SearchedPlaces">The places the build searched, as the subject of "… provides it".</param>
+/// <summary>A plugin listed as loading that no enabled layer serves: the switched-off folder holding a copy (or null) and the places the build searched.</summary>
 public sealed record UnservedPlugin(string Name, string? SwitchedOffMod, string SearchedPlaces)
 {
     /// <summary>Why it is not served: the one sentence the build warning, the status filter and the absence explainer all use.</summary>
@@ -69,7 +66,7 @@ public static class Mo2LoadOrder
         return new Mo2OrderResult(orderedPaths, warnings, active, unserved, comp);
     }
 
-    /// <summary>The plugins <paramref name="comp"/> lists as loading that no enabled layer serves, through the build's own pass; for a reader with no build to take it from (another profile, the setup summary), and it lists every enabled mod folder.</summary>
+    /// <summary>The build's own served pass over <paramref name="comp"/>, for a reader with no build (another profile, the setup summary); it lists every enabled mod folder.</summary>
     public static IReadOnlyList<UnservedPlugin> Unserved(Mo2Composition comp, string modsDir, string dataDir, string overwriteDir) =>
         Serve(comp, modsDir, dataDir, overwriteDir).Unserved;
 

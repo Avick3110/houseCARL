@@ -462,10 +462,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>The explainer a resolver carries for one order build: every view captured while it is current is explained from that build and the roots it was read under.</summary>
     Func<string, string?> ExplainerFor(Mo2Roots roots, Mo2OrderResult order) => name => ExplainPluginAbsence(name, roots, order);
 
-    /// <summary>The injected answer to "why is this plugin filename not in the active order?", from <paramref name="order"/>'s
-    /// profile parse and served answer, cached per captured view; the count of answers is <see cref="AbsenceExplanations"/>,
-    /// which <c>AbsentMasterLinkTests</c> and <c>ComparisonBatchReadTests</c> hold the pinned view's per-plugin cache to.
-    /// Returns null when nothing can be said, and the refusal falls back to a did-you-mean.</summary>
+    /// <summary>Why a plugin is not in the order, from <paramref name="order"/>'s parse and served answer, or null for the did-you-mean; counted in <see cref="AbsenceExplanations"/>.</summary>
     string? ExplainPluginAbsence(string name, Mo2Roots roots, Mo2OrderResult order)
     {
         var (modsDir, dataDir, overwriteDir) = (roots.ModsDir, roots.DataDir, roots.OverwriteDir);
@@ -762,9 +759,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         return new UpdateCacheData(modsDir, instanceDir, entries, Array.Empty<string>(), untracked);
     }
 
-    /// <summary>Inspect a named profile's composition without switching to it: a text parse of its three profile files, and for the
-    /// served check the last order build's answer when it is the active profile, else a listing of every mod folder that profile
-    /// enables. Instance mode only; an unmatched name is reported with the available ones.</summary>
+    /// <summary>Inspect a named profile without switching to it: a text parse, plus the active build's served answer or, for another profile, a listing of its enabled mod folders.</summary>
     public NamedProfileResult NamedProfileComposition(string? requested)
     {
         string? instanceDir; string profilesRoot; Mo2Roots roots; Mo2OrderResult? order;
