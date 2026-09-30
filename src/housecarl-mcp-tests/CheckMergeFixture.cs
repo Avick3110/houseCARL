@@ -154,7 +154,7 @@ internal static class CheckMergeFixture
         for (int cap = noisy; cap < ceiling; cap += 16)
         {
             var body = CheckTextRender.RenderCheck(s, cap, 1000);
-            if (body.Contains("raise max_chars to at least ", StringComparison.Ordinal)) continue;
+            if (RenderFloorAssert.IsFloorRefusal(body) || body.Contains("raise max_chars to at least ", StringComparison.Ordinal)) continue;
             if (Count(body, unit) > 0) break;
             return body.Length;
         }

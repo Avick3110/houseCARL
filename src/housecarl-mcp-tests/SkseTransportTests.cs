@@ -888,6 +888,31 @@ public sealed class SkseTransportTests
         Assert.DoesNotContain("omit filter=", text);
     }
 
+    /// <summary>The refusal names the cap to pass, never a floor. This config view's caveats take a quarter of the cap in
+    /// whole lines, so a cap a little above the named one admits another warning line and is refused again. Swept at
+    /// every cap from the named one to the whole answer: each refusal names a cap the call is served at, and none says
+    /// "at least".</summary>
+    [Fact]
+    public void EveryRefusalFromTheNamedCapToTheWholeAnswerNamesACapThatServesAndNoFloor()
+    {
+        var renders = SmallRenders();
+        string Call(int c) => SkseTools.Dispatch(renders, SkseTools.SkseFamily.Config, filter: null, peek: false, max_chars: c);
+        var first = Call(100);
+        Assert.DoesNotContain("at least", first);
+        int named = RenderFloorAssert.Named(first), whole = Call(RenderCap.Whole).Length;
+        int refused = 0;
+        for (int cap = named; cap <= whole; cap++)
+        {
+            var text = Call(cap);
+            if (!RenderFloorAssert.IsFloorRefusal(text)) continue;
+            refused++;
+            Assert.DoesNotContain("at least", text);
+            RenderFloorAssert.RefusesAndTheNamedCapFits(text, cap, Call);
+        }
+        // The band this view has is why the sentence names no floor; were it gone, this pin would be moot, not wrong.
+        Assert.True(refused > 0, "no cap above the named one was refused: the band this test is about is gone");
+    }
+
     static SkseTools.SkseFamily Family(string name) =>
         name switch { "inventory" => SkseTools.SkseFamily.Inventory, "pairing" => SkseTools.SkseFamily.Pairing, _ => SkseTools.SkseFamily.Config };
 

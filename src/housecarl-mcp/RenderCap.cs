@@ -71,13 +71,15 @@ internal readonly record struct RenderCap(int Cap, int Budget)
         // A render that grows with every cap it is given names no cap: refused saying so, never shipped over the cap.
         return FloorLead + cap + " is too small for this response, and it did not settle on a max_chars it fits: " +
                "re-rendered " + GrowRounds + " times at the length it came back at, it still ran past " + n +
-               ", so raise max_chars well past " + n + also + "." + epochLine;
+               ", so no max_chars can be named for it: narrow the call" + also + "." + epochLine;
     }
 
-    /// <summary>The floor refusal: the cap the call was given, and the cap it was measured to fit.</summary>
+    /// <summary>The floor refusal: the cap the call was given, and the cap it was measured to fit, named as the value to
+    /// pass and never as a floor: a render whose caveats take a share of the cap admits a whole caveat line as the cap
+    /// grows, so a cap a little above the named one can be refused again (it then names one that serves).</summary>
     internal static string TooSmall(int cap, int fits, string alsoTry = "", string epochLine = "") =>
         FloorLead + cap + " is too small for what this response carries whatever the budget (its header and the " +
-        "notices it owes): this call, as measured, fits max_chars=" + fits + ", so raise max_chars to at least that" +
+        "notices it owes): this call, as measured, fits max_chars=" + fits + ", so pass max_chars=" + fits +
         alsoTry + "." + epochLine;
 
     const string FloorLead = "error: max_chars=";   // Wire.RefusalPrefix, then the knob
