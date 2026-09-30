@@ -40,22 +40,44 @@ A text render that lays its body inside what the cap leaves makes two moves (#98
 `housecarl_records`' text forms and census, the merged check, `asset_status` and its census, `nif_inspect`, and the
 three `housecarl_skse` families.
 
-- **Whole first.** The complete answer is laid with no reserve (`RenderCap.Whole`); if it fits the cap it is
-  served. A render holds back the widest its notices can be before its body, so without this pass an answer of N
-  chars could be cut, and refused, at `max_chars=N`.
+- **Whole first.** The complete answer is laid with no reserve; if it fits the cap it is served. A render holds
+  back the widest its notices can be before its body, so without this pass an answer of N chars could be cut, and
+  refused, at `max_chars=N`. The pass only has to say whether the answer fits the cap, so it is bounded by the cap:
+  it renders at `RenderCap.WholeWithin(cap)`, where no reserve bites, and a render stops laying units once it is past
+  the cap (`RenderCap.Past`). What comes back is the whole answer when it fits, and otherwise wider than the cap and
+  thrown away, so a 5,000-record batch at `max_chars=2000` costs what 2,000 chars cost, not what the answer does.
+  The records renders, the scan, batch, `nif_inspect`, `asset_status` and the SkyPatcher layer stop early. The three
+  `housecarl_skse` families, the merged check and the asset census lay their whole answer in this pass: their data
+  is already read, and their width is bounded by the install's own lists and by `histogram_limit`, not by a
+  selection.
 - **A sufficient cap, not the least.** Where the answer does not fit whole and the render at the cap is still over
   it, that render is its header and the notices it owes, and the call is refused in one sentence naming a cap the
-  same call was measured to fit (`RenderCap.Hold`). The cap is found by growing only: re-render at the length the
-  render came back at until it fits the length it was given, starting from the whole answer's width where that is
-  narrower; if eight rounds do not settle, the call is refused saying so. What is re-rendered closes over data read
-  once: nothing re-enters the service, and a scan's rows are read once for every render of the call (`ScanRows`).
-  The number is for this call as measured; a next call that prints its read timing wider can need a few more.
+  same call was measured to fit (`RenderCap.Hold`). The cap is found by growing only, from the render at the cap:
+  each round first asks the bounded whole pass whether the complete answer fits the round's cap, and names that
+  answer's own width once it does (whole first serves it at any cap it fits); otherwise it re-renders at the length
+  the render came back at until it fits the length it was given. If eight rounds do not settle, the call is refused
+  saying so. What is re-rendered closes over data read once: nothing re-enters the service, and a scan's rows are
+  read once for every render of the call (`ScanRows`), so a cut scan reads the bodies of the rows it lays and the one
+  its whole pass stops on, as before the pass existed. The number is for this call as measured; a next call that
+  prints its read timing wider can need a few more.
 
 A spilling lane (`Artifacts.CeilingText`) measures the render the next call makes: the render with no spill where it
-cuts nothing, and with its spill block where it cuts. The artifact is built in memory (its manifest sets the block's
-width) and put on disk only once the reply naming it is served, so a refused call writes no file. A write that fails
-after that is stated in the reply, or, where its warning does not fit, is itself the refusal; a named cap is never
-sized off that warning.
+cuts nothing, and with its spill block where it cuts, since a cap the whole answer does not fit cuts it (an uncut
+render is the whole answer). The block's width depends only on the artifact's manifest: the file name, the row count
+and total, the epoch and its caveats, the row schema and sort, and the count per record type, which are counts of
+the selection. So the name is reserved (#770: the reservation is the file) and the lane's artifact writer runs
+against a sizing target (`ArtifactTarget.Sizing`), which counts rows and types without serializing a row or writing
+anything. A scan's detail rows are counted by the type its summary already carries; a conflicts-only text scan
+resolves each summary once, shared between its render and its artifact. No field body is read to size the block. A refused call
+releases the reservation and leaves no file; a served one writes the artifact once, streaming through the reserved
+handle, and is rendered with the block the write stamped. That block is never wider than the sized one: a scan row
+whose body read fails carries no type in the file, so its counts can only be smaller. A write that fails is stated
+in the reply, or, where its warning does not fit, is itself the refusal; a named cap is never sized off that warning.
+
+A census is one constant body: over its cap it names its own width, with no grow loop. `or omit filter=` is offered
+beside a filtered refusal only where the unfiltered call is served at the cap given (`RenderCap.Serves`: the render
+at the cap first, then the bounded whole pass), and never beside SKSE's `peek=`, which needs its filter. A json
+document names its own overrun in `max_chars_overrun`, so nothing is appended past its root close.
 
 Three text renders take `max_chars` as a point to stop at rather than a ceiling, and overshoot it whenever they cut:
 `housecarl_load_order_status`, `housecarl_update_status` and `housecarl_bsa_list` (#1016). The json lanes keep
@@ -190,8 +212,8 @@ length and answers only about that; predicted from a header length plus the rese
 the worst case instead. Its remedy is not simply that length: raising the cap widens every `max_chars` this response
 prints back, so the growth is added from two measured terms — how many places print it, counted in the finished
 response rather than derived from the number of accountings, and how many digits the number gains. The notice's own
-length is excluded, because it disappears the moment the response fits. The text lane refuses the first of the two
-instead (#986), so there the notice is the second alone; the json document carries both.
+length is excluded, because it disappears the moment the response fits. The text lane refuses any response over its
+cap instead (#986), so the notice is the json document's alone.
 
 ### The render bound is a time budget, not a width one
 
@@ -249,7 +271,10 @@ reaches only the calling test's flow) is the meter's clock for tests.
   `AFailedSpillIsStatedAndNeverSizesTheNamedCap`, `ACensusOverItsCapNamesItsOwnWidth`; `RenderFloorHoldTests` (a floor
   that never settles is refused; a floor that grows a digit names a cap it fits; a failed spill too wide to state is
   the refusal); `SkyPatcherLayerFloorTests` and `SkseTransportTests` (each view refused below its floor naming a cap it
-  fits, and `omit filter=` offered only where the unfiltered view fits). Each asserts the refusal names a cap at which
+  fits, and `omit filter=` offered only where the unfiltered view fits); `BoundedPassTests` (no pass is wider than the
+  cap it asks about plus a row, a cut scan reads only the bodies it lays, a refused cut hands its artifact writer a
+  sizing target only, and a scan's sized block is the written one with no body read);
+  `CheckMergeShapeMatrixTests.TheTextLaneRefusesEveryResponseOverItsCap`. Each asserts the refusal names a cap at which
   the same call is served, never the number itself; a test that reads a cut notice reads it at a cap the server serves
   cut (`RenderFloorAssert.ServedCut`).
 - *A merged response water-fills its body budget over measured demand*: the properties, in
@@ -296,8 +321,8 @@ reaches only the calling test's flow) is the meter's clock for tests.
 
 ## Where
 
-`src/housecarl-mcp/RenderCap.cs` holds `Cap`, `Budget`, the whole-first `RenderCap.Capped`, the floor check
-`RenderCap.Hold` and `RenderCap.Settle`; `RenderBudget.cs` is the render bound;
+`src/housecarl-mcp/RenderCap.cs` holds `Cap`, `Budget`, the whole-first `RenderCap.Capped` and its bounded pass,
+the floor check `RenderCap.Hold` and `RenderCap.Settle`; `RenderBudget.cs` is the render bound;
 `SweepDemand.cs` is the demand pass and `BodyAllocation.cs` the max-min fill; `SweepEmission.cs` holds `SweepSubject`
 and `BoundedBody`; `BatchRender.cs` is the write-and-retract batch render; `TransportAccounting.cs` is the four-cause
 omission block; `RowProjection.cs` is the `rows` project form. `src/housecarl-core/CharCountedStream.cs` is where the
