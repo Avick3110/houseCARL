@@ -248,7 +248,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     // Rows the areas take from one another, relayed here: output until AssetLayers takes OutputLocations; writes until it is its own class; the assets replay for reads.
     OutputLocations.RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, OutputLocations.RiderNaming? naming) => _outputLocations.ResolvePatchModFolder(patchName, into, defaultStem, naming);
-    string? IAssetHost.RemoveOrNameRiderResidue(OutputLocations.RiderFolder folder) => _outputLocations.RemoveOrNameRiderResidue(folder);
+    string? IAssetHost.RemoveOrNameRiderResidue(OutputLocations.RiderFolder folder) => OutputLocations.RemoveOrNameRiderResidue(folder);
     bool IAssetHost.IsInPlaceAcknowledged(string path) => _store.IsInPlaceAcknowledged(path);
     string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
     bool IAssetHost.InPlaceParentUnwritable(string targetPath, out string why) => InPlaceParentUnwritable(targetPath, out why);
@@ -276,7 +276,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     // The output area's tool-facing surface; the bodies are in OutputLocations.cs.
     internal OutputLocations.RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, OutputLocations.RiderNaming? naming)
         => _outputLocations.ResolvePatchModFolder(patchName, into, defaultStem, naming);
-    internal string? RemoveOrNameRiderResidue(OutputLocations.RiderFolder folder) => _outputLocations.RemoveOrNameRiderResidue(folder);
+    internal string? RemoveOrNameRiderResidue(OutputLocations.RiderFolder folder) => OutputLocations.RemoveOrNameRiderResidue(folder);
     internal OutputLocations.RiderFolder ResolveCompiledScriptFolder(string? patchName, string? into) => _outputLocations.ResolveCompiledScriptFolder(patchName, into);
     internal OutputLocations.RiderFolder ResolveExplicitScriptFolder(string outputDir, out string? deployWarning)
         => _outputLocations.ResolveExplicitScriptFolder(outputDir, out deployWarning);

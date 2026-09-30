@@ -207,7 +207,7 @@ internal sealed class OutputLocations
     }
 
     /// <summary>Clean up after a rider that failed having cut a fresh folder: a folder holding nothing but our own meta.ini is deleted, one holding real output is kept and its path returned to name, and a reused into= folder is never touched. Best-effort, and never masks the rider's own outcome.</summary>
-    internal string? RemoveOrNameRiderResidue(RiderFolder folder)
+    internal static string? RemoveOrNameRiderResidue(RiderFolder folder)
     {
         if (!folder.CreatedFresh) return null;             // into= reuse — the user owns it, never deleted or named
         var root = folder.ModFolder;
@@ -235,7 +235,7 @@ internal sealed class OutputLocations
     }
 
     /// <summary>The patch stem of the houseCARL folder <paramref name="pluginPath"/> lives in, so the <c>.seq</c> defaults beside the <c>.esp</c>; only when that folder is the canonical one for this plugin, so a later <c>into=</c> resolves to exactly it, else null.</summary>
-    string? OwnedPluginFolderStem(Mo2Roots roots, string pluginPath)
+    static string? OwnedPluginFolderStem(Mo2Roots roots, string pluginPath)
     {
         var dir = Path.GetDirectoryName(pluginPath);
         if (dir is null || Path.GetDirectoryName(dir) is not { } parent || !PathEquals(parent, roots.ModsDir)) return null;
@@ -475,7 +475,7 @@ internal sealed class OutputLocations
 
     /// <summary>The four-step <c>into=</c> extend resolver, shared by the .esp write path and the rider and asset path so "extend my renamed patch" behaves identically everywhere; the arms and their ownership gate are in docs/architecture/output-and-artifacts.md. <paramref name="needEsp"/> tightens the canonical arm for the record lane. Works over the caller's captured <paramref name="roots"/>.
     /// <para><paramref name="freshPatch"/> is the calling operation's own statement of how it can create a patch, and <paramref name="noFreshRule"/> the same statement from a lane the enum cannot express, saying WHY there is no fresh route; each refusal is ONE sentence with the nearest owned patches named inside it (#359, #380).</para></summary>
-    internal string ResolveOwnedPatchFolder(Mo2Roots roots, string into, bool needEsp,
+    internal static string ResolveOwnedPatchFolder(Mo2Roots roots, string into, bool needEsp,
                                    FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? noFreshRule = null,
                                    RiderNaming? riderNaming = null)
     {
@@ -581,7 +581,7 @@ internal sealed class OutputLocations
     }
 
     /// <summary>houseCARL-owned mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/> at their root, as full .esp paths. Ownership-gated, so a user mod sharing the basename is never returned.</summary>
-    List<string> OwnedFoldersHolding(Mo2Roots roots, string espFileName)
+    static List<string> OwnedFoldersHolding(Mo2Roots roots, string espFileName)
     {
         var hits = new List<string>();
         foreach (var dir in Directory.EnumerateDirectories(roots.ModsDir))
@@ -596,7 +596,7 @@ internal sealed class OutputLocations
     readonly record struct OwnedPatch(string Dir, string Name, IReadOnlyList<string> Plugins);
 
     /// <summary>The houseCARL-owned patches an extend refusal may name as <c>into=</c> spellings (#380). Every spelling emitted is one that RESOLVES back to the patch it stands for, run through this resolver's own arms against the folders read here, so a caller who takes one literally never meets a second refusal; a patch no token reaches is counted instead. Nearest <paramref name="stem"/> first, capped at three with the drops counted. Best-effort: an unreadable ModsDir yields no candidates rather than a partial set, and its failure is carried out.</summary>
-    PatchCandidates OwnedPatchCandidates(Mo2Roots roots, bool needEsp, string stem)
+    static PatchCandidates OwnedPatchCandidates(Mo2Roots roots, bool needEsp, string stem)
     {
         const int cap = 3;
         var owned = new List<OwnedPatch>();
@@ -684,7 +684,7 @@ internal sealed class OutputLocations
     }
 
     /// <summary>A houseCARL-owned mod folder named exactly <paramref name="rawName"/> or "<c>houseCARL - &lt;rawName&gt;</c>" — the folder catch-all behind <c>into=</c>. Bare name only, so it cannot escape ModsDir; null when no such folder is owned.</summary>
-    string? ResolveOwnedFolderByName(Mo2Roots roots, string rawName)
+    static string? ResolveOwnedFolderByName(Mo2Roots roots, string rawName)
     {
         var bare = Path.GetFileName(rawName.Trim());
         foreach (var cand in new[] { bare, ModFolderName(PatchStem(rawName)) })
