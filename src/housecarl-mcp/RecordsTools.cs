@@ -497,9 +497,9 @@ public static partial class RecordsTools
             envelope.Add(new("source", statement));
             headerLine += $"  source={statement}";
         }
-        // A census is a text render too, so it is held to the same ceiling and says so when max_chars is smaller
-        // than the statements it carries whatever the budget.
-        string Census(string body) => RenderCap.Settle(body, max_chars > 0 ? max_chars : Wire.DefaultMaxChars);
+        // A census is a text render too, so it is held to the same ceiling and refused when max_chars is smaller
+        // than the statements it carries whatever the budget; none of them depends on the cap.
+        string Census(string body) => RenderCap.Hold(body, max_chars > 0 ? max_chars : Wire.DefaultMaxChars, _ => body);
         // Every warning the SkyPatcher replay produced, named beside the answer with its own file and line.
         var overlayWarnings = new HousecarlCore.SkyPatcherOverlay.WarningSink();
         void StateOverlayWarnings()
@@ -669,7 +669,7 @@ public static partial class RecordsTools
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch.Epoch);
                     var (s, aerr) = Artifacts.WriteResolve(rows, epoch.Epoch, reservation, "ceiling", Echo());
-                    rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                    rendered = Artifacts.CeilingRender(s, aerr, Render);
                 }
                 return rendered;
             }
@@ -775,7 +775,7 @@ public static partial class RecordsTools
             {
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch2?.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteBatch(outcomes, reservation, "ceiling", Echo(), formLevers);
-                rendered2 = Render2(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                rendered2 = Artifacts.CeilingRender(s, aerr, Render2);
             }
             return rendered2;
         }
@@ -965,7 +965,7 @@ public static partial class RecordsTools
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epochR?.Epoch ?? "none");
                     var (sp, aerr) = Artifacts.WriteEffectChains(results, epochR?.Epoch, reservation, "ceiling", Echo());
-                    revRendered = RenderRev(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                    revRendered = Artifacts.CeilingRender(sp, aerr, RenderRev);
                 }
                 return revRendered;
             }
@@ -1021,7 +1021,7 @@ public static partial class RecordsTools
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, wEpoch?.Epoch ?? "none");
                     var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, reservation, "ceiling", Echo());
-                    rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                    rendered = Artifacts.CeilingRender(s, aerr, Render);
                 }
                 return rendered;
             }
@@ -1148,7 +1148,7 @@ public static partial class RecordsTools
             {
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, reservation, "ceiling", echo);
-                rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                rendered = Artifacts.CeilingRender(s, aerr, Render);
             }
             return rendered;
         }
@@ -1188,7 +1188,7 @@ public static partial class RecordsTools
             {
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, reservation, "ceiling", echo);
-                rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                rendered = Artifacts.CeilingRender(s, aerr, Render);
             }
             return rendered;
         }
@@ -1243,7 +1243,7 @@ public static partial class RecordsTools
             {
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, reservation, "ceiling", echo);
-                rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                rendered = Artifacts.CeilingRender(s, aerr, Render);
             }
             return rendered;
         }
@@ -1631,7 +1631,7 @@ public static partial class RecordsTools
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, bodyEpoch?.Epoch ?? "none");
                     var (s, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), evLevers, matches: evMatches);
-                    evRendered = RenderEv(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                    evRendered = Artifacts.CeilingRender(s, aerr, RenderEv);
                 }
                 return evRendered;
             }
@@ -1660,7 +1660,7 @@ public static partial class RecordsTools
                 // the write leaves nothing.
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, outcome.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, reservation, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
-                rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                rendered = Artifacts.CeilingRender(s, aerr, Render);
             }
             return rendered;
         }
@@ -1858,7 +1858,7 @@ public static partial class RecordsTools
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, offEpoch?.Epoch ?? "none");
                     var (sp, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), offLevers, matches: offMatches);
-                    offRendered = RenderOff(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                    offRendered = Artifacts.CeilingRender(sp, aerr, RenderOff);
                 }
                 return offRendered;
             }
@@ -1885,7 +1885,7 @@ public static partial class RecordsTools
             {
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, outcome.Epoch ?? "none");
                 var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, reservation, "ceiling", Echo(), LeverNames.Records);
-                rendered = Render(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
+                rendered = Artifacts.CeilingRender(sp, aerr, Render);
             }
             return rendered;
         }

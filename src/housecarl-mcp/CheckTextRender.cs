@@ -271,6 +271,8 @@ static class CheckTextRender
         // The overrun question, asked of the finished response, which the notice is part of — so it settles to a fixed point; docs/architecture/render-budget.md.
         var response = sb.ToString().TrimEnd('\n');
         int needed = body.FixedPart(response.Length);
+        // A fixed part wider than the cap is refused, naming the max_chars this same sweep fits (#986).
+        if (needed > cap) return RenderCap.Hold(response, cap, n => RenderCheck(s, n, histogramLimit, out _));
         // The first accounting states it once: the sentence is about the whole response rather than any family.
         var overrun = accts.Count > 0 ? accts[0] : null;
         if (overrun is null) return response;

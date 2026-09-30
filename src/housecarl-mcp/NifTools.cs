@@ -377,7 +377,7 @@ static class NifWire
 
         bool readIncomplete = d.BsaFailures.Count > 0, rootIncomplete = d.RootFailures.Count > 0,
              discoveryIncomplete = d.Warnings.Count > 0;
-        return RenderCap.Settle(BatchRender.Render(
+        return RenderCap.Hold(BatchRender.Render(
             header, d.Results, "mesh(es)", cap,
             // The alarms come first and once, at batch level, so a long batch cannot truncate them away.
             (sb, room) =>
@@ -392,7 +392,7 @@ static class NifWire
             },
             // The mesh's sections cut against the ROOM LEFT, not against max_chars, or the mesh lands past the ceiling.
             (sb, r, room) => AppendMesh(sb, r, want, room, readIncomplete, rootIncomplete, discoveryIncomplete),
-            out _), cap);
+            out _), cap, n => Render(d, want, unknownSections, n));
     }
 
     /// <summary>One mesh's block: the path line, then its named error with the provider chain, or the resolution,

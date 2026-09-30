@@ -395,6 +395,19 @@ internal static class Artifacts
     }
 
     /// <summary>Append the whole SpillState to a text response: the spilled block, or the failed-spill warning.</summary>
+    /// <summary>A render handed its call's spill disposition, reporting whether it cut anything.</summary>
+    internal delegate string SpillRender(SpillState? spill, out bool truncated);
+
+    /// <summary>The render after a ceiling auto-spill was written. A render refused below its floor names no file, so
+    /// the spill it would have named goes with it rather than sitting unnamed in the results store.</summary>
+    internal static string CeilingRender(SpillInfo? spilled, string? error, SpillRender render)
+    {
+        var rendered = render(error is null ? SpillState.Spilled(spilled!, manifestOnly: false) : SpillState.WriteFailed(error), out _);
+        if (error is null && RenderCap.IsFloorRefusal(rendered))
+            try { File.Delete(spilled!.Path); } catch (Exception) { /* best-effort: the results store prunes it */ }
+        return rendered;
+    }
+
     public static void AppendSpillStateText(StringBuilder sb, SpillState s)
     {
         if (s.Spill is not null) AppendSpillText(sb, s.Spill);

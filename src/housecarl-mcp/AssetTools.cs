@@ -221,7 +221,7 @@ public static class AssetTools
                 { noEpochBecause = Guard.Flatten(ex.Message); }
             using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? "none");
             var (auto, autoErr) = AssetArtifact.Write(data, reservation, "ceiling", order, Echo(), noEpochBecause);
-            return Inline(autoErr is null ? SpillState.Spilled(auto!, manifestOnly: false) : SpillState.WriteFailed(autoErr), out _);
+            return Artifacts.CeilingRender(auto, autoErr, Inline);
         }
 
         var (spill, artErr) = AssetArtifact.Write(data, ArtifactTarget.Named(toFile!), "to_file", order, Echo(), noEpochBecause);
@@ -268,7 +268,8 @@ static class AssetWire
 
         var counts = Tally(d, rendered);
         truncated = counts.Truncated > 0;
-        return RenderCap.Settle(body + TransportAccounting.Compose(counts, RowNoun, everySentence: false) + spillText, cap);
+        return RenderCap.Hold(body + TransportAccounting.Compose(counts, RowNoun, everySentence: false) + spillText, cap,
+            spill?.ManifestOnly == true ? null : n => Render(d, n, spill, out _));
     }
 
     /// <summary>What this family's accounting counts.</summary>
@@ -450,6 +451,6 @@ static class AssetCensus
         // The one bounded emission path: the budget is the whole cap, because Outstanding reads the live builder.
         var body = new BoundedBody(acct: null, budget: cap, () => sb.Length);
         CheckTextRender.AppendHistogramAxes(sb, body, RowLimit(limit), Axis(c));
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap, n => Render(d, n, limit));
     }
 }

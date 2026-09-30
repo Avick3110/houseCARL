@@ -115,17 +115,21 @@ public static class SkseTools
         // The json document states the family and the two that did not run in-band, so no text footer.
         var footer = json ? "" : FamilyFooter(family);
         int cap = max_chars > 0 ? max_chars : 80_000;
-        var call = new FamilyCall(filter, peek, cap, window, json, footer.Length);
-        var body = family switch
+        string Body(int n)
         {
-            SkseFamily.Inventory => renders.Inventory(call),
-            SkseFamily.Pairing => renders.Pairing(call),
-            _ => renders.Config(call),
-        };
-        // The one arm a bounded render may still exceed on is NAMED rather than left to be discovered. The json
-        // documents name it INSIDE themselves (max_chars_overrun), so the text notice must not be glued on past
-        // their root close, which would stop them being json at all.
-        return json ? body : RenderCap.Settle(body + footer, cap);
+            var call = new FamilyCall(filter, peek, n, window, json, footer.Length);
+            return family switch
+            {
+                SkseFamily.Inventory => renders.Inventory(call),
+                SkseFamily.Pairing => renders.Pairing(call),
+                _ => renders.Config(call),
+            };
+        }
+        var body = Body(cap);
+        // A text render below its floor is refused, naming the max_chars it fits. The json documents name an overrun
+        // INSIDE themselves (max_chars_overrun), so nothing is glued on past their root close.
+        return json ? body : RenderCap.Hold(body + footer, cap, n => Body(n) + footer,
+                                            string.IsNullOrWhiteSpace(filter) ? "" : RenderCap.OmitFilter);
     }
 
     /// <summary>The two families this call did not run, in the spelling that would — the json twin of <see cref="FamilyFooter"/>.</summary>

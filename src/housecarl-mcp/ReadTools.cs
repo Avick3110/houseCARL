@@ -70,7 +70,8 @@ static partial class Wire
         // What resolving these FormIDs cost — the count is the LIST's, not this window's.
         if (bodyCost is { } bc) sb.Append(RenderBudget.BodiesLine(bc.RowsRead, bc.Millis));
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
+            spill?.ManifestOnly == true ? null : n => RenderResolve(rows, n, epoch, spill, out _, header, bodyCost));
     }
 
     /// <summary>The spill block as a string, so its room can be charged before the rows are laid; empty when this call spills nothing.</summary>
@@ -217,7 +218,8 @@ static partial class Wire
         // What reading these bodies cost, stated whatever the transport: the rows were resolved before this render.
         if (bodyCost is { } bc) sb.Append(RenderBudget.BodiesLine(bc.RowsRead, bc.Millis));
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
+            spill?.ManifestOnly == true ? null : n => RenderBatch(outcomes, n, spill, out _, levers, bodyCost, header, matches));
     }
 
     // ---- the scan lane ----
@@ -336,7 +338,8 @@ static partial class Wire
         else if (detail && !(spill?.ManifestOnly ?? false))
             sb.Append(RenderBudget.AccountingLine(rendered, renderClock.ElapsedMilliseconds));
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
+            spill?.ManifestOnly == true ? null : n => RenderCrossQuery(svc, q, fields, n, resolveNames, winnerFields, depth, spill, out _, levers, ct, header, rowLimit));
     }
 
     /// <summary>Render a <c>group_by=</c> aggregation: a header naming the key, the true total and the group count, then one row per group, with the where= and unscannable notes surviving; only the rendering is capped, so the total stays exact.</summary>
@@ -390,7 +393,8 @@ static partial class Wire
         }
         sb.Append(emptyLine);
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
+            spill?.ManifestOnly == true ? null : n => RenderCrossQueryGroups(q, n, rowLimit, spill, out _, head));
     }
 
     // ---- the chain form ----
