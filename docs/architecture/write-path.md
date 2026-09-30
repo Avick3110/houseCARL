@@ -558,8 +558,11 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   [`walk-and-reverse.md`](walk-and-reverse.md)'s.
 - `src/housecarl-core/MergeInjection.cs` (`Renumberable`, `UnremappableLink`) and
   `src/housecarl-core/MergeLoadPosition.cs` (`Derive`, `MergeSiting`) — the two merge pre-flights.
-- The tool fronts: `src/housecarl-mcp/ApplyTools.cs`, `CreateTools.cs`, `ForwardTools.cs`, `RemoveTools.cs`
-  and `WriteTools.cs` — argument reading and the lane and transport gates.
+- The tool fronts: `src/housecarl-mcp/ApplyTools.cs`, `CreateTools.cs`, `ForwardTools.cs` and `RemoveTools.cs` —
+  argument reading and the lane and transport gates.
+- `src/housecarl-mcp/WriteTools.cs` — the three plugin-level tools (`housecarl_create_plugin`,
+  `housecarl_compact_plugin`, `housecarl_merge_plugins`), plus the retired 1.x wire DTOs (`BulkOp`, `CreateOp`,
+  `StructInput`, `NestedSet`).
 - `src/housecarl-mcp/WriteTextRender.cs` — the other half of `static partial class WriteTools`: the render helpers
   every write tool calls (`Render`, `RenderDryRun`, `RenderRemoval`, `RenderForward`, `RenderCreatePlugin`, the
   readback and report appenders, `CreateRootFailures`), at the same `WriteTools.` addresses.
