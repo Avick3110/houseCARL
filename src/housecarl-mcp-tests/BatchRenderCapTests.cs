@@ -263,7 +263,8 @@ public class BatchRenderCapTests
     {
         var d = ThreePaths();
 
-        RenderFloorAssert.RefusesBelowAndServesAt(c => AssetWire.Render(d, c), tooSmall: 60);
+        // asset_status names its floor plus what a next call's spill name can add, so no ladder one below it.
+        RenderFloorAssert.RefusesAndTheNamedCapFits(AssetWire.Render(d, 60), 60, c => AssetWire.Render(d, c));
     }
 
     /// <summary>The nif batch owes its alarms and cut notice but no accounting trailer: its own floor (#986).</summary>

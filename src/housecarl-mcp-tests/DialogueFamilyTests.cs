@@ -76,7 +76,7 @@ public sealed class DialogueFamilyTests
                                                    project: new RecordsTools.RecordsProject { form = "info_order" },
                                                    max_chars: c);
 
-        RenderFloorAssert.FitsOrRefuses(Call(cap), cap, Call, drift: 16);
+        RenderFloorAssert.FitsOrRefuses(Call(cap), cap, Call);
     }
 
     /// <summary>Below its floor the info_order render is refused naming a cap it fits (#986).</summary>
@@ -87,24 +87,28 @@ public sealed class DialogueFamilyTests
                                                    project: new RecordsTools.RecordsProject { form = "info_order" },
                                                    max_chars: c);
 
-        RenderFloorAssert.RefusesAndTheNamedCapFits(Call(50), 50, Call, drift: 16);
+        RenderFloorAssert.RefusesAndTheNamedCapFits(Call(50), 50, Call);
     }
 
-    /// <summary>And what the cap held back is counted, not dropped in silence. The cap is derived rather than
-    /// pinned: 100 short of what the render takes uncapped is a cap it cannot hold, whatever this fixture's
-    /// topic happens to weigh.</summary>
+    /// <summary>And what the cap held back is counted, not dropped in silence. This world's one topic is narrower than
+    /// a spill block, so through the tool its cut is below the floor and refused (#986): the count is read off the
+    /// render driven with three wide topics at the first cap it serves cut, and the spill off the json lane.</summary>
     [Fact]
     public void AnInfoOrderCutByItsCapSaysHowManyTopicsItHeldBack()
     {
-        string At(int cap) => RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
-                                                   project: new RecordsTools.RecordsProject { form = "info_order" },
-                                                   max_chars: cap);
-        int cap = At(0).Length - 100;
-        // Read through the seam: this one topic is narrower than its spill block, so the cut is below its floor (#986).
-        var r = RenderCap.Unheld(() => At(cap));
+        var rows = Enumerable.Range(1, 3).Select(t => new RecordReads.InfoOrderRow($"00000{t}:big.esp", "DialogTopic", $"HcBigTopic{t}",
+            "big.esp", DialogueInfoOrder.Compute(new List<(string, IReadOnlyList<InfoLine>)>
+                { ("big.esp", Enumerable.Range(1, 12).Select(i => new InfoLine(Mutagen.Bethesda.Plugins.FormKey.Factory($"{t * 100 + i:X6}:big.esp"), null, false)).ToList()) },
+                _ => null, Array.Empty<string>()), null)).ToArray();
+        var (cap, r) = RenderFloorAssert.ServedCut(
+            c => RecordsTools.RenderRecordsInfoOrder(rows, 3, 0, 0, "records  form=info_order", null, c, null, out _),
+            t => t.Contains("[rendered", StringComparison.Ordinal));
 
-        Assert.Matches(@"\[rendered \d+ of 1 rows at max_chars=" + cap + @"\]", r);
-        Assert.Contains("spilled: complete result", r);
+        Assert.Matches(@"\[rendered \d+ of 3 rows at max_chars=" + cap + @"\]", r);
+        using var doc = JsonDocument.Parse(RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) }, format: "json",
+                                                                project: new RecordsTools.RecordsProject { form = "info_order" },
+                                                                max_chars: 100));
+        Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
     }
 
     /// <summary>The info_order census is a text render too: a max_chars it cannot fit in is refused naming the

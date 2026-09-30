@@ -202,8 +202,8 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
     {
         var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir });
 
-        // Read through the seam: 200 is below this render's floor, where the call is refused (#986).
-        var text = RenderCap.Unheld(() => AssetWire.Render(d, 200));
+        // The first cap the server serves the call cut (#986: below the floor a text call is refused).
+        var (_, text) = RenderFloorAssert.ServedCut(c => AssetWire.Render(d, c), t => t.Contains("max_chars cut", StringComparison.Ordinal));
 
         Assert.Contains("[accounting] total=5 rendered=", text);
         Assert.Matches(@"truncated=[1-9]", text);

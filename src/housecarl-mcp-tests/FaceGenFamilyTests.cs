@@ -402,15 +402,15 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenClassFixture>
                                           BatchRender.RootFailureList(roots))[1];
         // A cap where the one shared quarter cuts the archives that a quarter of their own would show whole.
         var cap = Enumerable.Range(1, 400).Select(i => i * 50).FirstOrDefault(c =>
-            Shared(c).Omitted > 0 && BatchRender.CaveatBlockCut(c, BatchRender.ArchiveFailureList(archives))[0].Omitted == 0);
+            Shared(c).Omitted > 0 && BatchRender.CaveatBlockCut(c, BatchRender.ArchiveFailureList(archives))[0].Omitted == 0
+            && !RenderFloorAssert.IsFloorRefusal(Call(c, "text")));   // a cap the text call serves (#986)
         Assert.True(cap > 0, "no max_chars in 50..20000 where the shared cut bites and a cut of its own would not");
 
         using var cut = JsonDocument.Parse(Call(cap, "json"));
         Assert.Equal(Shared(cap).Omitted, cut.RootElement.GetProperty("archive_read_failures_omitted").GetInt32());
         var lead = BatchRender.ArchiveFailureList(archives).Lead;
-        // The text render is read through the seam where the cap is below its floor (#986).
         Assert.Equal(Shared(cap).Shown.Count,
-                     RenderCap.Unheld(() => Call(cap, "text")).Split('\n').Count(l => l.StartsWith(lead, StringComparison.Ordinal)));
+                     Call(cap, "text").Split('\n').Count(l => l.StartsWith(lead, StringComparison.Ordinal)));
         w.AssertNoHandlesLeft();
     }
 

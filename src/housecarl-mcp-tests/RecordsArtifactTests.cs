@@ -193,9 +193,6 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     // than its spill block: the WEAP scan's full bodies, and the list lane's.
     const int SpillScan = 2_500;   // cuts the full-body WEAP scan and fits its spill block
     const int SpillBody = 1_500;   // cuts the full-body list lane and fits its spill block
-    /// <summary>What a records floor can grow by between two calls: its own read timing, and a spill file's name
-    /// taking a counter when another landed in the same second.</summary>
-    const int Drift = 16;
 
     [Fact]
     public void Control_MaxCharsTruncatesTheInlineTextRender()
@@ -295,7 +292,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         string Call(int cap) => RecordsTools.Records(Svc, formids: SummaryIds,
                                                      project: new RecordsTools.RecordsProject { form = "summary" }, max_chars: cap);
 
-        var served = RenderFloorAssert.RefusesAndTheNamedCapFits(Call(900), 900, Call, Drift);
+        var served = RenderFloorAssert.RefusesAndTheNamedCapFits(Call(900), 900, Call);
         Assert.Matches(@"\[rendered \d+ of \d+ at max_chars=\d+\]", served);   // what it held back is counted
     }
 
@@ -312,7 +309,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     /// whatever the budget, its spill block included, and the call is refused naming a cap the same call fits.</summary>
     static void InsideItsCap(string r, int cap, string what, Func<int, string> call)
     {
-        if (RenderFloorAssert.IsFloorRefusal(r)) { RenderFloorAssert.RefusesAndTheNamedCapFits(r, cap, call, Drift); return; }
+        if (RenderFloorAssert.IsFloorRefusal(r)) { RenderFloorAssert.RefusesAndTheNamedCapFits(r, cap, call); return; }
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
         Assert.True(r.Length <= cap, $"the {what} returned {r.Length} chars at max_chars={cap}");
     }
@@ -393,8 +390,17 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
             int cap = call(0).Length - 100;   // the whole render spills nothing; 100 short of it cannot hold
             var r = call(cap);
 
-            // This world's whole chain is narrower than its spill block, so a cut chain is below its floor.
-            if (name == "chain") { RenderFloorAssert.RefusesAndTheNamedCapFits(r, cap, call, Drift); continue; }
+            // This world's whole chain is narrower than its spill block, so a cut chain is refused; the cap it names is
+            // the one its whole answer fits, never the cut with a spill block that call would not write.
+            if (name == "chain")
+            {
+                var served = RenderFloorAssert.RefusesAndTheNamedCapFits(r, cap, call);
+                // The named cap is the whole answer's width plus what a next call can print wider, and no spill block.
+                Assert.True(RenderFloorAssert.Named(r) <= call(0).Length + RenderCap.NextCallGrowth,
+                            $"chain refusal named {RenderFloorAssert.Named(r)}, wider than its whole answer {call(0).Length}");
+                Assert.DoesNotContain("spilled:", served);
+                continue;
+            }
             Assert.Contains("at max_chars=" + cap + "]", r);          // the notice quotes what the caller passed
             Assert.Contains("spilled: complete result", r);           // and the artifact still holds it all
             InsideItsCap(r, cap, name, call);
@@ -423,7 +429,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
                                                            project: Form("chain"), counts_only: true, max_chars: cap)),
         })
         {
-            RenderFloorAssert.RefusesAndTheNamedCapFits(call(50), 50, call, Drift);
+            RenderFloorAssert.RefusesAndTheNamedCapFits(call(50), 50, call);
         }
     }
 
@@ -455,7 +461,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         })
         {
             var d = OwnResults();
-            RenderFloorAssert.RefusesAndTheNamedCapFits(call(50), 50, call, Drift);
+            RenderFloorAssert.RefusesAndTheNamedCapFits(call(50), 50, call);
             Assert.Empty(Directory.GetFiles(d, "*.tmp-*"));
         }
     }
@@ -503,7 +509,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 
         var r = Call(TinyBody);
         Assert.Empty(Directory.GetFiles(d, "*.jsonl"));   // a refused call leaves no spill behind
-        Assert.Contains("spilled: complete result", RenderFloorAssert.RefusesAndTheNamedCapFits(r, TinyBody, Call, Drift));
+        Assert.Contains("spilled: complete result", RenderFloorAssert.RefusesAndTheNamedCapFits(r, TinyBody, Call));
     }
 
     [Fact]

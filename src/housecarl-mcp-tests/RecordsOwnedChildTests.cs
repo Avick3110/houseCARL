@@ -1152,9 +1152,11 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     {
         // CellC is a SOLE-toucher row: row.Nodes.Count <= 1, so the diff loop (which has its own cap check) never
         // runs, leaving the block-to-end-of-row stretch as the only path a cap check has to cover.
-        // Read through the seam: 200 is below the spilled row's floor, where the call is refused (#986).
-        var r = RenderCap.Unheld(() => Tree(_w.CellC, maxChars: 200));
-        Assert.Contains("spilled: complete result", r);
+        // Driven directly: this row is narrower than a spill block, so through the tool a cut is below the floor and
+        // refused (#986). A render that reports its cut is what makes the tool spill.
+        bool truncated = false;
+        RenderFloorAssert.ServedCut(c => TreeRender(_w.CellC, c, out truncated), _ => truncated);
+        Assert.True(truncated);
     }
 
     [Fact]
@@ -1185,7 +1187,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     [Fact]
     public void ATextRowsDeclarersBlockTailAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated() =>
-        Assert.Contains("spilled: complete result", RenderCap.Unheld(() => Tree(_w.CellF, maxChars: 830)));   // below the floor (#986)
+        Assert.Contains("spilled: complete result",
+                        RenderFloorAssert.ServedCut(c => Tree(_w.CellF, maxChars: c), t => t.Contains("spilled:", StringComparison.Ordinal)).Text);
 
     /// <summary>748 is the whole row's own width and the first cap it fits inside, where nothing is cut and
     /// nothing claims the answer is short; 747 is the last cap it does not fit, so the block is cut and says so.

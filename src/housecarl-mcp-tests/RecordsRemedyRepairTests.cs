@@ -89,10 +89,11 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     [Fact]
     public void TheOffOrderScansEverythingLaneDropsItToo_ThreeLanesOneRule()
     {
-        // Read below the floor, where the call is refused (#986): the notice the cut render lays is under test.
-        var r = RenderCap.Unheld(() => RecordsTools.Records(Svc, types: new[] { "WEAP" }, source: Plugin(W.OldName), max_chars: 12,
-                                                            project: Form("everything")));
-        Assert.False(RenderFloorAssert.IsFloorRefusal(r), r);
+        // A cut the server serves, over enough off-order records to cut above the floor (#986).
+        string[] many = { "WEAP", "ARMO", "SPEL", "MGEF", "KYWD", "LVLI", "PACK", "NPC_" };
+        var r = RenderFloorAssert.ServedCut(c => RecordsTools.Records(Svc, types: many, source: Plugin(W.OldName), max_chars: c,
+                                                                      project: Form("everything")),
+                                            t => t.Contains(" records before hitting", StringComparison.Ordinal)).Text;
         Assert.Contains("max_chars", r);
         Assert.DoesNotContain("project.fields=", r);
     }
@@ -100,8 +101,10 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     [Fact]
     public void TheFieldsFormStillNamesItsSelector_TheVocabularyIsPerFormNotPerTool()
     {
-        var r = RenderCap.Unheld(() => RecordsTools.Records(Svc, formids: AllWeaponIds, max_chars: 220,
-                                                            project: Fields("BasicStats.Damage", "EditorID", "Name")));
+        // A cut the server serves (#986): the cut notice is the only place project.fields= is named here.
+        var r = RenderFloorAssert.ServedCut(c => RecordsTools.Records(Svc, formids: AllWeaponIds, max_chars: c,
+                                                                      project: Fields("BasicStats.Damage", "EditorID", "Name")),
+                                            t => t.Contains("truncated", StringComparison.Ordinal)).Text;
         Assert.Contains("project.fields=", r);
     }
 

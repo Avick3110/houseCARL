@@ -77,8 +77,11 @@ public sealed class RemedyHarvest
         var tinyProject = new RecordsTools.RecordsProject
         { form = "fields", fields = new[] { "BasicStats.Damage", "EditorID", "Name" } };
         var tinyJson = RecordsTools.Records(svc, formids: wf, format: "json", max_chars: 220, project: tinyProject);
-        // The text probes read the cut notices a render lays below its floor, where the call itself is refused (#986).
-        var tinyText = RenderCap.Unheld(() => RecordsTools.Records(svc, formids: wf, max_chars: 220, project: tinyProject));
+        // The text probes read a cut the server serves: the first cap that serves the call cut, since below its floor
+        // a text call is refused (#986). The scan and delta probes widen the selection so such a cap exists.
+        string[] many = { "WEAP", "ARMO", "SPEL", "MGEF", "KYWD", "LVLI", "PACK", "NPC_" };
+        var tinyText = RenderFloorAssert.ServedCut(c => RecordsTools.Records(svc, formids: wf, max_chars: c, project: tinyProject),
+                                                   r => r.Contains("project.fields=", StringComparison.Ordinal)).Text;
 
         ArtifactPath = Path.Combine(w.Root, "remedy-rows.jsonl");
         var artResp = RecordsTools.Records(svc, types: new[] { "SPEL" }, to_file: ArtifactPath, project: containerFields);
@@ -89,14 +92,17 @@ public sealed class RemedyHarvest
             ("fields/text", "text", tinyText),
             ("container/text", "text", RecordsTools.Records(svc, formids: new[] { Fid(w.SpellA) }, project: containerFields)),
             ("container/json", "json", RecordsTools.Records(svc, formids: new[] { Fid(w.SpellA) }, format: "json", project: containerFields)),
-            ("tree/text", "text", RenderCap.Unheld(() => RecordsTools.Records(svc, formids: wf, max_chars: 300, project: new RecordsTools.RecordsProject { form = "tree" }))),
+            ("tree/text", "text", RenderFloorAssert.ServedCut(c => RecordsTools.Records(svc, formids: wf, max_chars: c, project: new RecordsTools.RecordsProject { form = "tree" }),
+                                                             r => r.Contains("at max_chars=", StringComparison.Ordinal)).Text),
             ("tree/json", "json", RecordsTools.Records(svc, formids: wf, max_chars: 300, format: "json", project: new RecordsTools.RecordsProject { form = "tree" })),
-            ("scan/text", "text", RenderCap.Unheld(() => RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, project: scanFields))),
+            ("scan/text", "text", RenderFloorAssert.ServedCut(c => RecordsTools.Records(svc, types: many, max_chars: c, project: scanFields),
+                                                             r => r.Contains("returned matches before hitting", StringComparison.Ordinal)).Text),
             ("scan/json", "json", RecordsTools.Records(svc, types: new[] { "WEAP" }, max_chars: 300, format: "json", project: scanFields)),
             ("container/dense", "dense", RecordsTools.Records(svc, types: new[] { "SPEL" }, format: "dense", project: containerFields)),
-            ("delta/text", "text", RenderCap.Unheld(() => RecordsTools.Records(svc, formids: new[] { Fid(w.Weapons[0]) }, source: Plugin(w.OverrideName),
-                                                        versus: Plugin("previous_provider"), max_chars: 320,
-                                                        project: new RecordsTools.RecordsProject { form = "delta" }))),
+            ("delta/text", "text", RenderFloorAssert.ServedCut(c => RecordsTools.Records(svc, formids: wf, source: Plugin(w.OverrideName),
+                                                                                         versus: Plugin("previous_provider"), max_chars: c,
+                                                                                         project: new RecordsTools.RecordsProject { form = "delta" }),
+                                                              r => r.Contains("at max_chars=", StringComparison.Ordinal)).Text),
             ("deltaIdentical/text", "text", RecordsTools.Records(svc, formids: new[] { Fid(w.BigList) }, source: Plugin(w.OverrideName),
                                                                  versus: Plugin("previous_provider"),
                                                                  project: new RecordsTools.RecordsProject { form = "delta" })),

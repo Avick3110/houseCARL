@@ -114,15 +114,20 @@ public sealed class RecordsRemedyGrammarTests : RecordsTestBase
 
     // ---- the scan cut's SLIM-DOWN clause is true only where something was passed to slim ------------------
 
-    // The cut notices below are read through RenderCap.Unheld: at these caps the call is refused below its floor
-    // (#986), and it is the notice a render lays when it is cut that these tests are about.
+    // The cut notices below are read at the first cap the server serves the call cut: below the floor a text call is
+    // refused (#986), so the scans widen to enough types to cut above it.
+    static readonly string[] Many = { "WEAP", "ARMO", "SPEL", "MGEF", "KYWD", "LVLI", "PACK", "NPC_" };
+    static string ServedScanCut(Func<int, string> call) =>
+        RenderFloorAssert.ServedCut(call, t => ScanCut(t) is not null).Text;
+    static string ServedBatchCut(Func<int, string> call) =>
+        RenderFloorAssert.ServedCut(call, t => BatchCut(t) is not null).Text;
     static string? ScanCut(string resp) =>
         resp.Split('\n').FirstOrDefault(l => l.Contains("... [truncated: rendered") && l.Contains(" returned matches before hitting"));
 
     [Fact]
     public void ASummaryFormScansCutNamesNoProjectToDrop_ItPassedNoneAndIsTheSummaryRender()
     {
-        var cut = ScanCut(RenderCap.Unheld(() => RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: 300)));
+        var cut = ScanCut(ServedScanCut(c => RecordsTools.Records(Svc, types: Many, max_chars: c)));
         Assert.NotNull(cut);
         Assert.Contains("lower limit= or raise max_chars", cut);
         Assert.DoesNotContain("drop ", cut);
@@ -131,20 +136,14 @@ public sealed class RecordsRemedyGrammarTests : RecordsTestBase
     [Fact]
     public void AFieldsFormScansCutStillSaysToDropProjectWhichIsActionableThere()
     {
-        var cut = ScanCut(RenderCap.Unheld(() => RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: 300,
-                                               project: Fields("BasicStats.Damage"))));
+        var cut = ScanCut(ServedScanCut(c => RecordsTools.Records(Svc, types: Many, max_chars: c,
+                                                             project: Fields("BasicStats.Damage"))));
         Assert.NotNull(cut);
         Assert.Contains("drop project= (summary rows)", cut);
     }
 
-    [Fact]
-    public void TheOffOrderScanNamesNoneEither_ItPassesNoFieldPathsAtAll()
-    {
-        var cut = ScanCut(RenderCap.Unheld(() => RecordsTools.Records(Svc, types: new[] { "WEAP" }, source: Plugin(W.OldName), max_chars: 12)));
-        Assert.NotNull(cut);
-        Assert.Contains("lower limit= or raise max_chars", cut);
-        Assert.DoesNotContain("drop ", cut);
-    }
+    // TheOffOrderScanNamesNoneEither_ItPassesNoFieldPathsAtAll moved to OffOrderScanCutTests: this world's off-order
+    // file is too small for its scan to be cut at a cap the server serves (#986).
 
     // ---- the batch cut's SELECTION clause is a function of the selection LANE -----------------------------
 
@@ -154,7 +153,7 @@ public sealed class RecordsRemedyGrammarTests : RecordsTestBase
     [Fact]
     public void AScanSelectedBatchsTruncationNoticeNamesLimitNotAFormidsListTheCallerNeverWrote()
     {
-        var cut = BatchCut(RenderCap.Unheld(() => RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: 400, project: Form("everything"))));
+        var cut = BatchCut(ServedBatchCut(c => RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: c, project: Form("everything"))));
         Assert.NotNull(cut);
         Assert.Contains("lower limit=", cut);
         Assert.DoesNotContain("formids", cut);
@@ -163,7 +162,7 @@ public sealed class RecordsRemedyGrammarTests : RecordsTestBase
     [Fact]
     public void TheFormidsLaneStillSaysRequestFewerFormidsWhichIsTrueOnlyThere()
     {
-        var cut = BatchCut(RenderCap.Unheld(() => RecordsTools.Records(Svc, formids: AllWeaponIds, max_chars: 400, project: Form("everything"))));
+        var cut = BatchCut(ServedBatchCut(c => RecordsTools.Records(Svc, formids: AllWeaponIds, max_chars: c, project: Form("everything"))));
         Assert.NotNull(cut);
         Assert.Contains("request fewer formids", cut);
         Assert.DoesNotContain("lower limit=", cut);
@@ -172,8 +171,8 @@ public sealed class RecordsRemedyGrammarTests : RecordsTestBase
     [Fact]
     public void TheOffOrderScansBatchNoticeNamesLimitToo_ItsOwnLaneItsOwnArm()
     {
-        var cut = BatchCut(RenderCap.Unheld(() => RecordsTools.Records(Svc, types: new[] { "WEAP" }, source: Plugin(W.OldName), max_chars: 12,
-                                                project: Form("everything"))));
+        var cut = BatchCut(ServedBatchCut(c => RecordsTools.Records(Svc, types: Many, source: Plugin(W.OldName), max_chars: c,
+                                                              project: Form("everything"))));
         Assert.NotNull(cut);
         Assert.Contains("lower limit=", cut);
         Assert.DoesNotContain("formids", cut);

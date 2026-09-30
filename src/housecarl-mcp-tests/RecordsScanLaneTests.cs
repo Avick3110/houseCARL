@@ -113,9 +113,11 @@ public sealed class RecordsScanLaneTests : RecordsTestBase
         var project = new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" };
         var whole = RecordsTools.Records(Svc, types: new[] { "WEAP", "ARMO", "SPEL", "AMMO" }, project: project);
         Served(whole, "no records: Ammunition");
-        // Read through the seam: half this table is below its floor, where the call is refused (#986).
-        var cut = RenderCap.Unheld(() => RecordsTools.Records(Svc, types: new[] { "WEAP", "ARMO", "SPEL", "AMMO" },
-                                                              project: project, max_chars: whole.Length / 2));
+        // The group render driven directly: this table is narrower than a spill block, so through the tool its cut is
+        // below the floor and refused (#986). Read at the first cap it serves cut.
+        var q = Svc.CrossQuery(new[] { "WEAP", "ARMO", "SPEL", "AMMO" }, null, null, false, null, null, 100_000, groupBy: "type");
+        var (_, cut) = RenderFloorAssert.ServedCut(c => Wire.RenderCrossQuery(Svc, q, null, c),
+                                                   t => t.Contains("truncated: rendered", StringComparison.Ordinal));
         Served(cut, "no records: Ammunition");
     }
 

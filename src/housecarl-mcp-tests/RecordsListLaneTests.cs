@@ -91,15 +91,13 @@ public sealed class RecordsListLaneTests : RecordsTestBase
         var project = new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" };
         var whole = RecordsTools.Records(Svc, formids: ManyTypedIds, project: project);
         Served(whole, "group_by=type");
-        int cap = whole.Length - 40;   // derived, not pinned to a number that would only hold on one machine
-
-        // The cut the render lays is read through the seam: this table is narrower than its floor (#986).
-        var cut = RenderCap.Unheld(() => RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, max_chars: cap));
+        string Call(int c) => RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, max_chars: c);
+        // Found rather than pinned: the first cap the server serves the call cut (#986: below the floor a text call is refused).
+        var (cap, cut) = RenderFloorAssert.ServedCut(Call, t => t.Contains("truncated: rendered", StringComparison.Ordinal));
         Served(cut, "truncated: rendered", "groups before hitting max_chars=" + cap);
         Assert.True(CountOf(cut, "\n  ") < CountOf(whole, "\n  "), "the capped render laid as many rows as the uncapped one");
-        // The ceiling holds, or the call is refused below its floor naming a cap it fits.
-        string Call(int c) => RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, max_chars: c);
-        RenderFloorAssert.FitsOrRefuses(Call(cap), cap, Call, drift: 16);
+        // Below that cap the ceiling holds too: the call fits or is refused naming a cap it fits.
+        RenderFloorAssert.FitsOrRefuses(Call(whole.Length - 40), whole.Length - 40, Call);
     }
 
     [Fact]
@@ -157,9 +155,10 @@ public sealed class RecordsListLaneTests : RecordsTestBase
         var types = new[] { "SPEL", "SCRL" };
         var walk = new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" };
         var whole = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, walk: walk, types: types, project: project);
-        // Read through the seam: half this table is below its floor, where the call is refused (#986).
-        var cut = RenderCap.Unheld(() => RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, walk: walk, types: types,
-                                                              project: project, max_chars: whole.Length / 2));
+        // The first cap the server serves the call cut (#986: below the floor a text call is refused).
+        var (_, cut) = RenderFloorAssert.ServedCut(c => RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, walk: walk,
+                                                                             types: types, project: project, max_chars: c),
+                                                   t => t.Contains("truncated: rendered", StringComparison.Ordinal));
         Served(cut, "no records: Scroll");
     }
 }
