@@ -255,12 +255,12 @@ internal sealed partial class AssetLayers
     }
 
     /// <summary>The plugin names a peek adjudicates an embedded reference against — active plus the force-loaded
-    /// implicit masters, less those no enabled layer serves. Returns null, never a partial set, when the answer is unknowable.</summary>
+    /// implicit masters, less those no enabled layer serves. Returns null, never a partial set, when the answer is unknowable;
+    /// an empty set means nothing listed is served, so every reference is judged not loaded.</summary>
     internal static IReadOnlySet<string>? PeekPluginSet(Mo2Composition comp, IReadOnlyList<UnservedPlugin> unserved)
     {
         if (comp.OrderedPluginNames.Count == 0) return null;   // no loadorder.txt ⇒ the implicit masters are unknowable, not absent
-        var set = Mo2LoadOrder.ActiveNames(comp, unserved);
-        return set.Count > 0 ? set : null;
+        return Mo2LoadOrder.ActiveNames(comp, unserved);
     }
 
     /// <summary>The immediate subfolder under SKSE\Plugins a file sits in ("" = top level) — the DERIVED grouping key, since a hardcoded framework list would miscategorize anything not on it.</summary>

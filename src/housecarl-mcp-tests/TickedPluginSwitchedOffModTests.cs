@@ -254,6 +254,32 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
         finally { try { Directory.Delete(root, true); } catch { /* temp cleanup best-effort */ } }
     }
 
+    [Fact]
+    public void ThePeekJudgesEveryReferenceNotLoadedWhenNothingListedIsServed()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hc-ticked-none-served-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var instance = Path.Combine(root, "instance");
+            var profile = Path.Combine(instance, "profiles", "Default");
+            var mods = Path.Combine(instance, "mods");
+            var skse = Path.Combine(mods, "HcTsSkseMod", "SKSE", "Plugins");
+            foreach (var d in new[] { profile, skse, Path.Combine(mods, W.OffMod), Path.Combine(root, "game", "Data") }) Directory.CreateDirectory(d);
+            File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+                "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+                + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n");
+            File.WriteAllText(Path.Combine(mods, W.OffMod, W.OffName), "");
+            File.WriteAllBytes(Path.Combine(skse, "HcTsPeek.dll"), System.Text.Encoding.ASCII.GetBytes("\0\0" + W.OffName + "\0\0"));
+            // The one listed plugin is ticked, and its only folder is switched off.
+            File.WriteAllText(Path.Combine(profile, "loadorder.txt"), W.OffName + "\r\n");
+            File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + W.OffName + "\r\n");
+            File.WriteAllText(Path.Combine(profile, "modlist.txt"), "+HcTsSkseMod\r\n-" + W.OffMod + "\r\n");
+            using var svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(root, "houseCARL.user.json")));
+            Assert.Contains("NOT in your load order", LineOf(SkseTools.Skse(svc, filter: "HcTsPeek", peek: true), W.OffName));
+        }
+        finally { try { Directory.Delete(root, true); } catch { /* temp cleanup best-effort */ } }
+    }
+
     static string LineOf(string text, string needle) =>
         text.Split('\n').FirstOrDefault(l => l.Contains(needle) && l.Contains("load order"))
         ?? throw new Xunit.Sdk.XunitException($"no load-order line naming '{needle}' in:\n{text}");
