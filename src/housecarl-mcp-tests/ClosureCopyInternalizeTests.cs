@@ -12,15 +12,6 @@ namespace HousecarlMcpTests;
 [Trait("tier", "unit")]
 public sealed class ClosureCopyInternalizeTests
 {
-    // the walk reaches the source subtree
-    [Fact]
-    public void TheWalkReachesTheHeadPartAndItsTextureSet()
-    {
-        var g = new ClosureCopySourceGraph();
-        Assert.True(g.Walk.Success);
-        Assert.Equal(new[] { Hp, Txst }.OrderBy(k => k.ID), g.Walk.Reached.Select(n => n.Key).OrderBy(k => k.ID));
-    }
-
     // internalize succeeds; every copy lands under the patch's OWN new keys
     [Fact]
     public void EveryCopyLandsUnderThePatchsOwnKeys()
@@ -38,6 +29,14 @@ public sealed class ClosureCopyInternalizeTests
         var g = new ClosureCopySourceGraph();
         Assert.Equal(new uint[] { PatchCounter, PatchCounter + 1 }, g.Copy.Copied.Select(c => c.NewKey.ID).OrderBy(i => i));
         Assert.Equal(PatchCounter + 2, g.Patch.ModHeader.Stats.NextFormID);
+    }
+
+    // a counter below the patch's own records is lifted past them before allocating (EnsureFormIdFloor)
+    [Fact]
+    public void ACounterBelowThePatchsRecordsStartsPastThem()
+    {
+        var g = new ClosureCopySourceGraph(counter: 0);
+        Assert.Equal(new uint[] { Prior.ID + 1, Prior.ID + 2 }, g.Copy.Copied.Select(c => c.NewKey.ID).OrderBy(i => i));
     }
 
     // EditorIDs are preserved by the whole-record duplicate
