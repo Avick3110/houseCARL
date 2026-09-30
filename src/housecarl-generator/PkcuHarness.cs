@@ -9,7 +9,7 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// Throwaway feasibility probe for the index-build resilience fix (Nexus bug: a malformed PKCU in
+/// Manual harness for the index-build resilience fix (Nexus bug: a malformed PKCU in
 /// TasteOfDeath_Addon_Dialogue.esp throws DURING EnumerateMajorRecords(), bricking the whole index build).
 ///
 /// Decides record-level vs plugin/type-level isolation:
@@ -17,8 +17,9 @@ namespace HousecarlGenerator;
 ///   TEST 2 — what EnumerateMajorRecords / CreateFromBinaryOverlay overloads exist (any resilience knob?)
 ///
 /// Run: dotnet run --project src/housecarl-generator pkcu-probe &lt;malformed.esp&gt;
+/// The CI regression for this fix is MalformedPkcuExclusionTests in src/housecarl-mcp-tests.
 /// </summary>
-public static class PkcuProbe
+public static class PkcuHarness
 {
     public static int Run(string[] args)
     {
@@ -184,148 +185,6 @@ public static class PkcuProbe
             Console.WriteLine($"   NOTE: {resolver.ExcludedPlugins.Count - 1} OTHER plugin(s) in the real order were also excluded — surfaced above (would previously have bricked houseCARL too).");
         resolver.Dispose();
         return pass ? 0 : 1;
-    }
-
-    /// <summary>CI REGRESSION GUARD (self-contained — no external file/MO2 deps, unlike the manual proofs above, so it
-    /// runs on the CI runner). SYNTHESIZES a malformed PKCU in code: writes a clean plugin (a keyword) + a plugin
-    /// with an empty PACK, both masterless (CI has no game files), then corrupts the PACK's PKCU subrecord so Mutagen
-    /// throws constructing the overlay mid-enumeration. Asserts the resolver EXCLUDES the bad plugin (not fatal) while
-    /// the clean plugin still resolves. Locks in the "Taste of Death" fix.
-    /// Returns 0 = pass / 1 = fail (the CI gate). Run: dotnet run --project src/housecarl-generator -- pkcu-regression
-    ///
-    /// WHICH CORRUPTION, AND WHY IT CHANGED (Mutagen 0.53.1 -> 0.54.4, 2026-08-23). The synthesis used to flip the
-    /// PKCU data-input COUNT from 0 to a non-zero value, so count≠inputs. 0.54.4 no longer throws on that — it parses
-    /// the mismatch silently and enumerates the record — almost certainly 0.54.2's "Reverted undesirable optimization
-    /// causing parsing errors in specific scenarios". The staleness self-check below caught it rather than letting the
-    /// guard turn into a false PASS, which is what that check is for.
-    ///
-    /// Measured across both versions before re-fixturing, so the replacement was chosen on evidence and not on a
-    /// guess about which shapes are stable:
-    ///
-    ///   corruption                     0.53.1                        0.54.4
-    ///   PKCU data count 0 -> 6         SubrecordException            NO THROW   &lt;- the old fixture
-    ///   PKCU subrecord length 12 -> 99 SubrecordException            SubrecordException   &lt;- the new fixture
-    ///   PKDT subrecord length -> 200   no throw                      no throw
-    ///   EDID subrecord length -> 250   ArgumentOutOfRangeException   ArgumentOutOfRangeException
-    ///   PACK record length +5000 / ->3 no throw                      no throw
-    ///   GRUP size -> 9999              ModGroupsMalformedException   ModGroupsMalformedException
-    ///   truncated tail                 ModGroupsMalformedException   ModGroupsMalformedException
-    ///
-    /// Exactly one shape changed. The replacement stays in the SAME subrecord and throws the SAME exception type on
-    /// BOTH versions, so the guard still synthesizes "a malformed PKCU on a package record throws mid-enumeration" —
-    /// the Taste of Death shape — and is not pinned to either Mutagen version.
-    ///
-    /// The behavior change is upstream's, not ours: a plugin whose PKCU count disagrees with its inputs is no longer
-    /// excluded by the resolver, because nothing throws on it any more. That is a narrower isolation surface, not a
-    /// broken one — the fix this guard locks still isolates every shape that does throw.</summary>
-    [CiProbe("pkcu-regression")]
-    public static int RunRegression(string[] args)
-    {
-        Console.WriteLine("== PKCU REGRESSION GUARD (self-contained) ==");
-        var dir = Path.Combine(Path.GetTempPath(), "hc_pkcu_regression");
-        try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { }
-        Directory.CreateDirectory(dir);
-        var cleanPath = Path.Combine(dir, "hcRegClean.esp");
-        var badPath = Path.Combine(dir, "hcRegBad.esp");
-        try
-        {
-            // 1. CLEAN plugin — a keyword we can resolve (masterless: references nothing, so CI needs no game files).
-            var cleanMod = new SkyrimMod(ModKey.FromNameAndExtension("hcRegClean.esp"), SkyrimRelease.SkyrimSE);
-            var kw = cleanMod.Keywords.AddNew();
-            kw.EditorID = "hcRegKeyword";
-            var cleanKwFk = kw.FormKey;
-            cleanMod.BeginWrite.ToPath(cleanPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
-            // 2. BAD plugin — an empty PACK. Mutagen writes a PKCU subrecord for it; overstate that subrecord's
-            //    declared LENGTH so it claims more bytes than the record carries → SubrecordException thrown when
-            //    Mutagen constructs the overlay during enumeration (the Taste of Death shape). See the summary
-            //    above for why this is the length and no longer the data-input count.
-            var badMod = new SkyrimMod(ModKey.FromNameAndExtension("hcRegBad.esp"), SkyrimRelease.SkyrimSE);
-            var pkg = badMod.Packages.AddNew();
-            pkg.EditorID = "hcRegBadPackage";
-            var pkgFk = pkg.FormKey;
-            badMod.BeginWrite.ToPath(badPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
-            if (!OverstatePkcuLength(badPath, 99, out var synthNote)) { Console.WriteLine($"   FAIL (synth): {synthNote}"); return 1; }
-            Console.WriteLine($"   synth: {synthNote}");
-
-            // Sanity: the synthesized bad plugin really does throw on raw enumeration (else the test proves nothing).
-            bool rawThrows = false;
-            try { foreach (var _ in SkyrimMod.CreateFromBinaryOverlay(badPath, SkyrimRelease.SkyrimSE).EnumerateMajorRecords()) { } }
-            catch { rawThrows = true; }
-            if (!rawThrows) { Console.WriteLine("   FAIL (synth): the corrupted plugin did NOT throw on raw enumeration — synthesis is stale, test would be a false PASS."); return 1; }
-
-            // 3. The fix: Build over [clean, bad] must NOT throw; bad excluded; clean still resolves.
-            LoadOrderResolver resolver;
-            try { resolver = LoadOrderResolver.Build(new[] { cleanPath, badPath }); }
-            catch (Exception ex) { Console.WriteLine($"   FAIL (regression!): LoadOrderResolver.Build threw: {ex.GetType().Name}: {Trunc(ex.Message)}"); return 1; }
-
-            bool excluded = resolver.ExcludedPlugins.TryGetValue("hcRegBad.esp", out var exclusionReason);
-            // WHICH exclusion path fired, not merely THAT one did. LoadOrderResolver excludes from two
-            // structurally different places — an open-time catch and the mid-enumeration catch — and both
-            // populate ExcludedPlugins identically. Only the second is the "Taste of Death" fix this guard
-            // exists to lock. Asserting the key alone lets a corruption that fails at OPEN pass as green with
-            // the guarded path never entered (demonstrated: a truncated plugin does exactly that). That
-            // matters more with the current fixture than the retired one: the retired corruption was SEMANTIC
-            // (a data-input count disagreeing with the inputs) and could only be detected while parsing the
-            // record body, so it was structurally guaranteed to land mid-enumeration. An overstated subrecord
-            // LENGTH is exactly the class an upstream parser is most likely to start rejecting during a
-            // structure scan instead. Pin the path so that drift is a RED, not a silent downgrade.
-            //
-            // The path is read as a FACT, not out of the reason sentence. The first cut of this assertion
-            // pinned a substring of the user-facing prose LoadOrderResolver builds, which coupled a guard to
-            // wording that is free to change and made a reword print a cause the guard had not measured.
-            // Unopenable is the resolver's own machine-readable split of the two paths, added by #314 and kept
-            // as its own set for this exact reason ("a message is display prose that can be reworded,
-            // membership is a fact"). unopenable.Add fires at the open-time Exclude and nowhere else, and
-            // those are the only two Exclude call sites, so excluded-and-not-unopenable IS the mid-enumeration
-            // path. Step 2 above independently establishes that this fixture opens fine and throws while
-            // enumerating, so the two agree on which path the corruption takes.
-            bool viaEnumeration = excluded && !resolver.IsUnopenable("hcRegBad.esp");
-            var cleanWin = resolver.ResolveWinner(cleanKwFk);
-            var badWin = resolver.ResolveWinner(pkgFk);
-            Console.WriteLine($"   build OK — {resolver.RecordCount} record(s), {resolver.ExcludedPlugins.Count} excluded");
-            foreach (var kv in resolver.ExcludedPlugins) Console.WriteLine($"   excluded[{kv.Key}]: {Trunc(kv.Value)}");
-            Console.WriteLine($"   clean keyword resolves : {(cleanWin is not null ? "yes -> " + cleanWin.Value.WinnerPlugin : "NO")}");
-            Console.WriteLine($"   bad package resolves   : {(badWin is null ? "no (correct — excluded)" : "YES (wrong)")}");
-            resolver.Dispose();
-
-            if (excluded && !viaEnumeration)
-                Console.WriteLine($"   NOTE: excluded via the could-not-be-OPENED path, NOT the mid-enumeration " +
-                                  $"path this guard locks — the synthesized corruption now fails earlier. " +
-                                  $"Reason: {Trunc(exclusionReason ?? string.Empty)}");
-            bool pass = excluded && viaEnumeration && cleanWin is not null && badWin is null && resolver.RecordCount > 0;
-            Console.WriteLine(pass ? "   ==> PASS: malformed plugin isolated, clean plugin resolves." : "   ==> FAIL");
-            return pass ? 0 : 1;
-        }
-        catch (Exception ex) { Console.WriteLine($"   FAIL (unexpected): {ex.GetType().Name}: {Trunc(ex.Message)}"); return 1; }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
-    }
-
-    /// <summary>Overstate the PKCU subrecord's declared length (the 2-byte field after the 4-byte tag) so it claims
-    /// more bytes than the record carries. Returns false if no PKCU subrecord is present (synthesis assumption broken).
-    /// </summary>
-    static bool OverstatePkcuLength(string path, ushort newLength, out string note)
-    {
-        var b = File.ReadAllBytes(path);
-        for (int i = 0; i < b.Length - 6; i++)
-            if (b[i] == 0x50 && b[i + 1] == 0x4B && b[i + 2] == 0x43 && b[i + 3] == 0x55)   // "PKCU"
-            {
-                var old = BitConverter.ToUInt16(b, i + 4);                                    // 4 tag, then 2 length
-                if (newLength <= old)
-                {
-                    // Not a corruption at all — it would have to claim MORE than it carries to be one. Refuse
-                    // rather than write a well-formed plugin and let the run read as a pass.
-                    note = $"PKCU @ {i}: declared length is already {old}, so {newLength} would not overstate it";
-                    return false;
-                }
-                BitConverter.GetBytes(newLength).CopyTo(b, i + 4);
-                File.WriteAllBytes(path, b);
-                note = $"PKCU @ {i}: subrecord length {old} -> {newLength} (now claims {newLength} bytes, carries {old})";
-                return true;
-            }
-        note = "no PKCU subrecord found in the synthesized PACK (Mutagen did not emit one for an empty package)";
-        return false;
     }
 
     static string Sig(MethodInfo m) =>

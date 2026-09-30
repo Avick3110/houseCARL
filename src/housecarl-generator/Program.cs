@@ -30,13 +30,13 @@ if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 if (args.Length > 0 && args[0] == "skypatcher-layer") return SkyPatcherHarness.RunLayer(args[1..]);
 
 // Index-build resilience: is group enumeration resumable past a parse throw?
-if (args.Length > 0 && args[0] == "pkcu-probe") return PkcuProbe.Run(args[1..]);
+if (args.Length > 0 && args[0] == "pkcu-probe") return PkcuHarness.Run(args[1..]);
 
 // Index-build resilience: end-to-end proof a malformed plugin is isolated, not fatal.
-if (args.Length > 0 && args[0] == "pkcu-fix-proof") return PkcuProbe.RunFixProof(args[1..]);
+if (args.Length > 0 && args[0] == "pkcu-fix-proof") return PkcuHarness.RunFixProof(args[1..]);
 
 // Index-build resilience at real scale: full MO2 order + 1 malformed plugin, only it excluded.
-if (args.Length > 0 && args[0] == "pkcu-scale-proof") return PkcuProbe.RunScaleProof(args[1..]);
+if (args.Length > 0 && args[0] == "pkcu-scale-proof") return PkcuHarness.RunScaleProof(args[1..]);
 
 // Emit vanilla-class-parents.json from the CK vanilla sources' own ScriptName-extends headers. Committed asset:
 // vanilla sources do not exist on CI, so regenerate by hand on a game update.
@@ -194,7 +194,7 @@ if (args.Length > 0 && args[0] == "perk-refs-proof") return PerkRefsProbe.RunPro
 
 // Conflict-tree content diff, REAL-DATA proof: the "(identical to winner)" false ITM over a live MO2 order.
 // Manual; needs --mo2, and skips without it.
-if (args.Length > 0 && args[0] == "conflict-diff-proof") return ConflictDiffProbe.RunProof(args[1..]);
+if (args.Length > 0 && args[0] == "conflict-diff-proof") return ConflictDiffProof.RunProof(args[1..]);
 
 // FormID allocation floor, EXPLORATORY: pin the Mutagen NextFormID semantics — fresh-mod init, the Iterate
 // serialize recompute that seeds 0, CreateFromBinary rehydration, AddNew-from-0.
