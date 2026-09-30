@@ -16,100 +16,14 @@ namespace HousecarlGenerator;
 /// parameter-type flag Mutagen's model rejects (MalformedDataException) — and that single record aborted the
 /// whole call, because the scan loop only caught ArgumentException.
 ///
-/// REGRESSION GUARD (<c>perk-refs-guard</c>, standing CI instrument, self-contained): synthesizes the failure —
-/// a plugin with a target perk, a good perk that references it (NextPerk), and a perk whose written EPFT
-/// (entry-point parameter-type flag) byte is then corrupted so Mutagen's ParseEffect throws — and drives the REAL
-/// service-layer scan (<see cref="LoadOrderService.CrossQuery"/> via the ForGuard seam; the first CI coverage of
-/// the mcp layer). Asserts: the call SUCCEEDS, the good match is found, and the unscannable record is ACCOUNTED
-/// by FormKey in the ScanNote (Q3 — excluded, never silent). A control proves the corrupted perk really does
-/// throw from EnumerateFormLinks (so a GREEN is meaningful). RED before the fix, GREEN after.
+/// The CI regression for the fix is ReferencesScanFaultTests in src/housecarl-mcp-tests; this file keeps the
+/// deleted-record-scan-guard probe and the manual diagnose and proof harnesses.
 ///
-/// Run: <c>dotnet run --project src/housecarl-generator perk-refs-guard</c>
-///      <c>dotnet run --project src/housecarl-generator perk-refs-diagnose [-- --source &lt;path&gt; | --mo2 &lt;instanceDir&gt;]</c>
+/// Run: <c>dotnet run --project src/housecarl-generator perk-refs-diagnose [-- --source &lt;path&gt; | --mo2 &lt;instanceDir&gt;]</c>
 /// </summary>
 public static class PerkRefsProbe
 {
     const string DefaultSource = @"E:\SteamLibrary\steamapps\common\Skyrim Special Edition\Data\Skyrim.esm";
-
-    [CiProbe("perk-refs-guard")]
-    public static int RunGuard(string[] args)
-    {
-        Console.WriteLine("################  REGRESSION GUARD — references= scan fault isolation (HCBR-2026-06-09-03)  ################");
-        Console.WriteLine();
-
-        var tmpDir = Path.Combine(Path.GetTempPath(), "hc-perkrefs-guard");
-        if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
-        Directory.CreateDirectory(tmpDir);
-        var modKey = new ModKey("HcPerkRefsGuard", ModType.Plugin);
-        string espPath = Path.Combine(tmpDir, modKey.FileName.String);
-
-        // --- Setup: target perk + a BAD perk with one entry-point effect (whose EPFT parameter-type flag byte we
-        //     corrupt after writing — the exact malformation class the ARR sweep found), THEN a GOOD perk
-        //     referencing the target. Order is load-bearing (PR #27 review): the bad perk gets the LOWER FormID,
-        //     so it enumerates BEFORE the good match — the guard then pins not just "one bad record doesn't kill
-        //     the call" but "the scan CONTINUES past the fault" (a stop-at-first-fault regression silently drops
-        //     every later match — the Q3 class this fix closes; RED re-proven against that simulation). ---
-        FormKey targetFk, goodFk, badFk;
-        {
-            var mod = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE);
-            var target = mod.Perks.AddNew(); target.EditorID = "HcPerkRefsGuard_Target"; targetFk = target.FormKey;
-            var bad = mod.Perks.AddNew(); bad.EditorID = "HcPerkRefsGuard_Bad"; badFk = bad.FormKey;
-            bad.Effects.Add(new PerkEntryPointModifyActorValue
-            {
-                EntryPoint = APerkEntryPointEffect.EntryType.CalculateWeaponDamage,
-                ActorValue = ActorValue.OneHanded,
-                Value = 1f,
-                Modification = PerkEntryPointModifyActorValue.ModificationType.AddAVMult,
-            });
-            var good = mod.Perks.AddNew(); good.EditorID = "HcPerkRefsGuard_Good"; goodFk = good.FormKey;
-            good.NextPerk.SetTo(targetFk);
-            mod.BeginWrite.ToPath(espPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-        }
-        int corrupted = ProbeBytes.CorruptEpftBytes(espPath);
-        Console.WriteLine($"-- setup: wrote {modKey.FileName} (target + referencing + entry-point perks); corrupted {corrupted} EPFT flag byte(s) --");
-        if (corrupted != 1) { Console.WriteLine($"=== perk-refs-guard: FAIL (expected exactly 1 EPFT subrecord to corrupt, found {corrupted}) ==="); return 1; }
-
-        // --- CONTROL: the corruption must reproduce the crash class — EnumerateFormLinks on the bad perk THROWS. ---
-        bool controlThrew = false; string controlMsg = "(no throw)";
-        using (var ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE))
-        {
-            var badOv = ov.Perks.First(p => p.FormKey == badFk);
-            try { _ = ((IFormLinkContainerGetter)badOv).EnumerateFormLinks().Count(); }
-            catch (Exception ex) { controlThrew = true; controlMsg = $"{ex.GetType().Name}: {ex.Message}"; }
-        }
-        Console.WriteLine($"   CONTROL (bad perk throws from EnumerateFormLinks) : {(controlThrew ? "PASS" : "FAIL")}  [{controlMsg}]");
-
-        // --- FIX: drive the REAL service-layer scan over the order containing the bad perk. Scoped by plugins=
-        //     (the same scan loop type= runs; no corpus needed). Before the fix this whole call THREW. ---
-        using var resolver = LoadOrderResolver.Build(new[] { espPath });
-        var svc = LoadOrderService.ForGuard(resolver, new UserConfigStore(Path.Combine(tmpDir, "houseCARL.user.json")));
-        CrossQueryOutcome q;
-        try { q = svc.ReadArea.CrossQuery(type: null, references: new[] { targetFk }, editoridContains: null, conflictsOnly: false,
-                                 plugins: new[] { modKey.FileName.String }, where: null, limit: 500); }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"   scan call completed (no escape)                    : FAIL — the call still THREW: {ex.GetType().Name}: {ex.Message}");
-            Console.WriteLine();
-            Console.WriteLine("=== perk-refs-guard: FAIL ===");
-            return 1;
-        }
-
-        bool noError = q.Error is null;
-        bool foundGood = q.Total == 1 && q.Keys.Count == 1 && q.Keys[0] == goodFk;
-        bool accounted = q.ScanNote is not null
-                         && q.ScanNote.Contains(badFk.ToString(), StringComparison.OrdinalIgnoreCase)
-                         && q.ScanNote.Contains("1 record instance(s)", StringComparison.Ordinal);
-
-        Console.WriteLine($"   scan call completed (no escape, no error)          : {(noError ? "PASS" : $"FAIL [{q.Error}]")}");
-        Console.WriteLine($"   good referencing perk matched                      : {(foundGood ? "PASS" : $"FAIL (total={q.Total})")}");
-        Console.WriteLine($"   unscannable perk ACCOUNTED by FormKey (ScanNote)   : {(accounted ? "PASS" : $"FAIL [{q.ScanNote ?? "(no note)"}]")}");
-        if (accounted) Console.WriteLine($"      {q.ScanNote}");
-        Console.WriteLine();
-
-        bool pass = controlThrew && noError && foundGood && accounted;
-        Console.WriteLine($"=== perk-refs-guard: {(pass ? "PASS" : "FAIL")} ===");
-        return pass ? 0 : 1;
-    }
 
     /// <summary>REGRESSION GUARD (<c>deleted-record-scan-guard</c>, standing CI instrument, self-contained) for #276 —
     /// a DELETED record with a residual, malformed body made a references=/where= scan end in a raw
@@ -118,7 +32,7 @@ public static class PerkRefsProbe
     /// filters before the reference walk — it should be a clean non-match, not an "unscannable" skip whose cause
     /// reads as a parser hole (Q3).
     ///
-    /// Reproduces the wild shape by the same corruption path as <see cref="RunGuard"/> (a perk whose EPFT byte is
+    /// Reproduces the wild shape by the same corruption path as ReferencesScanFaultTests (a perk whose EPFT byte is
     /// corrupted so a lazy Effects parse throws) PLUS setting the record's Deleted header flag ON DISK — Mutagen
     /// serialises a model-deleted record with an EMPTY body, so the flag is byte-patched onto a normally-written
     /// (still-bodied) record to get "deleted but still carrying a throwing body". A CONTROL proves the bad perk
@@ -139,7 +53,7 @@ public static class PerkRefsProbe
         var modKey = new ModKey("HcDeletedScanGuard", ModType.Plugin);
         string espPath = Path.Combine(tmpDir, modKey.FileName.String);
 
-        // Same fixture shape as perk-refs-guard: target + a GOOD referencing perk + a BAD perk with an entry-point
+        // Same fixture shape as ReferencesScanFaultTests: target + a GOOD referencing perk + a BAD perk with an entry-point
         // effect. The BAD perk gets the lower FormID so it enumerates BEFORE the good match (a stop-at-fault
         // regression would drop the good one). It is then made BOTH malformed (EPFT corrupted → lazy parse throws)
         // AND Deleted-on-disk — the exact wild shape #276 saw on deleted PACKs.
