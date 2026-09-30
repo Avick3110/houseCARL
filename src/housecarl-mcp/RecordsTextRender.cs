@@ -114,7 +114,7 @@ static partial class RecordsTools
         // The unreserved pass is measured against the cap by its caller, so it answers raw.
         if (unreserved) return sb.ToString().TrimEnd('\n');
         return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
-            spill?.ManifestOnly == true ? null : n => RenderRecordsDelta(rows, total, differing, identical, noVerdict, errors, headerLine, epoch, n, spill, out _));
+            Artifacts.AtCap(spill, (int n, SpillState? sp, out bool t) => RenderRecordsDelta(rows, total, differing, identical, noVerdict, errors, headerLine, epoch, n, sp, out t)), RenderCap.NextCallGrowth);
     }
 
     /// <summary>The budget of the unreserved pass every bounded render here makes first: no unit can cross it, so that pass lays the COMPLETE render, and the reserves are charged only once the whole thing is known not to fit at this cap.</summary>
@@ -264,7 +264,7 @@ static partial class RecordsTools
         // The unreserved pass is measured against the cap by its caller, so it answers raw.
         if (unreserved) return sb.ToString().TrimEnd('\n');
         return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
-            spill?.ManifestOnly == true ? null : n => RenderRecordsTree(rows, total, contested, errors, fieldsNarrow, headerLine, epoch, n, spill, out _));
+            Artifacts.AtCap(spill, (int n, SpillState? sp, out bool t) => RenderRecordsTree(rows, total, contested, errors, fieldsNarrow, headerLine, epoch, n, sp, out t)), RenderCap.NextCallGrowth);
     }
 
     /// <summary>The records text lane's cut notice, composed in one place, and returned rather than written so its room can be held back before the line it follows is laid.</summary>
@@ -398,7 +398,7 @@ static partial class RecordsTools
         // The unreserved pass is measured against the cap by its caller, so it answers raw.
         if (unreserved) return sb.ToString().TrimEnd('\n');
         return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
-            spill?.ManifestOnly == true ? null : n => RenderRecordsChain(rows, total, reached, errors, headerLine, epoch, n, spill, out _));
+            Artifacts.AtCap(spill, (int n, SpillState? sp, out bool t) => RenderRecordsChain(rows, total, reached, errors, headerLine, epoch, n, sp, out t)), RenderCap.NextCallGrowth);
     }
 
     /// <summary>What a walked seed states after its nodes — the cycles it found, the walk.max_nodes cap it hit, and the NPC TemplateFlags inheritance report — composed apart from the node loop because these are claims about the WALK that a max_chars cut may not swallow.</summary>
@@ -486,7 +486,7 @@ static partial class RecordsTools
         // The unreserved pass is measured against the cap by its caller, so it answers raw.
         if (unreserved) return sb.ToString().TrimEnd('\n');
         return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
-            spill?.ManifestOnly == true ? null : n => RenderRecordsEffectChains(results, totalSeeds, carrierRows, carrierTotal, errors, headerLine, epoch, n, spill, out _));
+            Artifacts.AtCap(spill, (int n, SpillState? sp, out bool t) => RenderRecordsEffectChains(results, totalSeeds, carrierRows, carrierTotal, errors, headerLine, epoch, n, sp, out t)), RenderCap.NextCallGrowth);
     }
 
     /// <summary>The info_order form's text render: per topic its identity, then the merged-order body from the shared <see cref="Wire.AppendInfoOrderView"/>, bounded by what this render has left rather than by the whole cap.</summary>
@@ -547,7 +547,7 @@ static partial class RecordsTools
         // The unreserved pass is measured against the cap by its caller, so it answers raw.
         if (unreserved) return sb.ToString().TrimEnd('\n');
         return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
-            spill?.ManifestOnly == true ? null : n => RenderRecordsInfoOrder(rows, total, contested, errors, headerLine, epoch, n, spill, out _));
+            Artifacts.AtCap(spill, (int n, SpillState? sp, out bool t) => RenderRecordsInfoOrder(rows, total, contested, errors, headerLine, epoch, n, sp, out t)), RenderCap.NextCallGrowth);
     }
 
     /// <summary>The list-lane summary render: one identity-and-winner line per outcome or its per-item error, the batch shape of the scan lane's summary rows, with the spill marker in-band on both transports.</summary>
@@ -601,7 +601,7 @@ static partial class RecordsTools
         sb.Append(RenderBudget.BodiesLine(bodyCost.RowsRead, bodyCost.Millis));
         sb.Append(spillText);
         return RenderCap.Hold(sb.ToString(), cap,
-            manifestOnly ? null : n => RenderRecordsSummary(outcomes, json, headerLine, envelope, n, spill, bodyCost, out _));
+            Artifacts.AtCap(spill, (int n, SpillState? sp, out bool t) => RenderRecordsSummary(outcomes, json, headerLine, envelope, n, sp, bodyCost, out t)), RenderCap.NextCallGrowth);
     }
 
     /// <summary>The list-lane aggregate render: the resolved rows counted by winner, type or defined_in — the batch twin of the scan lane's count table — with per-item errors in their own named bucket and the same response envelope every other form carries.</summary>
@@ -678,6 +678,7 @@ static partial class RecordsTools
         // What reading the bodies this table counted cost, stated on text as it is on json.
         sb.Append(RenderBudget.BodiesLine(bodyCost.RowsRead, bodyCost.Millis));
         return RenderCap.Hold(sb.ToString(), cap,
-            n => RenderListAggregate(outcomes, groupBy, json, dense, epoch, headerLine, envelope, bodyCost, n, requestedTypes, rowLimit));
+            n => RenderListAggregate(outcomes, groupBy, json, dense, epoch, headerLine, envelope, bodyCost, n, requestedTypes, rowLimit),
+            RenderCap.NextCallGrowth);
     }
 }

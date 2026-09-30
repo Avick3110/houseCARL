@@ -269,7 +269,7 @@ static class AssetWire
         var counts = Tally(d, rendered);
         truncated = counts.Truncated > 0;
         return RenderCap.Hold(body + TransportAccounting.Compose(counts, RowNoun, everySentence: false) + spillText, cap,
-            spill?.ManifestOnly == true ? null : n => Render(d, n, spill, out _));
+            Artifacts.AtCap(spill, (int n, SpillState? sp, out bool t) => Render(d, n, sp, out t)), RenderCap.NextCallGrowth);
     }
 
     /// <summary>What this family's accounting counts.</summary>

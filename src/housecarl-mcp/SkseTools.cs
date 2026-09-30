@@ -129,7 +129,7 @@ public static class SkseTools
         // A text render below its floor is refused, naming the max_chars it fits. The json documents name an overrun
         // INSIDE themselves (max_chars_overrun), so nothing is glued on past their root close.
         return json ? body : RenderCap.Hold(body + footer, cap, n => Body(n) + footer,
-                                            string.IsNullOrWhiteSpace(filter) ? "" : RenderCap.OmitFilter);
+                                            alsoTry: string.IsNullOrWhiteSpace(filter) ? "" : RenderCap.OmitFilter);
     }
 
     /// <summary>The two families this call did not run, in the spelling that would — the json twin of <see cref="FamilyFooter"/>.</summary>

@@ -23,53 +23,58 @@ internal readonly record struct RenderCap(int Cap, int Budget)
     /// <summary>The floor check every capped text read render closes on (#986). A body is laid inside what the cap
     /// leaves, so a finished render over its cap is its floor alone: the header and the notices it owes. Only here is
     /// that floor exact, since what a render holds back before its body is the widest those notices can be. Such a
-    /// call is refused, naming a max_chars the same render fits, found by rendering at the floor until it fits
-    /// (the floor grows with the max_chars it prints back and the caveat share it grants).</summary>
-    /// <param name="renderAt">the same render at another max_chars; null for a to_file= manifest, whose file already
-    /// landed, so it is settled with the overrun notice rather than refused.</param>
+    /// call is refused, naming the least max_chars the same call fits: the floor grows with the max_chars it prints
+    /// back and the caveat share it grants, so the render is re-measured at the floor until it fits there, and then
+    /// the least cap between the refused one and that is searched for.</summary>
+    /// <param name="renderAt">the same call at another max_chars (a spilling lane's through
+    /// <see cref="Artifacts.AtCap"/>); null for a to_file= manifest, whose file already landed, so it is settled with
+    /// the overrun notice rather than refused.</param>
+    /// <param name="nextCall">how much wider the same call can print next time, added to the cap it names.</param>
     /// <param name="alsoTry">a second way out, appended to the remedy.</param>
-    public static string Hold(string response, int cap, Func<int, string>? renderAt, string alsoTry = "")
+    public static string Hold(string response, int cap, Func<int, string>? renderAt, int nextCall = 0, string alsoTry = "")
     {
         // A render measured for the floor answers raw: its own over-cap arm is the question being asked.
         if (response.Length <= cap || _measuring || IsFloorRefusal(response)) return response;
         if (renderAt is null) return Settle(response, cap);
-        int floor = response.Length;
+        int floor = response.Length, least;
         _measuring = true;
         try
         {
-            int at = floor;
-            for (int i = 0; i < 16 && (at = renderAt(floor).Length) > floor; i++) floor = at;
-            // A render that fits there may be narrower than the floor it was measured at (it cut nothing, so it owes
-            // no spill): the cap that holds it may be smaller, so it steps down while the smaller cap fits.
-            for (int i = 0; i < 16 && at < floor && at > cap; i++)
+            bool fits = false;
+            for (int i = 0; i < 16 && !fits; i++)
             {
-                int down = renderAt(at).Length;
-                if (down > at) break;
-                floor = at;
-                at = down;
+                int at = renderAt(floor).Length;
+                if (at <= floor) fits = true;
+                else floor = at;
+            }
+            // A floor that never settled is not named: the answer ships with the overrun notice instead.
+            if (!fits) return Settle(response, cap);
+            // The least cap that fits lies between the refused cap and the floor; the high end always fits.
+            int lo = cap;
+            least = floor;
+            while (least - lo > 1)
+            {
+                int mid = lo + (least - lo) / 2;
+                if (renderAt(mid).Length <= mid) least = mid;
+                else lo = mid;
             }
         }
         finally { _measuring = false; }
-        return FloorLead + cap + " is below the " + floor + " chars this response carries whatever the budget " +
-               "(its header and the notices it owes), so raise max_chars to at least " + floor + alsoTry + ".";
+        return FloorLead + cap + " is too small for this response, which carries its header and the notices it owes " +
+               "whatever the budget: raise max_chars to at least " + (least + nextCall) + alsoTry + ".";
     }
+
+    /// <summary>How much wider a records or asset_status call can print on the next call: its read timing (three more
+    /// digits of milliseconds) and a spill file's name taking a -NN counter where it is printed, at most three places.</summary>
+    internal const int NextCallGrowth = 3 + 3 * 3;
 
     [ThreadStatic] static bool _measuring;
 
-    /// <summary>Runs <paramref name="call"/> with the floor check off, so a test can read the cut notices a render lays
-    /// below its floor. The server never calls it.</summary>
-    internal static string Unheld(Func<string> call)
-    {
-        bool was = _measuring;
-        _measuring = true;
-        try { return call(); }
-        finally { _measuring = was; }
-    }
 
     const string FloorLead = "error: max_chars=";   // Wire.RefusalPrefix, then the knob
 
     /// <summary>What a filtered render adds to its refusal's remedy: the filter's own lines are part of the floor.</summary>
-    public const string OmitFilter = ", or omit filter=, whose own lines are part of that floor";
+    public const string OmitFilter = ", or omit filter=, whose own lines are part of what it carries";
 
     /// <summary>Whether a render handed back <see cref="Hold"/>'s refusal, so a caller passes it on bare, with no
     /// trailer appended. A refused render still reports its cut, so a spilling lane spills and renders again: that

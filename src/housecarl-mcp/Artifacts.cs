@@ -394,9 +394,24 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
-    /// <summary>Append the whole SpillState to a text response: the spilled block, or the failed-spill warning.</summary>
     /// <summary>A render handed its call's spill disposition, reporting whether it cut anything.</summary>
     internal delegate string SpillRender(SpillState? spill, out bool truncated);
+
+    /// <summary>The same render at a given max_chars.</summary>
+    internal delegate string CappedRender(int cap, SpillState? spill, out bool truncated);
+
+    /// <summary>What a ceiling-spilling call returns at another cap, for the floor check to measure: the render with no
+    /// spill, and the spill block only where that render cuts, since a call that cuts nothing spills nothing. Null for a
+    /// to_file= manifest, whose file already landed.</summary>
+    internal static Func<int, string>? AtCap(SpillState? spill, CappedRender render)
+    {
+        if (spill?.ManifestOnly == true) return null;
+        return n =>
+        {
+            var bare = render(n, null, out bool cut);
+            return cut && spill is not null ? render(n, spill, out _) : bare;
+        };
+    }
 
     /// <summary>The render after a ceiling auto-spill was written. A render refused below its floor names no file, so
     /// the spill it would have named goes with it rather than sitting unnamed in the results store.</summary>
@@ -408,6 +423,7 @@ internal static class Artifacts
         return rendered;
     }
 
+    /// <summary>Append the whole SpillState to a text response: the spilled block, or the failed-spill warning.</summary>
     public static void AppendSpillStateText(StringBuilder sb, SpillState s)
     {
         if (s.Spill is not null) AppendSpillText(sb, s.Spill);

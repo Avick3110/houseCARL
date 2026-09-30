@@ -71,7 +71,7 @@ static partial class Wire
         if (bodyCost is { } bc) sb.Append(RenderBudget.BodiesLine(bc.RowsRead, bc.Millis));
         sb.Append(spillText);
         return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
-            spill?.ManifestOnly == true ? null : n => RenderResolve(rows, n, epoch, spill, out _, header, bodyCost));
+            Artifacts.AtCap(spill, (int n, SpillState? sp, out bool t) => RenderResolve(rows, n, epoch, sp, out t, header, bodyCost)), RenderCap.NextCallGrowth);
     }
 
     /// <summary>The spill block as a string, so its room can be charged before the rows are laid; empty when this call spills nothing.</summary>
@@ -219,7 +219,7 @@ static partial class Wire
         if (bodyCost is { } bc) sb.Append(RenderBudget.BodiesLine(bc.RowsRead, bc.Millis));
         sb.Append(spillText);
         return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
-            spill?.ManifestOnly == true ? null : n => RenderBatch(outcomes, n, spill, out _, levers, bodyCost, header, matches));
+            Artifacts.AtCap(spill, (int n, SpillState? sp, out bool t) => RenderBatch(outcomes, n, sp, out t, levers, bodyCost, header, matches)), RenderCap.NextCallGrowth);
     }
 
     // ---- the scan lane ----
@@ -339,7 +339,7 @@ static partial class Wire
             sb.Append(RenderBudget.AccountingLine(rendered, renderClock.ElapsedMilliseconds));
         sb.Append(spillText);
         return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
-            spill?.ManifestOnly == true ? null : n => RenderCrossQuery(svc, q, fields, n, resolveNames, winnerFields, depth, spill, out _, levers, ct, header, rowLimit));
+            Artifacts.AtCap(spill, (int n, SpillState? sp, out bool t) => RenderCrossQuery(svc, q, fields, n, resolveNames, winnerFields, depth, sp, out t, levers, ct, header, rowLimit)), RenderCap.NextCallGrowth);
     }
 
     /// <summary>Render a <c>group_by=</c> aggregation: a header naming the key, the true total and the group count, then one row per group, with the where= and unscannable notes surviving; only the rendering is capped, so the total stays exact.</summary>
@@ -394,7 +394,7 @@ static partial class Wire
         sb.Append(emptyLine);
         sb.Append(spillText);
         return RenderCap.Hold(sb.ToString().TrimEnd('\n'), cap,
-            spill?.ManifestOnly == true ? null : n => RenderCrossQueryGroups(q, n, rowLimit, spill, out _, head));
+            Artifacts.AtCap(spill, (int n, SpillState? sp, out bool t) => RenderCrossQueryGroups(q, n, rowLimit, sp, out t, head)), RenderCap.NextCallGrowth);
     }
 
     // ---- the chain form ----
