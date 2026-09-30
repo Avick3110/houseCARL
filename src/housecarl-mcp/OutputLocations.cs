@@ -9,8 +9,11 @@ namespace HousecarlMcp;
 internal interface IOutputHost : ILoadOrderHost
 {
     /// <summary>The configured check, the four roots and the built resolver's plugin names in one hold of the head's index lock; throws the unconfigured prompt when there is no instance.</summary>
-    LoadOrderService.OutputRoots ConfiguredRoots();
+    OutputRoots ConfiguredRoots();
 }
+
+/// <summary>The roots and the built resolver's plugin names, null when none is built, from one hold of the head's index lock, so a stem check never mixes two instances.</summary>
+internal readonly record struct OutputRoots(Mo2Roots Roots, IReadOnlyList<string>? BuiltPluginNames);
 
 // The output folders (rider, patch and the .seq writer), owned-folder resolution and plugin-locate-on-disk; contract in docs/architecture/output-and-artifacts.md.
 internal sealed class OutputLocations
@@ -34,7 +37,7 @@ internal sealed class OutputLocations
         => ResolvePatchModFolder(_host.ConfiguredRoots(), patchName, into, defaultStem, naming);   // cheap: roots only, NO resolver build
 
     /// <summary>The body of <see cref="ResolvePatchModFolder(string?, string?, string, RiderNaming?)"/> over a snapshot the caller captured; no index lock held, so the create runs outside it.</summary>
-    internal RiderFolder ResolvePatchModFolder(LoadOrderService.OutputRoots snapshot, string? patchName, string? into, string defaultStem, RiderNaming? naming)
+    internal RiderFolder ResolvePatchModFolder(OutputRoots snapshot, string? patchName, string? into, string defaultStem, RiderNaming? naming)
     {
         var roots = snapshot.Roots;
         if (!Directory.Exists(roots.ModsDir))
@@ -226,7 +229,7 @@ internal sealed class OutputLocations
     // ---- write the start-game-enabled-quest .seq file ----
 
     /// <summary>The <c>SEQ\</c> output folder for a generated <c>.seq</c>, under a houseCARL mod folder, which MO2 deploys into the game's <c>Data\SEQ</c>, over a snapshot the caller captured.</summary>
-    RiderFolder ResolveSeqFolder(LoadOrderService.OutputRoots snapshot, string? patchName, string? into)
+    RiderFolder ResolveSeqFolder(OutputRoots snapshot, string? patchName, string? into)
     {
         var f = ResolvePatchModFolder(snapshot, patchName, into, "houseCARL_SEQ", new RiderNaming("patch"));
         var seq = Path.Combine(f.ModFolder, "SEQ");
@@ -256,7 +259,7 @@ internal sealed class OutputLocations
         lock (_host.WriteGate)                                           // one write at a time: locate, build, resolve, commit
         {
             // Source resolution through the shared locate contract; the arm that resolved decides which .seq you get.
-            LoadOrderService.OutputRoots snapshot;
+            OutputRoots snapshot;
             Mo2Roots roots;
             string pluginPath, resolvedFrom;
             try
