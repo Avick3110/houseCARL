@@ -36,17 +36,26 @@ the caller passed — the number a cut notice names and the finished response ma
 the room content has once everything written after it is charged. A unit is written only when it fits whole,
 so nothing is cut mid-token, and what did not fit is counted in a notice.
 
-Every capped text read render refuses below its floor (#986). The floor is what the render writes whatever the
-budget: its header, its alarms and caveats, and the notices it owes once its body is cut (the cut and
-sections-omitted lines, the notes marker, the accounting, and the spill block when the cut spills). What a render
-holds back before its body is the widest those notices can be, so the exact floor is known only once the render
-has run; the check is therefore `RenderCap.Hold`, the call every such render already closes on in place of
-`Settle`. A finished render longer than its cap is its floor alone, since the body is laid inside what the cap
-leaves, so the call is refused in one sentence naming a `max_chars` the same render fits, found by rendering at
-the floor until it fits: the floor grows with the `max_chars` it prints back and the caveat share it grants. A
-render that states its own read timing or names a spill file can be a few characters wider on the next call. A
-spilling lane still spills and renders again, so its refusal names the floor with the spill block in it, and the
-spill it would have named is deleted. The json lanes keep `max_chars_overrun`.
+The text renders that lay their body inside what the cap leaves refuse below their floor (#986): the SkyPatcher
+layer, `housecarl_records`' text forms and census, the merged check, `asset_status` and its census,
+`nif_inspect`, and the three `housecarl_skse` families. The floor is what the render writes whatever the budget:
+its header, its alarms and caveats, and the notices it owes once its body is cut (the cut and sections-omitted
+lines, the notes marker, the accounting, and the spill block when the cut spills). What a render holds back before
+its body is the widest those notices can be, so the exact floor is known only once the render has run; the check
+is therefore `RenderCap.Hold`, the call every such render already closes on in place of `Settle`. A finished
+render longer than its cap is its floor alone, so the call is refused in one sentence naming the least
+`max_chars` the same call fits. `Hold` re-renders at the floor until it fits there (the floor grows with the
+`max_chars` it prints back and the caveat share it grants; if it never settles, the answer ships with the overrun
+notice instead), then searches down to the refused cap for the least cap that fits. A spilling lane is measured
+through `Artifacts.AtCap`: at each cap the call is rendered without its spill, and with the spill block only where
+that render cuts, since a call that cuts nothing spills nothing. A records or `asset_status` refusal adds
+`RenderCap.NextCallGrowth` to the cap it names, for the read timing and spill file name a next call can print
+wider. A refused call on a spilling lane has written its spill, as `main` also did; the spill is deleted. The json
+lanes keep `max_chars_overrun`.
+
+Four text renders take `max_chars` as a point to stop at rather than a ceiling, and overshoot it whenever they
+cut, not only below a floor: `housecarl_load_order_status`, `housecarl_update_status`, `housecarl_bsa_list` and
+dialogue validate. `Hold`'s premise does not hold for them, so they are not refused yet (#1016).
 
 Two text renders are not refused, because their write already happened: `housecarl_place`'s report, and a
 `to_file=` manifest. There the answer ships and `RenderCap.Settle` appends an overrun notice naming the number that
@@ -242,8 +251,11 @@ reaches only the calling test's flow) is the meter's clock for tests.
   and `ACapTooSmallForTheSpillBlockIsRefusedNamingACapThatClearsIt` (no spill left behind), `DialogueFamilyTests`
   (info_order), `CheckErrorsFamilyTests.Fact23_EveryTextCallBelowTheFixedPartIsRefusedNamingACapItFits_AcrossABand`.
   `SkyPatcherLayerFilterTests.NoCapLandsTheRenderPastItWithReportSectionsAndExpandedLines` sweeps caps 200–20,000:
-  every render fits or is refused naming a cap it fits. A test that reads a cut notice below the floor does so through
-  `RenderCap.Unheld`, which the server never calls.
+  every render fits or is refused naming a cap it fits. `EachOfTheseRendersSaysWhatItsCapHeldBackAndStaysInsideIt`
+  pins that a spilling lane whose whole answer is narrower than a spill block names the cap its whole answer fits,
+  not one with a spill block. A test that reads a cut notice reads it at a cap the server serves cut
+  (`RenderFloorAssert.ServedCut`); where a fixture is too small to cut above its floor, the render is driven directly
+  or the spill is written through the json lane.
 - *A merged response water-fills its body budget over measured demand*: the properties, in
   `src/housecarl-mcp-tests/CheckMergeAllocationTests.cs` (the arm names below are the retired `check-guard`
   probe's, kept as one-line comments above each test):

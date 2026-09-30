@@ -38,8 +38,8 @@ made the change.
   order is refused.
 - **`housecarl_records` delta and tree now time their reads as they go and refuse only once the call would pass ten
   minutes, naming the measured rate.** A whole-record delta over 1,276 ids runs.
-- **A text reply whose `max_chars` is below what it must carry (its header and owed notices) is now refused, naming
-  the `max_chars` it fits, instead of answering over the cap.** Try `housecarl_skypatcher_layer` at `max_chars=200`.
+- **The records, check, asset_status, nif_inspect, SKSE and SkyPatcher layer text replies now refuse a `max_chars`
+  below what they must carry, naming the least `max_chars` that fits.** Try `housecarl_skypatcher_layer` at 200.
 
 ## 2.0.3 — 2026-09-23
 
