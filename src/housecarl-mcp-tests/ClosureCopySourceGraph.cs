@@ -31,7 +31,8 @@ sealed class ClosureCopySourceGraph
 
     public static bool IsBound(FormKey fk) => fk.ModKey == Src;
 
-    public ClosureCopySourceGraph()
+    /// <summary>Build the graph with the patch counter at <paramref name="counter"/>.</summary>
+    public ClosureCopySourceGraph(uint counter = PatchCounter)
     {
         var bodies = SourceMod().EnumerateMajorRecords().ToDictionary(r => r.FormKey, r => (IMajorRecordGetter)r);
         var chain = SourceChain.Single(FileArm("Source.esp", fk => bodies.GetValueOrDefault(fk)));
@@ -41,7 +42,7 @@ sealed class ClosureCopySourceGraph
         var prior = new HeadPart(Prior, SkyrimRelease.SkyrimSE) { EditorID = "UserPrior" };
         prior.TextureSet.SetTo(Txst);
         Patch.HeadParts.Add(prior);
-        Patch.ModHeader.Stats.NextFormID = PatchCounter;
+        Patch.ModHeader.Stats.NextFormID = counter;
 
         Copy = ClosureCopy.Internalize(Patch, Walk.Reached);
     }
