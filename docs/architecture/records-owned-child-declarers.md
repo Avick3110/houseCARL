@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-30
 covers: [src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/OwnedChildContent.cs, src/housecarl-core/OwnedChildLifecycle.cs, src/housecarl-mcp/JsonWire.cs]
 ---
 # Owned-child content: the additive union, and one sentence source
@@ -232,5 +232,5 @@ grammar guard that harvests one rendered notice covers the wording of all of the
 `DeclaresChild`, `Fields` and `NestedFields`; `OwnedChildLifecycle.cs` finds the slot a delete detaches from.
 `src/housecarl-mcp/ReadSentences.cs` is the one sentence source; `RecordReads.cs` is the service's read lanes and
 the per-call `ChildUnionMemo`; `JsonWire.cs` writes `owned_child_union` and the json reserves; `RecordsTextRender.cs`
-renders the declarers block and `CutNotice`; `Artifacts.cs` carries the annotation into a spilled artifact. Tool:
+renders the declarers block and `CutNotice`; `Artifacts.cs` ([`output-and-artifacts.md`](output-and-artifacts.md)) carries the annotation into a spilled artifact. Tool:
 `housecarl_records` — `fields=`, and `project={"form":"tree"}` for the per-provider tier.

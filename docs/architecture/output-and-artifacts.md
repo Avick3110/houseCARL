@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-29
+updated: 2026-09-30
 covers: [src/housecarl-mcp/OutputLocations.cs, src/housecarl-mcp/PatchStemShadow.cs, src/housecarl-mcp/SeqTools.cs, src/housecarl-mcp/Artifacts.cs, src/housecarl-mcp/ResultsStore.cs, src/housecarl-core/ResultArtifact.cs, src/housecarl-core/AtomicFile.cs, src/housecarl-core/FileStamp.cs, src/housecarl-core/OrderStamp.cs, src/housecarl-core/PathArguments.cs]
 ---
 # Output locations and result artifacts: where a write lands, and the contracts that hold it
@@ -166,7 +166,8 @@ itself; what it takes from the head is `IOutputHost` at the top of that file (`C
 configured check, the roots and the built plugin names), plus `WriteGate` from the shared door. The folder allocation
 lock, `FolderAllocationGate`, is the class's; the write lanes take the same one. `src/housecarl-mcp/PatchStemShadow.cs`
 is the shadow sweep a fresh stem runs; `src/housecarl-mcp/SeqTools.cs` is `housecarl_write_seq`'s tool front.
-`src/housecarl-mcp/Artifacts.cs` is what a response says when its result lives in an artifact;
+`src/housecarl-mcp/Artifacts.cs` is what a response says when its result lives in an artifact, including the owned-child
+annotation a spilled scan carries ([`records-owned-child-declarers.md`](records-owned-child-declarers.md));
 `LoadOrderService.ResultsDir` is the server-managed results directory, `results` beside `houseCARL.user.json`;
 `src/housecarl-mcp/ResultsStore.cs` is the reservation and the prune inside the folder it is given.
 `src/housecarl-core/ResultArtifact.cs` is the artifact, its manifest, and the identity read re-entry takes
