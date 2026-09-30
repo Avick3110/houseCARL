@@ -191,7 +191,8 @@ public sealed class SourceChainTests : IClassFixture<SourceChainWorld>
     public void TheBareWinnerTokenIsStillThePole()
         => _w.Chain(new[] { SourcePoles.Winner }, (c, e) =>
         {
-            Assert.Equal(SourcePoles.Winner, c!.Arms[0].Spelling);
+            Assert.Equal(SourceArmKind.ActiveOrder, c!.Arms[0].Kind);
+            Assert.Equal(SourcePoles.Winner, c.Arms[0].Spelling);
             Assert.Equal("O", W.NameOf(c.Fetch(W.Shared)));
             Assert.Equal("OW", W.NameOf(c.Fetch(W.WinnerOnly)));
             return 0;

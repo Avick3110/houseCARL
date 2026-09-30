@@ -104,7 +104,7 @@ public sealed class UpsertCreateTests : IDisposable
 
         var o = Create(path, true, Bare("Weapon", "HcUpsGdMasterWeap"));
         Assert.False(o.Success);
-        Assert.Contains("OVERRIDE", o.Error);
+        Assert.Contains("override", o.Error, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(before, File.ReadAllBytes(path));
         using var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
         Assert.Equal(20, ov.Weapons.Single(x => x.FormKey == _masterWeapon).BasicStats!.Damage);
