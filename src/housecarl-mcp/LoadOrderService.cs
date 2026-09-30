@@ -786,7 +786,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var warnings = new List<string>();                       // read notes (e.g. a missing modlist.txt), so a 0-mod profile is not mistaken for empty
         var comp = Mo2LoadOrder.ReadComposition(dir, warnings);  // text parse of THAT profile's loadorder/modlist/plugins — no index build, no switch
         // The active profile takes its build's answer; another profile, or one not built yet, lists the folders it enables.
-        var unserved = order is not null && PathEq(dir, roots.ProfileDir)
+        var unserved = order is not null && PathEq(Path.GetFullPath(dir), Path.GetFullPath(roots.ProfileDir))   // full paths: the configured instance may use forward slashes
             ? order.Unserved
             : Mo2LoadOrder.Unserved(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
         return new NamedProfileResult(true, available, match, dir, comp, warnings, unserved);

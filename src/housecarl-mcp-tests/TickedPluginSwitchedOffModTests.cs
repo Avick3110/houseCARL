@@ -294,6 +294,19 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
     }
 
     [Fact]
+    public void TheActiveProfilesInspectionTakesTheBuildsAnswerWhenTheInstanceIsSpelledWithForwardSlashes()
+    {
+        using var w = new TickedPluginSwitchedOffModWorld();   // mutated below, so its own instance
+        var store = new UserConfigStore(Path.Combine(w.Root, "slashes.user.json"));
+        using var svc = LoadOrderService.WithInstance(w.Instance.Replace('\\', '/'), 0, store);
+        StatusTools.LoadOrderStatus(svc, new ToolPathResolver(store));
+        // A copy lands in an enabled mod with no profile write: the build still says 5 not served, a fresh listing would say 4.
+        File.Copy(Path.Combine(w.Instance, "mods", w.OffMod, w.OffName), Path.Combine(w.Instance, "mods", "HcTsSkseMod", w.OffName));
+        var r = StatusTools.LoadOrderStatus(svc, new ToolPathResolver(store), profile: "Default");
+        Assert.Contains("plugins: 6 in order · 1 active · 0 inactive · 5 not served", r);
+    }
+
+    [Fact]
     public void InExplicitPathsModeTheStatusFilterNamesOnlyThePlacesSearched()
     {
         var root = Path.Combine(Path.GetTempPath(), "hc-ticked-explicit-" + Guid.NewGuid().ToString("N"));
