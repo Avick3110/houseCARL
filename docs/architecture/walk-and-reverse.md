@@ -37,7 +37,7 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
 
 ## Pinned by
 
-- `ClosureWalkProbe` / `SourceChainProbe` — the walk's caps, cycles and refusals, and the chain's
+- `ClosureWalkProbe` / `SourceChainTests` — the walk's caps, cycles and refusals, and the chain's
   first-hit-wins, fault-stops and miss-names-every-arm rules.
 - `RecordsWalkCycleTests` / `RecordsWalkCostTests` / `RecordsWalkUnscannableTests` — the walk lanes.
 - `RecordsReverseIndexTests` — the unbounded reverse selection, the orphan sweep and the index's
