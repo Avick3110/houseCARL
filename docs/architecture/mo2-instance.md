@@ -67,7 +67,7 @@ returns the answer as `Unserved`; status and the absence explainer (ticked and i
 from the last build, and the record, check and locate lanes read the order `Build` resolved. `ArchiveDiscovery`
 makes it off its own archive listing and the asset build carries that answer on its capture, where the SKSE peek's
 plugin set reads it. The archive list itself still binds an unserved plugin's same-named archives: it is the one
-tick-only reader, for the reason [`assets.md`](assets.md) gives. The `profile=` inspection (over
+tick-only reader (#1014), for the reason [`assets.md`](assets.md) gives. The `profile=` inspection (over
 that profile's mod list) and the setup summary call `Mo2LoadOrder.Unserved`, which lists the layers itself.
 `ActiveNames` gives a reader the tick-or-implicit set less the unserved. A copy in a switched-off folder is named
 with the same sentence the locate lane uses (`ProvidedBySwitchedOffMod`), never as a stale profile.

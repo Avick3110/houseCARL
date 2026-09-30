@@ -21,7 +21,7 @@ FaceGen's own contracts — the FormID→path transform, the check's classes, wh
 `ArchiveDiscovery` ranks the archives off the same static profile the load order reads: Skyrim.ini's `[Archive]` set
 takes the low block, each active plugin's `X.bsa` and `X - Textures.bsa` rank above it in load order, and each
 archive *filename* resolves through the same overwrite > mods > Data map. Here active means ticked or implicit,
-the tick alone: a plugin no enabled layer serves still owns its archives. That is the one tick-only reader left (see
+the tick alone: a plugin no enabled layer serves still owns its archives. That is the one tick-only reader left (#1014; see
 [`mo2-instance.md`](mo2-instance.md)): asset resolution is decoupled from the record index, and the synthetic asset
 worlds and their no-epoch arm rely on binding archives with no plugin file on disk. The same listing makes the
 served decision (`Mo2LoadOrder.UnservedIn`) and the asset build carries it on its capture for the SKSE peek. A
