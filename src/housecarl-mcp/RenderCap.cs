@@ -24,24 +24,32 @@ internal readonly record struct RenderCap(int Cap, int Budget)
     /// is the complete answer.</summary>
     internal const int Whole = int.MaxValue / 2;
 
+    /// <summary>The max_chars of a whole-first pass bounded by <paramref name="bound"/>: no reserve bites, and the render
+    /// stops laying units once it is past the bound (<see cref="Past"/>), so the pass costs what the bound does.</summary>
+    internal static int WholeWithin(int bound) => bound <= int.MaxValue - Whole - 1 ? Whole + 1 + bound : Whole;
+
+    /// <summary>Whether a render at <paramref name="cap"/> is a bounded whole-first pass that has laid past its bound,
+    /// so it can stop: what it returns is then wider than the bound, and is read as not fitting.</summary>
+    internal static bool Past(int cap, int laid) => cap > Whole && laid > cap - Whole - 1;
+
+    /// <summary>The whole answer when it fits <paramref name="n"/>, else null, from a pass bounded by n.</summary>
+    internal static string? WholeAt(int n, Func<int, string> at) => at(WholeWithin(n)) is var w && w.Length <= n ? w : null;
+
     /// <summary>How many times <see cref="Hold"/> re-renders at the length the last render came back at.</summary>
     internal const int GrowRounds = 8;
 
     /// <summary>A text render over data already read, whole first (#986): the complete answer when it fits
-    /// <paramref name="cap"/>, else the render at the cap, refused by <see cref="Hold"/> when that is over it.</summary>
+    /// <paramref name="cap"/>, else the render at the cap, refused by <see cref="Hold"/> when that is over it. Every
+    /// pass is bounded by the cap it is asked about, not by the size of the answer.</summary>
     /// <param name="at">the same call's render at a given max_chars; it re-renders only, never reads.</param>
     /// <param name="nextCall">how much wider the same call can print next time, added before the cap is measured.</param>
     public static string Capped(int cap, Func<int, string> at, Func<string>? alsoTry = null, string epochLine = "",
                                 int nextCall = 0)
-    {
-        var whole = at(Whole);
-        if (whole.Length <= cap) return whole;
-        return Hold(at(cap), cap, n => whole.Length <= n ? whole : at(n), out _, alsoTry, epochLine, whole.Length, nextCall);
-    }
+        => WholeAt(cap, at) ?? Hold(at(cap), cap, at, out _, alsoTry, epochLine, n => WholeAt(n, at), nextCall);
 
-    /// <summary>Whether the same call is served at <paramref name="cap"/>: its whole answer or its render at the cap fits.
-    /// Two renders, and no floor search, since a caller asking only needs the yes or no.</summary>
-    public static bool Serves(int cap, Func<int, string> at) => at(Whole).Length <= cap || at(cap).Length <= cap;
+    /// <summary>Whether the same call is served at <paramref name="cap"/>: its render at the cap fits, or its whole
+    /// answer does. At most two renders, each bounded by the cap, and no floor search.</summary>
+    public static bool Serves(int cap, Func<int, string> at) => at(cap).Length <= cap || WholeAt(cap, at) is not null;
 
     /// <summary>The floor check a capped text render closes on (#986). A body is laid inside what the cap leaves, so a
     /// render over its cap is its header and the notices it owes: the call is refused, naming a max_chars the same call
@@ -50,19 +58,21 @@ internal readonly record struct RenderCap(int Cap, int Budget)
     /// <param name="renderAt">the same call at another max_chars, as the next call would render it.</param>
     /// <param name="alsoTry">a second way out, appended to the remedy; asked only of a refused call.</param>
     /// <param name="epochLine">the lane's epoch stamp, where its post-capture refusals carry one.</param>
-    /// <param name="whole">the complete answer's width, which a whole-first render serves at; growing starts there when
-    /// it is narrower than the refused render, so a cut that owes a spill block never names a cap wider than the whole.</param>
+    /// <param name="wholeAt">the complete answer when it fits a given max_chars, else null (<see cref="WholeAt"/>): a
+    /// whole-first call serves it at any cap it fits, so once it fits a round the cap named is its own width.</param>
     /// <param name="nextCall">how much wider the same call can print next time (<see cref="NextCallGrowth"/>): the cap
     /// named is one the render was measured to fit with that much room still free.</param>
     public static string Hold(string response, int cap, Func<int, string> renderAt, out bool refused,
-                              Func<string>? alsoTry = null, string epochLine = "", int whole = int.MaxValue, int nextCall = 0)
+                              Func<string>? alsoTry = null, string epochLine = "", Func<int, string?>? wholeAt = null,
+                              int nextCall = 0)
     {
         refused = response.Length > cap;
         if (!refused) return response;
         var also = alsoTry?.Invoke() ?? "";
-        int n = Math.Min(response.Length, whole) + nextCall;
+        int n = response.Length + nextCall;
         for (int i = 0; i < GrowRounds; i++)
         {
+            if (wholeAt?.Invoke(n) is { } whole) return TooSmall(cap, whole.Length + nextCall, also, epochLine);
             // Fits with the next call's room still free, or grows to the length it came back at plus that room.
             int at = renderAt(n).Length + nextCall;
             if (at <= n) return TooSmall(cap, n, also, epochLine);

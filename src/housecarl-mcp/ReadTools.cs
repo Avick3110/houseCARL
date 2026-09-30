@@ -49,6 +49,7 @@ static partial class Wire
         int budget = cap - spillText.Length - Notice(rows.Count).Length - (bodyCost is null ? 0 : RenderBudget.AccountingReserve);
         for (int i = 0; i < rows.Count && !(spill?.ManifestOnly ?? false); i++)
         {
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             var r = rows[i];
             sb.Append("  ").Append(r.Token);
@@ -197,6 +198,7 @@ static partial class Wire
         for (int i = 0; i < outcomes.Count; i++)
         {
             if (spill?.ManifestOnly ?? false) break;   // to_file: only the manifest renders — the rows are the FILE
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             var o = outcomes[i];
             int mark = sb.Length;
             var noteMark = notes.Mark();
@@ -304,6 +306,7 @@ static partial class Wire
         int budget = cap - costReserve - spillText.Length - Notice(q.Keys.Count).Length;
         for (int i = 0; i < q.Keys.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: only the manifest renders — the rows are the FILE
         {
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             var noteMark = notes.Mark();
             var fk = q.Keys[i];
@@ -386,6 +389,7 @@ static partial class Wire
         int shown = rowLimit > 0 ? Math.Min(rowLimit, groups.Count) : groups.Count;
         for (int i = 0; i < groups.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: rows live in the file
         {
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             // limit= caps the table's rows; the count above stays the whole tally. It does NOT set `truncated`,
             // which is the ceiling auto-spill's trigger: a limit cut is the caller capping the table on purpose.
             if (i >= shown)

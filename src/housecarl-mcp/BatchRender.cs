@@ -30,6 +30,7 @@ static class BatchRender
         shown = 0;
         for (int i = 0; i < items.Count; i++)
         {
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             bool roomBefore = mark <= budget.Budget;
             if (roomBefore) appendItem(sb, items[i], budget);

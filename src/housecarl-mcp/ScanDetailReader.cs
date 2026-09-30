@@ -109,6 +109,9 @@ internal sealed class ScanRows : IDisposable
         return _detail[i];
     }
 
+    /// <summary>How many bodies the call has read so far.</summary>
+    internal int BodiesRead => _detail.Count;
+
     /// <summary>What reading the first <paramref name="rows"/> bodies cost, fixed once read, so every render of the call states one figure.</summary>
     internal long MillisThrough(int rows) => rows == 0 ? 0 : _detailMs[rows - 1];
 

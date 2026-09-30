@@ -33,6 +33,7 @@ static partial class RecordsTools
         foreach (var row in rows)
         {
             if (manifestOnly) break;
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             // said: the delta list stopped inside the budget and named what it held back, so the record stays and
             // the render stops after it. mute: no room to say so, and the whole record goes back out.
@@ -158,6 +159,7 @@ static partial class RecordsTools
         foreach (var row in rows)
         {
             if (manifestOnly) break;
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             bool leadMark = declarersLeadWritten;
             // said: this row stopped inside the budget and named what it held back, so it stays and the render
@@ -321,6 +323,7 @@ static partial class RecordsTools
         foreach (var row in rows)
         {
             if (manifestOnly) break;
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             // said: this seed's node list stopped inside the budget and named what it held back, so the seed stays
             // and the render stops after it. mute: no room to say so, and the seed goes back out.
@@ -432,6 +435,7 @@ static partial class RecordsTools
         foreach (var (seed, result) in results)
         {
             if (manifestOnly) break;
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             sb.Append('\n').Append("seed ").Append(seed).Append('\n');
             // The shared render builds its own buffer, so it is told what this one has spent, and still quotes the
@@ -472,6 +476,7 @@ static partial class RecordsTools
         foreach (var row in rows)
         {
             if (manifestOnly) break;
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             bool cut = false;
             sb.Append('\n').Append(row.Formid);
@@ -529,6 +534,7 @@ static partial class RecordsTools
         foreach (var o in outcomes)
         {
             if (manifestOnly) break;
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             if (o.Error is not null) sb.Append(FormIdToken.Of(o.FormKey)).Append("  error=").Append(o.Error).Append('\n');
             else
@@ -623,6 +629,7 @@ static partial class RecordsTools
         int renderedGroups = 0;
         foreach (var (key, count) in rows.Select(r => (r.Key, r.Value)))
         {
+            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
             if (renderedGroups >= shown)   // limit= caps the table's rows; the counts above stay the whole tally
             {
                 sb.Append(LimitNotice(renderedGroups));

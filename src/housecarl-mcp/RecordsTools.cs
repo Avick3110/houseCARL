@@ -497,8 +497,7 @@ public static partial class RecordsTools
             envelope.Add(new("source", statement));
             headerLine += $"  source={statement}";
         }
-        // A census is a text render too, held to the same ceiling. Its statements do not depend on the cap, so one
-        // over it is refused naming its own length.
+        // A census is one constant body: over its cap it is refused naming its own length.
         string Census(string body, OrderStamp? stamp)
         {
             body += Wire.EpochLine(stamp);
@@ -1612,7 +1611,7 @@ public static partial class RecordsTools
             }
             // "drop project=" is only actionable on detail rows; a summary-form scan has no project= to drop.
             var qLevers = projFields is { Length: > 0 } ? LeverNames.Records : LeverNames.Records.WithNothingToDrop();
-            // The text render's rows are read once for every render of the call: whole first, at the cap, and the floor check's.
+            // The text render's rows, each read once across the call's renders, and its summaries once with its artifact's.
             using var scanRows = fmt is Wire.QueryFormat.Text
                 ? new ScanRows(svc, outcome, projFields, depth, resolveNames, winnerFields, qLevers.ContainerHint, ct) : null;
             string Render(int n, SpillState? sp, out bool trunc) => fmt switch
@@ -1623,11 +1622,11 @@ public static partial class RecordsTools
             };
             // A scan refused before any match was read renders its own refusal, with nothing to spill.
             if (outcome.Error is not null) return Render(max_chars, spill, out _);
-            // Disposing the reservation deletes the file it owns unless the write landed, so a cancel inside the write
-            // leaves nothing.
+            // Disposing the reservation deletes the file it owns unless the write landed, so a cancel leaves nothing.
             return Artifacts.Ceiling(fmt is not Wire.QueryFormat.Text, Wire.Cap(max_chars), Render, spill,
                 () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, outcome.Epoch ?? "none"),
-                t => Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, t, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct),
+                t => Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, t, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct,
+                                               summaries: scanRows is null ? null : scanRows.Summary),
                 Wire.EpochLine(outcome.Stamp));
         }
 

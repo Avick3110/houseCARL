@@ -8,10 +8,6 @@ public static class ResultArtifact
     /// <summary>The manifest-format version stamped as the <c>housecarl_artifact</c> value; its PRESENCE is what marks a file as an artifact rather than a plain formid list.</summary>
     public const int ManifestVersion = 1;
 
-    /// <summary>The named error for an artifact that could not be put on disk.</summary>
-    internal static string WriteError(string path, Exception ex) =>
-        $"could not write the result artifact to '{path}' — {ex.GetType().Name}: {ex.Message}";
-
     /// <summary>Leading characters stripped before sniffing or parsing line 1: a UTF-8 BOM and ordinary indentation.</summary>
     static readonly char[] LineNoise = { '\uFEFF', ' ', '\t' };
 
@@ -23,17 +19,24 @@ public static class ResultArtifact
         // Counts as it writes, so a shared row writer measures characters without rescanning the buffer.
         readonly CharCountedStream _rows = new();
         readonly Dictionary<string, int> _typeCounts = new(StringComparer.Ordinal);
+        readonly bool _sizeOnly;
         int _rowCount;
+
+        /// <summary><paramref name="sizeOnly"/> counts rows and types without serializing them, for a <see cref="ArtifactTarget.Sizing"/> target.</summary>
+        public Writer(bool sizeOnly = false) => _sizeOnly = sizeOnly;
 
         /// <summary>Append one row, newline-terminated, counting <paramref name="type"/> into the manifest; the artifact passes an unreachable cap, because an artifact row is NEVER truncated.</summary>
         public void WriteRow(Action<Utf8JsonWriter, CharCountedStream> write, string? type = null)
         {
-            using (var w = new Utf8JsonWriter(_rows, JsonTextEncoder.OneLine))   // deliberately NOT indented — one row, one line
+            if (!_sizeOnly)
             {
-                write(w, _rows);
-                w.Flush();
+                using (var w = new Utf8JsonWriter(_rows, JsonTextEncoder.OneLine))   // deliberately NOT indented — one row, one line
+                {
+                    write(w, _rows);
+                    w.Flush();
+                }
+                _rows.WriteByte((byte)'\n');
             }
-            _rows.WriteByte((byte)'\n');
             _rowCount++;
             if (type is not null) _typeCounts[type] = _typeCounts.GetValueOrDefault(type) + 1;
         }
@@ -72,7 +75,7 @@ public static class ResultArtifact
             }
             catch (Exception ex)
             {
-                return (null, WriteError(target.Path, ex));
+                return (null, $"could not write the result artifact to '{target.Path}' — {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -293,8 +296,7 @@ public static class ResultArtifact
 public sealed class ArtifactTarget : IDisposable
 {
     readonly FileStream? _reserved;
-    bool _wrote, _defer;
-    MemoryStream? _held;
+    bool _wrote;
 
     ArtifactTarget(string path, FileStream? reserved) { Path = path; _reserved = reserved; }
 
@@ -307,18 +309,17 @@ public sealed class ArtifactTarget : IDisposable
     /// <summary>A reserved target: the open, exclusive handle that holds the name.</summary>
     public static ArtifactTarget Reserved(string path, FileStream held) => new(path, held);
 
+    /// <summary>A target that writes nothing: Save stamps the manifest a write to <paramref name="path"/> would, off rows
+    /// counted but not serialized, so a render can be measured with its spill block before any row is written.</summary>
+    public static ArtifactTarget Sizing(string path) => new(path, null) { SizeOnly = true };
+
+    /// <summary>True for a <see cref="Sizing"/> target.</summary>
+    public bool SizeOnly { get; private init; }
+
     /// <summary>Put the artifact on disk: a reservation writes through the handle that claimed the name, a named target through a same-directory temp moved into place — one path per kind, because the hazards are opposite.</summary>
     internal void Write(Action<Stream> writeInto)
     {
-        if (_defer)
-        {
-            // Held, not written: the next Write is Commit's.
-            var held = new MemoryStream();
-            writeInto(held);
-            _held = held;
-            _defer = false;
-            return;
-        }
+        if (SizeOnly) return;
         if (_reserved is not null)
         {
             using (_reserved) writeInto(_reserved);
@@ -343,28 +344,6 @@ public sealed class ArtifactTarget : IDisposable
         }
     }
 
-    /// <summary>Hold what the next Save writes in memory until <see cref="Commit"/>, so a call can decide on the render
-    /// that names this file before the file lands; a target disposed uncommitted leaves nothing on disk.</summary>
-    public ArtifactTarget Defer()
-    {
-        _defer = true;
-        return this;
-    }
-
-    /// <summary>Put the held artifact on disk: null, or the named error a failed Save gives.</summary>
-    public string? Commit()
-    {
-        if (_held is not { } held) return null;
-        _held = null;
-        try
-        {
-            Write(fs => { held.Position = 0; held.CopyTo(fs); });
-            return null;
-        }
-        catch (Exception ex) { return ResultArtifact.WriteError(Path, ex); }
-        finally { held.Dispose(); }
-    }
-
     /// <summary>A target is written once; a second write would fail against the reservation's closed stream and take the landed artifact with it.</summary>
     internal void EnsureUnwritten()
     {
@@ -373,7 +352,6 @@ public sealed class ArtifactTarget : IDisposable
 
     public void Dispose()
     {
-        _held?.Dispose();
         if (_reserved is null) return;   // a named target owns no handle and no file of its own
         _reserved.Dispose();
         if (!_wrote) try { File.Delete(Path); } catch (Exception) { }

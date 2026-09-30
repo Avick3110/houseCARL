@@ -144,9 +144,11 @@ internal static class Artifacts
         bool resolveNames, bool winnerFields, int depth,
         ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
         LeverNames? levers = null, int rowCap = int.MaxValue, FoldPlan? fold = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, Func<int, RecordSummary>? summaries = null)
     {
-        using var writer = new ResultArtifact.Writer();
+        // Row i's summary: the caller's own, read once for its render and this file, or the scan's.
+        RecordSummary Summary(int i) => summaries?.Invoke(i) ?? (q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, q.Keys[i]));
+        using var writer = new ResultArtifact.Writer(target.SizeOnly);
         string[] schema;
         string? identity;
         string sort;
@@ -169,10 +171,12 @@ internal static class Artifacts
             sort = "load-order scan order (deterministic within one epoch)";
             var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
             // The same reader the inline renders use; a cancel throws before Save, so no half artifact reaches disk.
-            using var reader = new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields,
+            using var reader = target.SizeOnly ? null : new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields,
                                                     (levers ?? LeverNames.Legacy).ContainerHint, foldDepths, ct);
             for (int i = 0; i < q.Keys.Count; i++)
             {
+                // Sized, not written: counted by the selection's type, with no body read.
+                if (reader is null) { writer.WriteRow((_, _) => { }, Summary(i) is { Error: null } s ? s.Type : null); continue; }
                 var fk = q.Keys[i];
                 string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                 var o = reader.Row(i);   // an artifact row is read by the same caller
@@ -200,9 +204,8 @@ internal static class Artifacts
             sort = "load-order scan order (deterministic within one epoch)";
             for (int i = 0; i < q.Keys.Count; i++)
             {
-                var fk = q.Keys[i];
                 string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
-                var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // pinned to the scan's build
+                var m = Summary(i);   // pinned to the scan's build
                 writer.WriteRow((w, _) => JsonWire.WriteSummaryRow(w, m, matches), m.Error is null ? m.Type : null);
             }
         }
@@ -254,7 +257,7 @@ internal static class Artifacts
         IReadOnlyList<ReadOutcome> outcomes, ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
         LeverNames? levers = null, int rowCap = int.MaxValue, IReadOnlyList<string?>? matches = null)
     {
-        using var writer = new ResultArtifact.Writer();
+        using var writer = new ResultArtifact.Writer(target.SizeOnly);
         for (int i = 0; i < outcomes.Count; i++)
         {
             var o = outcomes[i];
@@ -282,7 +285,7 @@ internal static class Artifacts
     public static (SpillInfo? Spill, string? Error) WriteResolve(
         IReadOnlyList<ResolvedRef> rows, string epoch, ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query)
     {
-        using var writer = new ResultArtifact.Writer();
+        using var writer = new ResultArtifact.Writer(target.SizeOnly);
         foreach (var r in rows)
             writer.WriteRow((w, _) => JsonWire.WriteResolvedRow(w, r), r.Resolved ? r.Type : null);
         // The manifest's tool stamp must name a tool the surface still has: a re-entry refusal prints it back.
@@ -297,7 +300,7 @@ internal static class Artifacts
         IReadOnlyList<RecordReads.DeltaRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
-        using var writer = new ResultArtifact.Writer();
+        using var writer = new ResultArtifact.Writer(target.SizeOnly);
         foreach (var row in rows)
             writer.WriteRow((w, ms) => JsonWire.WriteDeltaRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Subject?.RecordType : null);
@@ -312,7 +315,7 @@ internal static class Artifacts
         IReadOnlyList<RecordReads.TreeRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
-        using var writer = new ResultArtifact.Writer();
+        using var writer = new ResultArtifact.Writer(target.SizeOnly);
         foreach (var row in rows)
             writer.WriteRow((w, ms) => JsonWire.WriteTreeRow(w, row, ms, int.MaxValue, LeverNames.Records),
                             row.Error is null ? row.Type : null);   // a records-only artifact: the rows speak the records vocabulary
@@ -327,7 +330,7 @@ internal static class Artifacts
         IReadOnlyList<RecordReads.WalkSeedResult> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
-        using var writer = new ResultArtifact.Writer();
+        using var writer = new ResultArtifact.Writer(target.SizeOnly);
         foreach (var row in rows)
             writer.WriteRow((w, ms) => { JsonWire.WriteChainRow(w, row, ms, int.MaxValue); },
                             row.Error is null ? row.Type : null);
@@ -343,7 +346,7 @@ internal static class Artifacts
         IReadOnlyList<(string Seed, EffectChainResult Result)> results, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
-        using var writer = new ResultArtifact.Writer();
+        using var writer = new ResultArtifact.Writer(target.SizeOnly);
         int total = 0;
         foreach (var (seed, r) in results)
         {
@@ -384,7 +387,7 @@ internal static class Artifacts
         IReadOnlyList<RecordReads.InfoOrderRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
-        using var writer = new ResultArtifact.Writer();
+        using var writer = new ResultArtifact.Writer(target.SizeOnly);
         foreach (var row in rows)
             writer.WriteRow((w, ms) => JsonWire.WriteInfoOrderRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Type : null);
@@ -417,45 +420,32 @@ internal static class Artifacts
     }
 
     /// <summary>The text reply of a lane that auto-spills at its ceiling (#986). The whole answer is served when it fits;
-    /// otherwise the render at the cap, spilling only where that render cuts. The artifact is built in memory and put on
-    /// disk only once the reply that names it is served: a call refused below its floor writes no file, and its refusal
-    /// names a cap measured with the spill block in place, since that is the render the next call makes.</summary>
+    /// otherwise the render at the cap, spilling only where that render cuts. Every pass is bounded by the cap it is asked
+    /// about. A cut is decided on its spill block sized from the selection before any row is written, so a refused call
+    /// writes no artifact, and a served one writes it once, through the reservation that names it.</summary>
     internal static string CeilingText(int cap, CappedRender at, Func<ArtifactTarget> reserve,
                                        Func<ArtifactTarget, (SpillInfo? Spill, string? Error)> write, string epochLine = "")
     {
-        var whole = at(RenderCap.Whole, null, out _);
-        if (whole.Length <= cap) return whole;
-        string Bare(int n, out bool cut)
-        {
-            cut = false;
-            return whole.Length <= n ? whole : at(n, null, out cut);
-        }
-        var bare = Bare(cap, out bool cut);
+        string? WholeAt(int n) => RenderCap.WholeAt(n, m => at(m, null, out _));
+        if (WholeAt(cap) is { } whole) return whole;
+        var bare = at(cap, null, out bool cut);
         // Nothing cut, so nothing to spill: a reply over its cap here is its header alone.
-        if (!cut) return RenderCap.Hold(bare, cap, n => Bare(n, out _), out _, epochLine: epochLine, whole: whole.Length,
+        if (!cut) return RenderCap.Hold(bare, cap, n => at(n, null, out _), out _, epochLine: epochLine, wholeAt: WholeAt,
                                         nextCall: RenderCap.NextCallGrowth);
-        using var target = reserve().Defer();
+        using var target = reserve();
+        var sized = SpillState.Spilled(write(ArtifactTarget.Sizing(target.Path)).Spill!, manifestOnly: false);
+        // A cap the whole answer does not fit cuts it, so the next call there spills and is measured with its block.
+        var held = RenderCap.Hold(at(cap, sized, out _), cap, n => at(n, sized, out _), out bool refused, epochLine: epochLine,
+                                  wholeAt: WholeAt, nextCall: RenderCap.NextCallGrowth);
+        if (refused) return held;
         var (s, err) = write(target);
-        if (err is not null) return Failed(err);
-        var spill = SpillState.Spilled(s!, manifestOnly: false);
-        // A cap the whole answer does not fit cuts it, since an uncut render is the whole answer; so the next call at n
-        // spills, and is measured with its block in place.
-        string Next(int n) => whole.Length <= n ? whole : at(n, spill, out _);
-        var served = RenderCap.Hold(at(cap, spill, out _), cap, Next, out bool refused, epochLine: epochLine, whole: whole.Length,
-                                    nextCall: RenderCap.NextCallGrowth);
-        if (refused) return served;
-        return target.Commit() is { } commitErr ? Failed(commitErr) : served;
-
-        // A failed write is stated, never refused away, and no cap is named off its warning: where the warning does not
-        // fit, the failure itself is the refusal.
-        string Failed(string e)
-        {
-            var failed = at(cap, SpillState.WriteFailed(e), out _);
-            if (failed.Length <= cap) return failed;
-            return "error: the response hit max_chars=" + cap + " and the auto-spill artifact that would hold the rest " +
-                   "could not be written (" + e.TrimEnd('.') + "), so the complete result exists nowhere: re-run with a " +
-                   "narrower selection, a higher max_chars, or to_file= at a writable path." + epochLine;
-        }
+        if (err is null) return at(cap, SpillState.Spilled(s!, manifestOnly: false), out _);
+        // A failed write is stated; where its warning does not fit, the failure itself is the refusal.
+        var failed = at(cap, SpillState.WriteFailed(err), out _);
+        if (failed.Length <= cap) return failed;
+        return "error: the response hit max_chars=" + cap + " and the auto-spill artifact that would hold the rest " +
+               "could not be written (" + err.TrimEnd('.') + "), so the complete result exists nowhere: re-run with a " +
+               "narrower selection, a higher max_chars, or to_file= at a writable path." + epochLine;
     }
 
     /// <summary>Append the whole SpillState to a text response: the spilled block, or the failed-spill warning.</summary>

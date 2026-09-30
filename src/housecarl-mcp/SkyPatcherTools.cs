@@ -113,6 +113,7 @@ static class SkyPatcherWire
         bool listCut = false;
         foreach (var f in folders)
         {
+            if (RenderCap.Past(maxChars, sb.Length)) return sb.ToString();   // a bounded whole pass stops once past its bound
             if (filter is { } sel && !f.Files.Any(x => Matches(sel, f, x))) continue;
             if (listCut) { sb.Append(folderCut); break; }
             var head = FolderHead(f, filter);
@@ -120,6 +121,7 @@ static class SkyPatcherWire
             sb.Append(head);
             foreach (var file in f.Files)
             {
+                if (RenderCap.Past(maxChars, sb.Length)) return sb.ToString();
                 if (listCut) { sb.Append(FileCut); break; }
                 var row = FileRow(file);
                 if (sb.Length + row.Length > listRoom) { sb.Append(FileCut); listCut = true; break; }
@@ -130,6 +132,7 @@ static class SkyPatcherWire
                 {
                     var l = file.Lines[i];
                     if (l.Kind != SkyPatcherLineKind.Patch) continue;
+                    if (RenderCap.Past(maxChars, sb.Length)) return sb.ToString();
                     var line = "      :" + (i + 1) + "  " + l.Raw.Trim() + "\n"
                                + (l.Note is null ? "" : "          [!] " + l.Note + "\n");
                     if (sb.Length + line.Length > listRoom) { sb.Append(LineCut); listCut = true; break; }
@@ -139,7 +142,7 @@ static class SkyPatcherWire
         }
 
         var missed = new List<string>();
-        if (d.Conflicts.Count > 0 && !Section(sb, budget,
+        if (d.Conflicts.Count > 0 && !Section(sb, budget, maxChars,
                 "\nINI-vs-INI set conflicts (" + d.Conflicts.Count + ") — same field, same target, different values; the LAST write wins:\n",
                 "  (report-only: which value SHOULD win is a merge decision — resolve by authoring a later-sorted INI via the skypatcher-authoring skill, then re-run this tool to confirm.)\n",
                 d.Conflicts, "",
@@ -149,7 +152,7 @@ static class SkyPatcherWire
                     + (e.Conditional ? "   [conditional — the line carries further filters]" : "") + "\n")))
             missed.Add(ReportNames[0]);
 
-        if (deadWrites > 0 && !Section(sb, budget,
+        if (deadWrites > 0 && !Section(sb, budget, maxChars,
                 "\nintra-file dead writes (" + deadWrites + ") — ITM-class: later line(s) of the SAME file unconditionally re-cover EVERY target of the write, so it is dead weight regardless of value:\n",
                 "  (report-only: in YOUR ini a dead write is an authoring slip to fix at the source; in a downloaded mod's it is usually harmless — the last write is what applies. A write partially overwritten, or overwritten only by a conditional line, is NOT listed — it may still fire.)\n",
                 d.Itms, " finding(s)",
@@ -160,7 +163,7 @@ static class SkyPatcherWire
                     + (e.Conditional ? "   [carries further filters — dead regardless: the overwrite is unconditional]" : "") + "\n")))
             missed.Add(ReportNames[1]);
 
-        if (d.Duplicates.Count > 0 && !Section(sb, budget,
+        if (d.Duplicates.Count > 0 && !Section(sb, budget, maxChars,
                 "\ncross-INI duplicate writes (" + d.Duplicates.Count + ") — ITM-class: two or more files set the same field of the same target to the SAME value; one copy is redundant (keep either — the LAST would win if they ever diverge):\n",
                 "  (report-only: which copy to drop is a judgment call — a BROAD line also patches every other record of the type, so removing it loses those; prefer dropping the narrower duplicate.)\n",
                 d.Duplicates, "",
@@ -169,7 +172,7 @@ static class SkyPatcherWire
                     + (e.Conditional ? "   [conditional — the line carries further filters]" : "") + "\n")))
             missed.Add(ReportNames[2]);
 
-        if (d.NoOps.Count > 0 && !Section(sb, budget,
+        if (d.NoOps.Count > 0 && !Section(sb, budget, maxChars,
                 "\nno-op writes (" + d.NoOps.Count + ") — true ITM: the SET writes the value the record already has at that point in the replay, so the op changes nothing:\n",
                 "  (report-only, and relative to THIS load order: the same line matters in an order where the record's winner differs — unlike dead writes and duplicates, a no-op is not an authoring slip in the INI itself unless you author for this order.)\n",
                 d.NoOps, "",
@@ -230,7 +233,7 @@ static class SkyPatcherWire
     }
 
     /// <summary>One report section, started only where its heading, cut notices and closing line fit; false if it did not start.</summary>
-    static bool Section<T>(StringBuilder sb, int budget, string head, string close, IReadOnlyList<T> items, string noun,
+    static bool Section<T>(StringBuilder sb, int budget, int maxChars, string head, string close, IReadOnlyList<T> items, string noun,
                            Func<T, string> item, Func<T, IEnumerable<string>>? entries = null)
     {
         string Showing(int shown) => "  ... [showing " + shown + " of " + items.Count + noun + "; raise max_chars]\n";
@@ -240,6 +243,7 @@ static class SkyPatcherWire
         int shown = 0;
         foreach (var x in items)
         {
+            if (RenderCap.Past(maxChars, sb.Length)) break;   // a bounded whole pass stops once past its bound
             var row = item(x);
             if (sb.Length + row.Length > room) { sb.Append(Showing(shown)); break; }
             sb.Append(row);

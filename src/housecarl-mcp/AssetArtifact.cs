@@ -25,7 +25,7 @@ internal static class AssetArtifact
                                                            IReadOnlyList<KeyValuePair<string, string>> query,
                                                            string? noEpochBecause = null)
     {
-        using var writer = new ResultArtifact.Writer();
+        using var writer = new ResultArtifact.Writer(target.SizeOnly);
         foreach (var r in d.Results) writer.WriteRow((w, _) => Row(w, r));
 
         var notes = new List<string>
