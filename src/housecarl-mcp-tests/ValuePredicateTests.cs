@@ -132,18 +132,30 @@ public sealed class ValuePredicateTests
 
     // probe: "EditorID contains Frost"
     [Fact]
-    public void Contains_IsASubstringTestOnTheEditorId() =>
+    public void Contains_OnEditorIdIsASubstringTest() =>
         Assert.Equal(Mgefs(m => m.Eid.Contains("Frost", StringComparison.OrdinalIgnoreCase)), Run(MgefBodies, "EditorID contains Frost"));
 
     // probe: "EditorID contains frost  (case-insensitive)"
     [Fact]
-    public void Contains_IsCaseInsensitive() =>
+    public void Contains_OnEditorIdIsCaseInsensitive() =>
         Assert.Equal(Mgefs(m => m.Eid.Contains("Frost", StringComparison.OrdinalIgnoreCase)), Run(MgefBodies, "EditorID contains frost"));
 
     // probe: "EditorID contains hc  (all)"
     [Fact]
-    public void Contains_ACommonPrefixMatchesEveryRecord() =>
+    public void Contains_OnEditorIdACommonPrefixMatchesEveryRecord() =>
         Assert.Equal(Mgefs(_ => true), Run(MgefBodies, "EditorID contains hc"));
+
+    // review of #1008: the general contains on a body string leaf, not the EditorID term
+    [Fact]
+    public void Contains_OnAStringLeafIsACaseInsensitiveSubstringTest()
+    {
+        var mod = new SkyrimMod(new ModKey("hccontains", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var fire = mod.MagicEffects.AddNew();  fire.Name = "Fire Damage";
+        var frost = mod.MagicEffects.AddNew(); frost.Name = "Frost Damage";
+        var heal = mod.MagicEffects.AddNew();  heal.Name = "Restore Health";
+        Assert.Equal(new HashSet<FormKey> { fire.FormKey, frost.FormKey },
+                     Run(new IMajorRecordGetter[] { fire, frost, heal }, "Name contains damage"));
+    }
 
     // ---- flags: has, and the flags-aware = and >= ------------------------------------------------
 

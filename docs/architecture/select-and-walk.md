@@ -94,7 +94,7 @@ path walk, and containment comes off Mutagen's context walk.
   `AContainsTermGetsNoSentence_TheHintIsForTheExactSpellingOnly` — the near-miss hint's sole-term
   rule. They assert the rendered sentence, so they pin that bullet and not `ExactEditorId` itself,
   which no test names.
-- `ValuePredicateTests` — the by-construction extraction over the corpus: each operator's matched set against a
+- `ValuePredicateTests` — the by-construction extraction through `ReadEngine.ReadLeaf`, over records built in memory: each operator's matched set against a
   brute-force set from the records' known values.
 
 ## Where
