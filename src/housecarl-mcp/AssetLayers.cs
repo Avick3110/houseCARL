@@ -14,10 +14,10 @@ internal interface IAssetHost : ILoadOrderHost
     /// <summary>The installed game runtime version, or null.</summary>
     string? InstalledGameRuntime();
 
-    // Relayed from output until output is its own class.
+    // Relayed from output until AssetLayers takes OutputLocations.
     OutputLocations.RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, OutputLocations.RiderNaming? naming);
 
-    // Relayed from output until output is its own class.
+    // Relayed from output until AssetLayers takes OutputLocations.
     string? RemoveOrNameRiderResidue(OutputLocations.RiderFolder folder);
 
     // Relayed from writes (the consent store) until in-place consent is its own type.
