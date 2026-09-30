@@ -166,8 +166,9 @@ Every family render charges its tail before laying a row: the scope note, the ca
 footer, each list's own cut notice, and the headings written whatever the rows cost. `cap` stays the caller's own
 `max_chars` — the number every notice quotes — while `budget` is the room content has once that tail is charged. A row
 is measured against what it is about to write, not against what the buffer holds, and a row that crossed is taken back
-out whole. The one arm a bounded render can still exceed — a cap too small for what the response carries whatever the
-budget — is named by `RenderCap.Settle`.
+out whole. The complete answer is served whole when it fits; a cap too small for what the response carries whatever
+the budget, the footer included, is refused in `SkseTools.Dispatch`, naming a cap the same call fits (#986). Each
+family's data is read once per call, however many times its render is laid.
 
 The json twin states the same rows and the same accounting in named fields, and classifies with the SAME judge the text
 render uses, which is why each family's serializer lives beside its text render rather than in `SkseJsonDoc`. Rows are

@@ -11,8 +11,8 @@ made the change.
 
 ## Unreleased
 
-- **`housecarl_skypatcher_layer` now stays inside the `max_chars` it is given, or says it ran over when
-  that cap cannot hold its header and warnings.** Pass `max_chars=8000` on a large layer: the answer is 8,000 characters or fewer.
+- **`housecarl_skypatcher_layer` now stays inside the `max_chars` it is given, or refuses when that cap cannot
+  hold its header and warnings.** Pass `max_chars=8000` on a large layer: the answer is 8,000 characters or fewer.
 - **`housecarl_records project=info_order` now lists as many lines of a topic as fit in `max_chars` and marks the cut,
   instead of dropping a topic too big for the cap.** A topic of 60 lines at `max_chars=3000` lists its first lines.
 - **`housecarl_nif_inspect` and `housecarl_nif_set` answer a malformed mesh with a named error, naming where it
@@ -38,6 +38,9 @@ made the change.
   order is refused.
 - **`housecarl_records` delta and tree now time their reads as they go and refuse only once the call would pass ten
   minutes, naming the measured rate.** A whole-record delta over 1,276 ids runs.
+- **The records, check, asset_status, nif_inspect, SKSE and SkyPatcher layer text replies serve a complete answer
+  that fits `max_chars`, and refuse a cap below what they must carry, naming one that fits.** Try
+  `housecarl_skypatcher_layer` at 200.
 
 ## 2.0.3 — 2026-09-23
 

@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-29
+updated: 2026-09-30
 covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/housecarl-mcp/RenderBounds.cs, src/housecarl-mcp/ComparisonMeter.cs, src/housecarl-mcp/SweepEmission.cs, src/housecarl-mcp/SweepDemand.cs, src/housecarl-mcp/BodyAllocation.cs, src/housecarl-mcp/BatchRender.cs, src/housecarl-mcp/TransportAccounting.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-core/CharCountedStream.cs, src/housecarl-core/JsonTextEncoder.cs]
 ---
 # The render budget: what `max_chars` counts, and who gets to spend it
@@ -36,10 +36,33 @@ the caller passed — the number a cut notice names and the finished response ma
 the room content has once everything written after it is charged. A unit is written only when it fits whole,
 so nothing is cut mid-token, and what did not fit is counted in a notice.
 
-One arm may exceed the cap, and says so: where `max_chars` is smaller than what the response must carry
-whatever the budget, the answer ships and `RenderCap.Settle` appends an overrun notice naming the number that
-clears it in one step. The notice is part of the response whose length it states, so it settles to a fixed
-point. The merged sweep's `max_chars_overrun` has the same shape (#361).
+A text render that lays its body inside what the cap leaves makes two moves (#986): the SkyPatcher layer,
+`housecarl_records`' text forms and census, the merged check, `asset_status` and its census, `nif_inspect`, and the
+three `housecarl_skse` families.
+
+- **Whole first.** The complete answer is laid with no reserve (`RenderCap.Whole`); if it fits the cap it is
+  served. A render holds back the widest its notices can be before its body, so without this pass an answer of N
+  chars could be cut, and refused, at `max_chars=N`.
+- **A sufficient cap, not the least.** Where the answer does not fit whole and the render at the cap is still over
+  it, that render is its header and the notices it owes, and the call is refused in one sentence naming a cap the
+  same call was measured to fit (`RenderCap.Hold`). The cap is found by growing only: re-render at the length the
+  render came back at until it fits the length it was given, starting from the whole answer's width where that is
+  narrower; if eight rounds do not settle, the call is refused saying so. What is re-rendered closes over data read
+  once: nothing re-enters the service, and a scan's rows are read once for every render of the call (`ScanRows`).
+  The number is for this call as measured; a next call that prints its read timing wider can need a few more.
+
+A spilling lane (`Artifacts.CeilingText`) measures the render the next call makes: the render with no spill where it
+cuts nothing, and with its spill block where it cuts. The artifact is built in memory (its manifest sets the block's
+width) and put on disk only once the reply naming it is served, so a refused call writes no file. A write that fails
+after that is stated in the reply, or, where its warning does not fit, is itself the refusal; a named cap is never
+sized off that warning.
+
+Three text renders take `max_chars` as a point to stop at rather than a ceiling, and overshoot it whenever they cut:
+`housecarl_load_order_status`, `housecarl_update_status` and `housecarl_bsa_list` (#1016). The json lanes keep
+`max_chars_overrun`. Two text renders are not refused, because their write already happened: `housecarl_place`'s
+report, and a `to_file=` manifest. There the answer ships and `RenderCap.Settle` appends an overrun notice naming the
+number that clears it in one step. The notice is part of the response whose length it states, so it settles to a
+fixed point. The merged sweep's `max_chars_overrun` has the same shape (#361).
 
 ### A merged response water-fills its body budget over measured demand
 
@@ -167,7 +190,8 @@ length and answers only about that; predicted from a header length plus the rese
 the worst case instead. Its remedy is not simply that length: raising the cap widens every `max_chars` this response
 prints back, so the growth is added from two measured terms — how many places print it, counted in the finished
 response rather than derived from the number of accountings, and how many digits the number gains. The notice's own
-length is excluded, because it disappears the moment the response fits.
+length is excluded, because it disappears the moment the response fits. The text lane refuses the first of the two
+instead (#986), so there the notice is the second alone; the json document carries both.
 
 ### The render bound is a time budget, not a width one
 
@@ -220,6 +244,14 @@ reaches only the calling test's flow) is the meter's clock for tests.
   states its own length and clears in one step, and an astral character escapes and is counted as written. Each
   transport states its own length about the same sweep (`TheTextLaneStatesItsOwnLengthOnTheSameSweep` for text); no
   test compares the two lengths with each other.
+- *Whole first, and a sufficient cap*: `WideCutLaneTests.AWholeAnswerIsServedAtItsOwnWidth` (each lane that gained
+  the pass serves its complete answer at its own width), `ARefusedSpillingCallWritesNoFileAndNamesACapMeasuredWithItsSpillBlock`,
+  `AFailedSpillIsStatedAndNeverSizesTheNamedCap`, `ACensusOverItsCapNamesItsOwnWidth`; `RenderFloorHoldTests` (a floor
+  that never settles is refused; a floor that grows a digit names a cap it fits; a failed spill too wide to state is
+  the refusal); `SkyPatcherLayerFloorTests` and `SkseTransportTests` (each view refused below its floor naming a cap it
+  fits, and `omit filter=` offered only where the unfiltered view fits). Each asserts the refusal names a cap at which
+  the same call is served, never the number itself; a test that reads a cut notice reads it at a cap the server serves
+  cut (`RenderFloorAssert.ServedCut`).
 - *A merged response water-fills its body budget over measured demand*: the properties, in
   `src/housecarl-mcp-tests/CheckMergeAllocationTests.cs` (the arm names below are the retired `check-guard`
   probe's, kept as one-line comments above each test):
@@ -264,7 +296,8 @@ reaches only the calling test's flow) is the meter's clock for tests.
 
 ## Where
 
-`src/housecarl-mcp/RenderCap.cs` holds `Cap`, `Budget` and `RenderCap.Settle`; `RenderBudget.cs` is the render bound;
+`src/housecarl-mcp/RenderCap.cs` holds `Cap`, `Budget`, the whole-first `RenderCap.Capped`, the floor check
+`RenderCap.Hold` and `RenderCap.Settle`; `RenderBudget.cs` is the render bound;
 `SweepDemand.cs` is the demand pass and `BodyAllocation.cs` the max-min fill; `SweepEmission.cs` holds `SweepSubject`
 and `BoundedBody`; `BatchRender.cs` is the write-and-retract batch render; `TransportAccounting.cs` is the four-cause
 omission block; `RowProjection.cs` is the `rows` project form. `src/housecarl-core/CharCountedStream.cs` is where the
