@@ -19,7 +19,9 @@ internal static class SweepOffOrderScope
                                    out List<string> active, out List<(string Name, string Path)> offOrder,
                                    SweepOffOrderMemo memo)
     {
-        if (memo.Epoch is not null && memo.Epoch == view.Epoch && memo.Roots == roots && ReferenceEquals(memo.Plugins, plugins))
+        // The split reads the paths, never the served answer, so only the root paths key it.
+        if (memo.Epoch is not null && memo.Epoch == view.Epoch && memo.Roots is { } seen && seen with { Served = roots.Served } == roots
+            && ReferenceEquals(memo.Plugins, plugins))
         {
             active = memo.Active;
             offOrder = memo.OffOrder;

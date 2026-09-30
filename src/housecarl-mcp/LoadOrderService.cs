@@ -30,7 +30,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     readonly Lazy<CorpusRulebook> _rulebook = new(() => CorpusRulebook.Load(), LazyThreadSafetyMode.PublicationOnly);   // one instance; a failed load is not kept
     readonly Lazy<TypeLookup> _typeLookup = new(() => new TypeLookup());   // one per service; construction reads nothing
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
-    IReadOnlyList<UnservedPlugin> _orderUnserved = Array.Empty<UnservedPlugin>();   // listed as loading, served by no enabled layer, as of the last order build; the one served answer every lane reads
+    ServedSet _served = ServedSet.None;   // the last order build's served answer, published with the roots and order it was read under; every lane reads it through RootsLocked
     // The VFS-aware asset resolver, built lazily on an asset query and dropped when the active profile changes.
     AssetResolver? _assetResolver;
     IReadOnlyList<string> _assetWarnings = Array.Empty<string>();   // discovery warnings from the asset build (e.g. a Skyrim.ini we couldn't find → base BSAs unscanned)
@@ -167,7 +167,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     // The order's answers are published with the resolver built from them, never before a throw.
                     _resolvedPaths = paths;
                     _orderWarnings = order.Warnings;
-                    _orderUnserved = order.Unserved;
+                    _served = order.Served;
                     _profileStamps = profileStamps;
                     if (assetBuildIsBehind) { InvalidateAssetResolver(); _profileHeld = null; }
                 }
@@ -245,9 +245,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         }
     }
 
-    /// <summary>The rest of an asset capture around a view just taken, with the order build's served answer; caller holds <see cref="_gate"/>.</summary>
+    /// <summary>The rest of an asset capture around a view just taken; caller holds <see cref="_gate"/>.</summary>
     AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
-        new(view, AssetWarningsLocked(), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild, _orderUnserved);
+        new(view, AssetWarningsLocked(), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild);
 
     // Rows the areas take from one another, relayed here: output and writes until those are their own classes; the assets replay for reads.
     RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);
@@ -437,9 +437,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// Returns null when nothing can be said, and the refusal falls back to a did-you-mean.</summary>
     string? ExplainPluginAbsence(string name)
     {
-        // Snapshot the roots together under the gate so the four cannot be read across a mid-switch reassignment.
-        string profileDir, modsDir, dataDir, overwriteDir; IReadOnlyList<UnservedPlugin> unserved;
-        lock (_gate) { profileDir = _profileDir; modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; unserved = _orderUnserved; }
+        // Snapshot the roots and the served answer read under them together, so none is read across a mid-switch reassignment.
+        Mo2Roots roots;
+        lock (_gate) { roots = RootsLocked(); }
+        var (profileDir, modsDir, dataDir, overwriteDir) = (roots.ProfileDir, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(profileDir)) return null;
         var fn = Path.GetFileName(name.Trim());
         if (fn.Length == 0) return null;
@@ -460,39 +461,39 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                    "it is not a selection). It resolves a plugin wherever it lives, in the order or on disk, and the " +
                    "response states which arm answered.";
 
-        // Ticked but absent from the index: the file itself couldn't be resolved. Locate it to say which.
-        PluginFileHit[] hits;
-        try { hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn).ToArray(); }
-        catch { hits = Array.Empty<PluginFileHit>(); }
-
-        // Listed as loading (ticked, or an implicit master) and the order build found its only copy in a switched-off folder.
+        // Listed as loading (ticked, or an implicit master): whether it is served is the order build's answer, never a disk check here.
         string? listedAs = ticked ? "is ticked in plugins.txt"
             : comp.ImplicitPluginNames.Any(x => x.Equals(fn, StringComparison.OrdinalIgnoreCase)) ? "is an implicit master listed in loadorder.txt"
             : null;
-        var off = unserved.FirstOrDefault(u => u.Name.Equals(fn, StringComparison.OrdinalIgnoreCase))?.SwitchedOffMod;
-        if (listedAs is not null && off is not null && !hits.Any(h => h.Enabled))
-            return $"'{fn}' {listedAs}, but it is not active: " +
-                   $"{Mo2LoadOrder.ProvidedBySwitchedOffMod(off)}. " +
-                   $"To read the file as-is, use {ToolNames.Records} source={{\"file\": \"{fn}\", \"mod\": \"{off}\"}} types=[…] " +
-                   "(source= names the version to read; the read still needs a selection).";
-
         if (listedAs is not null)
-            // Listed as loading and provided by an enabled layer yet not indexed — nothing honest left to say, so say nothing.
-            return hits.Any(h => h.Enabled)
-                ? null
+        {
+            var unserved = roots.Served.Unserved.FirstOrDefault(u => u.Name.Equals(fn, StringComparison.OrdinalIgnoreCase));
+            // Served at the build yet not indexed — nothing honest left to say, so say nothing.
+            if (unserved is null) return null;
+            return unserved.SwitchedOffMod is { } off
+                ? $"'{fn}' {listedAs}, but it is not active: " +
+                  $"{Mo2LoadOrder.ProvidedBySwitchedOffMod(off)}. " +
+                  $"To read the file as-is, use {ToolNames.Records} source={{\"file\": \"{fn}\", \"mod\": \"{off}\"}} types=[…] " +
+                  "(source= names the version to read; the read still needs a selection)."
                 : $"'{fn}' {listedAs}, but {Mo2LoadOrder.SearchedPlaces(overwriteDir)} " +
                   "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
+        }
 
+        // Not listed at all: locate the copies on disk only to name where they sit.
+        PluginFileHit[] hits;
+        try { hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn).ToArray(); }
+        catch { hits = Array.Empty<PluginFileHit>(); }
         if (hits.Length == 0) return null;           // nothing on disk by that name → a typo; let the suggester answer
 
         // On disk but the profile never mentions it: the remedy turns on which layer holds it, read from the mod list.
-        var pick = hits.FirstOrDefault(h => !h.Enabled) ?? hits[0];
-        var folder = Path.GetFileName(Path.GetDirectoryName(pick.Path) ?? "") ?? "";
-        var remedy =
-            pick.Enabled                                                              ? "Refresh MO2 so it registers the plugin, then tick it and sort"
-            : comp.DisabledMods.Any(m => m.Equals(folder, StringComparison.OrdinalIgnoreCase))
-                                                                                      ? "Switch that mod on in MO2, then tick the plugin and sort"
-                                                                                      : "MO2 has not registered that folder yet — refresh MO2, then tick the plugin and sort";
+        static bool LayerOff(PluginFileHit h) => h.Layer is PluginLayer.DisabledMod or PluginLayer.UnlistedMod;
+        var pick = hits.FirstOrDefault(LayerOff) ?? hits[0];
+        var remedy = pick.Layer switch
+        {
+            PluginLayer.DisabledMod => "Switch that mod on in MO2, then tick the plugin and sort",
+            PluginLayer.UnlistedMod => "MO2 has not registered that folder yet — refresh MO2, then tick the plugin and sort",
+            _                       => "Refresh MO2 so it registers the plugin, then tick it and sort",
+        };
         return $"'{fn}' is on disk in {pick.Where}, but MO2's load order does not list it, so it is not active. " +
                $"{remedy} — or read the file as-is with {ToolNames.Records} source=\"{fn}\" types=[…] " +
                "(source= names the version to read; the read still needs a selection).";
@@ -648,7 +649,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         {
             view = Resolver.Capture();                             // force build/refresh; one build for count + exclusions
             warnings = _orderWarnings;
-            unserved = _orderUnserved;
+            unserved = _served.Unserved;
             searched = Mo2LoadOrder.SearchedPlaces(_overwriteDir);   // the same places the build warning names
             profileChanged = ProfileFilesChanged();
             profileDir = _profileDir;
@@ -675,22 +676,22 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         lock (_gate) { view = Resolver.Capture(); }
         if (view.PluginPath(pluginName) is { } activePath) return WriteEngine.PluginIsLocalized(activePath);
 
-        string modsDir, dataDir, overwriteDir, profileDir;
-        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+        Mo2Roots roots;
+        try { lock (_gate) { EnsurePathsDerived(); roots = RootsLocked(); } }
         catch { return null; }
         Mo2Composition comp;
-        try { comp = Mo2LoadOrder.ReadComposition(profileDir); }
+        try { comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir); }
         catch { return null; }
         // Only a name the profile lists as a plugin: a mod folder and a typo both have no header to read.
         bool isPlugin = comp.OrderedPluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase))
                         || comp.InactivePluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase))
                         || comp.ImplicitPluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
         if (!isPlugin) return null;
-        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, pluginName, null, offerModParam: false);
+        var loc = LocatePluginFileOnDisk(comp, roots, pluginName, null, offerModParam: false);
         if (loc.Path is { } path) return WriteEngine.PluginIsLocalized(path);
-        // Several folders provide the name: MO2 priority already decides which copy serves, so that copy answers.
-        if (loc.Ambiguous is { Count: > 0 } hits && hits.FirstOrDefault(h => h.Enabled) is { } served)
-            return WriteEngine.PluginIsLocalized(served.Path);
+        // Several folders provide the name: the copy the order build found served answers.
+        if (loc.Ambiguous is { Count: > 0 } && roots.Served.WinnerOf(pluginName) is { } served)
+            return WriteEngine.PluginIsLocalized(served);
         // Listed as a plugin, and no file behind the name serves it: the flag is not established.
         return LocalizedFlagRead.Unreadable;
     }
@@ -755,7 +756,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             instanceDir = _instanceDir;
             profilesRoot = instanceDir is null ? "" : (Path.GetDirectoryName(_profileDir.TrimEnd('\\', '/')) ?? "");
             activeDir = _profileDir; modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir;
-            activeUnserved = _orderUnserved;
+            activeUnserved = _served.Unserved;
         }
 
         var name = string.IsNullOrWhiteSpace(requested) ? null : requested.Trim();
@@ -816,7 +817,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     {
         if (RederiveIfIniChanged()) return;                      // instance mode: a profile switch was published, or held for the next call
         if (!ProfileFilesChanged()) { _profileHeld = null; return; }   // matches its baseline again → nothing pending, nothing to say
-        ReResolve(new(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir));
+        ReResolve(_profileDir, _modsDir, _dataDir, _overwriteDir);
     }
 
     /// <summary>Instance mode only: when ModOrganizer.ini moved the roots, re-resolve under the new ones and publish them only with that order; true iff it saw a switch. Caller holds the gate.</summary>
@@ -832,7 +833,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                         || !PathEq(p.OverwriteDir, _overwriteDir);
         if (!switched) { _iniStamp = iniStamp; return false; }   // ini touched but nothing we resolve from changed
         // A new profile's order that is held or empty keeps the old roots, resolver and ini stamp, so the next call retries.
-        if (!ReResolve(new(ProfileDir: p.ProfileDir, DataDir: p.DataDir, ModsDir: p.ModsDir, OverwriteDir: p.OverwriteDir))) return true;
+        if (!ReResolve(p.ProfileDir, p.ModsDir, p.DataDir, p.OverwriteDir)) return true;
         _iniStamp = iniStamp;                                     // advance only once the new roots are published
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName; _overwriteDir = p.OverwriteDir;
         System.Threading.Interlocked.Increment(ref _gameRootsGen);   // the game roots moved → the runtime memo re-probes
@@ -840,14 +841,14 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         return true;
     }
 
-    /// <summary>The cheap re-read under <paramref name="roots"/>: re-list the winning paths, deep-re-index only when the set or order changed; false when the read was held or empty and nothing moved. Caller holds the gate.</summary>
-    bool ReResolve(Mo2Roots roots)
+    /// <summary>The cheap re-read under the given roots: re-list the winning paths, deep-re-index only when the set or order changed; false when the read was held or empty and nothing moved. Caller holds the gate.</summary>
+    bool ReResolve(string profileDir, string modsDir, string dataDir, string overwriteDir)
     {
-        var profileStamps = StatProfileFiles(roots.ProfileDir);  // stat BEFORE the read: a write during the re-read is caught next call, not missed
+        var profileStamps = StatProfileFiles(profileDir);        // stat BEFORE the read: a write during the re-read is caught next call, not missed
         Mo2OrderResult order;
         // A refresh landing in MO2's profile-rewrite window keeps the built snapshot and does not advance the baseline;
         // contract in docs/architecture/load-order-service.md.
-        try { order = Mo2LoadOrder.Build(roots.ProfileDir, roots.ModsDir, roots.DataDir, roots.OverwriteDir); }
+        try { order = Mo2LoadOrder.Build(profileDir, modsDir, dataDir, overwriteDir); }
         catch (ProfileUnreadableException ex) { _profileHeld = ex; return false; }
         _profileHeld = null;                                     // the re-read got through — nothing is pending any more
         var paths = order.OrderedPaths;
@@ -868,7 +869,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             }
             _resolvedPaths = paths;
             _orderWarnings = order.Warnings;
-            _orderUnserved = order.Unserved;
+            _served = order.Served;
             _profileStamps = profileStamps;
             return true;
         }
@@ -877,14 +878,16 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             // The profile was touched but the resolved order is identical, so no deep re-index; the asset resolver still drops and the baseline advances.
             InvalidateAssetResolver();
             _orderWarnings = order.Warnings;
-            _orderUnserved = order.Unserved;
+            _served = order.Served;
             _profileStamps = profileStamps;
             return true;
         }
         // paths.Count == 0 is almost certainly a transient mid-write read: keep the last good snapshot and do not advance.
         // With none yet, this read's served answer is the only one, so the asset lanes take it, but only when it was
         // read under the roots already published: a switch to another profile publishes nothing until it lands.
-        if (_resolvedPaths.Count == 0 && roots == RootsLocked()) _orderUnserved = order.Unserved;
+        if (_resolvedPaths.Count == 0 && PathEq(profileDir, _profileDir) && PathEq(modsDir, _modsDir) && PathEq(dataDir, _dataDir)
+            && PathEq(overwriteDir, _overwriteDir))
+            _served = order.Served;
         return false;
     }
 
@@ -906,7 +909,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     }
 
     /// <summary>The four roots as they stand; caller holds <see cref="_gate"/>.</summary>
-    Mo2Roots RootsLocked() => new(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir);
+    Mo2Roots RootsLocked() => new(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir, Served: _served);
 
     static bool PathEq(string a, string b) =>
         string.Equals(a.TrimEnd('\\', '/'), b.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
@@ -1018,7 +1021,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             _resolvedPaths = Array.Empty<string>();
             _profileStamps = new FileStamp[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
             _orderWarnings = Array.Empty<string>();
-            _orderUnserved = Array.Empty<UnservedPlugin>();
+            _served = ServedSet.None;
             InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too
             System.Threading.Interlocked.Increment(ref _gameRootsGen);   // a new instance may be a different game install — the runtime memo must re-probe rather than adjudicate against the old exe
         }

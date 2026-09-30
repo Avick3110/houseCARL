@@ -241,12 +241,36 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
     [Fact]
     public void ThePeekAndStatusReadOneServedAnswerAfterACopyLandsInAnEnabledMod()
     {
-        using var w = new TickedPluginSwitchedOffModWorld();   // mutated below, so its own instance
-        StatusTools.LoadOrderStatus(w.Svc, w.Tools);
-        // A served copy appears with no profile write: the order build is not re-run, so neither lane may see it yet.
-        File.Copy(Path.Combine(w.Instance, "mods", w.OffMod, w.OffName), Path.Combine(w.Instance, "mods", "HcTsSkseMod", w.OffName));
+        using var w = CopyLandsInAnEnabledMod();
         Assert.Contains("NOT in your load order", LineOf(SkseTools.Skse(w.Svc, filter: "HcTsPeek", peek: true), w.OffName));
         Assert.Contains("NOT ACTIVE", StatusTools.LoadOrderStatus(w.Svc, w.Tools, filter: w.OffName));
+    }
+
+    [Fact]
+    public void AfterACopyLandsInAnEnabledModTheExplainerStillNamesTheSwitchedOffFolder()
+    {
+        using var w = CopyLandsInAnEnabledMod();
+        Assert.Contains("NOT ACTIVE", StatusTools.LoadOrderStatus(w.Svc, w.Tools, filter: w.OffName));
+        // The build's answer, not the flat not-in-order sentence a fresh disk check led to.
+        Assert.Contains($"mod '{w.OffMod}', which is switched OFF", RecordsTools.Records(w.Svc, formids: new[] { "000800:" + w.OffName }));
+    }
+
+    [Fact]
+    public void AfterACopyLandsInAnEnabledModTheLocateLaneCallsItNotActive()
+    {
+        using var w = CopyLandsInAnEnabledMod();
+        Assert.Contains("NOT ACTIVE", StatusTools.LoadOrderStatus(w.Svc, w.Tools, filter: w.OffName));
+        var r = RecordsTools.Records(w.Svc, source: Je("{\"file\":\"" + w.OffName + "\",\"mod\":\"HcTsSkseMod\"}"), types: new[] { "KYWD" });
+        Assert.Contains("OUT-OF-LOAD-ORDER (mod 'HcTsSkseMod'; NOT active — houseCARL's last read of the load order", r);
+    }
+
+    /// <summary>A world of its own, status read once, then a served copy of the ticked plugin lands in an enabled mod with no profile write, so the order build is not re-run.</summary>
+    static TickedPluginSwitchedOffModWorld CopyLandsInAnEnabledMod()
+    {
+        var w = new TickedPluginSwitchedOffModWorld();
+        StatusTools.LoadOrderStatus(w.Svc, w.Tools);
+        File.Copy(Path.Combine(w.Instance, "mods", w.OffMod, w.OffName), Path.Combine(w.Instance, "mods", "HcTsSkseMod", w.OffName));
+        return w;
     }
 
     [Fact]

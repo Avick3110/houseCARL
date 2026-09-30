@@ -3,15 +3,41 @@ namespace HousecarlCore;
 // The active load order, read from an MO2 portable instance's profile files on disk, never from the USVFS; the priority model and the three profile files are in docs/architecture/mo2-instance.md.
 
 /// <summary>The resolved active order plus any non-fatal problems — surfaced, not swallowed; <see cref="OrderedPaths"/> is in resolver winner order, highest priority last.</summary>
-/// <param name="Unserved">The plugins the profile lists as loading that no enabled layer serves, so the game does not load them whatever plugins.txt says.</param>
+/// <param name="Served">Which copy of each plugin filename the enabled layers serve, and the listed plugins none serves, off this build's one listing.</param>
 public sealed record Mo2OrderResult(
-    IReadOnlyList<string> OrderedPaths, IReadOnlyList<string> Warnings, IReadOnlyList<UnservedPlugin> Unserved)
+    IReadOnlyList<string> OrderedPaths, IReadOnlyList<string> Warnings, ServedSet Served)
 {
     public int ResolvedCount => OrderedPaths.Count;
+    /// <summary>The plugins the profile lists as loading that no enabled layer serves, so the game does not load them whatever plugins.txt says.</summary>
+    public IReadOnlyList<UnservedPlugin> Unserved => Served.Unserved;
 }
 
 /// <summary>A plugin the profile lists as loading (ticked, or an implicit master) that no enabled layer serves; <paramref name="SwitchedOffMod"/> is the switched-off mod folder holding a copy, null when none does.</summary>
 public sealed record UnservedPlugin(string Name, string? SwitchedOffMod);
+
+/// <summary>The order build's answer to "which copy of each plugin filename do the enabled layers serve", taken off
+/// its one listing of the layers at one moment. Only <see cref="Mo2LoadOrder.Build"/> makes one, so a reader takes
+/// this answer and never decides from the disk itself.</summary>
+public sealed class ServedSet
+{
+    readonly IReadOnlyDictionary<string, string> _winners;
+
+    internal ServedSet(IReadOnlyDictionary<string, string> winners, IReadOnlyList<UnservedPlugin> unserved)
+    {
+        _winners = winners;
+        Unserved = unserved;
+    }
+
+    /// <summary>No build yet: nothing is known to be served.</summary>
+    public static ServedSet None { get; } = new(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), []);
+
+    /// <summary>The listed-as-loading plugins no enabled layer served at the build.</summary>
+    public IReadOnlyList<UnservedPlugin> Unserved { get; }
+
+    /// <summary>The real path of the copy the enabled layers served for <paramref name="fileName"/> at the build, or null when none did.</summary>
+    public string? WinnerOf(string fileName) =>
+        _winners.TryGetValue(Path.GetFileName(fileName), out var path) ? path : null;
+}
 
 /// <summary>The MO2 profile's enabled/disabled composition, parsed from the three profile text files only, so it is cheap to re-read on demand; names are verbatim from the files.</summary>
 public sealed record Mo2Composition(
@@ -35,8 +61,11 @@ public sealed class ProfileUnreadableException : IOException
         => ProfilePath = profilePath;
 }
 
-/// <summary>One on-disk sighting of a plugin filename: its real path, a label for where it was found, and whether that source is enabled in the profile.</summary>
-public sealed record PluginFileHit(string Path, string Where, bool Enabled);
+/// <summary>One on-disk sighting of a plugin filename: its real path, a label for where it was found, and which layer holds it. Whether it is the copy the game is served is not read off a sighting: that is <see cref="ServedSet.WinnerOf"/>.</summary>
+public sealed record PluginFileHit(string Path, string Where, PluginLayer Layer);
+
+/// <summary>The kind of place a plugin copy sits in, from the profile's mod list.</summary>
+public enum PluginLayer { Overwrite, EnabledMod, DisabledMod, UnlistedMod, Data }
 
 public static class Mo2LoadOrder
 {
@@ -70,7 +99,7 @@ public static class Mo2LoadOrder
                 : $"load order lists '{u.Name}' but {SearchedPlaces(overwriteDir)} provides it (stale loadorder.txt? " +
                   "trigger an MO2 refresh / re-sort so it re-writes the profile files).");
 
-        return new Mo2OrderResult(orderedPaths, warnings, unserved);
+        return new Mo2OrderResult(orderedPaths, warnings, new ServedSet(winningPath, unserved));
     }
 
     /// <summary>The places a plugin file is served from, as the subject of "… provides it"; explicit-paths mode has no overwrite folder, so only the places actually searched are named.</summary>
@@ -79,7 +108,7 @@ public static class Mo2LoadOrder
             ? "no enabled mod or the game Data folder"
             : "no enabled mod, the overwrite folder, or the game Data folder";
 
-    /// <summary>The plugins <paramref name="comp"/> lists as loading that no enabled layer serves, off a fresh listing of the enabled layers — for a reader with no order build, such as another profile's inspection; it lists every enabled mod folder.</summary>
+    /// <summary>The plugins <paramref name="comp"/> lists as loading that no enabled layer serves, off a fresh listing of the enabled layers — only for a reader with no order build to take the answer from (another profile's inspection, the setup summary); it lists every enabled mod folder.</summary>
     public static IReadOnlyList<UnservedPlugin> Unserved(Mo2Composition comp, string modsDir, string dataDir, string overwriteDir) =>
         UnservedIn(comp, BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir), modsDir);
 
@@ -262,25 +291,25 @@ public static class Mo2LoadOrder
         var fn = Path.GetFileName(filename?.Trim() ?? "");
         if (fn.Length == 0) return hits;
 
-        foreach (var (dir, where, enabled) in CandidateFolders(comp, modsDir, dataDir, overwriteDir))
+        foreach (var (dir, where, layer) in CandidateFolders(comp, modsDir, dataDir, overwriteDir))
         {
             if (string.IsNullOrWhiteSpace(dir)) continue;
-            try { var p = Path.Combine(dir, fn); if (File.Exists(p)) hits.Add(new PluginFileHit(p, where, enabled)); }
+            try { var p = Path.Combine(dir, fn); if (File.Exists(p)) hits.Add(new PluginFileHit(p, where, layer)); }
             catch { /* an inaccessible candidate folder is simply not a hit — never a false 'found' */ }
         }
         return hits;
     }
 
     /// <summary>THE layer sequence a filename is searched across, in precedence order; written once because <see cref="LocatePlugin"/> and <see cref="AllPluginFileNames"/> must draw on the same set of places. The label identifies the layer and its state, never a remedy.</summary>
-    static IEnumerable<(string dir, string where, bool enabled)> CandidateFolders(
+    static IEnumerable<(string dir, string where, PluginLayer layer)> CandidateFolders(
         Mo2Composition comp, string modsDir, string dataDir, string overwriteDir)
     {
-        yield return (overwriteDir, "overwrite", true);
-        foreach (var mod in comp.EnabledMods) yield return (Path.Combine(modsDir, mod), $"mod '{mod}' (enabled)", true);
-        foreach (var mod in comp.DisabledMods) yield return (Path.Combine(modsDir, mod), $"mod '{mod}' (DISABLED)", false);
+        yield return (overwriteDir, "overwrite", PluginLayer.Overwrite);
+        foreach (var mod in comp.EnabledMods) yield return (Path.Combine(modsDir, mod), $"mod '{mod}' (enabled)", PluginLayer.EnabledMod);
+        foreach (var mod in comp.DisabledMods) yield return (Path.Combine(modsDir, mod), $"mod '{mod}' (DISABLED)", PluginLayer.DisabledMod);
         foreach (var dir in UnlistedModFolders(comp, modsDir))
-            yield return (dir, $"mod '{Path.GetFileName(dir)}' (UNLISTED)", false);
-        yield return (dataDir, "game Data", true);
+            yield return (dir, $"mod '{Path.GetFileName(dir)}' (UNLISTED)", PluginLayer.UnlistedMod);
+        yield return (dataDir, "game Data", PluginLayer.Data);
     }
 
     /// <summary>Every plugin filename the install provides, walking <see cref="CandidateFolders"/> — the did-you-mean pool and the declared-master split's is-it-installed discriminant. It lists each folder, so it is read once per call and then asked many times.</summary>

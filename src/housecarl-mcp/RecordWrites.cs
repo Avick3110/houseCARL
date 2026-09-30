@@ -110,7 +110,7 @@ public sealed partial class LoadOrderService
         var view = resolver.Capture();
         epoch = view.Stamp;
         RespellActiveCopySourcePaths(view, edits);   // before the predicate, and before any edit is used as a key
-        string modsDir = "", dataDir = "", overwriteDir = "", profileDir = "";
+        Mo2Roots roots = default;
         Mo2Composition? comp = null;
         var problems = new List<string>();
         foreach (var e in edits)
@@ -119,15 +119,15 @@ public sealed partial class LoadOrderService
             if (!WritePatchBuilder.IsOffOrderCopySource(e, view)) continue;   // not a CopyFrom, or active — Apply resolves it off the shared build
             if (comp is null)
             {
-                try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+                try { lock (_gate) { EnsurePathsDerived(); roots = RootsLocked(); } }
                 catch (Exception ex) { return $"CopyFrom off-order source locate failed to derive the MO2 roots: {ex.Message}"; }
-                comp = Mo2LoadOrder.ReadComposition(profileDir);
+                comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
             }
-            var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, e.FromPlugin!, null);
+            var loc = LocatePluginFileOnDisk(comp, roots, e.FromPlugin!, null);
             if (loc.Error is not null) { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{e.FromPlugin}' is not in the load order and {loc.Error}"); continue; }
             if (loc.Ambiguous is not null) { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{e.FromPlugin}' matches several mod folders on disk — pass an exact path to disambiguate."); continue; }
             ISkyrimModGetter ov;
-            try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+            try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(roots.DataDir) ? null : roots.DataDir); }
             catch (Exception ex) { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source file '{e.FromPlugin}' could not be opened as a Skyrim plugin ({ex.Message})."); continue; }
             IMajorRecordGetter? body;
             try { body = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == e.CopySource); }
@@ -181,17 +181,17 @@ public sealed partial class LoadOrderService
             return null;
         }
 
-        string modsDir, dataDir, overwriteDir, profileDir;
-        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+        Mo2Roots roots;
+        try { lock (_gate) { EnsurePathsDerived(); roots = RootsLocked(); } }
         catch (Exception ex) { error = $"source plugin '{fromPlugin}' is not in the load order and the MO2 roots couldn't be derived to find it on disk: {ex.Message}"; return null; }
 
-        var comp = Mo2LoadOrder.ReadComposition(profileDir);
+        var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
         // offerModParam is false: this tool has no mod= parameter, and a direct path is this lane's disambiguator.
-        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, fromPlugin, null, offerModParam: false);
+        var loc = LocatePluginFileOnDisk(comp, roots, fromPlugin, null, offerModParam: false);
         if (loc.Error is not null)
         {
             // A did-you-mean over every plugin the locate SEARCHED, empty when nothing is close.
-            var pool = Mo2LoadOrder.AllPluginFileNames(comp, modsDir, dataDir, overwriteDir);
+            var pool = Mo2LoadOrder.AllPluginFileNames(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
             error = $"source plugin '{fromPlugin}' is not in the load order and {loc.Error}" +
                     PluginNameSuggest.DidYouMean(fromPlugin, pool);
             return null;
@@ -212,7 +212,7 @@ public sealed partial class LoadOrderService
             excludedWhy = exWhy;
 
         ISkyrimModGetter ov;
-        try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+        try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(roots.DataDir) ? null : roots.DataDir); }
         catch (Exception ex) { error = $"source file '{fromPlugin}' ({loc.Path}) could not be opened as a Skyrim plugin ({ex.Message})."; return null; }
 
         // One walk of the overlay collecting every wanted key.
@@ -277,7 +277,7 @@ public sealed partial class LoadOrderService
         var arms = new List<SourceArm>(poles.Count);
         var openedHere = new List<IDisposable>();
         Mo2Composition? comp = null;
-        var roots = new Mo2Roots(ProfileDir: "", DataDir: "", ModsDir: "", OverwriteDir: "");
+        var roots = new Mo2Roots(ProfileDir: "", DataDir: "", ModsDir: "", OverwriteDir: "", Served: ServedSet.None);
 
         string Fail(string message)
         {
@@ -1068,10 +1068,10 @@ public sealed partial class LoadOrderService
             else
             {
                 // Not in the active order → resolve the file on disk through the shared locate contract; every declared master must still be active.
-                string modsDir, dataDir, overwriteDir, profileDir;
-                lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
-                var comp = Mo2LoadOrder.ReadComposition(profileDir);
-                var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, name, null);
+                Mo2Roots roots;
+                lock (_gate) { EnsurePathsDerived(); roots = RootsLocked(); }
+                var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
+                var loc = LocatePluginFileOnDisk(comp, roots, name, null);
                 if (loc.Error is not null)
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"'{name}' is not an active plugin in your load order, and no on-disk copy was found either ({loc.Error})");

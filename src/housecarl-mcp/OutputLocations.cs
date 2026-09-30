@@ -28,7 +28,9 @@ public sealed partial class LoadOrderService
         {
             if (!_configured) throw NotConfigured();
             EnsurePathsDerived();
-            return new OutputRoots(RootsLocked(), _resolver?.PluginNames);
+            // The resolver's names, else the last order read's, which an asset lane can take with no resolver built.
+            return new OutputRoots(RootsLocked(), _resolver?.PluginNames
+                                                  ?? (_resolvedPaths.Count > 0 ? _resolvedPaths.Select(p => Path.GetFileName(p)).ToList() : null));
         }
     }
 
@@ -732,6 +734,8 @@ public sealed partial class LoadOrderService
         ModDisabled,
         /// <summary>This copy sits in a folder modlist.txt does not mention, so MO2 has not registered it. Remedy: refresh MO2 — distinct from <see cref="ModDisabled"/>, which has something in MO2's list to switch.</summary>
         ModUnregisteredLayer,
+        /// <summary>This copy's layer is on, but the last order build found no copy of this filename served: it arrived after that read, which a profile write in MO2 renews.</summary>
+        NotServedAtLastRead,
     }
 
     /// <summary>Is a plugin filename ticked to load — the other half of "does the game load this file", a different fact from its mod folder's switch, which is the confusion this split exists to end.</summary>
@@ -783,6 +787,10 @@ public sealed partial class LoadOrderService
                             ? "MO2 has not registered that mod folder — refresh MO2, then tick the plugin and sort"
                             : $"it is provided by mod '{CauseDetail}', which MO2 has not registered — refresh MO2, then tick the plugin and sort");
                         break;
+                    case ServedStanding.NotServedAtLastRead:
+                        parts.Add("houseCARL's last read of the load order found no enabled layer serving this file, so it " +
+                                  "arrived since — refresh or re-sort in MO2 so it rewrites the profile, and houseCARL re-reads it");
+                        break;
                     case ServedStanding.NotAnInstallCopy:
                         // States what was CHECKED, not a verdict: a junction route to the same install lands here too.
                         parts.Add("no MO2 layer was found providing this exact path");
@@ -797,20 +805,27 @@ public sealed partial class LoadOrderService
         }
     }
 
-    /// <summary>Judge the served half for one located file, against the first hit from an ENABLED layer — the rule the real order is built by, not merely the first hit, since the locate also walks folders the order never consults. Compared by full path, because a backup and the live copy share a filename.</summary>
+    /// <summary>Judge the served half for one located file against the order build's answer in <paramref name="served"/>,
+    /// never a fresh walk of the layers, so this lane cannot disagree with status or the index; the located hits only say
+    /// which layer holds this copy. Compared by full path, because a backup and the live copy share a filename.</summary>
     static (ServedStanding Served, string? Detail) JudgeServed(
-        Mo2Composition comp, IReadOnlyList<PluginFileHit> located, string fullPath)
+        ServedSet served, IReadOnlyList<PluginFileHit> located, string fullPath)
     {
-        var served = located.FirstOrDefault(h => h.Enabled);
-        if (served is not null && PluginPaths.SamePluginFile(served.Path, fullPath)) return (ServedStanding.Serves, null);
+        var winner = served.WinnerOf(Path.GetFileName(fullPath));
+        if (winner is not null && PluginPaths.SamePluginFile(winner, fullPath)) return (ServedStanding.Serves, null);
         var own = located.FirstOrDefault(h => PluginPaths.SamePluginFile(h.Path, fullPath));
         if (own is null) return (ServedStanding.NotAnInstallCopy, null);          // outside the install, or unreachable by string compare
-        // Its own layer is ON but something else serves the name, and the useful pointer is the copy that WINS.
-        if (own.Enabled) return (ServedStanding.Shadowed, served?.Where);
-        // Its layer is off; which kind decides the remedy, read from the mod list, never from the hit's label text.
         var folder = Path.GetFileName(Path.GetDirectoryName(own.Path) ?? "") ?? "";
-        bool listedOff = comp.DisabledMods.Any(m => m.Equals(folder, StringComparison.OrdinalIgnoreCase));
-        return (listedOff ? ServedStanding.ModDisabled : ServedStanding.ModUnregisteredLayer, folder);
+        return own.Layer switch
+        {
+            // Its layer is off; which kind decides the remedy, read from the mod list, never from the hit's label text.
+            PluginLayer.DisabledMod => (ServedStanding.ModDisabled, folder),
+            PluginLayer.UnlistedMod => (ServedStanding.ModUnregisteredLayer, folder),
+            // Its layer is ON but another copy was served, and the useful pointer is the copy that WINS.
+            _ when winner is not null => (ServedStanding.Shadowed,
+                                          located.FirstOrDefault(h => PluginPaths.SamePluginFile(h.Path, winner))?.Where ?? winner),
+            _ => (ServedStanding.NotServedAtLastRead, null),
+        };
     }
 
     /// <summary>Judge the tick half for one plugin filename from the profile text files, kept beside <see cref="JudgeServed"/> so no lane computes either half its own way.</summary>
@@ -824,16 +839,11 @@ public sealed partial class LoadOrderService
         return TickStanding.Unregistered;
     }
 
-    /// <summary>The on-disk plugin-locate contract, shared by every lane that resolves a plugin by name so no two can diverge: a direct path is used verbatim, else the filename is found across the whole install, with <paramref name="mod"/> narrowing a name several folders provide and ambiguity coming back structured. <paramref name="offerModParam"/> is false for a caller that does not declare <c>mod=</c>.</summary>
+    /// <summary>The on-disk plugin-locate contract, shared by every lane that resolves a plugin by name so no two can diverge: a direct path is used verbatim, else the filename is found across the whole install, with <paramref name="mod"/> narrowing a name several folders provide and ambiguity coming back structured. <paramref name="offerModParam"/> is false for a caller that does not declare <c>mod=</c>. The served half is <paramref name="roots"/>' <see cref="Mo2Roots.Served"/>, the order build's answer taken with them; the disk is read only to find the copies and the file asked for.</summary>
     internal static PluginLocateResult LocatePluginFileOnDisk(Mo2Composition comp, Mo2Roots roots, string plugin, string? mod,
-                                                              bool offerModParam = true) =>
-        LocatePluginFileOnDisk(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, plugin, mod, offerModParam);
-
-    /// <summary>The same locate over the three install roots given one by one.</summary>
-    internal static PluginLocateResult LocatePluginFileOnDisk(
-        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string plugin, string? mod,
-        bool offerModParam = true)
+                                                              bool offerModParam = true)
     {
+        var (modsDir, dataDir, overwriteDir, served) = (roots.ModsDir, roots.DataDir, roots.OverwriteDir, roots.Served);
         // Every lane below returns the (served, tick) pair through the same two helpers, never its own way.
         if (PluginPaths.LooksLikePath(plugin))
         {
@@ -846,7 +856,7 @@ public sealed partial class LoadOrderService
             var located = IsUnderAnyInstallRoot(full, modsDir, dataDir, overwriteDir)   // outside every root ⇒ can't be the install's copy; skip the scan
                 ? Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fnPath)
                 : Array.Empty<PluginFileHit>();
-            var (servedStanding, detail) = JudgeServed(comp, located, full);
+            var (servedStanding, detail) = JudgeServed(served, located, full);
             // WhereNamesLayer: FALSE — "direct path" identifies no layer, so a layer-off cause must name the folder.
             return new(full, "direct path", servedStanding, JudgeTick(comp, fnPath), detail, false, null, null);
         }
@@ -859,7 +869,7 @@ public sealed partial class LoadOrderService
                            $"mod folder '{mod.Trim()}' under ModsDir does not provide '{fn}'.");
             // Both halves here too: an enabled mod's copy can still be shadowed by a higher-priority one.
             var (modServed, modDetail) = JudgeServed(
-                comp, Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn), cand);
+                served, Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn), cand);
             // WhereNamesLayer is true: "mod 'X'" names the folder, though it carries no state qualifier.
             return new(cand, $"mod '{mod.Trim()}'", modServed, JudgeTick(comp, fn), modDetail, true, null, null);
         }
@@ -869,7 +879,7 @@ public sealed partial class LoadOrderService
                 $"'{Path.GetFileName(plugin)}' is in no mod folder (enabled, disabled, or not-yet-listed in MO2), the overwrite folder, or the game Data folder. Check the filename, pass an absolute path"
                 + (offerModParam ? ", or (if it's an MO2 mod) the exact folder via mod=." : "."));
         if (hits.Count > 1) return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, hits, null);
-        var (oneServed, oneDetail) = JudgeServed(comp, hits, hits[0].Path);
+        var (oneServed, oneDetail) = JudgeServed(served, hits, hits[0].Path);
         // WhereNamesLayer: TRUE — Where IS the located hit's own label, folder and state both.
         return new(hits[0].Path, hits[0].Where, oneServed, JudgeTick(comp, Path.GetFileName(plugin)), oneDetail, true, null, null);
     }

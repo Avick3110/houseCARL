@@ -61,17 +61,28 @@ it until a tool writes there.
 
 A tick is half of active. A plugin the profile lists as loading (ticked, or an implicit master) that no
 enabled layer serves is NOT active, whatever `plugins.txt` says: MO2's VFS does not present the file.
-The order build decides it once, off its one listing of the enabled layers (`BuildFilenameMap`), and returns each
-such plugin as `Unserved`, with the switched-off mod folder holding a copy when there is one (one listing per
-switched-off folder, only when something is unserved). The service keeps that answer beside the order, and every
-lane reads that one snapshot: status and the absence explainer (ticked and implicit alike), the asset capture and
-through it the SKSE peek's plugin set, and the `profile=` inspection of the active profile. The record, check and
-locate lanes read the order `Build` resolved. An asset build never makes the decision itself. The archive list
-still binds an unserved plugin's same-named archives: it is the one tick-only reader (#1014), for the reason
-[`assets.md`](assets.md) gives. Two readers have no order build to take it from and call `Mo2LoadOrder.Unserved`,
-which lists every enabled mod folder: the `profile=` inspection of another profile (its own mod list) and the setup
-summary. `ActiveNames` gives a reader the tick-or-implicit set less the unserved. A copy in a switched-off folder is
-named with the same sentence the locate lane uses (`ProvidedBySwitchedOffMod`), never as a stale profile.
+Which copy of a plugin filename the enabled layers serve is decided in one place: the order build
+(`Mo2LoadOrder.Build`), off its one listing of the layers (`BuildFilenameMap`, private to `Mo2LoadOrder`). It returns
+the answer as a `ServedSet`: the winning copy of every filename (`WinnerOf`) and the listed-as-loading plugins none
+serves (`Unserved`), each with the switched-off folder holding a copy when there is one (one listing per
+switched-off folder, only when something is unserved). Only `Mo2LoadOrder` can make a `ServedSet`. The service
+publishes it with the order and the resolver built from it, in one hold, and hands it out inside `Mo2Roots`, so a
+lane that has the roots has the answer read under them and nothing else. Every reader takes it there: status, the
+absence explainer, the asset capture and the SKSE peek's plugin set, the `profile=` inspection of the active profile,
+and the locate lane (`LocatePluginFileOnDisk`), whose `Serves`/`Shadowed` standing is judged against `WinnerOf`.
+`LocatePlugin` still reads the disk, to find the copies of a name and say which layer holds each; it never says which
+copy is served. A copy found in an enabled layer that the build did not serve arrived after the last read, and the
+locate lane says so (`NotServedAtLastRead`). The archive list still binds an unserved plugin's same-named archives:
+it is the one tick-only reader (#1014), for the reason [`assets.md`](assets.md) gives. Two readers have no order build
+to take the answer from and call `Mo2LoadOrder.Unserved`, which lists every enabled mod folder: the `profile=`
+inspection of another profile (its own mod list) and the setup summary. `ActiveNames` gives a reader the
+tick-or-implicit set less the unserved. A copy in a switched-off folder is named with the same sentence the locate
+lane uses (`ProvidedBySwitchedOffMod`), never as a stale profile.
+
+The answer is as fresh as the last order build, which re-runs only on a profile-file change (`loadorder.txt`,
+`plugins.txt`, `modlist.txt`), a `ModOrganizer.ini` change that moves the roots, or a restart. A plugin file added to or
+removed from an enabled mod folder with no profile write is not seen until then; every lane answers from the same
+earlier read meanwhile, and the record index keeps reading the copies that read chose, as it always has.
 
 MO2 holds `loadorder.txt` and `plugins.txt` open while it re-sorts, so a read landing in that
 window is a transient, not a failure: only the Win32 sharing and lock violations become
@@ -141,7 +152,8 @@ swallows the note turns a recoverable state into a silent loss.
   the SKSE peek; the filter answers the no-copy and implicit-master cases; a
   winner read into it (or into an unserved implicit master) names the folder and the `{"file", "mod"}` spelling, and
   one into an implicit master with no switched-off copy (in an unlisted folder, or nowhere) says the profile is stale;
-  both `source=` spellings read the folder copy; and the peek and status agree after a copy lands with no profile write.
+  both `source=` spellings read the folder copy; the peek, status, the explainer and the locate lane agree after a copy lands with no profile write; and a switch to
+  a profile that resolves nothing publishes no served answer beside the old roots.
 - *The Qt/QSettings value grammar*: `Mo2IniEscapeTests` — the quoted wrapper, the greedy hex runs, the named escapes,
   and a value with a lone backslash left as it stands (`HandWrittenPathsAreLeftAlone`).
 - *The Qt/QSettings value grammar*: `Mo2ModMetaReadTests` — the `[General]` Nexus cache fields read

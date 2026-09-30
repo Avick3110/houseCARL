@@ -1,17 +1,16 @@
 // The shared door every area's host interface extends, and the asset capture it returns.
 namespace HousecarlMcp;
 
-/// <summary>One asset build with its warnings, profile and roots, and the order build's served answer, all taken in one <c>_gate</c> hold.</summary>
+/// <summary>One asset build with its warnings, profile and roots (the order build's served answer with them), all taken in one <c>_gate</c> hold.</summary>
 internal readonly record struct AssetCapture(AssetResolver.AssetView View, IReadOnlyList<string> Warnings, string ProfileName,
-                                             Mo2Roots Roots, IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> EnabledMods,
-                                             IReadOnlyList<UnservedPlugin> Unserved)
+                                             Mo2Roots Roots, IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> EnabledMods)
 {
     /// <summary>The captured mods root, or null when there is none.</summary>
     public string? ModsRootOrNull => string.IsNullOrWhiteSpace(Roots.ModsDir) ? null : Roots.ModsDir;
 }
 
-/// <summary>The four MO2 roots, taken in one <c>_gate</c> hold after the roots are derived.</summary>
-internal readonly record struct Mo2Roots(string ProfileDir, string DataDir, string ModsDir, string OverwriteDir);
+/// <summary>The four MO2 roots and the order build's served answer read under them, taken in one <c>_gate</c> hold after the roots are derived; a reader asking which copy is served takes <see cref="Served"/>, never the disk.</summary>
+internal readonly record struct Mo2Roots(string ProfileDir, string DataDir, string ModsDir, string OverwriteDir, ServedSet Served);
 
 /// <summary>The head members areas share; contract in docs/architecture/load-order-service.md.</summary>
 internal interface ILoadOrderHost

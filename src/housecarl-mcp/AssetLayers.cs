@@ -189,7 +189,7 @@ internal sealed partial class AssetLayers
             var compWarnings = new List<string>();
             var comp = Mo2LoadOrder.ReadComposition(profileDir, compWarnings);
             // The order build's served answer, carried on the capture, so a ticked plugin nothing serves is not adjudicated as loaded.
-            activePlugins = PeekPluginSet(comp, captured.Unserved);
+            activePlugins = PeekPluginSet(comp, captured.Roots.Served.Unserved);
             if (compWarnings.Count > 0) warnings = [.. warnings, .. compWarnings];
         }
         // Outside the gate: the view is pinned and handle-free, so this cannot race a refresh into wrongness.
