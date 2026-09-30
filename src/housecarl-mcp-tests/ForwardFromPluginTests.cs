@@ -13,7 +13,7 @@ namespace HousecarlMcpTests;
 /// in the header, a nested record takes the same route, a re-forward replaces and grows the header, an edit after a
 /// forward lands on the forwarded copy, the sources are never written, the doesn't-define and duplicate refusals, and
 /// the in-place route's consent, replace and contract. Migrated from the forward-from-plugin-guard probe; its arms that
-/// <see cref="WritePatchForwardTests"/> and <see cref="WriteSurfaceForwardTests"/> already make are not repeated here.
+/// <see cref="WritePatchForwardTests"/> and <see cref="WriteSurfaceForwardTests"/> already make whole are not repeated here.
 ///
 /// Fixture, priority master -> ModA -> ModB -> Other: master defines weapons X (Damage 10) and Y (100) and a placed
 /// object P (Scale 1); ModA overrides X 20, Y 200, P 2; ModB overrides X 30 (carrying a keyword ModB defines), Y 300,
@@ -199,6 +199,39 @@ public sealed class ForwardFromPluginTests : IDisposable
         var o = Forward(path, false, Spec(_x, OtherName));
         Assert.False(o.Success);
         Assert.Contains("does NOT define", o.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(path));
+    }
+
+    // ALREADY-WINNER: forwarding the current winner succeeds (Dmg 30) and is flagged redundant (Q3, not silent)
+    [Fact]
+    public void ForwardingTheWinnerWritesTheWinnersBodyAndFlagsIt()
+    {
+        var path = _rig.Out("HcFwdAlreadyWin.esp");
+        var o = Forward(path, false, Spec(_x, ModBName));
+        Assert.True(o.Success, o.Error);
+        Assert.True(Assert.Single(o.Forwarded).WasAlreadyWinner);
+        Assert.Equal((ushort)30, Damage(path, _x));
+    }
+
+    // REJ-NOTINORDER: source plugin not in the order refuses loud, no file
+    [Fact]
+    public void ASourceNotInTheOrderIsRefusedAndWritesNothing()
+    {
+        var path = _rig.Out("HcFwdNotInOrder.esp");
+        var o = Forward(path, false, Spec(_x, "NotReal.esp"));
+        Assert.False(o.Success);
+        Assert.Contains("not in the load order", o.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(path));
+    }
+
+    // REJ-INTOSELF: from_plugin == the output patch itself refuses loud, no file
+    [Fact]
+    public void ASourceThatIsTheOutputPatchIsRefusedAndWritesNothing()
+    {
+        var path = _rig.Out("HcFwdSelf.esp");
+        var o = Forward(path, false, Spec(_x, "HcFwdSelf.esp"));
+        Assert.False(o.Success);
+        Assert.Contains("output patch itself", o.Error, StringComparison.OrdinalIgnoreCase);
         Assert.False(File.Exists(path));
     }
 

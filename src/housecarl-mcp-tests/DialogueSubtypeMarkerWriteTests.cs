@@ -66,7 +66,7 @@ public sealed class DialogueSubtypeMarkerWriteTests : IClassFixture<DialogueSubt
     {
         var o = CreateTopic("HcSnamOob", "HcSnamOob", Op("Subtype", "105"));
         Assert.False(o.Success);
-        Assert.Contains("modeled", o.Error);
+        Assert.Contains("modeled", o.Error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("marker", o.Error, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(Directory.EnumerateDirectories(_w.ModsDir, "*HcSnamOob*"));
     }

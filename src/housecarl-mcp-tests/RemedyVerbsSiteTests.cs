@@ -10,8 +10,8 @@ namespace HousecarlMcpTests;
 /// Each message that prints the verbs a collection takes carries that shape's verbs and none of the other
 /// cardinality's: the bracket remedy (gate and engine twin), Set-on-list, the element remedy, the unknown-verb list,
 /// the composes= refusals, the modeled-elements message and the array refusal. Migrated from the remedy-verbs-guard
-/// probe's sites arm; its SITE-ELEMENT-CONFLICT-LIST-KEYED, SITE-ELEMENT-CONFLICT-OWNEDRECORD and
-/// SITE-BRACKET-ENGINE-BADKEY-WITHHELD arms are already made by <see cref="ElementRefusalRemedyTests"/>.
+/// probe's sites arm; its SITE-ELEMENT-CONFLICT-LIST-KEYED and SITE-BRACKET-ENGINE-BADKEY-WITHHELD arms, and the
+/// record-axis half of SITE-ELEMENT-CONFLICT-OWNEDRECORD, are already made by <see cref="ElementRefusalRemedyTests"/>.
 /// </summary>
 [Trait("tier", "unit")]
 public sealed class RemedyVerbsSiteTests
@@ -114,6 +114,16 @@ public sealed class RemedyVerbsSiteTests
     public void TheElementRemedyOnAModeledListNamesTheKeyedPlacingVerbs()
         => Shaped(Gate(new WriteRequest { RecordType = "Faction", Path = new[] { "Conditions[0]", "ComparisonValue" }, Verb = "Set", Value = "1" }),
             ListComposed, PlacingOne(ListComposed).Where(u => u.NeedsKey));
+
+    // SITE-ELEMENT-CONFLICT-OWNEDRECORD — ...and the owned-record element remedy names no list index verb
+    // (the record-axis words are asserted by ElementRefusalRemedyTests.AnOwnedRecordElementNamesNoContainerCall)
+    [Fact]
+    public void TheElementRemedyOnOwnedRecordsNamesNoIndexVerb()
+    {
+        var msg = Gate(new WriteRequest { RecordType = "Cell", Path = new[] { "Persistent[0]", "MajorFlags" }, Verb = "Set", Value = "1" });
+        Assert.Contains("owned child RECORDS", msg);
+        foreach (var v in ListOnly) Assert.DoesNotContain(v, msg);
+    }
 
     // SITE-BRACKET-ENGINE-BADKEY — an unusable key still gets the shape's keyed verbs
     [Fact]
