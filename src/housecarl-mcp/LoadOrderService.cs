@@ -465,19 +465,21 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         catch { hits = Array.Empty<PluginFileHit>(); }
 
         // Listed as loading (ticked, or an implicit master) and the order build found its only copy in a switched-off folder.
-        bool implicitMaster = comp.ImplicitPluginNames.Any(x => x.Equals(fn, StringComparison.OrdinalIgnoreCase));
+        string? listedAs = ticked ? "is ticked in plugins.txt"
+            : comp.ImplicitPluginNames.Any(x => x.Equals(fn, StringComparison.OrdinalIgnoreCase)) ? "is an implicit master listed in loadorder.txt"
+            : null;
         var off = unserved.FirstOrDefault(u => u.Name.Equals(fn, StringComparison.OrdinalIgnoreCase))?.SwitchedOffMod;
-        if ((ticked || implicitMaster) && off is not null && !hits.Any(h => h.Enabled))
-            return $"'{fn}' {(ticked ? "is ticked in plugins.txt" : "is an implicit master listed in loadorder.txt")}, but it is not active: " +
+        if (listedAs is not null && off is not null && !hits.Any(h => h.Enabled))
+            return $"'{fn}' {listedAs}, but it is not active: " +
                    $"{Mo2LoadOrder.ProvidedBySwitchedOffMod(off)}. " +
                    $"To read the file as-is, use {ToolNames.Records} source={{\"file\": \"{fn}\", \"mod\": \"{off}\"}} types=[…] " +
                    "(source= names the version to read; the read still needs a selection).";
 
-        if (ticked)
-            // Ticked and provided by an enabled layer yet not indexed — nothing honest left to say, so say nothing.
+        if (listedAs is not null)
+            // Listed as loading and provided by an enabled layer yet not indexed — nothing honest left to say, so say nothing.
             return hits.Any(h => h.Enabled)
                 ? null
-                : $"'{fn}' is ticked in plugins.txt, but {Mo2LoadOrder.SearchedPlaces(overwriteDir)} " +
+                : $"'{fn}' {listedAs}, but {Mo2LoadOrder.SearchedPlaces(overwriteDir)} " +
                   "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
 
         if (hits.Length == 0) return null;           // nothing on disk by that name → a typo; let the suggester answer

@@ -19,6 +19,10 @@ public sealed class TickedPluginSwitchedOffModWorld : IDisposable
     public string GoneName => "HcTsGone.esp";
     /// <summary>An implicit master (in loadorder.txt, absent from plugins.txt) whose only copy is in the switched-off folder.</summary>
     public string OffMasterName => "HcTsOffMaster.esm";
+    /// <summary>An implicit master whose only copy is in a mods folder modlist.txt does not list.</summary>
+    public string UnlistedMasterName => "HcTsUnlistedMaster.esm";
+    /// <summary>An implicit master with no copy anywhere.</summary>
+    public string GoneMasterName => "HcTsGoneMaster.esm";
     public string Instance { get; }
     public LoadOrderService Svc { get; }
     public ToolPathResolver Tools { get; }
@@ -53,6 +57,11 @@ public sealed class TickedPluginSwitchedOffModWorld : IDisposable
         var mkw = offMaster.Keywords.AddNew(); mkw.EditorID = "HcTsOffMasterKeyword";
         offMaster.BeginWrite.ToPath(Path.Combine(offDir, OffMasterName)).WithLoadOrder(new ISkyrimModGetter[] { sky }).Write();
 
+        var unlistedDir = Path.Combine(mods, "HcTsUnlisted");
+        Directory.CreateDirectory(unlistedDir);
+        new SkyrimMod(new ModKey("HcTsUnlistedMaster", ModType.Master), SkyrimRelease.SkyrimSE)
+            .BeginWrite.ToPath(Path.Combine(unlistedDir, UnlistedMasterName)).WithLoadOrder(new ISkyrimModGetter[] { sky }).Write();
+
         // An enabled mod's SKSE DLL whose image names the unserved plugin and a served one.
         var skseDir = Path.Combine(mods, "HcTsSkseMod", "SKSE", "Plugins");
         Directory.CreateDirectory(skseDir);
@@ -62,7 +71,8 @@ public sealed class TickedPluginSwitchedOffModWorld : IDisposable
         foreach (var dir in new[] { profileDir, otherProfileDir })
         {
             File.WriteAllText(Path.Combine(dir, "loadorder.txt"),
-                "# header\r\nSkyrim.esm\r\n" + OffMasterName + "\r\n" + OffName + "\r\n" + GoneName + "\r\n");
+                "# header\r\nSkyrim.esm\r\n" + OffMasterName + "\r\n" + UnlistedMasterName + "\r\n" + GoneMasterName + "\r\n" +
+                OffName + "\r\n" + GoneName + "\r\n");
             // The tick with nothing served behind it: the plugin is checked, its only folder is switched off.
             File.WriteAllText(Path.Combine(dir, "plugins.txt"), "*" + OffName + "\r\n*" + GoneName + "\r\n");
         }
@@ -116,7 +126,7 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
         var r = StatusTools.LoadOrderStatus(W.Svc, W.Tools);
         // Skyrim.esm is the one implicit master; the ticked plugin is not served, so no checked plugin is active.
         Assert.Contains("active:   1  (0 checked + 1 implicit", r);
-        Assert.Contains("not served: 3", r);
+        Assert.Contains("not served: 5", r);
         // The list comes from the same served set as the count.
         Assert.Contains("implicit masters / CC (1):", r);
         Assert.Contains($"load order lists '{W.OffName}', but it is provided by mod '{W.OffMod}', which is switched OFF", r);
@@ -168,8 +178,8 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
     public void TheProfileInspectionDoesNotCountUnservedPluginsActive()
     {
         var r = StatusTools.LoadOrderStatus(W.Svc, W.Tools, profile: "Other");
-        // Other has the folder on: four in the order, only the no-copy plugin unserved. Default would say 1.
-        Assert.Contains("plugins: 4 in order · 3 active · 0 inactive", r);
+        // Other has the folder on: six in the order, the three with no copy in an enabled layer unserved. Default would say 1.
+        Assert.Contains("plugins: 6 in order · 3 active · 0 inactive", r);
     }
 
     [Fact]
@@ -194,6 +204,21 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
         Assert.Contains($"'{W.OffMasterName}' is an implicit master listed in loadorder.txt, but it is not active", r);
         Assert.Contains($"mod '{W.OffMod}', which is switched OFF", r);
         Assert.DoesNotContain("tick the plugin", r);
+    }
+
+    [Fact]
+    public void AWinnerReadRefusalForAnImplicitMasterInAnUnlistedFolderSaysTheProfileIsStale()
+    {
+        var r = RecordsTools.Records(W.Svc, formids: new[] { "000800:" + W.UnlistedMasterName });
+        Assert.Contains($"'{W.UnlistedMasterName}' is an implicit master listed in loadorder.txt, but no enabled mod", r);
+        Assert.DoesNotContain("does not list it", r);
+    }
+
+    [Fact]
+    public void AWinnerReadRefusalForAnImplicitMasterWithNoCopySaysTheProfileIsStale()
+    {
+        var r = RecordsTools.Records(W.Svc, formids: new[] { "000800:" + W.GoneMasterName });
+        Assert.Contains($"'{W.GoneMasterName}' is an implicit master listed in loadorder.txt, but no enabled mod", r);
     }
 
     [Fact]

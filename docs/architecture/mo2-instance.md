@@ -139,8 +139,9 @@ swallows the note turns a recoverable state into a silent loss.
 - *The profile files*: `TickedPluginSwitchedOffModTests` — a ticked plugin whose only copy sits in a switched-off
   mod folder is not counted, listed or reported active by status, the `profile=` inspection, the setup summary or
   the SKSE peek; the filter answers the no-copy and implicit-master cases; a
-  winner read into it (or into an unserved implicit master) names the folder and the `{"file", "mod"}` spelling; and
-  both `source=` spellings read the folder copy.
+  winner read into it (or into an unserved implicit master) names the folder and the `{"file", "mod"}` spelling, and
+  one into an implicit master with no switched-off copy (in an unlisted folder, or nowhere) says the profile is stale;
+  both `source=` spellings read the folder copy; and the peek and status agree after a copy lands with no profile write.
 - *The Qt/QSettings value grammar*: `Mo2IniEscapeTests` — the quoted wrapper, the greedy hex runs, the named escapes,
   and a value with a lone backslash left as it stands (`HandWrittenPathsAreLeftAlone`).
 - *The Qt/QSettings value grammar*: `Mo2ModMetaReadTests` — the `[General]` Nexus cache fields read
