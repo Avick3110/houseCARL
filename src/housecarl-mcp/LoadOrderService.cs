@@ -890,9 +890,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         lock (_gate) { EnsurePathsDerived(); return RootsLocked(); }
     }
 
-    /// <summary>The roots and the built resolver's plugin names, null when none is built, from one <c>_gate</c> hold, so a stem check never mixes two instances.</summary>
-    internal readonly record struct OutputRoots(Mo2Roots Roots, IReadOnlyList<string>? BuiltPluginNames);
-
     /// <summary>One <c>_gate</c> hold: the configured check, the roots and the built plugin names; throws the unconfigured prompt when there is no instance.</summary>
     internal OutputRoots ConfiguredRoots()
     {

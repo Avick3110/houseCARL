@@ -63,8 +63,8 @@ over which `CapturePinAndAssets`, `CapturePinAndRoots` (the pin and the four roo
 lanes, which pass it the area's test seam `AfterReadPinForGuard`, and the errors sweep) and `CapturePinRootsAndAssets`
 (the pin, the roots and the live asset resolver, for the dialogue sweep) are thin wrappers, the class-parent cache
 (`ClassParentsForDecompile`, `InvalidateClassParents`), `_gate` and `_writeGate`, `Types` (the
-`TypeLookup`, the door member, whose map is built on the first type resolution), `ConfiguredRoots()` and the
-`OutputRoots` record it returns (nested in the service, which the write lanes also call), and the explicit
+`TypeLookup`, the door member, whose map is built on the first type resolution), `ConfiguredRoots()` (which the
+write lanes also call; the `OutputRoots` record it returns is declared beside `IOutputHost`), and the explicit
 `ILoadOrderHost`, `IAssetHost`, `ICheckHost`, `IReadHost` and `IOutputHost` members. `src/housecarl-mcp/LoadOrderHost.cs` declares `ILoadOrderHost` and
 `AssetCapture`; `IAssetHost` is at the top of `src/housecarl-mcp/AssetLayers.cs`.
 The head's asset-facing surface is one-line delegators to `_assetLayers`, the `AssetLayers` it builds over itself in
