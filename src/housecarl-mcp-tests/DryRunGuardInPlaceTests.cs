@@ -12,10 +12,12 @@ public sealed class DryRunGuardInPlaceTests : IDisposable
 {
     readonly DryRunGuardWorld _w = new();
 
-    // F: dry run + acknowledge=true succeeds without the prompt.
+    // F: dry run + acknowledge=true succeeds without the prompt (strengthened: and writes nothing, no marker or .seq note).
     [Fact]
-    public void AnInPlaceDryRunWithAcknowledgeSucceedsWithoutThePrompt()
+    public void AnInPlaceDryRunWithAcknowledgeSucceedsWithoutThePromptAndWritesNothing()
     {
+        var before = _w.Snapshot();
+
         var o = _w.Svc.ApplyEdits(new[] { DryRunGuardWorld.DamageOp(_w.Fid, 61) }, null, null,
             target: DryRunGuardWorld.UserFile, inPlace: true, acknowledge: true, dryRun: true);
 
@@ -23,6 +25,7 @@ public sealed class DryRunGuardInPlaceTests : IDisposable
         Assert.True(o.DryRun);
         Assert.True(o.InPlace);
         Assert.False(o.NeedsAcknowledge);
+        Assert.Equal(before, _w.Snapshot());
     }
 
     // F: dry run without acknowledge succeeds AND notes the pending consent; the target file is byte-identical
@@ -73,13 +76,16 @@ public sealed class DryRunGuardInPlaceTests : IDisposable
         Assert.Equal(before, _w.Snapshot());
     }
 
-    // K: a REAL in-place forward afterwards still shows the first-touch prompt (no dry run recorded consent).
+    // K: a REAL in-place forward afterwards still shows the first-touch prompt (no dry run recorded consent);
+    // strengthened: the acknowledged dry forward writes nothing either.
     [Fact]
     public void ARealInPlaceForwardAfterAnAcknowledgedDryRunStillPrompts()
     {
+        var before = _w.Snapshot();
         var dry = _w.Svc.ForwardRecords(new[] { _w.Fid }, DryRunGuardWorld.MasterFile, null, null,
             target: DryRunGuardWorld.UserFile, inPlace: true, acknowledge: true, dryRun: true);
         Assert.True(dry.Success, dry.Error);
+        Assert.Equal(before, _w.Snapshot());
 
         var real = _w.Svc.ForwardRecords(new[] { _w.Fid }, DryRunGuardWorld.MasterFile, null, null,
             target: DryRunGuardWorld.UserFile, inPlace: true);

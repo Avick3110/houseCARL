@@ -50,7 +50,8 @@ public sealed class DryRunGuardPatchLaneTests : IDisposable
         Assert.DoesNotContain("wrote ", text);
     }
 
-    // B: a malformed op refuses with the EXACT string the real call gives; neither attempt left a folder behind.
+    // B: a malformed op refuses with the EXACT string the real call gives; neither attempt left a folder behind
+    // (strengthened: the probe looked for a folder named "DryB", which the real folder name never is).
     [Fact]
     public void AMalformedOpRefusesIdenticallyDryAndRealAndLeavesNothing()
     {
@@ -118,7 +119,7 @@ public sealed class DryRunGuardPatchLaneTests : IDisposable
     }
 
     // E: the real write fails AT the serialize boundary (MissingModException) — the condition the dry refusal
-    // pre-empts; neither attempt left a folder behind.
+    // pre-empts; neither attempt left a folder behind (strengthened: the whole instance, not a folder name never used).
     [Fact]
     public void TheSameLinkFailsTheRealWriteOnlyAtTheSerialize()
     {
@@ -163,7 +164,8 @@ public sealed class DryRunGuardPatchLaneTests : IDisposable
         Assert.Equal(before, _w.Snapshot());
     }
 
-    // I: the real write refuses too (the serialize null-arm re-stamp); neither attempt left a folder behind.
+    // I: the real write refuses too (the serialize null-arm re-stamp); neither attempt left a folder behind
+    // (strengthened: the whole instance, not a folder name never used).
     [Fact]
     public void AConditionWithoutItsDataArmIsRefusedByTheRealWriteToo()
     {
@@ -178,7 +180,8 @@ public sealed class DryRunGuardPatchLaneTests : IDisposable
     BulkOp[] ConditionWithoutData() => new[] { new BulkOp { Formid = _w.FidMg, FieldPath = "Conditions", Verb = "Add",
         Compose = new StructInput { Type = "ConditionFloat", Fields = new() { ["ComparisonValue"] = "1" } } } };
 
-    // J: full_readback dry run — in-memory read-back present and clean; no folder appeared despite the deep read-back.
+    // J: full_readback dry run — in-memory read-back present and clean; no folder appeared despite the deep read-back
+    // (strengthened: the whole instance, not a folder name never used).
     [Fact]
     public void AFullReadbackDryRunReadsTheInMemoryRecordAndWritesNothing()
     {
