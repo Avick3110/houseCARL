@@ -394,7 +394,7 @@ public sealed class ValuePredicateTests
     {
         var (matched, set) = RunWithSet(MgefBodies, "Archetype = whatever");
         Assert.Empty(matched);
-        Assert.Contains("container/list", set.AccountingNote());
+        Assert.Contains("filter on a scalar sub-path", set.AccountingNote());   // the container guidance, not the mixed-cause line that also says container/list
     }
 
     // probe: "list path: 0 matches" and "surfaced (note mentions container/list)"
@@ -405,7 +405,7 @@ public sealed class ValuePredicateTests
         armo.Keywords = new() { new FormLink<IKeywordGetter>(_projX) };
         var (matched, set) = RunWithSet(new IMajorRecordGetter[] { armo }, "Keywords = 0FFFFF:hcvalguard.esp");
         Assert.Empty(matched);
-        Assert.Contains("container/list", set.AccountingNote());
+        Assert.Contains("filter on a scalar sub-path", set.AccountingNote());   // the container guidance, not the mixed-cause line that also says container/list
     }
 
     // probe: "numeric op on enum: FatalError set" and "0 matches"
