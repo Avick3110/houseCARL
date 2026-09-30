@@ -54,6 +54,15 @@ public sealed class ToolBridgeTests : IDisposable
         Assert.Contains("'bsarch'", error);
     }
 
+    // Review fold: a file that is not an .exe is refused as such.
+    [Fact]
+    public void ValidateRejectsAFileThatIsNotAnExe()
+    {
+        var (ok, error) = ToolBridge.Validate(ToolDependency.Bsarch, Stub("bsarch.txt"));
+        Assert.False(ok);
+        Assert.Contains("is not an .exe", error);
+    }
+
     // Probe 2: "accepts an existing log directory".
     [Fact]
     public void ValidateAcceptsAnExistingLogDirectory()
@@ -152,6 +161,19 @@ public sealed class ToolBridgeTests : IDisposable
     {
         var (stock, steam, compiler) = Games();
         Assert.Equal(compiler, ToolBridge.Probe(ToolDependency.PapyrusCompiler, new[] { stock, steam }));
+    }
+
+    // Probe 5: "ordered multi-dir search". Strengthened: with a compiler under both hints, the first hint wins.
+    [Fact]
+    public void TheCompilerProbeReturnsTheFirstHintThatHasACompiler()
+    {
+        var (_, steam, _) = Games();
+        var other = Dir("other");
+        Directory.CreateDirectory(Path.Combine(other, "Papyrus Compiler"));
+        var otherCompiler = Path.Combine(other, "Papyrus Compiler", "PapyrusCompiler.exe");
+        File.WriteAllText(otherCompiler, "stub");
+
+        Assert.Equal(otherCompiler, ToolBridge.Probe(ToolDependency.PapyrusCompiler, new[] { other, steam }));
     }
 
     // Probe 5: "compiler probe with NO hints yields no candidate (pre-6.2 behavior — falls through to the prompt)".
