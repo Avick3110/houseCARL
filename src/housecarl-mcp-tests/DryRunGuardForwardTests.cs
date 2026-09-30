@@ -46,7 +46,9 @@ public sealed class DryRunGuardForwardTests : IDisposable
     [Fact]
     public void AForwardFromASourceWithoutTheRecordRefusesIdenticallyDryAndReal()
     {
+        var before = _w.Snapshot();
         var dry = _w.Svc.ForwardRecords(new[] { _w.Fid2 }, DryRunGuardWorld.UserFile, "DryH2", null, dryRun: true);
+        Assert.Equal(before, _w.Snapshot());
         var real = _w.Svc.ForwardRecords(new[] { _w.Fid2 }, DryRunGuardWorld.UserFile, "DryH2", null);
 
         Assert.False(dry.Success);

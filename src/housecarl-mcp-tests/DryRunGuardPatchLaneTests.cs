@@ -73,7 +73,9 @@ public sealed class DryRunGuardPatchLaneTests : IDisposable
     public void ADryRunPredictsThePathValueAndMastersOfTheRealWrite()
     {
         var op = new[] { DryRunGuardWorld.DamageOp(_w.Fid, 88) };
+        var before = _w.Snapshot();
         var dry = _w.Svc.ApplyEdits(op, "DryC", null, dryRun: true);
+        Assert.Equal(before, _w.Snapshot());
         var real = _w.Svc.ApplyEdits(op, "DryC", null);
 
         Assert.True(dry.Success, dry.Error);
@@ -138,9 +140,12 @@ public sealed class DryRunGuardPatchLaneTests : IDisposable
     public void TheLaneContractRefusesIdenticallyUnderDryRun()
     {
         var op = new[] { DryRunGuardWorld.DamageOp(_w.Fid, 1) };
+        var before = _w.Snapshot();
 
         var noTarget = _w.Svc.ApplyEdits(op, null, null, inPlace: true, dryRun: true);
         var withInto = _w.Svc.ApplyEdits(op, null, "DryD", target: DryRunGuardWorld.UserFile, inPlace: true, dryRun: true);
+
+        Assert.Equal(before, _w.Snapshot());
 
         Assert.False(noTarget.Success);
         Assert.Contains("requires target=", noTarget.Error);
@@ -165,7 +170,8 @@ public sealed class DryRunGuardPatchLaneTests : IDisposable
     }
 
     // I: the real write refuses too (the serialize null-arm re-stamp); neither attempt left a folder behind
-    // (strengthened: the whole instance, not a folder name never used).
+    // (strengthened: the whole instance, not a folder name never used; and the real refusal carries the same null-arm
+    // words as the dry one, so the dry refusal predicts this failure and not some other).
     [Fact]
     public void AConditionWithoutItsDataArmIsRefusedByTheRealWriteToo()
     {
@@ -174,6 +180,8 @@ public sealed class DryRunGuardPatchLaneTests : IDisposable
         var real = _w.Svc.ApplyEdits(ConditionWithoutData(), "DryI", null);
 
         Assert.False(real.Success);
+        Assert.Contains("Data arm", real.Error);
+        Assert.Contains("required", real.Error);
         Assert.Equal(before, _w.Snapshot());
     }
 
