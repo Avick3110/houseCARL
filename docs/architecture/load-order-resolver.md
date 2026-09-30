@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-30
 covers: [src/housecarl-core/LoadOrderResolver.cs]
 ---
 # The load-order resolver
@@ -45,7 +45,7 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 
 ### The service's answers
 - A body the index says exists but the plugin cannot yield is a NAMED inconsistency, never a silent null (`FetchRecord`); `GetRecord` answers null for a plugin absent from the order, excluded this build, or in the order but not defining the FormKey — a caller that must tell those apart asks `ContainsPlugin` too.
-- A refusal naming a plugin the order does not contain carries the INJECTED explanation of why when there is one, and the did-you-mean otherwise. The resolver is built from a bare ordered path list and knows nothing of MO2, so the explanation is injected by the service.
+- A refusal naming a plugin the order does not contain carries the INJECTED explanation of why when there is one, and the did-you-mean otherwise. The resolver is built from a bare ordered path list and knows nothing of MO2, so the explanation is injected by the service. `ExplainAbsenceWith` replaces it for views captured afterwards; each view keeps the explainer it was captured with.
 - `OpenOverlay` is the single overlay-open choke point, and it redirects strings lookup to the real game-Data folder only when the plugin's OWN folder carries no strings source for that plugin.
 - Light and master-block are separate per-plugin facts read off the same open header: an esp-fe is light in the FormID space and a regular plugin in the order.
 - The first active plugin whose KIND could not be read is kept as a position, not a flag: a runtime FormID landing at or after it is refused, one landing before it answers normally.

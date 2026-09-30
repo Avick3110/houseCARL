@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-09-30
 covers: [src/housecarl-core/Mo2Instance.cs, src/housecarl-core/Mo2LoadOrder.cs, src/housecarl-core/QtIniEscapes.cs, src/housecarl-core/Mo2ModMeta.cs, src/housecarl-core/UserConfig.cs, src/housecarl-mcp/SetupTools.cs, src/housecarl-mcp/StatusTools.cs, src/housecarl-mcp/UpdateStatusTools.cs]
 ---
 # The MO2 instance
@@ -36,6 +36,21 @@ drawn from the same set of places.
 
 A plugin the load order lists that no searched place provides goes into `Warnings`, never a silent
 drop, and the warning names only the places actually searched.
+
+### Served
+
+A plugin listed as loading (ticked in `plugins.txt`, whether or not `loadorder.txt` lists it, or an
+implicit master) that no enabled layer serves is not active, whatever the tick says: MO2's VFS does
+not present the file. `Build` decides this in the same pass that picks each winner and returns it
+as `Unserved`, each entry naming the first switched-off mod folder holding a copy, or none, and
+carrying its one `Reason` sentence, which the build warning, the status filter and the absence
+explainer all use. The switched-off lookup lists the disabled folders once, only when something is
+unserved, and a later build reuses its answers while the disabled list is unchanged. Status, the
+absence explainer, the SKSE peek and the active profile's `profile=` inspection read the build's
+answer; another profile's inspection and the setup summary have no build and run the same pass
+through `Mo2LoadOrder.Unserved`. The locate lane (`LocatePluginFileOnDisk`) reads the disk, since
+finding a copy on disk is its job. After a copy lands in or leaves a mod folder with no profile
+write, the locate lane and the build's readers can answer differently until the next build (#1018).
 
 ### Deriving the roots from one path
 
@@ -117,6 +132,9 @@ swallows the note turns a recoverable state into a silent loss.
 - *The priority model*: `MasterSplitInstallLocationsTests.TheSplitFilesEachMasterByWhichInstallLayerHoldsItsFile` —
   `AllPluginFileNames` walks all five layers. No test calls `LocatePlugin`, so that the two draw from the same places
   rests on their shared `CandidateFolders`, not on an assertion.
+- *Served*: `TickedPluginSwitchedOffModTests` — status counts, the filter verdict, the explainer, the peek, another
+  profile's `profile=` inspection and the setup summary for a ticked plugin in a switched-off folder, one with no copy, one missing
+  from `loadorder.txt`, and implicit masters in a switched-off folder, an unlisted folder and nowhere.
 - *Deriving the roots from one path*: `Mo2InstanceProbe` (`mo2instance-probe`) — the roots and the active profile
   derived from the instance folder, the `base_directory` override, and a missing required piece named rather than
   half-derived.
