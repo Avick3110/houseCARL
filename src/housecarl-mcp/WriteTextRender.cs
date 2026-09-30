@@ -5,7 +5,7 @@ namespace HousecarlMcp;
 
 // The write text renders: every write tool's confirmation, dry-run, readback and refusal text, and the helpers they share.
 
-public static partial class WriteTools
+static partial class WriteTools
 {
     /// <summary>Confirmation of a write: what changed plus the IDs needed for follow-up, or on a refusal every
     /// malformed or rejected op.</summary>
