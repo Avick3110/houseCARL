@@ -86,23 +86,16 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
         Assert.DoesNotContain("project.fields=", r);
     }
 
-    [Fact]
-    public void TheOffOrderScansEverythingLaneDropsItToo_ThreeLanesOneRule()
-    {
-        // A cut the server serves, over enough off-order records to cut above the floor (#986).
-        string[] many = { "WEAP", "ARMO", "SPEL", "MGEF", "KYWD", "LVLI", "PACK", "NPC_" };
-        var r = RenderFloorAssert.ServedCut(c => RecordsTools.Records(Svc, types: many, source: Plugin(W.OldName), max_chars: c,
-                                                                      project: Form("everything")),
-                                            t => t.Contains(" records before hitting", StringComparison.Ordinal)).Text;
-        Assert.Contains("max_chars", r);
-        Assert.DoesNotContain("project.fields=", r);
-    }
+    // TheOffOrderScansEverythingLaneDropsItToo_ThreeLanesOneRule moved to WideCutLaneTests: the band of caps this
+    // world's off-order file is served cut in is a few chars wide and closes on a longer temp path.
 
     [Fact]
     public void TheFieldsFormStillNamesItsSelector_TheVocabularyIsPerFormNotPerTool()
     {
         // A cut the server serves (#986): the cut notice is the only place project.fields= is named here.
-        var r = RenderFloorAssert.ServedCut(c => RecordsTools.Records(Svc, formids: AllWeaponIds, max_chars: c,
+        // Seven records of seven types: the weapons alone are served cut in a band a few dozen chars wide.
+        string[] ids = { Fid(W.Weapons[0]), Fid(W.Armor), Fid(W.MgefA), Fid(W.SpellA), Fid(W.BigList), Fid(W.Package), Fid(W.NpcParent) };
+        var r = RenderFloorAssert.ServedCut(c => RecordsTools.Records(Svc, formids: ids, max_chars: c,
                                                                       project: Fields("BasicStats.Damage", "EditorID", "Name")),
                                             t => t.Contains("truncated", StringComparison.Ordinal)).Text;
         Assert.Contains("project.fields=", r);

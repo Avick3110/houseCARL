@@ -52,10 +52,13 @@ static class RenderFloorAssert
     /// true: a cut a user can get, found rather than pinned, since the band a fixture cuts in moves with its width.</summary>
     public static (int Cap, string Text) ServedCut(Func<int, string> call, Func<string, bool> cut, int from = 100, int to = 10_000, int step = 10)
     {
-        for (int cap = from; cap <= to; cap += step)
+        for (int cap = from; cap <= to;)
         {
             var r = call(cap);
-            if (!IsFloorRefusal(r) && r.Length <= cap && cut(r)) return (cap, r);
+            // A refusal names the least cap the call fits on this machine: the search resumes there.
+            if (IsFloorRefusal(r)) { cap = Math.Max(cap + step, Named(r)); continue; }
+            if (r.Length <= cap && cut(r)) return (cap, r);
+            cap += step;
         }
         Assert.Fail($"no cap in {from}..{to} serves this call cut");
         return (0, "");

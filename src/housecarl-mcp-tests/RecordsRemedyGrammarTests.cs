@@ -142,7 +142,7 @@ public sealed class RecordsRemedyGrammarTests : RecordsTestBase
         Assert.Contains("drop project= (summary rows)", cut);
     }
 
-    // TheOffOrderScanNamesNoneEither_ItPassesNoFieldPathsAtAll moved to OffOrderScanCutTests: this world's off-order
+    // TheOffOrderScanNamesNoneEither_ItPassesNoFieldPathsAtAll moved to WideCutLaneTests: this world's off-order
     // file is too small for its scan to be cut at a cap the server serves (#986).
 
     // ---- the batch cut's SELECTION clause is a function of the selection LANE -----------------------------
@@ -168,13 +168,6 @@ public sealed class RecordsRemedyGrammarTests : RecordsTestBase
         Assert.DoesNotContain("lower limit=", cut);
     }
 
-    [Fact]
-    public void TheOffOrderScansBatchNoticeNamesLimitToo_ItsOwnLaneItsOwnArm()
-    {
-        var cut = BatchCut(ServedBatchCut(c => RecordsTools.Records(Svc, types: Many, source: Plugin(W.OldName), max_chars: c,
-                                                              project: Form("everything"))));
-        Assert.NotNull(cut);
-        Assert.Contains("lower limit=", cut);
-        Assert.DoesNotContain("formids", cut);
-    }
+    // TheOffOrderScansBatchNoticeNamesLimitToo_ItsOwnLaneItsOwnArm moved to WideCutLaneTests: the band of caps this
+    // world's off-order file is served cut in is a few chars wide and closes on a longer temp path.
 }

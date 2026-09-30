@@ -80,7 +80,9 @@ public sealed class RemedyHarvest
         // The text probes read a cut the server serves: the first cap that serves the call cut, since below its floor
         // a text call is refused (#986). The scan and delta probes widen the selection so such a cap exists.
         string[] many = { "WEAP", "ARMO", "SPEL", "MGEF", "KYWD", "LVLI", "PACK", "NPC_" };
-        var tinyText = RenderFloorAssert.ServedCut(c => RecordsTools.Records(svc, formids: wf, max_chars: c, project: tinyProject),
+        // Seven records of seven types: the weapons alone are served cut in a band a few dozen chars wide.
+        string[] seven = { Fid(w.Weapons[0]), Fid(w.Armor), Fid(w.MgefA), Fid(w.SpellA), Fid(w.BigList), Fid(w.Package), Fid(w.NpcParent) };
+        var tinyText = RenderFloorAssert.ServedCut(c => RecordsTools.Records(svc, formids: seven, max_chars: c, project: tinyProject),
                                                    r => r.Contains("project.fields=", StringComparison.Ordinal)).Text;
 
         ArtifactPath = Path.Combine(w.Root, "remedy-rows.jsonl");
