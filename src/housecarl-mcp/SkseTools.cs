@@ -132,11 +132,9 @@ public static class SkseTools
                 _ => renders.Config(call),
             } + footer;
         }
-        // The json documents name an overrun INSIDE themselves (max_chars_overrun), so nothing is glued on past their
-        // root close.
+        // A json document names its own overrun (max_chars_overrun), so nothing is glued on past its root close.
         if (json) return At(filter, cap);
-        // "omit filter=" is offered only where it is true: not beside peek=, which needs its filter, and only when the
-        // unfiltered view fits the cap this call was given.
+        // "omit filter=" only where the unfiltered view is served at this cap, and never beside peek=, which needs its filter.
         string OmitFilter() => !string.IsNullOrWhiteSpace(filter) && !peek && RenderCap.Serves(cap, n => At(null, n))
             ? RenderCap.OmitFilter : "";
         return RenderCap.Capped(cap, n => At(filter, n), OmitFilter);
