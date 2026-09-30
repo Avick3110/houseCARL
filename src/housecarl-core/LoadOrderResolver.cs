@@ -571,7 +571,7 @@ public sealed class LoadOrderResolver : IDisposable
     {
         Dictionary<string, (string Clause, string? Cause)>? _map;
 
-        /// <summary>The cached clause, or the explainer's; lock order: this lock is never held while the explainer takes the service gate.</summary>
+        /// <summary>The cached clause, or the explainer's; this lock is not held while the explainer runs.</summary>
         internal string Get(LoadOrderResolver r, Func<string, string?>? explain, string pluginName, out string? cause)
         {
             lock (this)
