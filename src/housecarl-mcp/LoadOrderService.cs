@@ -28,7 +28,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     LoadOrderResolver? _resolver;
     readonly Lazy<CorpusRulebook> _rulebook = new(() => CorpusRulebook.Load(), LazyThreadSafetyMode.PublicationOnly);   // one instance; a failed load is not kept
     readonly Lazy<TypeLookup> _typeLookup = new(() => new TypeLookup());   // one per service; construction reads nothing
-    IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
     Mo2OrderResult? _order;   // the last published order build, set in the same hold as the roots and resolver it belongs to
     // The VFS-aware asset resolver, built lazily on an asset query and dropped when the active profile changes.
     AssetResolver? _assetResolver;
@@ -154,7 +153,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     var profileStamps = StatProfileFiles(_profileDir);   // stat BEFORE the read: a profile write during the build is caught next call, not missed
                     var roots = RootsLocked();
                     var order = Mo2LoadOrder.Build(roots.ProfileDir, roots.ModsDir, roots.DataDir, roots.OverwriteDir, _order);
-                    _orderWarnings = order.Warnings;
                     var paths = order.OrderedPaths;
                     if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
                     if (paths.Count == 0)
@@ -661,8 +659,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         lock (_gate)
         {
             view = Resolver.Capture();                             // force build/refresh; one build for count + exclusions
-            warnings = _orderWarnings;
-            unserved = _order?.Unserved ?? [];                     // published with the resolver the view came from; a prebuilt test resolver has no order
+            warnings = _order?.Warnings ?? [];                     // the getter publishes _order with _resolver; only a prebuilt test resolver has none
+            unserved = _order?.Unserved ?? [];
             profileChanged = ProfileFilesChanged();
             profileDir = _profileDir;
             profileName = _profileName;                            // captured under the same gate — one snapshot, never re-derived at render
@@ -881,7 +879,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                 _resolver = rebuilt;
             }
             _resolvedPaths = paths;
-            _orderWarnings = order.Warnings;
             _order = order;
             _profileStamps = profileStamps;
             return true;
@@ -891,7 +888,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             // The profile was touched but the resolved order is identical, so no deep re-index; the asset resolver still drops and the baseline advances.
             InvalidateAssetResolver();
             _resolver?.ExplainAbsenceWith(ExplainerFor(roots, order));   // views captured from here are explained from this build
-            _orderWarnings = order.Warnings;
             _order = order;
             _profileStamps = profileStamps;
             return true;
@@ -1050,7 +1046,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             _assetResolver?.Dispose(); _assetResolver = null;    // the asset resolver rebuilds against the new instance too
             _resolvedPaths = Array.Empty<string>();
             _profileStamps = new FileStamp[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
-            _orderWarnings = Array.Empty<string>();
             _order = null;
             InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too
             System.Threading.Interlocked.Increment(ref _gameRootsGen);   // a new instance may be a different game install — the runtime memo must re-probe rather than adjudicate against the old exe
