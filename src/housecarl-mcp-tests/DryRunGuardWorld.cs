@@ -71,17 +71,22 @@ sealed class DryRunGuardWorld : IDisposable
     public static BulkOp DamageOp(string fid, int dmg) =>
         new() { Formid = fid, FieldPath = "BasicStats.Damage", Verb = "Set", Value = dmg.ToString() };
 
-    /// <summary>The instance tree (every mod folder, rider, marker, .seq, profile file) and the consent store: each
-    /// directory and each file with its content hash. Equal before and after means the call wrote nothing.</summary>
+    /// <summary>Everything under the world's root except the test's own manifests — the instance tree (every mod folder,
+    /// rider, marker, .seq, profile file), the game Data folder and the consent store: each directory, and each file with
+    /// its content hash. Equal before and after means the call wrote nothing.</summary>
     public SortedDictionary<string, string> Snapshot()
     {
         var snap = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var d in Directory.EnumerateDirectories(Instance, "*", SearchOption.AllDirectories))
+        foreach (var d in Directory.EnumerateDirectories(Root, "*", SearchOption.AllDirectories).Where(Outside))
             snap[Path.GetRelativePath(Root, d) + "/"] = "dir";
-        foreach (var f in Directory.EnumerateFiles(Instance, "*", SearchOption.AllDirectories).Append(StorePath).Where(File.Exists))
+        foreach (var f in Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories).Where(Outside))
             snap[Path.GetRelativePath(Root, f)] = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(f)));
         return snap;
     }
+
+    bool Outside(string path) =>
+        !path.StartsWith(ManifestDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+        && !path.Equals(ManifestDir, StringComparison.OrdinalIgnoreCase);
 
     public string[] ModFolders() => Directory.GetDirectories(Mods).Select(p => Path.GetFileName(p)!).OrderBy(x => x).ToArray();
 
@@ -94,8 +99,6 @@ sealed class DryRunGuardWorld : IDisposable
     }
 
     public static JsonElement Json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();
-
-    public static JsonElement AtPath(string path) => Json("\"@" + path.Replace("\\", "\\\\") + "\"");
 
     public void Dispose()
     {

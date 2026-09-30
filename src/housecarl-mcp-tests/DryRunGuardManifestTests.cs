@@ -13,6 +13,9 @@ public sealed class DryRunGuardManifestTests : IDisposable
 {
     readonly DryRunGuardWorld _w = new();
 
+    // The file lane's ops value, spelled by ApplyGuardWorld's helper.
+    static System.Text.Json.JsonElement At(string path) => Json(ApplyGuardWorld.AtPath(path));
+
     string OpsJson(string value = "73") =>
         $"[{{\"formid\": \"{_w.Fid}\", \"field_path\": \"BasicStats.Damage\", \"op\": \"Set\", \"value\": \"{value}\"}}]";
 
@@ -23,7 +26,7 @@ public sealed class DryRunGuardManifestTests : IDisposable
         var manifest = _w.Manifest("ops-manifest.json", OpsJson());
         var before = _w.Snapshot();
 
-        var dryFile = ApplyTools.Apply(_w.Svc, ops: AtPath(manifest), patch: "DryL", dry_run: true);
+        var dryFile = ApplyTools.Apply(_w.Svc, ops: At(manifest), patch: "DryL", dry_run: true);
         var dryInline = ApplyTools.Apply(_w.Svc, ops: Json(OpsJson()), patch: "DryL", dry_run: true);
 
         Assert.StartsWith(WriteSentences.DryRunHeader, dryFile);
@@ -38,7 +41,7 @@ public sealed class DryRunGuardManifestTests : IDisposable
         var manifest = _w.Manifest("ops-manifest.json", OpsJson());
         var before = _w.ModFolders();
 
-        var real = ApplyTools.Apply(_w.Svc, ops: AtPath(manifest), patch: "DryL");
+        var real = ApplyTools.Apply(_w.Svc, ops: At(manifest), patch: "DryL");
 
         Assert.Contains("wrote DryL.esp", real);
         Assert.Contains(_w.ModFolders().Except(before), f => f.Contains("DryL"));
@@ -61,7 +64,7 @@ public sealed class DryRunGuardManifestTests : IDisposable
     [Fact]
     public void ABlankAtPathRefusesNamed()
     {
-        var r = AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: AtPath("   ")), "names no file");
+        var r = AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: At("   ")), "names no file");
         Assert.Contains("ops:", r);
     }
 
@@ -75,7 +78,7 @@ public sealed class DryRunGuardManifestTests : IDisposable
     public void AnUnreadableManifestRefusesNamingThePath()
     {
         var r = AssertRefusedNamedAndNothingWritten(
-            () => ApplyTools.Apply(_w.Svc, ops: AtPath(Path.Combine(_w.ManifestDir, "no-such-manifest.json"))), "could not read");
+            () => ApplyTools.Apply(_w.Svc, ops: At(Path.Combine(_w.ManifestDir, "no-such-manifest.json"))), "could not read");
         Assert.Contains("no-such-manifest.json", r);
     }
 
@@ -84,7 +87,7 @@ public sealed class DryRunGuardManifestTests : IDisposable
     public void InvalidManifestJsonRefusesNamingTheFileLanePositionAndElement()
     {
         var bad = _w.Manifest("bad.json", "[{\"formid\": }]");
-        var r = AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: AtPath(bad)), "the file named by ops");
+        var r = AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: At(bad)), "the file named by ops");
         Assert.Contains("line ", r);
         Assert.Contains("$[0].formid", r);
     }
@@ -94,7 +97,7 @@ public sealed class DryRunGuardManifestTests : IDisposable
     public void ANonArrayManifestRootRefusesNamingTheShape()
     {
         var obj = _w.Manifest("obj.json", "{\"operations\": []}");
-        AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: AtPath(obj)), "JSON ARRAY");
+        AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: At(obj)), "JSON ARRAY");
     }
 
     // L: an empty manifest array refuses naming the file lane.
@@ -102,7 +105,7 @@ public sealed class DryRunGuardManifestTests : IDisposable
     public void AnEmptyManifestArrayRefusesNamingTheFileLane()
     {
         var empty = _w.Manifest("empty.json", "[]");
-        var r = AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: AtPath(empty)), "empty array");
+        var r = AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: At(empty)), "empty array");
         Assert.Contains("the file named by ops", r);
     }
 
@@ -112,7 +115,7 @@ public sealed class DryRunGuardManifestTests : IDisposable
     {
         var nullEl = _w.Manifest("nullel.json",
             $"[null, {{\"formid\": \"{_w.Fid}\", \"field_path\": \"BasicStats.Damage\", \"value\": \"1\"}}]");
-        var r = AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: AtPath(nullEl)), "[0]");
+        var r = AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: At(nullEl)), "[0]");
         Assert.Contains("the file named by ops", r);
     }
 
@@ -122,7 +125,7 @@ public sealed class DryRunGuardManifestTests : IDisposable
     {
         var typo = _w.Manifest("typo.json",
             $"[{{\"formid\": \"{_w.Fid}\", \"feild_path\": \"BasicStats.Damage\", \"value\": \"5\"}}]");
-        AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: AtPath(typo)), "feild_path");
+        AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: At(typo)), "feild_path");
     }
 
     /// <summary>The call refuses ("error:"), carries <paramref name="named"/>, and left the instance unchanged
