@@ -103,7 +103,8 @@ static class StatusWire
 
         AppendList(sb, "disabled mods", c.DisabledMods, cap);
         AppendList(sb, "inactive plugins", c.InactivePluginNames, cap);
-        AppendList(sb, "implicit masters / CC", c.ImplicitPluginNames, cap);
+        // The same served set as the count above; an unserved implicit master is named under warnings instead.
+        AppendList(sb, "implicit masters / CC", c.ImplicitPluginNames.Where(n => !unserved.Contains(n)).ToList(), cap);
 
         if (d.Warnings.Count > 0)
         {

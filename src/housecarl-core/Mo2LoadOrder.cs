@@ -68,7 +68,7 @@ public static class Mo2LoadOrder
             if (!inactive.Contains(name) && winningPath.TryGetValue(name, out var path))   // unchecked in MO2 → not loaded
                 orderedPaths.Add(path);
 
-        var unserved = UnservedIn(comp, winningPath, modsDir);
+        var unserved = UnservedIn(comp, winningPath.ContainsKey, modsDir);
         foreach (var u in unserved)
             warnings.Add(u.SwitchedOffMod is { } offMod
                 ? $"load order lists '{u.Name}', but {ProvidedBySwitchedOffMod(offMod)}."
@@ -80,16 +80,16 @@ public static class Mo2LoadOrder
 
     /// <summary>The plugins <paramref name="comp"/> lists as loading that no enabled layer serves — the same decision <see cref="Build"/> makes, for a reader that has a composition but no order build.</summary>
     public static IReadOnlyList<UnservedPlugin> Unserved(Mo2Composition comp, string modsDir, string dataDir, string overwriteDir) =>
-        UnservedIn(comp, BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir), modsDir);
+        UnservedIn(comp, BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir).ContainsKey, modsDir);
 
-    /// <summary>Every name listed as loading (not unchecked) with no entry in the served map, and the switched-off mod folder holding a copy.</summary>
-    static List<UnservedPlugin> UnservedIn(Mo2Composition comp, IReadOnlyDictionary<string, string> served, string modsDir)
+    /// <summary>Every name listed as loading (not unchecked) that <paramref name="isServed"/> rejects, and the switched-off mod folder holding a copy; the one decision, for a caller that has already scanned the enabled layers.</summary>
+    internal static List<UnservedPlugin> UnservedIn(Mo2Composition comp, Func<string, bool> isServed, string modsDir)
     {
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
         var unserved = new List<UnservedPlugin>();
         foreach (var name in comp.OrderedPluginNames)
         {
-            if (inactive.Contains(name) || served.ContainsKey(name)) continue;
+            if (inactive.Contains(name) || isServed(name)) continue;
             // Served by no enabled layer: MO2's VFS does not present the file, so it is not active.
             unserved.Add(new UnservedPlugin(name, comp.DisabledMods.FirstOrDefault(m => File.Exists(Path.Combine(modsDir, m, name)))));
         }

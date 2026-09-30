@@ -35,6 +35,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     AssetResolver? _assetResolver;
     IReadOnlyList<string> _assetWarnings = Array.Empty<string>();   // discovery warnings from the asset build (e.g. a Skyrim.ini we couldn't find → base BSAs unscanned)
     IReadOnlyList<ActiveArchive> _activeArchives = Array.Empty<ActiveArchive>();   // active BSAs behind the current asset build (archive → owning plugin); swapped with _assetResolver
+    IReadOnlyList<UnservedPlugin> _unservedAtBuild = Array.Empty<UnservedPlugin>();   // plugins listed as loading that no enabled layer serves, from the current asset build's own layer scan
     IReadOnlyList<string> _enabledModsAtBuild = Array.Empty<string>();             // enabled mods behind the current asset build; the loader scan walks these mods' Root folders, from the same capture as the view rather than a second profile read
     // Freshness baselines are last-seen FileStamps compared by value; contract in docs/architecture/load-order-resolver.md.
     FileStamp[] _profileStamps = new FileStamp[ProfileFileNames.Length];   // per ProfileFileNames, recorded at each order build
@@ -246,7 +247,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     /// <summary>The rest of an asset capture around a view just taken; caller holds <see cref="_gate"/>.</summary>
     AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
-        new(view, AssetWarningsLocked(), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild);
+        new(view, AssetWarningsLocked(), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild, _unservedAtBuild);
 
     // Rows the areas take from one another, relayed here: output and writes until those are their own classes; the assets replay for reads.
     RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);
@@ -464,19 +465,21 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         try { hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, fn).ToArray(); }
         catch { hits = Array.Empty<PluginFileHit>(); }
 
+        // Listed as loading (ticked, or an implicit master) and the order build found its only copy in a switched-off folder.
+        bool implicitMaster = comp.ImplicitPluginNames.Any(x => x.Equals(fn, StringComparison.OrdinalIgnoreCase));
+        var off = unserved.FirstOrDefault(u => u.Name.Equals(fn, StringComparison.OrdinalIgnoreCase))?.SwitchedOffMod;
+        if ((ticked || implicitMaster) && off is not null && !hits.Any(h => h.Enabled))
+            return $"'{fn}' {(ticked ? "is ticked in plugins.txt" : "is an implicit master listed in loadorder.txt")}, but it is not active: " +
+                   $"{Mo2LoadOrder.ProvidedBySwitchedOffMod(off)}. " +
+                   $"To read the file as-is, use {ToolNames.Records} source={{\"file\": \"{fn}\", \"mod\": \"{off}\"}} types=[…] " +
+                   "(source= names the version to read; the read still needs a selection).";
+
         if (ticked)
-        {
             // Ticked and provided by an enabled layer yet not indexed — nothing honest left to say, so say nothing.
-            if (hits.Any(h => h.Enabled)) return null;
-            // Ticked, and the order build found its only copy in a mod folder MO2 has switched off.
-            var off = unserved.FirstOrDefault(u => u.Name.Equals(fn, StringComparison.OrdinalIgnoreCase))?.SwitchedOffMod;
-            if (off is not null)
-                return $"'{fn}' is ticked in plugins.txt, but it is not active: {Mo2LoadOrder.ProvidedBySwitchedOffMod(off)}. " +
-                       $"To read the file as-is, use {ToolNames.Records} source={{\"file\": \"{fn}\", \"mod\": \"{off}\"}} types=[…] " +
-                       "(source= names the version to read; the read still needs a selection).";
-            return $"'{fn}' is ticked in plugins.txt, but no enabled mod, the overwrite folder, or the game Data folder " +
-                   "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
-        }
+            return hits.Any(h => h.Enabled)
+                ? null
+                : $"'{fn}' is ticked in plugins.txt, but no enabled mod, the overwrite folder, or the game Data folder " +
+                  "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
 
         if (hits.Length == 0) return null;           // nothing on disk by that name → a typo; let the suggester answer
 
@@ -502,6 +505,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         _assetWarnings = discovery.Warnings;
         _activeArchives = discovery.Archives;   // kept alongside the resolver: archive filename → owning plugin (native-pairing provenance)
         _enabledModsAtBuild = comp.EnabledMods; // same build: the mod set behind this resolver (native-pairing loader scan)
+        _unservedAtBuild = discovery.Unserved;  // same build: the served decision the archive list was filtered by
         return AssetResolver.Build(_overwriteDir, _modsDir, _dataDir, comp.EnabledMods, discovery.Archives);
     }
 
