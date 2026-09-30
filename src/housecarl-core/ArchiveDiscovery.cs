@@ -25,13 +25,15 @@ public static class ArchiveDiscovery
         // plugin filenames those same layers serve, off one listing per folder.
         var (archiveMap, servedPlugins) = BuildArchiveMap(comp.EnabledMods, modsDir, dataDir, overwriteDir);
 
-        // Active plugins in load order (winner LAST): unchecked and unserved dropped, the same decision as Mo2LoadOrder.Build.
+        // The served decision Mo2LoadOrder.Build makes, off this same listing; carried for the readers of this build.
         var unserved = Mo2LoadOrder.UnservedIn(comp, servedPlugins.Contains, modsDir);
-        var dropped = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
-        dropped.UnionWith(unserved.Select(u => u.Name));
+
+        // Plugins in load order (winner LAST) with the unchecked dropped. The unserved stay: an archive binds to a
+        // plugin the profile names, whether or not a plugin file is served (docs/architecture/assets.md).
+        var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
         var activeOrdered = new List<string>(comp.OrderedPluginNames.Count);
         foreach (var name in comp.OrderedPluginNames)
-            if (!dropped.Contains(name)) activeOrdered.Add(name);
+            if (!inactive.Contains(name)) activeOrdered.Add(name);
 
         var archives = new List<ActiveArchive>();
         int rank = 0;

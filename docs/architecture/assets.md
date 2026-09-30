@@ -20,10 +20,12 @@ FaceGen's own contracts — the FormID→path transform, the check's classes, wh
 
 `ArchiveDiscovery` ranks the archives off the same static profile the load order reads: Skyrim.ini's `[Archive]` set
 takes the low block, each active plugin's `X.bsa` and `X - Textures.bsa` rank above it in load order, and each
-archive *filename* resolves through the same overwrite > mods > Data map. Active means ticked or implicit AND served:
-a plugin no enabled layer provides owns no archive, decided by `Mo2LoadOrder.UnservedIn` off the same folder listing
-(see [`mo2-instance.md`](mo2-instance.md)). A Skyrim.ini that cannot be found is a surfaced warning, never a silent
-omission.
+archive *filename* resolves through the same overwrite > mods > Data map. Here active means ticked or implicit,
+the tick alone: a plugin no enabled layer serves still owns its archives. That is the one tick-only reader left (see
+[`mo2-instance.md`](mo2-instance.md)): asset resolution is decoupled from the record index, and the synthetic asset
+worlds and their no-epoch arm rely on binding archives with no plugin file on disk. The same listing makes the
+served decision (`Mo2LoadOrder.UnservedIn`) and the asset build carries it on its capture for the SKSE peek. A
+Skyrim.ini that cannot be found is a surfaced warning, never a silent omission.
 
 **The order is injected.** `AssetResolver.Build` takes the roots, the enabled-mod priority list and the resolved
 archives with their ranks. The BSA winner is only as correct as those ranks, which the service computes; the

@@ -19,8 +19,6 @@ public sealed class TickedPluginSwitchedOffModWorld : IDisposable
     public string GoneName => "HcTsGone.esp";
     /// <summary>An implicit master (in loadorder.txt, absent from plugins.txt) whose only copy is in the switched-off folder.</summary>
     public string OffMasterName => "HcTsOffMaster.esm";
-    /// <summary>A loose-free path only the unserved plugin's same-named archive carries; that archive sits in an enabled mod.</summary>
-    public string ArchiveOnlyAsset => "textures/hcts/probe.dds";
     public string Instance { get; }
     public LoadOrderService Svc { get; }
     public ToolPathResolver Tools { get; }
@@ -61,25 +59,18 @@ public sealed class TickedPluginSwitchedOffModWorld : IDisposable
         File.WriteAllBytes(Path.Combine(skseDir, "HcTsPeek.dll"),
             System.Text.Encoding.ASCII.GetBytes("\0\0" + OffName + "\0\0Skyrim.esm\0\0"));
 
-        // An enabled mod serving 'HcTsOff.bsa', the archive the game would load only if HcTsOff.esp loaded.
-        var archiveDir = Path.Combine(mods, "HcTsArchiveMod");
-        Directory.CreateDirectory(archiveDir);
-        File.WriteAllBytes(Path.Combine(archiveDir, "HcTsOff.bsa"),
-            NifSourceLaneInstance.Archive(ArchiveOnlyAsset.Replace('/', '\\'), System.Text.Encoding.ASCII.GetBytes("DDS probe")));
-
         foreach (var dir in new[] { profileDir, otherProfileDir })
         {
             File.WriteAllText(Path.Combine(dir, "loadorder.txt"),
                 "# header\r\nSkyrim.esm\r\n" + OffMasterName + "\r\n" + OffName + "\r\n" + GoneName + "\r\n");
             // The tick with nothing served behind it: the plugin is checked, its only folder is switched off.
             File.WriteAllText(Path.Combine(dir, "plugins.txt"), "*" + OffName + "\r\n*" + GoneName + "\r\n");
-            File.WriteAllText(Path.Combine(dir, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
         }
         File.WriteAllText(Path.Combine(profileDir, "modlist.txt"),
-            "# header\r\n+HcTsArchiveMod\r\n+HcTsSkseMod\r\n-" + OffMod + "\r\n+VanillaStub\r\n");
+            "# header\r\n+HcTsSkseMod\r\n-" + OffMod + "\r\n+VanillaStub\r\n");
         // Other switches the folder ON, so its served set differs from Default's.
         File.WriteAllText(Path.Combine(otherProfileDir, "modlist.txt"),
-            "# header\r\n+HcTsArchiveMod\r\n+HcTsSkseMod\r\n+" + OffMod + "\r\n+VanillaStub\r\n");
+            "# header\r\n+HcTsSkseMod\r\n+" + OffMod + "\r\n+VanillaStub\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "houseCARL.user.json"));
         Svc = LoadOrderService.WithInstance(instance, 0, store);
@@ -203,13 +194,6 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
         Assert.Contains($"'{W.OffMasterName}' is an implicit master listed in loadorder.txt, but it is not active", r);
         Assert.Contains($"mod '{W.OffMod}', which is switched OFF", r);
         Assert.DoesNotContain("tick the plugin", r);
-    }
-
-    [Fact]
-    public void AnUnservedPluginsSameNamedArchiveIsNotLoaded()
-    {
-        var r = AssetTools.AssetStatus(W.Svc, new[] { W.ArchiveOnlyAsset });
-        Assert.DoesNotContain("HcTsOff.bsa", r);
     }
 
     static string LineOf(string text, string needle) =>
