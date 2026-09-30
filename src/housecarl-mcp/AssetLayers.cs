@@ -11,8 +11,8 @@ internal interface IAssetHost : ILoadOrderHost
     /// <summary>An asset capture and an index capture in one <c>_gate</c> hold, so neither is from a later build than the other.</summary>
     (AssetCapture Assets, LoadOrderResolver.IndexView Index) CaptureAssetsAndIndex();
 
-    /// <summary>An asset capture and the unserved plugins of the order build published with its roots, in one <c>_gate</c> hold.</summary>
-    (AssetCapture Assets, IReadOnlyList<UnservedPlugin> Unserved) CaptureAssetsAndUnserved();
+    /// <summary>An asset capture and the unserved plugins of the order build for its roots, in one <c>_gate</c> hold; null when that build could not be read.</summary>
+    (AssetCapture Assets, IReadOnlyList<UnservedPlugin>? Unserved) CaptureAssetsAndUnserved();
 
     /// <summary>The installed game runtime version, or null.</summary>
     string? InstalledGameRuntime();
@@ -255,11 +255,10 @@ internal sealed partial class AssetLayers
         return SksePluginReader.DebugCrtBlocker(info, resolvable);
     }
 
-    /// <summary>The plugin names a peek adjudicates an embedded reference against — active plus the force-loaded
-    /// implicit masters, less <paramref name="unserved"/>. Null only when the answer is unknowable; empty means nothing listed is served.</summary>
-    internal static IReadOnlySet<string>? PeekPluginSet(Mo2Composition comp, IReadOnlyList<UnservedPlugin> unserved)
+    /// <summary>The plugin names a peek judges a reference against (ticked plus implicit, less <paramref name="unserved"/>); null when unknowable, empty when nothing listed is served.</summary>
+    internal static IReadOnlySet<string>? PeekPluginSet(Mo2Composition comp, IReadOnlyList<UnservedPlugin>? unserved)
     {
-        if (comp.OrderedPluginNames.Count == 0) return null;   // no loadorder.txt ⇒ the implicit masters are unknowable, not absent
+        if (comp.OrderedPluginNames.Count == 0 || unserved is null) return null;   // no loadorder.txt, or no build read: unknowable, not absent
         return Mo2LoadOrder.ActiveNames(comp, unserved);
     }
 

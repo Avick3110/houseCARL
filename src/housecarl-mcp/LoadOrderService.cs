@@ -29,6 +29,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     readonly Lazy<CorpusRulebook> _rulebook = new(() => CorpusRulebook.Load(), LazyThreadSafetyMode.PublicationOnly);   // one instance; a failed load is not kept
     readonly Lazy<TypeLookup> _typeLookup = new(() => new TypeLookup());   // one per service; construction reads nothing
     Mo2OrderResult? _order;   // the last published order build, set in the same hold as the roots and resolver it belongs to
+    // A switch whose profile read no plugins, by ini and profile stamps, so it is not re-read until one moves.
+    (FileStamp Ini, string ProfileDir, FileStamp[] Stamps)? _pendingSwitch;
     // The VFS-aware asset resolver, built lazily on an asset query and dropped when the active profile changes.
     AssetResolver? _assetResolver;
     IReadOnlyList<string> _assetWarnings = Array.Empty<string>();   // discovery warnings from the asset build (e.g. a Skyrim.ini we couldn't find → base BSAs unscanned)
@@ -198,20 +200,25 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         {
             lock (_gate)
             {
-                if (!_configured) throw NotConfigured();           // fresh install → the tool returns the prompt for the MO2 path instead
-                EnsurePathsDerived();                              // derive the roots on first use (instance mode)
-                // Profile freshness, shared with the record path and deferred behind an in-flight write the same way.
-                if (Monitor.TryEnter(_writeGate))
-                {
-                    try { RefreshOnProfileChange(); }
-                    finally { Monitor.Exit(_writeGate); }
-                }
+                RefreshForAssetsLocked();
                 return AssetsNoProfileRefreshLocked();
             }
         }
     }
 
     AssetResolver ILoadOrderHost.Assets => Assets;
+
+    /// <summary>The asset lane's configured check, root derivation and profile refresh, deferred behind an in-flight write; caller holds <see cref="_gate"/>.</summary>
+    void RefreshForAssetsLocked()
+    {
+        if (!_configured) throw NotConfigured();           // fresh install → the tool returns the prompt for the MO2 path instead
+        EnsurePathsDerived();                              // derive the roots on first use (instance mode)
+        if (Monitor.TryEnter(_writeGate))
+        {
+            try { RefreshOnProfileChange(); }
+            finally { Monitor.Exit(_writeGate); }
+        }
+    }
 
     /// <summary>The asset resolver for the profile already resolved, with no profile re-read; caller holds <see cref="_gate"/>.</summary>
     AssetResolver AssetsNoProfileRefreshLocked()
@@ -243,12 +250,14 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         }
     }
 
-    (AssetCapture Assets, IReadOnlyList<UnservedPlugin> Unserved) IAssetHost.CaptureAssetsAndUnserved()
+    (AssetCapture Assets, IReadOnlyList<UnservedPlugin>? Unserved) IAssetHost.CaptureAssetsAndUnserved()
     {
         lock (_gate)
         {
-            var captured = AssetCaptureLocked(Assets.Capture());
-            return (captured, _order?.Unserved ?? []);   // the build published with these roots; none yet means none known
+            RefreshForAssetsLocked();
+            if (_order is null && _profileDir.Length > 0) ReResolve(RootsLocked());   // no build for these roots yet: run one, as the resolver getter does
+            var captured = AssetCaptureLocked(AssetsNoProfileRefreshLocked().Capture());
+            return (captured, _order?.Unserved);            // null only when the profile could not be read: unknowable
         }
     }
 
@@ -843,8 +852,16 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         bool switched = !PathEq(p.ProfileDir, _profileDir) || !PathEq(p.ModsDir, _modsDir) || !PathEq(p.DataDir, _dataDir)
                         || !PathEq(p.OverwriteDir, _overwriteDir);
         if (!switched) { _iniStamp = iniStamp; return false; }   // ini touched but nothing we resolve from changed
-        // A new profile's order that is held or empty keeps the old roots, resolver and ini stamp, so the next call retries.
-        if (!ReResolve(new(ProfileDir: p.ProfileDir, DataDir: p.DataDir, ModsDir: p.ModsDir, OverwriteDir: p.OverwriteDir))) return true;
+        // A new profile's order that is held or empty keeps the old roots, resolver and ini stamp; a held one is retried next call, an empty one once its stamps move.
+        var newStamps = StatProfileFiles(p.ProfileDir);
+        if (_pendingSwitch is { } pending && pending.Ini == iniStamp && PathEq(pending.ProfileDir, p.ProfileDir) && pending.Stamps.SequenceEqual(newStamps))
+            return true;                                          // the same switch read no plugins last time and nothing moved since
+        if (!ReResolve(new(ProfileDir: p.ProfileDir, DataDir: p.DataDir, ModsDir: p.ModsDir, OverwriteDir: p.OverwriteDir)))
+        {
+            _pendingSwitch = _profileHeld is null ? (iniStamp, p.ProfileDir, newStamps) : null;   // a held read retries every call
+            return true;
+        }
+        _pendingSwitch = null;
         _iniStamp = iniStamp;                                     // advance only once the new roots are published
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName; _overwriteDir = p.OverwriteDir;
         System.Threading.Interlocked.Increment(ref _gameRootsGen);   // the game roots moved → the runtime memo re-probes
@@ -1056,6 +1073,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             _resolvedPaths = Array.Empty<string>();
             _profileStamps = new FileStamp[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
             _order = null;
+            _pendingSwitch = null;
             InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too
             System.Threading.Interlocked.Increment(ref _gameRootsGen);   // a new instance may be a different game install — the runtime memo must re-probe rather than adjudicate against the old exe
         }

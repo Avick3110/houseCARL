@@ -251,7 +251,7 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
     }
 
     [Fact]
-    public void ASwitchToAProfileThatResolvesNothingPublishesNoServedAnswerBesideTheOldRoots()
+    public void ASwitchToAProfileThatResolvesNothingIsAnsweredFromTheOldBuildAndNotReReadEachCall()
     {
         using var w = new TickedPluginSwitchedOffModWorld();   // mutated below, so its own instance
         var empty = Path.Combine(w.Instance, "profiles", "Empty");
@@ -262,9 +262,16 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
         w.Svc.NamedProfileComposition(null);                   // derives the roots; nothing is built yet
         var ini = Path.Combine(w.Instance, "ModOrganizer.ini");
         File.WriteAllText(ini, File.ReadAllText(ini).Replace("@ByteArray(Default)", "@ByteArray(Empty)"));
-        // The switch cannot land (Empty resolves nothing), so the answer stays Default's, where VanillaStub serves Skyrim.esm.
+        // The switch cannot land (Empty resolves nothing), so the answer is Default's build: VanillaStub serves Skyrim.esm, nothing serves HcTsOff.esp.
         for (int i = 0; i < 2; i++)
-            Assert.Contains("(in your load order)", LineOf(SkseTools.Skse(w.Svc, filter: "HcTsPeek", peek: true), "Skyrim.esm"));
+        {
+            var r = SkseTools.Skse(w.Svc, filter: "HcTsPeek", peek: true);
+            Assert.Contains("(in your load order)", LineOf(r, "Skyrim.esm"));
+            Assert.Contains("NOT in your load order", LineOf(r, w.OffName));
+        }
+        // Two peeks read Empty once and Default once: an unchanged pending switch is not re-read on the second call.
+        Assert.Equal(2, w.Svc.OrderBuilds);
+        Assert.Contains("NOT ACTIVE", StatusTools.LoadOrderStatus(w.Svc, w.Tools, filter: w.OffName));
     }
 
     [Fact]
@@ -361,6 +368,9 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
             File.WriteAllText(Path.Combine(profile, "modlist.txt"), "+HcTsSkseMod\r\n-" + W.OffMod + "\r\n");
             using var svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(root, "houseCARL.user.json")));
             Assert.Contains("NOT in your load order", LineOf(SkseTools.Skse(svc, filter: "HcTsPeek", peek: true), W.OffName));
+            // The build that resolved nothing is published with its baseline, so the second call does not read the order again.
+            Assert.Contains("NOT in your load order", LineOf(SkseTools.Skse(svc, filter: "HcTsPeek", peek: true), W.OffName));
+            Assert.Equal(1, svc.OrderBuilds);
         }
         finally { try { Directory.Delete(root, true); } catch { /* temp cleanup best-effort */ } }
     }
