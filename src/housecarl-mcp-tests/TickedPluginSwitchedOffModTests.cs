@@ -268,6 +268,17 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
     }
 
     [Fact]
+    public void ACopyAddedToASwitchedOffFolderIsNamedOnTheNextBuild()
+    {
+        using var w = new TickedPluginSwitchedOffModWorld();   // mutated below, so its own instance
+        Assert.Contains("NOT ACTIVE — ticked in plugins.txt, but no enabled mod", StatusTools.LoadOrderStatus(w.Svc, w.Tools, filter: w.GoneName));
+        File.Copy(Path.Combine(w.Instance, "mods", w.OffMod, w.OffName), Path.Combine(w.Instance, "mods", w.OffMod, w.GoneName));
+        File.AppendAllText(Path.Combine(w.Instance, "profiles", "Default", "plugins.txt"), "# touched\r\n");   // a profile write, so the order is rebuilt
+        Assert.Contains($"NOT ACTIVE — ticked in plugins.txt, but it is provided by mod '{w.OffMod}'",
+                        StatusTools.LoadOrderStatus(w.Svc, w.Tools, filter: w.GoneName));
+    }
+
+    [Fact]
     public void ThePeekAndStatusReadOneServedAnswerAfterACopyLandsInAnEnabledMod()
     {
         using var w = CopyLandsInAnEnabledMod();

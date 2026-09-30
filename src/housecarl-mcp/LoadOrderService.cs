@@ -152,7 +152,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     EnsurePathsDerived();                         // instance mode: derive ProfileDir/ModsDir/DataDir + active profile from ModOrganizer.ini
                     var profileStamps = StatProfileFiles(_profileDir);   // stat BEFORE the read: a profile write during the build is caught next call, not missed
                     var roots = RootsLocked();
-                    var order = Mo2LoadOrder.Build(roots.ProfileDir, roots.ModsDir, roots.DataDir, roots.OverwriteDir, _order);
+                    var order = BuildOrder(roots);
                     var paths = order.OrderedPaths;
                     if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
                     if (paths.Count == 0)
@@ -852,6 +852,15 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         return true;
     }
 
+    internal int OrderBuilds;   // how many order builds the service has run, for the refresh-cost tests
+
+    /// <summary>One order build under <paramref name="roots"/>; caller holds the gate.</summary>
+    Mo2OrderResult BuildOrder(Mo2Roots roots)
+    {
+        Interlocked.Increment(ref OrderBuilds);
+        return Mo2LoadOrder.Build(roots.ProfileDir, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
+    }
+
     /// <summary>The cheap re-read under <paramref name="roots"/>: re-list the winning paths, deep-re-index only when the set or order changed; false when the read was held or empty and nothing moved. Caller holds the gate.</summary>
     bool ReResolve(Mo2Roots roots)
     {
@@ -859,7 +868,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         Mo2OrderResult order;
         // A refresh landing in MO2's profile-rewrite window keeps the built snapshot and does not advance the baseline;
         // contract in docs/architecture/load-order-service.md.
-        try { order = Mo2LoadOrder.Build(roots.ProfileDir, roots.ModsDir, roots.DataDir, roots.OverwriteDir, _order); }
+        try { order = BuildOrder(roots); }
         catch (ProfileUnreadableException ex) { _profileHeld = ex; return false; }
         _profileHeld = null;                                     // the re-read got through — nothing is pending any more
         var paths = order.OrderedPaths;

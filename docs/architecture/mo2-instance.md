@@ -44,8 +44,8 @@ implicit master) that no enabled layer serves is not active, whatever the tick s
 not present the file. `Build` decides this in the same pass that picks each winner and returns it
 as `Unserved`, each entry naming the first switched-off mod folder holding a copy, or none, and
 carrying its one `Reason` sentence, which the build warning, the status filter and the absence
-explainer all use. The switched-off lookup lists the disabled folders once, only when something is
-unserved, and a later build reuses its answers while the disabled list is unchanged. Status, the
+explainer all use. The switched-off lookup lists the disabled folders once per build, only when
+something is unserved, and a build runs only when the profile files or the active profile change. Status, the
 absence explainer, the SKSE peek and the active profile's `profile=` inspection read the build's
 answer; another profile's inspection and the setup summary have no build and run the same pass
 through `Mo2LoadOrder.Unserved`. The locate lane (`LocatePluginFileOnDisk`) reads the disk, since
@@ -134,7 +134,8 @@ swallows the note turns a recoverable state into a silent loss.
   rests on their shared `CandidateFolders`, not on an assertion.
 - *Served*: `TickedPluginSwitchedOffModTests` — status counts, the filter verdict, the explainer, the peek, another
   profile's `profile=` inspection and the setup summary for a ticked plugin in a switched-off folder, one with no copy, one missing
-  from `loadorder.txt`, and implicit masters in a switched-off folder, an unlisted folder and nowhere.
+  from `loadorder.txt`, and implicit masters in a switched-off folder, an unlisted folder and nowhere;
+  `ACopyAddedToASwitchedOffFolderIsNamedOnTheNextBuild` — each build lists the switched-off folders afresh.
 - *Deriving the roots from one path*: `Mo2InstanceProbe` (`mo2instance-probe`) — the roots and the active profile
   derived from the instance folder, the `base_directory` override, and a missing required piece named rather than
   half-derived.
