@@ -222,6 +222,23 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
     }
 
     [Fact]
+    public void ASwitchToAProfileThatResolvesNothingPublishesNoServedAnswerBesideTheOldRoots()
+    {
+        using var w = new TickedPluginSwitchedOffModWorld();   // mutated below, so its own instance
+        var empty = Path.Combine(w.Instance, "profiles", "Empty");
+        Directory.CreateDirectory(empty);
+        File.WriteAllText(Path.Combine(empty, "loadorder.txt"), "Skyrim.esm\r\n" + w.OffName + "\r\n");
+        File.WriteAllText(Path.Combine(empty, "plugins.txt"), "*" + w.OffName + "\r\n");
+        File.WriteAllText(Path.Combine(empty, "modlist.txt"), "-VanillaStub\r\n+HcTsSkseMod\r\n-" + w.OffMod + "\r\n");
+        w.Svc.NamedProfileComposition(null);                   // derives the roots; nothing is built yet
+        var ini = Path.Combine(w.Instance, "ModOrganizer.ini");
+        File.WriteAllText(ini, File.ReadAllText(ini).Replace("@ByteArray(Default)", "@ByteArray(Empty)"));
+        // The switch cannot land (Empty resolves nothing), so the answer stays Default's, where VanillaStub serves Skyrim.esm.
+        for (int i = 0; i < 2; i++)
+            Assert.Contains("(in your load order)", LineOf(SkseTools.Skse(w.Svc, filter: "HcTsPeek", peek: true), "Skyrim.esm"));
+    }
+
+    [Fact]
     public void ThePeekAndStatusReadOneServedAnswerAfterACopyLandsInAnEnabledMod()
     {
         using var w = new TickedPluginSwitchedOffModWorld();   // mutated below, so its own instance

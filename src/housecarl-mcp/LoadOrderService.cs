@@ -153,8 +153,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     EnsurePathsDerived();                         // instance mode: derive ProfileDir/ModsDir/DataDir + active profile from ModOrganizer.ini
                     var profileStamps = StatProfileFiles(_profileDir);   // stat BEFORE the read: a profile write during the build is caught next call, not missed
                     var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
-                    _orderWarnings = order.Warnings;
-                    _orderUnserved = order.Unserved;
                     var paths = order.OrderedPaths;
                     if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
                     if (paths.Count == 0)
@@ -166,7 +164,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     // contract in docs/architecture/load-order-service.md.
                     bool assetBuildIsBehind = _profileHeld is not null || _resolvedPaths.Count == 0;
                     _resolver = LoadOrderResolver.Build(paths, ExplainPluginAbsence, Counters);
+                    // The order's answers are published with the resolver built from them, never before a throw.
                     _resolvedPaths = paths;
+                    _orderWarnings = order.Warnings;
+                    _orderUnserved = order.Unserved;
                     _profileStamps = profileStamps;
                     if (assetBuildIsBehind) { InvalidateAssetResolver(); _profileHeld = null; }
                 }
@@ -881,8 +882,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             return true;
         }
         // paths.Count == 0 is almost certainly a transient mid-write read: keep the last good snapshot and do not advance.
-        // With none yet, this read's served answer is the only one, so the asset lanes take it.
-        if (_resolvedPaths.Count == 0) _orderUnserved = order.Unserved;
+        // With none yet, this read's served answer is the only one, so the asset lanes take it, but only when it was
+        // read under the roots already published: a switch to another profile publishes nothing until it lands.
+        if (_resolvedPaths.Count == 0 && roots == RootsLocked()) _orderUnserved = order.Unserved;
         return false;
     }
 
