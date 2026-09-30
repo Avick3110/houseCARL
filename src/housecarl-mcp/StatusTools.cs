@@ -4,7 +4,7 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>Read-only view of the active MO2 profile's load-order composition; the enabled/disabled picture is read fresh each call, while the resolved and record counts reflect the resolver's last build.</summary>
+/// <summary>Read-only view of the active MO2 profile's load-order composition; the enabled/disabled picture is read fresh each call, while the resolved and record counts and the served answer reflect the resolver's last build.</summary>
 [McpServerToolType]
 public static class StatusTools
 {
@@ -13,7 +13,8 @@ public static class StatusTools
          "Report what houseCARL sees in the active MO2 profile: enabled vs DISABLED mods, active vs INACTIVE plugins, " +
          "the implicit force-loaded masters/CC, how many plugins resolved to real files, and any load-order warnings. " +
          "The enabled/disabled picture is read FRESH each call, so a mod/plugin you just toggled in MO2 shows " +
-         "immediately; the resolved count reflects the resolver's last build, which houseCARL refreshes AUTOMATICALLY on " +
+         "immediately; the resolved count, and whether an enabled layer serves each plugin (the active count and the " +
+         "'not served' line), reflect the resolver's last build, which houseCARL refreshes AUTOMATICALLY on " +
          "each call when the profile changed — no restart needed (a 'refresh still pending' note appears only in the rare " +
          "case MO2 was mid-write). Pass filter= a mod folder name (e.g. 'Requiem " +
          "Lite 2') or a plugin filename (e.g. 'Requiem.esp') to ask whether houseCARL sees that one as enabled/disabled " +
