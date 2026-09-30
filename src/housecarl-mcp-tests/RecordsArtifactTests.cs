@@ -608,15 +608,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.Equal(Ids.Length, ManifestOf(TheSpill(d)).RowCount);
     }
 
-    [Fact]
-    public void TheIdentityLaneAutoSpillsUnderTheSameContract()
-    {
-        var d = OwnResults();
-        // This world's whole identity render is narrower than a spill block, so the json lane carries the spill.
-        var doc = Je(RecordsTools.Records(Svc, formids: Ids, project: Identity, format: "json", max_chars: TinyList));
-        Assert.True(doc.TryGetProperty("spilled", out _));
-        Assert.Equal(Ids.Length, ManifestOf(TheSpill(d)).RowCount);
-    }
+    // The identity form's text spill: WideCutLaneTests.TheIdentityTextLaneAutoSpillsUnderTheSameContract.
 
     [Fact]
     public void AFailedAutoSpillIsNamedLoudInTheTextResponse()
@@ -681,32 +673,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 
     // ---- the spill marker tells the truth about what it holds --------------------------------------
 
-    /// <summary>The text wording of the window spill the scan lane writes. A two-row text window is narrower than its
-    /// spill block, so its text render is refused below that floor (#986): the spill is written through the json
-    /// transport and its manifest spelled by the text lane's own spill block.</summary>
-    string WindowSpillText()
-    {
-        var d = OwnResults();
-        RecordsTools.Records(Svc, types: new[] { "WEAP" }, limit: 2, format: "json", max_chars: TinyScan);
-        var path = TheSpill(d);
-        return Wire.SpillText(SpillState.Spilled(new SpillInfo(path, ManifestOf(path), "ceiling"), manifestOnly: false));
-    }
-
-    [Fact]
-    public void AWindowedAutoSpillSaysWindowAndNeverClaimsTheCompleteResult()
-    {
-        var r = WindowSpillText();
-        Assert.Contains($"spilled: the returned WINDOW (2 rows of {WeaponTotal} total matches)", r);
-        Assert.DoesNotContain("complete result", r);
-    }
-
-    [Fact]
-    public void AWindowedAutoSpillNamesWhereTheMissingMatchesAre()
-    {
-        // Prose-only: "nowhere" is not a value the response can carry as a number. The sentence names the WINDOW,
-        // not limit=, because offset= alone makes a window too and the matches it drops are the ones before it.
-        Assert.Contains("outside the returned window are in NO file", WindowSpillText());
-    }
+    // The window spill's text wording: WideCutLaneTests.AWindowedTextSpillSaysWindowAndWhereTheRestAre.
 
     [Fact]
     public void WindowedSpillJson_CarriesCompleteFalseWithRowCountAndTotalAsData()

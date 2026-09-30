@@ -10,17 +10,10 @@ static partial class RecordsTools
     /// <remarks>Internal so a test can drive a row shape no fixture produces — an incomplete deep read with enough delta lines to be cut.</remarks>
     internal static string RenderRecordsDelta(IReadOnlyList<RecordReads.DeltaRow> rows, int total, int differing, int identical,
                                      int noVerdict, int errors,
-                                     string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated,
-                                     bool unreserved = false)
+                                     string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
-        if (!unreserved)
-        {
-            var whole = RenderRecordsDelta(rows, total, differing, identical, noVerdict, errors, headerLine, epoch,
-                                           maxChars, spill, out _, unreserved: true);
-            if (whole.Length <= cap) return whole;
-        }
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -35,7 +28,7 @@ static partial class RecordsTools
         string Notice(int r) =>
             "... [rendered " + r + " of " + rows.Count + " rows at max_chars=" + cap + "]\n";
         var spillText = Wire.SpillText(spill);
-        int budget = unreserved ? Unbounded : Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
+        int budget = Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
         string deltaCut = CutNotice("delta lines", cap);
         foreach (var row in rows)
         {
@@ -115,9 +108,6 @@ static partial class RecordsTools
         return sb.ToString().TrimEnd('\n');
     }
 
-    /// <summary>The budget of the unreserved pass every bounded render here makes first: no unit can cross it, so that pass lays the COMPLETE render, and the reserves are charged only once the whole thing is known not to fit at this cap.</summary>
-    const int Unbounded = int.MaxValue / 2;
-
     /// <summary>Whole units only: a unit written from <paramref name="mark"/> that crossed <paramref name="budget"/>, or stopped early with no room to say so (<paramref name="force"/>), is taken back out entire and the caller's notice put in its place; true means the render stops here.</summary>
     static bool Crossed(StringBuilder sb, int mark, int budget, string notice, ref bool truncated, bool force = false)
     {
@@ -147,16 +137,10 @@ static partial class RecordsTools
     /// <remarks>Internal so a test can drive a node shape no fixture produces — an incomplete comparison on a record only one in-order plugin touches.</remarks>
     internal static string RenderRecordsTree(IReadOnlyList<RecordReads.TreeRow> rows, int total, int contested, int errors,
                                     bool fieldsNarrow, string headerLine, OrderStamp? epoch, int maxChars,
-                                    SpillState? spill, out bool truncated, bool unreserved = false)
+                                    SpillState? spill, out bool truncated)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
-        if (!unreserved)
-        {
-            var whole = RenderRecordsTree(rows, total, contested, errors, fieldsNarrow, headerLine, epoch, maxChars,
-                                          spill, out _, unreserved: true);
-            if (whole.Length <= cap) return whole;
-        }
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -168,8 +152,7 @@ static partial class RecordsTools
         string Notice(int r) =>
             "... [rendered " + r + " of " + rows.Count + " rows at max_chars=" + cap + "]\n";
         var spillText = Wire.SpillText(spill);
-        var room = unreserved ? new RenderCap(cap, Unbounded)
-                              : RenderCap.For(cap, spillText.Length + Notice(rows.Count).Length);
+        var room = RenderCap.For(cap, spillText.Length + Notice(rows.Count).Length);
         int budget = room.Budget;
         string nodesCut = CutNotice("nodes", cap);
         foreach (var row in rows)
@@ -319,16 +302,10 @@ static partial class RecordsTools
     /// <remarks>Internal so a test can drive a seed shape no fixture produces — a walk that hit its node cap with nodes enough for max_chars to cut.</remarks>
     internal static string RenderRecordsChain(IReadOnlyList<RecordReads.WalkSeedResult> rows, int total, int reached,
                                      int errors, string headerLine, OrderStamp? epoch, int maxChars,
-                                     SpillState? spill, out bool truncated, bool unreserved = false)
+                                     SpillState? spill, out bool truncated)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
-        if (!unreserved)
-        {
-            var whole = RenderRecordsChain(rows, total, reached, errors, headerLine, epoch, maxChars, spill, out _,
-                                           unreserved: true);
-            if (whole.Length <= cap) return whole;
-        }
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -340,7 +317,7 @@ static partial class RecordsTools
             "... [rendered " + r + " of " + rows.Count + " seeds at max_chars=" + cap + "]\n";
         string nodesCut = "    ... [nodes cut at max_chars=" + cap + " — raise max_chars, or to_file= for the complete walk]\n";
         var spillText = Wire.SpillText(spill);
-        int budget = unreserved ? Unbounded : Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
+        int budget = Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
         foreach (var row in rows)
         {
             if (manifestOnly) break;
@@ -361,7 +338,7 @@ static partial class RecordsTools
             // What the seed says about its WALK is a different loss from the nodes max_chars held back, so the tail
             // is reserved beside every node line and written whether or not the list was cut; the cycle list, which
             // only the walked fanout bounds, is held to its own half of the budget.
-            string tail = SeedTail(row, budget >= Unbounded ? Unbounded : Math.Max(budget / 2, 0), cap);
+            string tail = SeedTail(row, Math.Max(budget / 2, 0), cap);
             foreach (var n in row.Nodes)
             {
                 // Composed before it is priced, so the notice lands inside the budget, not past the node that crossed.
@@ -435,17 +412,10 @@ static partial class RecordsTools
     /// <remarks>Internal so a test can drive a seed whose carriers are wider than the auto-spill block, which no fixture has.</remarks>
     internal static string RenderRecordsEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
                                             int totalSeeds, int carrierRows, int carrierTotal, int errors, string headerLine,
-                                            OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated,
-                                            bool unreserved = false)
+                                            OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
-        if (!unreserved)
-        {
-            var whole = RenderRecordsEffectChains(results, totalSeeds, carrierRows, carrierTotal, errors, headerLine,
-                                                  epoch, maxChars, spill, out _, unreserved: true);
-            if (whole.Length <= cap) return whole;
-        }
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -458,8 +428,7 @@ static partial class RecordsTools
         string Notice(int r) =>
             "... [rendered " + r + " of " + results.Count + " seeds at max_chars=" + cap + "]\n";
         var spillText = Wire.SpillText(spill);
-        var room = unreserved ? new RenderCap(cap, Unbounded)
-                              : RenderCap.For(cap, spillText.Length + Notice(results.Count).Length);
+        var room = RenderCap.For(cap, spillText.Length + Notice(results.Count).Length);
         foreach (var (seed, result) in results)
         {
             if (manifestOnly) break;
@@ -485,16 +454,10 @@ static partial class RecordsTools
     /// <remarks>Internal so a test can drive a topic wider than the auto-spill block, which no fixture has.</remarks>
     internal static string RenderRecordsInfoOrder(IReadOnlyList<RecordReads.InfoOrderRow> rows, int total, int contested,
                                          int errors, string headerLine, OrderStamp? epoch, int maxChars,
-                                         SpillState? spill, out bool truncated, bool unreserved = false)
+                                         SpillState? spill, out bool truncated)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
-        if (!unreserved)
-        {
-            var whole = RenderRecordsInfoOrder(rows, total, contested, errors, headerLine, epoch, maxChars, spill,
-                                               out _, unreserved: true);
-            if (whole.Length <= cap) return whole;
-        }
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -505,7 +468,7 @@ static partial class RecordsTools
         string Notice(int r) =>
             "... [rendered " + r + " of " + rows.Count + " rows at max_chars=" + cap + "]\n";
         var spillText = Wire.SpillText(spill);
-        int budget = unreserved ? Unbounded : Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
+        int budget = Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
         foreach (var row in rows)
         {
             if (manifestOnly) break;
@@ -636,7 +599,8 @@ static partial class RecordsTools
     }
 
     /// <summary>The list-lane aggregate's text render at one cap, raw: its caller closes it on the floor check.</summary>
-    /// <remarks>Internal so a test can drive a table wider than its fixture's, whose cut a whole-first call never serves.</remarks>
+    /// <remarks>Internal so a test can drive a cut table that also names an empty requested type: those only reach this
+    /// render through a reverse walk, whose carriers span at most five types, too few rows to be served cut.</remarks>
     internal static string RenderListAggregateText(IReadOnlyList<KeyValuePair<string, int>> rows, IReadOnlyList<string> empties,
                                                    string gb, int records, int errors, OrderStamp? epoch, string headerLine,
                                                    (int RowsRead, long Millis) bodyCost, int cap, int rowLimit)

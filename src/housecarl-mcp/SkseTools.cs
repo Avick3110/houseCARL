@@ -137,8 +137,8 @@ public static class SkseTools
         if (json) return At(filter, cap);
         // "omit filter=" is offered only where it is true: not beside peek=, which needs its filter, and only when the
         // unfiltered view fits the cap this call was given.
-        string OmitFilter() => string.IsNullOrWhiteSpace(filter) || peek || RenderCap.Capped(cap, n => At(null, n)).Length > cap
-            ? "" : RenderCap.OmitFilter;
+        string OmitFilter() => !string.IsNullOrWhiteSpace(filter) && !peek && RenderCap.Serves(cap, n => At(null, n))
+            ? RenderCap.OmitFilter : "";
         return RenderCap.Capped(cap, n => At(filter, n), OmitFilter);
     }
 

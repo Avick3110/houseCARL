@@ -74,9 +74,11 @@ that row; do not replace it with a `fields_omitted` sibling.
 
 ### A document that overran its cap says so, in one member
 
-A json document that could not fit `max_chars` ships over the ceiling, as the text lane's does, and closes with
-`max_chars_overrun` — ONE member, written at every capped document's root close by `JsonWire.WriteCapOverrun`, whose
-sentence is `RenderCap.Overran`, the same sentence the text lane's `RenderCap.Settle` appends. It names three
+A json document that could not fit `max_chars` ships over the ceiling and closes with `max_chars_overrun` — ONE
+member, written at every capped document's root close by `JsonWire.WriteCapOverrun`, whose sentence is
+`RenderCap.Overran`. The text lanes no longer ship over it: below their floor they refuse (#986, render-budget.md).
+Only two text replies still append that sentence through `RenderCap.Settle`, because their write already happened:
+`housecarl_place`'s report and a `to_file=` manifest. It names three
 numbers: the document's own length, the `max_chars` it was given, and the cap THIS document would have fitted in. The
 member is part of the length it states, so it is settled to a fixed point.
 
@@ -102,7 +104,7 @@ the spill write beside it already does.
 
 **Every renderer that takes a cap writes it, and taking a cap is the test.** A document with no rows to cut still
 has a cap it can miss outright: the `counts_only=` census renderers (`RenderCounts`, `RenderNamedCounts`) took no
-`max_chars` at all, which left the json census over the ceiling in silence while its text twin settled. They take one
+`max_chars` at all, which left the json census over the ceiling in silence while its text twin was bounded. They take one
 now. `RenderError` is the one renderer without a cap and stays so — a refusal is not bounded by `max_chars`.
 
 The `housecarl_skse` family documents are written by `SkseJsonDoc.Write` rather than by a `JsonWire` renderer, and
@@ -114,8 +116,8 @@ close inside the cap. A family's row ARRAYS are named to `SkseJsonDoc.TailReserv
 is required rather than optional: an array's CLOSE is written past the last row the budget admitted, and the reserve
 covers it by composing the array empty, which also charges the open the document already paid for — a floor of tens of
 chars, in the safe direction, rather than an exact figure.
-`SkseTools.Dispatch` must not run `RenderCap.Settle` over a json body: the text notice would land past the root close
-and the document would stop being json. `AssetTools`'s manifest-only lane guards the same seam the same way.
+`SkseTools.Dispatch` must not glue anything onto a json body — the text footer or a text refusal — since it would
+land past the root close and the document would stop being json. `AssetTools`'s manifest-only lane guards the same seam the same way.
 
 ### Envelope keys must stay disjoint
 

@@ -1197,7 +1197,9 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void ARowThatFitsWholeIsNotMarkedTruncated()
     {
-        var r = TreeRender(_w.CellC, 748, out bool truncated);
+        // Whole first, as the lane serves it (#986): the complete row, laid with no reserve, fits its own width.
+        var r = RenderCap.Capped(748, n => TreeRender(_w.CellC, n));
+        TreeRender(_w.CellC, RenderCap.Whole, out bool truncated);
         Assert.False(truncated);
         Assert.DoesNotContain("[child declarers cut", r);
         Assert.Contains("Temporary: ", r);          // the block ran to its last field

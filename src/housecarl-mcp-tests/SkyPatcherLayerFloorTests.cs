@@ -71,9 +71,19 @@ public sealed class SkyPatcherLayerFloorTests
     [Fact]
     public void AFilteredRefusalDoesNotOfferOmittingTheFilterWhereTheUnfilteredLayerIsRefusedToo()
     {
-        var text = SkyPatcherWire.RenderLayer(Layer(warnings: false), "npc", 200);
-
-        Assert.True(RenderFloorAssert.IsFloorRefusal(text), text);
-        Assert.DoesNotContain("omit filter=", text);
+        // Every cap from under the refusal's own width up past the unfiltered floor: offered exactly where the
+        // unfiltered layer at that cap is served, and at least once each way.
+        var d = Layer(warnings: false);
+        int unfilteredFits = RenderFloorAssert.Named(SkyPatcherWire.RenderLayer(d, null, 200));
+        int offered = 0, withheld = 0;
+        for (int cap = 150; cap <= unfilteredFits + 50; cap += 5)
+        {
+            var text = SkyPatcherWire.RenderLayer(d, "npc", cap);
+            if (!RenderFloorAssert.IsFloorRefusal(text)) continue;
+            bool served = !RenderFloorAssert.IsFloorRefusal(SkyPatcherWire.RenderLayer(d, null, cap));
+            Assert.True(served == text.Contains("omit filter="), $"at max_chars={cap} the unfiltered layer served={served}: {text}");
+            if (served) offered++; else withheld++;
+        }
+        Assert.True(offered > 0 && withheld > 0, $"offered {offered}, withheld {withheld}");
     }
 }

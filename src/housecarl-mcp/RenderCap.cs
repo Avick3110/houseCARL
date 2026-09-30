@@ -39,6 +39,10 @@ internal readonly record struct RenderCap(int Cap, int Budget)
         return Hold(at(cap), cap, n => whole.Length <= n ? whole : at(n), out _, alsoTry, epochLine, whole.Length, nextCall);
     }
 
+    /// <summary>Whether the same call is served at <paramref name="cap"/>: its whole answer or its render at the cap fits.
+    /// Two renders, and no floor search, since a caller asking only needs the yes or no.</summary>
+    public static bool Serves(int cap, Func<int, string> at) => at(Whole).Length <= cap || at(cap).Length <= cap;
+
     /// <summary>The floor check a capped text render closes on (#986). A body is laid inside what the cap leaves, so a
     /// render over its cap is its header and the notices it owes: the call is refused, naming a max_chars the same call
     /// was measured to fit. That cap is found by growing only: re-render at the length the render came back at, until

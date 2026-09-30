@@ -358,9 +358,16 @@ public sealed class CheckErrorsFamilyTests
                                                     t => t.Split(maxCharsCut).Length - 1 == 2);
         Assert.Contains("dangling ref(s) by TARGET plugin (the plugin the broken refs point INTO) (40 distinct):", text);
         Assert.Contains("dangling ref(s) by SOURCE plugin (the plugin the broken refs come FROM) (40 distinct):", text);
+        // Each axis's missing-row count is its own: what it listed plus what it says it held back is its forty.
+        var held = System.Text.RegularExpressions.Regex.Matches(text, @"\[(\d+) more row\(s\) — raise max_chars=")
+                         .Select(m => int.Parse(m.Groups[1].Value)).ToList();
+        int listedTargets = System.Text.RegularExpressions.Regex.Matches(text, @"(?m)^ +\d+  TargetPlugin\d+\.esp$").Count;
+        int listedSources = System.Text.RegularExpressions.Regex.Matches(text, @"(?m)^ +\d+  SourcePlugin\d+\.esp$").Count;
+        Assert.Equal(40, listedTargets + held[0]);
+        Assert.Equal(40, listedSources + held[1]);
 
-        // Both axes are cut before their first row fits, and it is max_chars=900 that stops them, not
-        // histogramLimit=1: a row-limit break would name "limit" instead, so the cap binding first is what makes
+        // On the json lane, both axes are cut before their first row fits, and it is max_chars=900 that stops them,
+        // not histogramLimit=1: a row-limit break would name "limit" instead, so the cap binding first is what makes
         // both axes report "max_chars".
         var fam = ErrorsFamily(Json(r, 900, histogramLimit: 1));
         Assert.Equal(0, fam.GetProperty("dangling_by_target_plugin").GetProperty("rendered").GetInt32());

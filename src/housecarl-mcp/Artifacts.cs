@@ -438,11 +438,9 @@ internal static class Artifacts
         var (s, err) = write(target);
         if (err is not null) return Failed(err);
         var spill = SpillState.Spilled(s!, manifestOnly: false);
-        string Next(int n)
-        {
-            var b = Bare(n, out bool c);
-            return c ? at(n, spill, out _) : b;
-        }
+        // A cap the whole answer does not fit cuts it, since an uncut render is the whole answer; so the next call at n
+        // spills, and is measured with its block in place.
+        string Next(int n) => whole.Length <= n ? whole : at(n, spill, out _);
         var served = RenderCap.Hold(at(cap, spill, out _), cap, Next, out bool refused, epochLine: epochLine, whole: whole.Length,
                                     nextCall: RenderCap.NextCallGrowth);
         if (refused) return served;

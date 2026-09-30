@@ -92,15 +92,9 @@ public sealed class RecordsListLaneTests : RecordsTestBase
         var whole = RecordsTools.Records(Svc, formids: ManyTypedIds, project: project);
         Served(whole, "group_by=type");
         string Call(int c) => RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, max_chars: c);
-        // This selection is served cut only in a band a few chars wide (#986: whole first, refused below the floor), too
-        // thin to hold on another machine, so the cut is read off the text render driven directly over thirty groups.
-        var rows = Enumerable.Range(1, 30).Select(i => new KeyValuePair<string, int>($"Type{i:D2}", 100 - i)).ToList();
-        string Raw(int c) => RecordsTools.RenderListAggregateText(rows, Array.Empty<string>(), "type", 1_000, 0, null,
-                                                                   "records  form=aggregate", (1_000, 5), c, 0);
-        var (cap, cut) = RenderFloorAssert.ServedCut(Raw, t => t.Contains("truncated: rendered", StringComparison.Ordinal));
-        Served(cut, "truncated: rendered", "groups before hitting max_chars=" + cap);
-        Assert.True(CountOf(cut, "\n  ") < CountOf(Raw(RenderCap.Whole), "\n  "), "the capped render laid as many rows as the uncapped one");
-        // Below that cap the ceiling holds too: the call fits or is refused naming a cap it fits.
+        // This selection is served cut only in a band a few chars wide (#986: whole first, refused below the floor); the
+        // cut through the tool is WideCutLaneTests.AListAggregateServedCutSaysWhatItCutOff, over forty plugins' groups.
+        // Below the whole answer the ceiling holds: the call fits or is refused naming a cap it fits.
         RenderFloorAssert.FitsOrRefuses(Call(whole.Length - 40), whole.Length - 40, Call);
     }
 

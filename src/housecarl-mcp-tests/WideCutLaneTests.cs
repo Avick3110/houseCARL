@@ -17,6 +17,8 @@ public sealed class WideCutWorld : IDisposable
     public string Root { get; }
     public string OffName { get; }
     public IReadOnlyList<FormKey> Topics { get; }
+    /// <summary>One keyword in each of forty active plugins.</summary>
+    public IReadOnlyList<FormKey> PartKeywords { get; }
     public const string MeshDir = @"meshes\hcwidecut";
     public const int Meshes = 60;
     public LoadOrderService Svc { get; }
@@ -50,9 +52,22 @@ public sealed class WideCutWorld : IDisposable
 
         var instance = Path.Combine(Root, "inst");
         var mods = Path.Combine(instance, "mods");
-        foreach (var m in new[] { "WideMasterMod", "WideOffMod", "WideMeshMod" }) Directory.CreateDirectory(Path.Combine(mods, m));
+        foreach (var m in new[] { "WideMasterMod", "WideOffMod", "WideMeshMod", "WidePartsMod" }) Directory.CreateDirectory(Path.Combine(mods, m));
         var masterName = masterKey.FileName.String;
         master.BeginWrite.ToPath(Path.Combine(mods, "WideMasterMod", masterName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        // Forty small active plugins, one keyword each, so a count table grouped by plugin has forty rows.
+        var parts = new List<FormKey>();
+        var partNames = new List<string>();
+        for (int i = 1; i <= 40; i++)
+        {
+            var part = new SkyrimMod(ModKey.FromNameAndExtension($"HcWideCutPart{i:D2}.esp"), SkyrimRelease.SkyrimSE);
+            var kw = part.Keywords.AddNew();
+            kw.EditorID = $"HcWideCutPartKeyword{i:D2}";
+            parts.Add(kw.FormKey);
+            partNames.Add(part.ModKey.FileName.String);
+            part.BeginWrite.ToPath(Path.Combine(mods, "WidePartsMod", part.ModKey.FileName.String)).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+        }
+        PartKeywords = parts;
         off.BeginWrite.ToPath(Path.Combine(mods, "WideOffMod", OffName)).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
         var meshDir = Path.Combine(mods, "WideMeshMod", MeshDir);
         Directory.CreateDirectory(meshDir);
@@ -63,10 +78,10 @@ public sealed class WideCutWorld : IDisposable
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + masterName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + masterName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + masterName + "\r\n" + string.Concat(partNames.Select(n => n + "\r\n")));
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + masterName + "\r\n" + string.Concat(partNames.Select(n => "*" + n + "\r\n")));
         // WideOffMod is switched OFF: its plugin is on disk and out of the active order.
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+WideMeshMod\r\n-WideOffMod\r\n+WideMasterMod\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+WidePartsMod\r\n+WideMeshMod\r\n-WideOffMod\r\n+WideMasterMod\r\n");
         File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
@@ -174,7 +189,8 @@ public sealed class WideCutLaneTests : IClassFixture<WideCutWorld>
     };
 
     /// <summary>A complete answer is served at a max_chars as wide as it is: no reserve held back for a cut it does not
-    /// make. Ten chars of slack cover a read timing printing a digit wider on the second call.</summary>
+    /// make. A lane that prints a read timing gets two chars of slack, for that timing printing wider on the second
+    /// call; a lane that prints none is served at exactly its own width.</summary>
     [Theory]
     [MemberData(nameof(WholeFirstLanes))]
     public void AWholeAnswerIsServedAtItsOwnWidth(string lane)
@@ -182,7 +198,7 @@ public sealed class WideCutLaneTests : IClassFixture<WideCutWorld>
         var call = WholeFirstCall(lane);
         var whole = call(80_000);
         Assert.DoesNotContain("spilled:", whole);
-        int cap = whole.Length + 10;
+        int cap = whole.Length + (System.Text.RegularExpressions.Regex.IsMatch(whole, @"\d ms(\n|$)") ? 2 : 0);
 
         var text = call(cap);
 
@@ -265,6 +281,51 @@ public sealed class WideCutLaneTests : IClassFixture<WideCutWorld>
             Assert.Contains("in 5000 ms", next);
         }
         finally { Directory.Delete(dir, true); }
+    }
+
+    /// <summary>The list lane's count table, served cut through the tool: forty plugins give forty groups, it names the
+    /// cap that cut it, and lays fewer rows than its whole answer (moved from RecordsListLaneTests, whose table is served
+    /// cut only in a band a few chars wide).</summary>
+    [Fact]
+    public void AListAggregateServedCutSaysWhatItCutOff()
+    {
+        var ids = _w.PartKeywords.Select(k => $"{k.ID:X6}:{k.ModKey.FileName}").ToArray();
+        var project = new RecordsTools.RecordsProject { form = "aggregate", group_by = "defined_in" };
+        string Call(int c) => RecordsTools.Records(_w.Svc, formids: ids, project: project, max_chars: c);
+        var whole = Call(80_000);
+
+        var (cap, cut) = RenderFloorAssert.ServedCut(Call, t => t.Contains("truncated: rendered", StringComparison.Ordinal));
+
+        Assert.Contains("groups before hitting max_chars=" + cap, cut);
+        Assert.True(cut.Split("\n  ").Length < whole.Split("\n  ").Length, "the capped table laid as many rows as the whole one");
+    }
+
+    /// <summary>A windowed scan served cut on the text lane says its spill holds the WINDOW, never the complete result,
+    /// and where the matches outside it are (moved from RecordsArtifactTests, whose two-row window is served whole or
+    /// refused).</summary>
+    [Fact]
+    public void AWindowedTextSpillSaysWindowAndWhereTheRestAre()
+    {
+        SpillFolders.Emptied(_w.Svc);
+        var (_, text) = RenderFloorAssert.ServedCut(c => RecordsTools.Records(_w.Svc, types: new[] { "DIAL" }, limit: 20, max_chars: c),
+                                                    t => t.Contains("spilled:", StringComparison.Ordinal));
+
+        Assert.Contains("spilled: the returned WINDOW (20 rows of 30 total matches)", text);
+        Assert.DoesNotContain("complete result", text);
+        Assert.Contains("outside the returned window are in NO file", text);
+    }
+
+    /// <summary>The identity form served cut on the text lane spills every row (moved from RecordsArtifactTests, whose
+    /// identity render is narrower than its floor).</summary>
+    [Fact]
+    public void TheIdentityTextLaneAutoSpillsUnderTheSameContract()
+    {
+        var spills = SpillFolders.Emptied(_w.Svc);
+        var (_, text) = RenderFloorAssert.ServedCut(c => WholeFirstCall("identity")(c),
+                                                    t => t.Contains("spilled:", StringComparison.Ordinal));
+
+        Assert.Contains("spilled: complete result (30 rows)", text);
+        Assert.Contains(Assert.Single(Directory.GetFiles(spills, "*.jsonl")), text);
     }
 
     /// <summary>A list summary the server serves cut counts what it held back (moved from RecordsArtifactTests, whose

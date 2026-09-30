@@ -54,8 +54,8 @@ static class SkyPatcherWire
     public static string RenderLayer(SkyPatcherLayerData d, string? filter, int cap)
     {
         // "omit filter=" is offered only where it is true: the unfiltered layer fits the cap this call was given.
-        string OmitFilter() => string.IsNullOrWhiteSpace(filter) || RenderCap.Capped(cap, n => Render(d, null, n)).Length > cap
-            ? "" : RenderCap.OmitFilter;
+        string OmitFilter() => !string.IsNullOrWhiteSpace(filter) && RenderCap.Serves(cap, n => Render(d, null, n))
+            ? RenderCap.OmitFilter : "";
         return RenderCap.Capped(cap, n => Render(d, filter, n), OmitFilter);
     }
 

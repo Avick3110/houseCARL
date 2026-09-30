@@ -831,18 +831,29 @@ public sealed class SkseTransportTests
         RenderFloorAssert.RefusesAndTheNamedCapFits(Call(100), 100, Call);
     }
 
-    /// <summary>A filtered refusal offers dropping the filter only where the unfiltered view fits the cap it was given:
-    /// at 100 the unfiltered view is refused too, so it is not offered.</summary>
+    /// <summary>A filtered refusal offers dropping the filter only where the unfiltered view is served at the cap it was
+    /// given: every cap from under the refusal's own width up past the unfiltered floor, at least once each way.</summary>
     [Theory]
     [InlineData("inventory")]
     [InlineData("pairing")]
     [InlineData("config")]
     public void AFilteredRefusalDoesNotOfferOmittingTheFilterWhereTheUnfilteredViewIsRefusedToo(string name)
     {
-        var text = SkseTools.Dispatch(SmallRenders(), Family(name), filter: "zzz", peek: false, max_chars: 100);
-
-        Assert.True(RenderFloorAssert.IsFloorRefusal(text), text);
-        Assert.DoesNotContain("omit filter=", text);
+        var renders = SmallRenders();
+        int unfilteredFits = RenderFloorAssert.Named(SkseTools.Dispatch(renders, Family(name), filter: null, peek: false, max_chars: 100));
+        var filter = WideFilter(unfilteredFits + 300);
+        int offered = 0, withheld = 0;
+        // The named cap itself is in the sweep: a view whose caveat share grows with the cap can be refused again a
+        // little above it, so the grid alone may miss every cap the unfiltered view is served at.
+        foreach (int cap in Enumerable.Range(0, (unfilteredFits - 50) / 10 + 11).Select(i => 150 + i * 10).Append(unfilteredFits))
+        {
+            var text = SkseTools.Dispatch(renders, Family(name), filter: filter, peek: false, max_chars: cap);
+            if (!RenderFloorAssert.IsFloorRefusal(text)) continue;
+            bool served = !RenderFloorAssert.IsFloorRefusal(SkseTools.Dispatch(renders, Family(name), filter: null, peek: false, max_chars: cap));
+            Assert.True(served == text.Contains("omit filter="), $"at max_chars={cap} the unfiltered view served={served}");
+            if (served) offered++; else withheld++;
+        }
+        Assert.True(offered > 0 && withheld > 0, $"offered {offered}, withheld {withheld}");
     }
 
     /// <summary>A filter that matches nothing and is wider than <paramref name="width"/>, so its view's floor is too.</summary>

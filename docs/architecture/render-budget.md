@@ -240,10 +240,10 @@ reaches only the calling test's flow) is the meter's clock for tests.
 
 ## Pinned by
 
-- *The unit is CHARACTERS, not bytes*: `CheckCapCharsTests` — non-ASCII is carried unescaped, the overrun notice
-  states its own length and clears in one step, and an astral character escapes and is counted as written. Each
-  transport states its own length about the same sweep (`TheTextLaneStatesItsOwnLengthOnTheSameSweep` for text); no
-  test compares the two lengths with each other.
+- *The unit is CHARACTERS, not bytes*: `CheckCapCharsTests` — non-ASCII is carried unescaped, the json lane's overrun
+  member states its own length and clears in one step, and an astral character escapes and is counted as written.
+  Below its floor the text lane refuses the same sweep and names a cap it is served at, in characters
+  (`TheTextLaneNamesItsFloorInCharactersOnTheSameSweep`); no test compares the two transports' numbers.
 - *Whole first, and a sufficient cap*: `WideCutLaneTests.AWholeAnswerIsServedAtItsOwnWidth` (each lane that gained
   the pass serves its complete answer at its own width), `ARefusedSpillingCallWritesNoFileAndNamesACapMeasuredWithItsSpillBlock`,
   `AFailedSpillIsStatedAndNeverSizesTheNamedCap`, `ACensusOverItsCapNamesItsOwnWidth`; `RenderFloorHoldTests` (a floor
@@ -271,8 +271,8 @@ reaches only the calling test's flow) is the meter's clock for tests.
   fails only on `>`. Equality is the diagnostic reading, that the up-front measurement was not exceeded, and not the
   asserted property.
 - *What a merged response's accounting may claim*:
-  `CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` — the overrun notice states the finished
-  response's length, and its remedy clears the overrun in one step.
+  `CheckCapCharsTests.TheOverrunNoticeStatesItsOwnLengthAndClearsInOneStep` — the json lane's overrun member states the
+  finished document's length, and its remedy clears the overrun in one step.
 - *The comparison forms' floor and meter*: `ComparisonBoundTests` — the battery delta, the 5,798-REFR whole tree and the
   all-NPC_ narrowed tree pass the floor, a count past it refuses before any read, and a whole-record refusal leads with
   `fields=`. `ComparisonMeterTests`, on a clock read in order or driven by the read counters:

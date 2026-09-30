@@ -210,8 +210,9 @@ number describes a wider set than the rows beside it.
   and `SkseConfigRenderFramingTests` pins the BROKEN / INERT headline.
 - *Transport*: `SkseTransportTests.EachFamilysTextRenderFilledPastItsCapAnswersInsideIt` and
   `TheJsonTailIsPaidForInsideMaxCharsRatherThanAppendedPastIt` — the tail is charged before a row is laid, and a row
-  that crossed is taken back out; `ACapTooSmallForTheFixedPartSaysSoInsteadOfOverrunningSilently` — the one arm that
-  can exceed the cap is named; `TheJsonTwinCarriesTheWindowedRows` and
+  that crossed is taken back out; `ACapTooSmallForTheFixedPartIsRefusedNamingACapTheCallFits` — a cap too small for
+  what a family carries is refused naming a cap the call is served at, and
+  `EveryFamilyViewBelowItsFloorIsRefusedNamingACapItFits` and the omit-filter pins say the same of each view; `TheJsonTwinCarriesTheWindowedRows` and
   `OverMaxCharsTheJsonTwinDropsRowsAndStaysValid` — the json twin states the same rows and drops them from the tail;
   `TheConfigTwinsCensusCountsTheFiltersReferencesNotTheWholeAudit` — a census counts the filter's matches (all in
   the same class).
