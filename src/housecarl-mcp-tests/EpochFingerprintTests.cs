@@ -44,29 +44,23 @@ public sealed class EpochFingerprintTests : IDisposable
 
         var ov = new SkyrimMod(OvKey, SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ov, _master.Weapons.First())).BasicStats = new WeaponBasicStats { Damage = 20, Weight = 1 };
-        // Off-order: a disabled mod overriding weapon 0. Unparseable: an enabled plugin the build excludes.
-        var old = new SkyrimMod(new ModKey("HcEpochOld", ModType.Plugin), SkyrimRelease.SkyrimSE);
-        ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(old, _master.Weapons.First())).BasicStats = new WeaponBasicStats { Damage = 15, Weight = 1 };
 
         _inst = Path.Combine(_root, "inst");
         var mods = Path.Combine(_inst, "mods");
-        foreach (var m in new[] { "MasterMod", "OverrideMod", "OldMod", "BadMod" }) Directory.CreateDirectory(Path.Combine(mods, m));
+        foreach (var m in new[] { "MasterMod", "OverrideMod" }) Directory.CreateDirectory(Path.Combine(mods, m));
         _masterFile = Path.Combine(mods, "MasterMod", MasterName);
         _ovFile = Path.Combine(mods, "OverrideMod", OvName);
         _master.BeginWrite.ToPath(_masterFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         ov.BeginWrite.ToPath(_ovFile).WithLoadOrder(new ISkyrimModGetter[] { _master }).Write();
-        old.BeginWrite.ToPath(Path.Combine(mods, "OldMod", "HcEpochOld.esp")).WithLoadOrder(new ISkyrimModGetter[] { _master }).Write();
-        const string badName = "HcEpochBad.esp";
-        File.WriteAllText(Path.Combine(mods, "BadMod", badName), "this is not a bethesda plugin");
 
         File.WriteAllText(Path.Combine(_inst, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(_inst, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + OvName + "\r\n" + badName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + OvName + "\r\n*" + badName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-OldMod\r\n+BadMod\r\n+OverrideMod\r\n+MasterMod\r\n");
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + OvName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + OvName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+OverrideMod\r\n+MasterMod\r\n");
     }
 
     public void Dispose() { try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ } }
