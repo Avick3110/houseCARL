@@ -503,11 +503,11 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   `…NamesTheLastMasterAndItsPosition`, `…ClaimsNoWinnerOverARenumberedRecord` (the paragraph names the donors'
   overrides at their masters' FormIDs and no roster) and `ASingleDonorGetsItsOwnPositionAndClaimsNothingAboutAnInterval`
   — the rendered paragraph.
-- `closure-copy-guard` arms INTERNALIZE / REMAP SCOPING / NULLABILITY / REQUIRED LINK / LEAK SCOPING / PROVENANCE —
+- `ClosureCopyInternalizeTests`, `ClosureCopyStripTests`, `ClosureCopyLeakTests` and `ClosureCopyAttachTests` —
   fresh keys off the patch's own counter with an extended patch still counting, the scratch-mod step (a record the
   caller already put in the patch survives untouched, and the arm fails if the step is removed), nullability judged
   on the record model's interface, the required-link refusal checkable in both directions, a surviving bound link
-  being a leak while a pre-existing dangling one is not, and the walk's arm attribution surviving into the report.
+  being a leak while a pre-existing dangling one is not, the walk's arm attribution surviving into the report, and attach setting the internalized keys and refusing a target inside the source.
 - `CopyServiceLaneTests`, `CopyServiceBoundUniverseTests` and `CopyServiceRefusalTests` — the closure copy wired
   through the service over a disabled donor: attach and clone written and read back, an in-patch target on an
   extended patch, every named arm binding, a base-game donor rendered as a transplant, the off-order refusal split
