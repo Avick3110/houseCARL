@@ -49,7 +49,8 @@ something is unserved, and a build runs only when the profile files or the activ
 absence explainer, the SKSE peek and the active profile's `profile=` inspection read the build's
 answer; another profile's inspection and the setup summary have no build and run the same pass
 through `Mo2LoadOrder.Unserved`. The locate lane (`LocatePluginFileOnDisk`) reads the disk, since
-finding a copy on disk is its job. After a copy lands in or leaves a mod folder with no profile
+finding a copy on disk is its job. The archive list (`ArchiveDiscovery.Discover`) still binds a
+plugin's archives on the tick, so an unserved plugin keeps its archives in the asset resolver (#1014). After a copy lands in or leaves a mod folder with no profile
 write, the locate lane and the build's readers can answer differently until the next build (#1018).
 
 ### Deriving the roots from one path
