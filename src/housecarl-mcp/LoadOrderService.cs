@@ -477,7 +477,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             // Ticked and provided by an enabled layer yet not indexed — nothing honest left to say, so say nothing.
             return hits.Any(h => h.Enabled)
                 ? null
-                : $"'{fn}' is ticked in plugins.txt, but no enabled mod, the overwrite folder, or the game Data folder " +
+                : $"'{fn}' is ticked in plugins.txt, but {Mo2LoadOrder.SearchedPlaces(overwriteDir)} " +
                   "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
 
         if (hits.Length == 0) return null;           // nothing on disk by that name → a typo; let the suggester answer
@@ -640,12 +640,13 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public LoadOrderStatusData StatusData()
     {
         // The view and the per-build fields beside it are snapshotted under ONE gate hold, so no status line mixes two builds.
-        LoadOrderResolver.IndexView view; IReadOnlyList<string> warnings; IReadOnlyList<UnservedPlugin> unserved; bool profileChanged; string profileDir; string profileName; string? instanceDir;
+        LoadOrderResolver.IndexView view; IReadOnlyList<string> warnings; IReadOnlyList<UnservedPlugin> unserved; string searched; bool profileChanged; string profileDir; string profileName; string? instanceDir;
         lock (_gate)
         {
             view = Resolver.Capture();                             // force build/refresh; one build for count + exclusions
             warnings = _orderWarnings;
             unserved = _orderUnserved;
+            searched = Mo2LoadOrder.SearchedPlaces(_overwriteDir);   // the same places the build warning names
             profileChanged = ProfileFilesChanged();
             profileDir = _profileDir;
             profileName = _profileName;                            // captured under the same gate — one snapshot, never re-derived at render
@@ -654,7 +655,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var comp = Mo2LoadOrder.ReadComposition(profileDir);       // fresh composition (always current)
         return new LoadOrderStatusData(
             comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, profileName, instanceDir, view.ExcludedPlugins,
-            view.Epoch, view.ContainedRecordCount, unserved);
+            searched, view.Epoch, view.ContainedRecordCount, unserved);
     }
 
     /// <summary>Whole-order stats (forces the lazy build). A test seam: the probes warm the lazy index through it. No shipped caller.</summary>

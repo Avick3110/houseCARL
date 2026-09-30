@@ -57,11 +57,6 @@ public static class Mo2LoadOrder
         var winningPath = BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir);
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
 
-        // The can't-resolve warning names only the places actually searched: explicit-paths mode passes no overwrite dir.
-        var searchedPlaces = string.IsNullOrWhiteSpace(overwriteDir)
-            ? "no enabled mod or the game Data folder"
-            : "no enabled mod, the overwrite folder, or the game Data folder";
-
         // loadorder.txt order → drop unchecked plugins; resolve the rest to their winning path (winner last).
         var orderedPaths = new List<string>(comp.OrderedPluginNames.Count);
         foreach (var name in comp.OrderedPluginNames)
@@ -72,11 +67,17 @@ public static class Mo2LoadOrder
         foreach (var u in unserved)
             warnings.Add(u.SwitchedOffMod is { } offMod
                 ? $"load order lists '{u.Name}', but {ProvidedBySwitchedOffMod(offMod)}."
-                : $"load order lists '{u.Name}' but {searchedPlaces} provides it (stale loadorder.txt? " +
+                : $"load order lists '{u.Name}' but {SearchedPlaces(overwriteDir)} provides it (stale loadorder.txt? " +
                   "trigger an MO2 refresh / re-sort so it re-writes the profile files).");
 
         return new Mo2OrderResult(orderedPaths, warnings, unserved);
     }
+
+    /// <summary>The places a plugin file is served from, as the subject of "… provides it"; explicit-paths mode has no overwrite folder, so only the places actually searched are named.</summary>
+    public static string SearchedPlaces(string overwriteDir) =>
+        string.IsNullOrWhiteSpace(overwriteDir)
+            ? "no enabled mod or the game Data folder"
+            : "no enabled mod, the overwrite folder, or the game Data folder";
 
     /// <summary>The plugins <paramref name="comp"/> lists as loading that no enabled layer serves, off a fresh listing of the enabled layers — for a reader with no order build, such as another profile's inspection; it lists every enabled mod folder.</summary>
     public static IReadOnlyList<UnservedPlugin> Unserved(Mo2Composition comp, string modsDir, string dataDir, string overwriteDir) =>

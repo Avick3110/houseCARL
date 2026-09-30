@@ -207,6 +207,28 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
         Assert.Contains("NOT ACTIVE", StatusTools.LoadOrderStatus(w.Svc, w.Tools, filter: w.OffName));
     }
 
+    [Fact]
+    public void InExplicitPathsModeTheStatusFilterNamesOnlyThePlacesSearched()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hc-ticked-explicit-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var data = Path.Combine(root, "Data"); var mods = Path.Combine(root, "mods"); var profile = Path.Combine(root, "profile");
+            foreach (var d in new[] { data, mods, profile }) Directory.CreateDirectory(d);
+            new SkyrimMod(new ModKey("Skyrim", ModType.Master), SkyrimRelease.SkyrimSE)
+                .BeginWrite.ToPath(Path.Combine(data, "Skyrim.esm")).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "Skyrim.esm\r\n" + W.GoneName + "\r\n");
+            File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + W.GoneName + "\r\n");
+            File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n");
+            var store = new UserConfigStore(Path.Combine(root, "houseCARL.user.json"));
+            using var svc = LoadOrderService.WithExplicitPaths(data, mods, profile, 0, store);
+            var r = StatusTools.LoadOrderStatus(svc, new ToolPathResolver(store), filter: W.GoneName);
+            var line = Assert.Single(r.Split('\n'), l => l.Contains("as a plugin:", StringComparison.Ordinal));
+            Assert.Contains("no enabled mod or the game Data folder provides it", line);
+        }
+        finally { try { Directory.Delete(root, true); } catch { /* temp cleanup best-effort */ } }
+    }
+
     static string LineOf(string text, string needle) =>
         text.Split('\n').FirstOrDefault(l => l.Contains(needle) && l.Contains("load order"))
         ?? throw new Xunit.Sdk.XunitException($"no load-order line naming '{needle}' in:\n{text}");

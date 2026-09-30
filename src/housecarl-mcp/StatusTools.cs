@@ -93,7 +93,7 @@ static class StatusWire
 
         if (filter is { Length: > 0 })
         {
-            AppendLookup(sb, c, d.ExcludedPlugins, d.Unserved ?? [], filter.Trim(), localized);
+            AppendLookup(sb, c, d.ExcludedPlugins, d.Unserved ?? [], d.SearchedPlaces, filter.Trim(), localized);
             return sb.ToString().TrimEnd('\n');
         }
 
@@ -229,7 +229,7 @@ static class StatusWire
 
     static void AppendLookup(StringBuilder sb, HousecarlCore.Mo2Composition c,
                              IReadOnlyDictionary<string, string> excluded,
-                             IReadOnlyList<HousecarlCore.UnservedPlugin> unserved, string name,
+                             IReadOnlyList<HousecarlCore.UnservedPlugin> unserved, string searchedPlaces, string name,
                              HousecarlCore.LocalizedFlagRead? localized = null)
     {
         sb.Append("\nfilter '").Append(name).Append("':\n");
@@ -255,7 +255,7 @@ static class StatusWire
                 ? "NOT ACTIVE — " + (c.ActivePluginNames.Contains(name) ? "ticked in plugins.txt" : "an implicit master/CC") + ", but " +
                   (notServed.SwitchedOffMod is { } off
                       ? HousecarlCore.Mo2LoadOrder.ProvidedBySwitchedOffMod(off)
-                      : "no enabled mod, the overwrite folder, or the game Data folder provides it") :
+                      : searchedPlaces + " provides it") :
             c.ActivePluginNames.Contains(name)   ? "ACTIVE (checked in plugins.txt — houseCARL reads/writes it)" :
             Contains(c.ImplicitPluginNames, name) ? "ACTIVE (implicit master/CC, force-loaded — houseCARL reads/writes it)" :
             Contains(c.InactivePluginNames, name) ? "INACTIVE (present but unchecked — houseCARL EXCLUDES it)" :

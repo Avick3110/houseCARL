@@ -128,7 +128,8 @@ public sealed record LoadOrderStatusData(
     string ProfileName,         // the ACTIVE profile (instance mode: MO2's selected_profile; explicit: the dir name) — captured under the gate, not re-derived at render
     string? InstanceDir,        // the resolved MO2 instance folder houseCARL is pointed at; null ⇒ explicit-paths / unconfigured mode
     IReadOnlyDictionary<string, string> ExcludedPlugins,
-    string? Epoch = null,       // the resolver's current build fingerprint (SPEC §2.1.1) — the status line names it so a caller can match responses/artifacts to the build; nullable like every other carrier
+    string SearchedPlaces,      // the places this build searched for a plugin file (Mo2LoadOrder.SearchedPlaces), named when one is not served
+    string? Epoch = null,      // the resolver's current build fingerprint (SPEC §2.1.1) — the status line names it so a caller can match responses/artifacts to the build; nullable like every other carrier
     int ContainedRecordCount = 0,   // children this build recorded a containing record for — the '*parent' map's size, declared in band per SPEC §2.1 rather than left for a user to discover as memory
     IReadOnlyList<UnservedPlugin>? Unserved = null);  // listed as loading but served by no enabled layer, so not active whatever plugins.txt says
 
