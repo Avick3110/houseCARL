@@ -137,7 +137,9 @@ public sealed class CrossQueryPrimitivesTests : IClassFixture<CrossQueryPrimitiv
     [Fact]
     public void GroupByDefinedIn_CountsByTheOriginPlugin()
     {
-        var g = GroupMap(_reads.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "defined_in"));
+        var q = _reads.CrossQuery("Weapon", null, null, false, null, null, 500, groupBy: "defined_in");
+        var g = GroupMap(q);
+        Assert.Equal(3, q.Total);
         Assert.Equal(2, g[Master]);
         Assert.Equal(1, g[Repl]);
     }
@@ -174,11 +176,36 @@ public sealed class CrossQueryPrimitivesTests : IClassFixture<CrossQueryPrimitiv
                         StringComparison.OrdinalIgnoreCase);
     }
 
+    const string CfMasterName = "hcbpcfMaster.esp";
+
     // Probe #248: "case-variant master spellings MERGE into one group of count 2" and "the merged group key is a real master spelling".
     [Fact]
     public void GroupByDefinedIn_MergesCaseVariantSpellingsOfOneMaster()
     {
-        const string cfMasterName = "hcbpcfMaster.esp", cfAName = "hcbpcfA.esp", cfBName = "hcbpcfB.esp";
+        var q = CaseVariantDefinedInGroups(masterInOrder: true);
+        Assert.Equal(2, q.Total);
+        var g = Assert.Single(q.Groups!);
+        Assert.Equal(2, g.Count);
+        Assert.Equal(CfMasterName, g.Key, ignoreCase: true);
+    }
+
+    // #248 with the master outside the order: no canonical spelling is published for it, so the group table's own
+    // case-insensitive keys are the only thing merging the two spellings.
+    [Fact]
+    public void GroupByDefinedIn_MergesCaseVariantSpellingsOfAMasterOutsideTheOrder()
+    {
+        var q = CaseVariantDefinedInGroups(masterInOrder: false);
+        Assert.Equal(2, q.Total);
+        var g = Assert.Single(q.Groups!);
+        Assert.Equal(2, g.Count);
+        Assert.Equal(CfMasterName, g.Key, ignoreCase: true);
+    }
+
+    /// <summary>A overrides one master weapon listing the master as written; B overrides another listing it in
+    /// lowercase. The query groups plugins=[A,B] by defined_in.</summary>
+    static CrossQueryOutcome CaseVariantDefinedInGroups(bool masterInOrder)
+    {
+        const string cfMasterName = CfMasterName, cfAName = "hcbpcfA.esp", cfBName = "hcbpcfB.esp";
         var dir = Path.Combine(Path.GetTempPath(), "hc-cross-query-casefold-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         try
@@ -199,14 +226,10 @@ public sealed class CrossQueryPrimitivesTests : IClassFixture<CrossQueryPrimitiv
             _ = WriteEngine.GenericGetOrAddAsOverride(cfB, cw2Lc);
             cfB.BeginWrite.ToPath(Path.Combine(dir, cfBName)).WithLoadOrder(new ISkyrimModGetter[] { cfMasterLc }).Write();
 
-            using var resolver = LoadOrderResolver.Build(new[] { cfMasterName, cfAName, cfBName }.Select(n => Path.Combine(dir, n)).ToList());
+            var order = masterInOrder ? new[] { cfMasterName, cfAName, cfBName } : new[] { cfAName, cfBName };
+            using var resolver = LoadOrderResolver.Build(order.Select(n => Path.Combine(dir, n)).ToList());
             var svc = LoadOrderService.ForGuard(resolver, new UserConfigStore(Path.Combine(dir, "houseCARL.user.json")));
-            var q = svc.ReadArea.CrossQuery((string?)null, null, null, false, new[] { cfAName, cfBName }, null, 500, groupBy: "defined_in");
-
-            Assert.Equal(2, q.Total);
-            var g = Assert.Single(q.Groups!);
-            Assert.Equal(2, g.Count);
-            Assert.Equal(cfMasterName, g.Key, ignoreCase: true);
+            return svc.ReadArea.CrossQuery((string?)null, null, null, false, new[] { cfAName, cfBName }, null, 500, groupBy: "defined_in");
         }
         finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup best-effort */ } }
     }

@@ -136,7 +136,8 @@ public sealed class FreshnessCaptureTests : IDisposable
     }
 
     // Probe arm 3: "no torn status line across N concurrent reads". Strengthened: the run must also have read
-    // both builds, so a hammer whose flips never landed cannot pass on zero observations.
+    // both builds, so a hammer whose flips never landed cannot pass on zero observations. It hammers for the probe's
+    // 4 s, then keeps going until both builds have been read, up to a minute, so a starved runner waits instead of failing.
     [Fact]
     public async Task AStatusLineUnderConcurrentFlips_NeverMixesTwoBuilds()
     {
@@ -150,7 +151,7 @@ public sealed class FreshnessCaptureTests : IDisposable
         var stateX = "# header\r\n" + MasterName + "\r\nGhost.esp\r\n";
         var stateY = "# header\r\n" + MasterName + "\r\n" + ExtraName + "\r\n";
         int torn = 0, sawOne = 0, sawTwo = 0;
-        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+        using var stop = new CancellationTokenSource();
         var flipper = Task.Run(() =>
         {
             bool x = true;
@@ -181,6 +182,11 @@ public sealed class FreshnessCaptureTests : IDisposable
                 if (s.ResolvedPluginCount == 2) Interlocked.Increment(ref sawTwo);
             }
         })).Append(flipper).ToArray();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (clock.Elapsed < TimeSpan.FromMinutes(1)
+               && (clock.Elapsed < TimeSpan.FromSeconds(4) || Volatile.Read(ref sawOne) == 0 || Volatile.Read(ref sawTwo) == 0))
+            await Task.Delay(50);
+        stop.Cancel();
         await Task.WhenAll(tasks);
 
         Assert.Equal(0, torn);
