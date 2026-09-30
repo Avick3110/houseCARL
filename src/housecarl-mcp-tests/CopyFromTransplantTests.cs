@@ -77,7 +77,7 @@ public sealed class CopyFromTransplantTests : IClassFixture<CopyFromWorld>
 
     // probe: CopyFrom single formlink Template (SetTo): winner null → source w2
     [Fact]
-    public void AGetOnlyFormLinkIsSetToTheSourceKey()
+    public void ASingleFormLinkTakesTheSourceKey()
         => Assert.Equal(_w.W2Key, Read(Copy("Template", "CfTmpl"), ov => Weapon(ov, _w.WKey).Template.FormKey));
 
     // probe: CopyFrom OFF-ORDER source (disabled DonorOld.esp): winner 99 → off-order 77
