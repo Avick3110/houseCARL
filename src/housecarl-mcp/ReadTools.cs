@@ -29,7 +29,8 @@ static partial class Wire
     // ---- the identity form ----
     /// <summary>Render the bulk name-resolution result: one identity line per input FormID, or a per-item <c>error=</c> for a bad or absent one.</summary>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch)
-        => RenderResolve(rows, maxChars, epoch, null, out _);
+        => RenderCap.Capped(Cap(maxChars), n => RenderResolve(rows, n, epoch, null, out _), epochLine: EpochLine(epoch),
+                            nextCall: RenderCap.NextCallGrowth);
 
     /// <param name="header">The caller's own header line, written INSIDE the budget.</param>
     /// <param name="bodyCost">What resolving these FormIDs cost, over the ids that RESOLVED; contract in docs/architecture/records-tool-front.md.</param>
@@ -70,7 +71,8 @@ static partial class Wire
         // What resolving these FormIDs cost — the count is the LIST's, not this window's.
         if (bodyCost is { } bc) sb.Append(RenderBudget.BodiesLine(bc.RowsRead, bc.Millis));
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        // Raw: the lane closes it on the floor check, with the spill decided (Artifacts.CeilingText).
+        return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>The spill block as a string, so its room can be charged before the rows are laid; empty when this call spills nothing.</summary>
@@ -161,7 +163,9 @@ static partial class Wire
 
     // ---- many records ----
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars)
-        => RenderBatch(outcomes, maxChars, null, out _);
+        => RenderCap.Capped(Cap(maxChars), n => RenderBatch(outcomes, n, null, out _),
+                            epochLine: EpochLine(outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp),
+                            nextCall: RenderCap.NextCallGrowth);
 
     /// <summary><paramref name="levers"/> is the caller's own parameter vocabulary for the remedy sentences below; omitted means the legacy spelling.</summary>
     /// <param name="bodyCost">What reading these bodies cost, counted over the BODIES READ; contract in docs/architecture/records-tool-front.md.</param>
@@ -217,7 +221,8 @@ static partial class Wire
         // What reading these bodies cost, stated whatever the transport: the rows were resolved before this render.
         if (bodyCost is { } bc) sb.Append(RenderBudget.BodiesLine(bc.RowsRead, bc.Millis));
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        // Raw: the lane closes it on the floor check, with the spill decided (Artifacts.CeilingText).
+        return sb.ToString().TrimEnd('\n');
     }
 
     // ---- the scan lane ----
@@ -228,11 +233,25 @@ static partial class Wire
                                           bool resolveNames = false, bool winnerFields = false, int depth = 1)
         => RenderCrossQuery(svc, q, fields, maxChars, resolveNames, winnerFields, depth, null, out _);
 
-    /// <summary>The artifact-aware render: <paramref name="spill"/> carries the call's artifact disposition, and <paramref name="truncated"/> hands the row-level cut back to the tool layer, which triggers the auto-spill.</summary>
+    /// <summary>The scan render for a caller with no spill to decide: its rows read once, whole first, and closed on the floor check.</summary>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars,
                                           bool resolveNames, bool winnerFields, int depth, SpillState? spill, out bool truncated,
                                           LeverNames? levers = null, CancellationToken ct = default, string? header = null,
                                           int rowLimit = 0)
+    {
+        using var rows = new ScanRows(svc, q, fields, depth, resolveNames, winnerFields, (levers ?? LeverNames.Legacy).ContainerHint, ct);
+        bool cut = false;
+        string At(int n) => RenderCrossQuery(rows, q, fields, n, winnerFields, spill, out cut, levers, header, rowLimit);
+        if (q.Error is not null) { truncated = false; return At(0); }
+        var r = RenderCap.Capped(Cap(maxChars), At, epochLine: EpochLine(q.Stamp), nextCall: RenderCap.NextCallGrowth);
+        truncated = cut;
+        return r;
+    }
+
+    /// <summary>The artifact-aware render, raw: <paramref name="spill"/> carries the call's artifact disposition, and <paramref name="truncated"/> hands the row-level cut back to the tool layer, which triggers the auto-spill. <paramref name="rows"/> reads each match once for every render of the call.</summary>
+    internal static string RenderCrossQuery(ScanRows rows, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars,
+                                            bool winnerFields, SpillState? spill, out bool truncated,
+                                            LeverNames? levers = null, string? header = null, int rowLimit = 0)
     {
         truncated = false;
         var lv = levers ?? LeverNames.Legacy;
@@ -242,10 +261,6 @@ static partial class Wire
         int cap = Cap(maxChars);
         if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, rowLimit, spill, out truncated, head);   // group_by= → a count table, not per-match lines
         bool detail = fields is { Count: > 0 };          // expand matches, vs. one-line summaries
-        // One session, one link cache, one chunked body prefetch for every rendered match, and the row loop's cancellation check.
-        using var reader = detail
-            ? new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields, lv.ContainerHint, null, ct)
-            : null;
         bool anyScoped = JsonWire.AnyScopedFieldRow(q, fields);   // the shared test: a plugins= scope shows a plugin's OWN body
         var sb = new StringBuilder();
         sb.Append(head);
@@ -277,7 +292,6 @@ static partial class Wire
         if (anyScoped) sb.Append("note: ").Append(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, lv)).Append('\n');
 
         int rendered = 0;
-        var renderClock = System.Diagnostics.Stopwatch.StartNew();
         var notes = new ChildNotes();   // accumulated over the rows actually rendered
         int costReserve = detail ? RenderBudget.AccountingReserve : 0;
         // The slim-down clause is only true for a call that passed something to slim WITH (LeverNames.SlimScan); a call that passed nothing gets the two levers that are real on it.
@@ -297,7 +311,7 @@ static partial class Wire
             if (detail)
             {
                 // winner_fields= reads the load-order winner's body whatever the scan scope; otherwise the body the scan filtered, pinned to the scan's own build.
-                var o = reader!.Row(i);   // a collapsed cell names the caller's own expansion knob
+                var o = rows.Detail(i);   // a collapsed cell names the caller's own expansion knob
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
@@ -305,7 +319,7 @@ static partial class Wire
             }
             else
             {
-                var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // lazy fill for conflicts-only, pinned to the scan's build
+                var m = rows.Summary(i);   // lazy fill for conflicts-only, pinned to the scan's build
                 sb.Append("  ").Append(FormIdToken.Of(m.FormKey));
                 if (m.Error is not null) sb.Append("  error=").Append(m.Error).Append('\n');
                 else
@@ -328,15 +342,15 @@ static partial class Wire
             }
             rendered++;
         }
-        renderClock.Stop();
         AppendOwnedChildNotes(sb, notes);
         // What the RENDER cost, stated in-band. A to_file= call renders its rows into the ARTIFACT, so its cost comes off the write rather than off the loop above.
         if (detail && spill?.ManifestOnly == true && spill.Spill is { RenderMs: { } artifactMs } a)
             sb.Append(RenderBudget.AccountingLine(a.Manifest.RowCount, artifactMs));
         else if (detail && !(spill?.ManifestOnly ?? false))
-            sb.Append(RenderBudget.AccountingLine(rendered, renderClock.ElapsedMilliseconds));
+            sb.Append(RenderBudget.AccountingLine(rendered, rows.MillisThrough(rendered)));
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        // Raw: the lane closes it on the floor check, with the spill decided (Artifacts.CeilingText).
+        return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>Render a <c>group_by=</c> aggregation: a header naming the key, the true total and the group count, then one row per group, with the where= and unscannable notes surviving; only the rendering is capped, so the total stays exact.</summary>
@@ -390,7 +404,7 @@ static partial class Wire
         }
         sb.Append(emptyLine);
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        return sb.ToString().TrimEnd('\n');
     }
 
     // ---- the chain form ----

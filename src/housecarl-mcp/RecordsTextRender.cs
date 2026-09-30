@@ -111,7 +111,8 @@ static partial class RecordsTools
             break;
         }
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        // Raw: the lane closes it on the floor check, with the spill decided (Artifacts.CeilingText).
+        return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>The budget of the unreserved pass every bounded render here makes first: no unit can cross it, so that pass lays the COMPLETE render, and the reserves are charged only once the whole thing is known not to fit at this cap.</summary>
@@ -258,7 +259,8 @@ static partial class RecordsTools
             break;
         }
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        // Raw: the lane closes it on the floor check, with the spill decided (Artifacts.CeilingText).
+        return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>The records text lane's cut notice, composed in one place, and returned rather than written so its room can be held back before the line it follows is laid.</summary>
@@ -389,7 +391,8 @@ static partial class RecordsTools
             break;
         }
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        // Raw: the lane closes it on the floor check, with the spill decided (Artifacts.CeilingText).
+        return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>What a walked seed states after its nodes — the cycles it found, the walk.max_nodes cap it hit, and the NPC TemplateFlags inheritance report — composed apart from the node loop because these are claims about the WALK that a max_chars cut may not swallow.</summary>
@@ -474,7 +477,8 @@ static partial class RecordsTools
             break;
         }
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        // Raw: the lane closes it on the floor check, with the spill decided (Artifacts.CeilingText).
+        return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>The info_order form's text render: per topic its identity, then the merged-order body from the shared <see cref="Wire.AppendInfoOrderView"/>, bounded by what this render has left rather than by the whole cap.</summary>
@@ -532,7 +536,8 @@ static partial class RecordsTools
             break;
         }
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        // Raw: the lane closes it on the floor check, with the spill decided (Artifacts.CeilingText).
+        return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>The list-lane summary render: one identity-and-winner line per outcome or its per-item error, the batch shape of the scan lane's summary rows, with the spill marker in-band on both transports.</summary>
@@ -585,7 +590,8 @@ static partial class RecordsTools
         // What reading this list's bodies cost — the count is the LIST's, not this window's.
         sb.Append(RenderBudget.BodiesLine(bodyCost.RowsRead, bodyCost.Millis));
         sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString(), cap);
+        // Raw: the lane closes it on the floor check, with the spill decided (Artifacts.CeilingText).
+        return sb.ToString();
     }
 
     /// <summary>The list-lane aggregate render: the resolved rows counted by winner, type or defined_in — the batch twin of the scan lane's count table — with per-item errors in their own named bucket and the same response envelope every other form carries.</summary>
@@ -624,9 +630,20 @@ static partial class RecordsTools
         var rows = empties.Count == 0 ? all : all.Where(g => g.Value > 0).ToList();
         if (json || dense)
             return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, cap, envelope, empties, rowLimit);
+        return RenderCap.Capped(cap, n => RenderListAggregateText(rows, empties, gb, outcomes.Count, errors, epoch, headerLine,
+                                                                  bodyCost, n, rowLimit),
+                                epochLine: Wire.EpochLine(epoch), nextCall: RenderCap.NextCallGrowth);
+    }
+
+    /// <summary>The list-lane aggregate's text render at one cap, raw: its caller closes it on the floor check.</summary>
+    /// <remarks>Internal so a test can drive a table wider than its fixture's, whose cut a whole-first call never serves.</remarks>
+    internal static string RenderListAggregateText(IReadOnlyList<KeyValuePair<string, int>> rows, IReadOnlyList<string> empties,
+                                                   string gb, int records, int errors, OrderStamp? epoch, string headerLine,
+                                                   (int RowsRead, long Millis) bodyCost, int cap, int rowLimit)
+    {
         var sb = new StringBuilder();
         sb.Append(headerLine).Append("  group_by=").Append(gb).Append('\n');
-        sb.Append(outcomes.Count).Append(" record(s)");
+        sb.Append(records).Append(" record(s)");
         if (errors > 0) sb.Append("  (").Append(errors).Append(" per-item error(s) — counted apart, listed via form='summary')");
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
@@ -661,6 +678,6 @@ static partial class RecordsTools
         sb.Append(emptyLine);
         // What reading the bodies this table counted cost, stated on text as it is on json.
         sb.Append(RenderBudget.BodiesLine(bodyCost.RowsRead, bodyCost.Millis));
-        return RenderCap.Settle(sb.ToString(), cap);
+        return sb.ToString();
     }
 }

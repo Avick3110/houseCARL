@@ -85,23 +85,30 @@ public static class SkseTools
     /// <summary>The live renders: each family's data read from the service, handed to its own wire class.</summary>
     sealed class ServiceRenders(LoadOrderService svc) : IFamilyRenders
     {
+        // One instance per call, so each family's data is read once however many times its render is laid.
+        SkseInventoryData? _inventory;
+        string? _peeked;
+        NativePairingAuditData? _pairing;
+        SkseConfigAuditData? _config;
+
         public string Inventory(FamilyCall c)
         {
-            var d = svc.SkseInventory(c.Peek ? c.Filter!.Trim() : null);
-            return c.Json ? SkseInventoryWire.RenderJson(d, c.Filter, c.Cap, c.Window)
-                          : SkseInventoryWire.Render(d, c.Filter, c.Cap, c.Window, c.Trailer);
+            var peek = c.Peek ? c.Filter!.Trim() : null;
+            if (_inventory is null || _peeked != peek) { _inventory = svc.SkseInventory(peek); _peeked = peek; }
+            return c.Json ? SkseInventoryWire.RenderJson(_inventory, c.Filter, c.Cap, c.Window)
+                          : SkseInventoryWire.Render(_inventory, c.Filter, c.Cap, c.Window, c.Trailer);
         }
 
         public string Pairing(FamilyCall c)
         {
-            var d = svc.NativePairingAudit();
+            var d = _pairing ??= svc.NativePairingAudit();
             return c.Json ? NativePairingWire.RenderJson(d, c.Filter, c.Cap, c.Window)
                           : NativePairingWire.Render(d, c.Filter, c.Cap, c.Window, c.Trailer);
         }
 
         public string Config(FamilyCall c)
         {
-            var d = svc.SkseConfigAudit();
+            var d = _config ??= svc.SkseConfigAudit();
             return c.Json ? SkseConfigAuditWire.RenderJson(d, c.Filter, c.Cap, c.Window)
                           : SkseConfigAuditWire.Render(d, c.Filter, c.Cap, c.Window, c.Trailer);
         }
@@ -115,17 +122,24 @@ public static class SkseTools
         // The json document states the family and the two that did not run in-band, so no text footer.
         var footer = json ? "" : FamilyFooter(family);
         int cap = max_chars > 0 ? max_chars : 80_000;
-        var call = new FamilyCall(filter, peek, cap, window, json, footer.Length);
-        var body = family switch
+        string At(string? f, int n)
         {
-            SkseFamily.Inventory => renders.Inventory(call),
-            SkseFamily.Pairing => renders.Pairing(call),
-            _ => renders.Config(call),
-        };
-        // The one arm a bounded render may still exceed on is NAMED rather than left to be discovered. The json
-        // documents name it INSIDE themselves (max_chars_overrun), so the text notice must not be glued on past
-        // their root close, which would stop them being json at all.
-        return json ? body : RenderCap.Settle(body + footer, cap);
+            var call = new FamilyCall(f, peek, n, window, json, footer.Length);
+            return family switch
+            {
+                SkseFamily.Inventory => renders.Inventory(call),
+                SkseFamily.Pairing => renders.Pairing(call),
+                _ => renders.Config(call),
+            } + footer;
+        }
+        // The json documents name an overrun INSIDE themselves (max_chars_overrun), so nothing is glued on past their
+        // root close.
+        if (json) return At(filter, cap);
+        // "omit filter=" is offered only where it is true: not beside peek=, which needs its filter, and only when the
+        // unfiltered view fits the cap this call was given.
+        string OmitFilter() => string.IsNullOrWhiteSpace(filter) || peek || RenderCap.Capped(cap, n => At(null, n)).Length > cap
+            ? "" : RenderCap.OmitFilter;
+        return RenderCap.Capped(cap, n => At(filter, n), OmitFilter);
     }
 
     /// <summary>The two families this call did not run, in the spelling that would — the json twin of <see cref="FamilyFooter"/>.</summary>

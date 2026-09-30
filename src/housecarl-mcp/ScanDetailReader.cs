@@ -71,3 +71,54 @@ internal sealed class ScanDetailReader : IDisposable
 
     public void Dispose() => _session?.Dispose();
 }
+
+/// <summary>One scan call's matches as its text render reads them: each row read once, in order, however many times
+/// the render is laid (whole first, at the cap, and the floor check's re-renders), with what reading them cost.</summary>
+internal sealed class ScanRows : IDisposable
+{
+    readonly LoadOrderService _svc;
+    readonly CrossQueryOutcome _q;
+    readonly ScanDetailReader? _reader;
+    readonly List<ReadOutcome> _detail = new();
+    readonly List<long> _detailMs = new();
+    readonly List<RecordSummary> _summary = new();
+    readonly System.Diagnostics.Stopwatch _clock = new();
+
+    /// <summary>A detail reader is opened only when <paramref name="fields"/> asks for bodies.</summary>
+    internal ScanRows(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int depth,
+                      bool resolveNames, bool winnerFields, string? containerHint, CancellationToken ct)
+    {
+        _svc = svc;
+        _q = q;
+        // One session, one link cache, one chunked body prefetch for every rendered match.
+        _reader = fields is { Count: > 0 } && q.Error is null && q.Groups is null
+            ? new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields, containerHint, null, ct)
+            : null;
+    }
+
+    /// <summary>Row <paramref name="i"/>'s body, read on first ask.</summary>
+    internal ReadOutcome Detail(int i)
+    {
+        while (_detail.Count <= i)
+        {
+            _clock.Start();
+            _detail.Add(_reader!.Row(_detail.Count));
+            _clock.Stop();
+            _detailMs.Add(_clock.ElapsedMilliseconds);
+        }
+        return _detail[i];
+    }
+
+    /// <summary>What reading the first <paramref name="rows"/> bodies cost, fixed once read, so every render of the call states one figure.</summary>
+    internal long MillisThrough(int rows) => rows == 0 ? 0 : _detailMs[rows - 1];
+
+    /// <summary>Row <paramref name="i"/>'s summary: prefilled by the scan, or filled on first ask, pinned to the scan's build.</summary>
+    internal RecordSummary Summary(int i)
+    {
+        if (_q.Prefilled is not null) return _q.Prefilled[i];
+        while (_summary.Count <= i) _summary.Add(_svc.ResolveSummaryOn(_q, _q.Keys[_summary.Count]));
+        return _summary[i];
+    }
+
+    public void Dispose() => _reader?.Dispose();
+}

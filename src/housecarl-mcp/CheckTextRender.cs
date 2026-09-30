@@ -241,6 +241,20 @@ static class CheckTextRender
                    + "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "")
                    + (o.OrderExcluded.Count > 0 ? "\n" + OrderDegraded.Sentence(o.OrderExcluded) : "");
         int cap = Wire.Cap(maxChars);
+        // Whole first (#986): the complete sweep, served when it fits, before any reserve is charged.
+        var whole = RenderCheckAt(o, RenderCap.Whole, histogramLimit, out var wholeBody, out _);
+        if (whole.Length <= cap) { measured = wholeBody; return whole; }
+        var response = RenderCheckAt(o, cap, histogramLimit, out measured, out bool fixedPartOver);
+        // A fixed part wider than the cap is refused, naming a max_chars this same sweep was measured to fit.
+        if (!fixedPartOver) return response;
+        return RenderCap.Hold(response, cap, n => whole.Length <= n ? whole : RenderCheckAt(o, n, histogramLimit, out _, out _),
+                              out _, epochLine: o.Epoch is not null ? $"\nepoch={o.Epoch}" : "", whole: whole.Length);
+    }
+
+    /// <summary>The merged sweep at one cap, with its overrun notice; <paramref name="fixedPartOver"/> says the cap cannot hold its fixed part.</summary>
+    static string RenderCheckAt(CheckOutcome o, int cap, int histogramLimit, out BoundedBody? measured, out bool fixedPartOver)
+    {
+        fixedPartOver = false;
         var sections = o.Sections;
         var accts = o.Accountings(cap);
         // The reserve: one accounting line and one boundary line per family, held back before anything renders.
@@ -271,6 +285,7 @@ static class CheckTextRender
         // The overrun question, asked of the finished response, which the notice is part of — so it settles to a fixed point; docs/architecture/render-budget.md.
         var response = sb.ToString().TrimEnd('\n');
         int needed = body.FixedPart(response.Length);
+        fixedPartOver = needed > cap;
         // The first accounting states it once: the sentence is about the whole response rather than any family.
         var overrun = accts.Count > 0 ? accts[0] : null;
         if (overrun is null) return response;

@@ -8,6 +8,10 @@ public static class ResultArtifact
     /// <summary>The manifest-format version stamped as the <c>housecarl_artifact</c> value; its PRESENCE is what marks a file as an artifact rather than a plain formid list.</summary>
     public const int ManifestVersion = 1;
 
+    /// <summary>The named error for an artifact that could not be put on disk.</summary>
+    internal static string WriteError(string path, Exception ex) =>
+        $"could not write the result artifact to '{path}' — {ex.GetType().Name}: {ex.Message}";
+
     /// <summary>Leading characters stripped before sniffing or parsing line 1: a UTF-8 BOM and ordinary indentation.</summary>
     static readonly char[] LineNoise = { '\uFEFF', ' ', '\t' };
 
@@ -68,7 +72,7 @@ public static class ResultArtifact
             }
             catch (Exception ex)
             {
-                return (null, $"could not write the result artifact to '{target.Path}' — {ex.GetType().Name}: {ex.Message}");
+                return (null, WriteError(target.Path, ex));
             }
         }
 
@@ -289,7 +293,8 @@ public static class ResultArtifact
 public sealed class ArtifactTarget : IDisposable
 {
     readonly FileStream? _reserved;
-    bool _wrote;
+    bool _wrote, _defer;
+    MemoryStream? _held;
 
     ArtifactTarget(string path, FileStream? reserved) { Path = path; _reserved = reserved; }
 
@@ -305,6 +310,15 @@ public sealed class ArtifactTarget : IDisposable
     /// <summary>Put the artifact on disk: a reservation writes through the handle that claimed the name, a named target through a same-directory temp moved into place — one path per kind, because the hazards are opposite.</summary>
     internal void Write(Action<Stream> writeInto)
     {
+        if (_defer)
+        {
+            // Held, not written: the next Write is Commit's.
+            var held = new MemoryStream();
+            writeInto(held);
+            _held = held;
+            _defer = false;
+            return;
+        }
         if (_reserved is not null)
         {
             using (_reserved) writeInto(_reserved);
@@ -329,6 +343,28 @@ public sealed class ArtifactTarget : IDisposable
         }
     }
 
+    /// <summary>Hold what the next Save writes in memory until <see cref="Commit"/>, so a call can decide on the render
+    /// that names this file before the file lands; a target disposed uncommitted leaves nothing on disk.</summary>
+    public ArtifactTarget Defer()
+    {
+        _defer = true;
+        return this;
+    }
+
+    /// <summary>Put the held artifact on disk: null, or the named error a failed Save gives.</summary>
+    public string? Commit()
+    {
+        if (_held is not { } held) return null;
+        _held = null;
+        try
+        {
+            Write(fs => { held.Position = 0; held.CopyTo(fs); });
+            return null;
+        }
+        catch (Exception ex) { return ResultArtifact.WriteError(Path, ex); }
+        finally { held.Dispose(); }
+    }
+
     /// <summary>A target is written once; a second write would fail against the reservation's closed stream and take the landed artifact with it.</summary>
     internal void EnsureUnwritten()
     {
@@ -337,6 +373,7 @@ public sealed class ArtifactTarget : IDisposable
 
     public void Dispose()
     {
+        _held?.Dispose();
         if (_reserved is null) return;   // a named target owns no handle and no file of its own
         _reserved.Dispose();
         if (!_wrote) try { File.Delete(Path); } catch (Exception) { }

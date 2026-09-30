@@ -51,7 +51,13 @@ static class SkyPatcherWire
     // ---- housecarl_skypatcher_layer ------------------------------------------------------------------
 
     /// <summary>The layer render, inside max_chars; a cap too small for its header, owed notices and caveats says so.</summary>
-    public static string RenderLayer(SkyPatcherLayerData d, string? filter, int cap) => RenderCap.Settle(Render(d, filter, cap), cap);
+    public static string RenderLayer(SkyPatcherLayerData d, string? filter, int cap)
+    {
+        // "omit filter=" is offered only where it is true: the unfiltered layer fits the cap this call was given.
+        string OmitFilter() => string.IsNullOrWhiteSpace(filter) || RenderCap.Capped(cap, n => Render(d, null, n)).Length > cap
+            ? "" : RenderCap.OmitFilter;
+        return RenderCap.Capped(cap, n => Render(d, filter, n), OmitFilter);
+    }
 
     static string Render(SkyPatcherLayerData d, string? filter, int maxChars)
     {

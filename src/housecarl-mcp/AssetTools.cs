@@ -207,21 +207,22 @@ public static class AssetTools
 
         if (!wantFile)
         {
-            string Inline(SpillState? sp, out bool cut) => json
-                ? JsonWire.RenderAssetStatus(data, cap, sp, out cut)
-                : AssetWire.Render(data, cap, sp, out cut);
+            string Inline(int n, SpillState? sp, out bool cut) => json
+                ? JsonWire.RenderAssetStatus(data, n, sp, out cut)
+                : AssetWire.Render(data, n, sp, out cut);
 
-            var rendered = Inline(null, out var truncated);
-            if (!truncated) return rendered;
             // SPEC §2.1.1: an over-ceiling read result is written whole to the results directory and the response names the
-            // file. The stamp is taken only here, so an ordinary sweep still builds no record index.
-            if (order is null && noEpochBecause is null)
-                try { order = svc.CaptureView().Stamp; }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-                { noEpochBecause = Guard.Flatten(ex.Message); }
-            using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? "none");
-            var (auto, autoErr) = AssetArtifact.Write(data, reservation, "ceiling", order, Echo(), noEpochBecause);
-            return Inline(autoErr is null ? SpillState.Spilled(auto!, manifestOnly: false) : SpillState.WriteFailed(autoErr), out _);
+            // file. The stamp is taken only when a spill is, so an ordinary sweep still builds no record index.
+            ArtifactTarget Reserve()
+            {
+                if (order is null && noEpochBecause is null)
+                    try { order = svc.CaptureView().Stamp; }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                    { noEpochBecause = Guard.Flatten(ex.Message); }
+                return ResultsStore.Reserve(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? "none");
+            }
+            return Artifacts.Ceiling(json, cap, Inline, null, Reserve,
+                t => AssetArtifact.Write(data, t, "ceiling", order, Echo(), noEpochBecause));
         }
 
         var (spill, artErr) = AssetArtifact.Write(data, ArtifactTarget.Named(toFile!), "to_file", order, Echo(), noEpochBecause);
@@ -243,7 +244,8 @@ static class AssetWire
             .Append("'  (").Append(d.Selected).Append(" path").Append(d.Selected == 1 ? "" : "s")
             .Append(" selected)").ToString();
 
-    public static string Render(AssetStatusData d, int cap) => Render(d, cap, null, out _);
+    /// <summary>The render for a caller with no spill to decide: whole first, closed on the floor check.</summary>
+    public static string Render(AssetStatusData d, int cap) => RenderCap.Capped(cap, n => Render(d, n, null, out _));
 
     /// <summary><paramref name="spill"/> is this call's artifact disposition, charged before the first path; <paramref name="truncated"/> is what the caller auto-spills on.</summary>
     public static string Render(AssetStatusData d, int cap, SpillState? spill, out bool truncated)
@@ -268,7 +270,8 @@ static class AssetWire
 
         var counts = Tally(d, rendered);
         truncated = counts.Truncated > 0;
-        return RenderCap.Settle(body + TransportAccounting.Compose(counts, RowNoun, everySentence: false) + spillText, cap);
+        // Raw: the lane closes it on the floor check, with the spill decided (Artifacts.CeilingText).
+        return body + TransportAccounting.Compose(counts, RowNoun, everySentence: false) + spillText;
     }
 
     /// <summary>What this family's accounting counts.</summary>
@@ -435,6 +438,11 @@ static class AssetCensus
     public static string Render(AssetStatusData d, int cap, int limit)
     {
         var c = Tally(d);
+        return RenderCap.Capped(cap, n => Render(d, c, n, limit));
+    }
+
+    static string Render(AssetStatusData d, Counts c, int cap, int limit)
+    {
         var sb = new StringBuilder(AssetWire.Header(d)).Append('\n');
         // What this response writes whatever the budget says, held back BEFORE the alarms: uncharged, they take
         // the room the census's own answer needs and the response lands over the cap on a cut that would have fitted.
@@ -450,6 +458,6 @@ static class AssetCensus
         // The one bounded emission path: the budget is the whole cap, because Outstanding reads the live builder.
         var body = new BoundedBody(acct: null, budget: cap, () => sb.Length);
         CheckTextRender.AppendHistogramAxes(sb, body, RowLimit(limit), Axis(c));
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+        return sb.ToString().TrimEnd('\n');
     }
 }

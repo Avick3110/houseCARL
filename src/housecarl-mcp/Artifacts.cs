@@ -394,6 +394,72 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
+    /// <summary>A lane's render at a given max_chars and spill disposition, reporting whether it cut anything.</summary>
+    internal delegate string CappedRender(int cap, SpillState? spill, out bool truncated);
+
+    /// <summary>A lane that auto-spills at its ceiling, on either transport: a to_file= manifest settles (its file already
+    /// landed), json keeps its own overrun field and spill, and text goes through <see cref="CeilingText"/>.</summary>
+    internal static string Ceiling(bool json, int cap, CappedRender render, SpillState? toFile,
+                                   Func<ArtifactTarget> reserve, Func<ArtifactTarget, (SpillInfo? Spill, string? Error)> write,
+                                   string epochLine = "")
+    {
+        if (toFile is not null)
+        {
+            var manifest = render(cap, toFile, out _);
+            return json ? manifest : RenderCap.Settle(manifest, cap);
+        }
+        if (!json) return CeilingText(cap, render, reserve, write, epochLine);
+        var rendered = render(cap, null, out bool truncated);
+        if (!truncated) return rendered;
+        using var target = reserve();
+        var (s, err) = write(target);
+        return render(cap, err is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(err), out _);
+    }
+
+    /// <summary>The text reply of a lane that auto-spills at its ceiling (#986). The whole answer is served when it fits;
+    /// otherwise the render at the cap, spilling only where that render cuts. The artifact is built in memory and put on
+    /// disk only once the reply that names it is served: a call refused below its floor writes no file, and its refusal
+    /// names a cap measured with the spill block in place, since that is the render the next call makes.</summary>
+    internal static string CeilingText(int cap, CappedRender at, Func<ArtifactTarget> reserve,
+                                       Func<ArtifactTarget, (SpillInfo? Spill, string? Error)> write, string epochLine = "")
+    {
+        var whole = at(RenderCap.Whole, null, out _);
+        if (whole.Length <= cap) return whole;
+        string Bare(int n, out bool cut)
+        {
+            cut = false;
+            return whole.Length <= n ? whole : at(n, null, out cut);
+        }
+        var bare = Bare(cap, out bool cut);
+        // Nothing cut, so nothing to spill: a reply over its cap here is its header alone.
+        if (!cut) return RenderCap.Hold(bare, cap, n => Bare(n, out _), out _, epochLine: epochLine, whole: whole.Length,
+                                        nextCall: RenderCap.NextCallGrowth);
+        using var target = reserve().Defer();
+        var (s, err) = write(target);
+        if (err is not null) return Failed(err);
+        var spill = SpillState.Spilled(s!, manifestOnly: false);
+        string Next(int n)
+        {
+            var b = Bare(n, out bool c);
+            return c ? at(n, spill, out _) : b;
+        }
+        var served = RenderCap.Hold(at(cap, spill, out _), cap, Next, out bool refused, epochLine: epochLine, whole: whole.Length,
+                                    nextCall: RenderCap.NextCallGrowth);
+        if (refused) return served;
+        return target.Commit() is { } commitErr ? Failed(commitErr) : served;
+
+        // A failed write is stated, never refused away, and no cap is named off its warning: where the warning does not
+        // fit, the failure itself is the refusal.
+        string Failed(string e)
+        {
+            var failed = at(cap, SpillState.WriteFailed(e), out _);
+            if (failed.Length <= cap) return failed;
+            return "error: the response hit max_chars=" + cap + " and the auto-spill artifact that would hold the rest " +
+                   "could not be written (" + e.TrimEnd('.') + "), so the complete result exists nowhere: re-run with a " +
+                   "narrower selection, a higher max_chars, or to_file= at a writable path." + epochLine;
+        }
+    }
+
     /// <summary>Append the whole SpillState to a text response: the spilled block, or the failed-spill warning.</summary>
     public static void AppendSpillStateText(StringBuilder sb, SpillState s)
     {
