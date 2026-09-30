@@ -563,9 +563,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - `src/housecarl-mcp/WriteTools.cs` — the three plugin-level tools (`housecarl_create_plugin`,
   `housecarl_compact_plugin`, `housecarl_merge_plugins`), plus the retired 1.x wire DTOs (`BulkOp`, `CreateOp`,
   `StructInput`, `NestedSet`).
-- `src/housecarl-mcp/WriteTextRender.cs` — the other half of `static partial class WriteTools`: the render helpers
-  every write tool calls (`Render`, `RenderDryRun`, `RenderRemoval`, `RenderForward`, `RenderCreatePlugin`, the
-  readback and report appenders, `CreateRootFailures`), at the same `WriteTools.` addresses.
+- `src/housecarl-mcp/WriteTextRender.cs` — the other half of `static partial class WriteTools`: every write
+  tool's text render (every `Render*`), the readback and report appenders, the remedy and read-back helpers the json
+  render in `JsonWire.cs` shares, and `CreateRootFailures`, at the same `WriteTools.` addresses.
 - `src/housecarl-core/WritePatchBuilder.cs` — the core half: `Apply` / `ApplyInPlace`, `CreateRecords` /
   `CreateRecordsInPlace`, `RemoveRecords` / `RemoveRecordsInPlace`, `ForwardRecords` / `ForwardRecordsInPlace`,
   `CreatePlugin`, `CompactBuild` and `MergeBuild`. The four record lanes — apply, create, remove, forward — are the
