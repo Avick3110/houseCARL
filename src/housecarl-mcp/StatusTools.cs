@@ -42,7 +42,7 @@ public static class StatusTools
         if (svc.ConfigPromptOrNull() is { } prompt) return StatusWire.ServerLine + prompt;
         var data = svc.StatusData();
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
-        var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inactive-profile inspection: text parse only, no index build, no switch
+        var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inspection: no index build, no switch; another profile lists its enabled mod folders
         // Read only for a filter: the flag is a per-plugin header read, and the whole-profile summary asks about none.
         var localized = filter is { Length: > 0 } ? svc.PluginLocalizedFlag(filter.Trim()) : null;
         return StatusWire.Render(data, logs, profiles, filter, localized, max_chars > 0 ? max_chars : 80_000);

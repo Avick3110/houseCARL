@@ -4,9 +4,8 @@ namespace HousecarlCore;
 // that plugin's rank) for AssetResolver, from the same static MO2 profile read Mo2LoadOrder does. Both archive
 // sources, the rank scheme and the VFS resolution of each filename are in docs/architecture/assets.md.
 
-/// <summary>The active archives for a profile, ready for <see cref="AssetResolver.Build"/>, plus any non-fatal problems and the plugins listed as loading that no enabled layer serves.</summary>
-public sealed record ArchiveDiscoveryResult(IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> Warnings,
-                                            IReadOnlyList<UnservedPlugin> Unserved);
+/// <summary>The active archives for a profile, ready for <see cref="AssetResolver.Build"/>, plus any non-fatal problems.</summary>
+public sealed record ArchiveDiscoveryResult(IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> Warnings);
 
 public static class ArchiveDiscovery
 {
@@ -21,19 +20,15 @@ public static class ArchiveDiscovery
         var warnings = new List<string>();
         var comp = Mo2LoadOrder.ReadComposition(profileDir, warnings);
 
-        // archive filename → WINNING physical path (overwrite > enabled mods highest-priority-first > Data), and the
-        // plugin filenames those same layers serve, off one listing per folder.
-        var (archiveMap, servedPlugins) = BuildArchiveMap(comp.EnabledMods, modsDir, dataDir, overwriteDir);
-
-        // The served decision Mo2LoadOrder.Build makes, off this same listing; carried for the readers of this build.
-        var unserved = Mo2LoadOrder.UnservedIn(comp, servedPlugins.Contains, modsDir);
-
-        // Plugins in load order (winner LAST) with the unchecked dropped. The unserved stay: an archive binds to a
-        // plugin the profile names, whether or not a plugin file is served (docs/architecture/assets.md).
+        // Plugins in load order (winner LAST) with the unchecked dropped. The unserved stay: the archive list binds on the
+        // tick, not the served decision (#1014; docs/architecture/assets.md).
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
         var activeOrdered = new List<string>(comp.OrderedPluginNames.Count);
         foreach (var name in comp.OrderedPluginNames)
             if (!inactive.Contains(name)) activeOrdered.Add(name);
+
+        // archive filename → WINNING physical path (overwrite > enabled mods highest-priority-first > Data).
+        var archiveMap = BuildArchiveMap(comp.EnabledMods, modsDir, dataDir, overwriteDir);
 
         var archives = new List<ActiveArchive>();
         int rank = 0;
@@ -56,47 +51,40 @@ public static class ArchiveDiscovery
             rank++;   // both of a plugin's archives share its rank; advance once per plugin
         }
 
-        return new ArchiveDiscoveryResult(archives, warnings, unserved);
+        return new ArchiveDiscoveryResult(archives, warnings);
     }
 
     /// <summary>Build archive-filename to the winning real path AND the MO2 layer it came from, the .bsa twin of
-    /// <see cref="Mo2LoadOrder"/>'s plugin filename map, plus the plugin filenames the same layers serve.</summary>
-    static (Dictionary<string, (string Path, string OwningMod)> Archives, HashSet<string> Plugins) BuildArchiveMap(
+    /// <see cref="Mo2LoadOrder"/>'s plugin filename map.</summary>
+    static Dictionary<string, (string Path, string OwningMod)> BuildArchiveMap(
         IReadOnlyList<string> enabledModsByPriority, string modsDir, string dataDir, string overwriteDir)
     {
         var map = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
-        var plugins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        void Layer(string dir, string owner)
-        {
-            foreach (var (fn, full, isArchive) in EnumerateTopLevel(dir))
-                if (!isArchive) plugins.Add(fn);
-                else if (!map.ContainsKey(fn)) map[fn] = (full, owner);   // first (highest-priority) wins
-        }
+        foreach (var (fn, full) in EnumerateArchives(overwriteDir))   // overwrite — beats every mod
+            map[fn] = (full, "overwrite");
 
-        Layer(overwriteDir, "overwrite");                              // overwrite — beats every mod
-        foreach (var mod in enabledModsByPriority)                     // highest priority first
-            Layer(Path.Combine(modsDir, mod), mod);
-        Layer(dataDir, "Data");                                        // base game / vanilla — lowest priority
+        foreach (var mod in enabledModsByPriority)                    // highest priority first
+            foreach (var (fn, full) in EnumerateArchives(Path.Combine(modsDir, mod)))
+                if (!map.ContainsKey(fn)) map[fn] = (full, mod);      // first (highest-priority) wins
 
-        return (map, plugins);
+        foreach (var (fn, full) in EnumerateArchives(dataDir))        // base game / vanilla — lowest priority
+            if (!map.ContainsKey(fn)) map[fn] = (full, "Data");
+
+        return map;
     }
 
-    /// <summary>Top-level *.bsa and plugin files in one folder, as (filename, full path, is-archive). Silent on a missing folder; the explicit extension check guards Windows' short-name quirk.</summary>
-    static IEnumerable<(string fn, string full, bool isArchive)> EnumerateTopLevel(string dir)
+    /// <summary>Top-level *.bsa in one folder, as (filename, full path). Silent on a missing folder; the explicit extension check guards Windows' short-name quirk.</summary>
+    static IEnumerable<(string fn, string full)> EnumerateArchives(string dir)
     {
         if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) yield break;
         var opts = new EnumerationOptions { RecurseSubdirectories = false, IgnoreInaccessible = true };
         IEnumerable<string> files;
-        try { files = Directory.EnumerateFiles(dir, "*", opts); }
+        try { files = Directory.EnumerateFiles(dir, "*.bsa", opts); }
         catch { yield break; }
         foreach (var f in files)
-        {
-            var ext = Path.GetExtension(f);
-            if (ext.Equals(".bsa", StringComparison.OrdinalIgnoreCase)) yield return (Path.GetFileName(f), f, true);
-            else if (Array.Exists(PluginFile.Extensions, e => e.Equals(ext, StringComparison.OrdinalIgnoreCase)))
-                yield return (Path.GetFileName(f), f, false);
-        }
+            if (Path.GetExtension(f).Equals(".bsa", StringComparison.OrdinalIgnoreCase))
+                yield return (Path.GetFileName(f), f);
     }
 
     /// <summary>The always-loaded base archive filenames from Skyrim.ini's [Archive] lists, in file order. MO2

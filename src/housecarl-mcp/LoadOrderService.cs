@@ -30,12 +30,11 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     readonly Lazy<CorpusRulebook> _rulebook = new(() => CorpusRulebook.Load(), LazyThreadSafetyMode.PublicationOnly);   // one instance; a failed load is not kept
     readonly Lazy<TypeLookup> _typeLookup = new(() => new TypeLookup());   // one per service; construction reads nothing
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
-    IReadOnlyList<UnservedPlugin> _orderUnserved = Array.Empty<UnservedPlugin>();   // listed as loading, served by no enabled layer, as of the last order build
+    IReadOnlyList<UnservedPlugin> _orderUnserved = Array.Empty<UnservedPlugin>();   // listed as loading, served by no enabled layer, as of the last order build; the one served answer every lane reads
     // The VFS-aware asset resolver, built lazily on an asset query and dropped when the active profile changes.
     AssetResolver? _assetResolver;
     IReadOnlyList<string> _assetWarnings = Array.Empty<string>();   // discovery warnings from the asset build (e.g. a Skyrim.ini we couldn't find → base BSAs unscanned)
     IReadOnlyList<ActiveArchive> _activeArchives = Array.Empty<ActiveArchive>();   // active BSAs behind the current asset build (archive → owning plugin); swapped with _assetResolver
-    IReadOnlyList<UnservedPlugin> _unservedAtBuild = Array.Empty<UnservedPlugin>();   // plugins listed as loading that no enabled layer serves, from the current asset build's own layer scan
     IReadOnlyList<string> _enabledModsAtBuild = Array.Empty<string>();             // enabled mods behind the current asset build; the loader scan walks these mods' Root folders, from the same capture as the view rather than a second profile read
     // Freshness baselines are last-seen FileStamps compared by value; contract in docs/architecture/load-order-resolver.md.
     FileStamp[] _profileStamps = new FileStamp[ProfileFileNames.Length];   // per ProfileFileNames, recorded at each order build
@@ -245,9 +244,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         }
     }
 
-    /// <summary>The rest of an asset capture around a view just taken; caller holds <see cref="_gate"/>.</summary>
+    /// <summary>The rest of an asset capture around a view just taken, with the order build's served answer; caller holds <see cref="_gate"/>.</summary>
     AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
-        new(view, AssetWarningsLocked(), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild, _unservedAtBuild);
+        new(view, AssetWarningsLocked(), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild, _orderUnserved);
 
     // Rows the areas take from one another, relayed here: output and writes until those are their own classes; the assets replay for reads.
     RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming) => ResolvePatchModFolder(patchName, into, defaultStem, naming);
@@ -505,7 +504,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         _assetWarnings = discovery.Warnings;
         _activeArchives = discovery.Archives;   // kept alongside the resolver: archive filename → owning plugin (native-pairing provenance)
         _enabledModsAtBuild = comp.EnabledMods; // same build: the mod set behind this resolver (native-pairing loader scan)
-        _unservedAtBuild = discovery.Unserved;  // same build: the served decision the archive list was filtered by
         return AssetResolver.Build(_overwriteDir, _modsDir, _dataDir, comp.EnabledMods, discovery.Archives);
     }
 
@@ -740,17 +738,20 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         return new UpdateCacheData(modsDir, instanceDir, entries, Array.Empty<string>(), untracked);
     }
 
-    /// <summary>Inspect a named profile's composition without switching to it, off the cheap text-only <see cref="Mo2LoadOrder.ReadComposition"/>. Instance mode only; an unmatched name is reported with the available ones.</summary>
+    /// <summary>Inspect a named profile's composition without switching to it: a text parse of its three profile files, and for
+    /// the served check the last order build's answer when it is the active profile, else one listing of every mod folder
+    /// that profile enables. Instance mode only; an unmatched name is reported with the available ones.</summary>
     public NamedProfileResult NamedProfileComposition(string? requested)
     {
-        string? instanceDir; string profilesRoot; string modsDir, dataDir, overwriteDir;
+        string? instanceDir; string profilesRoot; string activeDir, modsDir, dataDir, overwriteDir; IReadOnlyList<UnservedPlugin> activeUnserved;
         lock (_gate)
         {
             if (!_configured) throw NotConfigured();              // fresh install → the tool returns the prompt for the MO2 path
             EnsurePathsDerived();                                 // instance mode: derive the active ProfileDir (cheap ini read; throws if the instance is unusable)
             instanceDir = _instanceDir;
             profilesRoot = instanceDir is null ? "" : (Path.GetDirectoryName(_profileDir.TrimEnd('\\', '/')) ?? "");
-            modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir;
+            activeDir = _profileDir; modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir;
+            activeUnserved = _orderUnserved;
         }
 
         var name = string.IsNullOrWhiteSpace(requested) ? null : requested.Trim();
@@ -768,9 +769,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var dir = Path.Combine(profilesRoot, match);
         var warnings = new List<string>();                       // read notes (e.g. a missing modlist.txt), so a 0-mod profile is not mistaken for empty
         var comp = Mo2LoadOrder.ReadComposition(dir, warnings);  // cheap text parse of THAT profile's loadorder/modlist/plugins — no index build, no switch
-        // The order build's served decision over that profile's mod list, so its active count agrees with status.
-        return new NamedProfileResult(true, available, match, dir, comp, warnings,
-                                      Mo2LoadOrder.Unserved(comp, modsDir, dataDir, overwriteDir));
+        // The active profile takes the build's answer; another enables other mods, so its own listing decides.
+        var unserved = PathEq(Path.GetFullPath(dir), Path.GetFullPath(activeDir)) ? activeUnserved : Mo2LoadOrder.Unserved(comp, modsDir, dataDir, overwriteDir);
+        return new NamedProfileResult(true, available, match, dir, comp, warnings, unserved);
     }
 
     /// <summary>The usable profile names under <paramref name="profilesRoot"/>: one subfolder each, skipping folders with no loadorder.txt, sorted case-insensitively. Never throws.</summary>
@@ -877,6 +878,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             return true;
         }
         // paths.Count == 0 is almost certainly a transient mid-write read: keep the last good snapshot and do not advance.
+        // With none yet, this read's served answer is the only one, so the asset lanes take it.
+        if (_resolvedPaths.Count == 0) _orderUnserved = order.Unserved;
         return false;
     }
 

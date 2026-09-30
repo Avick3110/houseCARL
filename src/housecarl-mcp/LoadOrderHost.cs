@@ -1,7 +1,7 @@
 // The shared door every area's host interface extends, and the asset capture it returns.
 namespace HousecarlMcp;
 
-/// <summary>One asset build with its warnings, profile and roots, all taken in one <c>_gate</c> hold.</summary>
+/// <summary>One asset build with its warnings, profile and roots, and the order build's served answer, all taken in one <c>_gate</c> hold.</summary>
 internal readonly record struct AssetCapture(AssetResolver.AssetView View, IReadOnlyList<string> Warnings, string ProfileName,
                                              Mo2Roots Roots, IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> EnabledMods,
                                              IReadOnlyList<UnservedPlugin> Unserved)

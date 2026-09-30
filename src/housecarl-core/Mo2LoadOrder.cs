@@ -68,7 +68,7 @@ public static class Mo2LoadOrder
             if (!inactive.Contains(name) && winningPath.TryGetValue(name, out var path))   // unchecked in MO2 → not loaded
                 orderedPaths.Add(path);
 
-        var unserved = UnservedIn(comp, winningPath.ContainsKey, modsDir);
+        var unserved = UnservedIn(comp, winningPath, modsDir);
         foreach (var u in unserved)
             warnings.Add(u.SwitchedOffMod is { } offMod
                 ? $"load order lists '{u.Name}', but {ProvidedBySwitchedOffMod(offMod)}."
@@ -78,22 +78,34 @@ public static class Mo2LoadOrder
         return new Mo2OrderResult(orderedPaths, warnings, unserved);
     }
 
-    /// <summary>The plugins <paramref name="comp"/> lists as loading that no enabled layer serves — the same decision <see cref="Build"/> makes, for a reader that has a composition but no order build.</summary>
+    /// <summary>The plugins <paramref name="comp"/> lists as loading that no enabled layer serves, off a fresh listing of the enabled layers — for a reader with no order build, such as another profile's inspection; it lists every enabled mod folder.</summary>
     public static IReadOnlyList<UnservedPlugin> Unserved(Mo2Composition comp, string modsDir, string dataDir, string overwriteDir) =>
-        UnservedIn(comp, BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir).ContainsKey, modsDir);
+        UnservedIn(comp, BuildFilenameMap(comp.EnabledMods, modsDir, dataDir, overwriteDir), modsDir);
 
-    /// <summary>Every name listed as loading (not unchecked) that <paramref name="isServed"/> rejects, and the switched-off mod folder holding a copy; the one decision, for a caller that has already scanned the enabled layers.</summary>
-    internal static List<UnservedPlugin> UnservedIn(Mo2Composition comp, Func<string, bool> isServed, string modsDir)
+    /// <summary>Every name listed as loading (not unchecked) that <paramref name="served"/> does not hold, with the switched-off mod folder holding a copy.</summary>
+    static List<UnservedPlugin> UnservedIn(Mo2Composition comp, Dictionary<string, string> served, string modsDir)
     {
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
-        var unserved = new List<UnservedPlugin>();
-        foreach (var name in comp.OrderedPluginNames)
+        // Served by no enabled layer: MO2's VFS does not present the file, so it is not active.
+        var names = comp.OrderedPluginNames.Where(n => !inactive.Contains(n) && !served.ContainsKey(n)).ToList();
+        if (names.Count == 0) return [];
+        var offMod = SwitchedOffCopies(comp.DisabledMods, modsDir, names);
+        return names.Select(n => new UnservedPlugin(n, offMod.GetValueOrDefault(n))).ToList();
+    }
+
+    /// <summary>For each of <paramref name="names"/>, the first switched-off mod folder in modlist.txt order holding a copy: one listing per disabled folder, stopping once every name is placed.</summary>
+    static Dictionary<string, string> SwitchedOffCopies(IReadOnlyList<string> disabledMods, string modsDir, IReadOnlyCollection<string> names)
+    {
+        var found = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(modsDir)) return found;
+        var pending = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
+        foreach (var mod in disabledMods)
         {
-            if (inactive.Contains(name) || isServed(name)) continue;
-            // Served by no enabled layer: MO2's VFS does not present the file, so it is not active.
-            unserved.Add(new UnservedPlugin(name, comp.DisabledMods.FirstOrDefault(m => File.Exists(Path.Combine(modsDir, m, name)))));
+            if (pending.Count == 0) break;
+            foreach (var (fn, _) in EnumeratePlugins(Path.Combine(modsDir, mod)))
+                if (pending.Remove(fn)) found[fn] = mod;
         }
-        return unserved;
+        return found;
     }
 
     /// <summary>The composition's active plugin names: ticked or implicit, minus <paramref name="unserved"/>.</summary>
@@ -157,7 +169,7 @@ public static class Mo2LoadOrder
         }
     }
 
-    /// <summary>Build filename to winning real path: overwrite, then enabled mods highest-priority first with the first sighting winning, then the game Data folder.</summary>
+    /// <summary>Build filename to winning real path: overwrite, then enabled mods highest-priority first with the first sighting winning, then the game Data folder. The one listing of which plugin files the layers serve.</summary>
     static Dictionary<string, string> BuildFilenameMap(IReadOnlyList<string> enabledModsByPriority, string modsDir, string dataDir, string overwriteDir)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

@@ -23,8 +23,8 @@ takes the low block, each active plugin's `X.bsa` and `X - Textures.bsa` rank ab
 archive *filename* resolves through the same overwrite > mods > Data map. Here active means ticked or implicit,
 the tick alone: a plugin no enabled layer serves still owns its archives. That is the one tick-only reader left (#1014; see
 [`mo2-instance.md`](mo2-instance.md)): asset resolution is decoupled from the record index, and the synthetic asset
-worlds and their no-epoch arm rely on binding archives with no plugin file on disk. The same listing makes the
-served decision (`Mo2LoadOrder.UnservedIn`) and the asset build carries it on its capture for the SKSE peek. A
+worlds and their no-epoch arm rely on binding archives with no plugin file on disk. The served decision is the
+order build's; the asset capture carries that answer for the SKSE peek. A
 Skyrim.ini that cannot be found is a surfaced warning, never a silent omission.
 
 **The order is injected.** `AssetResolver.Build` takes the roots, the enabled-mod priority list and the resolved

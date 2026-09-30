@@ -196,6 +196,17 @@ public sealed class TickedPluginSwitchedOffModTests : IClassFixture<TickedPlugin
         Assert.DoesNotContain("tick the plugin", r);
     }
 
+    [Fact]
+    public void ThePeekAndStatusReadOneServedAnswerAfterACopyLandsInAnEnabledMod()
+    {
+        using var w = new TickedPluginSwitchedOffModWorld();   // mutated below, so its own instance
+        StatusTools.LoadOrderStatus(w.Svc, w.Tools);
+        // A served copy appears with no profile write: the order build is not re-run, so neither lane may see it yet.
+        File.Copy(Path.Combine(w.Instance, "mods", w.OffMod, w.OffName), Path.Combine(w.Instance, "mods", "HcTsSkseMod", w.OffName));
+        Assert.Contains("NOT in your load order", LineOf(SkseTools.Skse(w.Svc, filter: "HcTsPeek", peek: true), w.OffName));
+        Assert.Contains("NOT ACTIVE", StatusTools.LoadOrderStatus(w.Svc, w.Tools, filter: w.OffName));
+    }
+
     static string LineOf(string text, string needle) =>
         text.Split('\n').FirstOrDefault(l => l.Contains(needle) && l.Contains("load order"))
         ?? throw new Xunit.Sdk.XunitException($"no load-order line naming '{needle}' in:\n{text}");

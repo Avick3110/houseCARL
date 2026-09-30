@@ -61,16 +61,17 @@ it until a tool writes there.
 
 A tick is half of active. A plugin the profile lists as loading (ticked, or an implicit master) that no
 enabled layer serves is NOT active, whatever `plugins.txt` says: MO2's VFS does not present the file.
-One decision, `Mo2LoadOrder.UnservedIn`, names each such plugin with the switched-off mod folder holding a copy
-when there is one, over whichever listing of the enabled layers its caller already made. `Build` makes it and
-returns the answer as `Unserved`; status and the absence explainer (ticked and implicit alike) read that answer
-from the last build, and the record, check and locate lanes read the order `Build` resolved. `ArchiveDiscovery`
-makes it off its own archive listing and the asset build carries that answer on its capture, where the SKSE peek's
-plugin set reads it. The archive list itself still binds an unserved plugin's same-named archives: it is the one
-tick-only reader (#1014), for the reason [`assets.md`](assets.md) gives. The `profile=` inspection (over
-that profile's mod list) and the setup summary call `Mo2LoadOrder.Unserved`, which lists the layers itself.
-`ActiveNames` gives a reader the tick-or-implicit set less the unserved. A copy in a switched-off folder is named
-with the same sentence the locate lane uses (`ProvidedBySwitchedOffMod`), never as a stale profile.
+The order build decides it once, off its one listing of the enabled layers (`BuildFilenameMap`), and returns each
+such plugin as `Unserved`, with the switched-off mod folder holding a copy when there is one (one listing per
+switched-off folder, only when something is unserved). The service keeps that answer beside the order, and every
+lane reads that one snapshot: status and the absence explainer (ticked and implicit alike), the asset capture and
+through it the SKSE peek's plugin set, and the `profile=` inspection of the active profile. The record, check and
+locate lanes read the order `Build` resolved. An asset build never makes the decision itself. The archive list
+still binds an unserved plugin's same-named archives: it is the one tick-only reader (#1014), for the reason
+[`assets.md`](assets.md) gives. Two readers have no order build to take it from and call `Mo2LoadOrder.Unserved`,
+which lists every enabled mod folder: the `profile=` inspection of another profile (its own mod list) and the setup
+summary. `ActiveNames` gives a reader the tick-or-implicit set less the unserved. A copy in a switched-off folder is
+named with the same sentence the locate lane uses (`ProvidedBySwitchedOffMod`), never as a stale profile.
 
 MO2 holds `loadorder.txt` and `plugins.txt` open while it re-sorts, so a read landing in that
 window is a transient, not a failure: only the Win32 sharing and lock violations become
