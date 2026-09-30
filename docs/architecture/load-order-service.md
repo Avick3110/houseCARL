@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-26
+updated: 2026-09-30
 covers: [src/housecarl-mcp/LoadOrderService.cs, src/housecarl-mcp/LoadOrderHost.cs, src/housecarl-mcp/ServiceResults.cs]
 ---
 # The load-order service
