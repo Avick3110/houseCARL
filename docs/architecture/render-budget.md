@@ -36,8 +36,20 @@ the caller passed — the number a cut notice names and the finished response ma
 the room content has once everything written after it is charged. A unit is written only when it fits whole,
 so nothing is cut mid-token, and what did not fit is counted in a notice.
 
-One arm may exceed the cap, and says so: where `max_chars` is smaller than what the response must carry
-whatever the budget, the answer ships and `RenderCap.Settle` appends an overrun notice naming the number that
+Every capped text read render refuses below its floor (#986). The floor is what the render writes whatever the
+budget: its header, its alarms and caveats, and the notices it owes once its body is cut (the cut and
+sections-omitted lines, the notes marker, the accounting, and the spill block when the cut spills). What a render
+holds back before its body is the widest those notices can be, so the exact floor is known only once the render
+has run; the check is therefore `RenderCap.Hold`, the call every such render already closes on in place of
+`Settle`. A finished render longer than its cap is its floor alone, since the body is laid inside what the cap
+leaves, so the call is refused in one sentence naming a `max_chars` the same render fits, found by rendering at
+the floor until it fits: the floor grows with the `max_chars` it prints back and the caveat share it grants. A
+render that states its own read timing or names a spill file can be a few characters wider on the next call. A
+spilling lane still spills and renders again, so its refusal names the floor with the spill block in it, and the
+spill it would have named is deleted. The json lanes keep `max_chars_overrun`.
+
+Two text renders are not refused, because their write already happened: `housecarl_place`'s report, and a
+`to_file=` manifest. There the answer ships and `RenderCap.Settle` appends an overrun notice naming the number that
 clears it in one step. The notice is part of the response whose length it states, so it settles to a fixed
 point. The merged sweep's `max_chars_overrun` has the same shape (#361).
 
@@ -167,7 +179,9 @@ length and answers only about that; predicted from a header length plus the rese
 the worst case instead. Its remedy is not simply that length: raising the cap widens every `max_chars` this response
 prints back, so the growth is added from two measured terms — how many places print it, counted in the finished
 response rather than derived from the number of accountings, and how many digits the number gains. The notice's own
-length is excluded, because it disappears the moment the response fits.
+length is excluded, because it disappears the moment the response fits. The text lane refuses the first of the two
+instead, before this notice is composed (#986), so there the notice is the second alone; the json document carries
+both.
 
 ### The render bound is a time budget, not a width one
 
@@ -218,8 +232,18 @@ reaches only the calling test's flow) is the meter's clock for tests.
 
 - *The unit is CHARACTERS, not bytes*: `CheckCapCharsTests` — non-ASCII is carried unescaped, the overrun notice
   states its own length and clears in one step, and an astral character escapes and is counted as written. Each
-  transport states its own length about the same sweep (`TheTextLaneStatesItsOwnLengthOnTheSameSweep` for text); no
-  test compares the two lengths with each other.
+  transport states its own length about the same sweep (the text lane as the floor its refusal names,
+  `TheTextLaneNamesItsFloorInCharactersOnTheSameSweep`); no test compares the two lengths with each other.
+- *Every capped text read render refuses below its floor*: one test per distinct floor, each driving a cap below it
+  and asserting the refusal is one sentence naming a larger cap at which the same call fits, never the number itself.
+  `SkyPatcherLayerFloorTests` (the layer unfiltered, filtered and matching nothing, with and without warnings: one below
+  the named cap still refuses), `BatchRenderCapTests` (asset_status paths and census, nif), `SkseTransportTests`
+  (each family unfiltered, filtered and matching nothing), `RecordsArtifactTests.EveryRecordsTextFormBelowItsFloorIsRefusedNamingACapItFits`
+  and `ACapTooSmallForTheSpillBlockIsRefusedNamingACapThatClearsIt` (no spill left behind), `DialogueFamilyTests`
+  (info_order), `CheckErrorsFamilyTests.Fact23_EveryTextCallBelowTheFixedPartIsRefusedNamingACapItFits_AcrossABand`.
+  `SkyPatcherLayerFilterTests.NoCapLandsTheRenderPastItWithReportSectionsAndExpandedLines` sweeps caps 200–20,000:
+  every render fits or is refused naming a cap it fits. A test that reads a cut notice below the floor does so through
+  `RenderCap.Unheld`, which the server never calls.
 - *A merged response water-fills its body budget over measured demand*: the properties, in
   `src/housecarl-mcp-tests/CheckMergeAllocationTests.cs` (the arm names below are the retired `check-guard`
   probe's, kept as one-line comments above each test):
@@ -264,7 +288,7 @@ reaches only the calling test's flow) is the meter's clock for tests.
 
 ## Where
 
-`src/housecarl-mcp/RenderCap.cs` holds `Cap`, `Budget` and `RenderCap.Settle`; `RenderBudget.cs` is the render bound;
+`src/housecarl-mcp/RenderCap.cs` holds `Cap`, `Budget`, the floor check `RenderCap.Hold` and `RenderCap.Settle`; `RenderBudget.cs` is the render bound;
 `SweepDemand.cs` is the demand pass and `BodyAllocation.cs` the max-min fill; `SweepEmission.cs` holds `SweepSubject`
 and `BoundedBody`; `BatchRender.cs` is the write-and-retract batch render; `TransportAccounting.cs` is the four-cause
 omission block; `RowProjection.cs` is the `rows` project form. `src/housecarl-core/CharCountedStream.cs` is where the
