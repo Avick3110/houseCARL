@@ -75,6 +75,7 @@ public sealed class UserConfigStoreClobberTests : IDisposable
         var cfg = store.Load();
         Assert.Equal(2, cfg.ToolPaths!.Count);
         Assert.Equal(@"C:\Tools\bsarch.exe", cfg.ToolPaths["bsarch"]);
+        Assert.Equal(@"C:\CK\PapyrusCompiler.exe", cfg.ToolPaths["papyrus_compiler"]);
         Assert.Equal(@"D:\Other", cfg.Mo2InstanceDir);
     }
 
@@ -108,9 +109,10 @@ public sealed class UserConfigStoreClobberTests : IDisposable
     public void TheCorruptOriginalIsBackedUpByteForByte()
     {
         File.WriteAllText(_path, "{ this is not valid json");
+        var original = File.ReadAllBytes(_path);
         new UserConfigStore(_path).Load();
 
-        Assert.Equal("{ this is not valid json", File.ReadAllText(_path + ".corrupt.bak"));
+        Assert.Equal(original, File.ReadAllBytes(_path + ".corrupt.bak"));
     }
 
     // Probe 1: "Update over a corrupt file succeeds AND reports the recovery" and "the fresh file holds the new setting and reads clean".
