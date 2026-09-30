@@ -657,7 +657,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var comp = Mo2LoadOrder.ReadComposition(profileDir);       // fresh composition (always current)
         return new LoadOrderStatusData(
             comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, profileName, instanceDir, view.ExcludedPlugins,
-            searched, view.Epoch, view.ContainedRecordCount, unserved);
+            searched, unserved, view.Epoch, view.ContainedRecordCount);
     }
 
     /// <summary>Whole-order stats (forces the lazy build). A test seam: the probes warm the lazy index through it. No shipped caller.</summary>
@@ -759,15 +759,15 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
         var name = string.IsNullOrWhiteSpace(requested) ? null : requested.Trim();
         if (instanceDir is null)                                  // explicit-paths mode — no profiles root; the tool renders the instance-mode-only message
-            return new NamedProfileResult(InstanceMode: false, AvailableProfiles: Array.Empty<string>(), RequestedName: name, ResolvedProfileDir: null, Composition: null, Warnings: Array.Empty<string>());
+            return new NamedProfileResult(InstanceMode: false, AvailableProfiles: Array.Empty<string>(), RequestedName: name, ResolvedProfileDir: null, Composition: null, Warnings: Array.Empty<string>(), Unserved: Array.Empty<UnservedPlugin>());
 
         var available = ListProfiles(profilesRoot);              // directory listing outside the gate — no lock held over I/O
         if (name is null)                                        // no name → the discovery list only
-            return new NamedProfileResult(true, available, null, null, null, Array.Empty<string>());
+            return new NamedProfileResult(true, available, null, null, null, Array.Empty<string>(), Array.Empty<UnservedPlugin>());
 
         var match = available.FirstOrDefault(p => string.Equals(p, name, StringComparison.OrdinalIgnoreCase));
         if (match is null)                                       // named profile not found → report it with the available names, never an empty composition
-            return new NamedProfileResult(true, available, name, null, null, Array.Empty<string>());
+            return new NamedProfileResult(true, available, name, null, null, Array.Empty<string>(), Array.Empty<UnservedPlugin>());
 
         var dir = Path.Combine(profilesRoot, match);
         var warnings = new List<string>();                       // read notes (e.g. a missing modlist.txt), so a 0-mod profile is not mistaken for empty

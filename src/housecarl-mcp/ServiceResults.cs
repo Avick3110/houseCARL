@@ -129,9 +129,9 @@ public sealed record LoadOrderStatusData(
     string? InstanceDir,        // the resolved MO2 instance folder houseCARL is pointed at; null ⇒ explicit-paths / unconfigured mode
     IReadOnlyDictionary<string, string> ExcludedPlugins,
     string SearchedPlaces,      // the places this build searched for a plugin file (Mo2LoadOrder.SearchedPlaces), named when one is not served
-    string? Epoch = null,      // the resolver's current build fingerprint (SPEC §2.1.1) — the status line names it so a caller can match responses/artifacts to the build; nullable like every other carrier
-    int ContainedRecordCount = 0,   // children this build recorded a containing record for — the '*parent' map's size, declared in band per SPEC §2.1 rather than left for a user to discover as memory
-    IReadOnlyList<UnservedPlugin>? Unserved = null);  // listed as loading but served by no enabled layer, so not active whatever plugins.txt says
+    IReadOnlyList<UnservedPlugin> Unserved,   // listed as loading but served by no enabled layer, so not active whatever plugins.txt says
+    string? Epoch = null,       // the resolver's current build fingerprint (SPEC §2.1.1) — the status line names it so a caller can match responses/artifacts to the build; nullable like every other carrier
+    int ContainedRecordCount = 0);  // children this build recorded a containing record for — the '*parent' map's size, declared in band per SPEC §2.1 rather than left for a user to discover as memory
 
 /// <summary>The data behind housecarl_update_status: MO2's own local Nexus update cache read from meta.ini with no network — one <see cref="Entries"/> row per linked mod, the skipped <see cref="UntrackedCount"/>, and any read <see cref="Problems"/>.</summary>
 public sealed record UpdateCacheData(
@@ -154,7 +154,7 @@ public sealed record NamedProfileResult(
     string? ResolvedProfileDir,
     Mo2Composition? Composition,
     IReadOnlyList<string> Warnings,
-    IReadOnlyList<UnservedPlugin>? Unserved = null);   // that profile's plugins listed as loading that no enabled layer serves
+    IReadOnlyList<UnservedPlugin> Unserved);   // that profile's plugins listed as loading that no enabled layer serves; empty when none was read
 
 /// <summary>The outcome of housecarl_write_seq: a non-null <see cref="Error"/> means the call was rejected, else the <see cref="Quests"/> covered — empty is a clean no-op with no file written — the written <see cref="SeqPath"/> and its <see cref="ModFolder"/>, and whether it defaulted into the plugin's OWN folder.</summary>
 public sealed record SeqOutcome(

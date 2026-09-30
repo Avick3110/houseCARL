@@ -59,12 +59,11 @@ static class StatusWire
                                 string? filter, HousecarlCore.LocalizedFlagRead? localized, int cap)
     {
         var c = d.Composition;
-        // A name listed as loading that no enabled layer serves is not active, so neither count carries it.
-        var unserved = new HashSet<string>((d.Unserved ?? []).Select(u => u.Name), StringComparer.OrdinalIgnoreCase);
-        int checkedActive = c.ActivePluginNames.Count(n => !unserved.Contains(n));
-        int impl = c.ImplicitPluginNames.Count(n => !unserved.Contains(n));
+        // A name listed as loading that no enabled layer serves is not active, so neither count nor the implicit list carries it.
+        var active = HousecarlCore.Mo2LoadOrder.ActiveNames(c, d.Unserved);
+        int checkedActive = c.ActivePluginNames.Count(active.Contains);
+        var implicitActive = c.ImplicitPluginNames.Where(active.Contains).ToList();
         int inactive = c.InactivePluginNames.Count;
-        int gameLoaded = checkedActive + impl;
 
         var sb = new StringBuilder();
         sb.Append("load order status — profile '").Append(d.ProfileName).Append("'\n");
@@ -73,10 +72,10 @@ static class StatusWire
         sb.Append("instance: ").Append(d.InstanceDir ?? "explicit-paths mode (no MO2 instance configured)").Append('\n');
         sb.Append("mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
         sb.Append("plugins in load order: ").Append(c.OrderedPluginNames.Count).Append('\n');
-        sb.Append("  active:   ").Append(gameLoaded).Append("  (").Append(checkedActive).Append(" checked + ").Append(impl).Append(" implicit masters/CC)\n");
+        sb.Append("  active:   ").Append(active.Count).Append("  (").Append(checkedActive).Append(" checked + ").Append(implicitActive.Count).Append(" implicit masters/CC)\n");
         sb.Append("  inactive: ").Append(inactive).Append("  (present but unchecked — houseCARL excludes these)\n");
-        if (unserved.Count > 0)
-            sb.Append("  not served: ").Append(unserved.Count).Append("  (listed as loading, but no enabled layer provides the file — see warnings)\n");
+        if (d.Unserved.Count > 0)
+            sb.Append("  not served: ").Append(d.Unserved.Count).Append("  (listed as loading, but no enabled layer provides the file — see warnings)\n");
         sb.Append("resolver: ").Append(d.ResolvedPluginCount).Append(" plugins resolved to real files");
         if (d.MaxPlugins > 0) sb.Append(" [capped at MaxPlugins=").Append(d.MaxPlugins).Append(']');
         if (d.Epoch is not null) sb.Append("  epoch=").Append(d.Epoch);   // the current build's fingerprint — bulk responses stamp the build they read, matched against this
@@ -93,7 +92,7 @@ static class StatusWire
 
         if (filter is { Length: > 0 })
         {
-            AppendLookup(sb, c, d.ExcludedPlugins, d.Unserved ?? [], d.SearchedPlaces, filter.Trim(), localized);
+            AppendLookup(sb, c, d.ExcludedPlugins, d.Unserved, d.SearchedPlaces, filter.Trim(), localized);
             return sb.ToString().TrimEnd('\n');
         }
 
@@ -104,7 +103,7 @@ static class StatusWire
         AppendList(sb, "disabled mods", c.DisabledMods, cap);
         AppendList(sb, "inactive plugins", c.InactivePluginNames, cap);
         // The same served set as the count above; an unserved implicit master is named under warnings instead.
-        AppendList(sb, "implicit masters / CC", c.ImplicitPluginNames.Where(n => !unserved.Contains(n)).ToList(), cap);
+        AppendList(sb, "implicit masters / CC", implicitActive, cap);
 
         if (d.Warnings.Count > 0)
         {
@@ -189,7 +188,7 @@ static class StatusWire
             return;
         }
         var c = p.Composition;
-        int active = HousecarlCore.Mo2LoadOrder.ActiveNames(c, p.Unserved ?? []).Count;
+        int active = HousecarlCore.Mo2LoadOrder.ActiveNames(c, p.Unserved).Count;
         sb.Append("\n— inspecting profile '").Append(p.RequestedName).Append("' (read-only; the active profile is unchanged):\n");
         sb.Append("  mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
         sb.Append("  plugins: ").Append(c.OrderedPluginNames.Count).Append(" in order · ").Append(active).Append(" active · ")

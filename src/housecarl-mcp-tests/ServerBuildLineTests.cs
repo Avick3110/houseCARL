@@ -15,11 +15,11 @@ public class ServerBuildLineTests
             Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase), Array.Empty<string>(), Array.Empty<string>()),
         Array.Empty<string>(), 0, 0, false, "profiles/Default", "Default", null,
-        new Dictionary<string, string>(), null);
+        new Dictionary<string, string>(), Mo2LoadOrder.SearchedPlaces(""), Array.Empty<UnservedPlugin>(), null);
 
     static string Render(string? lookup = null) => StatusWire.Render(
         Empty(), Array.Empty<LogFolderView>(),
-        new NamedProfileResult(false, Array.Empty<string>(), null, null, null, Array.Empty<string>()),
+        new NamedProfileResult(false, Array.Empty<string>(), null, null, null, Array.Empty<string>(), Array.Empty<UnservedPlugin>()),
         lookup, localized: null, cap: 80_000);
 
     [Fact]
