@@ -599,9 +599,7 @@ static partial class RecordsTools
     }
 
     /// <summary>The list-lane aggregate's text render at one cap, raw: its caller closes it on the floor check.</summary>
-    /// <remarks>Internal so a test can drive a cut table that also names an empty requested type: those only reach this
-    /// render through a reverse walk, whose carriers span at most five types, too few rows to be served cut.</remarks>
-    internal static string RenderListAggregateText(IReadOnlyList<KeyValuePair<string, int>> rows, IReadOnlyList<string> empties,
+    static string RenderListAggregateText(IReadOnlyList<KeyValuePair<string, int>> rows, IReadOnlyList<string> empties,
                                                    string gb, int records, int errors, OrderStamp? epoch, string headerLine,
                                                    (int RowsRead, long Millis) bodyCost, int cap, int rowLimit)
     {

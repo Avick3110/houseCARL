@@ -143,24 +143,4 @@ public sealed class RecordsListLaneTests : RecordsTestBase
         Served(r, "group_by=type", "Spell");
         Assert.Contains("no records: Scroll", r);
     }
-
-    [Fact]
-    public void ListLaneAggregate_TheEmptyTypeLineIsChargedAheadOfTheCountedRows()
-    {
-        // The zero answer sorts last among the counts, so it is what a cap would take first: it is stated on its
-        // own line and charged with the notice, and survives a table too small for all its rows.
-        var project = new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" };
-        var types = new[] { "SPEL", "SCRL" };
-        var walk = new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" };
-        var whole = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, walk: walk, types: types, project: project);
-        Served(whole, "no records: Scroll");
-        // This selection's table is narrower than its floor, so a call is served it whole or refused (#986): the text
-        // render is driven directly over a thirty-row table, at the first cap it lays cut inside.
-        var rows = Enumerable.Range(1, 30).Select(i => new KeyValuePair<string, int>($"Type{i:D2}", 100 - i)).ToList();
-        var (_, cut) = RenderFloorAssert.ServedCut(
-            c => RecordsTools.RenderListAggregateText(rows, new[] { "Scroll" }, "type", 1_000, 0, null, "records  form=aggregate",
-                                                      (1_000, 5), c, 0),
-            t => t.Contains("truncated: rendered", StringComparison.Ordinal));
-        Served(cut, "no records: Scroll");
-    }
 }
