@@ -1,9 +1,9 @@
 using System.Globalization;
-using System.Text.RegularExpressions;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
+using HousecarlGenerator;
 using Xunit;
 
 namespace HousecarlMcpTests;
@@ -102,7 +102,7 @@ public sealed class InsertAtIndexGateTests
         });
         Assert.Contains("owned child records", m);
         // The WHOLE identifier: housecarl_create is a prefix of housecarl_create_record.
-        Assert.Matches(new Regex("(?<![A-Za-z0-9_])housecarl_create(?![A-Za-z0-9_])"), m);
+        Assert.True(ToolNameMatch.ReferencedAtBoundary(m!, "housecarl_create"), m);
     }
 
     // GATE-REJ-COMPOSES: composes= stays Add/ReplaceAll only, and the refusal names InsertAtIndex's singular path
@@ -344,6 +344,8 @@ public sealed class InsertAtIndexCliTests : IDisposable
     static readonly ModKey Mod = new("HcInsertCliTests", ModType.Master);
     readonly string _dir = Path.Combine(Path.GetTempPath(), "hc-insert-cli-" + Guid.NewGuid().ToString("N"));
     readonly string _source;
+    // Given so a regression that gets past the value check writes inside this folder, not under the test bin.
+    string Out => Path.Combine(_dir, "out", "HcInsertCliPatch.esp");
 
     public InsertAtIndexCliTests()
     {
@@ -367,7 +369,7 @@ public sealed class InsertAtIndexCliTests : IDisposable
     [Fact]
     public void AnOpInsertWithNoValueIsRefusedByName()
     {
-        var (code, err) = Run("--source", _source, "--type", "Armor", "--editorid", "Whatever", "--op", "InsertAtIndex|Keywords|0");
+        var (code, err) = Run("--source", _source, "--type", "Armor", "--editorid", "Whatever", "--op", "InsertAtIndex|Keywords|0", "--out", Out);
         Assert.Equal(1, code);
         Assert.Contains("verb 'InsertAtIndex' needs a value", err);
     }
@@ -377,7 +379,7 @@ public sealed class InsertAtIndexCliTests : IDisposable
     public void ASingleEditInsertWithNoValueIsRefusedByName()
     {
         var (code, err) = Run("--source", _source, "--type", "Armor", "--editorid", "Whatever",
-            "--path", "Keywords", "--verb", "InsertAtIndex", "--key", "0");
+            "--path", "Keywords", "--verb", "InsertAtIndex", "--key", "0", "--out", Out);
         Assert.Equal(1, code);
         Assert.Contains("--value is required for verb 'InsertAtIndex'", err);
     }
