@@ -14,7 +14,7 @@ namespace HousecarlGenerator;
 /// wired from <c>WritePatchBuilder.DescribeApplied</c>) and reports the whole appended run: <c>now 6 (+6), new [0..5]</c>.
 ///
 /// Drives the REAL in-place write path (<see cref="WritePatchBuilder.ApplyInPlace"/>, the bulk_apply in_place surface)
-/// over a masterless plugin with a LeveledItem, in the CompactReadbackProbe pattern, and inspects the per-op
+/// over a masterless plugin with a LeveledItem, in the InPlaceReadbackRenderTests pattern, and inspects the per-op
 /// <c>Landed</c> descriptor. Arms:
 ///   * BATCH   — a composes= Add of 6 LeveledItemEntry onto an empty list reports <c>(+6), new [0..5]</c>, NOT (+1).
 ///     RED before the fix (reported (+1), new [5]), GREEN after.

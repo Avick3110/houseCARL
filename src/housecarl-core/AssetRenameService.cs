@@ -7,7 +7,7 @@ namespace HousecarlCore;
 
 // AssetRenameService — carry FormID-KEYED assets (facegen, voice) across a renumber, plus the .seq rebuild that is
 // not a rename. The two-phase carry, the non-destructive rule, the disk-scan voice discovery and the refresh-only
-// .seq are contracts in docs/architecture/assets.md; pinned by facegen-carry-guard and voice-carry-guard.
+// .seq are contracts in docs/architecture/assets.md; pinned by CompactFacegenCarryTests and CompactVoiceCarryTests.
 
 /// <summary>The accounting of one facegen pass: renumbered NPCs considered, those with ≥1 file carried, files
 /// written, FOUND-but-unwritable failures, and whether a BSA failed to read (so "no facegen" may be incomplete).</summary>
