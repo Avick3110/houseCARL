@@ -17,11 +17,11 @@ grammar and cannot drift when the hand-modeled catalog changes.
 filter and operation per record type, taken from the bundled `skypatcher-authoring` reference, and
 a key resolving to no entry is reported as Unknown rather than assumed. Its record dimension (name,
 sig, subfolder, primaryFilter) is cross-checked in CI against the router table in that skill's
-`SKILL.md` — `SkyPatcherCatalogProbe.CrossCheckRouterTable` requires the row count to equal the
+`SKILL.md` — `SkyPatcherCatalogTests.TheCatalogMatchesTheSkillRouterTable` requires the row count to equal the
 loaded record count and matches recordType and signature per subfolder. That is the one contract
 here the code cannot express at all: it couples `src/housecarl-core/` to a file in
 `.claude/skills/`, so adding a record type on one side without the other fails
-`skypatcher-catalog-guard`.
+that test.
 
 **How far to trust the field map.** It is hand-modeled, but `SkyPatcherFieldMapGuardTests` walks every
 `OpMap.Path` with the real write engine (`WriteEngine.ResolveProperty` over the actual Mutagen
@@ -136,19 +136,19 @@ hardened.
 
 ## Pinned by
 
-- *Contracts*, the catalog paragraph: `SkyPatcherCatalogProbe` (ci probe `skypatcher-catalog-guard`) — an unknown key
-  is Unknown, never assumed, and `CrossCheckRouterTable` holds the record dimension against the skill's router table.
+- *Contracts*, the catalog paragraph: `SkyPatcherCatalogTests` — an unknown key
+  is Unknown, never assumed, and `TheCatalogMatchesTheSkillRouterTable` holds the record dimension against the skill's router table.
 - *Contracts*, the field-map paragraph: `SkyPatcherFieldMapGuardTests` — every path walked
   and every value target parsed against the real Mutagen types, with self-test arms catching a bad path and a bad
   value target. Its stateful-shape arm checks that the catalog's op shape and the map's semantic agree on being
   stateful; that is not the paragraph's leaf-type check, and the stateful-numeric-on-a-non-numeric-leaf, flags-on-a-non-enum
   and dict-on-a-non-dict checks have no self-test arm.
-- *The grammar*: `SkyPatcherParseProbe` (`skypatcher-parse-guard`) — a segment with no `=` or an empty key is noted
+- *The grammar*: `SkyPatcherParseTests` — a segment with no `=` or an empty key is noted
   and still surfaced, and a doubled `,` is noted and skipped.
-- *Addressing*: `SkyPatcherParseProbe` — a bare EditorID is left un-addressed, and the FormID side trims leading
+- *Addressing*: `SkyPatcherParseTests` — a bare EditorID is left un-addressed, and the FormID side trims leading
   zeros; `SkyPatcherOverlayWeaponReplayTests.AFullEslFormIdWithANonZeroSlotKeepsOnlyTheLocalId` (`FE001800`) — a
   full ESL FormID keeps its 12-bit local id.
-- *The per-type subfolder rule and the filename gate*: `SkyPatcherDiscoveryProbe` (`skypatcher-discovery-guard`) —
+- *The per-type subfolder rule and the filename gate*: `SkyPatcherDiscoveryTests` —
   the `0`→`z` relative-path order, `<Plugin>.esp.ini` gated and still inspectable, the `[Patcher]` toggle, a
   root-level INI and an undocumented subfolder each noted, loose-only, and the union with `ShadowedProviders`.
 - *How the overlay replays onto a record*: `SkyPatcherOverlayWeaponReplayTests` — the stateful apply-order replay,

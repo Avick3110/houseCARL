@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace HousecarlCore;
 
 /// <summary>The SkyPatcher grammar catalog — classifies one segment key as a filter, an operation, or Unknown; contract in docs/architecture/skypatcher-layer.md.</summary>
-/// <remarks>Transcribed from the bundled skypatcher-authoring reference, never invented, and cross-checked in CI against that skill's SKILL.md router table by skypatcher-catalog-guard.</remarks>
+/// <remarks>Transcribed from the bundled skypatcher-authoring reference, never invented, and cross-checked in CI against that skill's SKILL.md router table by SkyPatcherCatalogTests.</remarks>
 public sealed class SkyPatcherCatalog
 {
     /// <summary>The connective vocabulary derived from the loaded catalog, longest-first with ordinal tie-breaks.</summary>

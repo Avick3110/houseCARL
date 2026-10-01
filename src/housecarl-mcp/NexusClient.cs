@@ -169,7 +169,7 @@ public sealed class NexusClient
         return await PostAsync(query, vars, ct);
     }
 
-    /// <summary>True when a document has a mutation or subscription operation; `nexus-graphql-guard` pins the match.</summary>
+    /// <summary>True when a document has a mutation or subscription operation; NexusGraphqlTests pins the match.</summary>
     internal static bool IsMutatingQuery(string query) =>
         Regex.IsMatch(query, @"(^|\})\s*(mutation|subscription)\b", RegexOptions.IgnoreCase);
 
