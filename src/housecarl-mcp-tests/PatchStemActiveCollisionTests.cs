@@ -7,8 +7,8 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The default patch stem "Patch" against an ACTIVE plugin of the same basename in another mod folder: the stem
-/// steps to "Patch_001" rather than writing a second active "Patch.esp"; a stem nothing in the order uses stays bare;
+/// The default patch stem "Patch" against an ACTIVE plugin of the same basename in the game's Data folder, where no
+/// mod-folder scan sees it, only the active load order: the stem steps to "Patch_001" rather than writing a second active "Patch.esp"; a stem nothing in the order uses stays bare;
 /// the active plugin is never written. <see cref="PatchStemShadowTests"/> covers the inactive-plugin shadow.
 /// </summary>
 [Trait("tier", "integration")]
@@ -21,12 +21,12 @@ public sealed class PatchStemActiveCollisionTests : IDisposable
     public PatchStemActiveCollisionTests()
     {
         var key = new ModKey("Patch", ModType.Plugin);
-        _base = _mo2.InMod("BaseMod", key);
+        _base = Path.Combine(_mo2.DataDir, key.FileName.String);
         var m = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
         var w = m.Weapons.AddNew(); w.EditorID = "HcStemWeap"; w.BasicStats = new WeaponBasicStats { Damage = 10, Weight = 1 };
         m.BeginWrite.ToPath(_base).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         _fid = ScratchMo2.Fid(w.FormKey);
-        _mo2.Profile("Patch.esp\r\n", "*Patch.esp\r\n", "+BaseMod\r\n");
+        _mo2.Profile("Patch.esp\r\n", "*Patch.esp\r\n", "");
     }
 
     public void Dispose() => _mo2.Delete();
