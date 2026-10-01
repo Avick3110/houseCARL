@@ -137,7 +137,7 @@ public static class SkseTools
         // "omit filter=" only where the unfiltered view is served at this cap, and never beside peek=, which needs its filter.
         string OmitFilter() => !string.IsNullOrWhiteSpace(filter) && !peek && RenderCap.Serves(cap, (n, _) => At(null, n))
             ? RenderCap.OmitFilter : "";
-        return RenderCap.Capped(cap, (n, _) => At(filter, n), OmitFilter);
+        return RenderCap.CappedOnce(cap, n => At(filter, n), OmitFilter);
     }
 
     /// <summary>The two families this call did not run, in the spelling that would — the json twin of <see cref="FamilyFooter"/>.</summary>

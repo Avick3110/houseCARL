@@ -244,7 +244,7 @@ static class CheckTextRender
                    + (o.OrderExcluded.Count > 0 ? "\n" + OrderDegraded.Sentence(o.OrderExcluded) : "");
         int cap = Wire.Cap(maxChars);
         BoundedBody? whole = null, atCap = null;
-        // Capped renders at the cap only when the whole answer does not fit it; the grow rounds render at other caps.
+        // The whole answer is laid once; the render at the cap only when it does not fit; grow rounds at other caps.
         string At(int n)
         {
             var r = RenderCheckAt(o, n, histogramLimit, out var body);
@@ -252,7 +252,7 @@ static class CheckTextRender
             else if (n == RenderCap.Whole) whole = body;
             return r;
         }
-        var response = RenderCap.Capped(cap, (n, _) => At(n), epochLine: o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
+        var response = RenderCap.CappedOnce(cap, At, epochLine: o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
         measured = atCap ?? whole;
         return response;
     }

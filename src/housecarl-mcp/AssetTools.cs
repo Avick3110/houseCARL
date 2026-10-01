@@ -438,7 +438,7 @@ static class AssetCensus
     public static string Render(AssetStatusData d, int cap, int limit)
     {
         var c = Tally(d);
-        return RenderCap.Capped(cap, (n, _) => Render(d, c, n, limit));
+        return RenderCap.CappedOnce(cap, n => Render(d, c, n, limit));
     }
 
     static string Render(AssetStatusData d, Counts c, int cap, int limit)

@@ -42,6 +42,15 @@ internal readonly record struct RenderCap(int Cap, int Budget)
         => WholeAt(cap, at) ?? Hold(at(cap, null), cap, n => at(n, null), out _, alsoTry, epochLine,
                                     n => WholeAt(n, at), nextCall);
 
+    /// <summary>A text render that cannot stop early: its whole answer laid once per call and reused, else held.</summary>
+    public static string CappedOnce(int cap, Func<int, string> at, Func<string>? alsoTry = null, string epochLine = "")
+    {
+        var whole = at(Whole);
+        return whole.Length <= cap
+            ? whole
+            : Hold(at(cap), cap, at, out _, alsoTry, epochLine, n => whole.Length <= n ? whole : null);
+    }
+
     /// <summary>Whether the same call is served at <paramref name="cap"/>: its render at the cap or its whole answer fits.</summary>
     public static bool Serves(int cap, Func<int, WholePass?, string> at)
         => at(cap, null).Length <= cap || WholeAt(cap, at) is not null;
