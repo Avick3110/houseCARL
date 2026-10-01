@@ -21,7 +21,7 @@ namespace HousecarlGenerator;
 ///     (0 of 1.55M real records). 0xFE is the RUNTIME address the engine computes from the master's header flag.
 ///     ⇒ the scoping's "assert the on-disk byte is FE-space" is unsound (it could never pass). The flag that tracks
 ///     light-ness is the master's OWN IsSmallMaster header bit; the FormKey is index-independent (no cross-instance
-///     carry). Mutagen round-trips it all correctly. The guard below pins THESE invariants.
+///     carry). Mutagen round-trips it all correctly.
 ///
 /// The arms below are kept as REPRODUCIBLE DOCUMENTATION of how the FINDINGS above were reached — they print the
 /// measured reality (the questions they pose were answered as stated above); EslOverrideFormIdTests (src/housecarl-mcp-tests) pins it.
