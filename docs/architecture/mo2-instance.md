@@ -117,7 +117,7 @@ swallows the note turns a recoverable state into a silent loss.
 - *The priority model*: `MasterSplitInstallLocationsTests.TheSplitFilesEachMasterByWhichInstallLayerHoldsItsFile` —
   `AllPluginFileNames` walks all five layers. No test calls `LocatePlugin`, so that the two draw from the same places
   rests on their shared `CandidateFolders`, not on an assertion.
-- *Deriving the roots from one path*: `Mo2InstanceProbe` (`mo2instance-probe`) — the roots and the active profile
+- *Deriving the roots from one path*: `Mo2InstanceResolveTests` — the roots and the active profile
   derived from the instance folder, the `base_directory` override, and a missing required piece named rather than
   half-derived.
 - *The profile files*: `ProfileRewriteTests.AColdAssetCallOnAHeldProfileNamesTheHoldInsteadOfAnInternalFailure` — a

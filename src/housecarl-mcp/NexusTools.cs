@@ -350,7 +350,7 @@ static class Render
         return json;
     }
     const int GraphqlCap = 40000;
-    // UnsafeRelaxedJsonEscaping so '+', '&' and non-ASCII render literally; pinned by `nexus-graphql-guard`.
+    // UnsafeRelaxedJsonEscaping so '+', '&' and non-ASCII render literally; pinned by NexusGraphqlTests.
     static readonly JsonSerializerOptions GraphqlJson = new()
         { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
