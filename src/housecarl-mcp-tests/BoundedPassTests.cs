@@ -132,4 +132,29 @@ public sealed class BoundedPassTests : IClassFixture<WideCutWorld>
         }
         finally { Directory.Delete(dir, true); }
     }
+
+    /// <summary>A fields scan with no prefilled summaries (conflicts-only, references= without types=) sizes its spill
+    /// block off the chunked body gather, with no winner fetch per row, and it is the block the written artifact prints.</summary>
+    [Fact]
+    public void ALazilySummarizedScanSizesItsSpillBlockWithNoFetchPerRow()
+    {
+        var fields = new[] { "EditorID" };
+        var q = _w.Svc.CrossQuery(new[] { "DIAL" }, null, null, false, null, null, 100_000) with { Prefilled = null };
+        var counters = q.Pin!.Resolver.Counters;
+        var dir = Path.Combine(Path.GetTempPath(), "hc-sizelazy-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "records_x.jsonl");
+        try
+        {
+            long seeks = counters.BodySeeks;
+            var sized = Artifacts.WriteCrossQuery(_w.Svc, q, fields, false, false, 1, ArtifactTarget.Sizing(path), "ceiling", NoEcho).Spill!;
+
+            Assert.Equal(seeks, counters.BodySeeks);
+            Assert.Contains("DialogTopic=30", Wire.SpillText(SpillState.Spilled(sized, manifestOnly: false)));
+            var written = Artifacts.WriteCrossQuery(_w.Svc, q, fields, false, false, 1, ArtifactTarget.Named(path), "ceiling", NoEcho).Spill!;
+            Assert.Equal(Wire.SpillText(SpillState.Spilled(written, manifestOnly: false)),
+                         Wire.SpillText(SpillState.Spilled(sized, manifestOnly: false)));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }
