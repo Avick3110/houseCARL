@@ -52,6 +52,18 @@ internal sealed class ScanDetailReader : IDisposable
                                   _containerHint, _depths, _session, body);
     }
 
+    /// <summary>Row <paramref name="i"/>'s record type off its body's header, gathered with its chunk and no field read;
+    /// null when the body is not there, where <see cref="Row"/> reads an error. Only a pinned scan is read this way.</summary>
+    internal string? RecordType(int i)
+    {
+        _ct.ThrowIfCancellationRequested();
+        FillChunk(i);
+        return _chunk?.Body(_q.Keys[i]) is { } body ? ReadEngine.TypeNameOf(body) : null;
+    }
+
+    /// <summary>Whether <see cref="RecordType"/> can answer: the scan carries the build it was pinned to.</summary>
+    internal bool Pinned => _view is not null && _session is not null;
+
     /// <summary>The plugin whose body this row displays: the scan's own per-match source, or the winner when the
     /// call retargeted display to it.</summary>
     string? SourceAt(int i)

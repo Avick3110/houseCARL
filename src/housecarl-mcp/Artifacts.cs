@@ -171,12 +171,16 @@ internal static class Artifacts
             sort = "load-order scan order (deterministic within one epoch)";
             var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
             // The same reader the inline renders use; a cancel throws before Save, so no half artifact reaches disk.
-            using var reader = target.SizeOnly ? null : new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields,
+            using var reader = new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields,
                                                     (levers ?? LeverNames.Legacy).ContainerHint, foldDepths, ct);
+            // Sized, not written: counted by type with no field read. A scan with no prefilled summaries takes each
+            // type off its body's header in the chunked gather the write uses, never a winner fetch per row.
+            string? SizedType(int i) => q.Prefilled is null && reader.Pinned
+                ? reader.RecordType(i)
+                : Summary(i) is { Error: null } s ? s.Type : null;
             for (int i = 0; i < q.Keys.Count; i++)
             {
-                // Sized, not written: counted by the selection's type, with no body read.
-                if (reader is null) { writer.WriteRow((_, _) => { }, Summary(i) is { Error: null } s ? s.Type : null); continue; }
+                if (target.SizeOnly) { writer.WriteRow((_, _) => { }, SizedType(i)); continue; }
                 var fk = q.Keys[i];
                 string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                 var o = reader.Row(i);   // an artifact row is read by the same caller

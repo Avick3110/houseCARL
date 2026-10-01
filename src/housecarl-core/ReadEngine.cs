@@ -110,6 +110,10 @@ public static class ReadEngine
     /// passes its own redirect as <c>containerHint</c>, or null to suppress it.</summary>
     public const string DepthExpandHint = " — pass depth=2 to expand";
 
+    /// <summary>The type name a read of <paramref name="record"/> carries, off its runtime type alone.</summary>
+    public static string TypeNameOf(IMajorRecordGetter record) =>
+        RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(record.GetType())?.Name ?? "I?Getter");
+
     /// <summary>Read a located record's fields as round-trippable tokens — the structured entry the MCP server
     /// consumes, per-leaf fault isolated.</summary>
     /// <param name="depths">One depth per entry of <paramref name="paths"/> when they must differ; every path
@@ -119,7 +123,7 @@ public static class ReadEngine
                                           Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf = null,
                                           IReadOnlyList<int>? depths = null)
     {
-        var typeName = RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(record.GetType())?.Name ?? "I?Getter");
+        var typeName = TypeNameOf(record);
         var targets = paths is { Count: > 0 } ? (IEnumerable<string>)paths : ModeledFieldNames(typeName, record.GetType());
         var fields = new List<FieldValue>();
         if (depth <= 1)
