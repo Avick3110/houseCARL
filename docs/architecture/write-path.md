@@ -420,7 +420,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   keeps the same objects in the same order through a real serialize and re-read.
 - `FlagsBitVerbGateTests` and `FlagsBitVerbApplyTests` — a flags `Add` / `Remove` flips one bit and preserves every
   unlisted one, gate and apply keyed off the same test.
-- `formlink-remove-guard` — `Remove` clears a nullable FormLink instead of throwing, and fails loud on a required
+- `FormLinkRemoveTests` — `Remove` clears a nullable FormLink instead of throwing, and fails loud on a required
   one when pre-flight is bypassed.
 - `subclass-remove-guard` — `RemovalTypeFor` routes the typed remove through the flat group's `T`, so a record whose
   concrete class is a subclass of it is really removed rather than silently skipped.
@@ -428,14 +428,14 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   on the outcome rather than silently, and the three collisions refused loud with the file untouched.
 - `AbstractGroupCreateTests` (G1 / G2) — a concrete arm of either abstract group creates, keyed off the
   runtime hierarchy rather than a per-type case.
-- `NestedCreateSlotTests`, and `coord-cell-guard` arms EXTERIOR / INTERIOR / PLACED — the modeled-slot nested create,
+- `NestedCreateSlotTests`, `CoordCellCreateTests` and `CreateInteriorCellTests` — the modeled-slot nested create,
   and the coordinate-keyed cell routes through a real serialize and re-open.
 - `OwnedChildLifecycleTests.EveryChildBearingPropertyIsASlotCreateCanNameOrACoordinateRouteItNames` — every
   child-bearing property the reflected set answers is a slot create can name or a coordinate route it names.
 - `ApplyGuardVerifyTests.AnEmptyComposeIsRefusedBeforeTheFileIsTouched` — a compose given no fields is refused as
   having no serializable content.
-- `coerce-audit` — every writable scalar, enum, value, formlink and coercible-element leaf in the corpus resolves to
-  a coercible type; `coerce-selftest` — each value-type rule builds an instance assignable to its target.
+- `CoerceAuditTests` — every writable scalar, enum, value, formlink and coercible-element leaf in the corpus resolves to
+  a coercible type; `CoerceSampleTests` — each value-type rule builds an instance assignable to its target.
 - `CompactRepointReferencerTests`, the REPOINT-MIXED tests — both refusals split on the shape `LocalizedAmong`
   returns, rendered on the real renderers. They do not pin the fail-closed half:
   `AHeldReferencerIsDroppedByTheIdentifyPassBeforeThePreflight` shows a held referencer never reaches the
@@ -543,8 +543,6 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   refusal types (`ExpectedApplyRejectionException`, `MalformedTargetDataException`, `NullArmSerializeException`,
   `CompositionRequiredException`, `LocalizedTargetUnsupportedException`), and the `patch` / `show` /
   `condition-patch` dev harnesses.
-- `src/housecarl-generator/CoerceAuditProbe.cs` and `CoerceSelftestProbe.cs` — the `coerce-audit` and
-  `coerce-selftest` probes over the coercion family.
 - Tools: `housecarl_apply`, `housecarl_create`, `housecarl_remove`, `housecarl_forward`, `housecarl_copy`,
   `housecarl_compact_plugin`, `housecarl_merge_plugins`, `housecarl_create_plugin`.
 - `src/housecarl-core/WriteVerbs.cs` — the write-verb vocabulary, `CollectionShape`, `WriteVerbs.On` and the purpose

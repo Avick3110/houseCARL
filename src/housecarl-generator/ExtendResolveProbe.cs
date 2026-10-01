@@ -19,7 +19,7 @@ namespace HousecarlGenerator;
 /// marker (this is houseCARL's OWN output; the marker still gates every touch, so it opens NO foreign-plugin door — that's
 /// the separate, unbuilt in-place lane).
 ///
-/// Drives the REAL service write paths against a synthetic MO2 instance in temp (the WriteMutexProbe synth pattern). Arms:
+/// Drives the REAL service write paths against a synthetic MO2 instance in temp (the WriteMutexTests synth pattern). Arms:
 ///   CANONICAL    — into="SeedA" still resolves the unchanged "houseCARL - SeedA\SeedA.esp" (zero regression, no scan).
 ///   BY-ESP       — after the folder is RENAMED, into=&lt;esp basename&gt; finds the patch by the plugin it holds. RED pre-fix.
 ///   BY-ESP-EXT   — into="SeedA.esp" (with extension) strips the ext and resolves the same renamed patch.
