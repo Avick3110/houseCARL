@@ -52,16 +52,19 @@ internal sealed class ScanDetailReader : IDisposable
                                   _containerHint, _depths, _session, body);
     }
 
-    /// <summary>Row <paramref name="i"/>'s record type off its body's header, gathered with its chunk and no field read;
-    /// null when the body is not there, where <see cref="Row"/> reads an error. Only a pinned scan is read this way.</summary>
-    internal string? RecordType(int i)
+    /// <summary>Row <paramref name="i"/>'s body as its chunk gathered it, with no field read; null where the chunk missed it.</summary>
+    internal IMajorRecordGetter? Gathered(int i)
     {
         _ct.ThrowIfCancellationRequested();
         FillChunk(i);
-        return _chunk?.Body(_q.Keys[i]) is { } body ? ReadEngine.TypeNameOf(body) : null;
+        return _chunk?.Body(_q.Keys[i]);
     }
 
-    /// <summary>Whether <see cref="RecordType"/> can answer: the scan carries the build it was pinned to.</summary>
+    /// <summary>Row <paramref name="i"/>'s record type off its gathered body, or off <see cref="Row"/> where the chunk missed it.</summary>
+    internal string? RecordType(int i)
+        => Gathered(i) is { } body ? ReadEngine.TypeNameOf(body) : Row(i) is { Error: null, Record: { } r } ? r.Type : null;
+
+    /// <summary>Whether the chunked gather can answer: the scan carries the build it was pinned to.</summary>
     internal bool Pinned => _view is not null && _session is not null;
 
     /// <summary>The plugin whose body this row displays: the scan's own per-match source, or the winner when the

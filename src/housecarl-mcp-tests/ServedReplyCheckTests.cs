@@ -70,6 +70,28 @@ public sealed class ServedReplyCheckTests : IClassFixture<WideCutWorld>
         Assert.True(refusedCut, "a refusal decided on a render that cut its row came back untruncated");
     }
 
+    /// <summary>A chunk whose plugin walk faulted misses every body, and a row's own read can still succeed once the
+    /// fault has passed (the plugin moved away during the walk and back before the rows are read): the type sized for
+    /// each row is the type its own read stamps in the file.</summary>
+    [Fact]
+    public void AChunkMissSizesTheTypeTheRowsOwnReadStamps()
+    {
+        var q = _w.Svc.CrossQuery(new[] { "DIAL" }, null, null, false, null, null, 100_000) with { Prefilled = null };
+        var master = Path.Combine(_w.Root, "inst", "mods", "WideMasterMod", "HcWideCutMaster.esm");
+        using var reader = new ScanDetailReader(_w.Svc, q, new[] { "EditorID" }, 1, false, false, null, null, default);
+        File.Move(master, master + ".away");
+        try { Assert.Null(reader.Gathered(0)); }
+        finally { File.Move(master + ".away", master); }
+
+        var rows = Enumerable.Range(1, q.Keys.Count - 1).ToList();
+        var sized = rows.Select(reader.RecordType).ToList();
+        var written = rows.Select(reader.Row).Select(o => o.Error is null ? o.Record!.Type : null).ToList();
+
+        Assert.Null(reader.Gathered(1));   // the faulted plugin is not walked again: every row of the chunk misses
+        Assert.All(written, t => Assert.Equal("DialogTopic", t));
+        Assert.Equal(written, sized);
+    }
+
     /// <summary>An asset_status call refused below its floor builds no record index: the stamp its spill would carry is
     /// taken only when a cut is served. The call at the named cap is served, spilling, and stamps it.</summary>
     [Fact]
