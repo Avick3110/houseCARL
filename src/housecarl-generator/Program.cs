@@ -220,9 +220,6 @@ if (args.Length > 0 && args[0] == "roundtrip-probe") return RoundTripProbe.RunPr
 // renumber a record into the ESL range.
 if (args.Length > 0 && args[0] == "remap-wave1-mech") return RemapWave1Probe.RunMechanism(args[1..]);
 
-// The self-contained compact/merge gate is a [CiProbe] guard, `remap-wave1-guard`, dispatched by CiAll.TryDispatch
-// above, so it is not listed here.
-
 // Compact/merge real-data run, MANUAL: ESL-compact a real plugin to a NEW one for checking in xEdit, and time the
 // identify-pass over the live order. Needs --mo2 <inst> --plugin <Name.esp>, and SKIPs without them.
 if (args.Length > 0 && args[0] == "remap-wave1-real") return RemapWave1Probe.RunReal(args[1..]);

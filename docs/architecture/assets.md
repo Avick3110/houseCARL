@@ -273,8 +273,8 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   selector with no literal directory prefix is refused; `AGlobNarrowsTheSweepToTheFilesItMatches` in the same class —
   `*` within a segment, `**` across separators; `AssetStatusSetTests.ANarrowGlobUnderAWideFolderIsNotRefusedForTheFoldersSize`
   — the enumeration is bounded by matches, not candidates.
-- *Carrying assets across a renumber*: the four contracts are pinned by `facegen-carry-guard` and `voice-carry-guard`
-  (`FacegenCarryProbe`, `VoiceCarryProbe`) — the two-phase carry (the overlapping-window arm), the old files left as
+- *Carrying assets across a renumber*: the four contracts are pinned by `CompactFacegenCarryTests` and
+  `CompactVoiceCarryTests` — the two-phase carry (the overlapping-window arm), the old files left as
   orphans, a record with nothing to carry is not a failure, and voice found by scanning disk.
 - *Archives*: the reader's byte parity with BSArch, and its reading of archives BSArch rejects, are pinned by the
   opt-in `bsa-probe` (`BsaProbe`).

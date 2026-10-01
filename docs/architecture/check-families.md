@@ -187,7 +187,7 @@ second family and no second moment. What that leaves is each family's own head a
 accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_defaulted`, and the overrun notice.
 
 ## Pinned by
-- *A DELETED record has no live body*: the `deleted-link-walk-guard` probe (`CI: DeletedLinkWalkProbe`), which drives both a SEMANTIC arm — a
+- *A DELETED record has no live body*: `DeletedLinkWalkTests`, which drives both a SEMANTIC arm — a
   deleted record with an intact body carrying a link, which must not be reported — and a CRASH arm — a deleted record
   whose lazy parse throws, which must not be accounted unscannable — against live controls in the errors sweep and the
   compact/merge scan.
