@@ -166,15 +166,15 @@ if (args.Length > 0 && args[0] == "atrest-probe") return AtRestProbe.RunProbe(ar
 
 // Active-patch write self-lock, EXPLORATORY: map the Windows file-sharing semantics of writing into a patch whose
 // own overlay is held by AllMasters() — direct, temp+Replace, and release-then-write.
-if (args.Length > 0 && args[0] == "writelock-probe") return WriteLockProbe.RunProbe(args[1..]);
+if (args.Length > 0 && args[0] == "writelock-probe") return WriteLockHarness.RunProbe(args[1..]);
 
 // Active-patch write self-lock, EXPLORATORY: prove Apply's winner-fetch opens a SECOND overlay on the target when
 // re-editing an own override, one that survives AllMastersExcept and still self-locks the serialize.
-if (args.Length > 0 && args[0] == "writelock-apply-probe") return WriteLockProbe.RunApplyResidualProbe(args[1..]);
+if (args.Length > 0 && args[0] == "writelock-apply-probe") return WriteLockHarness.RunApplyResidualProbe(args[1..]);
 
 // REAL-DATA proof that a NESTED record (PlacedObject, via the link-cache context path) survives the
 // re-edit-own-override case under the "release overlay before serialize" invariant.
-if (args.Length > 0 && args[0] == "writelock-nested-proof") return WriteLockProbe.RunNestedProof(args[1..]);
+if (args.Length > 0 && args[0] == "writelock-nested-proof") return WriteLockHarness.RunNestedProof(args[1..]);
 
 // REAL-DATA proof of the NESTED own-override re-edit IN PLACE (the LinkCacheFor-on-a-foreign-target overlay path),
 // the one case the self-contained InPlaceGuard* tests cannot synthesize. Needs Skyrim.esm; self-skips on the runner.
@@ -198,15 +198,15 @@ if (args.Length > 0 && args[0] == "conflict-diff-proof") return ConflictDiffProo
 
 // FormID allocation floor, EXPLORATORY: pin the Mutagen NextFormID semantics — fresh-mod init, the Iterate
 // serialize recompute that seeds 0, CreateFromBinary rehydration, AddNew-from-0.
-if (args.Length > 0 && args[0] == "formid-floor-probe") return FormIdFloorProbe.RunProbe(args[1..]);
+if (args.Length > 0 && args[0] == "formid-floor-probe") return FormIdFloorHarness.RunProbe(args[1..]);
 
 // ESL / FE-space FormID handling, EXPLORATORY: pin the referenced Mutagen version's small-master semantics —
 // legal object-ID range, IsSmallMaster to FE-space encode, FE decode round-trip, flag-tracking, index-independence.
-if (args.Length > 0 && args[0] == "esl-formid-probe") return EslFormIdProbe.RunProbe(args[1..]);
+if (args.Length > 0 && args[0] == "esl-formid-probe") return EslFormIdHarness.RunProbe(args[1..]);
 
 // ESL ground-truth scan, EXPLORATORY: raw-byte scan of REAL plugins to settle whether SSE stores light-master
 // references in FE-space on disk (0xFE high byte) or by master-list index.
-if (args.Length > 0 && args[0] == "esl-real-scan") return EslFormIdProbe.RunRealScan(args[1..]);
+if (args.Length > 0 && args[0] == "esl-real-scan") return EslFormIdHarness.RunRealScan(args[1..]);
 
 // MANUAL/REAL-DATA probe: no-op re-serialize a sample of REAL plugins (counter-preserving, the correct in-place
 // shape) and measure the whole-plugin byte divergence surface — identical, header-only, body, records-changed,
