@@ -260,7 +260,9 @@ public sealed class ToolSurfaceCensusTests
     /// reading against. Two rows are the same file and name and report as one, so the assertion counts sites
     /// rather than rows. Type names are stored, not whole expressions: this file is scanned like any other, so
     /// a literal <c>typeof(X).Assembly</c> here would be an offender in it. The two probe files have since been
-    /// deleted; a row's path is read only for the project that owns it, never opened, so those rows still hold.</summary>
+    /// deleted; a row's path is read only for the project that owns it, never opened, so those rows still hold.
+    /// The <c>ToolSchemas</c> site was in the generator's PreFlattenSurface.cs, also deleted; its row names
+    /// another generator file so every path in this table exists.</summary>
     static readonly (string File, string TypeName)[] TheRepointedSites =
     {
         ("src/housecarl-generator/RegisteredTools.cs",                 "WriteTools"),
@@ -268,7 +270,7 @@ public sealed class ToolSurfaceCensusTests
         ("src/housecarl-generator/DescriptionVocabularyGuardProbe.cs", "ApplyOp"),
         ("src/housecarl-generator/WireNamesProbe.cs",                  "ApplyOp"),
         ("src/housecarl-generator/WireNamesProbe.cs",                  "ApplyOp"),
-        ("src/housecarl-generator/PreFlattenSurface.cs",               "ToolSchemas"),
+        ("src/housecarl-generator/RegisteredTools.cs",                 "ToolSchemas"),
     };
 
     /// <summary>Every spelling above is still read as naming the tool surface, so a fix to the false-positive
