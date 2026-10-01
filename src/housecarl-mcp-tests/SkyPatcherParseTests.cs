@@ -178,7 +178,7 @@ public sealed class SkyPatcherParseTests
     [Fact]
     public void ALeadingBomIsStripped()
     {
-        var f = SkyPatcherParse.ParseFile("﻿" + "filterByWeapons=Skyrim.esm|12EB7:weight=0");
+        var f = SkyPatcherParse.ParseFile("\uFEFF" + "filterByWeapons=Skyrim.esm|12EB7:weight=0");
 
         var line = Assert.Single(f);
         Assert.Equal(SkyPatcherLineKind.Patch, line.Kind);
@@ -189,7 +189,7 @@ public sealed class SkyPatcherParseTests
     [Fact]
     public void ABomAtALineStartMidFileIsTrimmed()
     {
-        var f = SkyPatcherParse.ParseFile("weight=1\n" + "﻿" + "filterByKeywordsOr=A,B:weight=0");
+        var f = SkyPatcherParse.ParseFile("weight=1\n" + "\uFEFF" + "filterByKeywordsOr=A,B:weight=0");
 
         Assert.Equal(2, f.Count);
         Assert.Equal("filterByKeywordsOr", f[1].Segments[0].Key);
@@ -199,7 +199,7 @@ public sealed class SkyPatcherParseTests
     [Fact]
     public void ABomMidLineIsWhitespace()
     {
-        var l = SkyPatcherParse.ParseLine("attackDamage=5" + "﻿" + ":weight=1");
+        var l = SkyPatcherParse.ParseLine("attackDamage=5" + "\uFEFF" + ":weight=1");
 
         Assert.Equal(2, l.Segments.Count);
         Assert.Equal("5", l.Segments[0].RawValue);
