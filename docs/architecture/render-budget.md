@@ -44,8 +44,9 @@ three `housecarl_skse` families.
   back the widest its notices can be before its body, so without this pass an answer of N chars could be cut, and
   refused, at `max_chars=N`. The pass only has to say whether the answer fits the cap, so it is bounded by the cap:
   it renders at `RenderCap.WholeWithin(cap)`, where no reserve bites, and a render stops laying units once it is past
-  the cap (`RenderCap.Past`). What comes back is the whole answer when it fits, and otherwise wider than the cap and
-  thrown away, so a 5,000-record batch at `max_chars=2000` costs what 2,000 chars cost, not what the answer does.
+  the cap (`RenderCap.Past`). `Past` records that the pass stopped, and a pass that stopped is never read as the
+  whole answer, whatever its length once its trailing newline is trimmed: the fact is reported, not inferred from the
+  width. What comes back is otherwise the whole answer, served when it fits, so a 5,000-record batch at `max_chars=2000` costs what 2,000 chars cost, not what the answer does.
   The records renders, the scan, batch, `nif_inspect`, `asset_status` and the SkyPatcher layer stop early. The three
   `housecarl_skse` families, the merged check and the asset census lay their whole answer in this pass: their data
   is already read, and their width is bounded by the install's own lists and by `histogram_limit`, not by a
@@ -67,8 +68,10 @@ render is the whole answer). The block's width depends only on the artifact's ma
 and total, the epoch and its caveats, the row schema and sort, and the count per record type, which are counts of
 the selection. So the name is reserved (#770: the reservation is the file) and the lane's artifact writer runs
 against a sizing target (`ArtifactTarget.Sizing`), which counts rows and types without serializing a row or writing
-anything. A scan's detail rows are counted by the type its summary already carries; a conflicts-only text scan
-resolves each summary once, shared between its render and its artifact. No field body is read to size the block. A refused call
+anything. A scan's detail rows are counted by the type its summary already carries where the scan prefilled one
+(`types=`, `plugins=`, a FormID set); otherwise by the type of each row's body, taken off its header in the chunked
+gather the write itself uses (one walk per source plugin), never a winner fetch per row. A conflicts-only summary
+scan resolves each summary once, shared between its render and its artifact. No field is read to size the block. A refused call
 releases the reservation and leaves no file; a served one writes the artifact once, streaming through the reserved
 handle, and is rendered with the block the write stamped. That block is never wider than the sized one: a scan row
 whose body read fails carries no type in the file, so its counts can only be smaller. A write that fails is stated
