@@ -95,9 +95,7 @@ internal readonly record struct RenderCap(int Cap, int Budget)
     /// <summary>What a filtered render adds to its refusal's remedy, when the unfiltered render fits the cap it was given.</summary>
     public const string OmitFilter = ", or omit filter=, whose own lines are part of what it carries";
 
-    /// <summary>The over-cap arm of a render that is not refused, and it says so: a write's report, whose write already
-    /// happened, and a to_file= manifest, whose file already landed. The notice settles to a fixed point because it is
-    /// part of the response whose length it states (#361).</summary>
+    /// <summary>A write report or to_file= manifest over its cap ships with a notice naming its own length (#361).</summary>
     public static string Settle(string response, int cap)
     {
         if (response.Length <= cap) return response;

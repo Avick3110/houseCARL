@@ -309,8 +309,7 @@ public sealed class ArtifactTarget : IDisposable
     /// <summary>A reserved target: the open, exclusive handle that holds the name.</summary>
     public static ArtifactTarget Reserved(string path, FileStream held) => new(path, held);
 
-    /// <summary>A target that writes nothing: Save stamps the manifest a write to <paramref name="path"/> would, off rows
-    /// counted but not serialized, so a render can be measured with its spill block before any row is written.</summary>
+    /// <summary>A target that writes nothing, only stamps the manifest a write to <paramref name="path"/> would.</summary>
     public static ArtifactTarget Sizing(string path) => new(path, null) { SizeOnly = true };
 
     /// <summary>True for a <see cref="Sizing"/> target.</summary>
