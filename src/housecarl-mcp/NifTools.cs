@@ -139,7 +139,7 @@ public static class NifTools
     });
 
     /// <summary>Parse <c>sections=</c> into the recognized set plus the unrecognized tokens, which are surfaced rather
-    /// than ignored; the JSON-array-as-string form an MCP client sends parses too, and is pinned by NifSectionsProbe.</summary>
+    /// than ignored; the JSON-array-as-string form an MCP client sends parses too, and is pinned by NifSectionsParseTests.</summary>
     internal static (HashSet<string> Want, IReadOnlyList<string> Unknown) ParseSections(string sections)
     {
         var want = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

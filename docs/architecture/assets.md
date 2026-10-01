@@ -226,17 +226,21 @@ a miss, stating that form is not provided either; the generic lane does not, bec
 
 ## Pinned by
 
-- *Precedence*: `AssetResolverProbe` (ci probe `asset-resolver-guard`) — overwrite, then mods highest-priority-first,
-  then Data, first sighting wins (the loose precedence and mod-priority arms); loose beats BSA-packed (arm 6); the
-  higher plugin rank wins among BSAs (arm 7).
-- *Precedence*: `AssetStatusProbe` (`asset-status-guard`) — `X.bsa` and `X - Textures.bsa` bind at their plugin's rank
-  above the Skyrim.ini block (arm A); an archive filename resolves to the higher-priority mod's copy (arm B, which
-  places no copy in overwrite or Data, so only the mods leg of the map is pinned); a Skyrim.ini that cannot be found is
-  a surfaced warning (arm C).
-- *What an answer may claim*: `AssetResolverProbe` — an archive that will not read is one named `BsaFailure` and sets
-  `ReadIncomplete` (the negative arm); a drive-rooted or `..` path is refused loud (the normalize arm, which also
-  covers slash direction, a leading separator and case on loose files). No test uses a `.` or empty segment, so the
-  collapse the sentence describes is not pinned.
+- *Precedence*: `AssetResolverTests` — overwrite, then mods highest-priority-first, then Data, first sighting wins
+  (`OverwriteWinsAndEveryLooseProviderIsListedInPrecedenceOrder`, `WithoutOverwriteTheHigherPriorityModWins`); loose
+  beats BSA-packed (`ALooseCopyBeatsTheArchiveCopyWhichStaysListed`); the higher plugin rank wins among BSAs
+  (`AmongArchivesTheHigherPluginRankWins`).
+- *Precedence*: `ArchiveDiscoveryTests` — `X.bsa` and `X - Textures.bsa` bind at their plugin's rank above the
+  Skyrim.ini block (`APluginBindsItsCoNamedAndTexturesArchivesAtOneRank`,
+  `BaseArchivesRankBelowPluginsAndALaterPluginOutranksAnEarlierOne`); an archive filename resolves to the
+  higher-priority mod's copy (`ADuplicateArchiveNameResolvesToTheHigherPriorityMod`, which places no copy in overwrite
+  or Data, so only the mods leg of the map is pinned); a Skyrim.ini that cannot be found is a surfaced warning
+  (`AMissingSkyrimIniIsAWarningAndInventsNoBaseArchive`).
+- *What an answer may claim*: `AssetResolverTests` — an archive that will not read is one named `BsaFailure` and sets
+  `ReadIncomplete` (`AnUnreadableArchiveIsOneNamedFailureAndAGoodOneStillResolves`); a drive-rooted or `..` path is
+  refused loud (`ADriveRootedOrEscapingPathIsRejected`; `PathFormsResolveToTheSameWinner` covers slash direction, a
+  leading separator and case on loose files). No test uses a `.` or empty segment, so the collapse the sentence
+  describes is not pinned.
 - *What an answer may claim*: `AssetRootWalkFailureTests` — `asset_status` names a loose root it could not read, on the
   sweep and on the single-path lane; `UnreadableRootNamedTests` and `UnreadableRootNamedLanesTests` — the other lanes
   the sentence lists name it too; `UnreadableRootNamedLanesTests.AMergedSweepNamesTheRootOnceForTheWholeResponse` —
@@ -249,11 +253,12 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   only once the absence is proved (`AModFolderThatWillNotListDoesNotMakeEveryCallStale`,
   `AMemoThatWronglyProvesAnAbsenceCostsOneRebuildNotOnePerCall`); a memo never makes a failure
   (`AnAbsenceUnderAFolderGivenBackAfterItWouldNotListIsProvedAndWatched`).
-- *One build per call*: **Zero archive handles at rest:** pinned by `asset-resolver-guard`'s at-rest arm (rename *and*
-  delete while the resolver lives) and, for single-entry extraction, `PlaceCoreTests.TheArchiveIsNotHeldOpenAfterTheRead`.
-- *One build per call*: `AssetResolverProbe`'s capture/refresh arm reads a batch and a captured view off one build, but
-  changes nothing on disk between the capture and the read, so it would pass if a view read the live build: the
-  `Capture()` sentence is not pinned against a rebuild.
+- *One build per call*: **Zero archive handles at rest:** pinned by `AssetResolverTests.TheResolverHoldsNoArchiveHandleAtRest`
+  (rename *and* delete while the resolver lives) and, for single-entry extraction,
+  `PlaceCoreTests.TheArchiveIsNotHeldOpenAfterTheRead`.
+- *One build per call*: `AssetResolverTests.ResolveManyAndACapturedViewAnswerFromOneBuild` reads a batch and a captured
+  view off one build; `ACapturedViewKeepsItsBuildAcrossARebuild` in the same class pins the `Capture()` sentence
+  against a rebuild (a file added and refreshed after the capture stays absent in the view).
 - *One build per call*: `AssetLooseFreshnessTests` — the watch is made of names
   (`AppearAndVanishAreSeenEvenInsideOneTimestampTick`), an unrelated file beside a root's answering ancestor does not
   discard the build (`AnUnrelatedFileAppearingInAModFolderDoesNotDiscardTheBuild`), and a loose file's bytes are never
@@ -277,17 +282,16 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   `CompactVoiceCarryTests` — the two-phase carry (the overlapping-window arm), the old files left as
   orphans, a record with nothing to carry is not a failure, and voice found by scanning disk.
 - *Archives*: the reader's byte parity with BSArch, and its reading of archives BSArch rejects, are pinned by the
-  opt-in `bsa-probe` (`BsaProbe`).
+  manual `bsa-probe` command (`BsaProbe`; needs a local BSArch and archive, so it is not on CI).
 - *Archives*: `BsaExtractTests.AnEntryResolvingOutsideTheDestinationIsRefused` — unpack refuses an entry resolving outside
   the destination; `ASecondUnpackIntoTheSameFolderWritesNothing` in the same class — it skips a byte-identical file.
-- *Archives*: `bsa-contract-guard` (`BsaContractProbe`) locks both halves of the pack contract — a stuck stale scratch
-  refuses up front and a failing pack leaves the prior archive untouched — and the unknown format token refusal.
+- *Archives*: `BsaPackContractTests` locks both halves of the pack contract — a stuck stale scratch refuses up front
+  and a failing pack leaves the prior archive untouched — and the unknown format token refusal.
 - *Archives*: `BsaPackReadBackTests.PackRefusesAScratchFromANonZeroExit` — a non-zero exit is a failed pack whatever it
   left behind; `PackRefusesAnArchiveThatCountsShort` in the same class and
   `BsaPackCountTests.ACountMismatchRefusesNamingBothNumbers` — the header count is checked against the source scan.
-- *Suggesting a root prefix*: Pinned by `asset-prefix-hint-guard` (`AssetPrefixHintProbe`) — the prefixed candidate is
-  offered only when a real provider supplies it. Its non-asset-root check (`sound\`) asserts the same thing as its
-  plain-miss check, so it cannot see whether the generic lane prints the convention note: that half is not pinned.
+- *Suggesting a root prefix*: Pinned by `AssetPrefixHintTests` — the prefixed candidate is offered only when a real
+  provider supplies it. Its non-asset-root cases (`sound\`) assert the same thing as its plain-miss cases, so it cannot see whether the generic lane prints the convention note: that half is not pinned.
 
 ## Where
 
