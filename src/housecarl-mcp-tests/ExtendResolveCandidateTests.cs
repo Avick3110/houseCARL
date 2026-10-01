@@ -93,6 +93,21 @@ public sealed class ExtendResolveCandidateTests
         Assert.Contains("into=\"houseCARL - AssetsOnly\"", rider);
     }
 
+    // the RECORD lane leaves out an owned folder holding no plugin: with nothing else owned it says houseCARL owns no
+    // patch holding a plugin, rather than counting the pluginless folder as one no spelling reaches
+    [Fact]
+    public void APluginlessOwnedFolderIsNotCountedAsAnUnreachablePatchOnTheRecordLane()
+    {
+        using var w = new ExtendResolveRig();
+        w.MarkOwned("houseCARL - AssetsOnly", "");
+
+        var rec = w.Into("Ghost", w.Wgt(1));
+
+        Assert.False(rec.Success);
+        Assert.Contains("houseCARL owns no patch holding a plugin yet", rec.Error);
+        Assert.DoesNotContain("renaming one of", rec.Error);
+    }
+
     // the sentence names three candidates and no more, led by the near-miss the caller meant, in the ruled shape
     // "A, B or C (+N more), or <fresh>"; the count tracks the inventory, one higher with one patch more
     [Fact]
@@ -155,7 +170,8 @@ public sealed class ExtendResolveCandidateTests
         w.OwnedWithPlugins("houseCARL - Twin backup", "Alpha", "Beta");
         w.Svc.Stats();
 
-        using (File.Open(Path.Combine(w.ModsDir, "houseCARL - Twin", "meta.ini"), FileMode.Open, FileAccess.Read, FileShare.None))
+        // The folder that sorts LAST is the one held, so the scan has already read its twin when it throws.
+        using (File.Open(Path.Combine(w.ModsDir, "houseCARL - Twin backup", "meta.ini"), FileMode.Open, FileAccess.Read, FileShare.None))
         {
             w.Svc.Stats();
             var r = w.Into("GhostLocked", w.Wgt(3));
