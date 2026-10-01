@@ -41,7 +41,7 @@ namespace HousecarlGenerator;
 ///
 /// What this does NOT re-prove (covered elsewhere, cited so the proof's scope is honest):
 ///   - serialization byte-identity per kind — the oracle (<see cref="WriteOracle"/>, 17/17 byte-identical);
-///   - value-type construction — coerce-selftest; coercion completeness — coerce-audit;
+///   - value-type construction — CoerceSampleTests; coercion completeness — CoerceAuditTests;
 ///   - the deferred surface (collection-nav / nested-group / arm-breadth / header) — the census loud-lists it.
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator write-proof</c>
@@ -318,7 +318,7 @@ public static class WriteProof
 
         if (ctx.DeferredElementComposition.Count > 0)
             Console.WriteLine($"   DEFERRED-FROM-PHASE-2 (inline attempt only — composition CAPABILITY PROVEN in Phase 6, Add-from-parts 116/117) — struct-element list/dict fields needing element COMPOSITION " +
-                              $"(wave 1, matches coerce-audit): {ctx.DeferredElementComposition.Count} field-sites.");
+                              $"(wave 1, matches CoerceAuditTests): {ctx.DeferredElementComposition.Count} field-sites.");
         Console.WriteLine();
         DumpList("ONLY-TARGET-MOVED / VALUE-LANDED violations (engine defects)", violations);
         DumpList("THROWS (engine could not perform a today-settable write)", throwsList);
@@ -1389,7 +1389,7 @@ public static class WriteProof
                                  string FloiProp, string ArmType, string TargetT, bool IndexMode, string NativeExpr);
 
     /// <summary>The FLOI site universe BY CONSTRUCTION (every (concrete *ConditionData arm, FormLinkOrIndex prop)
-    /// pair — the same 156 the scout + coerce-audit derive) + one POPULATED sample per site from the sources, its
+    /// pair — the same 156 the scout + CoerceAuditTests derive) + one POPULATED sample per site from the sources, its
     /// native value expressed by mode (read off the arm flags — independent of the engine). Shared by Phase 9 +
     /// Phase 10 so the site predicate lives in ONE place rather than forking. Recognition uses
     /// the engine's shared <see cref="WriteEngine.IsFormLinkOrIndex"/> (no drift). Stops scanning once every site has
@@ -1720,7 +1720,7 @@ public static class WriteProof
     //  A settable leaf is a coercible scalar/enum/value/formlink (possibly nested through substructs),
     //  a whole-coercible substruct (TranslatedString), or a list/dict/polymorphic field. A plain substruct
     //  is NAVIGATION, not a settable leaf. A value-leaf whose type the engine cannot coerce is excluded
-    //  (the coerce-audit deferral — unifies this proof's denominator with the census's writable-today).
+    //  (the CoerceAuditTests deferral — unifies this proof's denominator with the census's writable-today).
     // ======================================================================
     sealed class TodayLeaf
     {
@@ -1757,7 +1757,7 @@ public static class WriteProof
                         case "list": case "dict":
                             // Coercible-element collections (scalar/enum/formlink elements) are settable today via the
                             // verbs. STRUCT-element collections need element COMPOSITION (build a struct from parts) —
-                            // deferred to the element-build wave, exactly as coerce-audit defers struct list/dict elements.
+                            // deferred to the element-build wave, exactly as CoerceAuditTests defers struct list/dict elements.
                             if (SchemaClassifier.CoercibleElement(f)) outp.Add(Leaf(ownerType, f, path));
                             else ctx.DeferredElementComposition.Add($"{typeName}." + string.Join(".", path) + $" [{f.Cardinality} of {f.ElementTypeRef ?? f.ElementType ?? "?"}]");
                             break;
