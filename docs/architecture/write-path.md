@@ -404,7 +404,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   patch refused.
 - `WriteSurfaceTwinParityTests` — every `WriteSentences` const decides and still states its declared phrases, every `Twins`
   member is rendered by both lanes, and every outer `[MustState]` sentence reaches a render.
-- `formid-floor-guard` — the 0x800 floor before an allocation and the in-memory counter persisted verbatim by the
+- `FormIdFloorWorkflowTests` — the 0x800 floor before an allocation and the in-memory counter persisted verbatim by the
   serialize.
 - `AtomicCommitGuardTests` — the staged commit lands a fresh file, replaces an existing one
   byte-exact, and throws with the prior target intact when the source is missing or the target is held.
@@ -422,7 +422,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   unlisted one, gate and apply keyed off the same test.
 - `formlink-remove-guard` — `Remove` clears a nullable FormLink instead of throwing, and fails loud on a required
   one when pre-flight is bypassed.
-- `subclass-remove-guard` — `RemovalTypeFor` routes the typed remove through the flat group's `T`, so a record whose
+- `SubclassRemoveTests` — `RemovalTypeFor` routes the typed remove through the flat group's `T`, so a record whose
   concrete class is a subclass of it is really removed rather than silently skipped.
 - `UpsertCreateTests` (RERUN / OVERRIDE / CROSS-TYPE / DUP) — the replace at a stable FormKey, every replace surfaced
   on the outcome rather than silently, and the three collisions refused loud with the file untouched.
@@ -484,7 +484,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   load-order winner and reported with winner and loser named, and the losing donor's un-relisted INFO grafted into the
   winning topic; `MergeServiceRenameTests` (arm HEADER) — the light, master and header-text notes keyed on what the
   donors carried; `MergeServiceDeclarerTests` (arm DECLARER) — a declarer-only dependent reaching the rendered report.
-- `overrider-detect-guard` arms OVERRIDER / REFERENCER — an overrider is a warn that lets the compaction succeed
+- `CompactOverriderDetectTests` — an overrider is a warn that lets the compaction succeed
   while a referencer is refused and named, the contrast that holds the two apart.
 - `MasterDeclarerScanTests.ADeclarerOnlyDependentIsFoundAndNamed`, `AReferencerIsNotAlsoListedAsADeclarer`,
   `APluginThePassCouldNotReadIsNotCalledADeclarer`, `APluginDeclaringAMasterOutsideTheTransformSetIsNotADeclarer` and

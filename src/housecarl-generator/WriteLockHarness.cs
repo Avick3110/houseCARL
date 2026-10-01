@@ -30,7 +30,7 @@ namespace HousecarlGenerator;
 ///
 /// Self-contained — synthesizes its own .esp in TEMP; no game data. Run: dotnet run --project src/housecarl-generator writelock-probe
 /// </summary>
-public static class WriteLockProbe
+public static class WriteLockHarness
 {
     public static int RunProbe(string[] args)
     {
@@ -139,131 +139,8 @@ public static class WriteLockProbe
         return 0;
     }
 
-    /// <summary>
-    /// SELF-CONTAINED CI REGRESSION GUARD for the active-patch write self-lock (Heisen bug 2026-06-08 + PR #24 review), in
-    /// the pattern of pkcu-regression / depth-leak-guard. Drives REAL product write paths INTO a patch that is ACTIVE in
-    /// the resolver's load order — the exact scenario that locks — and asserts the writes SUCCEED. Self-contained (synthesizes
-    /// its own .esp in TEMP, and generates the validator corpus BY CONSTRUCTION in-process for the Apply arm; no game data,
-    /// no checked-in corpus.json). Run: dotnet run --project src/housecarl-generator writelock-guard
-    ///
-    /// Arms (ALL required — a GREEN must mean "the fix works", never "the lock just doesn't happen here"):
-    ///   CONTROL — hold an overlay on a throwaway COPY and attempt the OLD full-master-set serialize over it; assert it
-    ///             FAILS with the lock. Proves the environment still reproduces the bug (Mutagen still maps without
-    ///             FILE_SHARE_DELETE). If this stops failing, the guard says so — the fix may be moot / Mutagen changed.
-    ///   REMOVE  — <see cref="WritePatchBuilder.RemoveRecords"/> drops a record from the ACTIVE patch; covers the MASTER-SET
-    ///             overlay source (closed by AllMastersExcept). Corpus-free.
-    ///   APPLY   — <see cref="WritePatchBuilder.Apply"/> RE-EDITS a record the active patch itself overrides (the winner IS
-    ///             the target), so Apply's Phase-1 winner fetch opens a SECOND overlay on the target — the source
-    ///             AllMastersExcept can't reach (PR #24 review). Covers the fix's ReleaseOverlay half; assert Success AND
-    ///             the edited value lands. A RemoveRecords-only guard CANNOT catch this (Remove reads eagerly, no winner
-    ///             fetch) — which is exactly why this arm exists.
-    ///
-    /// RED before the fix (the serialize throws the IOException, Success=false), GREEN after — verified for BOTH the master-set
-    /// (revert AllMastersExcept → REMOVE+APPLY red) and the winner-fetch (revert ReleaseOverlay → APPLY red) halves.
-    /// </summary>
-    [CiProbe("writelock-guard")]
-    public static int RunGuard(string[] args)
-    {
-        Console.WriteLine("################  REGRESSION GUARD — active-patch write self-lock (Heisen 2026-06-08)  ################");
-        Console.WriteLine();
-
-        var tmpDir = Path.Combine(Path.GetTempPath(), "hc-writelock-guard");
-        if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
-        Directory.CreateDirectory(tmpDir);
-
-        var modKey = new ModKey("HcWriteLockGuard", ModType.Plugin);
-        string target = Path.Combine(tmpDir, modKey.FileName.String);
-
-        // --- Setup: write a patch carrying TWO records straight through Mutagen (no rulebook/corpus — keeps the guard
-        //     self-contained for CI). Masterless, which is irrelevant to the lock (the lock is purely about the target path). ---
-        FormKey removeFk;
-        {
-            var mod = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE);
-            var kwA = mod.Keywords.AddNew(); kwA.EditorID = "HcWriteLockGuard_A";
-            var kwB = mod.Keywords.AddNew(); kwB.EditorID = "HcWriteLockGuard_B";
-            removeFk = kwB.FormKey;
-            mod.BeginWrite.ToPath(target).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-        }
-        Console.WriteLine($"-- setup: wrote {modKey.FileName} with {CountRecords(target)} record(s) --");
-
-        // --- CONTROL: prove the lock reproduces here — overlay a COPY of the patch, attempt the OLD direct serialize over
-        //     the SAME path with that overlay in the master set, assert it FAILS (so a GREEN below is meaningful). ---
-        bool controlLocked; string controlErr;
-        {
-            var ctlDir = Path.Combine(tmpDir, "control");
-            Directory.CreateDirectory(ctlDir);
-            string ctlTarget = Path.Combine(ctlDir, modKey.FileName.String);   // same filename (== ModKey) in a sub-dir
-            File.Copy(target, ctlTarget);
-            var ov = SkyrimMod.CreateFromBinaryOverlay(ctlTarget, SkyrimRelease.SkyrimSE);
-            _ = ov.EnumerateMajorRecords().FirstOrDefault();                    // force the mmap to fault in
-            var ctlPatch = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE);
-            ctlPatch.Keywords.AddNew().EditorID = "HcWriteLockGuard_Ctrl";
-            controlLocked = !Try(() => ctlPatch.BeginWrite.ToPath(ctlTarget)
-                                               .WithLoadOrder(new ISkyrimModGetter[] { ov }).Write(), out controlErr);
-            Dispose(ov);
-        }
-        Console.WriteLine($"   CONTROL (bug reproduces here)   : {(controlLocked ? "PASS — direct serialize onto a mapped target FAILED as expected" : "FAIL — NO lock; can't prove the fix on this platform")}  [{controlErr}]");
-
-        // --- FIX: the product path — RemoveRecords writes INTO a patch that is ACTIVE in the resolver's order (target is in
-        //     the order), routing the serialize through AllMastersExcept so the target is never mapped. Assert it SUCCEEDS. ---
-        bool fixWrote; int remaining; string fixErr;
-        using (var r1 = LoadOrderResolver.Build(new[] { target }))            // the patch is ACTIVE in the order now
-        {
-            var o1 = WritePatchBuilder.RemoveRecords(r1, new[] { removeFk }, target);
-            fixWrote = o1.Success; remaining = o1.RemainingRecords; fixErr = o1.Error ?? "ok";
-        }
-        int afterFix = CountRecords(target);
-        Console.WriteLine($"   FIX (write into active patch)   : {(fixWrote ? "PASS — RemoveRecords wrote into the active patch" : "FAIL — write into the active patch was refused")}  [{fixErr}]");
-        Console.WriteLine($"   patch rewritten on disk (==1)   : {(afterFix == 1 ? "PASS" : $"FAIL (count={afterFix})")}");
-        Console.WriteLine();
-
-        // --- APPLY ARM (the PR #24 review finding): drive the REAL WritePatchBuilder.Apply re-editing a record the ACTIVE
-        //     patch ITSELF overrides — there the resolved winner IS the target, so Apply's Phase-1 winner fetch opens an
-        //     overlay on the target (a source AllMastersExcept can't reach; ReleaseOverlay must close it before serialize).
-        //     Apply pre-flights the edit through the CorpusRulebook, so we generate the corpus BY CONSTRUCTION in-process
-        //     (no checked-in corpus.json, no game data — the guard stays self-contained, just slower). ---
-        bool applyWrote = false; string applyErr = "ok"; int dmgBack = -1;
-        {
-            var rulebook = CorpusRulebook.Load(GenerateCorpus(tmpDir));
-            var mKey = new ModKey("HcWriteLockGuardMaster", ModType.Master);
-            var qKey = new ModKey("HcWriteLockGuardPatch", ModType.Plugin);
-            string mPath = Path.Combine(tmpDir, mKey.FileName.String);
-            string qPath = Path.Combine(tmpDir, qKey.FileName.String);
-
-            // a master carrying a weapon, then an ACTIVE patch that OVERRIDES it (so re-editing the weapon hits Q's own override)
-            FormKey wfk;
-            {
-                var m = new SkyrimMod(mKey, SkyrimRelease.SkyrimSE);
-                var w = m.Weapons.AddNew(); w.EditorID = "HcGuardWeap"; w.BasicStats = new WeaponBasicStats { Damage = 10 };
-                wfk = w.FormKey;
-                m.BeginWrite.ToPath(mPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-            }
-            using (var mOv = SkyrimMod.CreateFromBinaryOverlay(mPath, SkyrimRelease.SkyrimSE))
-            {
-                var q = new SkyrimMod(qKey, SkyrimRelease.SkyrimSE);
-                var qW = q.Weapons.GetOrAddAsOverride(mOv.Weapons.First(x => x.FormKey == wfk));
-                qW.BasicStats!.Damage = 20;
-                q.BeginWrite.ToPath(qPath).WithLoadOrder(new ISkyrimModGetter[] { mOv }).Write();
-            }
-
-            using var r2 = LoadOrderResolver.Build(new[] { mPath, qPath });   // Q ACTIVE + highest priority → the weapon's winner is Q (the target)
-            var edit = new WritePatchBuilder.PatchEdit { Target = wfk, Path = new[] { "BasicStats", "Damage" }, Verb = "Set", Value = "777" };
-            var oa = WritePatchBuilder.Apply(r2, rulebook, new[] { edit }, qPath, extend: true);
-            applyWrote = oa.Success; applyErr = oa.Error ?? "ok";
-            dmgBack = ReadWeaponDamage(qPath, wfk);
-        }
-        Console.WriteLine($"   APPLY re-edit own override       : {(applyWrote ? "PASS — Apply wrote into the active patch" : "FAIL — Apply was refused")}  [{applyErr}]");
-        Console.WriteLine($"   edited value landed (damage==777): {(dmgBack == 777 ? "PASS" : $"FAIL (damage={dmgBack})")}");
-        Console.WriteLine();
-
-        bool pass = controlLocked && fixWrote && remaining == 1 && afterFix == 1 && applyWrote && dmgBack == 777;
-        Console.WriteLine($"=== writelock-guard: {(pass ? "PASS" : "FAIL")} ===");
-        try { Directory.Delete(tmpDir, recursive: true); } catch { /* a lingering lock would itself be telling */ }
-        return pass ? 0 : 1;
-    }
-
     // Generate the validator corpus BY CONSTRUCTION (reflect the linked Mutagen assembly) into a temp dir; return the
-    // corpus.json path — so the Apply arm can pre-flight edits without a checked-in corpus.json (keeps the guard self-contained).
+    // corpus.json path — so the nested proof can pre-flight edits without a checked-in corpus.json.
     static string GenerateCorpus(string tmpDir)
     {
         var genDir = Path.Combine(tmpDir, "corpus-gen");
@@ -271,16 +148,8 @@ public static class WriteLockProbe
         return Path.Combine(genDir, "corpus.json");
     }
 
-    static int ReadWeaponDamage(string path, FormKey fk)
-    {
-        ISkyrimModGetter? ov = null;
-        try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE); return ov.Weapons.FirstOrDefault(x => x.FormKey == fk)?.BasicStats?.Damage ?? -1; }
-        catch { return -1; }
-        finally { (ov as IDisposable)?.Dispose(); }
-    }
-
     /// <summary>
-    /// REAL-DATA proof (PR #24 review residual): the writelock-guard's Apply arm uses a FLAT record (Weapon). This proves
+    /// REAL-DATA proof (PR #24 review residual): ActivePatchWriteLockTests' Apply test uses a FLAT record (Weapon). This proves
     /// the same re-edit-own-override case for a NESTED record (a PlacedObject — lives in a Cell, so its override goes
     /// through Apply's link-cache CONTEXT path, where the parent chain is reconstructed). That is the one place the new
     /// "ReleaseOverlay disposes the target overlay BEFORE serialize" invariant is least obviously safe: the context path
@@ -429,13 +298,6 @@ public static class WriteLockProbe
         finally { (ov as IDisposable)?.Dispose(); }
     }
 
-    static int CountRecords(string path)
-    {
-        ISkyrimModGetter? ov = null;
-        try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE); return ov.EnumerateMajorRecords().Count(); }
-        catch { return -1; }
-        finally { (ov as IDisposable)?.Dispose(); }
-    }
 
     // Build a fresh in-memory patch carrying one MGEF (self-contained, references nothing → masterless, like a created record).
     static SkyrimMod BuildPatch(ModKey mk, string tag)
