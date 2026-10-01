@@ -215,13 +215,16 @@ public sealed class AssetResolverTests : IDisposable
         Assert.True(beat.Ambiguous);
     }
 
-    // Probe: "among BSAs the higher plugin-rank wins". Strengthened: the higher rank is bound first, so a
-    // first-bound-wins resolver fails it.
-    [Fact]
-    public void AmongArchivesTheHigherPluginRankWins()
+    // Probe: "among BSAs the higher plugin-rank wins". Run in both bind orders, so neither a first-bound-wins nor a
+    // last-bound-wins resolver passes.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AmongArchivesTheHigherPluginRankWins(bool higherBoundFirst)
     {
-        using var r = Build(new ActiveArchive(Archive("FixtureB.bsa", B()), "PluginB.esp", 2),
-                            new ActiveArchive(Archive("FixtureA.bsa", A()), "PluginA.esp", 1));
+        var high = new ActiveArchive(Archive("FixtureB.bsa", B()), "PluginB.esp", 2);
+        var low = new ActiveArchive(Archive("FixtureA.bsa", A()), "PluginA.esp", 1);
+        using var r = higherBoundFirst ? Build(high, low) : Build(low, high);
 
         Assert.Equal("FixtureB.bsa", r.Resolve(RankRel).Winner?.Source, ignoreCase: true);
     }
