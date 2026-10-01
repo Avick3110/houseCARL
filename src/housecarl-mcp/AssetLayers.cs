@@ -14,12 +14,6 @@ internal interface IAssetHost : ILoadOrderHost
     /// <summary>The installed game runtime version, or null.</summary>
     string? InstalledGameRuntime();
 
-    // Relayed from output until AssetLayers takes OutputLocations.
-    OutputLocations.RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, OutputLocations.RiderNaming? naming);
-
-    // Relayed from output until AssetLayers takes OutputLocations.
-    string? RemoveOrNameRiderResidue(OutputLocations.RiderFolder folder);
-
     // Relayed from writes (the consent store) until in-place consent is its own type.
     bool IsInPlaceAcknowledged(string path);
 
@@ -39,7 +33,14 @@ internal sealed partial class AssetLayers
     /// <summary>Every head member this area takes, and nothing else.</summary>
     readonly IAssetHost _host;
 
-    internal AssetLayers(IAssetHost host) => _host = host;
+    /// <summary>The output area, for the patch folders NIF edits and placed assets land in.</summary>
+    readonly OutputLocations _output;
+
+    internal AssetLayers(IAssetHost host, OutputLocations output)
+    {
+        _host = host;
+        _output = output;
+    }
 
     /// <summary>The <c>asset_status</c> path bound; production keeps the default, a test lowers its own world's.</summary>
     internal int MaxAssetPaths { get; set; } = RenderBudget.DefaultMaxAssetPaths;
@@ -908,21 +909,21 @@ internal sealed partial class AssetLayers
 
         // ---- DEFAULT (new-folder) lane ----
         OutputLocations.RiderFolder rf;
-        try { rf = _host.ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new OutputLocations.RiderNaming("patch")); }
+        try { rf = _output.ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new OutputLocations.RiderNaming("patch")); }
         catch (InvalidOperationException ex) { return NifSetResult.Fail(ex.Message, providers, profileName); }
 
         var dest = Path.Combine(rf.OutputDir, rel);
         try { Directory.CreateDirectory(Path.GetDirectoryName(dest)!); AtomicFile.WriteAllBytes(dest, editedBytes); }
         catch (Exception ex)
         {
-            var residue = _host.RemoveOrNameRiderResidue(rf);
+            var residue = OutputLocations.RemoveOrNameRiderResidue(rf);
             return NifSetResult.Fail($"could not write '{rel}' into the patch folder: {ex.Message}"
                 + (residue is null ? "" : $" The freshly created mod folder was left at '{residue}'."), providers, profileName);
         }
         long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
         if (size != editedBytes.Length)
         {
-            _host.RemoveOrNameRiderResidue(rf);
+            OutputLocations.RemoveOrNameRiderResidue(rf);
             return NifSetResult.Fail($"wrote '{rel}' but its on-disk size ({size}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
         }
 
@@ -975,7 +976,7 @@ internal sealed partial class AssetLayers
         {
             // Precondition: the write gate is held for the WHOLE method, which straddles two gate holds. Do not call PlaceOne or capture assets outside that hold.
             OutputLocations.RiderFolder rf;
-            try { rf = _host.ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new OutputLocations.RiderNaming("patch")); }   // neutral default stem; a caller with a better name passes patch
+            try { rf = _output.ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new OutputLocations.RiderNaming("patch")); }   // neutral default stem; a caller with a better name passes patch
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
 
             // One asset build for the whole batch, captured rather than live, so no two placements describe two builds.
@@ -983,7 +984,7 @@ internal sealed partial class AssetLayers
             try { captured = _host.CaptureAssets(); }
             catch (Exception ex)
             {
-                var residue = _host.RemoveOrNameRiderResidue(rf);              // nothing placed yet → a fresh folder is an orphan
+                var residue = OutputLocations.RemoveOrNameRiderResidue(rf);              // nothing placed yet → a fresh folder is an orphan
                 return PlaceOutcome.Fail($"could not resolve the asset layer (the MO2 instance may not be readable): {ex.Message}"
                     + (residue is null ? "" : $" The freshly created mod folder was left at '{residue}'."));
             }
@@ -999,7 +1000,7 @@ internal sealed partial class AssetLayers
             }
 
             // Nothing placed into a fresh folder means an orphan to remove; a reused into= folder is never touched.
-            string? leftover = placed == 0 ? _host.RemoveOrNameRiderResidue(rf) : null;
+            string? leftover = placed == 0 ? OutputLocations.RemoveOrNameRiderResidue(rf) : null;
             // Taken AFTER the rows, because the view names a root only once a lookup has asked about it.
             return new PlaceOutcome(results, placed > 0 ? rf.ModFolder : null, captured.Warnings, leftover, null)
                 { FreshFolder = rf.CreatedFresh, RootFailures = view.RootFailures };

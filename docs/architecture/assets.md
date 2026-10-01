@@ -305,6 +305,7 @@ renders are in their own notes: NIF in [`nif.md`](nif.md), SKSE in [`skse-layer.
 `housecarl_asset_status`, `housecarl_place`, `housecarl_bsa_list`, `housecarl_bsa_extract`, `housecarl_bsa_repack`; the
 NIF, SKSE and SkyPatcher tools are listed in their family notes.
 
-What the area needs from outside itself is the members of `IAssetHost`, declared at the top of `AssetLayers.cs`. The
+What the area needs from outside itself is the members of `IAssetHost`, declared at the top of `AssetLayers.cs`, and
+the `OutputLocations` instance its constructor takes, for the patch folders `nif_set` and `place` write into. The
 members every area shares come through the door it extends, `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs`
 ([`load-order-service.md`](load-order-service.md)).
