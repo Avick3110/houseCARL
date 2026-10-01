@@ -18,6 +18,42 @@ public sealed class ServedReplyCheckTests : IClassFixture<WideCutWorld>
 
     static string Block(SpillInfo s) => Wire.SpillText(SpillState.Spilled(s, manifestOnly: false));
 
+    /// <summary>Sizing is handed one row where the write stamps thirty, so its block is narrower than the one printed: at
+    /// every cap the reply fits or is refused, a refusal leaves no spill file, and some cap is refused only after the write.</summary>
+    [Fact]
+    public void AReplyOverItsCapAfterTheWriteIsRefusedAndItsSpillRemoved()
+    {
+        var rows = _w.Svc.ResolveRefs(TopicIds, null, out var epoch, out _);
+        var dir = Path.Combine(Path.GetTempPath(), "hc-exitcheck-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        int refusedAfterWrite = 0;
+        try
+        {
+            for (int cap = 100; cap <= 1_500; cap++)
+            {
+                var path = Path.Combine(dir, $"r{cap}.jsonl");
+                bool wrote = false;
+                var text = Artifacts.CeilingText(cap,
+                    (int n, SpillState? sp, WholePass? w, out bool t) =>
+                        Wire.RenderResolve(rows, n, epoch, sp, out t, "records  form=identity", (rows.Count, 5), w),
+                    Artifacts.SpillTo.At(path),
+                    t =>
+                    {
+                        wrote |= !t.SizeOnly;
+                        return Artifacts.WriteResolve(t.SizeOnly ? rows.Take(1).ToList() : rows, epoch.Epoch, t, "ceiling", NoEcho);
+                    },
+                    Wire.EpochLine(epoch));
+                bool refused = RenderFloorAssert.IsFloorRefusal(text);
+
+                Assert.True(refused || text.Length <= cap, $"{text.Length} chars served at max_chars={cap}");
+                if (refused) Assert.False(File.Exists(path), $"the refusal at max_chars={cap} left its spill file");
+                if (refused && wrote) refusedAfterWrite++;
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+        Assert.True(refusedAfterWrite > 0, "no cap was refused after its write, so the check after it was never reached");
+    }
+
     /// <summary>The scan render's truncated flag is the served render's: false for a whole answer, and for a refusal the
     /// cut of the render at the cap the refusal was decided on, never of a grow round or a whole pass.</summary>
     [Fact]

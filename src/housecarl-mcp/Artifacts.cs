@@ -432,7 +432,7 @@ internal static class Artifacts
         return render(cap, err is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(err), null, out _);
     }
 
-    /// <summary>The text reply of a spilling lane: whole first, else cut and spilled, else refused.</summary>
+    /// <summary>The text reply of a spilling lane: whole first, else cut and spilled, else refused; checked on the reply served.</summary>
     internal static string CeilingText(int cap, CappedRender at, SpillTo spillTo,
                                        Func<ArtifactTarget, (SpillInfo? Spill, string? Error)> write, string epochLine = "")
     {
@@ -449,7 +449,14 @@ internal static class Artifacts
         if (refused) return decided;
         using var target = spillTo.Reserve();
         var (s, err) = write(target);
-        if (err is null) return at(cap, SpillState.Spilled(s!, manifestOnly: false), null, out _);
+        if (err is null)
+        {
+            // The exit check, on the block the write stamped: over the cap, the file goes and the call is refused.
+            var real = SpillState.Spilled(s!, manifestOnly: false);
+            var served = Held(at(cap, real, null, out _), real, out bool over);
+            if (over) target.Discard();
+            return served;
+        }
         // A failed write is stated; where its warning does not fit, the failure itself is the refusal.
         var failed = at(cap, SpillState.WriteFailed(err), null, out _);
         if (failed.Length <= cap) return failed;
