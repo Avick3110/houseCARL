@@ -429,7 +429,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - `AbstractGroupCreateTests` (G1 / G2) — a concrete arm of either abstract group creates, keyed off the
   runtime hierarchy rather than a per-type case.
 - `NestedCreateSlotTests`, `CoordCellCreateTests` and `CreateInteriorCellTests` — the modeled-slot nested create,
-  and the coordinate-keyed cell routes through a real serialize and re-open.
+  and the coordinate-keyed cell routes. `CoordCellCreateTests` creates through `CreateRecords` and re-opens the
+  written file for both the exterior and the interior route; `CreateInteriorCellTests` builds the interior cell in
+  memory with `WriteEngine.AddInteriorCell`.
 - `OwnedChildLifecycleTests.EveryChildBearingPropertyIsASlotCreateCanNameOrACoordinateRouteItNames` — every
   child-bearing property the reflected set answers is a slot create can name or a coordinate route it names.
 - `ApplyGuardVerifyTests.AnEmptyComposeIsRefusedBeforeTheFileIsTouched` — a compose given no fields is refused as

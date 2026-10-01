@@ -128,12 +128,14 @@ public sealed class VerifyLoopTests : IDisposable
         Assert.Equal(_perk, WriteEngine.ReadFloiFormKey(gate.Perk));
     }
 
-    // READBACK CONTROL: without fullReadback the outcome carries NO ReadBack
+    // READBACK CONTROL: without fullReadback the outcome carries NO ReadBack (an extend into the readback call's patch)
     [Fact]
     public void WithoutFullReadbackNoReadbackIsReturned()
     {
+        var path = _rig.Out("hcVerifyPatch.esp");
+        Assert.True(ApplyWithReadback(path).Success);
         var o = WritePatchBuilder.Apply(_order, TestCorpus.Rulebook,
-            new[] { WritePathRig.Set(_w1, "BasicStats.Damage", "778") }, _rig.Out("hcVerifySilent.esp"), extend: false);
+            new[] { WritePathRig.Set(_w1, "BasicStats.Damage", "778") }, path, extend: true);
         Assert.True(o.Success, o.Error);
         Assert.Null(o.ReadBack);
     }

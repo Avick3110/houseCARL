@@ -22,7 +22,7 @@ namespace HousecarlGenerator;
 /// THE GAP (verbatim from <see cref="WriteEngine.TryFormLink"/>'s own note, WriteEngine.cs:1113):
 /// "IFormLinkOrIndex&lt;T&gt; (condition-data targets) is deliberately NOT recognised here — its concrete
 /// ctor needs a discriminator flag whose byte-semantics we won't ship unverified (no condition oracle yet)."
-/// READING conditions already works (the wave-0 differ snapshots them); coerce-audit loud-defers the 156
+/// READING conditions already works (the wave-0 differ snapshots them); CoerceAuditTests loud-defers the 156
 /// FormLinkOrIndex sites. The missing piece is purely value-CONSTRUCTION of the FormLinkOrIndex leaf.
 ///
 /// STATIC RECON ALREADY ESTABLISHED (this session, two read agents + the engine source):
@@ -155,7 +155,7 @@ public static class ConditionProbe
                     targets[tn] = targets.GetValueOrDefault(tn) + 1;
                 }
         Console.WriteLine($"   concrete ConditionData arms: {arms.Count} | FormLinkOrIndex sites: {sites} | distinct T: {targets.Count} | owner arms: {owners.Count}");
-        Console.WriteLine($"   (cf. coerce-audit: 156 sites / 33 distinct T) {(sites == 156 && targets.Count == 33 ? "== MATCH ==" : "!! DRIFT — investigate")}");
+        Console.WriteLine($"   (cf. CoerceAuditTests: 156 sites / 33 distinct T) {(sites == 156 && targets.Count == 33 ? "== MATCH ==" : "!! DRIFT — investigate")}");
         foreach (var (t, n) in targets.OrderByDescending(kv => kv.Value).Take(8)) Console.WriteLine($"        {n,3}x  {t}");
         Console.WriteLine();
     }

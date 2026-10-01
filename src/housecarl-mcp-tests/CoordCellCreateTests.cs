@@ -8,7 +8,7 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>A cell created by grid under a worldspace through the create cleave lands in the block and sub-block its
-/// grid names; a placed reference lands in a same-call exterior cell; a malformed cell create is refused with no file
+/// grid names; a parentless cell lands in the block and sub-block its id names, flagged interior; a placed reference lands in a same-call exterior cell; a malformed cell create is refused with no file
 /// written; and an into= re-run of a cell's editorid is refused. Migrated from the coord-cell-guard probe.</summary>
 [Trait("tier", "integration")]
 public sealed class CoordCellCreateTests : IDisposable
@@ -66,6 +66,27 @@ public sealed class CoordCellCreateTests : IDisposable
         Assert.Equal(_masterSha, Sha(_masterPath));
     }
 
+    // INTERIOR cell by FormID digits: block=id%10, sub=(id/10)%10, interior flag, local>=0x800, re-opened from disk
+    [Fact]
+    public void AParentlessCellLandsInTheBlockAndSubBlockItsIdNamesWithTheInteriorFlag()
+    {
+        var path = _rig.Out("HcCcInterior.esp");
+        var o = Create(path, false, Cell("HcCcIntCell"));
+        Assert.True(o.Success, o.Error);
+        var fk = Assert.Single(o.Created).FormKey;
+        Assert.True(fk.ID >= 0x800);
+        Assert.Equal("HcCcInterior.esp", fk.ModKey.FileName.String);
+
+        var (block, sub, cell) = (from b in _rig.Open(path).Cells.Records
+                                  from s in b.SubBlocks
+                                  from c in s.Cells
+                                  where c.FormKey == fk
+                                  select (b.BlockNumber, s.BlockNumber, c)).Single();
+        Assert.Equal((int)(fk.ID % 10), block);
+        Assert.Equal((int)(fk.ID / 10 % 10), sub);
+        Assert.True(cell.Flags.HasFlag(Mutagen.Bethesda.Skyrim.Cell.Flag.IsInteriorCell));
+    }
+
     // PLACED into new exterior cell: the ref lands in the new cell's Temporary
     [Fact]
     public void APlacedObjectLandsInTheTemporaryOfASameCallExteriorCell()
@@ -104,10 +125,14 @@ public sealed class CoordCellCreateTests : IDisposable
     public void ANonNumericGridIsRefusedNamingTheFormat()
         => Assert.Contains("X,Y", Refused("RejBadGrid", Cell("HcCcRej3", _world.ToString(), "abc")), StringComparison.OrdinalIgnoreCase);
 
-    // REJ-NONWS grid + Weapon parent
+    // REJ-NONWS grid + Weapon parent; the refusal's own words, since a raw cast failure also says "Worldspace"
     [Fact]
     public void AGridUnderANonWorldspaceParentIsRefusedNamingWorldspace()
-        => Assert.Contains("Worldspace", Refused("RejNonWs", Cell("HcCcRej4", _weapon.ToString(), "1,2")), StringComparison.OrdinalIgnoreCase);
+    {
+        var error = Refused("RejNonWs", Cell("HcCcRej4", _weapon.ToString(), "1,2"));
+        Assert.Contains("nests under a Worldspace", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("resolved to a Weapon", error, StringComparison.OrdinalIgnoreCase);
+    }
 
     // DUP-REJECT into= duplicate cell editorid
     [Fact]
