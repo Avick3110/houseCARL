@@ -207,9 +207,9 @@ public static class AssetTools
 
         if (!wantFile)
         {
-            string Inline(int n, SpillState? sp, out bool cut) => json
+            string Inline(int n, SpillState? sp, WholePass? w, out bool cut) => json
                 ? JsonWire.RenderAssetStatus(data, n, sp, out cut)
-                : AssetWire.Render(data, n, sp, out cut);
+                : AssetWire.Render(data, n, sp, out cut, w);
 
             // SPEC §2.1.1: an over-ceiling read result is written whole to the results directory and the response names the
             // file. The stamp is taken only when a spill is, so an ordinary sweep still builds no record index.
@@ -245,10 +245,10 @@ static class AssetWire
             .Append(" selected)").ToString();
 
     /// <summary>The render for a caller with no spill to decide: whole first, closed on the floor check.</summary>
-    public static string Render(AssetStatusData d, int cap) => RenderCap.Capped(cap, n => Render(d, n, null, out _));
+    public static string Render(AssetStatusData d, int cap) => RenderCap.Capped(cap, (n, w) => Render(d, n, null, out _, w));
 
     /// <summary><paramref name="spill"/> is this call's artifact disposition, charged before the first path; <paramref name="truncated"/> is what the caller auto-spills on.</summary>
-    public static string Render(AssetStatusData d, int cap, SpillState? spill, out bool truncated)
+    public static string Render(AssetStatusData d, int cap, SpillState? spill, out bool truncated, WholePass? whole = null)
     {
         var header = Header(d);
 
@@ -266,7 +266,7 @@ static class AssetWire
             (sb, r, _) => AppendPath(sb, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.RootFailures.Count > 0),
             out int rendered,
             // The accounting block is priced INSIDE max_chars, the way the check sweep's footer is, so max_chars means the same on this tool as on every other.
-            reserve: AccountingReserve(d) + spillText.Length);
+            reserve: AccountingReserve(d) + spillText.Length, whole: whole);
 
         var counts = Tally(d, rendered);
         truncated = counts.Truncated > 0;
@@ -438,7 +438,7 @@ static class AssetCensus
     public static string Render(AssetStatusData d, int cap, int limit)
     {
         var c = Tally(d);
-        return RenderCap.Capped(cap, n => Render(d, c, n, limit));
+        return RenderCap.Capped(cap, (n, _) => Render(d, c, n, limit));
     }
 
     static string Render(AssetStatusData d, Counts c, int cap, int limit)

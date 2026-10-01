@@ -29,13 +29,14 @@ static partial class Wire
     // ---- the identity form ----
     /// <summary>Render the bulk name-resolution result: one identity line per input FormID, or a per-item <c>error=</c> for a bad or absent one.</summary>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch)
-        => RenderCap.Capped(Cap(maxChars), n => RenderResolve(rows, n, epoch, null, out _), epochLine: EpochLine(epoch),
-                            nextCall: RenderCap.NextCallGrowth);
+        => RenderCap.Capped(Cap(maxChars), (n, w) => RenderResolve(rows, n, epoch, null, out _, whole: w),
+                            epochLine: EpochLine(epoch), nextCall: RenderCap.NextCallGrowth);
 
     /// <param name="header">The caller's own header line, written INSIDE the budget.</param>
     /// <param name="bodyCost">What resolving these FormIDs cost, over the ids that RESOLVED; contract in docs/architecture/records-tool-front.md.</param>
+    /// <param name="whole">The bounded whole pass this render is, which it stops once past the bound; null for a render at a cap.</param>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated,
-                                       string? header = null, (int RowsRead, long Millis)? bodyCost = null)
+                                       string? header = null, (int RowsRead, long Millis)? bodyCost = null, WholePass? whole = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -49,7 +50,7 @@ static partial class Wire
         int budget = cap - spillText.Length - Notice(rows.Count).Length - (bodyCost is null ? 0 : RenderBudget.AccountingReserve);
         for (int i = 0; i < rows.Count && !(spill?.ManifestOnly ?? false); i++)
         {
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             var r = rows[i];
             sb.Append("  ").Append(r.Token);
@@ -164,7 +165,7 @@ static partial class Wire
 
     // ---- many records ----
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars)
-        => RenderCap.Capped(Cap(maxChars), n => RenderBatch(outcomes, n, null, out _),
+        => RenderCap.Capped(Cap(maxChars), (n, w) => RenderBatch(outcomes, n, null, out _, whole: w),
                             epochLine: EpochLine(outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp),
                             nextCall: RenderCap.NextCallGrowth);
 
@@ -175,7 +176,7 @@ static partial class Wire
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
                                      SpillState? spill, out bool truncated, LeverNames? levers = null,
                                      (int RowsRead, long Millis)? bodyCost = null, string? header = null,
-                                     IReadOnlyList<string?>? matches = null)
+                                     IReadOnlyList<string?>? matches = null, WholePass? whole = null)
     {
         truncated = false;
         var lv = levers ?? LeverNames.Legacy;
@@ -198,7 +199,7 @@ static partial class Wire
         for (int i = 0; i < outcomes.Count; i++)
         {
             if (spill?.ManifestOnly ?? false) break;   // to_file: only the manifest renders — the rows are the FILE
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             var o = outcomes[i];
             int mark = sb.Length;
             var noteMark = notes.Mark();
@@ -243,8 +244,8 @@ static partial class Wire
     {
         using var rows = new ScanRows(svc, q, fields, depth, resolveNames, winnerFields, (levers ?? LeverNames.Legacy).ContainerHint, ct);
         bool cut = false;
-        string At(int n) => RenderCrossQuery(rows, q, fields, n, winnerFields, spill, out cut, levers, header, rowLimit);
-        if (q.Error is not null) { truncated = false; return At(0); }
+        string At(int n, WholePass? w) => RenderCrossQuery(rows, q, fields, n, winnerFields, spill, out cut, levers, header, rowLimit, w);
+        if (q.Error is not null) { truncated = false; return At(0, null); }
         var r = RenderCap.Capped(Cap(maxChars), At, epochLine: EpochLine(q.Stamp), nextCall: RenderCap.NextCallGrowth);
         truncated = cut;
         return r;
@@ -253,7 +254,8 @@ static partial class Wire
     /// <summary>The artifact-aware render, raw: <paramref name="spill"/> carries the call's artifact disposition, and <paramref name="truncated"/> hands the row-level cut back to the tool layer, which triggers the auto-spill. <paramref name="rows"/> reads each match once for every render of the call.</summary>
     internal static string RenderCrossQuery(ScanRows rows, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars,
                                             bool winnerFields, SpillState? spill, out bool truncated,
-                                            LeverNames? levers = null, string? header = null, int rowLimit = 0)
+                                            LeverNames? levers = null, string? header = null, int rowLimit = 0,
+                                            WholePass? whole = null)
     {
         truncated = false;
         var lv = levers ?? LeverNames.Legacy;
@@ -261,7 +263,7 @@ static partial class Wire
         // A refusal made after the build was captured is stamped with the epoch; a pre-capture one renders bare.
         if (q.Error is not null) return head + "error: " + q.Error + Wire.EpochLine(q.Stamp);
         int cap = Cap(maxChars);
-        if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, rowLimit, spill, out truncated, head);   // group_by= → a count table, not per-match lines
+        if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, rowLimit, spill, out truncated, head, whole);   // group_by= → a count table, not per-match lines
         bool detail = fields is { Count: > 0 };          // expand matches, vs. one-line summaries
         bool anyScoped = JsonWire.AnyScopedFieldRow(q, fields);   // the shared test: a plugins= scope shows a plugin's OWN body
         var sb = new StringBuilder();
@@ -306,7 +308,7 @@ static partial class Wire
         int budget = cap - costReserve - spillText.Length - Notice(q.Keys.Count).Length;
         for (int i = 0; i < q.Keys.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: only the manifest renders — the rows are the FILE
         {
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             var noteMark = notes.Mark();
             var fk = q.Keys[i];
@@ -359,7 +361,8 @@ static partial class Wire
     /// <summary>Render a <c>group_by=</c> aggregation: a header naming the key, the true total and the group count, then one row per group, with the where= and unscannable notes surviving; only the rendering is capped, so the total stays exact.</summary>
     /// <param name="rowLimit">the caller's limit= as the TABLE's row cap (0 = uncapped): a count table caps with
     /// limit= and does not page (#810), and whichever knob stopped the rows is the one the closing marker names.</param>
-    static string RenderCrossQueryGroups(CrossQueryOutcome q, int cap, int rowLimit, SpillState? spill, out bool truncated, string head = "")
+    static string RenderCrossQueryGroups(CrossQueryOutcome q, int cap, int rowLimit, SpillState? spill, out bool truncated, string head = "",
+                                         WholePass? whole = null)
     {
         truncated = false;
         var all = q.Groups!;
@@ -389,7 +392,7 @@ static partial class Wire
         int shown = rowLimit > 0 ? Math.Min(rowLimit, groups.Count) : groups.Count;
         for (int i = 0; i < groups.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: rows live in the file
         {
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             // limit= caps the table's rows; the count above stays the whole tally. It does NOT set `truncated`,
             // which is the ceiling auto-spill's trigger: a limit cut is the caller capping the table on purpose.
             if (i >= shown)

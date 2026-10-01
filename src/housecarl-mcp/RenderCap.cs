@@ -20,65 +20,38 @@ internal readonly record struct RenderCap(int Cap, int Budget)
 
     public RenderCap Less(int trailer) => new(Cap, Math.Max(Budget - trailer, 0));
 
-    /// <summary>The max_chars a whole-first pass renders at: no reserve bites and no unit crosses it, so the render
-    /// is the complete answer.</summary>
+    /// <summary>The max_chars a whole pass renders at: no reserve bites and no unit crosses it.</summary>
     internal const int Whole = int.MaxValue / 2;
 
-    /// <summary>The max_chars of a whole-first pass bounded by <paramref name="bound"/>: no reserve bites, and the render
-    /// stops laying units once it is past the bound (<see cref="Past"/>), so the pass costs what the bound does.</summary>
-    internal static int WholeWithin(int bound) => bound <= int.MaxValue - Whole - 1 ? Whole + 1 + bound : Whole;
-
-    /// <summary>Whether a render at <paramref name="cap"/> is a bounded whole-first pass that has laid past its bound,
-    /// so it can stop. A true answer is recorded as the pass having stopped, which <see cref="WholeAt"/> reads.</summary>
-    internal static bool Past(int cap, int laid)
+    /// <summary>The complete answer when it fits <paramref name="n"/>, else null, from one pass bounded by n.</summary>
+    internal static string? WholeAt(int n, Func<int, WholePass?, string> at)
     {
-        if (cap <= Whole || laid <= cap - Whole - 1) return false;
-        _stopped = true;
-        return true;
-    }
-
-    /// <summary>Set by <see cref="Past"/> when the bounded pass on this thread stopped laying units.</summary>
-    [ThreadStatic] static bool _stopped;
-
-    /// <summary>The whole answer when it fits <paramref name="n"/>, else null, from a pass bounded by n. A pass that
-    /// stopped is never the whole answer, whatever its length once its trailing newlines are trimmed.</summary>
-    internal static string? WholeAt(int n, Func<int, string> at)
-    {
-        bool outer = _stopped;
-        _stopped = false;
-        var w = at(WholeWithin(n));
-        bool stopped = _stopped;
-        _stopped = outer;
-        return !stopped && w.Length <= n ? w : null;
+        var pass = new WholePass(n);
+        var w = at(Whole, pass);
+        return !pass.Stopped && w.Length <= n ? w : null;
     }
 
     /// <summary>How many times <see cref="Hold"/> re-renders at the length the last render came back at.</summary>
     internal const int GrowRounds = 8;
 
-    /// <summary>A text render over data already read, whole first (#986): the complete answer when it fits
-    /// <paramref name="cap"/>, else the render at the cap, refused by <see cref="Hold"/> when that is over it. Every
-    /// pass is bounded by the cap it is asked about, not by the size of the answer.</summary>
-    /// <param name="at">the same call's render at a given max_chars; it re-renders only, never reads.</param>
+    /// <summary>A text render that stops early: whole first by a bounded pass, else the render at the cap, held.</summary>
+    /// <param name="at">the same call's render at a max_chars, or the whole pass when handed one; it never reads.</param>
     /// <param name="nextCall">how much wider the same call can print next time, added before the cap is measured.</param>
-    public static string Capped(int cap, Func<int, string> at, Func<string>? alsoTry = null, string epochLine = "",
-                                int nextCall = 0)
-        => WholeAt(cap, at) ?? Hold(at(cap), cap, at, out _, alsoTry, epochLine, n => WholeAt(n, at), nextCall);
+    public static string Capped(int cap, Func<int, WholePass?, string> at, Func<string>? alsoTry = null,
+                                string epochLine = "", int nextCall = 0)
+        => WholeAt(cap, at) ?? Hold(at(cap, null), cap, n => at(n, null), out _, alsoTry, epochLine,
+                                    n => WholeAt(n, at), nextCall);
 
-    /// <summary>Whether the same call is served at <paramref name="cap"/>: its render at the cap fits, or its whole
-    /// answer does. At most two renders, each bounded by the cap, and no floor search.</summary>
-    public static bool Serves(int cap, Func<int, string> at) => at(cap).Length <= cap || WholeAt(cap, at) is not null;
+    /// <summary>Whether the same call is served at <paramref name="cap"/>: its render at the cap or its whole answer fits.</summary>
+    public static bool Serves(int cap, Func<int, WholePass?, string> at)
+        => at(cap, null).Length <= cap || WholeAt(cap, at) is not null;
 
-    /// <summary>The floor check a capped text render closes on (#986). A body is laid inside what the cap leaves, so a
-    /// render over its cap is its header and the notices it owes: the call is refused, naming a max_chars the same call
-    /// was measured to fit. That cap is found by growing only: re-render at the length the render came back at, until
-    /// it fits the length it was given (sufficient rather than tight, the #546 ruling).</summary>
+    /// <summary>The floor check: a render over its cap is refused, naming a cap found by growing only.</summary>
     /// <param name="renderAt">the same call at another max_chars, as the next call would render it.</param>
     /// <param name="alsoTry">a second way out, appended to the remedy; asked only of a refused call.</param>
     /// <param name="epochLine">the lane's epoch stamp, where its post-capture refusals carry one.</param>
-    /// <param name="wholeAt">the complete answer when it fits a given max_chars, else null (<see cref="WholeAt"/>): a
-    /// whole-first call serves it at any cap it fits, so once it fits a round the cap named is its own width.</param>
-    /// <param name="nextCall">how much wider the same call can print next time (<see cref="NextCallGrowth"/>): the cap
-    /// named is one the render was measured to fit with that much room still free.</param>
+    /// <param name="wholeAt">the complete answer when it fits a given max_chars, else null.</param>
+    /// <param name="nextCall">room left free in the cap named, for the next call printing wider.</param>
     public static string Hold(string response, int cap, Func<int, string> renderAt, out bool refused,
                               Func<string>? alsoTry = null, string epochLine = "", Func<int, string?>? wholeAt = null,
                               int nextCall = 0)
@@ -90,12 +63,10 @@ internal readonly record struct RenderCap(int Cap, int Budget)
         for (int i = 0; i < GrowRounds; i++)
         {
             if (wholeAt?.Invoke(n) is { } whole) return TooSmall(cap, whole.Length + nextCall, also, epochLine);
-            // Fits with the next call's room still free, or grows to the length it came back at plus that room.
             int at = renderAt(n).Length + nextCall;
             if (at <= n) return TooSmall(cap, n, also, epochLine);
             n = at;
         }
-        // A render that grows with every cap it is given names no cap: refused saying so, never shipped over the cap.
         return FloorLead + cap + " is too small for this response, and it did not settle on a max_chars it fits: " +
                "re-rendered " + GrowRounds + " times at the length it came back at, it still ran past " + n +
                ", so no max_chars can be named for it: narrow the call" + also + "." + epochLine;
@@ -147,4 +118,17 @@ internal readonly record struct RenderCap(int Cap, int Budget)
         "this response is " + length + " chars, over the max_chars=" + cap + " it was given: what it must carry " +
         "whatever the budget — its header, the notices it owes, its accounting — does not fit in that many, so raise " +
         "max_chars to at least " + length + ".";
+}
+
+/// <summary>One whole pass bounded by a cap: the render loop that stops past <see cref="Bound"/> records it here.</summary>
+internal sealed class WholePass(int bound)
+{
+    /// <summary>The cap the pass asks about.</summary>
+    internal int Bound { get; } = bound;
+
+    /// <summary>Whether a render loop stopped laying units past the bound, so the render is not the whole answer.</summary>
+    internal bool Stopped { get; private set; }
+
+    /// <summary>Whether <paramref name="laid"/> chars are past the bound; true stops the pass and is recorded.</summary>
+    internal bool Past(int laid) => Stopped |= laid > Bound;
 }

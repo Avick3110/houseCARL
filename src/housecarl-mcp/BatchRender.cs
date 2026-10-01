@@ -18,7 +18,8 @@ static class BatchRender
         Action<StringBuilder, RenderCap> appendAlarms,
         Action<StringBuilder, T, RenderCap> appendItem,
         out int shown,
-        int reserve = 0)
+        int reserve = 0,
+        WholePass? whole = null)
     {
         // The notice is written INSIDE the ceiling, so its widest spelling is charged before anything is laid.
         var budget = RenderCap.For(cap, reserve + NoticeReserve(items.Count, itemNoun, cap));
@@ -30,7 +31,7 @@ static class BatchRender
         shown = 0;
         for (int i = 0; i < items.Count; i++)
         {
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             bool roomBefore = mark <= budget.Budget;
             if (roomBefore) appendItem(sb, items[i], budget);

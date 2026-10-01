@@ -249,10 +249,10 @@ static class CheckTextRender
         {
             var r = RenderCheckAt(o, n, histogramLimit, out var body);
             if (n == cap) atCap = body;
-            else if (n == RenderCap.WholeWithin(cap)) whole = body;
+            else if (n == RenderCap.Whole) whole = body;
             return r;
         }
-        var response = RenderCap.Capped(cap, At, epochLine: o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
+        var response = RenderCap.Capped(cap, (n, _) => At(n), epochLine: o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
         measured = atCap ?? whole;
         return response;
     }

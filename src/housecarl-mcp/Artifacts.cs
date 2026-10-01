@@ -401,51 +401,46 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
-    /// <summary>A lane's render at a given max_chars and spill disposition, reporting whether it cut anything.</summary>
-    internal delegate string CappedRender(int cap, SpillState? spill, out bool truncated);
+    /// <summary>A lane's render at a max_chars and spill disposition, or its bounded whole pass, reporting its cut.</summary>
+    internal delegate string CappedRender(int cap, SpillState? spill, WholePass? whole, out bool truncated);
 
-    /// <summary>A lane that auto-spills at its ceiling, on either transport: a to_file= manifest settles (its file already
-    /// landed), json keeps its own overrun field and spill, and text goes through <see cref="CeilingText"/>.</summary>
-    internal static string Ceiling(bool json, int cap, CappedRender render, SpillState? toFile,
-                                   Func<ArtifactTarget> reserve, Func<ArtifactTarget, (SpillInfo? Spill, string? Error)> write,
-                                   string epochLine = "")
+    /// <summary>A lane that auto-spills at its ceiling: to_file= settles, json spills on a cut, text goes through CeilingText.</summary>
+    internal static string Ceiling(bool json, int cap, CappedRender render, SpillState? toFile, Func<ArtifactTarget> reserve,
+                                   Func<ArtifactTarget, (SpillInfo? Spill, string? Error)> write, string epochLine = "")
     {
         if (toFile is not null)
         {
-            var manifest = render(cap, toFile, out _);
+            var manifest = render(cap, toFile, null, out _);
             return json ? manifest : RenderCap.Settle(manifest, cap);
         }
         if (!json) return CeilingText(cap, render, reserve, write, epochLine);
-        var rendered = render(cap, null, out bool truncated);
+        var rendered = render(cap, null, null, out bool truncated);
         if (!truncated) return rendered;
         using var target = reserve();
         var (s, err) = write(target);
-        return render(cap, err is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(err), out _);
+        return render(cap, err is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(err), null, out _);
     }
 
-    /// <summary>The text reply of a lane that auto-spills at its ceiling (#986). The whole answer is served when it fits;
-    /// otherwise the render at the cap, spilling only where that render cuts. Every pass is bounded by the cap it is asked
-    /// about. A cut is decided on its spill block sized from the selection before any row is written, so a refused call
-    /// writes no artifact, and a served one writes it once, through the reservation that names it.</summary>
+    /// <summary>The text reply of a spilling lane: whole first, else cut and spilled, else refused.</summary>
     internal static string CeilingText(int cap, CappedRender at, Func<ArtifactTarget> reserve,
                                        Func<ArtifactTarget, (SpillInfo? Spill, string? Error)> write, string epochLine = "")
     {
-        string? WholeAt(int n) => RenderCap.WholeAt(n, m => at(m, null, out _));
+        string? WholeAt(int n) => RenderCap.WholeAt(n, (m, w) => at(m, null, w, out _));
+        string Held(string response, SpillState? sp, out bool refused) =>
+            RenderCap.Hold(response, cap, n => at(n, sp, null, out _), out refused, epochLine: epochLine, wholeAt: WholeAt,
+                           nextCall: RenderCap.NextCallGrowth);
         if (WholeAt(cap) is { } whole) return whole;
-        var bare = at(cap, null, out bool cut);
-        // Nothing cut, so nothing to spill: a reply over its cap here is its header alone.
-        if (!cut) return RenderCap.Hold(bare, cap, n => at(n, null, out _), out _, epochLine: epochLine, wholeAt: WholeAt,
-                                        nextCall: RenderCap.NextCallGrowth);
+        var bare = at(cap, null, null, out bool cut);
+        // Nothing cut, so nothing to spill.
+        if (!cut) return Held(bare, null, out _);
         using var target = reserve();
         var sized = SpillState.Spilled(write(ArtifactTarget.Sizing(target.Path)).Spill!, manifestOnly: false);
-        // A cap the whole answer does not fit cuts it, so the next call there spills and is measured with its block.
-        var held = RenderCap.Hold(at(cap, sized, out _), cap, n => at(n, sized, out _), out bool refused, epochLine: epochLine,
-                                  wholeAt: WholeAt, nextCall: RenderCap.NextCallGrowth);
-        if (refused) return held;
+        var decided = Held(at(cap, sized, null, out _), sized, out bool refused);
+        if (refused) return decided;
         var (s, err) = write(target);
-        if (err is null) return at(cap, SpillState.Spilled(s!, manifestOnly: false), out _);
+        if (err is null) return at(cap, SpillState.Spilled(s!, manifestOnly: false), null, out _);
         // A failed write is stated; where its warning does not fit, the failure itself is the refusal.
-        var failed = at(cap, SpillState.WriteFailed(err), out _);
+        var failed = at(cap, SpillState.WriteFailed(err), null, out _);
         if (failed.Length <= cap) return failed;
         return "error: the response hit max_chars=" + cap + " and the auto-spill artifact that would hold the rest " +
                "could not be written (" + err.TrimEnd('.') + "), so the complete result exists nowhere: re-run with a " +

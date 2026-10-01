@@ -51,7 +51,7 @@ public sealed class RenderFloorHoldTests
             File.WriteAllText(blocker, "x");
             var target = ArtifactTarget.Named(Path.Combine(blocker, "spill.jsonl"));
             // Whole it is 5,000 chars; cut, a 100-char head plus its spill state, the failure warning 2,000 chars wider.
-            static string At(int cap, SpillState? sp, out bool cut)
+            static string At(int cap, SpillState? sp, WholePass? _, out bool cut)
             {
                 cut = cap < 5_000;
                 if (!cut) return new string('w', 5_000);

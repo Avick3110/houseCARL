@@ -370,9 +370,10 @@ static class NifWire
 {
     /// <summary>Whole first, closed on the floor check.</summary>
     public static string Render(NifInspectBatchData d, HashSet<string> want, IReadOnlyList<string> unknownSections, int cap)
-        => RenderCap.Capped(cap, n => RenderAt(d, want, unknownSections, n));
+        => RenderCap.Capped(cap, (n, w) => RenderAt(d, want, unknownSections, n, w));
 
-    static string RenderAt(NifInspectBatchData d, HashSet<string> want, IReadOnlyList<string> unknownSections, int cap)
+    static string RenderAt(NifInspectBatchData d, HashSet<string> want, IReadOnlyList<string> unknownSections, int cap,
+                           WholePass? whole)
     {
         var header = new StringBuilder("nif inspect — profile '")
             .Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
@@ -396,7 +397,7 @@ static class NifWire
             },
             // The mesh's sections cut against the ROOM LEFT, not against max_chars, or the mesh lands past the ceiling.
             (sb, r, room) => AppendMesh(sb, r, want, room, readIncomplete, rootIncomplete, discoveryIncomplete),
-            out _);
+            out _, whole: whole);
     }
 
     /// <summary>One mesh's block: the path line, then its named error with the provider chain, or the resolution,

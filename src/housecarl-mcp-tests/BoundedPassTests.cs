@@ -24,13 +24,13 @@ public sealed class BoundedPassTests : IClassFixture<WideCutWorld>
         var one = _w.Svc.ResolveRefs(TopicIds, null, out var epoch, out _);
         var rows = Enumerable.Repeat(one, 200).SelectMany(r => r).ToList();
         var laid = new List<int>();
-        string At(int n, SpillState? sp, out bool t)
+        string At(int n, SpillState? sp, WholePass? w, out bool t)
         {
-            var r = Wire.RenderResolve(rows, n, epoch, sp, out t, "records  form=identity", (rows.Count, 5));
+            var r = Wire.RenderResolve(rows, n, epoch, sp, out t, "records  form=identity", (rows.Count, 5), w);
             laid.Add(r.Length);
             return r;
         }
-        int whole = At(RenderCap.Whole, null, out _).Length;
+        int whole = At(RenderCap.Whole, null, null, out _).Length;
         var dir = Path.Combine(Path.GetTempPath(), "hc-bounded-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         try
@@ -46,7 +46,7 @@ public sealed class BoundedPassTests : IClassFixture<WideCutWorld>
                 Assert.True(whole > 50 * bound, $"the answer ({whole} chars) is not wide enough to tell");
             }
             laid.Clear();
-            RenderCap.Capped(4_000, n => At(n, null, out _));
+            RenderCap.Capped(4_000, (n, w) => At(n, null, w, out _));
             Assert.True(laid.Max() <= 4_400, $"a plain capped pass laid {laid.Max()} chars of a {whole}-char answer");
         }
         finally { Directory.Delete(dir, true); }
@@ -59,7 +59,7 @@ public sealed class BoundedPassTests : IClassFixture<WideCutWorld>
     {
         var fields = new[] { "EditorID" };
         var q = _w.Svc.CrossQuery(new[] { "DIAL" }, null, null, false, null, null, 100_000);
-        string Call(ScanRows rows, int c) => RenderCap.Capped(c, n => Wire.RenderCrossQuery(rows, q, fields, n, false, null, out _));
+        string Call(ScanRows rows, int c) => RenderCap.Capped(c, (n, w) => Wire.RenderCrossQuery(rows, q, fields, n, false, null, out _, whole: w));
         int cap;
         using (var probe = new ScanRows(_w.Svc, q, fields, 1, false, false, null, default))
             (cap, _) = RenderFloorAssert.ServedCut(c => Call(probe, c), t => t.Contains("truncated: rendered", StringComparison.Ordinal));
@@ -83,7 +83,7 @@ public sealed class BoundedPassTests : IClassFixture<WideCutWorld>
         var path = Path.Combine(dir, "records_x.jsonl");
         var handed = new List<bool>();
         string Call(int cap) => Artifacts.CeilingText(cap,
-            (int n, SpillState? sp, out bool t) => Wire.RenderResolve(rows, n, epoch, sp, out t, "records  form=identity", (rows.Count, 5)),
+            (int n, SpillState? sp, WholePass? w, out bool t) => Wire.RenderResolve(rows, n, epoch, sp, out t, "records  form=identity", (rows.Count, 5), w),
             () => ArtifactTarget.Named(path),
             t => { handed.Add(t.SizeOnly); return Artifacts.WriteResolve(rows, epoch.Epoch, t, "ceiling", NoEcho); },
             Wire.EpochLine(epoch));

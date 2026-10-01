@@ -10,7 +10,7 @@ static partial class RecordsTools
     /// <remarks>Internal so a test can drive a row shape no fixture produces — an incomplete deep read with enough delta lines to be cut.</remarks>
     internal static string RenderRecordsDelta(IReadOnlyList<RecordReads.DeltaRow> rows, int total, int differing, int identical,
                                      int noVerdict, int errors,
-                                     string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated)
+                                     string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated, WholePass? whole = null)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
@@ -33,7 +33,7 @@ static partial class RecordsTools
         foreach (var row in rows)
         {
             if (manifestOnly) break;
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             // said: the delta list stopped inside the budget and named what it held back, so the record stays and
             // the render stops after it. mute: no room to say so, and the whole record goes back out.
@@ -138,7 +138,7 @@ static partial class RecordsTools
     /// <remarks>Internal so a test can drive a node shape no fixture produces — an incomplete comparison on a record only one in-order plugin touches.</remarks>
     internal static string RenderRecordsTree(IReadOnlyList<RecordReads.TreeRow> rows, int total, int contested, int errors,
                                     bool fieldsNarrow, string headerLine, OrderStamp? epoch, int maxChars,
-                                    SpillState? spill, out bool truncated)
+                                    SpillState? spill, out bool truncated, WholePass? whole = null)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
@@ -159,7 +159,7 @@ static partial class RecordsTools
         foreach (var row in rows)
         {
             if (manifestOnly) break;
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             bool leadMark = declarersLeadWritten;
             // said: this row stopped inside the budget and named what it held back, so it stays and the render
@@ -304,7 +304,7 @@ static partial class RecordsTools
     /// <remarks>Internal so a test can drive a seed shape no fixture produces — a walk that hit its node cap with nodes enough for max_chars to cut.</remarks>
     internal static string RenderRecordsChain(IReadOnlyList<RecordReads.WalkSeedResult> rows, int total, int reached,
                                      int errors, string headerLine, OrderStamp? epoch, int maxChars,
-                                     SpillState? spill, out bool truncated)
+                                     SpillState? spill, out bool truncated, WholePass? whole = null)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
@@ -323,7 +323,7 @@ static partial class RecordsTools
         foreach (var row in rows)
         {
             if (manifestOnly) break;
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             // said: this seed's node list stopped inside the budget and named what it held back, so the seed stays
             // and the render stops after it. mute: no room to say so, and the seed goes back out.
@@ -415,7 +415,7 @@ static partial class RecordsTools
     /// <remarks>Internal so a test can drive a seed whose carriers are wider than the auto-spill block, which no fixture has.</remarks>
     internal static string RenderRecordsEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
                                             int totalSeeds, int carrierRows, int carrierTotal, int errors, string headerLine,
-                                            OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated)
+                                            OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated, WholePass? whole = null)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
@@ -435,7 +435,7 @@ static partial class RecordsTools
         foreach (var (seed, result) in results)
         {
             if (manifestOnly) break;
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             sb.Append('\n').Append("seed ").Append(seed).Append('\n');
             // The shared render builds its own buffer, so it is told what this one has spent, and still quotes the
@@ -458,7 +458,7 @@ static partial class RecordsTools
     /// <remarks>Internal so a test can drive a topic wider than the auto-spill block, which no fixture has.</remarks>
     internal static string RenderRecordsInfoOrder(IReadOnlyList<RecordReads.InfoOrderRow> rows, int total, int contested,
                                          int errors, string headerLine, OrderStamp? epoch, int maxChars,
-                                         SpillState? spill, out bool truncated)
+                                         SpillState? spill, out bool truncated, WholePass? whole = null)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
@@ -476,7 +476,7 @@ static partial class RecordsTools
         foreach (var row in rows)
         {
             if (manifestOnly) break;
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             bool cut = false;
             sb.Append('\n').Append(row.Formid);
@@ -511,7 +511,7 @@ static partial class RecordsTools
     /// <summary>The list-lane summary render: one identity-and-winner line per outcome or its per-item error, the batch shape of the scan lane's summary rows, with the spill marker in-band on both transports.</summary>
     static string RenderRecordsSummary(IReadOnlyList<ReadOutcome> outcomes, bool json, string headerLine,
                                        List<KeyValuePair<string, string>> envelope, int maxChars, SpillState? spill,
-                                       (int RowsRead, long Millis) bodyCost, out bool truncated)
+                                       (int RowsRead, long Millis) bodyCost, out bool truncated, WholePass? whole = null)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
@@ -534,7 +534,7 @@ static partial class RecordsTools
         foreach (var o in outcomes)
         {
             if (manifestOnly) break;
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             int mark = sb.Length;
             if (o.Error is not null) sb.Append(FormIdToken.Of(o.FormKey)).Append("  error=").Append(o.Error).Append('\n');
             else
@@ -599,15 +599,16 @@ static partial class RecordsTools
         var rows = empties.Count == 0 ? all : all.Where(g => g.Value > 0).ToList();
         if (json || dense)
             return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, cap, envelope, empties, rowLimit);
-        return RenderCap.Capped(cap, n => RenderListAggregateText(rows, empties, gb, outcomes.Count, errors, epoch, headerLine,
-                                                                  bodyCost, n, rowLimit),
+        return RenderCap.Capped(cap, (n, w) => RenderListAggregateText(rows, empties, gb, outcomes.Count, errors, epoch, headerLine,
+                                                                       bodyCost, n, rowLimit, w),
                                 epochLine: Wire.EpochLine(epoch), nextCall: RenderCap.NextCallGrowth);
     }
 
     /// <summary>The list-lane aggregate's text render at one cap, raw: its caller closes it on the floor check.</summary>
     static string RenderListAggregateText(IReadOnlyList<KeyValuePair<string, int>> rows, IReadOnlyList<string> empties,
                                                    string gb, int records, int errors, OrderStamp? epoch, string headerLine,
-                                                   (int RowsRead, long Millis) bodyCost, int cap, int rowLimit)
+                                                   (int RowsRead, long Millis) bodyCost, int cap, int rowLimit,
+                                                   WholePass? whole)
     {
         var sb = new StringBuilder();
         sb.Append(headerLine).Append("  group_by=").Append(gb).Append('\n');
@@ -629,7 +630,7 @@ static partial class RecordsTools
         int renderedGroups = 0;
         foreach (var (key, count) in rows.Select(r => (r.Key, r.Value)))
         {
-            if (RenderCap.Past(cap, sb.Length)) break;   // a bounded whole pass stops once past its bound
+            if (whole?.Past(sb.Length) == true) break;   // a bounded whole pass stops once past its bound
             if (renderedGroups >= shown)   // limit= caps the table's rows; the counts above stay the whole tally
             {
                 sb.Append(LimitNotice(renderedGroups));

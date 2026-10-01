@@ -302,7 +302,7 @@ public sealed class WideCutLaneTests : IClassFixture<WideCutWorld>
         try
         {
             string Call(int cap, long ms, string file) => Artifacts.CeilingText(cap,
-                (int n, SpillState? sp, out bool t) => Wire.RenderResolve(rows, n, epoch, sp, out t, "records  form=identity", (rows.Count, ms)),
+                (int n, SpillState? sp, WholePass? w, out bool t) => Wire.RenderResolve(rows, n, epoch, sp, out t, "records  form=identity", (rows.Count, ms), w),
                 () => ArtifactTarget.Named(Path.Combine(dir, file)),
                 t => Artifacts.WriteResolve(rows, epoch.Epoch, t, "ceiling", Array.Empty<KeyValuePair<string, string>>()),
                 Wire.EpochLine(epoch));
