@@ -350,12 +350,14 @@ public sealed class ArtifactTarget : IDisposable
         if (_wrote) throw new InvalidOperationException($"the artifact target '{Path}' has already been written");
     }
 
-    /// <summary>Removes the file this target wrote, for a reply refused after its spill landed.</summary>
-    public void Discard()
+    /// <summary>Removes the file this target wrote, for a reply refused after its spill landed; returns why it could not, else null.</summary>
+    public string? Discard()
     {
-        if (!_wrote) return;
-        try { File.Delete(Path); } catch (Exception) { }
+        if (!_wrote) return null;
+        try { File.Delete(Path); }
+        catch (Exception e) { return e.Message; }
         _wrote = false;
+        return null;
     }
 
     public void Dispose()

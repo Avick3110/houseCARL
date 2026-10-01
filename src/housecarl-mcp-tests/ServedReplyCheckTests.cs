@@ -54,6 +54,89 @@ public sealed class ServedReplyCheckTests : IClassFixture<WideCutWorld>
         Assert.True(refusedAfterWrite > 0, "no cap was refused after its write, so the check after it was never reached");
     }
 
+    /// <summary>The same narrow sizing, with the written spill held open so it cannot be deleted: a reply refused after its
+    /// write names the file it left, in the refusal's own sentence.</summary>
+    [Fact]
+    public void ARefusalWhoseSpillCannotBeRemovedNamesTheFile()
+    {
+        var rows = _w.Svc.ResolveRefs(TopicIds, null, out var epoch, out _);
+        var dir = Path.Combine(Path.GetTempPath(), "hc-exitkept-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        int named = 0;
+        try
+        {
+            for (int cap = 100; cap <= 1_500 && named == 0; cap++)
+            {
+                var path = Path.Combine(dir, $"r{cap}.jsonl");
+                FileStream? held = null;
+                try
+                {
+                    var text = Artifacts.CeilingText(cap,
+                        (int n, SpillState? sp, WholePass? w, out bool t) =>
+                            Wire.RenderResolve(rows, n, epoch, sp, out t, "records  form=identity", (rows.Count, 5), w),
+                        Artifacts.SpillTo.At(path),
+                        t =>
+                        {
+                            var r = Artifacts.WriteResolve(t.SizeOnly ? rows.Take(1).ToList() : rows, epoch.Epoch, t, "ceiling", NoEcho);
+                            if (!t.SizeOnly) held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            return r;
+                        },
+                        Wire.EpochLine(epoch));
+                    if (held is null || !RenderFloorAssert.IsFloorRefusal(text)) continue;
+                    Assert.True(File.Exists(path), "the staged hold did not keep the file");
+                    Assert.Contains("; its spill file " + path + " could not be removed (", text);
+                    Assert.Contains("), so delete it by hand.", text);
+                    named++;
+                }
+                finally { held?.Dispose(); }
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+        Assert.True(named > 0, "no cap was refused after its write, so the failed delete was never reached");
+    }
+
+    /// <summary>A render that throws after the spill landed takes the file with it on the way out.</summary>
+    [Fact]
+    public void AThrowAfterTheWriteRemovesTheSpill()
+    {
+        var rows = _w.Svc.ResolveRefs(TopicIds, null, out var epoch, out _);
+        var dir = Path.Combine(Path.GetTempPath(), "hc-exitthrow-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        int thrown = 0;
+        try
+        {
+            for (int cap = 100; cap <= 1_500 && thrown == 0; cap++)
+            {
+                var path = Path.Combine(dir, $"r{cap}.jsonl");
+                bool wrote = false;
+                try
+                {
+                    Artifacts.CeilingText(cap,
+                        (int n, SpillState? sp, WholePass? w, out bool t) =>
+                        {
+                            if (wrote) throw new OperationCanceledException("staged cancel after the write");
+                            return Wire.RenderResolve(rows, n, epoch, sp, out t, "records  form=identity", (rows.Count, 5), w);
+                        },
+                        Artifacts.SpillTo.At(path),
+                        t =>
+                        {
+                            var r = Artifacts.WriteResolve(rows, epoch.Epoch, t, "ceiling", NoEcho);
+                            wrote |= !t.SizeOnly;
+                            return r;
+                        },
+                        Wire.EpochLine(epoch));
+                }
+                catch (OperationCanceledException)
+                {
+                    Assert.False(File.Exists(path), $"the throw at max_chars={cap} left its spill file");
+                    thrown++;
+                }
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+        Assert.True(thrown > 0, "no cap reached its write, so the throw after it was never staged");
+    }
+
     /// <summary>The scan render's truncated flag is the served render's: false for a whole answer, and for a refusal the
     /// cut of the render at the cap the refusal was decided on, never of a grow round or a whole pass.</summary>
     [Fact]

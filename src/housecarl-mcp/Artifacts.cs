@@ -447,9 +447,9 @@ internal static class Artifacts
                                        Func<ArtifactTarget, (SpillInfo? Spill, string? Error)> write, string epochLine = "")
     {
         string? WholeAt(int n) => RenderCap.WholeAt(n, (m, w) => at(m, null, w, out _));
-        string Held(string response, SpillState? sp, out bool refused) =>
-            RenderCap.Hold(response, cap, n => at(n, sp, null, out _), out refused, epochLine: epochLine, wholeAt: WholeAt,
-                           nextCall: RenderCap.NextCallGrowth);
+        string Held(string response, SpillState? sp, out bool refused, string also = "") =>
+            RenderCap.Hold(response, cap, n => at(n, sp, null, out _), out refused, also.Length > 0 ? () => also : null,
+                           epochLine, WholeAt, RenderCap.NextCallGrowth);
         if (WholeAt(cap) is { } whole) return whole;
         var bare = at(cap, null, null, out bool cut);
         // Nothing cut, so nothing to spill.
@@ -461,11 +461,21 @@ internal static class Artifacts
         var (s, err) = write(target);
         if (err is null)
         {
-            // The exit check, on the block the write stamped: over the cap, the file goes and the call is refused.
+            // The exit check, on the block the write stamped: over the cap, or on a throw, the file goes.
             var real = SpillState.Spilled(s!, manifestOnly: false);
-            var served = Held(at(cap, real, null, out _), real, out bool over);
-            if (over) target.Discard();
-            return served;
+            try
+            {
+                var reply = at(cap, real, null, out _);
+                if (reply.Length <= cap) return reply;
+                var kept = target.Discard();
+                return Held(reply, real, out _, kept is null ? ""
+                    : "; its spill file " + target.Path + " could not be removed (" + kept.Trim().TrimEnd('.') + "), so delete it by hand");
+            }
+            catch (Exception)
+            {
+                target.Discard();
+                throw;
+            }
         }
         // A failed write is stated; where its warning does not fit, the failure itself is the refusal.
         var failed = at(cap, SpillState.WriteFailed(err), null, out _);
