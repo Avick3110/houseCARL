@@ -168,7 +168,7 @@ internal static class ToolSchemas
 
     /// <summary>Inline every same-document <c>$ref</c> that resolves, bounded at <see cref="MaxSelfExpansions"/>; one this
     /// pass does not handle stays put and fails the no-<c>$ref</c> invariant in <c>PublishedSchemaShapeTests</c>.
-    /// Internal so <c>schema-flatten-guard</c> can drive it over synthetic documents.</summary>
+    /// Internal so <c>SchemaRefFlattenTests</c> can drive it over synthetic documents.</summary>
     internal static bool FlattenRefs(JsonObject root)
     {
         // Every pointer resolves against an immutable snapshot, not the tree being rewritten under it.
