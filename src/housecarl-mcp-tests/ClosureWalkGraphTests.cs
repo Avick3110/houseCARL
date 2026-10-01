@@ -63,6 +63,8 @@ public sealed class ClosureWalkGraphTests
         _npc.WornArmor.SetTo(Armo);
         _npc.HairColor.SetTo(ClfmOut);
         mod.Npcs.Add(_npc);
+        // in scope but linked by nothing: a walk that enumerates the whole plugin would reach it
+        mod.Races.Add(new Race(new FormKey(Fix, 0x806), SkyrimRelease.SkyrimSE) { EditorID = "InScopeRace" });
         _bodies = mod.EnumerateMajorRecords().ToDictionary(r => r.FormKey, r => (IMajorRecordGetter)r);
     }
 
@@ -252,7 +254,9 @@ public sealed class ClosureWalkGraphTests
         var r = Walk(depthCap: 1);
         Assert.Equal(WalkRefusalKind.DepthCap, r.Refusal?.Kind);
         Assert.Equal(1, r.Refusal?.Cap);
-        Assert.True(r.Refusal?.Chain.Count >= 2, $"chain {r.Refusal?.Chain.Count}");
+        // seeds sit at depth 0, so the first record past a cap of 1 is HpC at depth 2, pulled by HpA → HpB
+        Assert.Equal(HpC, r.Refusal?.Key);
+        Assert.Equal(new[] { HpA, HpB, HpC }, r.Refusal?.Chain);
     }
 
     // a record no source has REFUSES as a miss, carrying every source consulted
