@@ -497,12 +497,14 @@ public static partial class RecordsTools
             envelope.Add(new("source", statement));
             headerLine += $"  source={statement}";
         }
-        // A census is one constant body: over its cap it is refused naming its own length.
+        // A census is one constant body: over its cap it is refused naming its own length, plus the next call's room.
         string Census(string body, OrderStamp? stamp)
         {
             body += Wire.EpochLine(stamp);
             int cap = max_chars > 0 ? max_chars : Wire.DefaultMaxChars;
-            return body.Length <= cap ? body : RenderCap.TooSmall(cap, body.Length, epochLine: Wire.EpochLine(stamp));
+            return body.Length <= cap
+                ? body
+                : RenderCap.TooSmall(cap, body.Length + RenderCap.NextCallGrowth, epochLine: Wire.EpochLine(stamp));
         }
         // Every warning the SkyPatcher replay produced, named beside the answer with its own file and line.
         var overlayWarnings = new HousecarlCore.SkyPatcherOverlay.WarningSink();

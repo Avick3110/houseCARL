@@ -374,16 +374,17 @@ public sealed class WideCutLaneTests : IClassFixture<WideCutWorld>
         Assert.Matches(@"\[rendered \d+ of 30 at max_chars=\d+\]", cut);
     }
 
-    /// <summary>A list-lane census is one constant render: over its cap it names its own width, which serves.</summary>
+    /// <summary>A list-lane census is one constant render: over its cap it names its own width plus the room every records
+    /// lane leaves for the next call printing wider, which serves.</summary>
     [Fact]
-    public void ACensusOverItsCapNamesItsOwnWidth()
+    public void ACensusOverItsCapNamesItsOwnWidthPlusTheNextCallsRoom()
     {
         string Call(int c) => RecordsTools.Records(_w.Svc, formids: TopicIds, counts_only: true, max_chars: c);
 
         var refused = Call(50);
 
         var served = RenderFloorAssert.RefusesAndTheNamedCapFits(refused, 50, Call);
-        Assert.Equal(RenderFloorAssert.Named(refused), served.Length);
+        Assert.Equal(served.Length + RenderCap.NextCallGrowth, RenderFloorAssert.Named(refused));
     }
 
     /// <summary>An asset_status text reply the server serves cut carries its spill block, naming the file.</summary>
