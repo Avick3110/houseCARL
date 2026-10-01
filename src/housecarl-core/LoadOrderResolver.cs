@@ -467,6 +467,9 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>The epoch string's FORMAT tag, bumped when <see cref="ComputeEpoch"/>'s input changes shape: an epoch with another tag cannot be compared at all.</summary>
     internal const string EpochFormat = "e2";
 
+    /// <summary>A placeholder as wide as every epoch this build computes, for sizing a name before an order is read.</summary>
+    public static readonly string EpochOfWidth = EpochFormat + "-" + new string('0', 16);
+
     /// <summary>Whether an epoch string was written in the format THIS build computes — i.e. whether comparing it against a current epoch means anything.</summary>
     public static bool IsCurrentEpochFormat(string epoch) =>
         epoch.StartsWith(EpochFormat + "-", StringComparison.Ordinal);

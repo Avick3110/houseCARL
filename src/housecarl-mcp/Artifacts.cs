@@ -404,8 +404,19 @@ internal static class Artifacts
     /// <summary>A lane's render at a max_chars and spill disposition, or its bounded whole pass, reporting its cut.</summary>
     internal delegate string CappedRender(int cap, SpillState? spill, WholePass? whole, out bool truncated);
 
+    /// <summary>Where a ceiling spill goes: the path its block is sized at, and the reservation a served cut writes.</summary>
+    internal sealed record SpillTo(Func<string> SizedAt, Func<ArtifactTarget> Reserve)
+    {
+        /// <summary>The results folder: sized at the name a reservation takes now, reserved only for a served cut.</summary>
+        internal static SpillTo Results(string dir, string tool, string epoch)
+            => new(() => ResultsStore.NameFor(dir, tool, epoch), () => ResultsStore.Reserve(dir, tool, epoch));
+
+        /// <summary>One fixed path, sized and written there.</summary>
+        internal static SpillTo At(string path) => new(() => path, () => ArtifactTarget.Named(path));
+    }
+
     /// <summary>A lane that auto-spills at its ceiling: to_file= settles, json spills on a cut, text goes through CeilingText.</summary>
-    internal static string Ceiling(bool json, int cap, CappedRender render, SpillState? toFile, Func<ArtifactTarget> reserve,
+    internal static string Ceiling(bool json, int cap, CappedRender render, SpillState? toFile, SpillTo spillTo,
                                    Func<ArtifactTarget, (SpillInfo? Spill, string? Error)> write, string epochLine = "")
     {
         if (toFile is not null)
@@ -413,16 +424,16 @@ internal static class Artifacts
             var manifest = render(cap, toFile, null, out _);
             return json ? manifest : RenderCap.Settle(manifest, cap);
         }
-        if (!json) return CeilingText(cap, render, reserve, write, epochLine);
+        if (!json) return CeilingText(cap, render, spillTo, write, epochLine);
         var rendered = render(cap, null, null, out bool truncated);
         if (!truncated) return rendered;
-        using var target = reserve();
+        using var target = spillTo.Reserve();
         var (s, err) = write(target);
         return render(cap, err is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(err), null, out _);
     }
 
     /// <summary>The text reply of a spilling lane: whole first, else cut and spilled, else refused.</summary>
-    internal static string CeilingText(int cap, CappedRender at, Func<ArtifactTarget> reserve,
+    internal static string CeilingText(int cap, CappedRender at, SpillTo spillTo,
                                        Func<ArtifactTarget, (SpillInfo? Spill, string? Error)> write, string epochLine = "")
     {
         string? WholeAt(int n) => RenderCap.WholeAt(n, (m, w) => at(m, null, w, out _));
@@ -433,10 +444,10 @@ internal static class Artifacts
         var bare = at(cap, null, null, out bool cut);
         // Nothing cut, so nothing to spill.
         if (!cut) return Held(bare, null, out _);
-        using var target = reserve();
-        var sized = SpillState.Spilled(write(ArtifactTarget.Sizing(target.Path)).Spill!, manifestOnly: false);
+        var sized = SpillState.Spilled(write(ArtifactTarget.Sizing(spillTo.SizedAt())).Spill!, manifestOnly: false);
         var decided = Held(at(cap, sized, null, out _), sized, out bool refused);
         if (refused) return decided;
+        using var target = spillTo.Reserve();
         var (s, err) = write(target);
         if (err is null) return at(cap, SpillState.Spilled(s!, manifestOnly: false), null, out _);
         // A failed write is stated; where its warning does not fit, the failure itself is the refusal.

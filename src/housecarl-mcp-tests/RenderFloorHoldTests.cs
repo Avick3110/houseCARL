@@ -58,7 +58,7 @@ public sealed class RenderFloorHoldTests
                 return new string('h', 100) + Wire.SpillText(sp) + (sp?.Failure is null ? "" : new string('f', 2_000));
             }
 
-            var r = Artifacts.CeilingText(1_500, At, () => target,
+            var r = Artifacts.CeilingText(1_500, At, new Artifacts.SpillTo(() => target.Path, () => target),
                 t => Artifacts.WriteResolve(Array.Empty<ResolvedRef>(), "", t, "ceiling", Array.Empty<KeyValuePair<string, string>>()));
 
             Assert.StartsWith("error: ", r);

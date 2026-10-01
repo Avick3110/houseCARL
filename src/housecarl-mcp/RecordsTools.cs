@@ -669,7 +669,7 @@ public static partial class RecordsTools
                     ? JsonWire.RenderResolve(winRows, n, epoch, sp, out trunc, envelope, identityCost)
                     : Wire.RenderResolve(winRows, n, epoch, sp, out trunc, headerLine, identityCost, w);
                 return Artifacts.Ceiling(json, Wire.Cap(max_chars), Render, spill,
-                    () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch.Epoch),
+                    Artifacts.SpillTo.Results(svc.ResultsDir, ToolNames.Records, epoch.Epoch),
                     t => Artifacts.WriteResolve(rows, epoch.Epoch, t, "ceiling", Echo()), Wire.EpochLine(epoch));
             }
 
@@ -770,7 +770,7 @@ public static partial class RecordsTools
                 : json ? JsonWire.RenderBatch(winOutcomes, n, sp, out trunc, envelope, formLevers, listCost)
                        : Wire.RenderBatch(winOutcomes, n, sp, out trunc, formLevers, listCost, headerLine, whole: w);
             return Artifacts.Ceiling(json, Wire.Cap(max_chars), Render2, spill2,
-                () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch2?.Epoch ?? "none"),
+                Artifacts.SpillTo.Results(svc.ResultsDir, ToolNames.Records, epoch2?.Epoch ?? "none"),
                 t => Artifacts.WriteBatch(outcomes, t, "ceiling", Echo(), formLevers), Wire.EpochLine(epoch2));
         }
 
@@ -955,7 +955,7 @@ public static partial class RecordsTools
                     ? JsonWire.RenderEffectChains(winResults, n, envelope, revCounts, epochR, sp, out trunc)
                     : RenderRecordsEffectChains(winResults, results.Count, carrierRows, carrierTotal, seedErrs2, headerLine, epochR, n, sp, out trunc, w);
                 return Artifacts.Ceiling(json, Wire.Cap(max_chars), RenderRev, revSpill,
-                    () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epochR?.Epoch ?? "none"),
+                    Artifacts.SpillTo.Results(svc.ResultsDir, ToolNames.Records, epochR?.Epoch ?? "none"),
                     t => Artifacts.WriteEffectChains(results, epochR?.Epoch, t, "ceiling", Echo()), Wire.EpochLine(epochR));
             }
 
@@ -1006,7 +1006,7 @@ public static partial class RecordsTools
                     ? JsonWire.RenderChain(winRows, n, wEpoch, envelope, chainCounts, sp, out trunc)
                     : RenderRecordsChain(winRows, rows.Count, reached, errs, headerLine, wEpoch, n, sp, out trunc, w);
                 return Artifacts.Ceiling(json, Wire.Cap(max_chars), Render, spill,
-                    () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, wEpoch?.Epoch ?? "none"),
+                    Artifacts.SpillTo.Results(svc.ResultsDir, ToolNames.Records, wEpoch?.Epoch ?? "none"),
                     t => Artifacts.WriteChain(rows, wEpoch?.Epoch, t, "ceiling", Echo()), Wire.EpochLine(wEpoch));
             }
 
@@ -1128,7 +1128,7 @@ public static partial class RecordsTools
                 ? JsonWire.RenderDelta(winRows, n, epoch, envelope, deltaCounts, sp, out trunc)
                 : RenderRecordsDelta(winRows, rows.Count, differing, identical, noVerdict, errs, headerLine, epoch, n, sp, out trunc, w);
             return Artifacts.Ceiling(json, Wire.Cap(max_chars), Render, spill,
-                () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none"),
+                Artifacts.SpillTo.Results(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none"),
                 t => Artifacts.WriteDelta(rows, epoch?.Epoch, t, "ceiling", echo), Wire.EpochLine(epoch));
         }
 
@@ -1163,7 +1163,7 @@ public static partial class RecordsTools
                 ? JsonWire.RenderTree(winRows, n, epoch, envelope, treeCounts, sp, out trunc, LeverNames.Records)
                 : RenderRecordsTree(winRows, rows.Count, contested, errs, projFields is { Length: > 0 }, headerLine, epoch, n, sp, out trunc, w);
             return Artifacts.Ceiling(json, Wire.Cap(max_chars), Render, spill,
-                () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none"),
+                Artifacts.SpillTo.Results(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none"),
                 t => Artifacts.WriteTree(rows, epoch?.Epoch, t, "ceiling", echo), Wire.EpochLine(epoch));
         }
 
@@ -1213,7 +1213,7 @@ public static partial class RecordsTools
                 ? JsonWire.RenderInfoOrder(winRows, n, epoch, envelope, ioCounts, sp, out trunc)
                 : RenderRecordsInfoOrder(winRows, rows.Count, contested, errs, headerLine, epoch, n, sp, out trunc, w);
             return Artifacts.Ceiling(json, Wire.Cap(max_chars), Render, spill,
-                () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none"),
+                Artifacts.SpillTo.Results(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none"),
                 t => Artifacts.WriteInfoOrder(rows, epoch?.Epoch, t, "ceiling", echo), Wire.EpochLine(epoch));
         }
 
@@ -1596,7 +1596,7 @@ public static partial class RecordsTools
                     evSpill = SpillState.Spilled(s!, manifestOnly: true);
                 }
                 return Artifacts.Ceiling(json, Wire.Cap(max_chars), RenderEv, evSpill,
-                    () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, bodyEpoch?.Epoch ?? "none"),
+                    Artifacts.SpillTo.Results(svc.ResultsDir, ToolNames.Records, bodyEpoch?.Epoch ?? "none"),
                     t => Artifacts.WriteBatch(bodies, t, "ceiling", Echo(), evLevers, matches: evMatches), Wire.EpochLine(bodyEpoch));
             }
 
@@ -1624,7 +1624,7 @@ public static partial class RecordsTools
             if (outcome.Error is not null) return Render(max_chars, spill, null, out _);
             // Disposing the reservation deletes the file it owns unless the write landed, so a cancel leaves nothing.
             return Artifacts.Ceiling(fmt is not Wire.QueryFormat.Text, Wire.Cap(max_chars), Render, spill,
-                () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, outcome.Epoch ?? "none"),
+                Artifacts.SpillTo.Results(svc.ResultsDir, ToolNames.Records, outcome.Epoch ?? "none"),
                 t => Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, t, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct,
                                                summaries: scanRows is null ? null : scanRows.Summary),
                 Wire.EpochLine(outcome.Stamp));
@@ -1819,7 +1819,7 @@ public static partial class RecordsTools
                     offSpill = SpillState.Spilled(sp!, manifestOnly: true);
                 }
                 return Artifacts.Ceiling(json, Wire.Cap(max_chars), RenderOff, offSpill,
-                    () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, offEpoch?.Epoch ?? "none"),
+                    Artifacts.SpillTo.Results(svc.ResultsDir, ToolNames.Records, offEpoch?.Epoch ?? "none"),
                     t => Artifacts.WriteBatch(bodies, t, "ceiling", Echo(), offLevers, matches: offMatches), Wire.EpochLine(offEpoch));
             }
 
@@ -1844,7 +1844,7 @@ public static partial class RecordsTools
             };
             if (outcome.Error is not null) return Render(max_chars, spill, null, out _);
             return Artifacts.Ceiling(fmt is not Wire.QueryFormat.Text, Wire.Cap(max_chars), Render, spill,
-                () => ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, outcome.Epoch ?? "none"),
+                Artifacts.SpillTo.Results(svc.ResultsDir, ToolNames.Records, outcome.Epoch ?? "none"),
                 t => Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, t, "ceiling", Echo(), LeverNames.Records),
                 Wire.EpochLine(outcome.Stamp));
         }

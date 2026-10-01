@@ -38,7 +38,7 @@ public sealed class BoundedPassTests : IClassFixture<WideCutWorld>
             foreach (int cap in new[] { 200, 4_000 })
             {
                 laid.Clear();
-                var text = Artifacts.CeilingText(cap, At, () => ArtifactTarget.Named(Path.Combine(dir, $"r{cap}.jsonl")),
+                var text = Artifacts.CeilingText(cap, At, Artifacts.SpillTo.At(Path.Combine(dir, $"r{cap}.jsonl")),
                     t => Artifacts.WriteResolve(rows, epoch.Epoch, t, "ceiling", NoEcho), Wire.EpochLine(epoch));
                 int bound = (RenderFloorAssert.IsFloorRefusal(text) ? RenderFloorAssert.Named(text) : cap) + 400;
 
@@ -84,7 +84,7 @@ public sealed class BoundedPassTests : IClassFixture<WideCutWorld>
         var handed = new List<bool>();
         string Call(int cap) => Artifacts.CeilingText(cap,
             (int n, SpillState? sp, WholePass? w, out bool t) => Wire.RenderResolve(rows, n, epoch, sp, out t, "records  form=identity", (rows.Count, 5), w),
-            () => ArtifactTarget.Named(path),
+            Artifacts.SpillTo.At(path),
             t => { handed.Add(t.SizeOnly); return Artifacts.WriteResolve(rows, epoch.Epoch, t, "ceiling", NoEcho); },
             Wire.EpochLine(epoch));
         try

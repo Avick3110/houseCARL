@@ -34,6 +34,26 @@ public sealed class ServedReplyCheckTests : IClassFixture<WideCutWorld>
         Assert.True(refusedCut, "a refusal decided on a render that cut its row came back untruncated");
     }
 
+    /// <summary>An asset_status call refused below its floor builds no record index: the stamp its spill would carry is
+    /// taken only when a cut is served. The call at the named cap is served, spilling, and stamps it.</summary>
+    [Fact]
+    public void ARefusedAssetStatusCallBuildsNoRecordIndex()
+    {
+        var home = Path.Combine(_w.Root, "fresh-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(home);
+        using var svc = LoadOrderService.WithInstance(Path.Combine(_w.Root, "inst"), 0, new UserConfigStore(Path.Combine(home, "user.json")));
+        bool IndexBuilt() => typeof(LoadOrderService).GetField("_resolver", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(svc) is not null;
+        string Call(int c) => AssetTools.AssetStatus(svc, under: new[] { WideCutWorld.MeshDir }, max_chars: c);
+
+        var refused = Call(200);
+
+        Assert.True(RenderFloorAssert.IsFloorRefusal(refused), refused);
+        Assert.False(IndexBuilt(), "a refused asset_status call built the record index");
+        var served = RenderFloorAssert.RefusesAndTheNamedCapFits(refused, 200, Call);
+        Assert.Contains("spilled: complete result", served);
+        Assert.True(IndexBuilt(), "the served spill carries no stamp, so the test proves nothing");
+    }
+
     /// <summary>A render that cannot stop early lays its whole answer once per call, however many grow rounds the refusal
     /// takes: a floor that prints the cap back takes two here.</summary>
     [Fact]

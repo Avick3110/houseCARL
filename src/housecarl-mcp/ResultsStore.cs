@@ -12,9 +12,7 @@ static class ResultsStore
     {
         // Best-effort: Save names a write failure as a spill warning, rather than a generic tool error here.
         try { Directory.CreateDirectory(dir); Prune(dir); } catch (Exception) { }
-        var shortTool = tool.StartsWith("housecarl_", StringComparison.Ordinal) ? tool["housecarl_".Length..] : tool;
-        var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
-        var basePath = Path.Combine(dir, $"{shortTool}_{stamp}_{epoch}");
+        var basePath = BasePath(dir, tool, epoch);
         for (int n = 1; ; n++)
         {
             var path = n == 1 ? basePath + ".jsonl" : $"{basePath}-{n}.jsonl";
@@ -26,6 +24,15 @@ static class ResultsStore
             catch (IOException) when (File.Exists(path)) { /* taken — try the next counter */ }
             catch (Exception) { return ArtifactTarget.Named(path); }   // bad dir, permissions — Save names it loud
         }
+    }
+
+    /// <summary>The name a reservation takes now, before the counter a collision adds; nothing is created.</summary>
+    public static string NameFor(string dir, string tool, string epoch) => BasePath(dir, tool, epoch) + ".jsonl";
+
+    static string BasePath(string dir, string tool, string epoch)
+    {
+        var shortTool = tool.StartsWith("housecarl_", StringComparison.Ordinal) ? tool["housecarl_".Length..] : tool;
+        return Path.Combine(dir, $"{shortTool}_{DateTime.UtcNow:yyyyMMdd-HHmmss}_{epoch}");
     }
 
     /// <summary>Delete spilled artifacts older than <see cref="PruneAfterDays"/> days, plus orphaned <c>*.jsonl.tmp-*</c> Writer temps; best-effort hygiene, since epoch-checked re-entry is what catches a stale artifact.</summary>
