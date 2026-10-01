@@ -38,6 +38,24 @@ public class CheckMergeShapeMatrixTests
         Assert.Empty(shipped);
     }
 
+    // TEXT-SEAM-IS-THE-REPLY: a text reply that is not the whole answer hands back the render made at its own cap
+    [Fact]
+    public void TheTextSeamHandsBackTheRenderMadeAtTheCapItWasGiven()
+    {
+        var elsewhere = new List<string>();
+        foreach (var shape in CheckMergeShapes.Shapes)
+        {
+            var whole = CheckTextRender.RenderCheck(shape.Sweep, 0, 1000);
+            for (int cap = 1; cap <= whole.Length + 50 && elsewhere.Count < 6; cap += 7)
+            {
+                var r = CheckTextRender.RenderCheck(shape.Sweep, cap, 1000, out var body);
+                if (r != whole && (body is null || body.Budget > cap))
+                    elsewhere.Add($"{shape.Name} @{cap}: budget {body?.Budget}");
+            }
+        }
+        Assert.Empty(elsewhere);
+    }
+
     // MATRIX-MONOTONE-IN-MAX-CHARS: no subject of any shape spends fewer characters at a wider cap
     [Fact]
     public void NoShapesSubjectSpendsLessAtAWiderCap() => Assert.Empty(CheckMergeShapes.Swept.NonMonotone);
