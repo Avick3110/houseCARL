@@ -70,6 +70,29 @@ public sealed class ServedReplyCheckTests : IClassFixture<WideCutWorld>
         Assert.True(refusedCut, "a refusal decided on a render that cut its row came back untruncated");
     }
 
+    /// <summary>A summary scan with no prefilled summaries (conflicts-only) sizes its spill block off the chunked gather,
+    /// with no winner fetch per row, and it is the block the written artifact prints.</summary>
+    [Fact]
+    public void ASummaryScanWithNoPrefilledSummariesSizesItsSpillWithNoResolve()
+    {
+        var q = _w.Svc.CrossQuery(new[] { "DIAL" }, null, null, false, null, null, 100_000) with { Prefilled = null };
+        var counters = q.Pin!.Resolver.Counters;
+        var dir = Path.Combine(Path.GetTempPath(), "hc-sizesummary-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "records_x.jsonl");
+        try
+        {
+            long seeks = counters.BodySeeks;
+            var sized = Artifacts.WriteCrossQuery(_w.Svc, q, null, false, false, 1, ArtifactTarget.Sizing(path), "ceiling", NoEcho).Spill!;
+
+            Assert.Equal(seeks, counters.BodySeeks);
+            Assert.Contains("DialogTopic=30", Block(sized));
+            var written = Artifacts.WriteCrossQuery(_w.Svc, q, null, false, false, 1, ArtifactTarget.Named(path), "ceiling", NoEcho).Spill!;
+            Assert.Equal(Block(written), Block(sized));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     /// <summary>A chunk whose plugin walk faulted misses every body, and a row's own read can still succeed once the
     /// fault has passed (the plugin moved away during the walk and back before the rows are read): the type sized for
     /// each row is the type its own read stamps in the file.</summary>

@@ -206,8 +206,19 @@ internal static class Artifacts
             identity = "formid";
             schema = new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "matches?" };
             sort = "load-order scan order (deterministic within one epoch)";
+            // Sizing a scan with no prefilled summaries reads each winner's type off the chunked gather, not a resolve per row.
+            using var sizer = target.SizeOnly && q.Prefilled is null
+                ? new ScanDetailReader(svc, q, null, 1, false, winnerFields: true, null, null, ct) : null;
             for (int i = 0; i < q.Keys.Count; i++)
             {
+                if (sizer is { Pinned: true })
+                {
+                    // A chunk miss resolves that one row, as the write would.
+                    var type = sizer.Gathered(i) is { } body ? RecordNaming.StripOverlay(body.GetType().Name)
+                        : svc.ResolveSummaryOn(q, q.Keys[i]) is { Error: null } s ? s.Type : null;
+                    writer.WriteRow((_, _) => { }, type);
+                    continue;
+                }
                 string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                 var m = Summary(i);   // pinned to the scan's build
                 writer.WriteRow((w, _) => JsonWire.WriteSummaryRow(w, m, matches), m.Error is null ? m.Type : null);
