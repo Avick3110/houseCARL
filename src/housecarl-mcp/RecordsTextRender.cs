@@ -210,8 +210,8 @@ static partial class RecordsTools
                 sb.Append(diffHead);
                 foreach (var n in row.Nodes)
                 {
-                    if (whole?.Past(sb.Length) == true) break;
                     if (n.IsReference) continue;
+                    if (whole?.Past(sb.Length) == true) break;   // asked only before a line that is laid
                     // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas.
                     string body = n.Deltas.Count > 0
                         ? string.Join("; ", n.Deltas) +
