@@ -291,7 +291,8 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   left behind; `PackRefusesAnArchiveThatCountsShort` in the same class and
   `BsaPackCountTests.ACountMismatchRefusesNamingBothNumbers` — the header count is checked against the source scan.
 - *Suggesting a root prefix*: Pinned by `AssetPrefixHintTests` — the prefixed candidate is offered only when a real
-  provider supplies it. Its non-asset-root cases (`sound\`) assert the same thing as its plain-miss cases, so it cannot see whether the generic lane prints the convention note: that half is not pinned.
+  provider supplies it. Its non-asset-root cases (`sound\`) assert the same thing as its plain-miss cases, so it
+  cannot see whether the generic lane prints the convention note: that half is not pinned.
 
 ## Where
 
