@@ -70,7 +70,7 @@ public sealed class AssetStatusServiceTests : IDisposable
     }
 
     // Probe: "the record index can't build with no .esp on disk — yet AssetStatus above resolved: the asset path is
-    // decoupled". Strengthened: asset status answers first, then the index refuses, on one service.
+    // decoupled". Asset status answers first, then the index refuses, on one service.
     [Fact]
     public void AssetStatusAnswersWhereTheRecordIndexCannotBuild()
     {
