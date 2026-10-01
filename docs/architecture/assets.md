@@ -296,7 +296,7 @@ a miss, stating that form is not provided either; the generic lane does not, bec
 `AssetLinkHarvest.cs` are the two selectors; `AssetPathHint.cs` is the root-prefix hint; `VoicePath.cs` and
 `VoiceCheck.cs` are the voice paths; `AssetRenameService.cs` is the renumber carry; `BsaArchive.cs` lists, unpacks and
 packs. `src/housecarl-mcp/AssetLayers.cs` is the service lane over all of it: the class `AssetLayers`, which the head
-builds over itself and reaches through one-line delegators, with the SkyPatcher replay in `SkyPatcherReplay.cs`.
+builds over itself and the output instance and reaches through one-line delegators, with the SkyPatcher replay in `SkyPatcherReplay.cs`.
 `ModsPathAddress.cs` refuses a raw mods
 path, and `AssetArtifact.cs` is `asset_status`'s `to_file=` artifact. `AssetResults.cs` holds the records the lanes
 return. The tool fronts here are `AssetTools.cs`, `PlaceTools.cs` and `BsaTools.cs`. The other families' fronts and

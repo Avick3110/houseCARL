@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
-/// <summary>Everything the assets area takes from outside itself.</summary>
+/// <summary>Every head member the assets area takes.</summary>
 internal interface IAssetHost : ILoadOrderHost
 {
     /// <summary>An asset capture and an index capture in one <c>_gate</c> hold, so neither is from a later build than the other.</summary>

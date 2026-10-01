@@ -19,7 +19,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     readonly int _maxPlugins;
     readonly object _gate = new();
     readonly OutputLocations _outputLocations;     // the output area; built in the constructor over this head
-    readonly AssetLayers _assetLayers;             // the assets area; built in the constructor over this head
+    readonly AssetLayers _assetLayers;             // the assets area; built in the constructor over this head and the output area
     readonly RecordReads _reads;                   // the reads area; built in the constructor over this head
     readonly RecordChecks _checks;                 // the checks area; built in the constructor over this head
     // Serializes every plugin write's resolve, stage and commit; contract in docs/architecture/load-order-service.md.
@@ -58,7 +58,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         // full file path always has a parent folder; only a bare root has none, and that is its own folder.
         var storePath = Path.GetFullPath(store.FilePath);
         ResultsDir = Path.Combine(Path.GetDirectoryName(storePath) ?? storePath, "results");
-        _outputLocations = new OutputLocations(this);
+        _outputLocations = new OutputLocations(this);   // built first: AssetLayers takes it
         _assetLayers = new AssetLayers(this, _outputLocations);
         _reads = new RecordReads(this);
         _checks = new RecordChecks(this);
