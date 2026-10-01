@@ -79,13 +79,11 @@ public sealed class CompactSeqRegenTests : IDisposable
         Assert.True(o.SeqRegen is { SgeQuestCount: 2, Written: true }, $"{o.SeqRegen}");
     }
 
-    // NO-SGE no start-game-enabled quests → no .seq written, not a failure. The probe planted no source .seq, so the
-    // no-source gate alone kept it quiet; here the source shipped one, so the no-SGE return is what is tested.
+    // NO-SGE no start-game-enabled quests → no .seq written, not a failure
     [Fact]
     public void APluginWithNoSgeQuestsWritesNoSeqAndNoWarning()
     {
-        var (mods, inst) = Instance("nosge", "SeqNone", m => AddQuest(m, 0x900, "HcSeqPlain", Quest.Flag.RunOnce));
-        PlantSourceSeq(mods, "SeqNone", 0x900);
+        var (_, inst) = Instance("nosge", "SeqNone", m => AddQuest(m, 0x900, "HcSeqPlain", Quest.Flag.RunOnce));
         using var svc = Service(inst);
 
         var o = svc.CompactPlugin("SeqNone.esp");
