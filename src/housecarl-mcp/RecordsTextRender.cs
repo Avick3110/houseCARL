@@ -81,6 +81,7 @@ static partial class RecordsTools
                     : "  note: the comparison is INCOMPLETE — a field above could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record). Narrow with " + LeverNames.Records.Fields + " to compare those in full.\n";
                 foreach (var delta in d.Deltas)
                 {
+                    if (whole?.Past(sb.Length) == true) break;
                     // The line goes in only where its own cut notice still fits beside it.
                     string line = "    - " + delta + "\n";
                     if (sb.Length + line.Length + deltaCut.Length + incomplete.Length > budget)
@@ -174,7 +175,7 @@ static partial class RecordsTools
             }
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>").Append('\n');
             sb.Append("  ").Append(row.Touchers.Count).Append(" plugin(s) touch this record (load order, winner last):\n");
-            for (int i = 0; i < row.Touchers.Count; i++)
+            for (int i = 0; i < row.Touchers.Count && whole?.Past(sb.Length) != true; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
                   .Append(i == row.Touchers.Count - 1 ? "  (winner)" : "").Append('\n');
             // The row ends at the block when the block was cut or ran the budget out, and a sole provider ends
@@ -209,6 +210,7 @@ static partial class RecordsTools
                 sb.Append(diffHead);
                 foreach (var n in row.Nodes)
                 {
+                    if (whole?.Past(sb.Length) == true) break;
                     if (n.IsReference) continue;
                     // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas.
                     string body = n.Deltas.Count > 0
@@ -344,6 +346,7 @@ static partial class RecordsTools
             string tail = SeedTail(row, Math.Max(budget / 2, 0), cap);
             foreach (var n in row.Nodes)
             {
+                if (whole?.Past(sb.Length) == true) break;
                 // Composed before it is priced, so the notice lands inside the budget, not past the node that crossed.
                 string line = "    d" + n.Depth + "  " + n.Key
                               + (n.Type is not null ? "  " + n.Type + "  " + (n.EditorId ?? "<no editorid>") : "")
@@ -440,7 +443,7 @@ static partial class RecordsTools
             sb.Append('\n').Append("seed ").Append(seed).Append('\n');
             // The shared render builds its own buffer, so it is told what this one has spent, and still quotes the
             // caller's max_chars in its own cut notice.
-            sb.Append(Wire.RenderEffectChain(result, room, sb.Length + 1, "walk.max_nodes", out bool said)).Append('\n');
+            sb.Append(Wire.RenderEffectChain(result, room, sb.Length + 1, "walk.max_nodes", out bool said, whole)).Append('\n');
             if (Crossed(sb, mark, room.Budget, Notice(rendered), ref truncated)) break;
             rendered++;
             // The shared render keeps its output inside the budget, so the cut it reports is the only thing saying
@@ -495,7 +498,7 @@ static partial class RecordsTools
             else if (row.Order.Order.Count == 0 && row.Order.Complete)
                 sb.Append("  no INFO lines — every touching plugin's child list is empty.\n");
             // The view lays what fits inside the budget and says it cut, so a cut topic stays and the render stops after it.
-            else if (!Wire.AppendInfoOrderView(sb, row.Order, budget))
+            else if (!Wire.AppendInfoOrderView(sb, row.Order, budget, whole))
                 cut = true;
             if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
             rendered++;

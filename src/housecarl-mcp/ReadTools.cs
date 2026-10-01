@@ -429,8 +429,9 @@ static partial class Wire
 
     /// <summary>The bounded form: <paramref name="room"/> carries the caller's max_chars and what its own tail has left, and <paramref name="used"/> what the caller has already written, since this render builds its own buffer.</summary>
     /// <param name="cut">true when carrier rows were held back inside this render's own buffer, where the caller cannot measure it; it is what drives the caller's truncation flag and its spill.</param>
+    /// <param name="whole">the caller's bounded whole pass, asked before each carrier row with what both buffers hold.</param>
     internal static string RenderEffectChain(EffectChainResult r, RenderCap room, int used, string carrierBound,
-                                             out bool cut)
+                                             out bool cut, WholePass? whole = null)
     {
         cut = false;
         if (r.Error is not null) return "error: " + r.Error + Wire.EpochLine(r.Stamp);
@@ -465,6 +466,7 @@ static partial class Wire
             sb.Append(grp.Key).Append(" (").Append(grp.Count()).Append("):\n");
             foreach (var row in grp)
             {
+                if (whole?.Past(used + sb.Length) == true) { truncated = true; break; }
                 // Composed before it is priced, so the notice lands inside the budget rather than past the row that crossed.
                 string line = "  " + FormIdToken.Of(row.Carrier)
                               + "  " + (row.EditorId ?? "<none>")
@@ -489,7 +491,7 @@ static partial class Wire
 
     // ---- the info_order form ----
     /// <summary>The effective merged INFO order, as the <c>records project=info_order</c> form renders it.</summary>
-    internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, int cap)
+    internal static bool AppendInfoOrderView(StringBuilder sb, InfoOrderView? view, int cap, WholePass? whole = null)
     {
         // An empty order says nothing, unless it is empty because nothing could be read — never render that as silence.
         if (view is not { } io || (io.Order.Count == 0 && io.Complete)) return true;
@@ -537,6 +539,7 @@ static partial class Wire
         var row = new StringBuilder();
         for (int i = 0; i < io.Order.Count; i++)
         {
+            if (whole?.Past(sb.Length) == true) return false;
             var e = io.Order[i];
             row.Clear();
             row.Append("    #").Append(e.Index + 1).Append("  ").Append(FormIdToken.Of(e.Info));
