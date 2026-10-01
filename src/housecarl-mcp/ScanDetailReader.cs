@@ -87,8 +87,7 @@ internal sealed class ScanDetailReader : IDisposable
     public void Dispose() => _session?.Dispose();
 }
 
-/// <summary>One scan call's matches as its text render reads them: each row read once, in order, however many times
-/// the render is laid (whole first, at the cap, and the floor check's re-renders), with what reading them cost.</summary>
+/// <summary>One scan call's matches as its text render reads them: each row read once however many times it is laid.</summary>
 internal sealed class ScanRows : IDisposable
 {
     readonly LoadOrderService _svc;

@@ -81,9 +81,7 @@ internal readonly record struct RenderCap(int Cap, int Budget)
                ", so no max_chars can be named for it: narrow the call" + also + "." + epochLine;
     }
 
-    /// <summary>The floor refusal: the cap the call was given, and the cap it was measured to fit, named as the value to
-    /// pass and never as a floor: a render whose caveats take a share of the cap admits a whole caveat line as the cap
-    /// grows, so a cap a little above the named one can be refused again (it then names one that serves).</summary>
+    /// <summary>The floor refusal: the cap the call was given, and the cap it was measured to fit, named as the value to pass.</summary>
     internal static string TooSmall(int cap, int fits, string alsoTry = "", string epochLine = "") =>
         FloorLead + cap + " is too small for what this response carries whatever the budget (its header and the " +
         "notices it owes): this call, as measured, fits max_chars=" + fits + ", so pass max_chars=" + fits +
@@ -91,9 +89,7 @@ internal readonly record struct RenderCap(int Cap, int Budget)
 
     const string FloorLead = "error: max_chars=";   // Wire.RefusalPrefix, then the knob
 
-    /// <summary>How much wider a records or asset_status call can print the next time it is made: its read timing three
-    /// digits wider, and its spill file's name taking a -NN counter in the three places the spill block prints it. An
-    /// allowance, not a bound: a next call four digits slower, or a counter past 99, is wider still.</summary>
+    /// <summary>How much wider a records or asset_status call can print next time: a timing 3 digits wider, a -NN spill counter.</summary>
     internal const int NextCallGrowth = 3 + 3 * 3;
 
     /// <summary>What a filtered render adds to its refusal's remedy, when the unfiltered render fits the cap it was given.</summary>

@@ -173,8 +173,7 @@ internal static class Artifacts
             // The same reader the inline renders use; a cancel throws before Save, so no half artifact reaches disk.
             using var reader = new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields,
                                                     (levers ?? LeverNames.Legacy).ContainerHint, foldDepths, ct);
-            // Sized, not written: counted by type with no field read. A scan with no prefilled summaries takes each
-            // type off its body's header in the chunked gather the write uses, never a winner fetch per row.
+            // Sized, not written: each row counted by its type, with no field read.
             string? SizedType(int i) => q.Prefilled is null && reader.Pinned
                 ? reader.RecordType(i)
                 : Summary(i) is { Error: null } s ? s.Type : null;

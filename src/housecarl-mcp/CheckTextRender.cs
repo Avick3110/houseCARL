@@ -229,9 +229,7 @@ static class CheckTextRender
     public static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit = 1000)
         => RenderCheck(s, maxChars, histogramLimit, out _);
 
-    /// <summary>The same render, handing back the allocation of the render the reply is: the whole answer when that is
-    /// served, else the render at the cap, served cut or refused; so a test can assert what each subject was given and
-    /// spent. An internal seam.</summary>
+    /// <summary>The same render, handing back the allocation of the render the reply comes from; an internal test seam.</summary>
     internal static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit, out BoundedBody? measured)
     {
         measured = null;
