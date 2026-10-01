@@ -59,7 +59,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var storePath = Path.GetFullPath(store.FilePath);
         ResultsDir = Path.Combine(Path.GetDirectoryName(storePath) ?? storePath, "results");
         _outputLocations = new OutputLocations(this);
-        _assetLayers = new AssetLayers(this);
+        _assetLayers = new AssetLayers(this, _outputLocations);
         _reads = new RecordReads(this);
         _checks = new RecordChecks(this);
     }
@@ -246,9 +246,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
         new(view, AssetWarningsLocked(), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild);
 
-    // Rows the areas take from one another, relayed here: output until AssetLayers takes OutputLocations; writes until it is its own class; the assets replay for reads.
-    OutputLocations.RiderFolder IAssetHost.ResolvePatchModFolder(string? patchName, string? into, string defaultStem, OutputLocations.RiderNaming? naming) => _outputLocations.ResolvePatchModFolder(patchName, into, defaultStem, naming);
-    string? IAssetHost.RemoveOrNameRiderResidue(OutputLocations.RiderFolder folder) => OutputLocations.RemoveOrNameRiderResidue(folder);
+    // Rows the areas take from one another, relayed here: writes until it is its own class; the assets replay for reads.
     bool IAssetHost.IsInPlaceAcknowledged(string path) => _store.IsInPlaceAcknowledged(path);
     string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
     bool IAssetHost.InPlaceParentUnwritable(string targetPath, out string why) => InPlaceParentUnwritable(targetPath, out why);
