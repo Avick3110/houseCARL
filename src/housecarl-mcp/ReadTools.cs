@@ -243,12 +243,19 @@ static partial class Wire
                                           int rowLimit = 0)
     {
         using var rows = new ScanRows(svc, q, fields, depth, resolveNames, winnerFields, (levers ?? LeverNames.Legacy).ContainerHint, ct);
-        bool cut = false;
-        string At(int n, WholePass? w) => RenderCrossQuery(rows, q, fields, n, winnerFields, spill, out cut, levers, header, rowLimit, w);
+        int cap = Cap(maxChars);
+        bool cutAtCap = false;
+        // The cut of the render at the cap, the one a cut reply or a refusal comes from; a whole reply cut nothing.
+        string At(int n, WholePass? w)
+        {
+            var r = RenderCrossQuery(rows, q, fields, n, winnerFields, spill, out bool cut, levers, header, rowLimit, w);
+            if (w is null && n == cap) cutAtCap = cut;
+            return r;
+        }
         if (q.Error is not null) { truncated = false; return At(0, null); }
-        var r = RenderCap.Capped(Cap(maxChars), At, epochLine: EpochLine(q.Stamp), nextCall: RenderCap.NextCallGrowth);
-        truncated = cut;
-        return r;
+        var reply = RenderCap.Capped(cap, At, epochLine: EpochLine(q.Stamp), nextCall: RenderCap.NextCallGrowth);
+        truncated = cutAtCap;
+        return reply;
     }
 
     /// <summary>The artifact-aware render, raw: <paramref name="spill"/> carries the call's artifact disposition, and <paramref name="truncated"/> hands the row-level cut back to the tool layer, which triggers the auto-spill. <paramref name="rows"/> reads each match once for every render of the call.</summary>
