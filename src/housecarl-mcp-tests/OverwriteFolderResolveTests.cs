@@ -123,6 +123,7 @@ public sealed class OverwriteFolderResolveTests : IDisposable
         var read = svc.ReadArea.ResolveRead(toolWeapon.FormKey, null, null, conflictTree: false);
         Assert.Null(read.Error);
         Assert.Equal(tKey.FileName.String, read.WinnerPlugin);
+        Assert.NotNull(read.Record);
 
         Assert.Contains(ovw, SetupTools.Render(Mo2Instance.Resolve(instance), persisted: true, persistError: null, persistNote: null),
             StringComparison.OrdinalIgnoreCase);
