@@ -45,7 +45,10 @@ three `housecarl_skse` families.
   refused, at `max_chars=N`. The pass only has to say whether the answer fits the cap, so where a render can stop
   early it is bounded by the cap (`RenderCap.Capped`): the render is handed a `WholePass` carrying the cap as its
   bound, renders at `RenderCap.Whole` where no reserve bites, and each of its unit loops asks `WholePass.Past` before
-  laying a unit. `Past` stops the loop once the render is past the bound and records it on the pass, and
+  laying a unit: the rows, and the lists inside a row (a chain seed's nodes, a delta's lines, a tree's touching list and
+  providers, an effect chain's carriers, a topic's INFO lines, a mesh's one-line lists and section lines), so one row
+  wider than the cap stops within one unit too. `Past` stops the loop once the render is past the bound and records it
+  on the pass, the stop holds for every loop after it, and
   `RenderCap.WholeAt` never serves a pass that stopped, whatever its length once its trailing newline is trimmed: the
   fact is reported by the loop, not inferred from the width. The pass is a value made for one render, so nothing
   outlives it, a throw included. So a 5,000-record batch at `max_chars=2000` costs what 2,000 chars cost, not what the
@@ -90,7 +93,8 @@ walk faulted, is typed off its own read, as the write types it. No field is read
 reserves nothing, so it leaves no file and, on `asset_status`, builds no record index. A served cut reserves the name
 (#770: the reservation is the file), writes the artifact once through the reserved handle, and renders with the block
 the write stamped; if that reply is over the cap (the written block drifted wider than the sized one), it is held
-again with the written block, and refused, the file removed, when it does not fit. A write that fails is stated in
+again with the written block, and refused, the file removed, when it does not fit; a file that cannot be removed is
+named in the refusal, and a throw after the write removes it on the way out. A write that fails is stated in
 the reply, or, where its warning does not fit, is itself the refusal; a named cap is never sized off that warning.
 
 `or omit filter=` is offered beside a filtered refusal only where the unfiltered call is served at the cap given
@@ -288,14 +292,16 @@ reaches only the calling test's flow) is the meter's clock for tests.
   the pass serves its complete answer at its own width), `ARefusedSpillingCallWritesNoFileAndNamesACapMeasuredWithItsSpillBlock`,
   `AFailedSpillIsStatedAndNeverSizesTheNamedCap`, `ACensusOverItsCapNamesItsOwnWidthPlusTheNextCallsRoom`,
   `NoCapAtARowBoundaryServesFewerRowsWithoutANotice` (a whole pass that stopped is never served);
-  `ServedReplyCheckTests` (a reply over its cap after its write is refused and its file removed, `truncated` comes
+  `ServedReplyCheckTests` (a reply over its cap after its write is refused and its file removed, a file that cannot be
+  removed is named in the refusal, a throw after the write removes the file, `truncated` comes
   from the served render, a summary scan sizes with no resolve, a chunk miss is typed as the write types it, a refused
   `asset_status` builds no record index, a render that cannot stop lays its whole answer once); `RenderFloorHoldTests` (a floor
   that never settles is refused; a floor that grows a digit names a cap it fits; a failed spill too wide to state is
   the refusal); `SkyPatcherLayerFloorTests` and `SkseTransportTests` (each view refused below its floor naming a cap it
   fits, and `omit filter=` offered only where the unfiltered view fits); `BoundedPassTests` (no pass is wider than the
   cap it asks about plus a row, a cut scan reads only the bodies it lays, a refused cut hands its artifact writer a
-  sizing target only, and a scan's sized block is the written one with no body read);
+  sizing target only, and a scan's sized block is the written one with no body read); `WholePassRowTests` (one row
+  wider than the cap, on each lane whose rows hold a list, lays a few units on the whole pass and records the stop);
   `CheckMergeShapeMatrixTests.TheTextLaneRefusesEveryResponseOverItsCap`. Each asserts the refusal names a cap at which
   the same call is served, never the number itself; a test that reads a cut notice reads it at a cap the server serves
   cut (`RenderFloorAssert.ServedCut`).
