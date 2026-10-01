@@ -50,6 +50,9 @@ if (args.Length > 0 && args[0] == "repoint-strings-probe") return RepointStrings
 if (args.Length > 0 && args[0] == "localized-write-probe") return LocalizedWriteProbe.Run(args[1..]);
 if (args.Length > 0 && args[0] == "localized-shape-sweep") return LocalizedShapeSweep.Run(args[1..]);
 
+// Real-archive BSA round trip and Mutagen-vs-BSArch byte parity; needs a local BSArch and a test archive.
+if (args.Length > 0 && args[0] == "bsa-probe") return BsaProbe.Run(args[1..]);
+
 // EXPLORATORY: the disabled-mod asset source lane's two binding measurements.
 if (args.Length > 0 && args[0] == "f1-measure") return F1MeasureProbe.Run(args[1..]);
 

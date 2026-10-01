@@ -9,6 +9,7 @@ namespace HousecarlGenerator;
 /// the same archive (the independent-implementation check that the self-contained BsaExtractTests can't give).
 /// Skipped (not failed) if BSArch or the test archive isn't present; provide both via args or the HOUSECARL_BSARCH /
 /// HOUSECARL_TEST_BSA env vars. BSArch is needed only for the pack step + the parity oracle — reads no longer use it.
+/// A manual command, not a CI probe: CI has neither BSArch nor a real archive, so there it would assert nothing.
 ///
 /// Run: dotnet run --project src/housecarl-generator bsa-probe ["&lt;BSArch.exe&gt;"] ["&lt;test.bsa&gt;"]
 /// </summary>
@@ -19,7 +20,6 @@ internal static class BsaProbe
     static readonly string DefaultBsarch = Environment.GetEnvironmentVariable("HOUSECARL_BSARCH") ?? "";
     static readonly string DefaultBsa = Environment.GetEnvironmentVariable("HOUSECARL_TEST_BSA") ?? "";
 
-    [CiProbe("bsa-probe")]
     public static int Run(string[] args)
     {
         Console.WriteLine("================================================================");

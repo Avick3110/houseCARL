@@ -6,7 +6,7 @@ namespace HousecarlCore;
 
 // AssetResolver — which source provides a Data-relative asset and which copy wins, through MO2's own precedence
 // extended across active-plugin BSAs; precedence, injected order and the snapshot in docs/architecture/assets.md.
-// Zero archive handles at rest: pinned by the asset-resolver-guard probe's at-rest arm.
+// Zero archive handles at rest: pinned by AssetResolverTests.TheResolverHoldsNoArchiveHandleAtRest.
 
 public enum AssetKind { Loose, Bsa }
 
