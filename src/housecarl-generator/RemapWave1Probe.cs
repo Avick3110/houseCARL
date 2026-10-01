@@ -190,7 +190,7 @@ public static class RemapWave1Probe
     /// <c>--out</c> or a temp dir) for Aaron to load in xEdit, and runs + TIMES the identify-pass over the whole live
     /// order, REPORTING (not rewriting) any external referencers. Read-only on the load order except the P′ it writes
     /// into its own output dir. Refuses LOUD on the real boundaries (too many records for the light range; a nested-only
-    /// record; an unparseable plugin) — the same honest limits the guard pins, now against real data.
+    /// record; an unparseable plugin) — the same honest limits RemapFlatRenumberTests pins, now against real data.
     /// Run: dotnet run --project src/housecarl-generator remap-wave1-real -- --mo2 &lt;inst&gt; --plugin &lt;Name.esp&gt; [--out &lt;dir&gt;]
     /// </summary>
     public static int RunReal(string[] args)
@@ -201,7 +201,7 @@ public static class RemapWave1Probe
         if (instanceDir is null || !Directory.Exists(instanceDir) || string.IsNullOrWhiteSpace(pluginName))
         {
             Console.WriteLine("SKIP: needs --mo2 <instanceDir> --plugin <Name.esp>. A real ESL-compaction + identify-pass can only");
-            Console.WriteLine("      be measured/verified against a real load order (a synthetic fixture is the guard's job).");
+            Console.WriteLine("      be measured/verified against a real load order (a synthetic fixture is RemapFlatRenumberTests' job).");
             return 0;
         }
         string outDir = f.GetValueOrDefault("out") ?? Path.Combine(Path.GetTempPath(), "hc-remap-wave1-real");
