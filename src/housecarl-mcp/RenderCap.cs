@@ -29,11 +29,28 @@ internal readonly record struct RenderCap(int Cap, int Budget)
     internal static int WholeWithin(int bound) => bound <= int.MaxValue - Whole - 1 ? Whole + 1 + bound : Whole;
 
     /// <summary>Whether a render at <paramref name="cap"/> is a bounded whole-first pass that has laid past its bound,
-    /// so it can stop: what it returns is then wider than the bound, and is read as not fitting.</summary>
-    internal static bool Past(int cap, int laid) => cap > Whole && laid > cap - Whole - 1;
+    /// so it can stop. A true answer is recorded as the pass having stopped, which <see cref="WholeAt"/> reads.</summary>
+    internal static bool Past(int cap, int laid)
+    {
+        if (cap <= Whole || laid <= cap - Whole - 1) return false;
+        _stopped = true;
+        return true;
+    }
 
-    /// <summary>The whole answer when it fits <paramref name="n"/>, else null, from a pass bounded by n.</summary>
-    internal static string? WholeAt(int n, Func<int, string> at) => at(WholeWithin(n)) is var w && w.Length <= n ? w : null;
+    /// <summary>Set by <see cref="Past"/> when the bounded pass on this thread stopped laying units.</summary>
+    [ThreadStatic] static bool _stopped;
+
+    /// <summary>The whole answer when it fits <paramref name="n"/>, else null, from a pass bounded by n. A pass that
+    /// stopped is never the whole answer, whatever its length once its trailing newlines are trimmed.</summary>
+    internal static string? WholeAt(int n, Func<int, string> at)
+    {
+        bool outer = _stopped;
+        _stopped = false;
+        var w = at(WholeWithin(n));
+        bool stopped = _stopped;
+        _stopped = outer;
+        return !stopped && w.Length <= n ? w : null;
+    }
 
     /// <summary>How many times <see cref="Hold"/> re-renders at the length the last render came back at.</summary>
     internal const int GrowRounds = 8;

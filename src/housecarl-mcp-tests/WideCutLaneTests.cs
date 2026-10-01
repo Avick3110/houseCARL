@@ -208,7 +208,42 @@ public sealed class WideCutLaneTests : IClassFixture<WideCutWorld>
         Assert.DoesNotContain("spilled:", text);
     }
 
-    Func<int, string> OffOrderEverything => c => RecordsTools.Records(_w.Svc, types: new[] { "WEAP" }, source: OffSource, max_chars: c,
+    /// <summary>Lanes whose render trims its trailing newline after the loop, so a pass stopped one past a row boundary
+    /// comes back no wider than its bound.</summary>
+    public static TheoryData<string> RowBoundaryLanes => new() { "scan summary", "scan group_by", "tree", "info_order" };
+
+    Func<int, string> RowBoundaryCall(string lane) => lane switch
+    {
+        "scan group_by" => c => RecordsTools.Records(_w.Svc, types: new[] { "KYWD" }, max_chars: c,
+                                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "defined_in" }),
+        "tree" => c => RecordsTools.Records(_w.Svc, formids: TopicIds, max_chars: c,
+                                            project: new RecordsTools.RecordsProject { form = "tree" }),
+        "info_order" => c => RecordsTools.Records(_w.Svc, formids: TopicIds, max_chars: c,
+                                                  project: new RecordsTools.RecordsProject { form = "info_order" }),
+        _ => WholeFirstCall(lane),
+    };
+
+    /// <summary>A bounded whole pass that stopped is never served as the whole answer (#986): at every cap a row of the
+    /// whole answer ends at, the reply is the whole answer, a cut naming that cap, or a refusal; never fewer rows with no
+    /// notice.</summary>
+    [Theory]
+    [MemberData(nameof(RowBoundaryLanes))]
+    public void NoCapAtARowBoundaryServesFewerRowsWithoutANotice(string lane)
+    {
+        SpillFolders.Emptied(_w.Svc);
+        var call = RowBoundaryCall(lane);
+        var whole = call(80_000);
+        var shortened = new List<string>();
+        for (int cap = whole.IndexOf('\n'); cap >= 0 && shortened.Count < 6; cap = whole.IndexOf('\n', cap + 1))
+        {
+            var r = call(cap);
+            if (r == whole || RenderFloorAssert.IsFloorRefusal(r) || r.Contains("max_chars=" + cap, StringComparison.Ordinal)) continue;
+            shortened.Add($"@{cap}: {r.Length} chars, no cut notice");
+        }
+        Assert.Empty(shortened);
+    }
+
+    Func<int, string> OffOrderEverything =>c => RecordsTools.Records(_w.Svc, types: new[] { "WEAP" }, source: OffSource, max_chars: c,
                                                                       project: new RecordsTools.RecordsProject { form = "everything" });
 
     /// <summary>A spilling call refused below its floor leaves no file, carries the epoch stamp, and names a cap that was
