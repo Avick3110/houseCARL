@@ -81,8 +81,9 @@ The block's width depends only on the artifact's manifest: the file name, the ro
 caveats, the row schema and sort, and the count per record type, which are counts of the selection. So the lane's
 artifact writer runs against a sizing target (`ArtifactTarget.Sizing`) at the name a reservation would take now
 (`ResultsStore.NameFor`), counting rows and types without serializing a row or writing anything; `asset_status`, whose
-stamp needs the record index, sizes as a healthy build with an epoch of full width
-(`LoadOrderResolver.EpochOfWidth`). A scan's rows are counted by the type its summary already carries where the scan
+stamp needs the record index, sizes off the build already in hand, or with none built as a healthy build with an
+epoch of full width (`LoadOrderResolver.EpochOfWidth`); on an order that lost plugins and no build yet, its first
+refusal can name a cap the exit check then refuses again, naming one measured with the real block. A scan's rows are counted by the type its summary already carries where the scan
 prefilled one (`types=`, `plugins=`, a FormID set); otherwise by the type of each row's body in the chunked gather the
 write itself uses (one walk per source plugin), never a fetch per row. A row the chunk missed, because its plugin's
 walk faulted, is typed off its own read, as the write types it. No field is read to size the block. A refused call

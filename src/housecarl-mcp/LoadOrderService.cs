@@ -288,6 +288,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>The auto-spill results directory: <c>results</c> beside houseCARL.user.json.</summary>
     internal string ResultsDir { get; }
 
+    /// <summary>The stamp of the build already in hand, or null when none is built yet; never builds one.</summary>
+    internal OrderStamp? BuiltStamp { get { lock (_gate) return _resolver?.Stamp; } }
+
     /// <summary>The records render bounds in force on this service; production keeps the default, a test lowers its own world's.</summary>
     internal RenderBounds Bounds { get; set; } = RenderBounds.Default;
 

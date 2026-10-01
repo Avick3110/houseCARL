@@ -221,11 +221,11 @@ public static class AssetTools
                     { noEpochBecause = Guard.Flatten(ex.Message); }
                 return ResultsStore.Reserve(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? "none");
             }
-            // Sized before any stamp is taken, as a healthy build with an epoch of full width.
-            OrderStamp? Stamp(ArtifactTarget t) => order ?? (t.SizeOnly && noEpochBecause is null
-                ? OrderStamp.For(LoadOrderResolver.EpochOfWidth, Array.Empty<string>()) : null);
+            // Sized before any stamp is taken: off a build already in hand, else as a healthy one with a full-width epoch.
+            OrderStamp SizingStamp() => svc.BuiltStamp ?? OrderStamp.For(LoadOrderResolver.EpochOfWidth, Array.Empty<string>());
+            OrderStamp? Stamp(ArtifactTarget t) => order ?? (t.SizeOnly && noEpochBecause is null ? SizingStamp() : null);
             var spillTo = new Artifacts.SpillTo(
-                () => ResultsStore.NameFor(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? LoadOrderResolver.EpochOfWidth),
+                () => ResultsStore.NameFor(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? SizingStamp().Epoch),
                 Reserve);
             return Artifacts.Ceiling(json, cap, Inline, null, spillTo,
                 t => AssetArtifact.Write(data, t, "ceiling", Stamp(t), Echo(), noEpochBecause));
