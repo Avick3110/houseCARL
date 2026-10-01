@@ -229,7 +229,9 @@ static class CheckTextRender
     public static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit = 1000)
         => RenderCheck(s, maxChars, histogramLimit, out _);
 
-    /// <summary>The same render, handing back the allocation it built so a test can assert what each subject was given and spent; an internal seam.</summary>
+    /// <summary>The same render, handing back the allocation of the render the reply is: the whole answer when that is
+    /// served, else the render at the cap, served cut or refused; so a test can assert what each subject was given and
+    /// spent. An internal seam.</summary>
     internal static string RenderCheck(CheckSweep s, int maxChars, int histogramLimit, out BoundedBody? measured)
     {
         measured = null;
@@ -240,10 +242,18 @@ static class CheckTextRender
             return (s.Dialogue?.Folded is { } errFrame ? errFrame : "")
                    + "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "")
                    + (o.OrderExcluded.Count > 0 ? "\n" + OrderDegraded.Sentence(o.OrderExcluded) : "");
-        BoundedBody? last = null;
-        var response = RenderCap.Capped(Wire.Cap(maxChars), n => RenderCheckAt(o, n, histogramLimit, out last),
-                                        epochLine: o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
-        measured = last;
+        int cap = Wire.Cap(maxChars);
+        BoundedBody? whole = null, atCap = null;
+        // Capped renders at the cap only when the whole answer does not fit it; the grow rounds render at other caps.
+        string At(int n)
+        {
+            var r = RenderCheckAt(o, n, histogramLimit, out var body);
+            if (n == cap) atCap = body;
+            else if (n == RenderCap.WholeWithin(cap)) whole = body;
+            return r;
+        }
+        var response = RenderCap.Capped(cap, At, epochLine: o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
+        measured = atCap ?? whole;
         return response;
     }
 
