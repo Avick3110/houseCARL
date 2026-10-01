@@ -221,9 +221,9 @@ schemas; two entries split them.
   and `EveryRecursiveSiteClosesOnAnOpenNodeSayingNestingContinues` in the same class — a cycle is expanded a bounded
   number of times and closed with an open node.
 - *Pass 2 — no `$ref` in a published schema*: the emission grammar it depends on is asserted by
-  `schema-flatten-guard` (`SchemaFlattenProbe`, arm 7), so a generator that drifts on an SDK bump reddens there rather
-  than at a user's server start. The same probe: `$defs` is dropped once nothing refers to it (arm 2); a `$ref` the
-  pass does not handle is left as it is, and a non-string one does not throw (arm 5).
+  `SchemaRefFlattenTests.TheGeneratorsEmissionStaysInsideTheGrammarTheFlattenPassReads`, so a generator that drifts on
+  an SDK bump reddens there rather than at a user's server start. The same class: `$defs` is dropped once nothing refers
+  to it; a `$ref` the pass does not handle is left as it is, and a non-string one does not throw.
 - *Pass 3 — `required` and `enum` inside a parameter*:
   `PublishedNestedConstraintTests.EveryPublishedOccurrenceOfAMarkedShapeCarriesItsRequiredAndEnum` — every expanded
   copy of a marked shape carries its `required` and `enum`, and a member whose type admits null carries `null` in its

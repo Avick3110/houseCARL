@@ -52,7 +52,7 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 
 ## Pinned by
 - `atrest-probe` (generator, dispatched by name, not in the `ci-all` roster) — zero handles at rest: after a build, after a read through a session, and after a create, every plugin file is renamable and the created patch deletable.
-- `snapshot-view-guard` (`ci-all`) — a view captured before a real `RefreshIfStale` still answers all-old, a view taken after it answers all-new, and the service answers one operation off one view.
+- `SnapshotViewPinningTests` — a view captured before a real `RefreshIfStale` still answers all-old, a view taken after it answers all-new, and the service answers one operation off one view.
 - `EpochFingerprintTests` — the fingerprint is deterministic over the world state, a content edit (newer OR older), a reorder and a set change each change it, and every index-backed lane carries the capture's epoch.
 - `FreshnessCaptureTests` — the by-value stamp comparison catches a restored backup, `SetInstance` stamps its ini baseline before the read, one status line comes from one build, and a read-path refresh defers while a write holds the write gate.
 - `FreshnessKeyTests.AnEditThatLeavesTheMtimeAloneIsStillSeenAsStale`, `TheSharedStampSeparatesTwoFilesThatDifferOnlyInLength` and `AnUntouchedOrderIsNotReportedStale` — the last-write-plus-length stamp, and that an untouched order is not reported stale.

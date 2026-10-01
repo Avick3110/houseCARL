@@ -111,7 +111,7 @@ swallows the note turns a recoverable state into a silent loss.
 
 ## Pinned by
 
-- *The priority model*: `OverwriteResolveProbe` (ci probe `overwrite-resolve-guard`) — a plugin in overwrite resolves
+- *The priority model*: `OverwriteFolderResolveTests` — a plugin in overwrite resolves
   there and beats the same filename in an enabled mod; a genuinely missing plugin warns, naming only the places
   searched.
 - *The priority model*: `MasterSplitInstallLocationsTests.TheSplitFilesEachMasterByWhichInstallLayerHoldsItsFile` —

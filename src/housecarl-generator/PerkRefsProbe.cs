@@ -17,117 +17,13 @@ namespace HousecarlGenerator;
 /// whole call, because the scan loop only caught ArgumentException.
 ///
 /// The CI regression for the fix is ReferencesScanFaultTests in src/housecarl-mcp-tests; this file keeps the
-/// deleted-record-scan-guard probe and the manual diagnose and proof harnesses.
+/// manual diagnose and proof harnesses; the deleted-record arm is DeletedRecordScanTests.
 ///
 /// Run: <c>dotnet run --project src/housecarl-generator perk-refs-diagnose [-- --source &lt;path&gt; | --mo2 &lt;instanceDir&gt;]</c>
 /// </summary>
 public static class PerkRefsProbe
 {
     const string DefaultSource = @"E:\SteamLibrary\steamapps\common\Skyrim Special Edition\Data\Skyrim.esm";
-
-    /// <summary>REGRESSION GUARD (<c>deleted-record-scan-guard</c>, standing CI instrument, self-contained) for #276 —
-    /// a DELETED record with a residual, malformed body made a references=/where= scan end in a raw
-    /// "NullReferenceException … could not be scanned and were skipped" note (the wild repro: deleted PACKs in a
-    /// follower mod). A deleted record carries no live body by engine rule, so the fix EXCLUDES it from the content
-    /// filters before the reference walk — it should be a clean non-match, not an "unscannable" skip whose cause
-    /// reads as a parser hole (Q3).
-    ///
-    /// Reproduces the wild shape by the same corruption path as ReferencesScanFaultTests (a perk whose EPFT byte is
-    /// corrupted so a lazy Effects parse throws) PLUS setting the record's Deleted header flag ON DISK — Mutagen
-    /// serialises a model-deleted record with an EMPTY body, so the flag is byte-patched onto a normally-written
-    /// (still-bodied) record to get "deleted but still carrying a throwing body". A CONTROL proves the bad perk
-    /// reads as Deleted AND still throws from EnumerateFormLinks, so a GREEN means the scan SKIPPED a record that
-    /// WOULD have thrown, not a clean one. The discriminator: the deleted record's FormKey is ABSENT from the
-    /// ScanNote — RED before the fix (it threw and was accounted there), GREEN after (excluded before the walk).
-    ///
-    /// Run: <c>dotnet run --project src/housecarl-generator deleted-record-scan-guard</c></summary>
-    [CiProbe("deleted-record-scan-guard")]
-    public static int RunDeletedGuard(string[] args)
-    {
-        Console.WriteLine("################  REGRESSION GUARD — a DELETED record is excluded from a references= scan, not accounted as unscannable (#276)  ################");
-        Console.WriteLine();
-
-        var tmpDir = Path.Combine(Path.GetTempPath(), "hc-deleted-scan-guard");
-        if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
-        Directory.CreateDirectory(tmpDir);
-        var modKey = new ModKey("HcDeletedScanGuard", ModType.Plugin);
-        string espPath = Path.Combine(tmpDir, modKey.FileName.String);
-
-        // Same fixture shape as ReferencesScanFaultTests: target + a GOOD referencing perk + a BAD perk with an entry-point
-        // effect. The BAD perk gets the lower FormID so it enumerates BEFORE the good match (a stop-at-fault
-        // regression would drop the good one). It is then made BOTH malformed (EPFT corrupted → lazy parse throws)
-        // AND Deleted-on-disk — the exact wild shape #276 saw on deleted PACKs.
-        FormKey targetFk, goodFk, badFk;
-        {
-            var mod = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE);
-            var target = mod.Perks.AddNew(); target.EditorID = "HcDeletedScanGuard_Target"; targetFk = target.FormKey;
-            var bad = mod.Perks.AddNew(); bad.EditorID = "HcDeletedScanGuard_Bad"; badFk = bad.FormKey;
-            bad.Effects.Add(new PerkEntryPointModifyActorValue
-            {
-                EntryPoint = APerkEntryPointEffect.EntryType.CalculateWeaponDamage,
-                ActorValue = ActorValue.OneHanded,
-                Value = 1f,
-                Modification = PerkEntryPointModifyActorValue.ModificationType.AddAVMult,
-            });
-            var good = mod.Perks.AddNew(); good.EditorID = "HcDeletedScanGuard_Good"; goodFk = good.FormKey;
-            good.NextPerk.SetTo(targetFk);
-            mod.BeginWrite.ToPath(espPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-        }
-        int corrupted = ProbeBytes.CorruptEpftBytes(espPath);
-        int deleted = ProbeBytes.SetDeletedFlag(espPath, "PERK", badFk.ID);   // master-less fixture ⇒ the on-disk FormID IS the object id
-        Console.WriteLine($"-- setup: wrote {modKey.FileName}; corrupted {corrupted} EPFT byte(s); flagged {deleted} record Deleted on disk --");
-        if (corrupted != 1 || deleted != 1)
-        {
-            Console.WriteLine($"=== deleted-record-scan-guard: FAIL (expected 1 EPFT + 1 deleted flag, got {corrupted}/{deleted}) ===");
-            return 1;
-        }
-
-        // CONTROL: the fixture must reproduce BOTH conditions — the bad perk reads as Deleted AND still throws from
-        // EnumerateFormLinks. If it doesn't throw, a GREEN below would be meaningless (the guard would be skipping a
-        // record the scan handles fine anyway).
-        bool isDeleted = false, throws = false; string ctlMsg = "(no throw)";
-        using (var ov = SkyrimMod.CreateFromBinaryOverlay(espPath, SkyrimRelease.SkyrimSE))
-        {
-            var badOv = ov.Perks.First(p => p.FormKey == badFk);
-            isDeleted = badOv.IsDeleted;
-            try { _ = ((IFormLinkContainerGetter)badOv).EnumerateFormLinks().Count(); }
-            catch (Exception ex) { throws = true; ctlMsg = $"{ex.GetType().Name}: {ex.Message}"; }
-        }
-        Console.WriteLine($"   CONTROL: bad perk reads as Deleted                    : {(isDeleted ? "PASS" : "FAIL")}");
-        Console.WriteLine($"   CONTROL: bad perk STILL throws from EnumerateFormLinks : {(throws ? "PASS" : "FAIL")}  [{ctlMsg}]");
-
-        // Drive the REAL service-layer references= scan. WITHOUT the fix the deleted+throwing perk lands in the
-        // ScanNote as an unscannable skip (its cause a raw exception — the #276 report). WITH the fix it's excluded
-        // as deleted BEFORE the reference walk, so it never throws, is absent from the ScanNote, and the good match
-        // still returns.
-        using var resolver = LoadOrderResolver.Build(new[] { espPath });
-        var svc = LoadOrderService.ForGuard(resolver, new UserConfigStore(Path.Combine(tmpDir, "houseCARL.user.json")));
-        CrossQueryOutcome q;
-        try { q = svc.ReadArea.CrossQuery(type: null, references: new[] { targetFk }, editoridContains: null, conflictsOnly: false,
-                                 plugins: new[] { modKey.FileName.String }, where: null, limit: 500); }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"   scan call completed (no escape)                       : FAIL — the call THREW: {ex.GetType().Name}: {ex.Message}");
-            Console.WriteLine("=== deleted-record-scan-guard: FAIL ===");
-            return 1;
-        }
-
-        bool noError = q.Error is null;
-        bool foundGood = q.Total == 1 && q.Keys.Count == 1 && q.Keys[0] == goodFk;
-        // The discriminator: the deleted record is EXCLUDED, so its FormKey is NOT accounted in the ScanNote (with
-        // no other unscannable record, the note is null). RED before the fix — the deleted perk threw and was
-        // accounted; GREEN after — excluded before the walk.
-        bool notAccounted = !(q.ScanNote?.Contains(badFk.ToString(), StringComparison.OrdinalIgnoreCase) ?? false);
-
-        Console.WriteLine($"   scan call completed (no escape, no error)             : {(noError ? "PASS" : $"FAIL [{q.Error}]")}");
-        Console.WriteLine($"   good referencing perk still matched                   : {(foundGood ? "PASS" : $"FAIL (total={q.Total})")}");
-        Console.WriteLine($"   deleted record EXCLUDED, not in ScanNote (Q3)         : {(notAccounted ? "PASS" : $"FAIL [{q.ScanNote}]")}");
-        Console.WriteLine();
-
-        bool pass = isDeleted && throws && noError && foundGood && notAccounted;
-        Console.WriteLine($"=== deleted-record-scan-guard: {(pass ? "PASS" : "FAIL")} ===");
-        return pass ? 0 : 1;
-    }
 
     /// <summary>REAL-DATA proof (manual; needs an MO2 instance + a generated corpus.json): drive the SERVICE-layer
     /// scan with the report's exact failing call — <c>type=Perk references=01CEAD:Skyrim.esm</c> (KYWD
