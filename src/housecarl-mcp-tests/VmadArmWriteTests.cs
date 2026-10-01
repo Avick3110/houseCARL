@@ -99,6 +99,7 @@ public sealed class VmadArmWriteTests
             Struct = new StructSpec { Type = "Weapon", Fields = new() },
         });
 
+        Assert.Contains("does not match", err, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Legal element types", err, StringComparison.OrdinalIgnoreCase);
     }
 

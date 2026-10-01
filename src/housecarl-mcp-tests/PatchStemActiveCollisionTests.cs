@@ -46,6 +46,28 @@ public sealed class PatchStemActiveCollisionTests : IDisposable
         Assert.Equal("houseCARL - Patch_001", Path.GetFileName(Path.GetDirectoryName(o.OutputPath)));
     }
 
+    // Probe arm COLLISION, the probe's own fixture: an active Patch.esp inside a mod folder, stem steps to Patch_001.
+    [Fact]
+    public void TheDefaultStemStepsPastAnActivePluginOfTheSameNameInAModFolder()
+    {
+        var mo2 = new ScratchMo2("hc-patch-stem-active-mod-");
+        try
+        {
+            var m = new SkyrimMod(new ModKey("Patch", ModType.Plugin), SkyrimRelease.SkyrimSE);
+            var w = m.Weapons.AddNew(); w.EditorID = "HcStemWeap"; w.BasicStats = new WeaponBasicStats { Damage = 10, Weight = 1 };
+            m.BeginWrite.ToPath(mo2.InMod("PatchMod", m.ModKey)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            mo2.Profile("Patch.esp\r\n", "*Patch.esp\r\n", "+PatchMod\r\n");
+            using var svc = mo2.Open();
+
+            var o = svc.ApplyEdits(new[] { new BulkOp { Formid = ScratchMo2.Fid(w.FormKey), FieldPath = "BasicStats.Damage", Verb = "Set", Value = "20" } }, null, null);
+
+            Assert.True(o.Success, o.Error);
+            Assert.Equal("Patch_001.esp", Path.GetFileName(o.OutputPath));
+            Assert.Equal("houseCARL - Patch_001", Path.GetFileName(Path.GetDirectoryName(o.OutputPath)));
+        }
+        finally { mo2.Delete(); }
+    }
+
     // Probe arm CONTROL: a stem with no load-order clash is used as-is.
     [Fact]
     public void AStemNothingInTheOrderUsesStaysBare()
