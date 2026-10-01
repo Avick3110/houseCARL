@@ -199,8 +199,8 @@ grammar guard that harvests one rendered notice covers the wording of all of the
   `AChildTwoPluginsBothDeclareIsCountedOnce_NotConcatenated` — the union is keyed by FormID;
   `ASingularChildSaysWhichPluginsCopyIsLive_NeverAUnionCount` — a SINGULAR child is not a union (all in the same
   class).
-- *What a read of a child-bearing field answers*: `OwnedChildContentProbe` (ci probe `owned-child-content-guard`) —
-  the getter-to-concrete hop resolves for every child-bearing type (the BY CONSTRUCTION arm).
+- *What a read of a child-bearing field answers*: `OwnedChildContentTests.EveryChildBearingTypesOverlayMapsBackToIt` —
+  the getter-to-concrete hop resolves for every child-bearing type.
 - *Which lanes assemble it*: `RecordsOwnedChildTests.AScanStatesTheIndexOnlyNote_NotTheUnionItWouldPayPerRowFor` and
   `AScansClauseIsTheIndexOnlyOneAndNamesTheFormidsLane` — a scan annotates with the index-only note and names the
   formids lane; `TheSameCellNamedByFormidIsUnioned` — the formids lane assembles the union.
@@ -210,12 +210,12 @@ grammar guard that harvests one rendered notice covers the wording of all of the
 - *The tree form still names WHICH*: `RecordsOwnedChildTests.ThePreciseTierNamesEveryProviderDeclaringInACollectionField`
   — per-provider declaration on the tree form.
 - *The negative is a sentence, not silence*: `RecordsOwnedChildTests.AFieldNoProviderDeclaresInGetsTheNoneSentence_NeverSilence`;
-  `OwnedChildContentProbe`'s SENTENCE arms — "nobody declares" never absorbs a body that could not be read; its
-  UNREADABLE arm — `DeclaresChild` answers null, never false, for a field the body does not have. The other null
+  `OwnedChildContentTests.NoDeclarersKeepsTheUnreadableBodiesBesideIt` — "nobody declares" never absorbs a body that
+  could not be read; `AMissingFieldAnswersNullAndAnEmptyOneAnswersFalse` — `DeclaresChild` answers null, never false, for a field the body does not have. The other null
   cases the section lists (a body that would not read, an unknown container shape, the depth tripwire) are not run
   by any test.
 - *Two shapes*: `RecordsOwnedChildTests.ASingularChildFieldIsCountedNotNamed` — a SINGULAR field's line is a count;
-  `OwnedChildContentProbe`'s SENTENCE arms — the collection note caps its names.
+  `OwnedChildContentTests.TheCollectionNoteNamesDeclarersUpToTheCap` — the collection note caps its names.
 - *The unit a count is in*: `RecordsOwnedChildTests.ANestedFieldsNoteNamesItsUnit_TheValueCountsContainersAndTheUnionCountsRecords`
   and `JsonMarksTheNestedFieldAndLeavesTheFlatOneUnmarked`.
 - *Placement: above the diff, not inside it*: `RecordsOwnedChildTests.TheBlockSitsWithTheProviderListNotInsideTheDiff`

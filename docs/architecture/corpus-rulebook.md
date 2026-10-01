@@ -152,9 +152,9 @@ A literal FormID mixed in beside siblings IS type-checked; a sibling is not, bec
 
 ## Pinned by
 
-- *Over-arms search: agree in shape, or refuse by name*: `SameShapeAgreeProbe` (ci probe `sameshape-agree-guard`) —
-  `float` and `float?` agree (`APerkEffect.Value`, check A, and the synthetic E2), every genuine difference still
-  rejects (C, D, and E1 on the underlying CLR type), and apply takes what pre-flight admitted (Apply-1).
+- *Over-arms search: agree in shape, or refuse by name*: `SameShapeAgreeTests` —
+  `float` and `float?` agree (`APerkEffect.Value`, and two synthetic leaves), every genuine difference still
+  rejects (cardinality, display type, and the underlying CLR type), and apply takes what pre-flight admitted.
 - *The FormLink target-type gate*: `FormLinkTargetTypeTests.ASingularLinkToTheWrongRecordTypeIsRefused`,
   `AListElementLinkToTheWrongRecordTypeIsRefused` and `AComposedStructFieldLinkToTheWrongRecordTypeIsRefused` — a
   link to a record of the wrong type is refused; `ALinkThatAcceptsAnyRecordIsNotRefused` — a link that accepts any

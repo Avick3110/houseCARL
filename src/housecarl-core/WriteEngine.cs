@@ -2547,7 +2547,7 @@ public static class WriteEngine
 
     // ---- FORMLINKORINDEX — a condition target holds EITHER a FormID or a numeric alias / package-data index, and
     //  the owning arm's bools decide which serialises, so the ctor needs the arm and this lives OUTSIDE Coerce.
-    //  IsFormLinkOrIndex is the ONE predicate the engine write, pre-flight and coerce-audit share.
+    //  IsFormLinkOrIndex is the ONE predicate the engine write, pre-flight and CoerceAuditTests share.
 
     /// <summary>True iff <paramref name="t"/> is a Mutagen <c>FormLinkOrIndex&lt;T&gt;</c> family type, by generic definition.</summary>
     internal static bool IsFormLinkOrIndex(Type t)
@@ -2628,7 +2628,7 @@ public static class WriteEngine
         p.SetValue(arm, value);
     }
 
-    /// <summary>The corpus-derived value-type family coerce-audit enumerates; extend HERE when the audit surfaces a new writable value type.</summary>
+    /// <summary>The corpus-derived value-type family CoerceAuditTests enumerates; extend HERE when the audit surfaces a new writable value type.</summary>
     static bool TryValueType(string? text, Type u, out object? result)
     {
         result = null;
@@ -2748,7 +2748,7 @@ public static class WriteEngine
     /// <summary>Non-throwing coercion, for the rulebook's pre-flight value check.</summary>
     internal static bool TryCoerce(string text, Type type, out object? result) => TryCoerce(text, type, out result, out _);
 
-    /// <summary>Non-throwing coercion that also hands back the exception, for coerce-selftest's failure line.</summary>
+    /// <summary>Non-throwing coercion that also hands back the exception, for CoerceSampleTests' failure message.</summary>
     internal static bool TryCoerce(string text, Type type, out object? result, out Exception? error)
     {
         try { result = Coerce(text, type); error = null; return true; }

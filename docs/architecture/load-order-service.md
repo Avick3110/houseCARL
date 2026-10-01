@@ -46,7 +46,7 @@ the config file.
 - UNCONFIGURED: the server still boots and every tool returns the prompt for the MO2 path until `housecarl_set_mo2_instance` is called.
 
 ## Pinned by
-- `write-mutex-guard` (`ci-all`) — concurrent same-default-name writes each allocate their own folder and commit their own bytes: the serialized resolve, stage and commit, not the rest of that bullet.
+- `WriteMutexTests` — concurrent same-default-name writes each allocate their own folder and commit their own bytes: the serialized resolve, stage and commit, not the rest of that bullet.
 - Nothing pins the lock order, the getters' `TryEnter` exception to it, or `SetInstance` taking `_writeGate`, nor `FolderAllocationGate`'s place in that order or the same-stem race it closes (no timing test, ruling O2).
 - `OutputRootsSnapshotTests.AnInstanceSwitchAfterTheCaptureDoesNotChangeWhichPluginsTakeAStem` — a rider's stem is checked against the plugins of the instance its roots came from, even across an instance switch between the capture and the check. `CreatePlugin` and `ResolveOutputPath` are covered by `SetInstance` taking `_writeGate`, which they hold.
 - `ProfileRewriteTests.AWarmAssetCallAnswersOffTheKeptBuildSaysSoAndFollowsTheProfileOnceItIsFree`, `TheRecordIndexRefusesRatherThanAnswerOffASupersededBuild` and `AColdRecordBuildAfterAHoldDoesNotStrandTheKeptAssetBuild` — the held-profile split between the two lanes.
