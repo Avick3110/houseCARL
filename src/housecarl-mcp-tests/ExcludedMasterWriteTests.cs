@@ -7,7 +7,7 @@ namespace HousecarlMcpTests;
 /// <summary>#314: one active plugin that Mutagen cannot OPEN must not break every write in the order, and the
 /// unopenable-reference threshold holds both ways on both lanes (a one-master header writes, a two-master header
 /// refuses naming the cause), with the dry run agreeing. Each test's
-/// comment is the assertion of the ci-all probe it replaced.</summary>
+/// comment is the assertion of the probe it replaced.</summary>
 [Trait("tier", "integration")]
 public sealed class ExcludedMasterWriteTests :
     IClassFixture<ExcludedMasterMainOrder>, IClassFixture<ExcludedMasterRealOrder>, IClassFixture<ExcludedMasterBaselineOrder>,

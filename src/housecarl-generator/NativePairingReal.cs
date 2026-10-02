@@ -4,7 +4,7 @@ using HousecarlMcp;
 namespace HousecarlGenerator;
 
 /// <summary>The MANUAL real-data harness for the native-function pairing audit (the live gate): runs the whole audit
-/// against a live MO2 instance and prints the render + factual timing. NOT part of ci-all; the renderer's arms are
+/// against a live MO2 instance and prints the render + factual timing. NOT run on CI; the renderer's arms are
 /// pinned by the NativePairing*Tests in housecarl-mcp-tests.</summary>
 public static class NativePairingReal
 {

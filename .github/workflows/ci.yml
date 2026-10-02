@@ -1,9 +1,8 @@
 # houseCARL CI — a green/red gate on every push to main and every pull request.
 # What it does, in plain terms: a fresh Windows machine on GitHub's servers compiles
-# houseCARL and runs its re-runnable proof probes. Green = it builds and the core logic
-# passes; red = something broke. The probes self-SKIP the parts that need external tools
-# (the Creation Kit's Papyrus compiler, BSArch) which aren't installed on the runner, so
-# they stay a reliable gate without those tools present.
+# houseCARL and runs its tests. Green = it builds and the core logic passes; red = something
+# broke. The tests that need the Creation Kit's Papyrus compiler, which isn't installed on the
+# runner, report as skipped, so the run stays a reliable gate without it.
 name: CI
 
 on:
@@ -60,30 +59,13 @@ jobs:
           dotnet publish src/housecarl-mcp -c Release -r win-x64 --self-contained false -o dist/notices-check/server
           ./scripts/generate-notices.ps1 -PublishDir dist/notices-check/server -Check
 
-      # Nearly all CI probes run IN ONE PROCESS via `ci-all` (CI optimization Phase 2A+2B): the big Mutagen
-      # assembly loads + JITs once and the schema corpus is reflected once (memoized) instead of ~21x —
-      # collapsing ~12 min of per-probe cold starts. The runner runs EVERY probe even if one fails and emits a
-      # `::error::` annotation per failure, so the job still goes red on any failure and names which probe(s).
-      # The probe set is the [CiProbe]-attributed entry points themselves; CiAll.cs holds the discovery, not
-      # the set. See dev/plans/CI_OPTIMIZATION_RESEARCH_2026-06-24.md.
-      - name: Probes — all-in-one-process (ci-all)
-        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll ci-all
-
-      # The second harness (tool-surface 2.0 W7): guards for the 2.0 tool surface are xUnit tests under
-      # `dotnet test`, which gives the per-test naming and reporting `ci-all` structurally cannot. Both
-      # steps are required and neither is conditional — this is a two-harness window, not a migration in
-      # flight.
-      #
-      # `tier!=bridge` is the one exclusion, and it is about CI only: the bridge test exists so a LOCAL
-      # `dotnet test` with no filter also runs `ci-all` (one entry point for a developer). CI already runs
-      # ci-all as its own step above, so including the bridge here would run the whole probe suite twice
-      # for no extra signal.
+      # Every guard is an xUnit test in this project.
       - name: Tests — the 2.0 guard project (dotnet test)
         if: ${{ !cancelled() }}
-        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "tier!=bridge" --logger "trx;LogFileName=guards.trx"
+        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --logger "trx;LogFileName=guards.trx"
 
-      # `dotnet test` exits 0 when its filter matches NOTHING — measured. So a filter edit (a new tier, a typo,
-      # a test mistagged `bridge`) can take every guard out of CI and leave the step green with no signal. This
+      # `dotnet test` exits 0 when it selects NOTHING — measured. So a filter added later (a new tier, a typo)
+      # can take every guard out of CI and leave the step green with no signal. This
       # reads the run's own trx and fails on an empty or failing run, which is also what makes the --logger flag
       # above load-bearing rather than an artifact nobody opens. The floor is derived from the run, not a pinned
       # number: it says "something ran and nothing failed", and the count is printed so a collapse is visible.
@@ -147,13 +129,13 @@ jobs:
       # coverlet.collector stays referenced for an offline in-process run via coverage.runsettings;
       # this suite's spawned server fails under two attached profilers, so they cannot be combined.
       #
-      # The filter repeats the gating step's `tier!=bridge` and this run is deliberately unguarded:
-      # it writes no trx, and the gate's own zero-test check reads the gating run's trx above. If
-      # that filter changes, change this one too or the summary describes a different set of tests.
+      # This run selects what the gating step selects and is deliberately unguarded: it writes no
+      # trx, and the gate's own zero-test check reads the gating run's trx above. If the gating step
+      # gains a filter, give this one the same or the summary describes a different set of tests.
       - name: Coverage — collect (visibility only)
         if: ${{ !cancelled() && github.event_name == 'push' }}
         continue-on-error: true
-        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "tier!=bridge" --collect "Code Coverage;Format=cobertura" --results-directory coverage
+        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --collect "Code Coverage;Format=cobertura" --results-directory coverage
 
       # Its own step, because the collect above is a separate command: GitHub's pwsh shell sets
       # $ErrorActionPreference = 'stop', and on pwsh 7.4 a native command exiting non-zero ends the
