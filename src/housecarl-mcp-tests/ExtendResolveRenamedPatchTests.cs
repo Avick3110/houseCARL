@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HousecarlMcp;
 using Xunit;
 using static HousecarlMcpTests.ExtendResolveRig;
@@ -146,17 +147,57 @@ public sealed class ExtendResolveRenamedPatchTests
         Assert.Equal(before, File.ReadAllBytes(esp));
     }
 
-    // the master plugin is byte-identical to its pre-write state (every extend wrote only the patch)
+    // the master plugin is byte-identical to its pre-write state after EVERY arm (every extend wrote only the patch;
+    // no refusal touched it): extends, rider, ambiguous, multi-plugin, foreign, not-found, every tool's un-owned refusal
     [Fact]
     public void ExtendsWriteOnlyThePatchAndNeverTheMaster()
     {
         using var w = new ExtendResolveRig();
         var masterBefore = File.ReadAllBytes(w.MasterPath);
-        w.SeedRenamed();
+        void Arm(string name, Action run)
+        {
+            run();
+            Assert.True(masterBefore.AsSpan().SequenceEqual(File.ReadAllBytes(w.MasterPath)), $"{name} changed the master");
+        }
+        void Rider(string token) => w.Svc.ResolvePatchModFolder(null, token, "HcRiderDefault", BsaTools.RepackNaming);
+        static JsonElement Doc(string s) => JsonDocument.Parse(s).RootElement;
+        var fid = w.Fid;
 
-        Assert.True(w.Into("SeedA", w.Wgt(7)).Success);
-        Assert.True(w.Into("SeedA Renamed", w.Dmg(88)).Success);
+        Arm("seed", () => w.Seed());
+        Arm("canonical", () => Assert.True(w.Into("SeedA", w.Wgt(5)).Success));
+        Directory.Move(Path.Combine(w.ModsDir, "houseCARL - SeedA"), Path.Combine(w.ModsDir, "houseCARL - SeedA Renamed"));
+        Arm("by-esp", () => Assert.True(w.Into("SeedA", w.Wgt(7)).Success));
+        Arm("by-esp-ext", () => Assert.True(w.Into("SeedA.esp", w.Wgt(8)).Success));
+        Arm("by-folder", () => Assert.True(w.Into("SeedA Renamed", w.Dmg(88)).Success));
+        Arm("rider", () => { Rider("SeedA"); Rider("SeedA Renamed"); });
 
-        Assert.Equal(masterBefore, File.ReadAllBytes(w.MasterPath));
+        var dup = w.MarkOwned("houseCARL - DupHome", "SeedA.esp");
+        File.Copy(Path.Combine(w.ModsDir, "houseCARL - SeedA Renamed", "SeedA.esp"), Path.Combine(dup, "SeedA.esp"));
+        Arm("ambiguous", () => Assert.False(w.Into("SeedA", w.Wgt(1)).Success));
+        Arm("ambiguous pick", () => Assert.True(w.Into("DupHome", w.Wgt(3)).Success));
+
+        w.OwnedWithPlugins("houseCARL - TwoEsp", "Alpha", "Beta");
+        Arm("multi-plugin", () => Assert.False(w.Into("TwoEsp", w.Wgt(1)).Success));
+
+        var foreign = Path.Combine(w.ModsDir, "houseCARL - Foreign");
+        Directory.CreateDirectory(foreign);
+        File.WriteAllText(Path.Combine(foreign, "Foreign.esp"), "not a real plugin");
+        Arm("foreign", () => Assert.False(w.Into("Foreign", w.Wgt(1)).Success));
+        Arm("foreign rider", () => RiderRefusal(() => Rider("Foreign")));
+
+        Arm("not-found apply", () => Assert.False(w.Into("GhostPatch", w.Wgt(1)).Success));
+        Arm("not-found rider", () => RiderRefusal(() => Rider("GhostRider")));
+        Arm("not-found forward", () => Assert.False(w.Svc.ForwardRecords(new[] { fid }, w.MasterKey.FileName, null, "GhostFwd").Success));
+        Arm("not-found create", () => Assert.False(
+            w.Svc.CreateRecordsBatch(new[] { new CreateOp { RecordType = "Keyword", Editorid = "HcExtKw" } }, null, "GhostCre").Success));
+        Arm("not-found remove", () => Assert.False(w.Svc.RemoveRecords(new[] { fid }, "GhostRemove").Success));
+
+        Arm("un-owned apply tool", () => Assert.Contains("; try into=\"", ApplyTools.Apply(w.Svc,
+            ops: Doc($"[{{\"formid\":\"{fid}\",\"field_path\":\"BasicStats.Weight\",\"value\":\"2\"}}]"), into: "Foreign")));
+        Arm("un-owned create tool", () => Assert.Contains("; try into=\"", CreateTools.Create(w.Svc,
+            records: Doc("[{\"record_type\":\"Keyword\",\"editorid\":\"HcExtUnowned\"}]"), into: "Foreign")));
+        Arm("un-owned forward tool", () => Assert.Contains("; try into=\"",
+            ForwardTools.Forward(w.Svc, formids: new[] { fid }, source: w.MasterKey.FileName.String, into: "Foreign")));
+        Arm("un-owned remove tool", () => Assert.Contains("; try into=\"", RemoveTools.Remove(w.Svc, new[] { fid }, into: "Foreign")));
     }
 }
