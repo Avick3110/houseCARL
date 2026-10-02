@@ -27,4 +27,37 @@ internal static class PluginPaths
         var active = view.PluginPath(name);
         return !string.IsNullOrEmpty(active) && SamePluginFile(active, full) ? name : null;
     }
+
+    /// <summary>The MO2 LAYER a physical file path belongs to, as a NAME. A caller that has to say WHICH of the three
+    /// answered takes <see cref="InstallLayerOfPath"/> instead, because a mod folder may itself be called "Data".</summary>
+    internal static string? LayerOfInstallPath(string archivePath, Mo2Roots roots) =>
+        InstallLayerOfPath(archivePath, roots)?.Name;
+
+    /// <summary>The MO2 layer a physical file path belongs to, as the BRANCH that answered plus the name it produced.</summary>
+    internal static SourceLayer? InstallLayerOfPath(string archivePath, Mo2Roots roots)
+    {
+        // Full-path-normalize both sides, or a trailing separator or '..' from config makes this test disagree with the rest of the plumbing.
+        static string Norm(string p) { try { return Path.GetFullPath(p); } catch { return p; } }
+        archivePath = Norm(archivePath);
+        static bool Under(string path, string root, out string remainder)
+        {
+            remainder = "";
+            if (root.Length == 0) return false;
+            var r = Norm(root).TrimEnd('\\', '/') + "\\";
+            if (!path.StartsWith(r, StringComparison.OrdinalIgnoreCase)) return false;
+            remainder = path.Substring(r.Length);
+            return true;
+        }
+        if (Under(archivePath, roots.OverwriteDir, out _))
+            return new SourceLayer(SourceLayerKind.Overwrite, AssetResolver.OverwriteLayerName);
+        if (Under(archivePath, roots.ModsDir, out var rest))
+        {
+            int slash = rest.IndexOfAny(new[] { '\\', '/' });
+            // a .bsa directly in mods\ belongs to no mod — no translation
+            return slash > 0 ? new SourceLayer(SourceLayerKind.ModFolder, rest[..slash]) : null;
+        }
+        if (Under(archivePath, roots.DataDir, out _))
+            return new SourceLayer(SourceLayerKind.GameData, AssetResolver.DataLayerName);
+        return null;
+    }
 }
