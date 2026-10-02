@@ -40,7 +40,7 @@ Code comments call the first two of these the cornerstones. A design question th
 | `src/housecarl-mcp/SkyPatcherReplay.cs` | The SkyPatcher replay and the one door that opens its context |
 | `src/housecarl-mcp/RecordReads.cs` | The reads area: resolve, batch, poles, walk, cross query, info order; its own class, `RecordReads(IReadHost)`, across this file and `RecordPoles.cs`, `RecordWalk.cs`, `RecordQuery.cs` and `TreeFold.cs` |
 | `src/housecarl-mcp/RecordChecks.cs` | The checks area: the errors, scripts, facegen and dialogue sweeps; its own class, `RecordChecks(ICheckHost)` |
-| `src/housecarl-mcp/RecordWrites.cs` | The write lanes |
+| `src/housecarl-mcp/RecordWrites.cs` | The write lanes: apply, remove, forward, in-place, output path; with `RecordCopy.cs`, `RecordCreates.cs`, `RecordReshape.cs`, `WriteMappers.cs` |
 | `src/housecarl-mcp/OutputLocations.cs` | The output area: output folders, plugin locate, `.seq`; its own class, `OutputLocations(IOutputHost)` |
 | `src/housecarl-mcp/ServiceResults.cs` | The result records and enums those lanes return |
 | `src/housecarl-mcp/TypeLookup.cs` | Shared: the type lookup (`type=` string to getter types), one per service, held by the head as `Types` |
