@@ -21,8 +21,7 @@ Code comments call the first two of these the cornerstones. A design question th
 2. **Build and test.**
    ```
    dotnet build housecarl.sln -c Release
-   dotnet test src/housecarl-mcp-tests -c Release --no-build --filter "tier!=bridge"
-   dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll ci-all
+   dotnet test src/housecarl-mcp-tests -c Release --no-build
    ```
    Tests drive the built server. How to write one: [standards/TESTING.md](standards/TESTING.md).
 3. **Commit small.** One change per commit, plain imperative subject under 72 characters. Temp files go in the session's own scratchpad directory; the shared temp directory, under any spelling, is where parallel sessions overwrite each other.
@@ -45,7 +44,7 @@ Code comments call the first two of these the cornerstones. A design question th
 | `src/housecarl-mcp/ServiceResults.cs` | The result records and enums those lanes return |
 | `src/housecarl-mcp/TypeLookup.cs` | Shared: the type lookup (`type=` string to getter types), one per service, held by the head as `Types` |
 | `src/housecarl-core/` | Record, asset, read, and write engines; the load-order resolver |
-| `src/housecarl-generator/` | Build-time schema generator; also the probe runner (`ci-all`) |
+| `src/housecarl-generator/` | Build-time schema generator; also the manual probes, run by name |
 | `src/housecarl-mcp-tests/` | xUnit tests against the built server |
 | `src/housecarl-setup/` | Installer |
 | `plugin/` | The shipped Claude Code plugin's manifest, changelog, and notices; skills are copied in at build |

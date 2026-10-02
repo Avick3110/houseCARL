@@ -117,7 +117,7 @@ test in the run reads "the body ran" off its config prompt, so configuring it wo
 #### The scripts family was briefly in both harnesses; the overlap is closed
 
 For the length of PR 1, `ScriptsWorldTests` drove `ValidateScripts` and `housecarl_check
-findings=["scripts"]` while `ScriptPropertyCheckProbe.cs` still guarded the same family in `ci-all`; one
+findings=["scripts"]` while `ScriptPropertyCheckProbe.cs` still guarded the same family in the old probe harness; one
 probe arm (PEX-ROUNDTRIP) was re-homed here.
 
 **#486 PR 2 closed it**, in the commit that landed the epoch and scripts family facts and retired two
