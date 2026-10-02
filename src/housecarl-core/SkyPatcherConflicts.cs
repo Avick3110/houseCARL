@@ -86,7 +86,7 @@ public static class SkyPatcherConflicts
             foreach (var (seg, cls) in ops)
             {
                 if (cls.Operation!.Tractability == SkyPatcherTractability.Hard) continue;
-                var field = SetFieldOf(maps, seg.Key);
+                var field = SetFieldOf(maps, cls.Operation!.Name);
                 if (field is null) continue;   // accumulating / unmapped — not a last-write-wins collision
                 events.Add((events.Count, ol.File, ol.LineNumber, seg.Key, (seg.RawValue ?? "").Trim(), field, targets, conditional));
             }
@@ -199,7 +199,7 @@ public static class SkyPatcherConflicts
     {
         if (a.Before is null || a.Before != a.After) return false;
         if (a.RawValue.Trim().Equals("none", StringComparison.OrdinalIgnoreCase)) return false;
-        var op = map?.Ops.GetValueOrDefault(a.Op);
+        var op = map?.Ops.GetValueOrDefault(a.OpName);
         return op is not null && !op.IsUnmapped && SetClassSemantics.Contains(op.Semantic);
     }
 

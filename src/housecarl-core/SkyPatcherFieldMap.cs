@@ -56,14 +56,14 @@ public sealed class SkyPatcherFieldMap
     {
         var subfolder = Str(el, "subfolder");
         var recordType = Str(el, "recordType");
-        var ops = new Dictionary<string, OpMap>(StringComparer.OrdinalIgnoreCase);
+        var ops = new Dictionary<string, OpMap>(StringComparer.Ordinal);
         if (!el.TryGetProperty("ops", out var opsEl) || opsEl.ValueKind != JsonValueKind.Object)
             throw new InvalidOperationException($"SkyPatcher field map [{subfolder}]: 'ops' is missing or not an object.");
         foreach (var p in opsEl.EnumerateObject())
             ops[p.Name] = ParseOp(subfolder, p.Name, p.Value);
 
         // The per-record filter evaluation specs, under the same wrong-kind-throws-loud contract as 'ops'.
-        var filters = new Dictionary<string, FilterSpec>(StringComparer.OrdinalIgnoreCase);
+        var filters = new Dictionary<string, FilterSpec>(StringComparer.Ordinal);
         if (el.TryGetProperty("filters", out var fEl))
         {
             if (fEl.ValueKind != JsonValueKind.Object)
