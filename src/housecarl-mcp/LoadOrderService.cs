@@ -452,7 +452,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         string? patchName, string? into)
         => _writes.CopyClosure(sourceKey, sourcePoles, seedPaths, exclusions, targetKey, newEditorid, patchName, into);
 
-    internal RecordWrites WriteArea => _writes;   // the writes area instance, for the probe seams
+    internal RecordWrites WriteArea => _writes;   // the writes area instance, for tests that reach its seams
     internal bool GateHeldByThisThread => Monitor.IsEntered(_gate);   // for a test seam that must know whether it runs inside the hold
 
     internal int AbsenceExplanations;   // how many times the explainer has parsed the profile, for the cost tests

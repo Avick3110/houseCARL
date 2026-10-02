@@ -87,8 +87,8 @@ The output-facing surface is the same shape over `_outputLocations`, the `Output
 `OutputArea` for tests and probes; `IOutputHost` is at the top of `src/housecarl-mcp/OutputLocations.cs`.
 The writes-facing surface is the same shape over `_writes`, the `RecordWrites` it builds last, over itself and
 `_outputLocations`: `ApplyEdits`, `RemoveRecords`, `ForwardRecords`, `CreateRecordsBatch`, `CreatePlugin`,
-`CompactPlugin`, `MergePlugins` and `CopyClosure`, with the defaults on the delegators only, and `WriteArea` for the
-probe seams; `IWriteHost` is at the top of `src/housecarl-mcp/RecordWrites.cs`.
+`CompactPlugin`, `MergePlugins` and `CopyClosure`, with the defaults on the delegators only, and `WriteArea` for
+tests; `IWriteHost` is at the top of `src/housecarl-mcp/RecordWrites.cs`.
 `src/housecarl-mcp/ServiceResults.cs` holds the result records the head's lanes and the other areas' lanes return;
 the asset records are in `AssetResults.cs`.
 Tools: `housecarl_load_order_status`, `housecarl_set_mo2_instance`, `housecarl_update_status`.
