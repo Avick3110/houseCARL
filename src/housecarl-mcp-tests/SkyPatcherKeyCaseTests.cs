@@ -11,14 +11,15 @@ namespace HousecarlMcpTests;
 public sealed class SkyPatcherKeyCaseTests
 {
     [Theory]
-    [InlineData("filterByNPCs", "filterByNpcs")]
-    [InlineData("FILTERBYNPCSEXCLUDED", "filterByNpcs")]
-    public void AMixedCaseFilterResolvesToTheCanonicalEntry(string key, string canonical)
+    [InlineData("filterByNPCs", "filterByNpcs", "")]
+    [InlineData("FILTERBYNPCSEXCLUDED", "filterByNpcs", "Excluded")]
+    public void AMixedCaseFilterResolvesToTheCanonicalEntry(string key, string canonical, string connective)
     {
         var npc = Catalog.ForSubfolder("npc")!;
         var mixed = Catalog.Classify(npc, key);
         Assert.Equal(SkyPatcherKeyRole.Filter, mixed.Role);
         Assert.Same(npc.Filters.Single(f => f.Name == canonical), mixed.Filter);
+        Assert.Equal(connective, mixed.Connective);   // the overlay compares connectives against the catalog's text
     }
 
     [Fact]
@@ -53,6 +54,41 @@ public sealed class SkyPatcherKeyCaseTests
         Assert.Equal(ube, npc.Race.FormKey);
         Assert.Equal(0, r.LinesSkippedUnresolvedFilter);
         Assert.DoesNotContain(r.Warnings, w => w.Contains("skipped"));
+    }
+
+    // an upper-case Excluded line must exclude, not include, the NPC it names
+    [Fact]
+    public void AnUpperCaseExcludedLineLeavesTheNamedNpcUnchanged()
+    {
+        var (npc, nord, _) = CaseNpc();
+        var r = Apply(npc, npc.FormKey, npc.EditorID, "npc", "Npc", new StubResolver(),
+            Line("Case.ini", 1, $"FILTERBYNPCSEXCLUDED=HcSpCase.esp|{npc.FormKey.ID:X}:race=UBE_AllRace.esp|5A184"));
+
+        Assert.Equal(nord, npc.Race.FormKey);
+        Assert.Empty(r.Applied);
+    }
+
+    // one warning for two spellings of the same filter, and it names the key as the line spells it
+    [Fact]
+    public void AWarningIsDedupedAcrossSpellingsAndNamesTheLinesKey()
+    {
+        var (npc, _, _) = CaseNpc();
+        var r = Apply(npc, npc.FormKey, npc.EditorID, "npc", "Npc", new StubResolver(),
+            Line("Case.ini", 1, "FILTERBYKEYWORDSOR=HcNoSuchKeyword:race=UBE_AllRace.esp|5A184"),
+            Line("Case.ini", 2, "filterByKeywordsOr=HcNoSuchKeyword:race=UBE_AllRace.esp|5A184"));
+
+        var w = Assert.Single(r.Warnings, w => w.Contains("HcNoSuchKeyword"));
+        Assert.Contains("(in a FILTERBYKEYWORDSOR)", w);
+    }
+
+    static (Npc npc, FormKey nord, FormKey ube) CaseNpc()
+    {
+        var mod = new SkyrimMod(new ModKey("HcSpCase", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var npc = mod.Npcs.AddNew();
+        npc.EditorID = "HcCaseNpc";
+        var nord = new FormKey(new ModKey("Skyrim", ModType.Master), 0x13746);
+        npc.Race.SetTo(nord);
+        return (npc, nord, new FormKey(new ModKey("UBE_AllRace", ModType.Plugin), 0x5A184));
     }
 
     [Theory]
