@@ -32,7 +32,7 @@ enum member cannot survive CI; only a semantically-wrong-but-existing field can.
 ### The grammar
 
 ```
-line         := (';' | '#') comment | blank | patch | '[' label ']'
+line         := (';' | '#') comment | blank | patch | '[' label ']'   (houseCARL reads '#' as a comment: no key starts with '#')
 patch        := segment ( ':' segment )*
 segment      := key '=' value
 value        := item ( ',' item )*
@@ -49,7 +49,12 @@ a segment. An empty `:`-segment or `,`-item (a stray or doubled delimiter) is no
 segments, not three, and the segment count of a noted line cannot be used to count delimiters.
 
 Key names match without regard to case, as SkyPatcher does: `filterByNPCs` is `filterByNpcs`.
-A response names a key as the line spells it.
+A response names a key as the line spells it, with the catalog's spelling for a connective
+suffix and in the two fixed filter warnings.
+
+A line starting with `#` can never patch anything, in game or here, because no legal key starts
+with `#`; houseCARL reads it as a comment rather than skipping it as an unknown key. This is
+houseCARL's reading, not a rule SkyPatcher documents.
 
 ### Addressing: `Plugin.esp|FormID`
 
