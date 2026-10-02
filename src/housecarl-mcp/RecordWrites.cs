@@ -204,7 +204,7 @@ public sealed partial class LoadOrderService
 
         ISkyrimModGetter ov;
         try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(roots.DataDir) ? null : roots.DataDir); }
-        catch (Exception ex) { error =$"source file '{fromPlugin}' ({loc.Path}) could not be opened as a Skyrim plugin ({ex.Message})."; return null; }
+        catch (Exception ex) { error = $"source file '{fromPlugin}' ({loc.Path}) could not be opened as a Skyrim plugin ({ex.Message})."; return null; }
 
         // One walk of the overlay collecting every wanted key.
         var wanted = specs.Select(s => s.Target).ToHashSet();
@@ -731,7 +731,8 @@ public sealed partial class LoadOrderService
 
         extend = false;
         var baseStem = OutputLocations.PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
-        var active = OutputLocations.ActivePluginBasenames(roots, _resolver?.PluginNames);   // raw read of a best-effort set; every rebuild waits on the caller's _writeGate
+        // Raw read of a best-effort set. It agrees with roots only because no lane calls the Resolver or Assets getter between its capture and this call.
+        var active = OutputLocations.ActivePluginBasenames(roots, _resolver?.PluginNames);
         // Every record lane that reaches here declares patch= and writes "<stem>.esp".
         lock (_outputLocations.FolderAllocationGate)                    // the same allocation lock as the rider lanes
         {
