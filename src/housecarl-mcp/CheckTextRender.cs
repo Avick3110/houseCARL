@@ -17,8 +17,8 @@ static class CheckTextRender
           .Append(didDangling ? $"{r.TotalDangling} dangling ref(s)" : "dangling refs NOT CHECKED (findings= excluded 'dangling')").Append(" · ")
           .Append(didMasters ? $"{r.TotalMissingMasters} missing master(s)" : "missing masters NOT CHECKED (findings= excluded 'missing_masters')").Append(" · ")
           .Append(didDangling ? $"{r.TotalUnscannableRecords} unscannable record(s)" : "unscannable records NOT COUNTED (the record walk was skipped)");
-        // The excluded roster is on the result, so the head line counts what it is holding.
-        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r.OffOrderScanned)).Append(OrderDegraded.Clause(r.ExcludedPlugins.Keys));
+        // The excluded roster is on the result, so the head line names what it is holding.
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r.OffOrderScanned)).Append(OrderDegraded.Clause(OrderDegraded.Sorted(r.ExcludedPlugins.Keys), pointToStatus: false));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)
@@ -372,7 +372,7 @@ static class CheckTextRender
           .Append(CheckSentences.ScriptNullTotal(r, didNull))
           .Append(" · ")
           .Append(r.TotalUnverifiable).Append(" unverifiable");
-        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r.OffOrderScanned)).Append(OrderDegraded.Clause(r.ExcludedPlugins.Keys));
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r.OffOrderScanned)).Append(OrderDegraded.Clause(OrderDegraded.Sorted(r.ExcludedPlugins.Keys), pointToStatus: false));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)

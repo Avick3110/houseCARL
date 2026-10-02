@@ -29,14 +29,14 @@ static class JsonWire
         WriteEpoch(w, stamp?.Epoch, stamp?.ExcludedPlugins);
 
     /// <summary>The same writer for a lane carrying the epoch and the excluded roster as two values, not one stamp.</summary>
-    static void WriteEpoch(Utf8JsonWriter w, string? epoch, IReadOnlyCollection<string>? excluded)
+    static void WriteEpoch(Utf8JsonWriter w, string? epoch, IReadOnlyList<string>? excluded)
     {
         WriteNullable(w, "epoch", epoch);
         WriteOrderDegraded(w, excluded);
     }
 
     /// <summary>The marker on its own, for a document that states it at the ROOT rather than beside an epoch.</summary>
-    static void WriteOrderDegraded(Utf8JsonWriter w, IReadOnlyCollection<string>? excluded)
+    static void WriteOrderDegraded(Utf8JsonWriter w, IReadOnlyList<string>? excluded)
     {
         if (excluded is not { Count: > 0 }) return;
         w.WriteBoolean("order_degraded", true);
