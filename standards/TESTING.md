@@ -29,8 +29,8 @@ A test must fail before the fix and pass after. If it cannot fail, it is not a t
 ## What not to write
 
 - No tests about tests: no guards over test files, no baseline counts, no sweeps that check the suite's own shape. The few that still exist are being deleted; do not add to them. If you doubt the suite, run Stryker.NET once, fix what it shows, and move on.
-- No test that needs the real game. Anything that needs a real load order runs locally; the PR says what was run and what it showed.
-- No duplicate of a probe. The probes left in `src/housecarl-generator` are manual, run by name; none runs on CI.
+- No test that needs the real game, unless it skips when the external tool or the install is absent, as `PapyrusCompileEndToEndTests` does. Anything that needs a real load order runs locally; the PR says what was run and what it showed.
+- No duplicate of a probe. The probes left in `src/housecarl-generator` are manual, run by name; none runs on CI. When you change what one covers, move that coverage here and delete the probe.
 
 ## Running
 
