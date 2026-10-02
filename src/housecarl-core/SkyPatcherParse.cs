@@ -15,7 +15,7 @@ public static class SkyPatcherParse
         if (trimmed.Length == 0)
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Blank, Array.Empty<SkyPatcherSegment>(), null);
 
-        if (trimmed[0] == ';')
+        if (trimmed[0] is ';' or '#')
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Comment, Array.Empty<SkyPatcherSegment>(), null);
 
         if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
@@ -128,7 +128,7 @@ public enum SkyPatcherLineKind
 {
     /// <summary>Whitespace-only.</summary>
     Blank,
-    /// <summary>A ';'-led comment line.</summary>
+    /// <summary>A ';'- or '#'-led comment line.</summary>
     Comment,
     /// <summary>A patch line (one or more key=value segments).</summary>
     Patch,
