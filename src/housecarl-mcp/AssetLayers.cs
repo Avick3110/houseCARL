@@ -850,7 +850,7 @@ internal sealed partial class AssetLayers
                 return NifSetResult.NeedsAck(NifInPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
             bool owesConsent = !already && acknowledge;
 
-            if (_host.InPlaceConsent.ParentUnwritable(targetPath, out var why)) return NifSetResult.Fail(why, providers, profileName);
+            if (InPlaceConsent.ParentUnwritable(targetPath, out var why)) return NifSetResult.Fail(why, providers, profileName);
             try { AtomicFile.WriteAllBytes(targetPath, editedBytes); }
             catch (Exception ex) { return NifSetResult.Fail($"could not overwrite '{targetPath}' in place: {ex.Message}. Nothing was written.", providers, profileName); }
             long sz; try { sz = new FileInfo(targetPath).Length; } catch { sz = -1; }
@@ -912,7 +912,7 @@ internal sealed partial class AssetLayers
 
     /// <summary>The mesh-specific in-place consent prompt: it shares its lead with the plugin handshake and diverges after it, because a mesh write is a whole-file re-serialization.</summary>
     string NifInPlaceHandshakeText(string meshName, string path) =>
-        _host.InPlaceConsent.HandshakeLead(meshName, path, "mesh", "overwrites") +
+        InPlaceConsent.HandshakeLead(meshName, path, "mesh", "overwrites") +
         "  • The written mesh is a WHOLE-FILE re-serialization through NiflySharp's canonical writer (the way NifSkope / BodySlide rewrite a mesh on save), NOT a byte-surgical patch — then VERIFIED (only the value you edited changed; it reloads as a valid SE mesh).\n" +
         "  • It still refuses if the mesh can't be parsed or isn't a Skyrim SE stream.\n" +
         "  • The default lane (a NEW mod folder, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +

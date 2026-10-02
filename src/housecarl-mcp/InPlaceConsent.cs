@@ -24,7 +24,7 @@ internal sealed class InPlaceConsent(UserConfigStore store)
     }
 
     /// <summary>Writable-parent pre-flight for the in-place swap, probed with a sibling temp; true, with a named <paramref name="why"/>, means refuse.</summary>
-    internal bool ParentUnwritable(string targetPath, out string why)
+    internal static bool ParentUnwritable(string targetPath, out string why)
     {
         why = "";
         var dir = Path.GetDirectoryName(targetPath);
@@ -50,7 +50,7 @@ internal sealed class InPlaceConsent(UserConfigStore store)
 
     /// <summary>The opening claims both first-touch prompts make: the prompt is shown until an in-place write LANDS,
     /// and the file claim is direction-neutral. Contract in docs/architecture/write-path.md.</summary>
-    internal string HandshakeLead(string name, string path, string subject, string verb) =>
+    internal static string HandshakeLead(string name, string path, string subject, string verb) =>
         $"in-place edit of '{name}' — first-time confirmation (shown until an in-place write to this {subject} LANDS; " +
         "a call that is refused records nothing, so you may see this again):\n" +
         $"  • This {verb} your ORIGINAL file ({path}) — not a copy. houseCARL keeps NO backup or undo and cannot " +
