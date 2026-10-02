@@ -13,18 +13,6 @@ internal interface IAssetHost : ILoadOrderHost
 
     /// <summary>The installed game runtime version, or null.</summary>
     string? InstalledGameRuntime();
-
-    // Relayed from writes (the consent store) until in-place consent is its own type.
-    bool IsInPlaceAcknowledged(string path);
-
-    // Relayed from writes until in-place consent is its own type.
-    string? PersistInPlaceConsent(bool owed, string targetPath, string what, string subject);
-
-    // Relayed from writes until in-place consent is its own type.
-    bool InPlaceParentUnwritable(string targetPath, out string why);
-
-    // Relayed from writes until in-place consent is its own type.
-    string InPlaceHandshakeLead(string name, string path, string subject, string verb);
 }
 
 /// <summary>The assets area: asset status, the SKSE layer, NIF, the SkyPatcher layer scan and replay, place.</summary>
@@ -857,19 +845,19 @@ internal sealed partial class AssetLayers
             var meshName = Path.GetFileName(targetPath);
 
             // The acknowledgement is recorded only once the overwrite has landed and verified, so neither the pre-flight nor a failed write spends the caller's one-time confirmation.
-            bool already = _host.IsInPlaceAcknowledged(targetPath);
+            bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);
             if (!already && !acknowledge)
                 return NifSetResult.NeedsAck(NifInPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
             bool owesConsent = !already && acknowledge;
 
-            if (_host.InPlaceParentUnwritable(targetPath, out var why)) return NifSetResult.Fail(why, providers, profileName);
+            if (_host.InPlaceConsent.ParentUnwritable(targetPath, out var why)) return NifSetResult.Fail(why, providers, profileName);
             try { AtomicFile.WriteAllBytes(targetPath, editedBytes); }
             catch (Exception ex) { return NifSetResult.Fail($"could not overwrite '{targetPath}' in place: {ex.Message}. Nothing was written.", providers, profileName); }
             long sz; try { sz = new FileInfo(targetPath).Length; } catch { sz = -1; }
             if (sz != editedBytes.Length)
                 return NifSetResult.Fail($"wrote '{meshName}' but its on-disk size ({sz}) does not match the {editedBytes.Length} verified byte(s) — verify before relying on it.", providers, profileName);
 
-            var ackNote = _host.PersistInPlaceConsent(owesConsent, targetPath, "edit", subject: "file");
+            var ackNote = _host.InPlaceConsent.Persist(owesConsent, targetPath, "edit", subject: "file");
             return NifSetResult.OkInPlace(rel, chosenProv, providers, place.Ambiguous, editedIsWinner, report, targetPath,
                 MergeWarnings(report.Warnings, warnings, ackNote), profileName);
         }
@@ -924,7 +912,7 @@ internal sealed partial class AssetLayers
 
     /// <summary>The mesh-specific in-place consent prompt: it shares its lead with the plugin handshake and diverges after it, because a mesh write is a whole-file re-serialization.</summary>
     string NifInPlaceHandshakeText(string meshName, string path) =>
-        _host.InPlaceHandshakeLead(meshName, path, "mesh", "overwrites") +
+        _host.InPlaceConsent.HandshakeLead(meshName, path, "mesh", "overwrites") +
         "  • The written mesh is a WHOLE-FILE re-serialization through NiflySharp's canonical writer (the way NifSkope / BodySlide rewrite a mesh on save), NOT a byte-surgical patch — then VERIFIED (only the value you edited changed; it reloads as a valid SE mesh).\n" +
         "  • It still refuses if the mesh can't be parsed or isn't a Skyrim SE stream.\n" +
         "  • The default lane (a NEW mod folder, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +

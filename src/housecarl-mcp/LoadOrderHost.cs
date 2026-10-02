@@ -41,4 +41,7 @@ internal interface ILoadOrderHost
 
     /// <summary>The corpus rulebook (corpus.json), loaded once on first use.</summary>
     CorpusRulebook Rulebook { get; }
+
+    /// <summary>The in-place consent over the user config store, one per service.</summary>
+    InPlaceConsent InPlaceConsent { get; }
 }

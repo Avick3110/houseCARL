@@ -6,7 +6,7 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlMcp;
 
 /// <summary>Owns the load-order resolver's lifecycle and is the one place the tools reach the core engines; contract in docs/architecture/load-order-service.md.</summary>
-public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHost, IReadHost, IOutputHost
+public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHost, IReadHost, IOutputHost, IWriteHost
 {
     string? _instanceDir;                          // INSTANCE-mode source of truth; null in explicit/unconfigured mode
     string _dataDir;                               // DERIVED (instance mode) or configured (explicit); mutable for a live profile switch
@@ -16,6 +16,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     string _overwriteDir = "";                     // MO2's overwrite layer (instance mode: derived; explicit mode: none)
     bool _configured;                              // false ⇒ tools return the trained prompt instead of resolving
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
+    readonly InPlaceConsent _inPlaceConsent;       // the in-place consent over _store; writes and assets take it through the door
+    InPlaceConsent ILoadOrderHost.InPlaceConsent => _inPlaceConsent;
     readonly int _maxPlugins;
     readonly object _gate = new();
     readonly OutputLocations _outputLocations;     // the output area; built in the constructor over this head
@@ -54,6 +56,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         _configured = configured;
         _maxPlugins = maxPlugins;
         _store = store;
+        _inPlaceConsent = new InPlaceConsent(_store);
         // Absolute first, so a bare-filename store is not resolved against the working directory at each spill. A
         // full file path always has a parent folder; only a bare root has none, and that is its own folder.
         var storePath = Path.GetFullPath(store.FilePath);
@@ -138,6 +141,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     /// <summary>The same door for a WRITE verb's tokens, which refuses a runtime FormID.</summary>
     internal FormIdDoor OpenWriteFormIdDoor() => FormIdDoor.ForWrite(this);
+    FormIdDoor IWriteHost.OpenWriteFormIdDoor() => OpenWriteFormIdDoor();
 
     /// <summary>The resolver, built on first access and kept fresh on every later one; throws if the roots yield no plugins.</summary>
     LoadOrderResolver Resolver
@@ -246,11 +250,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) =>
         new(view, AssetWarningsLocked(), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild);
 
-    // Rows the areas take from one another, relayed here: writes until it is its own class; the assets replay for reads.
-    bool IAssetHost.IsInPlaceAcknowledged(string path) => _store.IsInPlaceAcknowledged(path);
-    string? IAssetHost.PersistInPlaceConsent(bool owed, string targetPath, string what, string subject) => PersistInPlaceConsent(owed, targetPath, what, subject);
-    bool IAssetHost.InPlaceParentUnwritable(string targetPath, out string why) => InPlaceParentUnwritable(targetPath, out why);
-    string IAssetHost.InPlaceHandshakeLead(string name, string path, string subject, string verb) => InPlaceHandshakeLead(name, path, subject, verb);
+    // Rows the areas take from one another, relayed here: the assets replay for reads.
     AssetLayers.SkyPatcherReplay? IReadHost.OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
                                                                  LoadOrderResolver.OverlaySession session, out string? draftRefusal,
                                                                  SkyPatcherDraft.Plan? draft, SkyPatcherOverlay.WarningSink? draftWarnings)
@@ -900,6 +900,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     }
 
     OutputRoots IOutputHost.ConfiguredRoots() => ConfiguredRoots();
+    OutputRoots IWriteHost.ConfiguredRoots() => ConfiguredRoots();
 
     /// <summary>The four roots as they stand; caller holds <see cref="_gate"/>.</summary>
     Mo2Roots RootsLocked() => new(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir);
