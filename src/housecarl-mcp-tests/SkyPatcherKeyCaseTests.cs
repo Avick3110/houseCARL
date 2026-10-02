@@ -31,8 +31,13 @@ public sealed class SkyPatcherKeyCaseTests
         Assert.Equal("RACE", mixed.BaseKey);   // a response names the key as the line spells it
     }
 
-    [Fact]
-    public void AnNpcLineSpelledFilterByNPCsChangesThePostStateRace()
+    // {me} is the NPC's own address; each spelling reaches a different key lookup (catalog, field-map op, built-in filter, field-map filter)
+    [Theory]
+    [InlineData("filterByNPCs={me}:race=UBE_AllRace.esp|5A184")]
+    [InlineData("filterByNpcs={me}:RACE=UBE_AllRace.esp|5A184")]
+    [InlineData("filterByEditorIDContains=HcCase:race=UBE_AllRace.esp|5A184")]
+    [InlineData("FILTERBYRACES=Skyrim.esm|13746:race=UBE_AllRace.esp|5A184")]
+    public void AMixedCaseNpcLineChangesThePostStateRace(string text)
     {
         var mod = new SkyrimMod(new ModKey("HcSpCase", ModType.Plugin), SkyrimRelease.SkyrimSE);
         var npc = mod.Npcs.AddNew();
@@ -43,7 +48,7 @@ public sealed class SkyPatcherKeyCaseTests
 
         var r = Apply(npc, npc.FormKey, npc.EditorID, "npc", "Npc", new StubResolver(),
             Line("OriSeranaUBE.esp.ini", 1, "#Change Serana race to UBE Nord"),
-            Line("OriSeranaUBE.esp.ini", 2, $"filterByNPCs=HcSpCase.esp|{npc.FormKey.ID:X}:race=UBE_AllRace.esp|5A184"));
+            Line("OriSeranaUBE.esp.ini", 2, text.Replace("{me}", $"HcSpCase.esp|{npc.FormKey.ID:X}")));
 
         Assert.Equal(ube, npc.Race.FormKey);
         Assert.Equal(0, r.LinesSkippedUnresolvedFilter);
