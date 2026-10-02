@@ -179,7 +179,7 @@ public static class SkyPatcherOverlay
     static readonly FormKey PlayerFormKey = FaceGenCheck.PlayerFormKey;
 
     /// <summary>The filter base names the overlay evaluates without a field-map spec; shared with the filtermap coverage guard.</summary>
-    public static readonly IReadOnlySet<string> BuiltInFilterBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    public static readonly IReadOnlySet<string> BuiltInFilterBases = new HashSet<string>(StringComparer.Ordinal)
     {
         "filterByKeywords", "restrictToKeywords", "filterByEditorIdContains", "filterByNameContains",
         "filterByModNames", "skipRecordByModNameContains", "modNamesLastOverridden",
