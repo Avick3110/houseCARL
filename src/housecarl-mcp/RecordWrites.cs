@@ -709,7 +709,7 @@ internal sealed partial class RecordWrites
         var baseStem = OutputLocations.PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
         var active = OutputLocations.ActivePluginBasenames(roots, snapshot.BuiltPluginNames);
         // Every record lane that reaches here declares patch= and writes "<stem>.esp".
-        lock (_output.FolderAllocationGate)                            // the same allocation lock as the rider lanes
+        lock (_output.FolderAllocationGate)                             // the same allocation lock as the rider lanes
         {
             var freeStem = OutputLocations.UniqueStem(roots, active, baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
                                       new PatchStemShadow.Target(s => s + ".esp", "patch"), refuseTaken);

@@ -35,7 +35,7 @@ internal sealed partial class RecordWrites
             var folder = Path.Combine(roots.ModsDir, OutputLocations.ModFolderName(stem));
             var plugin = stem + ".esp";
             var active = OutputLocations.ActivePluginBasenames(roots, snapshot.BuiltPluginNames);   // before the lock: may build the order
-            lock (_output.FolderAllocationGate)                         // the same allocation lock as the other fresh-folder sites
+            lock (_output.FolderAllocationGate)                          // the same allocation lock as the other fresh-folder sites
             {
                 // (b) a houseCARL mod folder of this exact name already exists — don't overwrite (could clobber a real patch
                 //     sharing the name) and don't auto-rename (would break the basename trigger): refuse and point at it.
