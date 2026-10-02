@@ -170,8 +170,8 @@ prefix so a throwing lane and a returning lane can both use it.
 
 `src/housecarl-mcp/OutputLocations.cs` holds the output folders, the ownership marker, `into=`, the stem suffix,
 `out_path=`, the `.seq` writer and the on-disk plugin locate, as the class `OutputLocations`, which the head builds over
-itself and hands, as the same instance, to `AssetLayers`; what it takes from the head is `IOutputHost` at the top of that file (`ConfiguredRoots()`, one hold for the
-configured check, the roots and the built plugin names), plus `WriteGate` from the shared door. The folder allocation
+itself and hands, as the same instance, to `AssetLayers`; what it takes from the head is `IOutputHost` at the top of that file, which adds nothing to the shared door: `ConfiguredRoots()` (one hold for the
+configured check, the roots and the built plugin names) and `WriteGate`. The folder allocation
 lock, `FolderAllocationGate`, is the class's; the write lanes take the same one. `src/housecarl-mcp/PatchStemShadow.cs`
 is the shadow sweep a fresh stem runs; `src/housecarl-mcp/SeqTools.cs` is `housecarl_write_seq`'s tool front.
 `src/housecarl-mcp/Artifacts.cs` is what a response says when its result lives in an artifact, including the owned-child

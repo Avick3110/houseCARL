@@ -899,8 +899,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         }
     }
 
-    OutputRoots IOutputHost.ConfiguredRoots() => ConfiguredRoots();
-    OutputRoots IWriteHost.ConfiguredRoots() => ConfiguredRoots();
+    OutputRoots ILoadOrderHost.ConfiguredRoots() => ConfiguredRoots();
 
     /// <summary>The four roots as they stand; caller holds <see cref="_gate"/>.</summary>
     Mo2Roots RootsLocked() => new(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir);
