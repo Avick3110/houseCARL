@@ -52,7 +52,9 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
             var resolver = Resolver;                                      // builds/refreshes the index
-            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
+            // Cannot throw once Resolver succeeded: it derived the roots, nothing empties them, and SetInstance waits for the write gate.
+            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var roots = snapshot.Roots;
             var rulebook = Rulebook;
             InsideWriteGateForGuard?.Invoke();                            // test seam; null in the product
 
@@ -73,7 +75,7 @@ public sealed partial class LoadOrderService
 
             // A dry run resolves the would-be output path WITHOUT creating the mod folder; the fresh name is only a preview.
             string outPath; bool extend, created;
-            try { outPath = ResolveOutputPath(roots, patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
+            try { outPath = ResolveOutputPath(snapshot, patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
             catch (Exception ex) { return WritePatchBuilder.PatchOutcome.Fail(ex.Message); }
 
             // Pre-resolve any CopyFrom source that is off-order; an active-order source is resolved inside Apply.
@@ -510,14 +512,15 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                 // removal re-serializes the patch — same gate
         {
             var resolver = Resolver;                                      // builds/refreshes the index and the overlays for the re-serialize
-            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
+            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var roots = snapshot.Roots;
 
             if (inPlace)
                 return RemoveRecordsInPlace(resolver, roots, keys, target!.Trim(), acknowledge);
 
             // Resolve and ownership-gate the patch the way an extend does; no fresh-patch remedy is offered on this lane.
             string outPath;
-            try { outPath = ResolveOutputPath(roots, patchName: null, into: patch, out _, out _,
+            try { outPath = ResolveOutputPath(snapshot, patchName: null, into: patch, out _, out _,
                                               noFreshRule: WriteSentences.RemoveNoFreshPatch); }
             catch (Exception ex) { return WritePatchBuilder.RemovalOutcome.Fail(ex.Message); }
 
@@ -615,7 +618,8 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
             var resolver = Resolver;                                      // builds/refreshes the index and the overlays for the source fetch and serialize
-            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
+            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var roots = snapshot.Roots;
 
             // A source the active order does not contain is located and pre-fetched here, on both lanes; its overlay outlives the serialize.
             var offOrder = ResolveOffOrderForwardSource(resolver, roots, fp, specs, out var offOverlay, out var offEpoch, out var offError, out var sourceName);
@@ -631,7 +635,7 @@ public sealed partial class LoadOrderService
 
                 // A dry run resolves the would-be output path without creating the mod folder.
                 string outPath; bool extend, created;
-                try { outPath = ResolveOutputPath(roots, patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
+                try { outPath = ResolveOutputPath(snapshot, patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
                 // Stamped like every post-capture outcome: the source resolve above already consulted the build.
                 catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message) with { Stamp = offEpoch }; }
 
@@ -709,11 +713,12 @@ public sealed partial class LoadOrderService
     /// <paramref name="into"/> an existing houseCARL-owned one, with <paramref name="createdFolder"/> reporting whether THIS
     /// call cut it. The remedy arguments and the one-gate rule: docs/architecture/write-path.md. Where output lands:
     /// docs/architecture/output-and-artifacts.md.</summary>
-    string ResolveOutputPath(Mo2Roots roots, string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
+    string ResolveOutputPath(OutputRoots snapshot, string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
                              FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? noFreshRule = null,
                              bool? stemFromCaller = null, OutputLocations.StemRefusal? refuseTaken = null)
     {
         createdFolder = false;
+        var roots = snapshot.Roots;
         if (!Directory.Exists(roots.ModsDir))
             throw new InvalidOperationException($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
 
@@ -731,8 +736,7 @@ public sealed partial class LoadOrderService
 
         extend = false;
         var baseStem = OutputLocations.PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
-        // Raw read of a best-effort set. It agrees with roots only because no lane calls the Resolver or Assets getter between its capture and this call.
-        var active = OutputLocations.ActivePluginBasenames(roots, _resolver?.PluginNames);
+        var active = OutputLocations.ActivePluginBasenames(roots, snapshot.BuiltPluginNames);
         // Every record lane that reaches here declares patch= and writes "<stem>.esp".
         lock (_outputLocations.FolderAllocationGate)                    // the same allocation lock as the rider lanes
         {
