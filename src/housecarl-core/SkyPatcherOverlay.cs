@@ -179,7 +179,7 @@ public static class SkyPatcherOverlay
     static readonly FormKey PlayerFormKey = FaceGenCheck.PlayerFormKey;
 
     /// <summary>The filter base names the overlay evaluates without a field-map spec; shared with the filtermap coverage guard.</summary>
-    public static readonly IReadOnlySet<string> BuiltInFilterBases = new HashSet<string>(StringComparer.Ordinal)
+    public static readonly IReadOnlySet<string> BuiltInFilterBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "filterByKeywords", "restrictToKeywords", "filterByEditorIdContains", "filterByNameContains",
         "filterByModNames", "skipRecordByModNameContains", "modNamesLastOverridden",
@@ -280,7 +280,7 @@ public static class SkyPatcherOverlay
         if (spec is not null)
             return EvaluateSpec(record, cls, seg, conn, spec, fieldMap!, resolver, warn);
 
-        switch (cls.BaseKey)
+        switch (cls.Filter!.Name)
         {
             case "filterByKeywords":
             case "restrictToKeywords":   // post-match narrowing; for ONE record that's the same verdict

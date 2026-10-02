@@ -17,8 +17,8 @@ public sealed class SkyPatcherCatalog
     readonly Dictionary<string, RecordLookup> _lookup;                    // subfolder (case-insensitive) → name maps
 
     sealed record RecordLookup(
-        Dictionary<string, SkyPatcherFilterDef> Filters,   // base filter name (ordinal) → def
-        Dictionary<string, SkyPatcherOpDef> Operations);   // op name (ordinal) → def
+        Dictionary<string, SkyPatcherFilterDef> Filters,   // base filter name (case-insensitive) → def
+        Dictionary<string, SkyPatcherOpDef> Operations);   // op name (case-insensitive) → def
 
     SkyPatcherCatalog(IReadOnlyList<SkyPatcherRecordCatalog> records)
     {
@@ -27,11 +27,11 @@ public sealed class SkyPatcherCatalog
         _lookup = new(StringComparer.OrdinalIgnoreCase);
         foreach (var r in records)
         {
-            // Subfolders match case-insensitively; filter/op key names match case-sensitively as documented.
+            // Subfolders and filter/op key names match case-insensitively, as SkyPatcher does.
             _bySubfolder[r.Subfolder] = r;
             _lookup[r.Subfolder] = new RecordLookup(
-                r.Filters.ToDictionary(f => f.Name, f => f, StringComparer.Ordinal),
-                r.Operations.ToDictionary(o => o.Name, o => o, StringComparer.Ordinal));
+                r.Filters.ToDictionary(f => f.Name, f => f, StringComparer.OrdinalIgnoreCase),
+                r.Operations.ToDictionary(o => o.Name, o => o, StringComparer.OrdinalIgnoreCase));
         }
         _connectiveSuffixes = records.SelectMany(r => r.Filters).SelectMany(f => f.Connectives)
             .Where(c => c.Length > 0).Distinct(StringComparer.Ordinal)
@@ -54,7 +54,7 @@ public sealed class SkyPatcherCatalog
             return new SkyPatcherKeyClass(SkyPatcherKeyRole.Filter, key, "", bare, null);
 
         foreach (var c in _connectiveSuffixes)
-            if (key.Length > c.Length && key.EndsWith(c, StringComparison.Ordinal))
+            if (key.Length > c.Length && key.EndsWith(c, StringComparison.OrdinalIgnoreCase))
             {
                 var baseKey = key[..^c.Length];
                 if (lk.Filters.TryGetValue(baseKey, out var f) && f.Connectives.Contains(c))
@@ -188,7 +188,7 @@ public sealed record SkyPatcherRecordCatalog(
     IReadOnlyList<SkyPatcherOpDef> Operations,
     string? Note);
 
-/// <summary>One segment key's classification: a filter with its connective-stripped <see cref="BaseKey"/>, an <see cref="Operation"/>, or Unknown.</summary>
+/// <summary>One segment key's classification: a filter with its connective-stripped <see cref="BaseKey"/> (the line's own spelling), an <see cref="Operation"/>, or Unknown.</summary>
 public sealed record SkyPatcherKeyClass(
     SkyPatcherKeyRole Role,
     string BaseKey,

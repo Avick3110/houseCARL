@@ -32,7 +32,7 @@ enum member cannot survive CI; only a semantically-wrong-but-existing field can.
 ### The grammar
 
 ```
-line         := ';' comment | blank | patch | '[' label ']'
+line         := (';' | '#') comment | blank | patch | '[' label ']'
 patch        := segment ( ':' segment )*
 segment      := key '=' value
 value        := item ( ',' item )*
@@ -47,6 +47,9 @@ or with an empty key, is captured as a loud `Note` **and still surfaced** — it
 a segment. An empty `:`-segment or `,`-item (a stray or doubled delimiter) is noted and then
 **skipped**, contributing nothing. So `filterByNpcs=X::level=5` yields a `Note` plus **two**
 segments, not three, and the segment count of a noted line cannot be used to count delimiters.
+
+Key names match without regard to case, as SkyPatcher does: `filterByNPCs` is `filterByNpcs`.
+A response names a key as the line spells it.
 
 ### Addressing: `Plugin.esp|FormID`
 
