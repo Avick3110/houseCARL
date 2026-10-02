@@ -621,7 +621,7 @@ sealed class BlockedReportFixture : IDisposable
             using var resolver = LoadOrderResolver.Build(new[] { PatchPath });
             using var assets = AssetResolver.Build("", mods, dataDir, new[] { BlockedMod },
                                                    Array.Empty<ActiveArchive>());
-            // PRODUCTION ORDER — voice then binding, as RecordWrites enriches the outcome. It matters: each check
+            // PRODUCTION ORDER — voice then binding, as RecordCreates enriches the outcome. It matters: each check
             // materialises the root list at its own return off a dictionary that fills lazily, so the first one carries
             // the shorter list, and a render that took either alone would name the wrong folder.
             Voice = VoiceCheck.Run(PatchPath, created, resolver, assets);
