@@ -28,7 +28,13 @@ public sealed class DegradedOrderMarkerTests
 
     static JsonElement Je(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
-    const string Clause = "1 plugin(s) excluded (load failure)";
+    /// <summary>The check heads' clause: the names only, since the same response prints the reasons (#1036).</summary>
+    static string CheckClause => $"1 plugin(s) excluded (load failure): {EpochWorld.BadName}";
+
+    /// <summary>Every other lane's clause: the names and where the reasons are.</summary>
+    static string Clause => $"{CheckClause} — reason in housecarl_load_order_status";
+
+    string Epoch => Svc.Stats().epoch;
 
     /// <summary>The json marker: the flag, and the sentence saying which plugin, that it is a failure, and where the
     /// reason is.</summary>
@@ -66,7 +72,7 @@ public sealed class DegradedOrderMarkerTests
         AssertMarked(JsonDocument.Parse(json).RootElement);
 
         var text = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Eid);
-        Assert.Contains(Clause, text);
+        Assert.Contains($"epoch={Epoch} · {Clause}", text);
     }
 
     /// <summary>The merged check: the errors family's own head, and the response ROOT. The root is the lane a
@@ -94,6 +100,16 @@ public sealed class DegradedOrderMarkerTests
 
         Assert.Contains(EpochWorld.BadName, text);
         Assert.Contains("load FAILURE", text);
+        // The errors head names the plugin beside its stamp, and ends there: the reasons are printed below it.
+        Assert.Contains($"epoch={Epoch} · {CheckClause}\n", text);
+    }
+
+    [Fact]
+    public void TheCheckScriptsHeadNamesTheExcludedPluginBesideItsStamp()
+    {
+        var text = CheckTools.CheckTool(Svc, findings: new[] { "scripts" });
+
+        Assert.Contains($"epoch={Epoch} · {CheckClause}\n", text);
     }
 
     /// <summary>A DIALOGUE-ONLY check. Before the root marker existed this response was silent about an order missing
@@ -127,7 +143,7 @@ public sealed class DegradedOrderMarkerTests
         Assert.False(fam.TryGetProperty("order_degraded_note", out _));
 
         var text = CheckTools.CheckTool(Svc, findings: new[] { "dialogue" }, seeds: new[] { seed });
-        Assert.Contains($"epoch={Svc.Stats().epoch} · {Clause}", text);
+        Assert.Contains($"epoch={Epoch} · {CheckClause} — the record build", text);
     }
 
     /// <summary>The write lane, on a dry run so the shared world is not touched. A write's stamp is what tells a
@@ -140,7 +156,7 @@ public sealed class DegradedOrderMarkerTests
             ops: Je($@"[{{""formid"":""{Fid}"",""field_path"":""BasicStats.Damage"",""op"":""Set"",""value"":""12""}}]"),
             dry_run: true);
 
-        Assert.Contains(Clause, text);
+        Assert.Contains($"epoch={Epoch} · {Clause}", text);
     }
 }
 
