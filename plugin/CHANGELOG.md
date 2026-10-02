@@ -39,7 +39,7 @@ made the change.
 - **`housecarl_records` delta and tree now time their reads as they go and refuse only once the call would pass ten
   minutes, naming the measured rate.** A whole-record delta over 1,276 ids runs.
 - **A text response on an order that lost plugins to a load failure now names them beside the epoch, up to three
-  then `+N more`, and points at `housecarl_load_order_status` for the reason.**
+  then `+N more`, and points at `housecarl_load_order_status` for the reason unless the response prints it.**
 
 ## 2.0.3 — 2026-09-23
 
