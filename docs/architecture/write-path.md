@@ -1,11 +1,12 @@
 ---
-updated: 2026-09-29
-covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/WriteSentences.cs, src/housecarl-core/WriteEngine.cs,
+updated: 2026-10-02
+covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/RecordCopy.cs, src/housecarl-mcp/RecordCreates.cs,
+  src/housecarl-mcp/RecordReshape.cs, src/housecarl-mcp/WriteMappers.cs, src/housecarl-mcp/WriteSentences.cs, src/housecarl-core/WriteEngine.cs,
   src/housecarl-core/WriteVerbs.cs, src/housecarl-core/RemapEngine.cs, src/housecarl-core/ClosureCopy.cs,
   src/housecarl-core/MergeInjection.cs, src/housecarl-core/MergeLoadPosition.cs,
   src/housecarl-core/WritePatchBuilder.cs,
   src/housecarl-mcp/ApplyTools.cs, src/housecarl-mcp/CreateTools.cs, src/housecarl-mcp/ForwardTools.cs,
-  src/housecarl-mcp/RemoveTools.cs, src/housecarl-mcp/WriteTools.cs,
+  src/housecarl-mcp/RemoveTools.cs, src/housecarl-mcp/CopyTools.cs, src/housecarl-mcp/WriteTools.cs,
   src/housecarl-mcp/WriteTextRender.cs, src/housecarl-core/LocalizedStrings.cs, src/housecarl-core/SubrecordInventory.cs]
 ---
 # The write path, service side
@@ -526,13 +527,11 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   three-answer folder reads.
 
 ## Where
-- `src/housecarl-mcp/RecordWrites.cs` — the lanes: `ApplyEdits`, `CreateRecordsBatch` / `CommitCreate`,
-  `RemoveRecords`, `ForwardRecords`, `CopyClosure`, `CompactPlugin`, `MergePlugins`, `CreatePlugin`; the first four
-  carry the `…InPlace` branch (`ApplyEditsInPlace`, `CommitCreateInPlace`, `RemoveRecordsInPlace`,
-  `ForwardRecordsInPlace`), while compact overwrites inside its own lane. Plus the shared in-place seams
-  (`ResolveActivePluginPath`, `InPlaceHandshakeText`,
-  `PersistInPlaceConsent`, `InPlaceParentUnwritable`, `MergeEditedInPlaceMarker`, `SeqStaleInPlaceNote`) and the wire
-  mappers (`MapEdit`, `MapCreateEdit`, `MapStruct`, `MapComposes`).
+- `src/housecarl-mcp/RecordWrites.cs` — `ApplyEdits`, `RemoveRecords`, `ForwardRecords` and their `…InPlace` branches, the shared in-place seams, `ResolveOutputPath`.
+- `src/housecarl-mcp/RecordCopy.cs` — the closure copy: `BuildSourceChain`, `CopyClosure`.
+- `src/housecarl-mcp/RecordCreates.cs` — `CreateRecordsBatch`, `BuildCreateSpec`, `CommitCreate`, `CommitCreateInPlace`, the post-write `EnrichWith*` checks.
+- `src/housecarl-mcp/RecordReshape.cs` — the plugin-level lanes: `CreatePlugin`, `CompactPlugin` (which overwrites inside its own lane), `MergePlugins`.
+- `src/housecarl-mcp/WriteMappers.cs` — the wire mappers: `MapEdit`, `MapCreateEdit`, `MapStruct`, `MapComposes`.
 - `src/housecarl-mcp/WriteSentences.cs` — the catalogue, `WriteSentences.Twins`, and the `[MustState]` /
   `[NoClaims]` attributes.
 - `src/housecarl-core/WriteEngine.cs` — the reflection-driven engine underneath every lane: the patch-mod lifecycle
