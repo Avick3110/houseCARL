@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
-/// <summary>Everything the writes area takes from outside itself beyond the shared door.</summary>
+/// <summary>What the writes area takes from the head beyond the shared door; it still reaches the output instance directly, until writes becomes its own class and takes it in its constructor.</summary>
 internal interface IWriteHost : ILoadOrderHost
 {
     /// <summary>A FormID door for a write verb's tokens, which refuses a runtime FormID.</summary>
@@ -19,7 +19,7 @@ public sealed partial class LoadOrderService
 {
     // ---- writes ----------------------------------------------------------------------------------------
 
-    /// <summary>Every head member this area takes, and nothing else.</summary>
+    /// <summary>The head members this area takes; the output instance is still reached directly, until writes becomes its own class and takes it in its constructor.</summary>
     IWriteHost Host => this;
 
     /// <summary>Test seam: invoked once inside <see cref="ApplyEdits"/>'s write gate; null in the product.</summary>
