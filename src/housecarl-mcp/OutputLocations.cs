@@ -8,8 +8,6 @@ namespace HousecarlMcp;
 /// <summary>Everything the output area takes from outside itself.</summary>
 internal interface IOutputHost : ILoadOrderHost
 {
-    /// <summary>The configured check, the four roots and the built resolver's plugin names in one hold of the head's index lock; throws the unconfigured prompt when there is no instance.</summary>
-    OutputRoots ConfiguredRoots();
 }
 
 /// <summary>The roots and the built resolver's plugin names, null when none is built, from one hold of the head's index lock, so a stem check never mixes two instances.</summary>

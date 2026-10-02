@@ -10,9 +10,6 @@ internal interface IWriteHost : ILoadOrderHost
 {
     /// <summary>A FormID door for a write verb's tokens, which refuses a runtime FormID.</summary>
     FormIdDoor OpenWriteFormIdDoor();
-
-    /// <summary>The configured check, the four roots and the built resolver's plugin names in one hold of the head's index lock.</summary>
-    OutputRoots ConfiguredRoots();
 }
 
 public sealed partial class LoadOrderService

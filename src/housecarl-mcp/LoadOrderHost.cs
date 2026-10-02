@@ -42,6 +42,9 @@ internal interface ILoadOrderHost
     /// <summary>The corpus rulebook (corpus.json), loaded once on first use.</summary>
     CorpusRulebook Rulebook { get; }
 
+    /// <summary>The configured check, the four roots and the built resolver's plugin names in one hold of the head's index lock; throws the unconfigured prompt when there is no instance.</summary>
+    OutputRoots ConfiguredRoots();
+
     /// <summary>The in-place consent over the user config store, one per service.</summary>
     InPlaceConsent InPlaceConsent { get; }
 }
