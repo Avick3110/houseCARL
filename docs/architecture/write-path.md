@@ -528,6 +528,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   three-answer folder reads.
 
 ## Where
+The writes area is one class, `RecordWrites`, across `RecordWrites.cs`, `RecordCopy.cs`, `RecordCreates.cs`,
+`RecordReshape.cs` and `WriteMappers.cs`. The head builds it over itself (`IWriteHost`, declared at the top of
+`RecordWrites.cs`) and the `OutputLocations` instance, and reaches it through one-line delegators
+([`load-order-service.md`](load-order-service.md)).
 - `src/housecarl-mcp/RecordWrites.cs` — among others: `ApplyEdits`, `RemoveRecords`, `ForwardRecords` and their
   `…InPlace` branches, the shared in-place seams (`ResolveActivePluginPath`, `InPlaceHandshakeText`,
   `MergeEditedInPlaceMarker`, `SeqStaleInPlaceNote`), the
