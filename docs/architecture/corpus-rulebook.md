@@ -173,8 +173,8 @@ A literal FormID mixed in beside siblings IS type-checked; a sibling is not, bec
 `src/housecarl-core/CorpusRulebook.cs` holds the rulebook: `Validate`, `CollectLinkValues`, and the two derived
 rulebooks `WithLinkHarvest` and `WithLinkTargets`. `src/housecarl-core/WriteEngine.cs` holds the apply path and the
 recognisers the gate shares with it (`IsValidListIndexValue`, `IsValidFormLinkValue`, `IsFormLinkOrIndex`,
-`TryRecognizeCtorArgs`, `TryRecognizeInstantiable`). No tool of its own: it is the pre-flight of the write lanes in
-`src/housecarl-mcp/RecordWrites.cs`, reached through `housecarl_apply` and `housecarl_create`.
+`TryRecognizeCtorArgs`, `TryRecognizeInstantiable`). No tool of its own: it is the pre-flight of the write lanes,
+reached through `housecarl_apply` (in `src/housecarl-mcp/RecordWrites.cs`) and `housecarl_create` (in `src/housecarl-mcp/RecordCreates.cs`).
 `src/housecarl-mcp/TypeLookup.cs` holds the corpus-backed type lookup (a `type=` string to its getter types)
 that the read, check, write and asset lanes resolve types through. It is its own shared type, `TypeLookup`, whose map is built
 from the corpus on the first resolution that needs it (an absent type set never builds it); the head holds one per
