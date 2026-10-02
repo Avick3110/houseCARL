@@ -112,8 +112,16 @@ prefix so a throwing lane and a returning lane can both use it.
 
 ## Pinned by
 
-- *Where output lands*, ownership: *No test pins the fail-safe direction.*
-- *Where output lands*, `into=`: *No test pins the arm order.*
+- *Where output lands*, ownership: `ExtendResolveRenamedPatchTests.AnUnownedHousecarlFolderIsRefusedOnBothLanesAndLeftByteIntact`
+  pins the refusal of an unmarked folder on the record and rider lanes, with its plugin left byte-intact, and
+  `ExtendResolveRefusalTests.EveryWriteToolsUnownedRefusalNamesTheCandidatesAndNoInPlaceLane` the same refusal on
+  every write tool; both folders have no `meta.ini` at all. *These do not pin a `meta.ini` present with the marker
+  stripped.*
+- *Where output lands*, `into=`: `ExtendResolveRenamedPatchTests` pins each arm alone (canonical folder, by-plugin,
+  by-folder name, ambiguous, two-plugin). By-plugin before the folder-name catch-all is pinned by
+  `ExtendResolveCandidateTests.AFolderWhoseNameResolvesElsewhereIsOfferedByItsPluginAndThatSpellingResolves`. *No test pins
+  the canonical folder before by-plugin: no test has both a canonical folder and another owned folder holding its
+  `.esp`.*
 - *Where output lands*, `into=` on the copy lane: `CopyServiceLaneTests` — a patch that does not exist refuses offering
   to create it fresh, the patch's own `.esp` name extends it, and a refusal after a fresh folder was cut leaves no folder.
 - *Where output lands*, the shadowing stem: `PatchStemShadowTests.AStemThatWouldShadowAnInactivePluginInAForeignModFolderIsRefused`,
