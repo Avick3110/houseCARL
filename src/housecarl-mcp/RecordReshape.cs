@@ -17,11 +17,11 @@ public sealed partial class LoadOrderService
             return WritePatchBuilder.CreatePluginOutcome.Fail(
                 $"patch '{pluginName}' has no usable name once path parts and the plugin extension are stripped — give a plain name like 'MyTrigger'.");
 
-        lock (_writeGate)                                                 // one write at a time, resolve through commit
+        lock (Host.WriteGate)                                            // one write at a time, resolve through commit
         {
             // The view first: check (a) reads it, and the capture below then carries the built plugin names.
-            var view = Resolver.Capture();
-            var snapshot = ConfiguredRoots();                             // before the allocation lock, which never wraps an index-lock hold
+            var view = Host.Resolver.Capture();
+            var snapshot = Host.ConfiguredRoots();                        // before the allocation lock, which never wraps an index-lock hold
             var roots = snapshot.Roots;
             if (!Directory.Exists(roots.ModsDir))
                 return WritePatchBuilder.CreatePluginOutcome.Fail($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
@@ -71,10 +71,10 @@ public sealed partial class LoadOrderService
         if (string.IsNullOrWhiteSpace(pluginName))
             return WritePatchBuilder.CompactOutcome.Fail("plugin is required — name the plugin filename to compact (e.g. 'CoolMod.esp').");
 
-        lock (_writeGate)                                                 // one write at a time; the whole resolve→build→repoint runs under it
+        lock (Host.WriteGate)                                            // one write at a time; the whole resolve→build→repoint runs under it
         {
-            var resolver = Resolver;                                      // builds/refreshes; reentrant with _writeGate
-            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var resolver = Host.Resolver;                                 // builds/refreshes; reentrant with _writeGate
+            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
             var view = resolver.Capture();
             if (!Directory.Exists(roots.ModsDir))
@@ -244,7 +244,7 @@ public sealed partial class LoadOrderService
                 return WritePatchBuilder.CompactOutcome.Confirm(c.ToString());
             }
             // Pre-flight that the in-place target's parent is writable before any work.
-            if (inPlace && InPlaceParentUnwritable(srcPath, out var unwritable))
+            if (inPlace && Host.InPlaceConsent.ParentUnwritable(srcPath, out var unwritable))
                 return WritePatchBuilder.CompactOutcome.Fail(unwritable);
 
             // The round-trip check (#961) on every file this call rewrites in place, before any of them is written.
@@ -290,7 +290,7 @@ public sealed partial class LoadOrderService
             var srcSeqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(srcPath)}.seq";
             try
             {
-                var assetView = Assets.Capture();
+                var assetView = Host.Assets.Capture();
                 seqGate = assetView.ResolveForPlacement(srcSeqRel).Sources.Count > 0;   // VFS-aware (loose roots + active BSAs)
                 var outDir = Path.GetDirectoryName(outPath)!;
                 assetRename = AssetRenameService.CarryFaceGen(outPath, remapDict, assetView, outDir);
@@ -483,10 +483,10 @@ public sealed partial class LoadOrderService
         if (donorsRaw.Any(d => string.Equals(d, outName, StringComparison.OrdinalIgnoreCase)))
             return WritePatchBuilder.MergeOutcome.Fail($"the output '{outName}' (the plugin patch='{patchName}' names) cannot also be a donor — pass patch= a NEW name.");
 
-        lock (_writeGate)                                                 // one write at a time
+        lock (Host.WriteGate)                                            // one write at a time
         {
-            var resolver = Resolver;
-            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var resolver = Host.Resolver;
+            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
             var view = resolver.Capture();
             if (!Directory.Exists(roots.ModsDir))
@@ -635,7 +635,7 @@ public sealed partial class LoadOrderService
             bool? seqGate = null;                                          // the VFS answer, set the moment the view resolves
             try
             {
-                var assetView = Assets.Capture();
+                var assetView = Host.Assets.Capture();
                 seqGate = false;                                          // the view resolved — the answer below is authoritative
                 foreach (var (dName, _, _, _) in donorInfos)              // did any donor ship a .seq? VFS-aware, per donor
                     if (assetView.ResolveForPlacement($@"SEQ\{Path.GetFileNameWithoutExtension(dName)}.seq").Sources.Count > 0)

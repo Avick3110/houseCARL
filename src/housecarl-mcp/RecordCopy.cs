@@ -154,10 +154,10 @@ public sealed partial class LoadOrderService
         FormKey? targetKey, string? newEditorid,
         string? patchName, string? into)
     {
-        lock (_writeGate)
+        lock (Host.WriteGate)
         {
-            var resolver = Resolver;
-            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var resolver = Host.Resolver;
+            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
             var view = resolver.Capture();
             using var session = resolver.OpenSession();
@@ -251,8 +251,8 @@ public sealed partial class LoadOrderService
     // Holds no write gate, unlike every lane, so another thread's refresh can move the roots under it; a test seam only.
     internal T WithSourceChainForGuard<T>(IReadOnlyList<string> poles, string paramName, Func<SourceChain?, string?, T> body)
     {
-        var resolver = Resolver;
-        var roots = ((ILoadOrderHost)this).CaptureRoots();
+        var resolver = Host.Resolver;
+        var roots = Host.CaptureRoots();
         var view = resolver.Capture();
         using var session = resolver.OpenSession();
         var overlays = new List<IDisposable>();

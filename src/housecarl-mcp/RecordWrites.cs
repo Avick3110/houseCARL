@@ -5,9 +5,22 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
+/// <summary>Everything the writes area takes from outside itself beyond the shared door.</summary>
+internal interface IWriteHost : ILoadOrderHost
+{
+    /// <summary>A FormID door for a write verb's tokens, which refuses a runtime FormID.</summary>
+    FormIdDoor OpenWriteFormIdDoor();
+
+    /// <summary>The configured check, the four roots and the built resolver's plugin names in one hold of the head's index lock.</summary>
+    OutputRoots ConfiguredRoots();
+}
+
 public sealed partial class LoadOrderService
 {
     // ---- writes ----------------------------------------------------------------------------------------
+
+    /// <summary>Every head member this area takes, and nothing else.</summary>
+    IWriteHost Host => this;
 
     /// <summary>Test seam: invoked once inside <see cref="ApplyEdits"/>'s write gate; null in the product.</summary>
     internal static Action? InsideWriteGateForGuard;
@@ -35,7 +48,7 @@ public sealed partial class LoadOrderService
         // Map every op to a core PatchEdit, collecting ALL parse problems first; outside the write gate.
         var edits = new List<WritePatchBuilder.PatchEdit>(ops.Count);
         var problems = new List<string>();
-        var editDoor = OpenWriteFormIdDoor();
+        var editDoor = Host.OpenWriteFormIdDoor();
         for (int i = 0; i < ops.Count; i++)
         {
             // fromRecords[i] is the zip's per-op source record, carried parallel to the op list.
@@ -49,13 +62,13 @@ public sealed partial class LoadOrderService
                 $"refused — {problems.Count} of {ops.Count} operation(s) malformed; NO patch written:\n  - " + string.Join("\n  - ", problems));
 
         // Lock order is the write gate, then the index lock; contract in docs/architecture/load-order-service.md.
-        lock (_writeGate)                                                 // one write at a time, resolve through commit
+        lock (Host.WriteGate)                                            // one write at a time, resolve through commit
         {
-            var resolver = Resolver;                                      // builds/refreshes the index
+            var resolver = Host.Resolver;                                 // builds/refreshes the index
             // Cannot throw once Resolver succeeded: it derived the roots, nothing empties them, and SetInstance waits for the write gate.
-            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
-            var rulebook = Rulebook;
+            var rulebook = Host.Rulebook;
             InsideWriteGateForGuard?.Invoke();                            // test seam; null in the product
 
             if (inPlace)
@@ -274,7 +287,7 @@ public sealed partial class LoadOrderService
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // The consent axis: the persistent first-touch handshake keyed off the resolved path; a dry run bypasses it.
-        bool already = _store.IsInPlaceAcknowledged(targetPath);
+        bool already = Host.InPlaceConsent.IsAcknowledged(targetPath);
         string? ackNote = null;
         bool owesConsent = false;
         if (dryRun)
@@ -292,7 +305,7 @@ public sealed partial class LoadOrderService
         }
 
         // Writable-parent pre-flight — refuse rather than degrade; kept in the dry run too.
-        if (InPlaceParentUnwritable(targetPath, out var why))
+        if (Host.InPlaceConsent.ParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.PatchOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the touched-record verify forced on.
@@ -306,7 +319,7 @@ public sealed partial class LoadOrderService
         if (outcome.Success)
         {
             // ackNote is null here: the only other writer is the dry-run branch, which returned above.
-            ackNote = PersistInPlaceConsent(owesConsent, targetPath, "edit");
+            ackNote = Host.InPlaceConsent.Persist(owesConsent, targetPath, "edit");
             var markerNote = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note must survive the merge.
@@ -332,60 +345,13 @@ public sealed partial class LoadOrderService
         return null;
     }
 
-    /// <summary>The opening claims both first-touch prompts make: the prompt is shown until an in-place write LANDS,
-    /// and the file claim is direction-neutral. Contract in docs/architecture/write-path.md.</summary>
-    static string InPlaceHandshakeLead(string name, string path, string subject, string verb) =>
-        $"in-place edit of '{name}' — first-time confirmation (shown until an in-place write to this {subject} LANDS; " +
-        "a call that is refused records nothing, so you may see this again):\n" +
-        $"  • This {verb} your ORIGINAL file ({path}) — not a copy. houseCARL keeps NO backup or undo and cannot " +
-        "restore what it overwrites, so keep your own.\n";
-
     /// <summary>The first-touch in-place consent prompt for a PLUGIN: the shared lead plus the plugin-specific trade-off, waiving the CONSENT axis only.</summary>
-    static string InPlaceHandshakeText(string pluginName, string path) =>
-        InPlaceHandshakeLead(pluginName, path, "plugin", "writes to") +
+    string InPlaceHandshakeText(string pluginName, string path) =>
+        Host.InPlaceConsent.HandshakeLead(pluginName, path, "plugin", "writes to") +
         "  • houseCARL re-lays-out the WHOLE plugin the way xEdit/CK do on save (every record re-serialized), VERIFIES the records you edit, and trusts Mutagen for the rest.\n" +
         "  • It still refuses if the file can't be parsed, or carries engine-reserved (sub-0x800) records.\n" +
         "  • The default lane (a NEW patch, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
         "Re-call the SAME edit with acknowledge=true to proceed.";
-
-    /// <summary>PERSIST the in-place acknowledgement for <paramref name="targetPath"/>, called by every in-place lane only
-    /// AFTER the write it gated has landed; returns the store's error for the caller's note. Ordering contract in docs/architecture/write-path.md.</summary>
-    string? PersistInPlaceConsent(bool owed, string targetPath, string what, string subject = "plugin")
-    {
-        if (!owed) return null;
-        string? err;
-        // This runs AFTER the file changed, so the last step of a successful call must not be able to throw.
-        try { err = _store.RecordInPlaceAcknowledged(targetPath) is { ok: false, error: var e } ? (e ?? "unknown error") : null; }
-        catch (Exception ex) { err = $"{ex.GetType().Name}: {ex.Message}"; }
-        return err is null ? null
-            : $"the in-place acknowledgement could not be saved ({err}) — the {what} proceeded, " +
-              $"but the next in-place call will ask for this {subject} again.";
-    }
-
-    /// <summary>Writable-parent pre-flight for the in-place swap, probed with a sibling temp; true, with a named <paramref name="why"/>, means refuse.</summary>
-    static bool InPlaceParentUnwritable(string targetPath, out string why)
-    {
-        why = "";
-        var dir = Path.GetDirectoryName(targetPath);
-        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
-        {
-            why = $"in-place refused: the target's parent folder '{dir}' does not exist — nothing written.";
-            return true;
-        }
-        try
-        {
-            var probe = Path.Combine(dir, ".housecarl-writeprobe-" + Guid.NewGuid().ToString("N"));
-            File.WriteAllBytes(probe, Array.Empty<byte>());
-            File.Delete(probe);
-            return false;
-        }
-        catch (Exception ex)
-        {
-            why = $"in-place refused: the target's folder '{dir}' is not writable ({ex.GetType().Name}: {ex.Message}) — houseCARL " +
-                  "won't degrade to a non-atomic write. Make the mod folder writable (or move the plugin somewhere writable) and retry. Nothing written.";
-            return true;
-        }
-    }
 
     /// <summary>Stamp the <c>[houseCARL] editedInPlace=&lt;ISO&gt;</c> audit line into the target mod's <c>meta.ini</c>,
     /// preserving every other line and only under ModsDir. Best-effort: a note on failure. Contract in docs/architecture/write-path.md.</summary>
@@ -452,7 +418,7 @@ public sealed partial class LoadOrderService
     {
         try
         {
-            var av = Assets.Capture();
+            var av = Host.Assets.Capture();
             var seqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(targetPath)}.seq";
             var seqSource = av.ResolveForPlacement(seqRel).Sources.FirstOrDefault();
             if (seqSource?.LooseFilePath is not { } seqPath) return null;      // no .seq, or a BSA-only one (bytes uncheckable here) → nothing to flag
@@ -497,7 +463,7 @@ public sealed partial class LoadOrderService
         // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit path). Pure — outside the gate.
         var keys = new List<FormKey>(formids.Count);
         var problems = new List<string>();
-        var door = OpenWriteFormIdDoor();
+        var door = Host.OpenWriteFormIdDoor();
         for (int i = 0; i < formids.Count; i++)
         {
             var raw = formids[i];
@@ -509,10 +475,10 @@ public sealed partial class LoadOrderService
             return WritePatchBuilder.RemovalOutcome.Fail(
                 $"refused — {problems.Count} of {formids.Count} formid(s) malformed; NOTHING removed:\n  - " + string.Join("\n  - ", problems));
 
-        lock (_writeGate)                                                 // removal re-serializes the patch — same gate
+        lock (Host.WriteGate)                                            // removal re-serializes the patch — same gate
         {
-            var resolver = Resolver;                                      // builds/refreshes the index and the overlays for the re-serialize
-            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var resolver = Host.Resolver;                                 // builds/refreshes the index and the overlays for the re-serialize
+            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
 
             if (inPlace)
@@ -547,14 +513,14 @@ public sealed partial class LoadOrderService
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // The consent axis: the shared first-touch handshake keyed off the resolved path.
-        bool already = _store.IsInPlaceAcknowledged(targetPath);
+        bool already = Host.InPlaceConsent.IsAcknowledged(targetPath);
         if (!already && !acknowledge)
             return WritePatchBuilder.RemovalOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
                 with { Stamp = view.Stamp };
         bool owesConsent = !already && acknowledge;
 
         // Writable-parent pre-flight — refuse rather than degrade; the swap stages a sibling temp here.
-        if (InPlaceParentUnwritable(targetPath, out var why))
+        if (Host.InPlaceConsent.ParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.RemovalOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the absence verify forced on.
@@ -563,7 +529,7 @@ public sealed partial class LoadOrderService
         // On success record the acknowledgement, stamp the audit marker and flag a stale .seq; both best-effort.
         if (outcome.Success)
         {
-            var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "removal");
+            var ackNote = Host.InPlaceConsent.Persist(owesConsent, targetPath, "removal");
             var markerNote = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note must survive the merge.
@@ -603,7 +569,7 @@ public sealed partial class LoadOrderService
         var fp = fromPlugin.Trim();
         var specs = new List<WritePatchBuilder.ForwardSpec>(formids.Count);
         var problems = new List<string>();
-        var door = OpenWriteFormIdDoor();
+        var door = Host.OpenWriteFormIdDoor();
         for (int i = 0; i < formids.Count; i++)
         {
             var raw = formids[i];
@@ -615,10 +581,10 @@ public sealed partial class LoadOrderService
             return WritePatchBuilder.ForwardOutcome.Fail(
                 $"refused — {problems.Count} of {formids.Count} formid(s) malformed; NOTHING forwarded:\n  - " + string.Join("\n  - ", problems));
 
-        lock (_writeGate)                                                 // one write at a time, resolve through commit
+        lock (Host.WriteGate)                                            // one write at a time, resolve through commit
         {
-            var resolver = Resolver;                                      // builds/refreshes the index and the overlays for the source fetch and serialize
-            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var resolver = Host.Resolver;                                 // builds/refreshes the index and the overlays for the source fetch and serialize
+            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
 
             // A source the active order does not contain is located and pre-fetched here, on both lanes; its overlay outlives the serialize.
@@ -667,7 +633,7 @@ public sealed partial class LoadOrderService
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // The consent axis: the shared first-touch handshake; a dry run bypasses it and notes it instead.
-        bool already = _store.IsInPlaceAcknowledged(targetPath);
+        bool already = Host.InPlaceConsent.IsAcknowledged(targetPath);
         string? ackNote = null;
         bool owesConsent = false;
         if (dryRun)
@@ -685,7 +651,7 @@ public sealed partial class LoadOrderService
         }
 
         // Writable-parent pre-flight — refuse rather than degrade; kept in the dry run.
-        if (InPlaceParentUnwritable(targetPath, out var why))
+        if (Host.InPlaceConsent.ParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.ForwardOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the touched-record verify forced on.
@@ -699,7 +665,7 @@ public sealed partial class LoadOrderService
         if (outcome.Success)
         {
             // ackNote is null here: the only other writer is the dry-run branch, which returned above.
-            ackNote = PersistInPlaceConsent(owesConsent, targetPath, "forward");
+            ackNote = Host.InPlaceConsent.Persist(owesConsent, targetPath, "forward");
             var markerNote = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note must survive the merge.
