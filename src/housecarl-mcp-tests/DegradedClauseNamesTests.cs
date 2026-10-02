@@ -31,6 +31,14 @@ public sealed class DegradedClauseNamesTests
     {
         Assert.Contains(Named, CheckTools.CheckTool(W.Svc));
     }
+
+    [Fact]
+    public void TheCheckScriptsHeadNamesTheExcludedPlugin()
+    {
+        var text = CheckTools.CheckTool(W.Svc, findings: new[] { "scripts" });
+
+        Assert.Contains($"epoch={W.Svc.Stats().epoch} · {Named}", text);
+    }
 }
 
 /// <summary>The clause itself: capped with +N more, one line, silent on a healthy order.</summary>
