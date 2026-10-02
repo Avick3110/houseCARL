@@ -49,8 +49,10 @@ a segment. An empty `:`-segment or `,`-item (a stray or doubled delimiter) is no
 segments, not three, and the segment count of a noted line cannot be used to count delimiters.
 
 Key names match without regard to case, as SkyPatcher does: `filterByNPCs` is `filterByNpcs`.
-A response names a key as the line spells it, with the catalog's spelling for a connective
-suffix and in the two fixed filter warnings.
+Case is folded once, when a key is classified against the catalog; every later lookup (field
+map, built-in filters, conflicts, no-ops, warning dedupe) uses the catalog's name. A response
+names a key exactly as the line spells it, except the two fixed `filterByModNames` and
+`modNamesLastOverridden` warnings, which use the catalog's name.
 
 A line starting with `#` can never patch anything, in game or here, because no legal key starts
 with `#`; houseCARL reads it as a comment rather than skipping it as an unknown key. This is
