@@ -73,7 +73,7 @@ public sealed partial class LoadOrderService
 
         lock (Host.WriteGate)                                            // one write at a time; the whole resolve→build→repoint runs under it
         {
-            var resolver = Host.Resolver;                                 // builds/refreshes; reentrant with _writeGate
+            var resolver = Host.Resolver;                                 // builds/refreshes; reentrant with the write gate
             var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
             var view = resolver.Capture();

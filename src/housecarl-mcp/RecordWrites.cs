@@ -266,7 +266,7 @@ public sealed partial class LoadOrderService
         };
     }
 
-    /// <summary>The in-place branch of <see cref="ApplyEdits"/>, under _writeGate: resolve <paramref name="target"/>
+    /// <summary>The in-place branch of <see cref="ApplyEdits"/>, under the write gate: resolve <paramref name="target"/>
     /// through the load order, take the consent handshake, check the parent, write with the verify forced on, stamp the marker.</summary>
     WritePatchBuilder.PatchOutcome ApplyEditsInPlace(
         LoadOrderResolver resolver, Mo2Roots roots, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.PatchEdit> edits,
