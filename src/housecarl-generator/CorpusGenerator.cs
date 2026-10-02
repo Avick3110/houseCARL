@@ -52,8 +52,7 @@ public static class CorpusGenerator
     // PROCESS-DETERMINISTIC (same assembly -> same corpus). Memoize it via Lazy (ExecutionAndPublication): the
     // FIRST GenerateAll in a process walks Mutagen exactly once — thread-safe even under concurrent first-callers
     // — and every later call reuses the cached Corpus and only re-emits outputs to the caller's dir. Transparent:
-    // a standalone probe process walks once (unchanged); the in-process CI runner (ci-all) calls GenerateAll ~21x
-    // and still reflects ONCE.
+    // a process that calls GenerateAll many times still reflects ONCE.
     static readonly Lazy<Corpus> CachedCorpus = new(BuildCorpus, LazyThreadSafetyMode.ExecutionAndPublication);
 
     public static int GenerateAll(string outputDir, string refDir) => EmitCorpus(CachedCorpus.Value, outputDir, refDir);

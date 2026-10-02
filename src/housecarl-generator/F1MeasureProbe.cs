@@ -11,7 +11,7 @@ namespace HousecarlGenerator;
 /// <summary>
 /// EXPLORATORY (F1) — the two BINDING kickoff measurements, as a BEFORE/AFTER vehicle. Run it on the
 /// branch base and it shows four refusals and a carry that misses; run it on the branch and it shows the
-/// lane working. It PRINTS and asserts nothing, so it is not a guard and is not in ci-all —
+/// lane working. It PRINTS and asserts nothing, so it is not a guard —
 /// PlaceOffOrderLaneTests is the standing coverage. It is kept so the measurement stays reproducible on either
 /// side of the fix (the repoint-strings-probe precedent).
 /// Fixture: an MO2 instance whose donor mod is DISABLED and holds the ONLY copy of a facegen path

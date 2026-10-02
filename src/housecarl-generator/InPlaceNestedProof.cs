@@ -8,7 +8,7 @@ namespace HousecarlGenerator;
 /// <summary>
 /// The two real-data in-place proofs: a NESTED own-override (a PlacedObject in a Cell) re-edited and removed in place on
 /// a foreign target. They need a real Skyrim.esm for a genuine nested record, so they self-skip without one and are not
-/// part of <c>ci-all</c>. The self-contained in-place checks are the InPlaceGuard* tests in housecarl-mcp-tests.
+/// run on CI. The self-contained in-place checks are the InPlaceGuard* tests in housecarl-mcp-tests.
 /// </summary>
 public static class InPlaceNestedProof
 {

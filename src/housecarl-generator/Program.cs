@@ -10,14 +10,6 @@ using HousecarlGenerator;
 //         An unrecognised FIRST argument is refused, not read as [outputDir] — so an output directory must be
 //         rooted, carry a separator, or be "." / "..". Anything else is a mode name, and an unknown one exits 2.
 
-// Run EVERY CI probe in ONE process: the big Mutagen assembly loads and JITs once, and the schema corpus is
-// reflected once via CorpusGenerator's memoize, instead of once per probe. See CiAll.
-if (args.Length > 0 && args[0] == "ci-all") return CiAll.RunAll(args[1..]);
-
-// Single-probe runs of any CI guard dispatch through the reflected [CiProbe] set, so a guard cannot be runnable
-// locally yet missing from the CI run. Only the manual/exploratory probes below keep their own explicit dispatch.
-if (args.Length > 0 && CiAll.TryDispatch(args[0], args[1..], out var ciRc)) return ciRc;
-
 // #459 measurement: is the containing parent in hand during the flat index walk, and what does a containment-aware
 // pass cost on a real order. Needs a live MO2 instance (or --plugin), so it is a manual harness, not a CI probe.
 if (args.Length > 0 && args[0] == "parent-in-hand") return ParentInHandProbe.Run(args[1..]);
@@ -252,17 +244,8 @@ if (args.Length > 0 && args[0] == "native-pairing-real") return NativePairingRea
 if (args.Length > 0 && !IsDirectoryArgument(args[0]))
 {
     Console.Error.WriteLine($"unknown mode '{args[0]}' — nothing was generated and nothing was written.");
-    // TrimStart, then skip an EMPTY suggestion entirely: DidYouMean returns "" when nothing is close, and a blank
-    // line above the mode list reads like a truncated message.
-    if (HousecarlCore.PluginNameSuggest.DidYouMean(args[0], CiAll.ProbeNames).TrimStart(' ') is { Length: > 0 } near)
-        Console.Error.WriteLine(near);
     Console.Error.WriteLine();
-    Console.Error.WriteLine("CI guards (`ci-all` runs them all):");
-    foreach (var name in CiAll.ProbeNames)
-        Console.Error.WriteLine("  " + name);
-    Console.Error.WriteLine();
-    Console.Error.WriteLine("Other modes are the manual/exploratory harnesses declared in src/housecarl-generator/Program.cs");
-    Console.Error.WriteLine("(they are not in the suggestion pool above — only the CI guards are).");
+    Console.Error.WriteLine("The modes are the manual/exploratory harnesses declared in src/housecarl-generator/Program.cs.");
     // State the RULE, not just the intent: "pass a directory path" alone is advice a caller who typed one has
     // already followed, and the accepted spellings are not guessable.
     Console.Error.WriteLine("To GENERATE the corpus into a directory, pass a path that is ROOTED (C:\\…), carries a");

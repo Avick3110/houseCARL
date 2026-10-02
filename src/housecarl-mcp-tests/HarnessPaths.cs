@@ -18,7 +18,7 @@ static class HarnessPaths
 
         throw new InvalidOperationException(
             $"No housecarl.sln above '{AppContext.BaseDirectory}'. The harness tests read the SOURCE tree " +
-            "(probe files, CiAll.cs, the built generator), so a test run that cannot find the repo root " +
+            "(source files, the built server), so a test run that cannot find the repo root " +
             "must fail loud rather than measure nothing.");
     }
 
@@ -29,7 +29,7 @@ static class HarnessPaths
 
         throw new InvalidOperationException(
             $"Could not read a build configuration out of '{AppContext.BaseDirectory}' (expected " +
-            "…/bin/<Configuration>/net9.0/). The bridge needs it to find the generator built alongside " +
+            "…/bin/<Configuration>/net9.0/). The stdio tests need it to find the server built alongside " +
             "these tests — guessing 'Release' would run a stale or absent binary.");
     }
 }
