@@ -104,14 +104,15 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
             var resolver = Resolver;
-            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
+            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var roots = snapshot.Roots;
             var rulebook = Rulebook;
 
             if (inPlace)
                 return CommitCreateInPlace(resolver, roots, rulebook, specs, target!.Trim(), acknowledge, replace);
 
             string outPath; bool extend, created;
-            try { outPath = ResolveOutputPath(roots, patchName, into, out extend, out created, freshPatch: FreshPatchRemedy.NamedByPatchParam); }
+            try { outPath = ResolveOutputPath(snapshot, patchName, into, out extend, out created, freshPatch: FreshPatchRemedy.NamedByPatchParam); }
             catch (Exception ex) { return WritePatchBuilder.CreateOutcome.Fail(ex.Message); }
 
             var outcome = WritePatchBuilder.CreateRecords(resolver, rulebook, specs, outPath, extend, fullReadback);

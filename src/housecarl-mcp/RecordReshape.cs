@@ -74,7 +74,8 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                 // one write at a time; the whole resolve→build→repoint runs under it
         {
             var resolver = Resolver;                                      // builds/refreshes; reentrant with _writeGate
-            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
+            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var roots = snapshot.Roots;
             var view = resolver.Capture();
             if (!Directory.Exists(roots.ModsDir))
                 return WritePatchBuilder.CompactOutcome.Fail($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
@@ -256,7 +257,7 @@ public sealed partial class LoadOrderService
             if (inPlace) outPath = srcPath;
             else
             {
-                try { rf = _outputLocations.ResolvePatchModFolder(patchName, null, Path.GetFileNameWithoutExtension(name) + " compacted", naming: null); }
+                try { rf = _outputLocations.ResolvePatchModFolder(snapshot, patchName, null, Path.GetFileNameWithoutExtension(name) + " compacted", naming: null); }
                 catch (InvalidOperationException ex) { return WritePatchBuilder.CompactOutcome.Fail(ex.Message); }
                 createdFresh = rf.CreatedFresh;
                 OutputLocations.WriteOwnerMeta(rf.ModFolder, name);       // the output keeps the source's exact basename
@@ -485,7 +486,8 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                 // one write at a time
         {
             var resolver = Resolver;
-            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
+            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var roots = snapshot.Roots;
             var view = resolver.Capture();
             if (!Directory.Exists(roots.ModsDir))
                 return WritePatchBuilder.MergeOutcome.Fail($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
@@ -588,7 +590,7 @@ public sealed partial class LoadOrderService
             bool createdFolder;
             try
             {
-                outPath = ResolveOutputPath(roots, patchName, into: null, out _, out createdFolder,
+                outPath = ResolveOutputPath(snapshot, patchName, into: null, out _, out createdFolder,
                     refuseTaken: new OutputLocations.StemRefusal(
                         "the merged plugin",
                         "Remove it in MO2, or pass patch= a name no mod folder or active plugin already carries."));

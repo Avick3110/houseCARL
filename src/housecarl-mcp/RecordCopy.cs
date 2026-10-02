@@ -9,7 +9,7 @@ public sealed partial class LoadOrderService
     /// <summary>Build a walk's ordered source universe from the caller's pole list: each element is one pole, first hit
     /// wins, and an off-order element's overlay is appended OPEN. Contracts in docs/architecture/write-path.md.</summary>
     internal SourceChain? BuildSourceChain(
-        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, Mo2Roots roots,
         IReadOnlyList<string> poles, string paramName, List<IDisposable> overlays, out string? error)
     {
         error = null;
@@ -23,11 +23,6 @@ public sealed partial class LoadOrderService
         var arms = new List<SourceArm>(poles.Count);
         var openedHere = new List<IDisposable>();
         Mo2Composition? comp = null;
-        // One read of the MO2 roots for every pole; a failure is held and answered where a pole needs them.
-        var roots = new Mo2Roots(ProfileDir: "", DataDir: "", ModsDir: "", OverwriteDir: "");
-        Exception? rootsError = null;
-        try { roots = ((ILoadOrderHost)this).CaptureRoots(); }
-        catch (Exception ex) { rootsError = ex; }
 
         string Fail(string message)
         {
@@ -40,7 +35,6 @@ public sealed partial class LoadOrderService
         {
             try
             {
-                if (rootsError is not null) return null;
                 return view.PluginPath(pluginName) is { } p ? PluginPaths.InstallLayerOfPath(p, roots) : null;
             }
             catch { return null; }
@@ -100,15 +94,7 @@ public sealed partial class LoadOrderService
                 continue;
             }
 
-            if (comp is null)
-            {
-                if (rootsError is { } rootsEx)
-                {
-                    error = Fail($"{at}: '{spelling}' is not in the load order and the MO2 roots couldn't be derived to find it on disk: {rootsEx.Message}");
-                    return null;
-                }
-                comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
-            }
+            comp ??= Mo2LoadOrder.ReadComposition(roots.ProfileDir);
 
             // offerModParam is false: this refusal names a LIST element, whose disambiguator is a full path in that element.
             var loc = OutputLocations.LocatePluginFileOnDisk(comp, roots, spelling, null, offerModParam: false);
@@ -171,13 +157,14 @@ public sealed partial class LoadOrderService
         lock (_writeGate)
         {
             var resolver = Resolver;
-            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's read of the MO2 roots for its output folder
+            var snapshot = ConfiguredRoots();                             // the lane's one read of the MO2 roots and plugin names
+            var roots = snapshot.Roots;
             var view = resolver.Capture();
             using var session = resolver.OpenSession();
             var overlays = new List<IDisposable>();
             try
             {
-                var chain = BuildSourceChain(view, session, sourcePoles, "from_source", overlays, out var chainError);
+                var chain = BuildSourceChain(view, session, roots, sourcePoles, "from_source", overlays, out var chainError);
                 if (chain is null) return ClosureCopyOutcome.Fail(engine: chainError);
                 var consulted = chain.Arms.Select(SourceArmRef.Of).ToList();
 
@@ -217,7 +204,7 @@ public sealed partial class LoadOrderService
 
                 string outPath; bool extend, created;
                 // The stem falls back to the new EditorID, but only patch= is the caller's own name.
-                try { outPath = ResolveOutputPath(roots, patchName ?? (into is null ? newEditorid?.Trim() : null), into, out extend, out created,
+                try { outPath = ResolveOutputPath(snapshot, patchName ?? (into is null ? newEditorid?.Trim() : null), into, out extend, out created,
                                                   freshPatch: FreshPatchRemedy.CreatedByOmittingInto,
                                                   stemFromCaller: !string.IsNullOrWhiteSpace(patchName)); }
                 catch (Exception ex) { return ClosureCopyOutcome.Fail(engine: ex.Message, sources: consulted); }
@@ -265,12 +252,13 @@ public sealed partial class LoadOrderService
     internal T WithSourceChainForGuard<T>(IReadOnlyList<string> poles, string paramName, Func<SourceChain?, string?, T> body)
     {
         var resolver = Resolver;
+        var roots = ((ILoadOrderHost)this).CaptureRoots();
         var view = resolver.Capture();
         using var session = resolver.OpenSession();
         var overlays = new List<IDisposable>();
         try
         {
-            var chain = BuildSourceChain(view, session, poles, paramName, overlays, out var error);
+            var chain = BuildSourceChain(view, session, roots, poles, paramName, overlays, out var error);
             return body(chain, error);
         }
         finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* test teardown */ } } }
