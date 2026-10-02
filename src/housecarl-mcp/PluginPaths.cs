@@ -30,15 +30,15 @@ internal static class PluginPaths
 
     /// <summary>The MO2 LAYER a physical file path belongs to, as a NAME. A caller that has to say WHICH of the three
     /// answered takes <see cref="InstallLayerOfPath"/> instead, because a mod folder may itself be called "Data".</summary>
-    internal static string? LayerOfInstallPath(string archivePath, Mo2Roots roots) =>
-        InstallLayerOfPath(archivePath, roots)?.Name;
+    internal static string? LayerOfInstallPath(string path, Mo2Roots roots) =>
+        InstallLayerOfPath(path, roots)?.Name;
 
     /// <summary>The MO2 layer a physical file path belongs to, as the BRANCH that answered plus the name it produced.</summary>
-    internal static SourceLayer? InstallLayerOfPath(string archivePath, Mo2Roots roots)
+    internal static SourceLayer? InstallLayerOfPath(string path, Mo2Roots roots)
     {
         // Full-path-normalize both sides, or a trailing separator or '..' from config makes this test disagree with the rest of the plumbing.
         static string Norm(string p) { try { return Path.GetFullPath(p); } catch { return p; } }
-        archivePath = Norm(archivePath);
+        path = Norm(path);
         static bool Under(string path, string root, out string remainder)
         {
             remainder = "";
@@ -48,15 +48,15 @@ internal static class PluginPaths
             remainder = path.Substring(r.Length);
             return true;
         }
-        if (Under(archivePath, roots.OverwriteDir, out _))
+        if (Under(path, roots.OverwriteDir, out _))
             return new SourceLayer(SourceLayerKind.Overwrite, AssetResolver.OverwriteLayerName);
-        if (Under(archivePath, roots.ModsDir, out var rest))
+        if (Under(path, roots.ModsDir, out var rest))
         {
             int slash = rest.IndexOfAny(new[] { '\\', '/' });
             // a .bsa directly in mods\ belongs to no mod — no translation
             return slash > 0 ? new SourceLayer(SourceLayerKind.ModFolder, rest[..slash]) : null;
         }
-        if (Under(archivePath, roots.DataDir, out _))
+        if (Under(path, roots.DataDir, out _))
             return new SourceLayer(SourceLayerKind.GameData, AssetResolver.DataLayerName);
         return null;
     }
