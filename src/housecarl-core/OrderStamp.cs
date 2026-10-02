@@ -10,7 +10,7 @@ public sealed record OrderStamp(string Epoch, IReadOnlyList<string> ExcludedPlug
     public string? Note => Degraded ? OrderDegraded.Sentence(ExcludedPlugins) : null;
 
     /// <summary>The short clause a TEXT head line appends beside <c>epoch=</c>, or "" on a healthy build.</summary>
-    public string Clause => OrderDegraded.Clause(ExcludedPlugins.Count);
+    public string Clause => OrderDegraded.Clause(ExcludedPlugins);
 
     /// <summary>The stamp for a build, with its excluded roster sorted once so every response spells it the same.</summary>
     public static OrderStamp For(string epoch, IEnumerable<string> excludedPlugins) =>
@@ -34,6 +34,16 @@ public static class OrderDegraded
                "housecarl_load_order_status gives the reason for each.";
     }
 
-    /// <summary>The text head line's clause for a build that lost <paramref name="count"/> plugins, or "" for a healthy one.</summary>
-    public static string Clause(int count) => count > 0 ? $" · {count} plugin(s) excluded (load failure)" : "";
+    /// <summary>How many plugin names the one-line text clause lists before it counts the rest.</summary>
+    const int ClauseNamesShown = 3;
+
+    /// <summary>The text head line's clause naming the plugins a build lost, or "" for a healthy one.</summary>
+    public static string Clause(IEnumerable<string> excludedPlugins)
+    {
+        var names = excludedPlugins.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        if (names.Count == 0) return "";
+        var shown = string.Join(", ", names.Take(ClauseNamesShown));
+        if (names.Count > ClauseNamesShown) shown += $" +{names.Count - ClauseNamesShown} more";
+        return $" · {names.Count} plugin(s) excluded (load failure): {shown} — reason in housecarl_load_order_status";
+    }
 }

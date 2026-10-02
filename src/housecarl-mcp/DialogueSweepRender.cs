@@ -50,7 +50,7 @@ internal static class DialogueSweepRender
         if (o.Sweep.Dialogue?.Epoch is { } epoch)
         {
             // The degraded clause sits beside the stamp exactly as the sibling families print it.
-            var clause = OrderDegraded.Clause(o.Sweep.OrderExcluded.Count);
+            var clause = OrderDegraded.Clause(o.Sweep.OrderExcluded);
             sb.Append(UncoveredBy(d) is { Length: > 0 } unc
                           ? string.Format(CheckSentences.DialogueEpochBound, epoch, clause, string.Join(", ", unc))
                           : string.Format(CheckSentences.DialogueEpochWhole, epoch, clause));
