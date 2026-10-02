@@ -54,7 +54,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
   contributor CARRIES it as a distinct subrecord.
 
 ## Pinned by
-- `WriteProof` step 6, the read-proof oracle (`src/housecarl-generator`, run by `ci-all`) — the round-trip no-op, over every coercible value leaf the write surface drives.
+- `WriteProof` step 6, the read-proof oracle (`src/housecarl-generator`, the manual `read-proof` mode) — the round-trip no-op, over every coercible value leaf the write surface drives.
 - `RecordsBulkSelectTests.AMalformedFormidIsAPerItemErrorRowWhileTheOtherRowsStillResolve` and `TheIdentityJsonCarriesOneResolvedRowPerInput` — a bad formid is a per-item error, and the batch renders one row per input.
 - `RuntimeFormIdTests.AMissingRecordInAnEslFlaggedPluginIsToldAboutCompaction` and `RecordsRemedyRepairTests.AndDoesNotBlameEslCompactionOnAPluginThatIsNotEslFlagged` — the ESL clause is stated on a light-flagged plugin and NOT on a plain full master.
 - `RecordsRenderCostTests.ATreeGathersItsProviderBodiesPerPluginNotPerRow` — the tree fold's one walk per provider plugin per chunk.

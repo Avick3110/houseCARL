@@ -258,8 +258,7 @@ The only outbound network use is the Nexus lookups. They need no account or API 
 
 ```powershell
 dotnet build housecarl.sln -c Release
-dotnet test src/housecarl-mcp-tests -c Release --no-build --filter "tier!=bridge"
-dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll ci-all
+dotnet test src/housecarl-mcp-tests -c Release --no-build
 ```
 
 Read [CLAUDE.md](CLAUDE.md) before changing anything, then the note in `docs/architecture/` for the subsystem. Decisions are recorded one per file in `docs/decisions/`. Contribution process: [CONTRIBUTING.md](CONTRIBUTING.md).

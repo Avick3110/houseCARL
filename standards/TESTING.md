@@ -1,6 +1,6 @@
 # Testing
 
-Tests live in `src/housecarl-mcp-tests` (xUnit). CI builds the solution, runs this project, and runs the older probe harness through the generator's `ci-all` command.
+Tests live in `src/housecarl-mcp-tests` (xUnit). CI builds the solution and runs this project.
 
 ## Two kinds of test
 
@@ -20,7 +20,7 @@ To test a new behaviour, first look for a world that already has the records you
 1. Arrange with the world: pick the record, the plugin, the state.
 2. Act by calling the tool once.
 3. Assert on what the caller would look for: the record that should appear, the value it should carry, the refusal it should get. Most test bases have `Served(response, ...)` and `Refused(response, ...)` helpers for the common cases.
-4. Tag the class with a tier trait: `[Trait("tier", "unit")]` when it needs no world, `"integration"` when it drives a world, `"stdio"` when it goes through `ServerFixture`.
+4. Tag the class with a tier trait: `[Trait("tier", "unit")]` when it needs no world, `"integration"` when it drives a world, `"stdio"` when it goes through `ServerFixture`. A test that needs a tool CI lacks (the Papyrus compiler) uses a fact attribute that sets `Skip` when the tool is absent, so it reports as skipped, not passed.
 
 Assert on the specific thing, not the whole text. A refusal test names the one word that carries the fix (the parameter, the rule) and nothing more, so a rewording of the sentence does not break it.
 
@@ -30,14 +30,11 @@ A test must fail before the fix and pass after. If it cannot fail, it is not a t
 
 - No tests about tests: no guards over test files, no baseline counts, no sweeps that check the suite's own shape. The few that still exist are being deleted; do not add to them. If you doubt the suite, run Stryker.NET once, fix what it shows, and move on.
 - No test that needs the real game. Anything that needs a real load order runs locally; the PR says what was run and what it showed.
-- No duplicate of a probe. The probes in `src/housecarl-generator` are the old harness and still cover real behaviour. Leave them alone until you change what one covers; then move that coverage here and delete the probe.
+- No duplicate of a probe. The probes left in `src/housecarl-generator` are manual, run by name; none runs on CI.
 
 ## Running
 
 ```
 dotnet build housecarl.sln -c Release
-dotnet test src/housecarl-mcp-tests -c Release --no-build --filter "tier!=bridge"
-dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll ci-all
+dotnet test src/housecarl-mcp-tests -c Release --no-build
 ```
-
-This block runs `ci-all` explicitly, so the filter leaves out the one `bridge`-tier test, which exists only to run `ci-all` from an unfiltered `dotnet test`. CI does the same.

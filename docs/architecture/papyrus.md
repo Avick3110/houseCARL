@@ -99,7 +99,7 @@ The decompiler itself is [`papyrus-decompile.md`](papyrus-decompile.md).
   re-found, case-insensitive dedup, and when the modlist is read; `ImportOrderPlanTests` — the
   provenance labels, the caller-outranks-scan rule, and the vanilla-missing claim agreeing with the
   assembled path.
-- `compile-probe` (generator) — diagnostic parsing, and that a failed recompile leaves the prior
+- `PapyrusCompileParseTests` and `PapyrusCompileEndToEndTests` (the second skips without the compiler) — diagnostic parsing, and that a failed recompile leaves the prior
   `.pex` intact while a successful one advances its write-time.
 
 ## Where

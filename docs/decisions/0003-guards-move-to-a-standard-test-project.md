@@ -110,3 +110,5 @@ single entry point for a developer running everything.
   selecting the others, so forgetting a tag cannot silently drop a guard.
 - The old harness's remaining performance argument stands for the ~120 schema and generator probes
   that make the corpus expensive. They convert last, or on touch.
+
+2026-10-02: the `ci-all` runner and its bridge test were retired; every guard is now an xUnit test.
