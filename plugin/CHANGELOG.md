@@ -40,8 +40,8 @@ made the change.
   minutes, naming the measured rate.** A whole-record delta over 1,276 ids runs.
 - **A text response on an order that lost plugins to a load failure now names them beside the epoch, up to three
   then `+N more`, and points at `housecarl_load_order_status` for the reason unless the response prints it.**
-- **The SkyPatcher overlay now matches key names without regard to case, as SkyPatcher does, and reads a `#` line as a
-  comment.** A `filterByNPCs=...:race=...` line now changes the post-state Race.
+- **The SkyPatcher overlay now matches key names without regard to case, as SkyPatcher does, and reads a `#` line, which
+  can never be a key, as a comment.** A `filterByNPCs=...:race=...` line now changes the post-state Race.
 
 ## 2.0.3 — 2026-09-23
 
