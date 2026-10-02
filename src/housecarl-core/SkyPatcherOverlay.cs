@@ -54,8 +54,8 @@ public static class SkyPatcherOverlay
     /// <summary>One parsed line in its apply-order context: the Data-relative file, the physical line, and the parsed form.</summary>
     public sealed record OrderedLine(string File, int LineNumber, SkyPatcherLine Parsed);
 
-    /// <summary>One resolved field change: op, raw value, the Mutagen field it landed on, and the before/after leaf tokens (equal means a visible no-op).</summary>
-    public sealed record SkyPatcherAppliedOp(string File, int LineNumber, string Op, string RawValue,
+    /// <summary>One resolved field change: op as the line spells it, <see cref="OpName"/> the catalog's name (the lookup key), raw value, the Mutagen field it landed on, and the before/after leaf tokens (equal means a visible no-op).</summary>
+    public sealed record SkyPatcherAppliedOp(string File, int LineNumber, string Op, string OpName, string RawValue,
         string FieldPath, string? Before, string? After, string? Note);
 
     /// <summary>One HARD op that applies to this record but has no static resolution; <see cref="Reason"/> names why.</summary>
@@ -139,7 +139,7 @@ public static class SkyPatcherOverlay
                         HardReason(op)));
                     continue;
                 }
-                var map = fieldMap?.Ops.GetValueOrDefault(seg.Key);
+                var map = fieldMap?.Ops.GetValueOrDefault(op.Name);
                 if (fieldMap is null || map is null)
                 {
                     warnings.Add($"{where}: op '{seg.Key}' is {op.Tractability} but has no field mapping{(fieldMap is null ? $" (record type '{recordCatalog.RecordType}' has no field map yet)" : "")} — post-state NOT computed for it (named gap, never a guess).");
@@ -150,7 +150,7 @@ public static class SkyPatcherOverlay
                     warnings.Add($"{where}: op '{seg.Key}' is explicitly unmapped — {map.Unmapped}");
                     continue;
                 }
-                try { ApplyOp(mutableRecord, fieldMap, seg, map, line, resolver, applied, warnings); }
+                try { ApplyOp(mutableRecord, fieldMap, seg, map, op.Name, line, resolver, applied, warnings); }
                 catch (Exception ex)
                 {
                     warnings.Add($"{where}: op '{seg.Key}={seg.RawValue}' failed to apply — {Concise(ex)} (post-state does not include it).");
@@ -178,7 +178,7 @@ public static class SkyPatcherOverlay
     /// <summary>The player actor — always excluded except from a lone bare primary filter naming it.</summary>
     static readonly FormKey PlayerFormKey = FaceGenCheck.PlayerFormKey;
 
-    /// <summary>The filter base names the overlay evaluates without a field-map spec; shared with the filtermap coverage guard.</summary>
+    /// <summary>The canonical filter names the overlay evaluates without a field-map spec (Classify resolves case first); shared with the filtermap coverage guard.</summary>
     public static readonly IReadOnlySet<string> BuiltInFilterBases = new HashSet<string>(StringComparer.Ordinal)
     {
         "filterByKeywords", "restrictToKeywords", "filterByEditorIdContains", "filterByNameContains",
@@ -235,8 +235,8 @@ public static class SkyPatcherOverlay
             if (f.Kind == SkyPatcherFilterKind.NoFilter)
             {
                 // The apply-all tokens are record-class scoped in the shared leveledList folder: noFilterLL means every item list, noFilterLLNPC every character list.
-                var required = cls.BaseKey.EndsWith("LLNPC", StringComparison.OrdinalIgnoreCase) ? "LeveledNpc"
-                    : cls.BaseKey.EndsWith("LL", StringComparison.OrdinalIgnoreCase) ? "LeveledItem"
+                var required = f.Name.EndsWith("LLNPC", StringComparison.Ordinal) ? "LeveledNpc"
+                    : f.Name.EndsWith("LL", StringComparison.Ordinal) ? "LeveledItem"
                     : null;
                 if (required is not null && !required.Equals(mutagenRecordType, StringComparison.OrdinalIgnoreCase))
                     return FilterVerdict.NoMatch;
@@ -271,10 +271,10 @@ public static class SkyPatcherOverlay
         SkyPatcherKeyClass cls, SkyPatcherSegment seg, string conn, RecordMap? fieldMap,
         IFormResolver resolver, FilterWarnings warn)
     {
-        var spec = fieldMap?.Filters.GetValueOrDefault(cls.BaseKey);
+        var spec = fieldMap?.Filters.GetValueOrDefault(cls.Filter!.Name);
         if (spec is { IsUnmapped: true })
         {
-            warn.Add($"fu:{cls.BaseKey}", $"filter '{cls.BaseKey}' has no static evaluation — {spec.Unmapped}");
+            warn.Add($"fu:{cls.Filter!.Name}", $"filter '{seg.Key}' has no static evaluation — {spec.Unmapped}");
             return FilterVerdict.Unresolved;
         }
         if (spec is not null)
@@ -284,7 +284,7 @@ public static class SkyPatcherOverlay
         {
             case "filterByKeywords":
             case "restrictToKeywords":   // post-match narrowing; for ONE record that's the same verdict
-                return KeywordVerdict(ReadEngine.KeywordKeys(record), seg, cls.BaseKey, conn, resolver, warn);
+                return KeywordVerdict(ReadEngine.KeywordKeys(record), seg, cls.Filter!.Name, conn, resolver, warn);
 
             case "filterByEditorIdContains":
                 return ContainsVerdict(seg, conn, editorId ?? "") ? FilterVerdict.Match : FilterVerdict.NoMatch;
@@ -318,7 +318,7 @@ public static class SkyPatcherOverlay
                 // "Skip records whose LAST OVERRIDE is from a named mod" — the load-order winner's plugin; documented only in the Excluded spelling.
                 if (conn is not ("Excluded" or "Exclude"))
                 {
-                    warn.Add($"ovc:{cls.BaseKey}{conn}", $"filter '{cls.BaseKey}{conn}' — only the Excluded spelling is documented; whether this connective yields or selects is UNRESOLVED.");
+                    warn.Add($"ovc:{cls.Filter!.Name}{conn}", $"filter '{seg.Key}' — only the Excluded spelling is documented; whether this connective yields or selects is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 var winner = resolver.WinnerPluginOf(fk);
@@ -334,17 +334,17 @@ public static class SkyPatcherOverlay
             {
                 // Crosscutting attached-effect match: the Effects array's BaseEffect links.
                 var mine = EntryKeys(record, new[] { "Effects" }, "BaseEffect");
-                return FormSetVerdict(mine, seg, cls.BaseKey, conn, "MagicEffect", resolver, warn);
+                return FormSetVerdict(mine, seg, cls.Filter!.Name, conn, "MagicEffect", resolver, warn);
             }
             case "filterByAlternateTextures":
             {
                 // Items carrying a given texture set: the model's alternate-texture entries' NewTexture.
                 var mine = EntryKeys(record, new[] { "Model", "AlternateTextures" }, "NewTexture");
-                return FormSetVerdict(mine, seg, cls.BaseKey, conn, "TextureSet", resolver, warn);
+                return FormSetVerdict(mine, seg, cls.Filter!.Name, conn, "TextureSet", resolver, warn);
             }
             default:
                 // Neither built-in nor mapped — a coverage gap the filtermap guard should have caught, named here too.
-                warn.Add($"nf:{cls.BaseKey}", $"filter '{cls.BaseKey}' has no evaluation (neither built-in nor in the filter map) — whether lines carrying it apply is UNRESOLVED (a coverage gap; report it).");
+                warn.Add($"nf:{cls.Filter!.Name}", $"filter '{seg.Key}' has no evaluation (neither built-in nor in the filter map) — whether lines carrying it apply is UNRESOLVED (a coverage gap; report it).");
                 return FilterVerdict.Unresolved;
         }
     }
@@ -366,7 +366,7 @@ public static class SkyPatcherOverlay
                 foreach (var v in seg.Values)
                 {
                     var k = ResolveFormValue(v, spec.FormType, resolver);
-                    if (k is null) { WarnUnresolvableForm(v, cls.BaseKey, conn, spec, warn); continue; }
+                    if (k is null) { WarnUnresolvableForm(v, seg, cls.Filter!.Name, spec, warn); continue; }
                     matched |= current.Any(t => string.Equals(t, k.Value.ToString(), StringComparison.OrdinalIgnoreCase));
                 }
                 return (excluded ? !matched : matched) ? FilterVerdict.Match : FilterVerdict.NoMatch;
@@ -376,8 +376,8 @@ public static class SkyPatcherOverlay
                 var segs = SplitPath(spec.Paths[0]);
                 var mine = spec.KeyPath is null ? TryFormLinkKeys(record, segs) : EntryKeys(record, segs, spec.KeyPath);
                 if (spec.EidSubstring)
-                    return EidAwareListVerdict(mine, seg, cls.BaseKey, conn, spec, resolver, warn);
-                return FormSetVerdict(mine, seg, cls.BaseKey, conn, spec.FormType, resolver, warn);
+                    return EidAwareListVerdict(mine, seg, cls.Filter!.Name, conn, spec, resolver, warn);
+                return FormSetVerdict(mine, seg, cls.Filter!.Name, conn, spec.FormType, resolver, warn);
             }
             case SkyPatcherFilterEval.EnumEquals:
             {
@@ -392,7 +392,7 @@ public static class SkyPatcherOverlay
                     var member = spec.ValueMap?.GetValueOrDefault(v.Raw) ?? v.Raw;
                     if (enumType is not null && !TryParseEnumMember(enumType, member, out _))
                     {
-                        warn.Add($"ee:{cls.BaseKey}:{v.Raw}", $"filter '{cls.BaseKey}' — '{v.Raw}' is not a {enumType.Name} member (no valueMap match either); whether the line applies is UNRESOLVED.");
+                        warn.Add($"ee:{cls.Filter!.Name}:{v.Raw}", $"filter '{seg.Key}' — '{v.Raw}' is not a {enumType.Name} member (no valueMap match either); whether the line applies is UNRESOLVED.");
                         return FilterVerdict.Unresolved;
                     }
                     if (current is not null && string.Equals(current, member, StringComparison.OrdinalIgnoreCase)) matched = true;
@@ -405,12 +405,12 @@ public static class SkyPatcherOverlay
                 bool? want = ParseBoolToken(raw);
                 if (want is null)
                 {
-                    warn.Add($"fb:{cls.BaseKey}:{raw}", $"filter '{cls.BaseKey}={raw}' — not a boolean; whether the line applies is UNRESOLVED.");
+                    warn.Add($"fb:{cls.Filter!.Name}:{raw}", $"filter '{seg.Key}={raw}' — not a boolean; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 var (bits, enumType) = FlagLeaf(record, spec.Paths[0]);
                 if (enumType is null || !TryParseEnumMember(enumType, spec.Flag!, out var bit))
-                    return UnresolvedLeaf(cls.BaseKey, spec.Paths[0], warn);
+                    return UnresolvedLeaf(seg, cls.Filter!.Name, spec.Paths[0], warn);
                 bool set = (bits & bit) != 0;
                 if (spec.Invert) set = !set;
                 return set == want.Value ? FilterVerdict.Match : FilterVerdict.NoMatch;
@@ -418,14 +418,14 @@ public static class SkyPatcherOverlay
             case SkyPatcherFilterEval.FlagAnyOf:
             {
                 var (bits, enumType) = FlagLeaf(record, spec.Paths[0]);
-                if (enumType is null) return UnresolvedLeaf(cls.BaseKey, spec.Paths[0], warn);
+                if (enumType is null) return UnresolvedLeaf(seg, cls.Filter!.Name, spec.Paths[0], warn);
                 var hits = new List<bool>();
                 foreach (var v in seg.Values)
                 {
                     var member = spec.ValueMap?.GetValueOrDefault(v.Raw) ?? v.Raw;
                     if (!TryParseEnumMember(enumType, member, out var bit))
                     {
-                        warn.Add($"fa:{cls.BaseKey}:{v.Raw}", $"filter '{cls.BaseKey}' — flag '{v.Raw}' is not a member of the {spec.Paths[0]} enum (no valueMap match either); whether the line applies is UNRESOLVED.");
+                        warn.Add($"fa:{cls.Filter!.Name}:{v.Raw}", $"filter '{seg.Key}' — flag '{v.Raw}' is not a member of the {spec.Paths[0]} enum (no valueMap match either); whether the line applies is UNRESOLVED.");
                         return FilterVerdict.Unresolved;
                     }
                     hits.Add((bits & bit) != 0);
@@ -440,19 +440,19 @@ public static class SkyPatcherOverlay
                 else if (raw.Equals("male", StringComparison.OrdinalIgnoreCase)) female = false;
                 else
                 {
-                    warn.Add($"g:{raw}", $"filter '{cls.BaseKey}={raw}' — expected male|female; whether the line applies is UNRESOLVED.");
+                    warn.Add($"g:{raw}", $"filter '{seg.Key}={raw}' — expected male|female; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 // A TRAITS-templated NPC takes its gender from the template actor, so the own-record Female bit is not authoritative.
                 var (tBits, tType) = FlagLeaf(record, "Configuration.TemplateFlags");
                 if (tType is not null && TryParseEnumMember(tType, "Traits", out var traitsBit) && (tBits & traitsBit) != 0)
                 {
-                    warn.Add($"gt:{cls.BaseKey}", $"filter '{cls.BaseKey}' — this NPC templates its TRAITS (gender comes from the template actor, not this record); whether the line applies is UNRESOLVED.");
+                    warn.Add($"gt:{cls.Filter!.Name}", $"filter '{seg.Key}' — this NPC templates its TRAITS (gender comes from the template actor, not this record); whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 var (bits, enumType) = FlagLeaf(record, spec.Paths[0]);
                 if (enumType is null || !TryParseEnumMember(enumType, "Female", out var bit))
-                    return UnresolvedLeaf(cls.BaseKey, spec.Paths[0], warn);
+                    return UnresolvedLeaf(seg, cls.Filter!.Name, spec.Paths[0], warn);
                 return ((bits & bit) != 0) == female ? FilterVerdict.Match : FilterVerdict.NoMatch;
             }
             case SkyPatcherFilterEval.PcLevelMult:
@@ -461,7 +461,7 @@ public static class SkyPatcherOverlay
                 bool? want = ParseBoolToken(raw);
                 if (want is null)
                 {
-                    warn.Add($"pl:{cls.BaseKey}:{raw}", $"filter '{cls.BaseKey}={raw}' — not a boolean; whether the line applies is UNRESOLVED.");
+                    warn.Add($"pl:{cls.Filter!.Name}:{raw}", $"filter '{seg.Key}={raw}' — not a boolean; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 var (parent, leaf) = Navigate(record, SplitPath(spec.Paths[0]));
@@ -480,7 +480,7 @@ public static class SkyPatcherOverlay
                 var hay = resolver.ReadWinnerLeaf(donor.Value, spec.Paths[0]);
                 if (hay is null)
                 {
-                    warn.Add($"ds:{cls.BaseKey}:{donor}", $"filter '{cls.BaseKey}' — could not read '{spec.Paths[0]}' off {FormIdToken.Of(donor.Value)}'s winner; whether the line applies is UNRESOLVED.");
+                    warn.Add($"ds:{cls.Filter!.Name}:{donor}", $"filter '{seg.Key}' — could not read '{spec.Paths[0]}' off {FormIdToken.Of(donor.Value)}'s winner; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 return ContainsVerdict(seg, conn, hay) ? FilterVerdict.Match : FilterVerdict.NoMatch;
@@ -492,10 +492,10 @@ public static class SkyPatcherOverlay
                 var mine = resolver.KeywordsOf(donor.Value);
                 if (mine is null)
                 {
-                    warn.Add($"dk:{cls.BaseKey}:{donor}", $"filter '{cls.BaseKey}' — could not read the keywords of {FormIdToken.Of(donor.Value)}'s winner; whether the line applies is UNRESOLVED.");
+                    warn.Add($"dk:{cls.Filter!.Name}:{donor}", $"filter '{seg.Key}' — could not read the keywords of {FormIdToken.Of(donor.Value)}'s winner; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
-                return KeywordVerdict(mine, seg, cls.BaseKey, conn, resolver, warn);
+                return KeywordVerdict(mine, seg, cls.Filter!.Name, conn, resolver, warn);
             }
             case SkyPatcherFilterEval.NumericLess:
             {
@@ -505,7 +505,7 @@ public static class SkyPatcherOverlay
                 var raw = seg.Values.Count > 0 ? seg.Values[0].Raw : "";
                 if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var n))
                 {
-                    warn.Add($"nl:{cls.BaseKey}:{raw}", $"filter '{cls.BaseKey}={raw}' — not a number; whether the line applies is UNRESOLVED.");
+                    warn.Add($"nl:{cls.Filter!.Name}:{raw}", $"filter '{seg.Key}={raw}' — not a number; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 return current < n ? FilterVerdict.Match : FilterVerdict.NoMatch;
@@ -519,7 +519,7 @@ public static class SkyPatcherOverlay
                 {
                     if (!int.TryParse(v.Raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx) || idx is < 0 or > 31)
                     {
-                        warn.Add($"bs:{cls.BaseKey}:{v.Raw}", $"filter '{cls.BaseKey}' — '{v.Raw}' is not a biped slot INDEX (0–31; slot number − 30); whether the line applies is UNRESOLVED.");
+                        warn.Add($"bs:{cls.Filter!.Name}:{v.Raw}", $"filter '{seg.Key}' — '{v.Raw}' is not a biped slot INDEX (0–31; slot number − 30); whether the line applies is UNRESOLVED.");
                         return FilterVerdict.Unresolved;
                     }
                     hits.Add((bits & (1UL << idx)) != 0);
@@ -537,7 +537,7 @@ public static class SkyPatcherOverlay
             }
             default:
                 // Unreachable while the FilterSpec parser and this switch agree on the eval kinds; named so a drift cannot skip silently.
-                warn.Add($"ue:{cls.BaseKey}", $"filter '{cls.BaseKey}' — eval kind '{spec.Eval}' has no evaluator; whether the line applies is UNRESOLVED (report it).");
+                warn.Add($"ue:{cls.Filter!.Name}", $"filter '{seg.Key}' — eval kind '{spec.Eval}' has no evaluator; whether the line applies is UNRESOLVED (report it).");
                 return FilterVerdict.Unresolved;
         }
     }
@@ -554,13 +554,13 @@ public static class SkyPatcherOverlay
 
     /// <summary>The keyword-family verdict — <see cref="FormSetVerdict"/> scoped to Keyword; a null set means the type has no readable keyword list.</summary>
     static FilterVerdict KeywordVerdict(IReadOnlyList<FormKey>? mine, SkyPatcherSegment seg,
-        string baseKey, string conn, IFormResolver resolver, FilterWarnings warn)
+        string name, string conn, IFormResolver resolver, FilterWarnings warn)
         => mine is null ? FilterVerdict.Unresolved
-            : FormSetVerdict(mine, seg, baseKey, conn, "Keyword", resolver, warn, noun: "keyword");
+            : FormSetVerdict(mine, seg, name, conn, "Keyword", resolver, warn, noun: "keyword");
 
     /// <summary>List-membership verdict over the record's own attached forms — bare = all listed present, Or = any, Excluded = none; a listed form resolving to nothing in the active order counts as not-attached and is surfaced once per token.</summary>
     static FilterVerdict FormSetVerdict(IReadOnlyList<FormKey> mine, SkyPatcherSegment seg,
-        string baseKey, string conn, string? formType, IFormResolver resolver,
+        string name, string conn, string? formType, IFormResolver resolver,
         FilterWarnings warn, string noun = "form")
     {
         var wanted = new List<FormKey>();
@@ -571,7 +571,7 @@ public static class SkyPatcherOverlay
             if (k is null)
             {
                 unresolved++;
-                warn.Add($"fs:{baseKey}:{v.Raw}", $"{noun} '{v.Raw}' (in a {baseKey}{conn}) resolves to nothing in the active order — treated as attached to no record.");
+                warn.Add($"fs:{name}:{v.Raw}", $"{noun} '{v.Raw}' (in a {seg.Key}) resolves to nothing in the active order — treated as attached to no record.");
             }
             else wanted.Add(k.Value);
         }
@@ -581,7 +581,7 @@ public static class SkyPatcherOverlay
 
     /// <summary>filterByArmorAddons' documented "EditorID substring ok": a value resolving to a form matches by key, one that does not is a substring against each attached form's winner EditorID.</summary>
     static FilterVerdict EidAwareListVerdict(IReadOnlyList<FormKey> mine, SkyPatcherSegment seg,
-        string baseKey, string conn, FilterSpec spec, IFormResolver resolver,
+        string name, string conn, FilterSpec spec, IFormResolver resolver,
         FilterWarnings warn)
     {
         var eids = new Lazy<List<string>>(() => mine
@@ -665,9 +665,9 @@ public static class SkyPatcherOverlay
     }
 
     /// <summary>The named-warning Unresolved for a flag or enum leaf that cannot be resolved on this record.</summary>
-    static FilterVerdict UnresolvedLeaf(string baseKey, string path, FilterWarnings warn)
+    static FilterVerdict UnresolvedLeaf(SkyPatcherSegment seg, string name, string path, FilterWarnings warn)
     {
-        warn.Add($"ul:{baseKey}:{path}", $"filter '{baseKey}' — could not resolve '{path}' (or its member) on this record; whether the line applies is UNRESOLVED.");
+        warn.Add($"ul:{name}:{path}", $"filter '{seg.Key}' — could not resolve '{path}' (or its member) on this record; whether the line applies is UNRESOLVED.");
         return FilterVerdict.Unresolved;
     }
 
@@ -676,10 +676,10 @@ public static class SkyPatcherOverlay
          : raw.Equals("false", StringComparison.OrdinalIgnoreCase) || raw.Equals("no", StringComparison.OrdinalIgnoreCase) || raw == "0" ? false
          : null;
 
-    static void WarnUnresolvableForm(SkyPatcherValue v, string baseKey, string conn, FilterSpec spec,
+    static void WarnUnresolvableForm(SkyPatcherValue v, SkyPatcherSegment seg, string name, FilterSpec spec,
         FilterWarnings warn)
     {
-        warn.Add($"fe:{baseKey}:{v.Raw}", $"form '{v.Raw}' (in a {baseKey}{conn}) resolves to nothing in the active order{(spec.FormType is null ? "" : $" among {spec.FormType} winners")} — treated as matching no record.");
+        warn.Add($"fe:{name}:{v.Raw}", $"form '{v.Raw}' (in a {seg.Key}) resolves to nothing in the active order{(spec.FormType is null ? "" : $" among {spec.FormType} winners")} — treated as matching no record.");
     }
 
     static bool ContainsVerdict(SkyPatcherSegment seg, string conn, string haystack)
@@ -714,7 +714,7 @@ public static class SkyPatcherOverlay
 
     // ---- ops ----
 
-    static void ApplyOp(object record, RecordMap fieldMap, SkyPatcherSegment seg, OpMap map,
+    static void ApplyOp(object record, RecordMap fieldMap, SkyPatcherSegment seg, OpMap map, string opName,
         OrderedLine line, IFormResolver resolver,
         List<SkyPatcherAppliedOp> applied, List<string> warnings)
     {
@@ -729,7 +729,7 @@ public static class SkyPatcherOverlay
                 if (seg.Values.Count == 0)
                 { warnings.Add($"{where}: '{seg.Key}=' has no value; skipped."); break; }
                 foreach (var v in seg.Values)   // most set-ops take one value; tolerate a list by applying in order
-                    ApplySetOne(record, fieldMap, seg.Key, map, segs, v, line, resolver, applied, warnings);
+                    ApplySetOne(record, fieldMap, seg.Key, opName, map, segs, v, line, resolver, applied, warnings);
                 break;
             }
             case SkyPatcherOpSemantic.Mult:
@@ -744,7 +744,7 @@ public static class SkyPatcherOverlay
                 double result = map.Semantic == SkyPatcherOpSemantic.Mult ? current * operand : current + operand;
                 var token = FormatNumericFor(record, segs, result);
                 WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = token });
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, map.Path, before, LeafToken(record, segs),
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, raw, map.Path, before, LeafToken(record, segs),
                     map.Semantic == SkyPatcherOpSemantic.Mult ? $"stateful: {before} × {raw}" : $"stateful: {before} + {raw}"));
                 break;
             }
@@ -755,7 +755,7 @@ public static class SkyPatcherOverlay
                 if (src is null) { warnings.Add($"{where}: '{seg.Key}' — source field '{map.SourcePath}' unreadable; skipped."); return; }
                 var before = LeafToken(record, segs);
                 WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = src });
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, seg.RawValue ?? "", map.Path, before, LeafToken(record, segs),
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, seg.RawValue ?? "", map.Path, before, LeafToken(record, segs),
                     $"self-copy from {map.SourcePath} (order-dependent)"));
                 break;
             }
@@ -779,7 +779,7 @@ public static class SkyPatcherOverlay
                     ? Math.Round(num, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture)
                     : raw.Trim();
                 WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = string.Join(",", parts) });
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, $"{map.Path}.{"XYZ"[comp]}", before, LeafToken(record, segs), null));
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, raw, $"{map.Path}.{"XYZ"[comp]}", before, LeafToken(record, segs), null));
                 break;
             }
             case SkyPatcherOpSemantic.ModelPath:
@@ -801,7 +801,7 @@ public static class SkyPatcherOverlay
                 else pathToken = v.Raw;   // a literal .nif path
                 var before = LeafToken(record, segs);
                 WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = pathToken });
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, before, LeafToken(record, segs), note));
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, before, LeafToken(record, segs), note));
                 break;
             }
             case SkyPatcherOpSemantic.FlagsSet:
@@ -819,7 +819,7 @@ public static class SkyPatcherOverlay
                     bits = map.Semantic == SkyPatcherOpSemantic.FlagsSet ? bits | bit : bits & ~bit;
                 }
                 SetEnumBits(record, fieldMap, segs, bits);
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, seg.RawValue ?? "", map.Path, before, LeafToken(record, segs), null));
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, seg.RawValue ?? "", map.Path, before, LeafToken(record, segs), null));
                 break;
             }
             case SkyPatcherOpSemantic.FlagBool:
@@ -829,7 +829,7 @@ public static class SkyPatcherOverlay
                 if (raw.Equals("none", StringComparison.OrdinalIgnoreCase))
                 {
                     var cur = LeafToken(record, segs);
-                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, map.Path, cur, cur, "none — leave unchanged"));
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, raw, map.Path, cur, cur, "none — leave unchanged"));
                     return;
                 }
                 bool on = raw.Equals("true", StringComparison.OrdinalIgnoreCase) || raw.Equals("yes", StringComparison.OrdinalIgnoreCase) || raw == "1";
@@ -843,7 +843,7 @@ public static class SkyPatcherOverlay
                 ulong bits = Convert.ToUInt64(leaf.GetValue(parent) ?? 0UL, CultureInfo.InvariantCulture);
                 bits = on ? bits | bit : bits & ~bit;
                 SetEnumBits(record, fieldMap, segs, bits);
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, $"{map.Path} ({flagToken})", before, LeafToken(record, segs), map.Note));
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, raw, $"{map.Path} ({flagToken})", before, LeafToken(record, segs), map.Note));
                 break;
             }
             case SkyPatcherOpSemantic.AddForm:
@@ -867,7 +867,7 @@ public static class SkyPatcherOverlay
                         else { WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Remove", Value = key.Value.ToString() }); note = "removed"; }
                     }
                     bool now = FormLinkList(record, segs)!.Contains(key.Value);
-                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path,
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path,
                         $"contains={(present ? "true" : "false")}", $"contains={(now ? "true" : "false")}", note));
                 }
                 break;
@@ -882,7 +882,7 @@ public static class SkyPatcherOverlay
                     var b = ResolveFormToken(bTok, map.FormType, resolver);
                     if (a is null || b is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — form(s) not resolvable; skipped."); continue; }
                     int n = ReplaceInFormLinkList(record, fieldMap.RecordType, segs, a.Value, b.Value);
-                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null,
                         n > 0 ? $"replaced {n} occurrence(s)" : "form A not present — no change"));
                 }
                 break;
@@ -898,7 +898,7 @@ public static class SkyPatcherOverlay
                 // Clear = the engine's ReplaceAll with no values (same clear the verb surface exposes).
                 if (coll is not null)
                     WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "ReplaceAll" });
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, map.Path, $"{had} entr(ies)", "0 entries", "cleared"));
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, raw, map.Path, $"{had} entr(ies)", "0 entries", "cleared"));
                 break;
             }
             case SkyPatcherOpSemantic.DictSet:
@@ -922,7 +922,7 @@ public static class SkyPatcherOverlay
                 // The mutation rides the engine's dict Set (Key = the enum entry) — same coercion as the verb surface.
                 WriteEngine.ApplyVerb(record, new WriteRequest
                 { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Key = key, Value = result.ToString("R", CultureInfo.InvariantCulture) });
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, $"{map.Path}[{key}]",
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, raw, $"{map.Path}[{key}]",
                     current is null ? null : Num(current.Value), Num(DictNumericValue(record, segs, key) ?? result), note));
                 break;
             }
@@ -939,7 +939,7 @@ public static class SkyPatcherOverlay
                 { warnings.Add($"{where}: '{seg.Key}' — '{map.Path}' is absent or not an R,G,B[,A] colour ('{before ?? "<unreadable>"}'); skipped."); return; }
                 parts[comp] = Math.Round(num, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
                 WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = string.Join(",", parts) });
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, raw, $"{map.Path}.{"RGB"[comp]}", before, LeafToken(record, segs), null));
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, raw, $"{map.Path}.{"RGB"[comp]}", before, LeafToken(record, segs), null));
                 break;
             }
             case SkyPatcherOpSemantic.BipedSlotsSet:
@@ -957,7 +957,7 @@ public static class SkyPatcherOverlay
                     bits = map.Semantic == SkyPatcherOpSemantic.BipedSlotsSet ? bits | (1UL << idx) : bits & ~(1UL << idx);
                 }
                 SetEnumBits(record, fieldMap, segs, bits);
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, seg.RawValue ?? "", map.Path, before, LeafToken(record, segs), null));
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, seg.RawValue ?? "", map.Path, before, LeafToken(record, segs), null));
                 break;
             }
             case SkyPatcherOpSemantic.TeachSpell:
@@ -987,7 +987,7 @@ public static class SkyPatcherOverlay
                     RecordType = fieldMap.RecordType, Path = segs, Verb = "Set",
                     Struct = new StructSpec { Type = armType, Sets = new List<WriteRequest> { armSet } },
                 });
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, before, LeafToken(record, segs),
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, before, LeafToken(record, segs),
                     $"Teaches → {armType}"));
                 break;
             }
@@ -999,7 +999,7 @@ public static class SkyPatcherOverlay
             case SkyPatcherOpSemantic.MultCount:
             case SkyPatcherOpSemantic.RemoveByKeyword:
             case SkyPatcherOpSemantic.SetEntryCount:
-                ApplyEntryOp(record, fieldMap, seg, map, line, resolver, applied, warnings);
+                ApplyEntryOp(record, fieldMap, seg, map, opName, line, resolver, applied, warnings);
                 break;
 
             default:
@@ -1023,7 +1023,7 @@ public static class SkyPatcherOverlay
         return val is null ? null : Convert.ToDouble(val, CultureInfo.InvariantCulture);
     }
 
-    static void ApplySetOne(object record, RecordMap fieldMap, string opKey, OpMap map, string[] segs,
+    static void ApplySetOne(object record, RecordMap fieldMap, string opKey, string opName, OpMap map, string[] segs,
         SkyPatcherValue v, OrderedLine line, IFormResolver resolver,
         List<SkyPatcherAppliedOp> applied, List<string> warnings)
     {
@@ -1036,7 +1036,7 @@ public static class SkyPatcherOverlay
             try
             {
                 WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Remove" });
-                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, opKey, v.Raw, map.Path, before, LeafToken(record, segs), "cleared"));
+                applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, opKey, opName, v.Raw, map.Path, before, LeafToken(record, segs), "cleared"));
             }
             catch (Exception ex) { warnings.Add($"{where}: '{opKey}=null' — {Concise(ex)}"); }
             return;
@@ -1067,12 +1067,12 @@ public static class SkyPatcherOverlay
         else token = v.Raw;                                             // scalar / enum member on a non-form field (ignore-case coercion downstream)
 
         WriteEngine.ApplyVerb(record, new WriteRequest { RecordType = fieldMap.RecordType, Path = segs, Verb = "Set", Value = token });
-        applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, opKey, v.Raw, map.Path, before, LeafToken(record, segs), map.Note));
+        applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, opKey, opName, v.Raw, map.Path, before, LeafToken(record, segs), map.Note));
     }
 
     // ---- struct-entry collections (containers, inventories, LLs, factions, cobj items) --------------
 
-    static void ApplyEntryOp(object record, RecordMap fieldMap, SkyPatcherSegment seg, OpMap map,
+    static void ApplyEntryOp(object record, RecordMap fieldMap, SkyPatcherSegment seg, OpMap map, string opName,
         OrderedLine line, IFormResolver resolver,
         List<SkyPatcherAppliedOp> applied, List<string> warnings)
     {
@@ -1109,7 +1109,7 @@ public static class SkyPatcherOverlay
                     if (map.Semantic == SkyPatcherOpSemantic.AddEntryOnce && keyForm is not null
                         && EntryIndicesByKey(record, segs, el, keyForm.Value).Count > 0)
                     {
-                        applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null, "already present — addOnce is a no-op"));
+                        applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null, "already present — addOnce is a no-op"));
                         continue;
                     }
                     WriteEngine.ApplyVerb(record, new WriteRequest
@@ -1117,7 +1117,7 @@ public static class SkyPatcherOverlay
                         RecordType = fieldMap.RecordType, Path = segs, Verb = "Add",
                         Struct = new StructSpec { Type = el.Type, Sets = sets },
                     });
-                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null, "entry added"));
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null, "entry added"));
                     break;
                 }
                 case SkyPatcherOpSemantic.RemoveEntry:
@@ -1131,7 +1131,7 @@ public static class SkyPatcherOverlay
                     var k = ResolveFormToken(args[0], map.FormType, resolver);
                     if (k is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — form not resolvable; skipped."); continue; }
                     int n = RemoveEntriesByKey(record, fieldMap.RecordType, segs, el, k.Value);
-                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null,
                         n > 0 ? $"removed {n} entr(ies)" : "no matching entry — no change"));
                     break;
                 }
@@ -1142,7 +1142,7 @@ public static class SkyPatcherOverlay
                     { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — expected form~count; skipped."); continue; }
                     var countPath = el.CountPath ?? throw new InvalidOperationException($"'{seg.Key}' element has no countPath");
                     int touched = AdjustEntryCounts(record, fieldMap.RecordType, segs, el, k.Value, countPath, c => c - dec);
-                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null,
                         touched > 0 ? $"count reduced by {dec} on {touched} entr(ies) (entries at ≤0 removed)" : "no matching entry — no change"));
                     break;
                 }
@@ -1153,7 +1153,7 @@ public static class SkyPatcherOverlay
                     var b = bTok is null ? null : ResolveFormToken(bTok, map.FormType, resolver);
                     if (a is null || b is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — expected formA{(map.EqPacked ? "=" : "~")}formB; skipped."); continue; }
                     int n = RetargetEntriesByKey(record, segs, el, a.Value, b.Value);
-                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null,
                         n > 0 ? $"retargeted {n} entr(ies)" : "form A not present — no change"));
                     break;
                 }
@@ -1171,7 +1171,7 @@ public static class SkyPatcherOverlay
                     else if (!double.TryParse(args[0], NumberStyles.Float, CultureInfo.InvariantCulture, out mult))
                     { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — expected form~mult or mult; skipped."); continue; }
                     int touched = MultiplyEntryCounts(record, segs, el, scope, countPath, mult);
-                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null,
                         $"counts ×{args[^1]} on {touched} entr(ies) (stateful)"));
                     break;
                 }
@@ -1194,7 +1194,7 @@ public static class SkyPatcherOverlay
                     var cSegs = SplitPath(countPath);
                     foreach (var i in idx)
                         WriteEngine.ApplyVerb(list![i]!, new WriteRequest { RecordType = el.Type, Path = cSegs, Verb = "Set", Value = setTo.ToString(CultureInfo.InvariantCulture) });
-                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null,
                         idx.Count > 0 ? $"count set to {setTo} on {idx.Count} entr(ies)" : "no matching entry — no change"));
                     break;
                 }
@@ -1205,7 +1205,7 @@ public static class SkyPatcherOverlay
                     var (removed, unresolved) = RemoveEntriesByTargetKeyword(record, fieldMap.RecordType, segs, el, kw.Value, resolver);
                     if (unresolved > 0)
                         warnings.Add($"{where}: '{seg.Key}={v.Raw}' — {unresolved} entr(ies) whose target record could not be resolved were LEFT IN PLACE (never removed on a guess).");
-                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, v.Raw, map.Path, null, null,
+                    applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null,
                         removed > 0 ? $"removed {removed} entr(ies) by keyword" : "no entry carries the keyword — no change"));
                     break;
                 }

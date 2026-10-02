@@ -268,7 +268,7 @@ public sealed class SkyPatcherConflictsTests
     }
 
     static SkyPatcherOverlay.SkyPatcherAppliedOp Ap(string op, string raw, string? before, string? after) =>
-        new("x.ini", 1, op, raw, "p", before, after, null);
+        new("x.ini", 1, op, op, raw, "p", before, after, null);
 
     static RecordMap WeapMap => FieldMap.ForSubfolder("weapon")[0];
 
