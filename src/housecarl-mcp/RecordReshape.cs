@@ -244,7 +244,7 @@ public sealed partial class LoadOrderService
                 return WritePatchBuilder.CompactOutcome.Confirm(c.ToString());
             }
             // Pre-flight that the in-place target's parent is writable before any work.
-            if (inPlace && Host.InPlaceConsent.ParentUnwritable(srcPath, out var unwritable))
+            if (inPlace && InPlaceConsent.ParentUnwritable(srcPath, out var unwritable))
                 return WritePatchBuilder.CompactOutcome.Fail(unwritable);
 
             // The round-trip check (#961) on every file this call rewrites in place, before any of them is written.

@@ -305,7 +305,7 @@ public sealed partial class LoadOrderService
         }
 
         // Writable-parent pre-flight — refuse rather than degrade; kept in the dry run too.
-        if (Host.InPlaceConsent.ParentUnwritable(targetPath, out var why))
+        if (InPlaceConsent.ParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.PatchOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the touched-record verify forced on.
@@ -346,8 +346,8 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The first-touch in-place consent prompt for a PLUGIN: the shared lead plus the plugin-specific trade-off, waiving the CONSENT axis only.</summary>
-    string InPlaceHandshakeText(string pluginName, string path) =>
-        Host.InPlaceConsent.HandshakeLead(pluginName, path, "plugin", "writes to") +
+    static string InPlaceHandshakeText(string pluginName, string path) =>
+        InPlaceConsent.HandshakeLead(pluginName, path, "plugin", "writes to") +
         "  • houseCARL re-lays-out the WHOLE plugin the way xEdit/CK do on save (every record re-serialized), VERIFIES the records you edit, and trusts Mutagen for the rest.\n" +
         "  • It still refuses if the file can't be parsed, or carries engine-reserved (sub-0x800) records.\n" +
         "  • The default lane (a NEW patch, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
@@ -520,7 +520,7 @@ public sealed partial class LoadOrderService
         bool owesConsent = !already && acknowledge;
 
         // Writable-parent pre-flight — refuse rather than degrade; the swap stages a sibling temp here.
-        if (Host.InPlaceConsent.ParentUnwritable(targetPath, out var why))
+        if (InPlaceConsent.ParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.RemovalOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the absence verify forced on.
@@ -651,7 +651,7 @@ public sealed partial class LoadOrderService
         }
 
         // Writable-parent pre-flight — refuse rather than degrade; kept in the dry run.
-        if (Host.InPlaceConsent.ParentUnwritable(targetPath, out var why))
+        if (InPlaceConsent.ParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.ForwardOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the touched-record verify forced on.

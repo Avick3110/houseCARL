@@ -149,7 +149,7 @@ public sealed partial class LoadOrderService
         bool owesConsent = !already && acknowledge;
 
         // Writable-parent pre-flight — refuse rather than degrade; the swap stages a sibling temp here.
-        if (Host.InPlaceConsent.ParentUnwritable(targetPath, out var why))
+        if (InPlaceConsent.ParentUnwritable(targetPath, out var why))
             return WritePatchBuilder.CreateOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the created-record verify forced on.
