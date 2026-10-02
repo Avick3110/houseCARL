@@ -1,6 +1,6 @@
 namespace HousecarlMcp;
 
-/// <summary>Plugin arguments that name a file path: is it a path, do two paths denote one file, and which active plugin a path is.</summary>
+/// <summary>Plugin arguments that name a file path: is it a path, do two paths denote one file, which active plugin a path is, and which MO2 layer a path is in.</summary>
 internal static class PluginPaths
 {
     /// <summary>Does the user's `plugin` argument denote a PATH, used verbatim, rather than a bare filename located in the MO2 folders? True if rooted or carrying a directory separator.</summary>
