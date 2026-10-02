@@ -1,7 +1,8 @@
 ---
 updated: 2026-10-02
 covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/RecordCopy.cs, src/housecarl-mcp/RecordCreates.cs,
-  src/housecarl-mcp/RecordReshape.cs, src/housecarl-mcp/WriteMappers.cs, src/housecarl-mcp/WriteSentences.cs, src/housecarl-core/WriteEngine.cs,
+  src/housecarl-mcp/RecordReshape.cs, src/housecarl-mcp/WriteMappers.cs, src/housecarl-mcp/InPlaceConsent.cs,
+  src/housecarl-mcp/WriteSentences.cs, src/housecarl-core/WriteEngine.cs,
   src/housecarl-core/WriteVerbs.cs, src/housecarl-core/RemapEngine.cs, src/housecarl-core/ClosureCopy.cs,
   src/housecarl-core/MergeInjection.cs, src/housecarl-core/MergeLoadPosition.cs,
   src/housecarl-core/WritePatchBuilder.cs,
@@ -529,7 +530,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 ## Where
 - `src/housecarl-mcp/RecordWrites.cs` — among others: `ApplyEdits`, `RemoveRecords`, `ForwardRecords` and their
   `…InPlace` branches, the shared in-place seams (`ResolveActivePluginPath`, `InPlaceHandshakeText`,
-  `PersistInPlaceConsent`, `InPlaceParentUnwritable`, `MergeEditedInPlaceMarker`, `SeqStaleInPlaceNote`), the
+  `MergeEditedInPlaceMarker`, `SeqStaleInPlaceNote`), the
   copy-from and off-order-forward sources (`PrepareCopyFromSources`, `ResolveOffOrderForwardSource`,
   `RespellActiveCopySourcePaths`), `ResolveOutputPath`, and small helpers such as `SoleEspInFolder`,
   `RemoveFolderCreatedThisCall`, `IsUnderModsDir` and `JoinNotes`.
@@ -538,6 +539,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   `CommitCreateInPlace`, the post-write `EnrichWith*` checks.
 - `src/housecarl-mcp/RecordReshape.cs` — the plugin-level lanes, among others: `CreatePlugin`, `CompactPlugin`
   (which overwrites inside its own lane), `MergePlugins`, and the blocked-referencer helpers (`BlockedReferencer*`).
+- `src/housecarl-mcp/InPlaceConsent.cs` — `InPlaceConsent`, the in-place consent the write lanes and `nif_set` share
+  through `ILoadOrderHost`: `IsAcknowledged`, `Persist`, `ParentUnwritable`, `HandshakeLead`.
 - `src/housecarl-mcp/WriteMappers.cs` — the wire mappers, among others: `MapEdit`, `MapCreateEdit`, `MapStruct`,
   `MapComposes`, `MapFromPlugin`, `SplitPath`.
 - `src/housecarl-mcp/WriteSentences.cs` — the catalogue, `WriteSentences.Twins`, and the `[MustState]` /
