@@ -21,7 +21,7 @@ public sealed partial class LoadOrderService
         {
             // The view first: check (a) reads it, and the capture below then carries the built plugin names.
             var view = Resolver.Capture();
-            var snapshot = ConfiguredRoots();                             // before the allocation lock, which never wraps a _gate hold
+            var snapshot = ConfiguredRoots();                             // before the allocation lock, which never wraps an index-lock hold
             var roots = snapshot.Roots;
             if (!Directory.Exists(roots.ModsDir))
                 return WritePatchBuilder.CreatePluginOutcome.Fail($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
@@ -74,9 +74,10 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                 // one write at a time; the whole resolve→build→repoint runs under it
         {
             var resolver = Resolver;                                      // builds/refreshes; reentrant with _writeGate
+            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
             var view = resolver.Capture();
-            if (!Directory.Exists(_modsDir))
-                return WritePatchBuilder.CompactOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
+            if (!Directory.Exists(roots.ModsDir))
+                return WritePatchBuilder.CompactOutcome.Fail($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
 
             var name = pluginName.Trim();
             string? srcPath;
@@ -93,10 +94,8 @@ public sealed partial class LoadOrderService
             else
             {
                 // Not in the active order → resolve the file on disk through the shared locate contract; every declared master must still be active.
-                string modsDir, dataDir, overwriteDir, profileDir;
-                lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
-                var comp = Mo2LoadOrder.ReadComposition(profileDir);
-                var loc = OutputLocations.LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, name, null);
+                var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
+                var loc = OutputLocations.LocatePluginFileOnDisk(comp, roots, name, null);
                 if (loc.Error is not null)
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"'{name}' is not an active plugin in your load order, and no on-disk copy was found either ({loc.Error})");
@@ -290,9 +289,7 @@ public sealed partial class LoadOrderService
             var srcSeqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(srcPath)}.seq";
             try
             {
-                AssetResolver assetResolver;
-                lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate
-                var assetView = assetResolver.Capture();
+                var assetView = Assets.Capture();
                 seqGate = assetView.ResolveForPlacement(srcSeqRel).Sources.Count > 0;   // VFS-aware (loose roots + active BSAs)
                 var outDir = Path.GetDirectoryName(outPath)!;
                 assetRename = AssetRenameService.CarryFaceGen(outPath, remapDict, assetView, outDir);
@@ -334,11 +331,11 @@ public sealed partial class LoadOrderService
                     + "source's .STRINGS files do not describe it, and any language it shipped that this read did not "
                     + "resolve is not in the output. Read the output before you enable it in place of the original.");
             if (flagOnlyNote is not null) markerNotes.Add(flagOnlyNote);
-            if (inPlace) { var n = MergeEditedInPlaceMarker(Path.GetDirectoryName(srcPath)); if (n is not null) markerNotes.Add(n); }
+            if (inPlace) { var n = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(srcPath)); if (n is not null) markerNotes.Add(n); }
             foreach (var r in repointed.Where(r => r.Success))
             {
                 var rp = view.PluginPath(r.Plugin);
-                if (rp is not null) { var n = MergeEditedInPlaceMarker(Path.GetDirectoryName(rp)); if (n is not null) markerNotes.Add(n); }
+                if (rp is not null) { var n = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(rp)); if (n is not null) markerNotes.Add(n); }
             }
 
             return new WritePatchBuilder.CompactOutcome(
@@ -488,9 +485,10 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                 // one write at a time
         {
             var resolver = Resolver;
+            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
             var view = resolver.Capture();
-            if (!Directory.Exists(_modsDir))
-                return WritePatchBuilder.MergeOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
+            if (!Directory.Exists(roots.ModsDir))
+                return WritePatchBuilder.MergeOutcome.Fail($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
             if (view.ContainsPlugin(outName))
                 return WritePatchBuilder.MergeOutcome.Fail(
                     $"'{outName}' — the plugin patch='{patchName}' names — is already an active plugin in your load order, and the merge " +
@@ -590,7 +588,7 @@ public sealed partial class LoadOrderService
             bool createdFolder;
             try
             {
-                outPath = ResolveOutputPath(patchName, into: null, out _, out createdFolder,
+                outPath = ResolveOutputPath(roots, patchName, into: null, out _, out createdFolder,
                     refuseTaken: new OutputLocations.StemRefusal(
                         "the merged plugin",
                         "Remove it in MO2, or pass patch= a name no mod folder or active plugin already carries."));
@@ -635,9 +633,7 @@ public sealed partial class LoadOrderService
             bool? seqGate = null;                                          // the VFS answer, set the moment the view resolves
             try
             {
-                AssetResolver assetResolver;
-                lock (_gate) { assetResolver = Assets; }                  // reentrant under the held _writeGate
-                var assetView = assetResolver.Capture();
+                var assetView = Assets.Capture();
                 seqGate = false;                                          // the view resolved — the answer below is authoritative
                 foreach (var (dName, _, _, _) in donorInfos)              // did any donor ship a .seq? VFS-aware, per donor
                     if (assetView.ResolveForPlacement($@"SEQ\{Path.GetFileNameWithoutExtension(dName)}.seq").Sources.Count > 0)

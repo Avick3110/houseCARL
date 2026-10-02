@@ -48,10 +48,11 @@ public sealed partial class LoadOrderService
             return WritePatchBuilder.PatchOutcome.Fail(
                 $"refused — {problems.Count} of {ops.Count} operation(s) malformed; NO patch written:\n  - " + string.Join("\n  - ", problems));
 
-        // Lock order is _writeGate then _gate; contract in docs/architecture/load-order-service.md.
+        // Lock order is the write gate, then the index lock; contract in docs/architecture/load-order-service.md.
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
             var resolver = Resolver;                                      // builds/refreshes the index
+            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
             var rulebook = Rulebook;
             InsideWriteGateForGuard?.Invoke();                            // test seam; null in the product
 
@@ -60,25 +61,25 @@ public sealed partial class LoadOrderService
                 // The overlays must stay OPEN across the whole in-place write, so they are disposed after it returns.
                 Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? ipSources = null;
                 List<IDisposable>? ipOverlays = null;
-                var ipError = PrepareCopyFromSources(resolver, edits, ref ipSources, ref ipOverlays, out var ipEpoch);
+                var ipError = PrepareCopyFromSources(resolver, roots, edits, ref ipSources, ref ipOverlays, out var ipEpoch);
                 if (ipError is not null)
                 {
                     if (ipOverlays is not null) foreach (var d in ipOverlays) d.Dispose();
                     return WritePatchBuilder.PatchOutcome.Fail(ipError) with { Stamp = ipEpoch };
                 }
-                try { return ApplyEditsInPlace(resolver, rulebook, edits, target!.Trim(), acknowledge, dryRun, ipSources); }
+                try { return ApplyEditsInPlace(resolver, roots, rulebook, edits, target!.Trim(), acknowledge, dryRun, ipSources); }
                 finally { if (ipOverlays is not null) foreach (var d in ipOverlays) d.Dispose(); }
             }
 
             // A dry run resolves the would-be output path WITHOUT creating the mod folder; the fresh name is only a preview.
             string outPath; bool extend, created;
-            try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
+            try { outPath = ResolveOutputPath(roots, patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
             catch (Exception ex) { return WritePatchBuilder.PatchOutcome.Fail(ex.Message); }
 
             // Pre-resolve any CopyFrom source that is off-order; an active-order source is resolved inside Apply.
             Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? copyFromSources = null;
             List<IDisposable>? offOrderOverlays = null;
-            var cfError = PrepareCopyFromSources(resolver, edits, ref copyFromSources, ref offOrderOverlays, out var cfEpoch);
+            var cfError = PrepareCopyFromSources(resolver, roots, edits, ref copyFromSources, ref offOrderOverlays, out var cfEpoch);
             if (cfError is not null)
             {
                 if (offOrderOverlays is not null) foreach (var d in offOrderOverlays) d.Dispose();
@@ -98,7 +99,7 @@ public sealed partial class LoadOrderService
     /// <summary>Locate every OFF-ORDER CopyFrom source and fetch its version of the target record, holding each overlay
     /// OPEN for the caller to dispose after the serialize; a named refusal if one cannot be located, opened or read.
     /// MUTATES <paramref name="edits"/> to re-spell a path that names an active copy. Contracts in docs/architecture/write-path.md.</summary>
-    string? PrepareCopyFromSources(LoadOrderResolver resolver, IList<WritePatchBuilder.PatchEdit> edits,
+    string? PrepareCopyFromSources(LoadOrderResolver resolver, Mo2Roots roots, IList<WritePatchBuilder.PatchEdit> edits,
         ref Dictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? sources, ref List<IDisposable>? overlays,
         out OrderStamp? epoch)
     {
@@ -110,24 +111,18 @@ public sealed partial class LoadOrderService
         var view = resolver.Capture();
         epoch = view.Stamp;
         RespellActiveCopySourcePaths(view, edits);   // before the predicate, and before any edit is used as a key
-        string modsDir = "", dataDir = "", overwriteDir = "", profileDir = "";
         Mo2Composition? comp = null;
         var problems = new List<string>();
         foreach (var e in edits)
         {
             // The shared predicate the engine consumes through, not a restatement of it.
             if (!WritePatchBuilder.IsOffOrderCopySource(e, view)) continue;   // not a CopyFrom, or active — Apply resolves it off the shared build
-            if (comp is null)
-            {
-                try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
-                catch (Exception ex) { return $"CopyFrom off-order source locate failed to derive the MO2 roots: {ex.Message}"; }
-                comp = Mo2LoadOrder.ReadComposition(profileDir);
-            }
-            var loc = OutputLocations.LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, e.FromPlugin!, null);
+            comp ??= Mo2LoadOrder.ReadComposition(roots.ProfileDir);
+            var loc = OutputLocations.LocatePluginFileOnDisk(comp, roots, e.FromPlugin!, null);
             if (loc.Error is not null) { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{e.FromPlugin}' is not in the load order and {loc.Error}"); continue; }
             if (loc.Ambiguous is not null) { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{e.FromPlugin}' matches several mod folders on disk — pass an exact path to disambiguate."); continue; }
             ISkyrimModGetter ov;
-            try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
+            try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(roots.DataDir) ? null : roots.DataDir); }
             catch (Exception ex) { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source file '{e.FromPlugin}' could not be opened as a Skyrim plugin ({ex.Message})."); continue; }
             IMajorRecordGetter? body;
             try { body = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == e.CopySource); }
@@ -168,7 +163,7 @@ public sealed partial class LoadOrderService
     /// open it once and pre-fetch every requested record's body, handing the overlay back OPEN. Null with a null
     /// <paramref name="error"/> when the source IS active. Contracts in docs/architecture/write-path.md.</summary>
     WritePatchBuilder.OffOrderForwardSource? ResolveOffOrderForwardSource(
-        LoadOrderResolver resolver, string fromPlugin, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs,
+        LoadOrderResolver resolver, Mo2Roots roots, string fromPlugin, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs,
         out IDisposable? overlay, out OrderStamp? epoch, out string? error, out string sourceName)
     {
         overlay = null; error = null; sourceName = fromPlugin;
@@ -181,17 +176,13 @@ public sealed partial class LoadOrderService
             return null;
         }
 
-        string modsDir, dataDir, overwriteDir, profileDir;
-        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
-        catch (Exception ex) { error = $"source plugin '{fromPlugin}' is not in the load order and the MO2 roots couldn't be derived to find it on disk: {ex.Message}"; return null; }
-
-        var comp = Mo2LoadOrder.ReadComposition(profileDir);
+        var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
         // offerModParam is false: this tool has no mod= parameter, and a direct path is this lane's disambiguator.
-        var loc = OutputLocations.LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, fromPlugin, null, offerModParam: false);
+        var loc = OutputLocations.LocatePluginFileOnDisk(comp, roots, fromPlugin, null, offerModParam: false);
         if (loc.Error is not null)
         {
             // A did-you-mean over every plugin the locate SEARCHED, empty when nothing is close.
-            var pool = Mo2LoadOrder.AllPluginFileNames(comp, modsDir, dataDir, overwriteDir);
+            var pool = Mo2LoadOrder.AllPluginFileNames(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir);
             error = $"source plugin '{fromPlugin}' is not in the load order and {loc.Error}" +
                     PluginNameSuggest.DidYouMean(fromPlugin, pool);
             return null;
@@ -212,8 +203,8 @@ public sealed partial class LoadOrderService
             excludedWhy = exWhy;
 
         ISkyrimModGetter ov;
-        try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
-        catch (Exception ex) { error = $"source file '{fromPlugin}' ({loc.Path}) could not be opened as a Skyrim plugin ({ex.Message})."; return null; }
+        try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(roots.DataDir) ? null : roots.DataDir); }
+        catch (Exception ex) { error =$"source file '{fromPlugin}' ({loc.Path}) could not be opened as a Skyrim plugin ({ex.Message})."; return null; }
 
         // One walk of the overlay collecting every wanted key.
         var wanted = specs.Select(s => s.Target).ToHashSet();
@@ -263,7 +254,7 @@ public sealed partial class LoadOrderService
     /// <summary>The in-place branch of <see cref="ApplyEdits"/>, under _writeGate: resolve <paramref name="target"/>
     /// through the load order, take the consent handshake, check the parent, write with the verify forced on, stamp the marker.</summary>
     WritePatchBuilder.PatchOutcome ApplyEditsInPlace(
-        LoadOrderResolver resolver, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.PatchEdit> edits,
+        LoadOrderResolver resolver, Mo2Roots roots, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.PatchEdit> edits,
         string target, bool acknowledge, bool dryRun = false,
         IReadOnlyDictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? copyFromSources = null)
     {
@@ -314,7 +305,7 @@ public sealed partial class LoadOrderService
         {
             // ackNote is null here: the only other writer is the dry-run branch, which returned above.
             ackNote = PersistInPlaceConsent(owesConsent, targetPath, "edit");
-            var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
+            var markerNote = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note must survive the merge.
             var note = JoinNotes(outcome.Note, ackNote, markerNote, seqNote);
@@ -396,11 +387,11 @@ public sealed partial class LoadOrderService
 
     /// <summary>Stamp the <c>[houseCARL] editedInPlace=&lt;ISO&gt;</c> audit line into the target mod's <c>meta.ini</c>,
     /// preserving every other line and only under ModsDir. Best-effort: a note on failure. Contract in docs/architecture/write-path.md.</summary>
-    string? MergeEditedInPlaceMarker(string? modFolder)
+    static string? MergeEditedInPlaceMarker(Mo2Roots roots, string? modFolder)
     {
         try
         {
-            if (string.IsNullOrEmpty(modFolder) || !IsUnderModsDir(modFolder)) return null;   // N/A for a non-MO2 target
+            if (string.IsNullOrEmpty(modFolder) || !IsUnderModsDir(roots, modFolder)) return null;   // N/A for a non-MO2 target
             var meta = Path.Combine(modFolder, "meta.ini");
             var stamp = $"editedInPlace={DateTime.UtcNow:o}";
             var lines = File.Exists(meta) ? File.ReadAllLines(meta).ToList() : new List<string>();
@@ -433,13 +424,13 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>True iff <paramref name="folder"/> is ModsDir or a folder under it — the gate that keeps the marker out of the game Data dir.</summary>
-    bool IsUnderModsDir(string folder)
+    static bool IsUnderModsDir(Mo2Roots roots, string folder)
     {
-        if (string.IsNullOrEmpty(_modsDir)) return false;
+        if (string.IsNullOrEmpty(roots.ModsDir)) return false;
         try
         {
             var full = Path.GetFullPath(folder);
-            var mods = Path.GetFullPath(_modsDir);
+            var mods = Path.GetFullPath(roots.ModsDir);
             return full.Equals(mods, StringComparison.OrdinalIgnoreCase)
                 || full.StartsWith(mods + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
@@ -459,9 +450,7 @@ public sealed partial class LoadOrderService
     {
         try
         {
-            AssetResolver assetResolver;
-            lock (_gate) { assetResolver = Assets; }                          // reentrant under the held _writeGate
-            var av = assetResolver.Capture();
+            var av = Assets.Capture();
             var seqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(targetPath)}.seq";
             var seqSource = av.ResolveForPlacement(seqRel).Sources.FirstOrDefault();
             if (seqSource?.LooseFilePath is not { } seqPath) return null;      // no .seq, or a BSA-only one (bytes uncheckable here) → nothing to flag
@@ -521,13 +510,14 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                 // removal re-serializes the patch — same gate
         {
             var resolver = Resolver;                                      // builds/refreshes the index and the overlays for the re-serialize
+            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
 
             if (inPlace)
-                return RemoveRecordsInPlace(resolver, keys, target!.Trim(), acknowledge);
+                return RemoveRecordsInPlace(resolver, roots, keys, target!.Trim(), acknowledge);
 
             // Resolve and ownership-gate the patch the way an extend does; no fresh-patch remedy is offered on this lane.
             string outPath;
-            try { outPath = ResolveOutputPath(patchName: null, into: patch, out _, out _,
+            try { outPath = ResolveOutputPath(roots, patchName: null, into: patch, out _, out _,
                                               noFreshRule: WriteSentences.RemoveNoFreshPatch); }
             catch (Exception ex) { return WritePatchBuilder.RemovalOutcome.Fail(ex.Message); }
 
@@ -538,7 +528,7 @@ public sealed partial class LoadOrderService
     /// <summary>The in-place branch of <see cref="RemoveRecords"/>, reusing every in-place seam and driving
     /// <see cref="WritePatchBuilder.RemoveRecordsInPlace"/> with the absence verify forced on. No rulebook: a removal pre-flights nothing.</summary>
     WritePatchBuilder.RemovalOutcome RemoveRecordsInPlace(
-        LoadOrderResolver resolver, IReadOnlyList<FormKey> keys, string target, bool acknowledge)
+        LoadOrderResolver resolver, Mo2Roots roots, IReadOnlyList<FormKey> keys, string target, bool acknowledge)
     {
         var view = resolver.Capture();
         var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
@@ -571,7 +561,7 @@ public sealed partial class LoadOrderService
         if (outcome.Success)
         {
             var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "removal");
-            var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
+            var markerNote = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note must survive the merge.
             var note = JoinNotes(outcome.Note, ackNote, markerNote, seqNote);
@@ -625,9 +615,10 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
             var resolver = Resolver;                                      // builds/refreshes the index and the overlays for the source fetch and serialize
+            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
 
             // A source the active order does not contain is located and pre-fetched here, on both lanes; its overlay outlives the serialize.
-            var offOrder = ResolveOffOrderForwardSource(resolver, fp, specs, out var offOverlay, out var offEpoch, out var offError, out var sourceName);
+            var offOrder = ResolveOffOrderForwardSource(resolver, roots, fp, specs, out var offOverlay, out var offEpoch, out var offError, out var sourceName);
             if (offError is not null)
                 return WritePatchBuilder.ForwardOutcome.Fail(offError) with { Stamp = offEpoch };
             // A path that named the ACTIVE copy resolves as that plugin, so re-spell every spec's source.
@@ -636,11 +627,11 @@ public sealed partial class LoadOrderService
             try
             {
                 if (inPlace)
-                    return ForwardRecordsInPlace(resolver, specs, target!.Trim(), acknowledge, dryRun, offOrder);
+                    return ForwardRecordsInPlace(resolver, roots, specs, target!.Trim(), acknowledge, dryRun, offOrder);
 
                 // A dry run resolves the would-be output path without creating the mod folder.
                 string outPath; bool extend, created;
-                try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
+                try { outPath = ResolveOutputPath(roots, patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
                 // Stamped like every post-capture outcome: the source resolve above already consulted the build.
                 catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message) with { Stamp = offEpoch }; }
 
@@ -655,7 +646,7 @@ public sealed partial class LoadOrderService
     /// <summary>The in-place branch of <see cref="ForwardRecords"/>, reusing every in-place seam and driving
     /// <see cref="WritePatchBuilder.ForwardRecordsInPlace"/> with the touched-record verify forced on.</summary>
     WritePatchBuilder.ForwardOutcome ForwardRecordsInPlace(
-        LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs, string target, bool acknowledge,
+        LoadOrderResolver resolver, Mo2Roots roots, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs, string target, bool acknowledge,
         bool dryRun = false, WritePatchBuilder.OffOrderForwardSource? offOrder = null)
     {
         var view = resolver.Capture();
@@ -705,7 +696,7 @@ public sealed partial class LoadOrderService
         {
             // ackNote is null here: the only other writer is the dry-run branch, which returned above.
             ackNote = PersistInPlaceConsent(owesConsent, targetPath, "forward");
-            var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
+            var markerNote = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note must survive the merge.
             var note = JoinNotes(outcome.Note, ackNote, markerNote, seqNote);
@@ -718,48 +709,44 @@ public sealed partial class LoadOrderService
     /// <paramref name="into"/> an existing houseCARL-owned one, with <paramref name="createdFolder"/> reporting whether THIS
     /// call cut it. The remedy arguments and the one-gate rule: docs/architecture/write-path.md. Where output lands:
     /// docs/architecture/output-and-artifacts.md.</summary>
-    string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
+    string ResolveOutputPath(Mo2Roots roots, string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
                              FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? noFreshRule = null,
                              bool? stemFromCaller = null, OutputLocations.StemRefusal? refuseTaken = null)
     {
-        lock (_gate)
+        createdFolder = false;
+        if (!Directory.Exists(roots.ModsDir))
+            throw new InvalidOperationException($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
+
+        if (!string.IsNullOrWhiteSpace(into))
         {
-            createdFolder = false;
-            var roots = RootsLocked();
-            if (!Directory.Exists(roots.ModsDir))
-                throw new InvalidOperationException($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
+            extend = true;
+            // The .esp write lane shares the extend resolver with the rider and asset lanes; needEsp:true picks the .esp inside the folder.
+            var folder = OutputLocations.ResolveOwnedPatchFolder(roots, into, needEsp: true, freshPatch, noFreshRule);
+            var direct = Path.Combine(folder, OutputLocations.PatchStem(into) + ".esp");
+            if (File.Exists(direct)) return direct;
+            var sole = SoleEspInFolder(folder, out var why);
+            if (sole is not null) return sole;
+            throw new InvalidOperationException($"cannot extend: houseCARL folder '{Path.GetFileName(folder)}' {why}.");
+        }
 
-            if (!string.IsNullOrWhiteSpace(into))
+        extend = false;
+        var baseStem = OutputLocations.PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
+        var active = OutputLocations.ActivePluginBasenames(roots, _resolver?.PluginNames);   // raw read of a best-effort set; every rebuild waits on the caller's _writeGate
+        // Every record lane that reaches here declares patch= and writes "<stem>.esp".
+        lock (_outputLocations.FolderAllocationGate)                    // the same allocation lock as the rider lanes
+        {
+            var freeStem = OutputLocations.UniqueStem(roots, active, baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
+                                      new PatchStemShadow.Target(s => s + ".esp", "patch"), refuseTaken);
+            var newFolder = Path.Combine(roots.ModsDir, OutputLocations.ModFolderName(freeStem));
+            var plugin = freeStem + ".esp";
+            // A dry run (create:false) resolves the would-be path only — no folder, no meta.ini.
+            if (create)
             {
-                extend = true;
-                // The .esp write lane shares the extend resolver with the rider and asset lanes; needEsp:true picks the .esp inside the folder.
-                var folder = OutputLocations.ResolveOwnedPatchFolder(roots, into, needEsp: true, freshPatch, noFreshRule);
-                var direct = Path.Combine(folder, OutputLocations.PatchStem(into) + ".esp");
-                if (File.Exists(direct)) return direct;
-                var sole = SoleEspInFolder(folder, out var why);
-                if (sole is not null) return sole;
-                throw new InvalidOperationException($"cannot extend: houseCARL folder '{Path.GetFileName(folder)}' {why}.");
+                Directory.CreateDirectory(newFolder);
+                createdFolder = true;
+                OutputLocations.WriteOwnerMeta(newFolder, plugin);
             }
-
-            extend = false;
-            var baseStem = OutputLocations.PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
-            var active = OutputLocations.ActivePluginBasenames(roots, _resolver?.PluginNames);   // under _gate, before the allocation lock
-            // Every record lane that reaches here declares patch= and writes "<stem>.esp".
-            lock (_outputLocations.FolderAllocationGate)                // the same allocation lock as the rider lanes
-            {
-                var freeStem = OutputLocations.UniqueStem(roots, active, baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
-                                          new PatchStemShadow.Target(s => s + ".esp", "patch"), refuseTaken);
-                var newFolder = Path.Combine(roots.ModsDir, OutputLocations.ModFolderName(freeStem));
-                var plugin = freeStem + ".esp";
-                // A dry run (create:false) resolves the would-be path only — no folder, no meta.ini.
-                if (create)
-                {
-                    Directory.CreateDirectory(newFolder);
-                    createdFolder = true;
-                    OutputLocations.WriteOwnerMeta(newFolder, plugin);
-                }
-                return Path.Combine(newFolder, plugin);
-            }
+            return Path.Combine(newFolder, plugin);
         }
     }
 

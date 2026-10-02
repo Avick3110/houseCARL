@@ -104,13 +104,14 @@ public sealed partial class LoadOrderService
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
             var resolver = Resolver;
+            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's one read of the MO2 roots
             var rulebook = Rulebook;
 
             if (inPlace)
-                return CommitCreateInPlace(resolver, rulebook, specs, target!.Trim(), acknowledge, replace);
+                return CommitCreateInPlace(resolver, roots, rulebook, specs, target!.Trim(), acknowledge, replace);
 
             string outPath; bool extend, created;
-            try { outPath = ResolveOutputPath(patchName, into, out extend, out created, freshPatch: FreshPatchRemedy.NamedByPatchParam); }
+            try { outPath = ResolveOutputPath(roots, patchName, into, out extend, out created, freshPatch: FreshPatchRemedy.NamedByPatchParam); }
             catch (Exception ex) { return WritePatchBuilder.CreateOutcome.Fail(ex.Message); }
 
             var outcome = WritePatchBuilder.CreateRecords(resolver, rulebook, specs, outPath, extend, fullReadback);
@@ -123,7 +124,7 @@ public sealed partial class LoadOrderService
     /// <summary>The in-place branch of <see cref="CommitCreate"/>, reusing every in-place seam and driving
     /// <see cref="WritePatchBuilder.CreateRecordsInPlace"/>; it also runs the patch lane's post-write coverage checks.</summary>
     WritePatchBuilder.CreateOutcome CommitCreateInPlace(
-        LoadOrderResolver resolver, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.CreateSpec> specs,
+        LoadOrderResolver resolver, Mo2Roots roots, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.CreateSpec> specs,
         string target, bool acknowledge, bool replace = false)
     {
         var view = resolver.Capture();
@@ -159,7 +160,7 @@ public sealed partial class LoadOrderService
         {
             var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "create");
             var enriched = EnrichWithCellShell(EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver)));
-            var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
+            var markerNote = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(targetPath));
             // enriched.Note FIRST, as the other in-place lanes join: the core's master-grow note must survive.
             var note = JoinNotes(enriched.Note, ackNote, markerNote);
             return note is not null ? enriched with { Note = note } : enriched;

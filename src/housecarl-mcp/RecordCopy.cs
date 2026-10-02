@@ -23,7 +23,11 @@ public sealed partial class LoadOrderService
         var arms = new List<SourceArm>(poles.Count);
         var openedHere = new List<IDisposable>();
         Mo2Composition? comp = null;
+        // One read of the MO2 roots for every pole; a failure is held and answered where a pole needs them.
         var roots = new Mo2Roots(ProfileDir: "", DataDir: "", ModsDir: "", OverwriteDir: "");
+        Exception? rootsError = null;
+        try { roots = ((ILoadOrderHost)this).CaptureRoots(); }
+        catch (Exception ex) { rootsError = ex; }
 
         string Fail(string message)
         {
@@ -36,7 +40,7 @@ public sealed partial class LoadOrderService
         {
             try
             {
-                lock (_gate) { EnsurePathsDerived(); roots = RootsLocked(); }
+                if (rootsError is not null) return null;
                 return view.PluginPath(pluginName) is { } p ? PluginPaths.InstallLayerOfPath(p, roots) : null;
             }
             catch { return null; }
@@ -98,10 +102,9 @@ public sealed partial class LoadOrderService
 
             if (comp is null)
             {
-                try { lock (_gate) { EnsurePathsDerived(); roots = RootsLocked(); } }
-                catch (Exception ex)
+                if (rootsError is { } rootsEx)
                 {
-                    error = Fail($"{at}: '{spelling}' is not in the load order and the MO2 roots couldn't be derived to find it on disk: {ex.Message}");
+                    error = Fail($"{at}: '{spelling}' is not in the load order and the MO2 roots couldn't be derived to find it on disk: {rootsEx.Message}");
                     return null;
                 }
                 comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);
@@ -168,6 +171,7 @@ public sealed partial class LoadOrderService
         lock (_writeGate)
         {
             var resolver = Resolver;
+            var roots = ((ILoadOrderHost)this).CaptureRoots();            // the lane's read of the MO2 roots for its output folder
             var view = resolver.Capture();
             using var session = resolver.OpenSession();
             var overlays = new List<IDisposable>();
@@ -213,7 +217,7 @@ public sealed partial class LoadOrderService
 
                 string outPath; bool extend, created;
                 // The stem falls back to the new EditorID, but only patch= is the caller's own name.
-                try { outPath = ResolveOutputPath(patchName ?? (into is null ? newEditorid?.Trim() : null), into, out extend, out created,
+                try { outPath = ResolveOutputPath(roots, patchName ?? (into is null ? newEditorid?.Trim() : null), into, out extend, out created,
                                                   freshPatch: FreshPatchRemedy.CreatedByOmittingInto,
                                                   stemFromCaller: !string.IsNullOrWhiteSpace(patchName)); }
                 catch (Exception ex) { return ClosureCopyOutcome.Fail(engine: ex.Message, sources: consulted); }
@@ -257,6 +261,7 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>Test seam for <see cref="BuildSourceChain"/>: drives the real builder and hands the chain to <paramref name="body"/> while its sources are still open.</summary>
+    // Holds no write gate, unlike every lane, so another thread's refresh can move the roots under it; a test seam only.
     internal T WithSourceChainForGuard<T>(IReadOnlyList<string> poles, string paramName, Func<SourceChain?, string?, T> body)
     {
         var resolver = Resolver;
