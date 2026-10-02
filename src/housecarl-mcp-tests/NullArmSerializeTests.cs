@@ -42,7 +42,7 @@ public sealed class NullArmSerializeTests : IDisposable
 
     static void ConditionWithoutData(SkyrimMod mod) =>
         WriteEngine.ApplyVerb(mod.ConstructibleObjects.AddNew(),
-            AddCondition(LoadOrderService.MapStruct(new StructInput { Type = "ConditionFloat" }, "test", out _)));
+            AddCondition(RecordWrites.MapStruct(new StructInput { Type = "ConditionFloat" }, "test", out _)));
 
     // B1: a Condition composed without its Data arm fails as a NAMED NullArmSerializeException (not a bare NRE)
     // B1b: the refusal names the cause (compose) and preserves the NRE as InnerException

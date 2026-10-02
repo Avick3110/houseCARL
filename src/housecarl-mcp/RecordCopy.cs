@@ -4,7 +4,7 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
-public sealed partial class LoadOrderService
+internal sealed partial class RecordWrites
 {
     /// <summary>Build a walk's ordered source universe from the caller's pole list: each element is one pole, first hit
     /// wins, and an off-order element's overlay is appended OPEN. Contracts in docs/architecture/write-path.md.</summary>
@@ -154,10 +154,10 @@ public sealed partial class LoadOrderService
         FormKey? targetKey, string? newEditorid,
         string? patchName, string? into)
     {
-        lock (Host.WriteGate)
+        lock (_host.WriteGate)
         {
-            var resolver = Host.Resolver;
-            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
+            var resolver = _host.Resolver;
+            var snapshot = _host.ConfiguredRoots();                       // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
             var view = resolver.Capture();
             using var session = resolver.OpenSession();
@@ -251,8 +251,8 @@ public sealed partial class LoadOrderService
     // Holds no write gate, unlike every lane, so another thread's refresh can move the roots under it; a test seam only.
     internal T WithSourceChainForGuard<T>(IReadOnlyList<string> poles, string paramName, Func<SourceChain?, string?, T> body)
     {
-        var resolver = Host.Resolver;
-        var roots = Host.CaptureRoots();
+        var resolver = _host.Resolver;
+        var roots = _host.CaptureRoots();
         var view = resolver.Capture();
         using var session = resolver.OpenSession();
         var overlays = new List<IDisposable>();

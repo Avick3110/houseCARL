@@ -1,12 +1,12 @@
 namespace HousecarlMcp;
 
-public sealed partial class LoadOrderService
+internal sealed partial class RecordWrites
 {
     /// <summary>Create brand-new records in one patch — the sibling of <see cref="ApplyEdits"/>, and the one-shot route for
     /// a nested unit whose child names a same-call sibling by editorid. Each new record's FormID is auto-allocated at 0x800
     /// and above and reported. All-or-nothing, one serialize for the lot, and originals are never touched.</summary>
-    public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false,
-        string? target = null, bool inPlace = false, bool acknowledge = false, bool replace = false)
+    public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback,
+        string? target, bool inPlace, bool acknowledge, bool replace)
     {
         if (records is null || records.Count == 0)
             return WritePatchBuilder.CreateOutcome.Fail("no records to create supplied — pass one or more {record_type, editorid, operations?, parent?, collection?, grid?} specs.");
@@ -14,7 +14,7 @@ public sealed partial class LoadOrderService
         var problems = new List<string>();
         var specs = new List<WritePatchBuilder.CreateSpec>(records.Count);
         // One write door for the whole call: parent= is the only token here that can be a FormID.
-        var door = Host.OpenWriteFormIdDoor();
+        var door = _host.OpenWriteFormIdDoor();
         // The editorids this call declares: a parent naming one of them is a sibling reference, not a FormID.
         var siblings = new HashSet<string>(
             records.Where(x => !string.IsNullOrWhiteSpace(x.Editorid)).Select(x => x.Editorid!.Trim()),
@@ -53,7 +53,7 @@ public sealed partial class LoadOrderService
         {
             try
             {
-                var types = Host.Types.Resolve(recordType.Trim());
+                var types = _host.Types.Resolve(recordType.Trim());
                 if (types.Count != 1)
                     problems.Add($"{prefix}record_type '{recordType}' is ambiguous ({types.Count} matches) — use a specific catalog name (e.g. one of: {string.Join(", ", types.Select(t => RecordNaming.StripGetterInterface(t.Name)))}).");
                 else catalogName = RecordNaming.StripGetterInterface(types[0].Name);
@@ -101,12 +101,12 @@ public sealed partial class LoadOrderService
             return WritePatchBuilder.CreateOutcome.Fail(
                 "replace=true overwrites a record the in-place TARGET already defines under the same editorid, and is only meaningful with in_place=true. Drop it, or name the file to create into.");
 
-        lock (Host.WriteGate)                                            // one write at a time, resolve through commit
+        lock (_host.WriteGate)                                           // one write at a time, resolve through commit
         {
-            var resolver = Host.Resolver;
-            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
+            var resolver = _host.Resolver;
+            var snapshot = _host.ConfiguredRoots();                       // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
-            var rulebook = Host.Rulebook;
+            var rulebook = _host.Rulebook;
 
             if (inPlace)
                 return CommitCreateInPlace(resolver, roots, rulebook, specs, target!.Trim(), acknowledge, replace);
@@ -142,7 +142,7 @@ public sealed partial class LoadOrderService
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // The consent axis: the shared first-touch handshake keyed off the resolved path.
-        bool already = Host.InPlaceConsent.IsAcknowledged(targetPath);
+        bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);
         if (!already && !acknowledge)
             return WritePatchBuilder.CreateOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
                 with { Stamp = view.Stamp };
@@ -159,7 +159,7 @@ public sealed partial class LoadOrderService
         // On success record the acknowledgement, run the same post-write checks the patch lane runs, then stamp the marker.
         if (outcome.Success)
         {
-            var ackNote = Host.InPlaceConsent.Persist(owesConsent, targetPath, "create");
+            var ackNote = _host.InPlaceConsent.Persist(owesConsent, targetPath, "create");
             var enriched = EnrichWithCellShell(EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver)));
             var markerNote = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(targetPath));
             // enriched.Note FIRST, as the other in-place lanes join: the core's master-grow note must survive.
@@ -178,7 +178,7 @@ public sealed partial class LoadOrderService
         if (!anyInfo) return outcome;
 
         VoiceReport report;
-        try { report = VoiceCheck.Run(outcome.OutputPath, outcome.Created, resolver, Host.Assets); }
+        try { report = VoiceCheck.Run(outcome.OutputPath, outcome.Created, resolver, _host.Assets); }
         catch (Exception ex) { report = VoiceReport.Empty with { CheckError = $"{ex.GetType().Name}: {ex.Message}" }; }
         return report.IsEmpty ? outcome : outcome with { Voice = report };
     }
@@ -192,7 +192,7 @@ public sealed partial class LoadOrderService
         if (!anyInfo) return outcome;
 
         ScriptBindingReport report;
-        try { report = DialogueScriptCheck.Run(outcome.OutputPath, outcome.Created, Host.Assets); }
+        try { report = DialogueScriptCheck.Run(outcome.OutputPath, outcome.Created, _host.Assets); }
         catch (Exception ex) { report = ScriptBindingReport.Empty with { CheckError = $"{ex.GetType().Name}: {ex.Message}" }; }
         return report.IsEmpty ? outcome : outcome with { ScriptBinding = report };
     }

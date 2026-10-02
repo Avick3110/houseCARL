@@ -24,6 +24,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     readonly AssetLayers _assetLayers;             // the assets area; built in the constructor over this head and the output area
     readonly RecordReads _reads;                   // the reads area; built in the constructor over this head
     readonly RecordChecks _checks;                 // the checks area; built in the constructor over this head
+    readonly RecordWrites _writes;                 // the writes area; built in the constructor over this head and the output area
     // Serializes every plugin write's resolve, stage and commit; contract in docs/architecture/load-order-service.md.
     readonly object _writeGate = new();
     object ILoadOrderHost.WriteGate => _writeGate;
@@ -61,10 +62,11 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         // full file path always has a parent folder; only a bare root has none, and that is its own folder.
         var storePath = Path.GetFullPath(store.FilePath);
         ResultsDir = Path.Combine(Path.GetDirectoryName(storePath) ?? storePath, "results");
-        _outputLocations = new OutputLocations(this);   // built first: AssetLayers takes it
+        _outputLocations = new OutputLocations(this);   // built first: AssetLayers and RecordWrites take it
         _assetLayers = new AssetLayers(this, _outputLocations);
         _reads = new RecordReads(this);
         _checks = new RecordChecks(this);
+        _writes = new RecordWrites(this, _outputLocations);
     }
 
     /// <summary>INSTANCE mode (product default): derive the roots and active profile from ONE MO2 instance folder; a null or blank path is UNCONFIGURED.</summary>
@@ -420,6 +422,37 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         => _checks.SweepScopeError(formids, editoridContains, types);
 
     internal RecordChecks CheckArea => _checks;   // the checks area instance, for tests that set its seams
+
+    // The writes area's tool-facing surface; the bodies are in RecordWrites.cs, RecordCopy.cs, RecordCreates.cs, RecordReshape.cs and WriteMappers.cs.
+    public WritePatchBuilder.PatchOutcome ApplyEdits(IReadOnlyList<BulkOp> ops, string? patchName, string? into,
+        bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
+        bool dryRun = false, IReadOnlyList<string?>? fromRecords = null, IReadOnlyList<string?>? opOrigins = null)
+        => _writes.ApplyEdits(ops, patchName, into, fullReadback, target, inPlace, acknowledge, dryRun, fromRecords, opOrigins);
+    public WritePatchBuilder.RemovalOutcome RemoveRecords(IReadOnlyList<string> formids, string? patch,
+        string? target = null, bool inPlace = false, bool acknowledge = false)
+        => _writes.RemoveRecords(formids, patch, target, inPlace, acknowledge);
+    public WritePatchBuilder.ForwardOutcome ForwardRecords(IReadOnlyList<string> formids, string fromPlugin, string? patchName, string? into,
+        bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
+        bool dryRun = false)
+        => _writes.ForwardRecords(formids, fromPlugin, patchName, into, fullReadback, target, inPlace, acknowledge, dryRun);
+    public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false,
+        string? target = null, bool inPlace = false, bool acknowledge = false, bool replace = false)
+        => _writes.CreateRecordsBatch(records, patchName, into, fullReadback, target, inPlace, acknowledge, replace);
+    public WritePatchBuilder.CreatePluginOutcome CreatePlugin(string pluginName, bool esl = false, string? author = null, string? description = null)
+        => _writes.CreatePlugin(pluginName, esl, author, description);
+    public WritePatchBuilder.CompactOutcome CompactPlugin(
+        string pluginName, bool esl = true, bool inPlace = false, bool repointExternals = false,
+        bool acknowledge = false, string? patchName = null)
+        => _writes.CompactPlugin(pluginName, esl, inPlace, repointExternals, acknowledge, patchName);
+    public WritePatchBuilder.MergeOutcome MergePlugins(IReadOnlyList<string>? plugins, string? patch) => _writes.MergePlugins(plugins, patch);
+    internal ClosureCopyOutcome CopyClosure(
+        FormKey sourceKey, IReadOnlyList<string> sourcePoles,
+        IReadOnlyList<string> seedPaths, IReadOnlyList<WalkExclusion> exclusions,
+        FormKey? targetKey, string? newEditorid,
+        string? patchName, string? into)
+        => _writes.CopyClosure(sourceKey, sourcePoles, seedPaths, exclusions, targetKey, newEditorid, patchName, into);
+
+    internal RecordWrites WriteArea => _writes;   // the writes area instance, for the probe seams
     internal bool GateHeldByThisThread => Monitor.IsEntered(_gate);   // for a test seam that must know whether it runs inside the hold
 
     internal int AbsenceExplanations;   // how many times the explainer has parsed the profile, for the cost tests

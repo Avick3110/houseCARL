@@ -152,7 +152,7 @@ public sealed class CompactRepointReferencerTests
     [Fact]
     public void TheCensusCountsAndNamesEachClassSeparately()
     {
-        var census = LoadOrderService.BlockedReferencerCensus(MixedHits);
+        var census = RecordWrites.BlockedReferencerCensus(MixedHits);
 
         Assert.Contains("2 flagged LOCALIZED (A.esp, C.esp)", census);
         Assert.Contains("1 houseCARL could not read (B.esp)", census);
@@ -165,7 +165,7 @@ public sealed class CompactRepointReferencerTests
     [Fact]
     public void TheReasonsAttributeTheFirstOfEachClassAndTailOnlyTheirOwnClass()
     {
-        var reasons = LoadOrderService.BlockedReferencerReasons(MixedHits);
+        var reasons = RecordWrites.BlockedReferencerReasons(MixedHits);
 
         Assert.Contains("Where A.esp's text is:", reasons);
         Assert.Contains("Why B.esp is blocked:", reasons);
@@ -178,8 +178,8 @@ public sealed class CompactRepointReferencerTests
     [Fact]
     public void AClassWithNoHitsContributesNothingToTheCensus()
     {
-        var locOnly = LoadOrderService.BlockedReferencerCensus(MixedHits.Where(m => m.Shape != LocalizedShape.Unreadable).ToArray());
-        var unreadOnly = LoadOrderService.BlockedReferencerCensus(MixedHits.Where(m => m.Shape == LocalizedShape.Unreadable).ToArray());
+        var locOnly = RecordWrites.BlockedReferencerCensus(MixedHits.Where(m => m.Shape != LocalizedShape.Unreadable).ToArray());
+        var unreadOnly = RecordWrites.BlockedReferencerCensus(MixedHits.Where(m => m.Shape == LocalizedShape.Unreadable).ToArray());
 
         Assert.DoesNotContain("could not read", locOnly);
         Assert.DoesNotContain("flagged LOCALIZED", unreadOnly);
