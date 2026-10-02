@@ -23,13 +23,13 @@ public sealed class NestedComposeMapTests : IDisposable
     static WriteRequest AddCondition(StructSpec? spec) =>
         new() { RecordType = "ConstructibleObject", Path = new[] { "Conditions" }, Verb = "Add", Struct = spec };
 
-    static StructSpec? Mapped(string dataArm) => LoadOrderService.MapStruct(ConditionWithData(dataArm), "test", out _);
+    static StructSpec? Mapped(string dataArm) => RecordWrites.MapStruct(ConditionWithData(dataArm), "test", out _);
 
     // A1: MapStruct propagates a nested compose into Sets[0].Struct
     [Fact]
     public void MapStructCarriesTheNestedComposeIntoTheNestedStruct()
     {
-        var spec = LoadOrderService.MapStruct(ConditionWithData("GetActorValueConditionData"), "test", out var err);
+        var spec = RecordWrites.MapStruct(ConditionWithData("GetActorValueConditionData"), "test", out var err);
         Assert.Null(err);
         Assert.Equal("GetActorValueConditionData", Assert.Single(spec!.Sets!).Struct?.Type);
     }

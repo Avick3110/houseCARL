@@ -2,7 +2,7 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-public sealed partial class LoadOrderService
+internal sealed partial class RecordWrites
 {
     /// <summary>Map a wire field-op to a core <see cref="WriteRequest"/> for a create: the type is the create type, and a stray formid is refused rather than ignored.</summary>
     WriteRequest? MapCreateEdit(BulkOp op, int index, string recordType, out string? error)

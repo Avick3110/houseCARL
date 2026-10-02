@@ -107,7 +107,7 @@ public sealed class LocalizedModFolderUnreadableTests : IDisposable
 
             // The remedy points at the folder that is actually stuck, named — not at filling a Strings folder the
             // modder does not have, and not at the Strings folder, which is not the one that would not read.
-            var refusal = LoadOrderService.UnresolvableStringsRefusal("ZRef.esp", a, "merge");
+            var refusal = RecordWrites.UnresolvableStringsRefusal("ZRef.esp", a, "merge");
             Assert.Contains("the folder 'ZRef.esp' sits in", refusal);
             Assert.Contains("fix its permissions", refusal);
             Assert.DoesNotContain("place them in a Strings folder beside the plugin", refusal);

@@ -69,7 +69,7 @@ public sealed class SourceChainWorld : IDisposable
     /// <summary>Build a chain from <paramref name="poles"/> and hand it (or the refusal) to <paramref name="body"/> while
     /// its sources are open.</summary>
     public T Chain<T>(IReadOnlyList<string> poles, Func<SourceChain?, string?, T> body)
-        => Svc.WithSourceChainForGuard(poles, "from_source", body);
+        => Svc.WriteArea.WithSourceChainForGuard(poles, "from_source", body);
 
     public static string? NameOf(SourceFetch f) => (f.Hit?.Body as INpcGetter)?.Name?.String;
 

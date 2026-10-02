@@ -65,7 +65,7 @@ public sealed class FreshnessCaptureTests : IDisposable
     public void Dispose()
     {
         WritePatchBuilder.InsidePhase1ResolveForGuard = null;
-        LoadOrderService.InsideWriteGateForGuard = null;
+        RecordWrites.InsideWriteGateForGuard = null;
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }
 
@@ -279,7 +279,7 @@ public sealed class FreshnessCaptureTests : IDisposable
         using (var inGate = new ManualResetEventSlim())
         using (var release = new ManualResetEventSlim())
         {
-            LoadOrderService.InsideWriteGateForGuard = () => { inGate.Set(); release.Wait(); };
+            RecordWrites.InsideWriteGateForGuard = () => { inGate.Set(); release.Wait(); };
             try
             {
                 wt = Task.Run(() => svc.ApplyEdits(ops, "HcFcgDefer", null));
@@ -293,7 +293,7 @@ public sealed class FreshnessCaptureTests : IDisposable
             }
             finally
             {
-                LoadOrderService.InsideWriteGateForGuard = null;
+                RecordWrites.InsideWriteGateForGuard = null;
                 release.Set();
             }
             outcome = await wt.WaitAsync(Timeout);              // joins once released, or fails by timing out

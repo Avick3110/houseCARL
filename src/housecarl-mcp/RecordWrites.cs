@@ -5,19 +5,27 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlMcp;
 
-/// <summary>What the writes area takes from the head beyond the shared door; it still reaches the output instance directly, until writes becomes its own class and takes it in its constructor.</summary>
+/// <summary>What the writes area takes from the head beyond the shared door.</summary>
 internal interface IWriteHost : ILoadOrderHost
 {
     /// <summary>A FormID door for a write verb's tokens, which refuses a runtime FormID.</summary>
     FormIdDoor OpenWriteFormIdDoor();
 }
 
-public sealed partial class LoadOrderService
+/// <summary>The writes area: apply, create, remove, forward, copy, compact, merge, create_plugin.</summary>
+internal sealed partial class RecordWrites
 {
-    // ---- writes ----------------------------------------------------------------------------------------
+    /// <summary>Every head member this area takes, and nothing else.</summary>
+    readonly IWriteHost _host;
 
-    /// <summary>The head members this area takes; the output instance is still reached directly, until writes becomes its own class and takes it in its constructor.</summary>
-    IWriteHost Host => this;
+    /// <summary>The output area, for the patch folders writes land in and the folder allocation lock.</summary>
+    readonly OutputLocations _output;
+
+    internal RecordWrites(IWriteHost host, OutputLocations output)
+    {
+        _host = host;
+        _output = output;
+    }
 
     /// <summary>Test seam: invoked once inside <see cref="ApplyEdits"/>'s write gate; null in the product.</summary>
     internal static Action? InsideWriteGateForGuard;
@@ -25,8 +33,8 @@ public sealed partial class LoadOrderService
     /// <summary>Apply one or more edits as a single patch: map each op to a core PatchEdit, resolve the output, then
     /// drive <see cref="WritePatchBuilder.Apply"/>. All-or-nothing, and a new patch unless <paramref name="into"/> extends one.</summary>
     public WritePatchBuilder.PatchOutcome ApplyEdits(IReadOnlyList<BulkOp> ops, string? patchName, string? into,
-        bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
-        bool dryRun = false, IReadOnlyList<string?>? fromRecords = null, IReadOnlyList<string?>? opOrigins = null)
+        bool fullReadback, string? target, bool inPlace, bool acknowledge,
+        bool dryRun, IReadOnlyList<string?>? fromRecords, IReadOnlyList<string?>? opOrigins)
     {
         if (ops.Count == 0)
             return WritePatchBuilder.PatchOutcome.Fail("no operations supplied.");
@@ -45,7 +53,7 @@ public sealed partial class LoadOrderService
         // Map every op to a core PatchEdit, collecting ALL parse problems first; outside the write gate.
         var edits = new List<WritePatchBuilder.PatchEdit>(ops.Count);
         var problems = new List<string>();
-        var editDoor = Host.OpenWriteFormIdDoor();
+        var editDoor = _host.OpenWriteFormIdDoor();
         for (int i = 0; i < ops.Count; i++)
         {
             // fromRecords[i] is the zip's per-op source record, carried parallel to the op list.
@@ -59,13 +67,13 @@ public sealed partial class LoadOrderService
                 $"refused — {problems.Count} of {ops.Count} operation(s) malformed; NO patch written:\n  - " + string.Join("\n  - ", problems));
 
         // Lock order is the write gate, then the index lock; contract in docs/architecture/load-order-service.md.
-        lock (Host.WriteGate)                                            // one write at a time, resolve through commit
+        lock (_host.WriteGate)                                           // one write at a time, resolve through commit
         {
-            var resolver = Host.Resolver;                                 // builds/refreshes the index
+            var resolver = _host.Resolver;                                // builds/refreshes the index
             // Cannot throw once Resolver succeeded: it derived the roots, nothing empties them, and SetInstance waits for the write gate.
-            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
+            var snapshot = _host.ConfiguredRoots();                       // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
-            var rulebook = Host.Rulebook;
+            var rulebook = _host.Rulebook;
             InsideWriteGateForGuard?.Invoke();                            // test seam; null in the product
 
             if (inPlace)
@@ -284,7 +292,7 @@ public sealed partial class LoadOrderService
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // The consent axis: the persistent first-touch handshake keyed off the resolved path; a dry run bypasses it.
-        bool already = Host.InPlaceConsent.IsAcknowledged(targetPath);
+        bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);
         string? ackNote = null;
         bool owesConsent = false;
         if (dryRun)
@@ -316,7 +324,7 @@ public sealed partial class LoadOrderService
         if (outcome.Success)
         {
             // ackNote is null here: the only other writer is the dry-run branch, which returned above.
-            ackNote = Host.InPlaceConsent.Persist(owesConsent, targetPath, "edit");
+            ackNote = _host.InPlaceConsent.Persist(owesConsent, targetPath, "edit");
             var markerNote = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note must survive the merge.
@@ -415,7 +423,7 @@ public sealed partial class LoadOrderService
     {
         try
         {
-            var av = Host.Assets.Capture();
+            var av = _host.Assets.Capture();
             var seqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(targetPath)}.seq";
             var seqSource = av.ResolveForPlacement(seqRel).Sources.FirstOrDefault();
             if (seqSource?.LooseFilePath is not { } seqPath) return null;      // no .seq, or a BSA-only one (bytes uncheckable here) → nothing to flag
@@ -437,7 +445,7 @@ public sealed partial class LoadOrderService
     /// <summary>Remove whole records a houseCARL patch carries, the companion to <see cref="ApplyEdits"/>: <paramref
     /// name="patch"/> is required and ownership-gated, or <paramref name="inPlace"/> drops from an existing plugin.</summary>
     public WritePatchBuilder.RemovalOutcome RemoveRecords(IReadOnlyList<string> formids, string? patch,
-        string? target = null, bool inPlace = false, bool acknowledge = false)
+        string? target, bool inPlace, bool acknowledge)
     {
         if (formids is null || formids.Count == 0)
             return WritePatchBuilder.RemovalOutcome.Fail("no formids supplied — pass the FormID(s) of the record(s) to remove.");
@@ -460,7 +468,7 @@ public sealed partial class LoadOrderService
         // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit path). Pure — outside the gate.
         var keys = new List<FormKey>(formids.Count);
         var problems = new List<string>();
-        var door = Host.OpenWriteFormIdDoor();
+        var door = _host.OpenWriteFormIdDoor();
         for (int i = 0; i < formids.Count; i++)
         {
             var raw = formids[i];
@@ -472,10 +480,10 @@ public sealed partial class LoadOrderService
             return WritePatchBuilder.RemovalOutcome.Fail(
                 $"refused — {problems.Count} of {formids.Count} formid(s) malformed; NOTHING removed:\n  - " + string.Join("\n  - ", problems));
 
-        lock (Host.WriteGate)                                            // removal re-serializes the patch — same gate
+        lock (_host.WriteGate)                                           // removal re-serializes the patch — same gate
         {
-            var resolver = Host.Resolver;                                 // builds/refreshes the index and the overlays for the re-serialize
-            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
+            var resolver = _host.Resolver;                                // builds/refreshes the index and the overlays for the re-serialize
+            var snapshot = _host.ConfiguredRoots();                       // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
 
             if (inPlace)
@@ -510,7 +518,7 @@ public sealed partial class LoadOrderService
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // The consent axis: the shared first-touch handshake keyed off the resolved path.
-        bool already = Host.InPlaceConsent.IsAcknowledged(targetPath);
+        bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);
         if (!already && !acknowledge)
             return WritePatchBuilder.RemovalOutcome.NeedsAck(InPlaceHandshakeText(targetName, targetPath))
                 with { Stamp = view.Stamp };
@@ -526,7 +534,7 @@ public sealed partial class LoadOrderService
         // On success record the acknowledgement, stamp the audit marker and flag a stale .seq; both best-effort.
         if (outcome.Success)
         {
-            var ackNote = Host.InPlaceConsent.Persist(owesConsent, targetPath, "removal");
+            var ackNote = _host.InPlaceConsent.Persist(owesConsent, targetPath, "removal");
             var markerNote = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note must survive the merge.
@@ -542,8 +550,8 @@ public sealed partial class LoadOrderService
     /// <summary>Forward a named plugin's version of one or more records into a patch as an override — xEdit's "copy as
     /// override into". The SOURCE plugin decides the content, so forwarding the origin master reverts a record to vanilla.</summary>
     public WritePatchBuilder.ForwardOutcome ForwardRecords(IReadOnlyList<string> formids, string fromPlugin, string? patchName, string? into,
-        bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
-        bool dryRun = false)
+        bool fullReadback, string? target, bool inPlace, bool acknowledge,
+        bool dryRun)
     {
         if (string.IsNullOrWhiteSpace(fromPlugin))
             return WritePatchBuilder.ForwardOutcome.Fail(
@@ -566,7 +574,7 @@ public sealed partial class LoadOrderService
         var fp = fromPlugin.Trim();
         var specs = new List<WritePatchBuilder.ForwardSpec>(formids.Count);
         var problems = new List<string>();
-        var door = Host.OpenWriteFormIdDoor();
+        var door = _host.OpenWriteFormIdDoor();
         for (int i = 0; i < formids.Count; i++)
         {
             var raw = formids[i];
@@ -578,10 +586,10 @@ public sealed partial class LoadOrderService
             return WritePatchBuilder.ForwardOutcome.Fail(
                 $"refused — {problems.Count} of {formids.Count} formid(s) malformed; NOTHING forwarded:\n  - " + string.Join("\n  - ", problems));
 
-        lock (Host.WriteGate)                                            // one write at a time, resolve through commit
+        lock (_host.WriteGate)                                           // one write at a time, resolve through commit
         {
-            var resolver = Host.Resolver;                                 // builds/refreshes the index and the overlays for the source fetch and serialize
-            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
+            var resolver = _host.Resolver;                                // builds/refreshes the index and the overlays for the source fetch and serialize
+            var snapshot = _host.ConfiguredRoots();                       // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
 
             // A source the active order does not contain is located and pre-fetched here, on both lanes; its overlay outlives the serialize.
@@ -630,7 +638,7 @@ public sealed partial class LoadOrderService
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
         // The consent axis: the shared first-touch handshake; a dry run bypasses it and notes it instead.
-        bool already = Host.InPlaceConsent.IsAcknowledged(targetPath);
+        bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);
         string? ackNote = null;
         bool owesConsent = false;
         if (dryRun)
@@ -662,7 +670,7 @@ public sealed partial class LoadOrderService
         if (outcome.Success)
         {
             // ackNote is null here: the only other writer is the dry-run branch, which returned above.
-            ackNote = Host.InPlaceConsent.Persist(owesConsent, targetPath, "forward");
+            ackNote = _host.InPlaceConsent.Persist(owesConsent, targetPath, "forward");
             var markerNote = MergeEditedInPlaceMarker(roots, Path.GetDirectoryName(targetPath));
             var seqNote = SeqStaleInPlaceNote(targetPath, targetName);
             // outcome.Note first — the core's master-grow re-sort note must survive the merge.
@@ -701,7 +709,7 @@ public sealed partial class LoadOrderService
         var baseStem = OutputLocations.PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
         var active = OutputLocations.ActivePluginBasenames(roots, snapshot.BuiltPluginNames);
         // Every record lane that reaches here declares patch= and writes "<stem>.esp".
-        lock (_outputLocations.FolderAllocationGate)                    // the same allocation lock as the rider lanes
+        lock (_output.FolderAllocationGate)                            // the same allocation lock as the rider lanes
         {
             var freeStem = OutputLocations.UniqueStem(roots, active, baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
                                       new PatchStemShadow.Target(s => s + ".esp", "patch"), refuseTaken);

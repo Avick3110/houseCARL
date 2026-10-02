@@ -2,11 +2,11 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-public sealed partial class LoadOrderService
+internal sealed partial class RecordWrites
 {
     /// <summary>Create an empty, header-only plugin named exactly <paramref name="pluginName"/> — the primitive for
     /// "plugin Foo.esp needs to exist". The name is never auto-suffixed: a collision refuses loudly (#561).</summary>
-    public WritePatchBuilder.CreatePluginOutcome CreatePlugin(string pluginName, bool esl = false, string? author = null, string? description = null)
+    public WritePatchBuilder.CreatePluginOutcome CreatePlugin(string pluginName, bool esl, string? author, string? description)
     {
         if (string.IsNullOrWhiteSpace(pluginName))
             return WritePatchBuilder.CreatePluginOutcome.Fail(
@@ -17,11 +17,11 @@ public sealed partial class LoadOrderService
             return WritePatchBuilder.CreatePluginOutcome.Fail(
                 $"patch '{pluginName}' has no usable name once path parts and the plugin extension are stripped — give a plain name like 'MyTrigger'.");
 
-        lock (Host.WriteGate)                                            // one write at a time, resolve through commit
+        lock (_host.WriteGate)                                           // one write at a time, resolve through commit
         {
             // The view first: check (a) reads it, and the capture below then carries the built plugin names.
-            var view = Host.Resolver.Capture();
-            var snapshot = Host.ConfiguredRoots();                        // before the allocation lock, which never wraps an index-lock hold
+            var view = _host.Resolver.Capture();
+            var snapshot = _host.ConfiguredRoots();                       // before the allocation lock, which never wraps an index-lock hold
             var roots = snapshot.Roots;
             if (!Directory.Exists(roots.ModsDir))
                 return WritePatchBuilder.CreatePluginOutcome.Fail($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
@@ -35,7 +35,7 @@ public sealed partial class LoadOrderService
             var folder = Path.Combine(roots.ModsDir, OutputLocations.ModFolderName(stem));
             var plugin = stem + ".esp";
             var active = OutputLocations.ActivePluginBasenames(roots, snapshot.BuiltPluginNames);   // before the lock: may build the order
-            lock (_outputLocations.FolderAllocationGate)                 // the same allocation lock as the other fresh-folder sites
+            lock (_output.FolderAllocationGate)                         // the same allocation lock as the other fresh-folder sites
             {
                 // (b) a houseCARL mod folder of this exact name already exists — don't overwrite (could clobber a real patch
                 //     sharing the name) and don't auto-rename (would break the basename trigger): refuse and point at it.
@@ -65,16 +65,16 @@ public sealed partial class LoadOrderService
     /// originating records into the light window, repoint every internal reference, and emit a new plugin keeping the source's
     /// basename, or overwrite the original under <paramref name="inPlace"/>. External referencers refuse unless <paramref name="repointExternals"/>.</summary>
     public WritePatchBuilder.CompactOutcome CompactPlugin(
-        string pluginName, bool esl = true, bool inPlace = false, bool repointExternals = false,
-        bool acknowledge = false, string? patchName = null)
+        string pluginName, bool esl, bool inPlace, bool repointExternals,
+        bool acknowledge, string? patchName)
     {
         if (string.IsNullOrWhiteSpace(pluginName))
             return WritePatchBuilder.CompactOutcome.Fail("plugin is required — name the plugin filename to compact (e.g. 'CoolMod.esp').");
 
-        lock (Host.WriteGate)                                            // one write at a time; the whole resolve→build→repoint runs under it
+        lock (_host.WriteGate)                                           // one write at a time; the whole resolve→build→repoint runs under it
         {
-            var resolver = Host.Resolver;                                 // builds/refreshes; reentrant with the write gate
-            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
+            var resolver = _host.Resolver;                                // builds/refreshes; reentrant with the write gate
+            var snapshot = _host.ConfiguredRoots();                       // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
             var view = resolver.Capture();
             if (!Directory.Exists(roots.ModsDir))
@@ -257,7 +257,7 @@ public sealed partial class LoadOrderService
             if (inPlace) outPath = srcPath;
             else
             {
-                try { rf = _outputLocations.ResolvePatchModFolder(snapshot, patchName, null, Path.GetFileNameWithoutExtension(name) + " compacted", naming: null); }
+                try { rf = _output.ResolvePatchModFolder(snapshot, patchName, null, Path.GetFileNameWithoutExtension(name) + " compacted", naming: null); }
                 catch (InvalidOperationException ex) { return WritePatchBuilder.CompactOutcome.Fail(ex.Message); }
                 createdFresh = rf.CreatedFresh;
                 OutputLocations.WriteOwnerMeta(rf.ModFolder, name);       // the output keeps the source's exact basename
@@ -290,7 +290,7 @@ public sealed partial class LoadOrderService
             var srcSeqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(srcPath)}.seq";
             try
             {
-                var assetView = Host.Assets.Capture();
+                var assetView = _host.Assets.Capture();
                 seqGate = assetView.ResolveForPlacement(srcSeqRel).Sources.Count > 0;   // VFS-aware (loose roots + active BSAs)
                 var outDir = Path.GetDirectoryName(outPath)!;
                 assetRename = AssetRenameService.CarryFaceGen(outPath, remapDict, assetView, outDir);
@@ -483,10 +483,10 @@ public sealed partial class LoadOrderService
         if (donorsRaw.Any(d => string.Equals(d, outName, StringComparison.OrdinalIgnoreCase)))
             return WritePatchBuilder.MergeOutcome.Fail($"the output '{outName}' (the plugin patch='{patchName}' names) cannot also be a donor — pass patch= a NEW name.");
 
-        lock (Host.WriteGate)                                            // one write at a time
+        lock (_host.WriteGate)                                           // one write at a time
         {
-            var resolver = Host.Resolver;
-            var snapshot = Host.ConfiguredRoots();                        // the lane's one read of the MO2 roots and plugin names
+            var resolver = _host.Resolver;
+            var snapshot = _host.ConfiguredRoots();                       // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
             var view = resolver.Capture();
             if (!Directory.Exists(roots.ModsDir))
@@ -635,7 +635,7 @@ public sealed partial class LoadOrderService
             bool? seqGate = null;                                          // the VFS answer, set the moment the view resolves
             try
             {
-                var assetView = Host.Assets.Capture();
+                var assetView = _host.Assets.Capture();
                 seqGate = false;                                          // the view resolved — the answer below is authoritative
                 foreach (var (dName, _, _, _) in donorInfos)              // did any donor ship a .seq? VFS-aware, per donor
                     if (assetView.ResolveForPlacement($@"SEQ\{Path.GetFileNameWithoutExtension(dName)}.seq").Sources.Count > 0)
