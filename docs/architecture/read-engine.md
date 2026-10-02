@@ -117,4 +117,6 @@ shares come through the door it extends,
 Outside the interface it calls one static of the output area, `OutputLocations.LocatePluginFileOnDisk`
 in `OutputLocations.cs`, and names the head's `LoadOrderService.ViewPin` record. The path helpers it shares with
 the write and output lanes (`LooksLikePath`, `SamePluginFile`, `ActiveNameForPath`) are the static class
-`PluginPaths` in `src/housecarl-mcp/PluginPaths.cs`, which belongs to no area.
+`PluginPaths` in `src/housecarl-mcp/PluginPaths.cs`, which belongs to no area. That class also holds the two MO2-layer
+helpers (`LayerOfInstallPath`, `InstallLayerOfPath`), used by the assets area (`NativePairingAudit`) and the copy lane
+(`BuildSourceChain`).
