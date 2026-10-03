@@ -78,18 +78,9 @@ public static partial class RecordsTools
         public string[]? through { get; set; }
     }
 
-    /// <summary>A walk type field's entry to the type names a read reports; null with the refusal sentence for an unknown one.</summary>
-    static IReadOnlyList<string>? WalkTypeNames(TypeLookup types, string entry, string field, out string? refusal)
-    {
-        refusal = null;
-        try
-        {
-            if (TypeLookup.DisplayNames(types.Resolve(entry)) is { } names) return names;
-        }
-        catch (ArgumentException) { }
-        refusal = $"error: {field} '{entry}' is not a record type — pass a catalog name (e.g. 'Npc', 'LeveledItem') or a signature (e.g. 'NPC_', 'LVLI').";
-        return null;
-    }
+    /// <summary>The refusal for a walk type field's entry that names no record type.</summary>
+    static string NotAWalkType(string field, string entry)
+        => $"error: {field} '{entry}' is not a record type — pass a catalog name (e.g. 'Npc', 'LeveledItem') or a signature (e.g. 'NPC_', 'LVLI').";
 
     public sealed class RecordsWalkExclusion
     {
@@ -353,7 +344,7 @@ public static partial class RecordsTools
                 if (sev is not ("stop" or "refuse"))
                     return Wire.Refuse(json, $"error: walk.exclusions '{x.match}': severity='{x.severity}' — use 'stop' (prune, record the boundary) or 'refuse' (the whole walk fails loud).");
                 // A name or a signature, matched as the type name a read reports.
-                if (WalkTypeNames(svc.Types, x.match!, "walk.exclusions", out var exBad) is not { } exNames) return Wire.Refuse(json, exBad!);
+                if (svc.Types.DisplayNames(new[] { x.match! }) is not { } exNames) return Wire.Refuse(json, NotAWalkType("walk.exclusions", x.match!));
                 foreach (var n in exNames) walkExclusions.Add((n, sev == "refuse"));
             }
             if (walk.through is { } thr)
@@ -363,14 +354,13 @@ public static partial class RecordsTools
                 walkThrough = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var t in thr)
                 {
-                    if (WalkTypeNames(svc.Types, t ?? "", "walk.through", out var thBad) is not { } thNames) return Wire.Refuse(json, thBad!);
+                    if (svc.Types.DisplayNames(new[] { t ?? "" }) is not { } thNames) return Wire.Refuse(json, NotAWalkType("walk.through", t ?? ""));
                     walkThrough.UnionWith(thNames);
                 }
             }
             if (walkDirection == "reverse")
             {
-                // seed_paths shapes a FORWARD expansion; follow names which edges are crossed, so it stays legal here
-                // and is what tells the two reverse walks apart.
+                // seed_paths is forward-only; follow stays legal and picks which reverse walk runs.
                 if (walk.seed_paths is { Length: > 0 })
                     return Wire.Refuse(json, "error: walk.seed_paths shapes a FORWARD expansion — a reverse walk scans TOWARD the seeds. Drop it (walk.follow stays: it names the edges this walk crosses).");
                 if ((walk.exclusions is { Length: > 0 } || walkThrough is not null)
@@ -887,7 +877,11 @@ public static partial class RecordsTools
                                 + (lenientRev.Count > 3 ? $"; and {lenientRev.Count - 3} more" : "")
                                 + $". Read one with {ToolNames.Records} formids=[the FormID] to see the marked row.";
                 if (rev.Boundaries > 0)
-                    headerLine += $"\n{rev.Boundaries} reached record(s) matched a stop exclusion and were kept as boundaries, not expanded";
+                {
+                    var boundaryLine = $"{rev.Boundaries} reached record(s) matched a stop exclusion and were kept as boundaries, not expanded";
+                    envelope.Add(new("walk_boundaries", boundaryLine));
+                    headerLine += "\n" + boundaryLine;
+                }
                 SayLeftOut(rev.LeftOut ?? Array.Empty<string>());
                 if (rev.Capped)
                     headerLine += $"\n[!] the walk.max_nodes budget ({walkMaxNodes}, one budget shared across every seed and hop on this lane) was reached — what is listed IS reached and proved, and the hop it cut is marked; raise walk.max_nodes to walk further.";
