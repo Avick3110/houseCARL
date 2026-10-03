@@ -78,6 +78,19 @@ public static partial class RecordsTools
         public string[]? through { get; set; }
     }
 
+    /// <summary>A walk type field's entry to the type names a read reports; null with the refusal sentence for an unknown one.</summary>
+    static IReadOnlyList<string>? WalkTypeNames(TypeLookup types, string entry, string field, out string? refusal)
+    {
+        refusal = null;
+        try
+        {
+            if (TypeLookup.DisplayNames(types.Resolve(entry)) is { } names) return names;
+        }
+        catch (ArgumentException) { }
+        refusal = $"error: {field} '{entry}' is not a record type — pass a catalog name (e.g. 'Npc', 'LeveledItem') or a signature (e.g. 'NPC_', 'LVLI').";
+        return null;
+    }
+
     public sealed class RecordsWalkExclusion
     {
         [SchemaRequired, Description("The record type to match, by name or signature (e.g. 'Race', 'Npc', 'NPC_').")]
@@ -310,18 +323,6 @@ public static partial class RecordsTools
         const string CarrierFollow = "Effects[].BaseEffect";
         var walkExclusions = new List<(string Match, bool Refuse)>();
         HashSet<string>? walkThrough = null;
-        string? walkTypeRefusal = null;
-        // A walk type field's entry to the type names a read reports; null with the refusal set for an unknown one.
-        IReadOnlyList<string>? WalkTypeNames(string entry, string field)
-        {
-            try
-            {
-                if (TypeLookup.DisplayNames(svc.Types.Resolve(entry)) is { } names) return names;
-            }
-            catch (ArgumentException) { }
-            walkTypeRefusal = $"error: {field} '{entry}' is not a record type — pass a catalog name (e.g. 'Npc', 'LeveledItem') or a signature (e.g. 'NPC_', 'LVLI').";
-            return null;
-        }
         if (walk is not null)
         {
             var dir = walk.direction?.Trim().ToLowerInvariant();
@@ -352,7 +353,7 @@ public static partial class RecordsTools
                 if (sev is not ("stop" or "refuse"))
                     return Wire.Refuse(json, $"error: walk.exclusions '{x.match}': severity='{x.severity}' — use 'stop' (prune, record the boundary) or 'refuse' (the whole walk fails loud).");
                 // A name or a signature, matched as the type name a read reports.
-                if (WalkTypeNames(x.match!, "walk.exclusions") is not { } exNames) return Wire.Refuse(json, walkTypeRefusal!);
+                if (WalkTypeNames(svc.Types, x.match!, "walk.exclusions", out var exBad) is not { } exNames) return Wire.Refuse(json, exBad!);
                 foreach (var n in exNames) walkExclusions.Add((n, sev == "refuse"));
             }
             if (walk.through is { } thr)
@@ -362,7 +363,7 @@ public static partial class RecordsTools
                 walkThrough = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var t in thr)
                 {
-                    if (WalkTypeNames(t ?? "", "walk.through") is not { } thNames) return Wire.Refuse(json, walkTypeRefusal!);
+                    if (WalkTypeNames(svc.Types, t ?? "", "walk.through", out var thBad) is not { } thNames) return Wire.Refuse(json, thBad!);
                     walkThrough.UnionWith(thNames);
                 }
             }
