@@ -24,13 +24,21 @@ public static class ReverseWalkBatch
                                 string? Refusal, IReadOnlyList<string>? UnreadableWinners = null,
                                 IReadOnlyList<string>? LenientRecords = null)
     {
+        /// <summary>The type of each record walk.through left out, once per record; null when through is unset.</summary>
+        public IReadOnlyList<string>? LeftOut { get; init; }
+
+        /// <summary>How many reached records a stop exclusion kept as boundaries.</summary>
+        public int Boundaries { get; init; }
+
         /// <summary>The build's fingerprint alone, for the places that compare epochs rather than render them.</summary>
         public string? Epoch => Stamp?.Epoch;
     }
 
     /// <summary>Run the walk from these seeds; a bad FormID is a refusal naming it.</summary>
     public static Result Run(LoadOrderService svc, IReadOnlyList<string> seeds, int depth, int maxNodes,
-                             ArtifactDemand? demand, CancellationToken ct = default)
+                             ArtifactDemand? demand, CancellationToken ct = default,
+                             IReadOnlyList<(string Match, bool Refuse)>? exclusions = null,
+                             IReadOnlySet<string>? through = null)
     {
         var pin = svc.CapturePin();
         var view = pin.View;
@@ -58,6 +66,8 @@ public static class ReverseWalkBatch
         int unreadable = 0, noLiveBody = 0, noWinner = 0;
         // Every candidate is judged once, however many frontiers name it.
         var linksOf = new Dictionary<FormKey, IReadOnlySet<FormKey>?>();
+        // The type a read reports for each judged candidate, so exclusions and walk.through cost no second read.
+        var typeOf = new Dictionary<FormKey, string>();
         var noLink = new HashSet<FormKey>();
         using var session = pin.Resolver.OpenSession();
         // The bodies the check reads are gathered a block of candidates at a time, one enumeration per winner
@@ -103,6 +113,7 @@ public static class ReverseWalkBatch
                     else if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter) noLiveBody++;
                     else
                     {
+                        typeOf[candidate] = RecordNaming.StripOverlay(body.GetType().Name);
                         // The SAME link walk references= makes, so the two spellings cannot disagree about a
                         // record whose links only read leniently.
                         var set = new HashSet<FormKey>();
@@ -124,7 +135,39 @@ public static class ReverseWalkBatch
             return false;
         }
 
-        var hops = ReverseSelection.Transitive(view.ReverseIndex!, seedKeys, depth, maxNodes, Verify, out var capped, Gather);
+        // A verified candidate is then judged by type: a stop exclusion keeps it as a boundary, a refuse ends the
+        // call, and with walk.through set any other type outside it is left out and counted.
+        bool shaped = exclusions is { Count: > 0 } || through is not null;
+        var leftOut = new Dictionary<FormKey, string>();
+        var boundaries = new HashSet<FormKey>();
+        bool Admit(FormKey candidate, IReadOnlySet<FormKey> frontier)
+        {
+            if (!Verify(candidate, frontier)) return false;
+            if (!shaped || !typeOf.TryGetValue(candidate, out var type)) return true;
+            foreach (var x in exclusions ?? Array.Empty<(string, bool)>())
+            {
+                if (!x.Match.Equals(type, StringComparison.OrdinalIgnoreCase)) continue;
+                if (x.Refuse)
+                    throw new WalkRefused($"the walk reached a {type} ({FormIdToken.Of(candidate)}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call.");
+                boundaries.Add(candidate);
+                return true;
+            }
+            if (through is not null && !through.Contains(type)) { leftOut[candidate] = type; return false; }
+            return true;
+        }
+
+        IReadOnlyList<ReverseSelection.Hop> hops;
+        bool capped;
+        try
+        {
+            hops = ReverseSelection.Transitive(view.ReverseIndex!, seedKeys, depth, maxNodes,
+                                               shaped ? Admit : Verify, out capped, Gather,
+                                               shaped ? k => !boundaries.Contains(k) : null);
+        }
+        catch (WalkRefused r)
+        {
+            return new Result(Array.Empty<ReverseSelection.Hop>(), Array.Empty<string>(), 0, false, DropCensus.Empty, built.Note, stamp, r.Message);
+        }
 
         // Seeds first, then each hop in order: the selection reads in walk order.
         var selection = new List<string>(seedKeys.Count);
@@ -134,6 +177,13 @@ public static class ReverseWalkBatch
 
         return new Result(hops, selection, seedKeys.Count, capped,
                           new DropCensus(noLink.Count, unreadable, noLiveBody, noWinner), built.Note, stamp, null,
-                          unreadableWinners, lenientRecords);
+                          unreadableWinners, lenientRecords)
+        {
+            LeftOut = through is null ? null : leftOut.Values.ToList(),
+            Boundaries = boundaries.Count,
+        };
     }
+
+    /// <summary>A refuse exclusion reached: the walk ends and the call returns nothing.</summary>
+    sealed class WalkRefused(string message) : Exception(message);
 }

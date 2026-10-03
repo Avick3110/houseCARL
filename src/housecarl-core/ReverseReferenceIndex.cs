@@ -303,7 +303,8 @@ public static class ReverseSelection
     public static IReadOnlyList<Hop> Transitive(ReverseReferenceIndex index, IReadOnlyList<FormKey> seeds,
                                                 int depth, int maxNodes,
                                                 Func<FormKey, IReadOnlySet<FormKey>, bool>? verify, out bool capped,
-                                                Action<IReadOnlyList<FormKey>>? prepare = null)
+                                                Action<IReadOnlyList<FormKey>>? prepare = null,
+                                                Func<FormKey, bool>? expand = null)
     {
         capped = false;
         var hops = new List<Hop>();
@@ -314,6 +315,8 @@ public static class ReverseSelection
         {
             var frontierSet = new HashSet<FormKey>(frontier);
             var next = new List<FormKey>();
+            // What the next hop expands from: every reached node, less those expand turns away (kept as boundaries).
+            var nextFrontier = expand is null ? next : new List<FormKey>();
             bool cut = false;
             var candidates = index.ReferencersOf(frontier);
             int prepared = 0;
@@ -336,11 +339,12 @@ public static class ReverseSelection
                 if (verify is not null && !verify(k, frontierSet)) continue;
                 visited.Add(k);
                 next.Add(k);
+                if (expand is not null && expand(k)) nextFrontier.Add(k);
                 reached++;
             }
             hops.Add(new Hop(d, next, cut));
-            if (capped || next.Count == 0) break;
-            frontier = next;
+            if (capped || nextFrontier.Count == 0) break;
+            frontier = nextFrontier;
         }
         return hops;
     }

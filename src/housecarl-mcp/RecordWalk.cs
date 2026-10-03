@@ -143,7 +143,7 @@ internal sealed partial class RecordReads
         IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct,
-        bool wantCycles)
+        bool wantCycles, IReadOnlySet<string>? through = null, IDictionary<FormKey, string>? leftOut = null)
     {
         refusal = null;
         var resolver = _host.Resolver;
@@ -276,7 +276,7 @@ internal sealed partial class RecordReads
         WalkNodeFact FactFor(FormKey k, bool atCap)
         {
             var fact = nodeFacts is not null && nodeFacts.TryGetValue(k, out var f) ? f : null;
-            if (fact is not null && (!fact.Resolved || atCap || fact.Links is not null || fact.Unscannable is not null || Excluded(fact.Type))) return fact;
+            if (fact is not null && (!fact.Resolved || atCap || fact.Links is not null || fact.Unscannable is not null || NotEntered(fact.Type))) return fact;
 
             var body = Fetch(k);
             fact = body is null
@@ -292,7 +292,7 @@ internal sealed partial class RecordReads
             }
             // PER-RECORD FAULT ISOLATION, the twin of the scan lanes': reading a node's links parses its content
             // lazily, so one record Mutagen cannot parse is a boundary and the walk goes on.
-            if (body is not null && !atCap && !Excluded(fact.Type) && fact.Unscannable is null)
+            if (body is not null && !atCap && !NotEntered(fact.Type) && fact.Unscannable is null)
                 try { fact.Links = LinksOf(body, followSegs, out _); }
                 catch (Exception ex) when (IsWalkRecordFault(ex)) { fact.Unscannable = WalkFaultOf(ex); }
             if (nodeFacts is not null) nodeFacts[k] = fact;
@@ -300,11 +300,14 @@ internal sealed partial class RecordReads
         }
         bool Excluded(string? type)
             => type is not null && exclusions.Any(x => x.Match.Equals(type, StringComparison.OrdinalIgnoreCase));
+        // walk.through set and the type outside it: the node is left out, so its links are never read.
+        bool LeftOutType(string? type) => through is not null && type is not null && !through.Contains(type);
+        bool NotEntered(string? type) => Excluded(type) || LeftOutType(type);
 
         // Is this queued item's row already answerable from the memo? Then its body is not worth a gather slot.
         bool Memoised(FormKey k, int hop)
             => nodeFacts is not null && nodeFacts.TryGetValue(k, out var f)
-               && (!f.Resolved || hop >= depth || f.Links is not null || f.Unscannable is not null || Excluded(f.Type));
+               && (!f.Resolved || hop >= depth || f.Links is not null || f.Unscannable is not null || NotEntered(f.Type));
 
         // The seeds: parsed, then gathered together, then started on their first hop — in SLICES of a pass, for
         // the reason the hops are, since a walk can be seeded from a spilled artifact holding thousands of IDs.
@@ -498,6 +501,12 @@ internal sealed partial class RecordReads
                             return Array.Empty<WalkSeedResult>();
                         }
                         st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, fact.EditorId, hop, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
+                        continue;
+                    }
+                    // Outside walk.through: not entered and not in the reached set; the caller counts it per type.
+                    if (LeftOutType(type))
+                    {
+                        if (leftOut is not null) leftOut[key] = type;
                         continue;
                     }
                     // A node Mutagen could not parse: named, kept as a boundary, and the walk continues.

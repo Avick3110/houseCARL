@@ -169,13 +169,13 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 2 }),
                "reverse-reference index", "key=");
 
-    /// <summary>types= narrows the typed carrier walk's carrier types; this walk reaches every type, so the pair
-    /// refuses with the re-entry spelling named rather than filtering something else.</summary>
+    /// <summary>types= narrows the typed carrier walk's carrier types; on this walk it refuses naming walk.through,
+    /// the field that limits which types it expands through, rather than filtering something else.</summary>
     [Fact]
-    public void TypesOnTheTransitiveReverseWalkRefusesNamingTheReEntrySpelling() =>
+    public void TypesOnTheTransitiveReverseWalkRefusesNamingWalkThrough() =>
         Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) }, types: new[] { "Spell" },
                                      walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 2 }),
-                "to_file");
+                "walk.through");
 
     // ---- follow= is what tells the two reverse walks apart -------------------------------------------
 
