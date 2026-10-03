@@ -34,6 +34,9 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
 - A transitive reverse walk spends its node budget BEFORE a candidate is verified, so a spent budget
   stops the body reads as well as the reach and a raised budget on a retry sees the same graph; the
   hop the cut landed on is marked rather than reading as a hop that reached nothing.
+- The transitive reverse selection takes an optional expand predicate, built from `walk.through`
+  and the stop exclusions: a record it rejects is still reached but kept as a boundary, never added to
+  the next frontier. Unset, the next frontier is exactly the reached list.
 
 ## Pinned by
 
@@ -42,6 +45,8 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
 - `RecordsWalkCycleTests` / `RecordsWalkCostTests` / `RecordsWalkUnscannableTests` — the walk lanes.
 - `RecordsReverseIndexTests` — the unbounded reverse selection, the orphan sweep and the index's
   in-band accounting line.
+- `ReverseWalkTypesTests` — `walk.through` and `walk.exclusions` on a walk: what it expands through,
+  where it stops, what it leaves out, and the refusals.
 
 ## Where
 
