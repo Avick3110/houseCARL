@@ -77,7 +77,7 @@ public static partial class RecordsTools
         [Description("Record types the walk expands through, e.g. [\"LeveledItem\", \"Outfit\"]. Seeds and stop boundaries stay in the reached set; any other type is left out and counted. Unset walks every type.")]
         public string[]? through { get; set; }
 
-        [Description("One NPC template category, e.g. [\"Inventory\"]; reverse every-link walk only. An NPC with that template flag set is reached through its Template (an NPC, or leveled NPC lists, crossed and counted, not reached) instead of its own fields for the category, and only when that template is carried: linked by its own fields for it, or reached by crossing. With the flag clear its Template is not followed.")]
+        [Description("One NPC template category, e.g. [\"Inventory\"]; reverse every-link walk only. An NPC with that template flag set is reached through its Template (an NPC, or leveled NPC lists, crossed and counted, not reached, though they spend max_nodes) instead of its own fields for the category, and only when that template is carried: linked by its own fields for it, or reached by crossing. With the flag clear its Template is not followed.")]
         public string[]? inherit { get; set; }
     }
 
