@@ -299,7 +299,7 @@ internal sealed partial class RecordReads
             return fact;
         }
         bool Excluded(string? type)
-            => type is not null && exclusions.Any(x => x.Match.Equals(type, StringComparison.OrdinalIgnoreCase));
+            => type is not null && WalkExclusionMatch.Match(exclusions, type) is not null;
         // walk.through set and the type outside it: the node is left out, so its links are never read.
         bool LeftOutType(string? type) => through is not null && type is not null && !through.Contains(type);
         bool NotEntered(string? type) => Excluded(type) || LeftOutType(type);
@@ -487,13 +487,12 @@ internal sealed partial class RecordReads
                         continue;
                     }
                     var type = fact.Type!;
-                    var excl = exclusions.FirstOrDefault(x => x.Match.Equals(type, StringComparison.OrdinalIgnoreCase));
-                    if (excl.Match is not null)
+                    if (WalkExclusionMatch.Match(exclusions, type) is { } excl)
                     {
                         // A refuse ends the whole call.
                         if (excl.Refuse)
                         {
-                            refusal = $"the walk reached a {type} ({FormIdToken.Of(key)}, via {pulledBy}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call.";
+                            refusal = WalkExclusionMatch.RefuseSentence(type, key, pulledBy);
                             // A refusal returns nothing, so the pass in hand is dead: release it here.
                             if (bodyCache.Count > counters.WalkBodyHighWater) counters.WalkBodyHighWater = bodyCache.Count;
                             bodyCache.Clear();
@@ -551,6 +550,8 @@ internal sealed partial class RecordReads
             st.Settle();
             results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.Cycles!, st.Truncation, templateReport, st.Error, st.CyclesCapped));
         }
+        // A seed another seed reached is in the selection, so it is never counted as left out.
+        if (leftOut is not null) foreach (var k in seedKeys) leftOut.Remove(k);
         counters.WalkBodiesHeldAtReturn = bodyCache.Count;
         return results;
     }

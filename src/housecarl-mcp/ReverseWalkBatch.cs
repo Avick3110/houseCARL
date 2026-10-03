@@ -66,6 +66,8 @@ public static class ReverseWalkBatch
         int unreadable = 0, noLiveBody = 0, noWinner = 0;
         // Every candidate is judged once, however many frontiers name it.
         var linksOf = new Dictionary<FormKey, IReadOnlySet<FormKey>?>();
+        // Set only when the call passes walk.through or exclusions; unset is the plain walk.
+        bool shaped = exclusions is { Count: > 0 } || through is not null;
         // The type a read reports for each judged candidate, so exclusions and walk.through cost no second read.
         var typeOf = new Dictionary<FormKey, string>();
         var noLink = new HashSet<FormKey>();
@@ -113,7 +115,7 @@ public static class ReverseWalkBatch
                     else if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter) noLiveBody++;
                     else
                     {
-                        typeOf[candidate] = RecordNaming.StripOverlay(body.GetType().Name);
+                        if (shaped) typeOf[candidate] = RecordNaming.StripOverlay(body.GetType().Name);
                         // The SAME link walk references= makes, so the two spellings cannot disagree about a
                         // record whose links only read leniently.
                         var set = new HashSet<FormKey>();
@@ -135,20 +137,17 @@ public static class ReverseWalkBatch
             return false;
         }
 
-        // A verified candidate is then judged by type: a stop exclusion keeps it as a boundary, a refuse ends the
-        // call, and with walk.through set any other type outside it is left out and counted.
-        bool shaped = exclusions is { Count: > 0 } || through is not null;
+        // A verified candidate's type: a stop is a boundary, a refuse ends the call, a type outside walk.through is left out.
         var leftOut = new Dictionary<FormKey, string>();
         var boundaries = new HashSet<FormKey>();
         bool Admit(FormKey candidate, IReadOnlySet<FormKey> frontier)
         {
+            if (leftOut.ContainsKey(candidate)) return false;
             if (!Verify(candidate, frontier)) return false;
             if (!shaped || !typeOf.TryGetValue(candidate, out var type)) return true;
-            foreach (var x in exclusions ?? Array.Empty<(string, bool)>())
+            if (exclusions is not null && WalkExclusionMatch.Match(exclusions, type) is { } x)
             {
-                if (!x.Match.Equals(type, StringComparison.OrdinalIgnoreCase)) continue;
-                if (x.Refuse)
-                    throw new WalkRefused($"the walk reached a {type} ({FormIdToken.Of(candidate)}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call.");
+                if (x.Refuse) throw new WalkRefused(WalkExclusionMatch.RefuseSentence(type, candidate));
                 boundaries.Add(candidate);
                 return true;
             }
