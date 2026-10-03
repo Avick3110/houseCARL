@@ -143,7 +143,8 @@ internal sealed partial class RecordReads
         IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct,
-        bool wantCycles, IReadOnlySet<string>? through = null, IDictionary<FormKey, string>? leftOut = null)
+        bool wantCycles, IReadOnlySet<string>? through = null, IDictionary<FormKey, string>? leftOut = null,
+        NpcInherit? inherit = null, IDictionary<FormKey, IReadOnlyList<string>>? masked = null)
     {
         refusal = null;
         var resolver = _host.Resolver;
@@ -230,6 +231,8 @@ internal sealed partial class RecordReads
             }
         }
         static string TypeOf(IMajorRecordGetter b) => RecordNaming.StripOverlay(b.GetType().Name);
+        // walk.inherit: the keys a template crossing reached, so a leveled NPC list among them is crossed, not left out.
+        var crossTargets = new HashSet<FormKey>();
         List<FormKey> LinksOf(IMajorRecordGetter body, string[]? segs, out string? note)
         {
             note = null;
@@ -237,6 +240,16 @@ internal sealed partial class RecordReads
             {
                 var seen = new HashSet<FormKey>();
                 var list = new List<FormKey>();
+                // A set flag masks the NPC's own fields for that category, and the walk crosses its Template instead.
+                if (inherit is not null && body is INpcGetter npc)
+                {
+                    var split = inherit.Of(npc);
+                    seen.UnionWith(split.Removed);
+                    if (split.Crossed is { } to) crossTargets.Add(to);
+                    if (split.MaskedBy.Count > 0 && masked is not null) masked[body.FormKey] = split.MaskedBy.Keys.ToList();
+                }
+                else if (inherit is not null && body is ILeveledNpcGetter lvln && crossTargets.Contains(body.FormKey))
+                    crossTargets.UnionWith(NpcInherit.Entries(lvln));
                 if (body is Mutagen.Bethesda.Plugins.Records.IFormLinkContainerGetter flc)
                     foreach (var link in flc.EnumerateFormLinks())
                         if (!link.FormKey.IsNull && seen.Add(link.FormKey)) list.Add(link.FormKey);
@@ -276,7 +289,7 @@ internal sealed partial class RecordReads
         WalkNodeFact FactFor(FormKey k, bool atCap)
         {
             var fact = nodeFacts is not null && nodeFacts.TryGetValue(k, out var f) ? f : null;
-            if (fact is not null && (!fact.Resolved || atCap || fact.Links is not null || fact.Unscannable is not null || NotEntered(fact.Type))) return fact;
+            if (fact is not null && (!fact.Resolved || atCap || fact.Links is not null || fact.Unscannable is not null || NotEntered(k, fact.Type))) return fact;
 
             var body = Fetch(k);
             fact = body is null
@@ -292,7 +305,7 @@ internal sealed partial class RecordReads
             }
             // PER-RECORD FAULT ISOLATION, the twin of the scan lanes': reading a node's links parses its content
             // lazily, so one record Mutagen cannot parse is a boundary and the walk goes on.
-            if (body is not null && !atCap && !NotEntered(fact.Type) && fact.Unscannable is null)
+            if (body is not null && !atCap && !NotEntered(k, fact.Type) && fact.Unscannable is null)
                 try { fact.Links = LinksOf(body, followSegs, out _); }
                 catch (Exception ex) when (IsWalkRecordFault(ex)) { fact.Unscannable = WalkFaultOf(ex); }
             if (nodeFacts is not null) nodeFacts[k] = fact;
@@ -302,12 +315,14 @@ internal sealed partial class RecordReads
             => type is not null && WalkExclusionMatch.Match(exclusions, type) is not null;
         // walk.through set and the type outside it: the node is left out, so its links are never read.
         bool LeftOutType(string? type) => through is not null && type is not null && !through.Contains(type);
-        bool NotEntered(string? type) => Excluded(type) || LeftOutType(type);
+        // A leveled NPC list a template crossing reached is entered for its entries even outside walk.through.
+        bool Crossing(FormKey k, string? type) => inherit is not null && type == "LeveledNpc" && crossTargets.Contains(k);
+        bool NotEntered(FormKey k, string? type) => Excluded(type) || (LeftOutType(type) && !Crossing(k, type));
 
         // Is this queued item's row already answerable from the memo? Then its body is not worth a gather slot.
         bool Memoised(FormKey k, int hop)
             => nodeFacts is not null && nodeFacts.TryGetValue(k, out var f)
-               && (!f.Resolved || hop >= depth || f.Links is not null || f.Unscannable is not null || NotEntered(f.Type));
+               && (!f.Resolved || hop >= depth || f.Links is not null || f.Unscannable is not null || NotEntered(k, f.Type));
 
         // The seeds: parsed, then gathered together, then started on their first hop — in SLICES of a pass, for
         // the reason the hops are, since a walk can be seeded from a spilled artifact holding thousands of IDs.
@@ -506,6 +521,13 @@ internal sealed partial class RecordReads
                     if (LeftOutType(type))
                     {
                         if (leftOut is not null) leftOut[key] = type;
+                        // A crossed leveled NPC list is a step of a template chain: not a row, but its entries go on.
+                        if (Crossing(key, type) && !atCap && fact.Unscannable is null)
+                        {
+                            var via = $"{type} {FormIdToken.Of(key)} ({fact.EditorId ?? "<no editorid>"})";
+                            foreach (var l in fact.Links ?? EmptyKeys)
+                                if (!l.IsNull) { st.Edge(key, l); st.Frontier.Enqueue((l, hop + 1, via)); }
+                        }
                         continue;
                     }
                     // A node Mutagen could not parse: named, kept as a boundary, and the walk continues.

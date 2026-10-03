@@ -59,7 +59,7 @@ public static partial class RecordsTools
         [Description("The link path followed at every LATER hop — the edges this walk crosses, in either direction. \"*\" (default) walks every link — full closure. A named path restricts to one chain, e.g. \"Template\" for NPC template inheritance, or \"*parent\" to climb containment. On direction='reverse' the two legal values are \"*\" (the default under a reading form; the transitive walk over every link, off the reverse-reference index) and \"Effects[].BaseEffect\" (the typed MGEF carrier walk) — under project.form='chain' there is no default and one of the two is said outright.")]
         public string? follow { get; set; }
 
-        [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds, at any depth, needing no bounding scope. walk.follow picks the reverse walk, exactly as it does forward: \"*\" (or, under a reading form, unset) follows EVERY link at every hop off the reverse-reference index, which is built on the first such call at the cost of one whole-order link-walk and reports that cost in the response; walk.through and walk.exclusions limit which types it expands through and where it stops (\"which NPCs carry this gear\": through=[\"LeveledItem\",\"Outfit\"], stop at Npc and Container); follow=\"Effects[].BaseEffect\" is the typed MGEF carrier walk — magic-effect seeds, per-carrier magnitude/area/duration, types= narrowing the carrier types — which reaches nothing past hop 1 because a carrier is not a magic effect. The FORM then only picks the view and never implies a walk: 'chain' renders the walk's own rows, a reading form (summary/fields/rows/everything/aggregate) consumes the same reached set. Under form='chain' walk.follow is REQUIRED — chain can only draw the carrier walk's per-seed paths, and the transitive walk expands one shared frontier with no path per seed, so an unset follow refuses naming both rather than picking one. references= is the same reverse question as one step of SELECT.")]
+        [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds, at any depth, needing no bounding scope. walk.follow picks the reverse walk, exactly as it does forward: \"*\" (or, under a reading form, unset) follows EVERY link at every hop off the reverse-reference index, which is built on the first such call at the cost of one whole-order link-walk and reports that cost in the response; walk.through and walk.exclusions limit which types it expands through and where it stops (\"which NPCs carry this gear\": through=[\"LeveledItem\",\"Outfit\"], stop at Npc and Container, inherit=[\"Inventory\"]); follow=\"Effects[].BaseEffect\" is the typed MGEF carrier walk — magic-effect seeds, per-carrier magnitude/area/duration, types= narrowing the carrier types — which reaches nothing past hop 1 because a carrier is not a magic effect. The FORM then only picks the view and never implies a walk: 'chain' renders the walk's own rows, a reading form (summary/fields/rows/everything/aggregate) consumes the same reached set. Under form='chain' walk.follow is REQUIRED — chain can only draw the carrier walk's per-seed paths, and the transitive walk expands one shared frontier with no path per seed, so an unset follow refuses naming both rather than picking one. references= is the same reverse question as one step of SELECT.")]
         public string? direction { get; set; }
 
         [Description("Maximum hops from a seed (default 16). Nodes AT the cap are recorded, not entered, and the response says the cap cut the walk — never a silent stop.")]
@@ -74,8 +74,11 @@ public static partial class RecordsTools
         [Description("Node classes the walk must not enter, as data: [{\"match\": \"Race\", \"severity\": \"stop\"|\"refuse\"}] — match is a record type name or signature ('Npc' or 'NPC_'); stop keeps a reached node of that type as a boundary and does not expand from it, refuse fails the whole call loud. Both directions; not on the typed MGEF carrier walk.")]
         public RecordsWalkExclusion[]? exclusions { get; set; }
 
-        [Description("The record types the walk expands through, by name or signature, e.g. [\"LeveledItem\", \"Outfit\"]. When set, a reached node of a listed type is expanded, one matching a stop exclusion is kept as a boundary, and any other is left out of the reached set and counted per type in the response. Seeds are always in the set. Both directions; not on the typed MGEF carrier walk. Unset walks every type. The walk follows record links, not template inheritance: an NPC that gets its inventory through a template (Use Inventory) is reached only when Npc and LeveledNpc (a template can be a leveled NPC list) are in walk.through, which also brings in NPCs whose template does not pass the inventory on.")]
+        [Description("The record types the walk expands through, by name or signature, e.g. [\"LeveledItem\", \"Outfit\"]. When set, a reached node of a listed type is expanded, one matching a stop exclusion is kept as a boundary, and any other is left out of the reached set and counted per type in the response. Seeds are always in the set. Both directions; not on the typed MGEF carrier walk. Unset walks every type. On its own the walk follows record links, not NPC template inheritance; walk.inherit adds that.")]
         public string[]? through { get; set; }
+
+        [Description("NPC template categories the walk resolves as the game does, by their TemplateFlags names, e.g. [\"Inventory\"] (also Stats, Factions, SpellList, AIData, AIPackages, Script, DefPackList, AttackData, Keywords). For a named category, an NPC whose flag for it is set takes that data from its template: the walk crosses its Template link (to an NPC, or through a leveled NPC list, which is crossed rather than reached) and does not follow the NPC's own fields for the category (Inventory: Items, DefaultOutfit, SleepingOutfit), counting an NPC left out that way per category in the response. An NPC whose flags name none of the categories is not crossed to through its Template. Reverse, an NPC templated on a reached NPC is reached like it, a boundary under a stop at Npc. Both directions; the every-link walk only. Unset follows raw links.")]
+        public string[]? inherit { get; set; }
     }
 
     /// <summary>The refusal for a walk type field's entry that names no record type.</summary>
@@ -314,6 +317,7 @@ public static partial class RecordsTools
         const string CarrierFollow = "Effects[].BaseEffect";
         var walkExclusions = new List<(string Match, bool Refuse)>();
         HashSet<string>? walkThrough = null;
+        NpcInherit? walkInherit = null;
         if (walk is not null)
         {
             var dir = walk.direction?.Trim().ToLowerInvariant();
@@ -358,6 +362,14 @@ public static partial class RecordsTools
                     walkThrough.UnionWith(thNames);
                 }
             }
+            if (walk.inherit is { } inh)
+            {
+                walkInherit = NpcInherit.Parse(inh, out var inhRefusal);
+                if (walkInherit is null) return Wire.Refuse(json, "error: " + inhRefusal);
+                var fwdFollow = walk.follow?.Trim();
+                if (walkDirection == "forward" && !string.IsNullOrEmpty(fwdFollow) && fwdFollow != "*")
+                    return Wire.Refuse(json, $"error: walk.inherit resolves templates on the every-link walk, and walk.follow='{walk.follow}' already names the one path to follow — drop one of them.");
+            }
             if (walkDirection == "reverse")
             {
                 // seed_paths is forward-only; follow stays legal and picks which reverse walk runs.
@@ -366,6 +378,8 @@ public static partial class RecordsTools
                 if ((walk.exclusions is { Length: > 0 } || walkThrough is not null)
                     && string.Equals(walk.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase))
                     return Wire.Refuse(json, $"error: walk.exclusions/through shape a walk that expands, and the typed MGEF carrier walk (walk.follow=\"{CarrierFollow}\") stops at hop 1 — narrow its carrier types with types= instead.");
+                if (walkInherit is not null && string.Equals(walk.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase))
+                    return Wire.Refuse(json, $"error: walk.inherit resolves NPC templates on a walk that expands, and the typed MGEF carrier walk (walk.follow=\"{CarrierFollow}\") stops at hop 1 — drop walk.inherit.");
                 var revFollow = walk.follow?.Trim();
                 if (!string.IsNullOrEmpty(revFollow) && revFollow != "*"
                     && !string.Equals(revFollow, CarrierFollow, StringComparison.OrdinalIgnoreCase))
@@ -831,12 +845,23 @@ public static partial class RecordsTools
                 envelope.Add(new("walk_left_out", line));
                 headerLine += "\n" + line;
             }
+            // The NPCs walk.inherit left out because only a masked field linked them, per category; null when it is unset.
+            void SayMasked(IEnumerable<string>? maskedCats)
+            {
+                if (walkInherit is null) return;
+                var counts = (maskedCats ?? Array.Empty<string>()).GroupBy(c => c, StringComparer.Ordinal)
+                                                                  .OrderBy(g => g.Key, StringComparer.Ordinal)
+                                                                  .Select(g => $"({g.Key}): {g.Count()} Npc").ToList();
+                var line = "masked by template " + (counts.Count == 0 ? $"({walkInherit.Label}): none" : string.Join(", ", counts));
+                envelope.Add(new("walk_masked", line));
+                headerLine += "\n" + line;
+            }
 
             if (reverseWalk && !reverseCarrier)
             {
                 // The transitive reverse walk: every link, at every hop, off the reverse-reference index; the
                 // per-hop census is the only thing this lane renders of its own.
-                var rev = ReverseWalkBatch.Run(svc, ids, walkDepth, walkMaxNodes, demand, ct, walkExclusions, walkThrough);
+                var rev = ReverseWalkBatch.Run(svc, ids, walkDepth, walkMaxNodes, demand, ct, walkExclusions, walkThrough, walkInherit);
                 if (rev.Refusal is not null)
                     return json ? JsonWire.RenderError(rev.Refusal, rev.Stamp) : "error: " + rev.Refusal + Wire.EpochLine(rev.Stamp);
                 if (SeamTear(rev.Stamp) is { } rTear)
@@ -883,6 +908,7 @@ public static partial class RecordsTools
                     headerLine += "\n" + boundaryLine;
                 }
                 SayLeftOut(rev.LeftOut ?? Array.Empty<string>());
+                SayMasked(rev.Masked?.SelectMany(m => Enumerable.Repeat(m.Key, m.Value)));
                 if (rev.Capped)
                     headerLine += $"\n[!] the walk.max_nodes budget ({walkMaxNodes}, one budget shared across every seed and hop on this lane) was reached — what is listed IS reached and proved, and the hop it cut is marked; raise walk.max_nodes to walk further.";
                 // The reached set's render bound, with its own remedy because chain and the scan terms are both
@@ -1014,14 +1040,17 @@ public static partial class RecordsTools
             // Forward: one engine batch, one captured build; chain renders it and every other form consumes the
             // reached set, seeds included, through the normal lanes.
             var fwdLeftOut = new Dictionary<FormKey, string>();
+            var fwdMasked = new Dictionary<FormKey, IReadOnlyList<string>>();
             var rows = svc.WalkForwardBatch(ids, walk!.seed_paths, walk.follow, walkDepth, walkMaxNodes,
                                             walkExclusions, demand, out var wRefusal, out var wEpoch, ct,
-                                            wantCycles: form == "chain", through: walkThrough, leftOut: fwdLeftOut);
+                                            wantCycles: form == "chain", through: walkThrough, leftOut: fwdLeftOut,
+                                            inherit: walkInherit, masked: fwdMasked);
             if (wRefusal is not null)
                 return json ? JsonWire.RenderError(wRefusal, wEpoch) : "error: " + wRefusal + Wire.EpochLine(wEpoch);
             if (SeamTear(wEpoch) is { } wTear)
                 return json ? JsonWire.RenderError(wTear, wEpoch) : "error: " + wTear;
             SayLeftOut(fwdLeftOut.Values);
+            SayMasked(fwdMasked.Values.SelectMany(c => c));
 
             if (form == "chain")
             {

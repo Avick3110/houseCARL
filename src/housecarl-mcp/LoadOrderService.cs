@@ -366,8 +366,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct = default,
-        bool wantCycles = false, IReadOnlySet<string>? through = null, IDictionary<FormKey, string>? leftOut = null)
-        => _reads.WalkForwardBatch(seeds, seedPaths, follow, depth, maxNodes, exclusions, demand, out refusal, out epoch, ct, wantCycles, through, leftOut);
+        bool wantCycles = false, IReadOnlySet<string>? through = null, IDictionary<FormKey, string>? leftOut = null,
+        NpcInherit? inherit = null, IDictionary<FormKey, IReadOnlyList<string>>? masked = null)
+        => _reads.WalkForwardBatch(seeds, seedPaths, follow, depth, maxNodes, exclusions, demand, out refusal, out epoch, ct, wantCycles, through, leftOut, inherit, masked);
     internal IReadOnlyList<RecordReads.InfoOrderRow> InfoOrderBatch(IReadOnlyList<string> formids, ArtifactDemand? demand,
                                                                    out string? refusal, out OrderStamp? epoch,
                                                                    RecordReads.PoleInfo? foldArm = null, RecordReads.FoldFacts? foldFacts = null)

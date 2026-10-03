@@ -304,7 +304,8 @@ public static class ReverseSelection
                                                 int depth, int maxNodes,
                                                 Func<FormKey, IReadOnlySet<FormKey>, bool>? verify, out bool capped,
                                                 Action<IReadOnlyList<FormKey>>? prepare = null,
-                                                Func<FormKey, bool>? expand = null)
+                                                Func<FormKey, bool>? expand = null,
+                                                Action<IReadOnlySet<FormKey>>? onHop = null)
     {
         capped = false;
         var hops = new List<Hop>();
@@ -314,6 +315,7 @@ public static class ReverseSelection
         for (int d = 1; d <= depth; d++)
         {
             var frontierSet = new HashSet<FormKey>(frontier);
+            onHop?.Invoke(frontierSet);
             var next = new List<FormKey>();
             // What the next hop expands from: every reached node, less those expand turns away (kept as boundaries).
             var nextFrontier = expand is null ? next : new List<FormKey>();
