@@ -36,15 +36,18 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
   hop the cut landed on is marked rather than reading as a hop that reached nothing.
 - The transitive reverse selection takes an optional expand predicate, built from `walk.through`
   and the stop exclusions: a record it rejects is still reached but kept as a boundary, never added to
-  the next frontier. Unset, the next frontier is exactly the reached list. Under `walk.inherit` an NPC
-  boundary and a crossed leveled NPC list are still expanded, but only toward the NPCs and lists that
-  inherit from them through a Template link or a list entry.
-- The walk follows record links; `walk.inherit` (`NpcInherit`) makes it follow NPC template
-  inheritance for the named TemplateFlags categories instead. A set flag masks the NPC's own fields
-  for that category (one table, from UESP's NPC_ format page) and the walk crosses its Template link
-  in their place, through leveled NPC lists, which are crossed and counted as left out, not reached.
-  An NPC whose flags name none of the categories is not crossed to through its Template. A flag set
-  over an empty or broken template still masks. Unset, the walk is byte for byte what it was.
+  the next frontier. Unset, the next frontier is exactly the reached list. Under `walk.inherit` a
+  carried NPC boundary and a crossed leveled NPC list are still expanded, but only toward the NPCs and
+  lists that inherit from them through a Template link or a list entry.
+- The walk follows record links; `walk.inherit` (`NpcInherit`) makes the reverse walk follow NPC
+  template inheritance for one TemplateFlags category instead (one per call; forward template reads
+  are the chain form's inheritance report). A set flag masks the NPC's own fields for that category
+  (one table, from UESP's NPC_ format page) and the walk crosses its Template link in their place,
+  through leveled NPC lists, which are crossed, counted on their own line and not reached. A Template
+  link is crossed only from a node the category carried: a seed, an NPC linked through its own fields
+  for the category, or a node reached by crossing. An NPC whose flag is clear is not reached through
+  its Template. A flag set over an empty or broken template still masks. Unset, the walk is byte for
+  byte what it was.
 - On the reverse walk, a candidate only template-only nodes name can matter only as an NPC or a
   leveled NPC list, so it is judged off its winner plugin's NPC and leveled NPC groups alone, and a
   contained record (a placed reference, an INFO) is not read at all.
@@ -59,7 +62,8 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
 - `ReverseWalkTypesTests` — `walk.through` and `walk.exclusions` on a walk: what it expands through,
   where it stops, what it leaves out, and the refusals.
 - `WalkInheritTests` — `walk.inherit`: template crossing directly and through a leveled NPC list,
-  masking and its count, the flag clear, the forward walk, unset unchanged, and the refusals.
+  masking and its count, the flag clear, no crossing from an NPC another field carried, a later
+  plugin's override judged, unset unchanged, and the refusals.
 
 ## Where
 

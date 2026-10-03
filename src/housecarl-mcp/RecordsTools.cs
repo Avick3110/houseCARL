@@ -74,10 +74,10 @@ public static partial class RecordsTools
         [Description("Node classes the walk must not enter, as data: [{\"match\": \"Race\", \"severity\": \"stop\"|\"refuse\"}] — match is a record type name or signature ('Npc' or 'NPC_'); stop keeps a reached node of that type as a boundary and does not expand from it, refuse fails the whole call loud. Both directions; not on the typed MGEF carrier walk.")]
         public RecordsWalkExclusion[]? exclusions { get; set; }
 
-        [Description("The record types the walk expands through, by name or signature, e.g. [\"LeveledItem\", \"Outfit\"]. When set, a reached node of a listed type is expanded, one matching a stop exclusion is kept as a boundary, and any other is left out of the reached set and counted per type in the response. Seeds are always in the set. Both directions; not on the typed MGEF carrier walk. Unset walks every type. On its own the walk follows record links, not NPC template inheritance; walk.inherit adds that.")]
+        [Description("The record types the walk expands through, by name or signature, e.g. [\"LeveledItem\", \"Outfit\"]. When set, a reached node of a listed type is expanded, one matching a stop exclusion is kept as a boundary, and any other is left out of the reached set and counted per type in the response. Seeds are always in the set. Both directions; not on the typed MGEF carrier walk. Unset walks every type. On its own the walk follows record links, not NPC template inheritance; on a reverse walk, walk.inherit adds that.")]
         public string[]? through { get; set; }
 
-        [Description("NPC template categories the walk resolves as the game does, by their TemplateFlags names, e.g. [\"Inventory\"] (also Stats, Factions, SpellList, AIData, AIPackages, Script, DefPackList, AttackData, Keywords). For a named category, an NPC whose flag for it is set takes that data from its template: the walk crosses its Template link (to an NPC, or through a leveled NPC list, which is crossed rather than reached) and does not follow the NPC's own fields for the category (Inventory: Items, DefaultOutfit, SleepingOutfit), counting an NPC left out that way per category in the response. An NPC whose flags name none of the categories is not crossed to through its Template. Reverse, an NPC templated on a reached NPC is reached like it, a boundary under a stop at Npc. Both directions; the every-link walk only. Unset follows raw links.")]
+        [Description("The one NPC template category the reverse walk resolves as the game does, by its TemplateFlags name, e.g. [\"Inventory\"] (also Stats, Factions, SpellList, AIData, AIPackages, Script, DefPackList, AttackData, Keywords); one category per call. An NPC whose flag for it is set takes that data from its template: the walk does not follow the NPC's own fields for the category (Inventory: Items, DefaultOutfit, SleepingOutfit), counting an NPC left out that way in the response, and reaches it through its Template link (to an NPC, or through leveled NPC lists, which are crossed, counted on their own line and not reached, though they spend walk.max_nodes) only when the template was itself carried by the category: linked through its own fields for it, or reached by crossing. A carried NPC is reached like any other, a boundary under a stop at Npc. An NPC whose flag is clear is not reached through its Template. Reverse every-link walk only; forward template reads are project.form='chain' with walk.follow=\"Template\". Unset follows raw links.")]
         public string[]? inherit { get; set; }
     }
 
@@ -366,9 +366,8 @@ public static partial class RecordsTools
             {
                 walkInherit = NpcInherit.Parse(inh, out var inhRefusal);
                 if (walkInherit is null) return Wire.Refuse(json, "error: " + inhRefusal);
-                var fwdFollow = walk.follow?.Trim();
-                if (walkDirection == "forward" && !string.IsNullOrEmpty(fwdFollow) && fwdFollow != "*")
-                    return Wire.Refuse(json, $"error: walk.inherit resolves templates on the every-link walk, and walk.follow='{walk.follow}' already names the one path to follow — drop one of them.");
+                if (walkDirection == "forward")
+                    return Wire.Refuse(json, "error: walk.inherit is reverse-only — to read an NPC's template chain forward, use project.form='chain' with walk.follow=\"Template\", whose inheritance report names what each NPC takes from its template.");
             }
             if (walkDirection == "reverse")
             {
@@ -845,15 +844,15 @@ public static partial class RecordsTools
                 envelope.Add(new("walk_left_out", line));
                 headerLine += "\n" + line;
             }
-            // The NPCs walk.inherit left out because only a masked field linked them, per category; null when it is unset.
-            void SayMasked(IEnumerable<string>? maskedCats)
+            // walk.inherit's two counts: the NPCs a masked field alone linked, and the leveled NPC lists it crossed.
+            void SayInherit(int? maskedNpcs, int? crossedLists)
             {
                 if (walkInherit is null) return;
-                var counts = (maskedCats ?? Array.Empty<string>()).GroupBy(c => c, StringComparer.Ordinal)
-                                                                  .OrderBy(g => g.Key, StringComparer.Ordinal)
-                                                                  .Select(g => $"({g.Key}): {g.Count()} Npc").ToList();
-                var line = "masked by template " + (counts.Count == 0 ? $"({walkInherit.Label}): none" : string.Join(", ", counts));
+                var line = $"masked by template ({walkInherit.Name}): " + (maskedNpcs is > 0 ? $"{maskedNpcs} Npc" : "none");
                 envelope.Add(new("walk_masked", line));
+                headerLine += "\n" + line;
+                line = $"crossed for template inheritance ({walkInherit.Name}): " + (crossedLists is > 0 ? $"{crossedLists} LeveledNpc" : "none");
+                envelope.Add(new("walk_crossed", line));
                 headerLine += "\n" + line;
             }
 
@@ -908,7 +907,7 @@ public static partial class RecordsTools
                     headerLine += "\n" + boundaryLine;
                 }
                 SayLeftOut(rev.LeftOut ?? Array.Empty<string>());
-                SayMasked(rev.Masked?.SelectMany(m => Enumerable.Repeat(m.Key, m.Value)));
+                SayInherit(rev.Masked, rev.Crossed);
                 if (rev.Capped)
                     headerLine += $"\n[!] the walk.max_nodes budget ({walkMaxNodes}, one budget shared across every seed and hop on this lane) was reached — what is listed IS reached and proved, and the hop it cut is marked; raise walk.max_nodes to walk further.";
                 // The reached set's render bound, with its own remedy because chain and the scan terms are both
@@ -1040,17 +1039,14 @@ public static partial class RecordsTools
             // Forward: one engine batch, one captured build; chain renders it and every other form consumes the
             // reached set, seeds included, through the normal lanes.
             var fwdLeftOut = new Dictionary<FormKey, string>();
-            var fwdMasked = new Dictionary<FormKey, IReadOnlyList<string>>();
             var rows = svc.WalkForwardBatch(ids, walk!.seed_paths, walk.follow, walkDepth, walkMaxNodes,
                                             walkExclusions, demand, out var wRefusal, out var wEpoch, ct,
-                                            wantCycles: form == "chain", through: walkThrough, leftOut: fwdLeftOut,
-                                            inherit: walkInherit, masked: fwdMasked);
+                                            wantCycles: form == "chain", through: walkThrough, leftOut: fwdLeftOut);
             if (wRefusal is not null)
                 return json ? JsonWire.RenderError(wRefusal, wEpoch) : "error: " + wRefusal + Wire.EpochLine(wEpoch);
             if (SeamTear(wEpoch) is { } wTear)
                 return json ? JsonWire.RenderError(wTear, wEpoch) : "error: " + wTear;
             SayLeftOut(fwdLeftOut.Values);
-            SayMasked(fwdMasked.Values.SelectMany(c => c));
 
             if (form == "chain")
             {

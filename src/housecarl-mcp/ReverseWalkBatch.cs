@@ -31,9 +31,12 @@ public static class ReverseWalkBatch
         /// <summary>How many reached records a stop exclusion kept as boundaries.</summary>
         public int Boundaries { get; init; }
 
-        /// <summary>Per walk.inherit category, the NPCs left out because only a field that category masks linked
-        /// the walk; null when walk.inherit is unset.</summary>
-        public IReadOnlyDictionary<string, int>? Masked { get; init; }
+        /// <summary>The NPCs left out because only a field the walk.inherit category masks linked the walk; null when
+        /// walk.inherit is unset.</summary>
+        public int? Masked { get; init; }
+
+        /// <summary>The leveled NPC lists crossed on a template chain, not reached; null when walk.inherit is unset.</summary>
+        public int? Crossed { get; init; }
 
         /// <summary>The build's fingerprint alone, for the places that compare epochs rather than render them.</summary>
         public string? Epoch => Stamp?.Epoch;
@@ -76,11 +79,16 @@ public static class ReverseWalkBatch
         // The type a read reports for each judged candidate, so exclusions and walk.through cost no second read.
         var typeOf = new Dictionary<FormKey, string>();
         var noLink = new HashSet<FormKey>();
-        // walk.inherit state: template crossings, list entries, masks, and the nodes expanded only through templates.
+        // walk.inherit state: template crossings, list entries, the category's own and masked fields per NPC, and
+        // the nodes expanded only through templates.
         var crossesTo = new Dictionary<FormKey, FormKey>();
         var entriesOf = new Dictionary<FormKey, HashSet<FormKey>>();
-        var maskedBy = new Dictionary<FormKey, IReadOnlyDictionary<string, HashSet<FormKey>>>();
-        var masked = new Dictionary<FormKey, List<string>>();
+        var ownKeys = new Dictionary<FormKey, IReadOnlySet<FormKey>>();
+        var maskedKeys = new Dictionary<FormKey, IReadOnlySet<FormKey>>();
+        var masked = new HashSet<FormKey>();
+        // The nodes the category carried: the seeds, an NPC linked through its own fields for the category, and
+        // anything reached by crossing. Only these are crossed from.
+        var carried = new HashSet<FormKey>(seedKeys);
         var templateOnly = new HashSet<FormKey>();
         var crossed = new HashSet<FormKey>();
         // The referencers of this hop's fully expanded nodes; a candidate outside it can only be a template inheritor.
@@ -151,7 +159,8 @@ public static class ReverseWalkBatch
                     var split = inherit.Of(npc);
                     set.ExceptWith(split.Removed);
                     if (split.Crossed is { } to) crossesTo[candidate] = to;
-                    if (split.MaskedBy.Count > 0) maskedBy[candidate] = split.MaskedBy;
+                    if (split.Own.Count > 0) ownKeys[candidate] = split.Own;
+                    if (split.Masked.Count > 0) maskedKeys[candidate] = split.Masked;
                 }
                 else if (inherit is not null && body is ILeveledNpcGetter list)
                     entriesOf[candidate] = NpcInherit.Entries(list);
@@ -191,26 +200,35 @@ public static class ReverseWalkBatch
                 noLink.Add(candidate);
                 return false;
             }
-            // A template-only node is reached only through a Template link or a leveled NPC list's entries.
-            bool viaFull = false;
+            // A Template link is crossed only from a carried node; a template-only node is reached only through a
+            // Template link or a leveled NPC list's entries.
+            bool reached = false, carries = false, linked = false;
             foreach (var l in links)
             {
                 if (!frontier.Contains(l)) continue;
-                if (!templateOnly.Contains(l)) viaFull = true;
-                else if (!(crossesTo.TryGetValue(candidate, out var to) && to == l)
-                         && !(entriesOf.TryGetValue(candidate, out var es) && es.Contains(l))) continue;
+                linked = true;
+                bool viaTemplate = crossesTo.TryGetValue(candidate, out var to) && to == l;
+                bool viaEntry = entriesOf.TryGetValue(candidate, out var es) && es.Contains(l);
+                if (viaTemplate && !carried.Contains(l)) continue;
+                if (templateOnly.Contains(l) && !viaTemplate && !viaEntry) continue;
+                reached = true;
+                if ((viaTemplate || viaEntry) && carried.Contains(l)
+                    || ownKeys.TryGetValue(candidate, out var own) && own.Contains(l)) carries = true;
+            }
+            if (reached)
+            {
                 noLink.Remove(candidate); masked.Remove(candidate);
+                if (carries) carried.Add(candidate);
                 return true;
             }
-            // Linked only through masked fields: left out and counted per category.
-            if (maskedBy.TryGetValue(candidate, out var byCat))
+            // Linked only through masked fields: left out and counted.
+            if (maskedKeys.TryGetValue(candidate, out var mk) && mk.Any(k => frontier.Contains(k) && !templateOnly.Contains(k)))
             {
-                var cats = byCat.Where(c => c.Value.Any(k => frontier.Contains(k) && !templateOnly.Contains(k)))
-                                .Select(c => c.Key).ToList();
-                if (cats.Count > 0) { masked[candidate] = cats; noLink.Remove(candidate); return false; }
+                masked.Add(candidate); noLink.Remove(candidate);
+                return false;
             }
-            // A candidate of a template-only node that does not inherit from it is no verdict on any link.
-            if (viaFull || fullRefs is null || fullRefs.Contains(candidate)) noLink.Add(candidate);
+            // A link that is there but not crossed, or a candidate only a template-only node names, is no verdict.
+            if (!linked && (fullRefs is null || fullRefs.Contains(candidate))) noLink.Add(candidate);
             return false;
         }
 
@@ -227,14 +245,14 @@ public static class ReverseWalkBatch
             {
                 if (x.Refuse) throw new WalkRefused(WalkExclusionMatch.RefuseSentence(type, candidate));
                 boundaries.Add(candidate);
-                // An NPC boundary still passes its data on to the NPCs templated on it.
-                if (inherit is not null && type == "Npc") templateOnly.Add(candidate);
+                // A carried NPC boundary still passes the category on to the NPCs templated on it.
+                if (inherit is not null && type == "Npc" && carried.Contains(candidate)) templateOnly.Add(candidate);
                 return true;
             }
             if (through is not null && !through.Contains(type))
             {
                 // A leveled NPC list on a template chain is crossed, not reached.
-                if (inherit is not null && entriesOf.TryGetValue(candidate, out var es) && es.Overlaps(frontier))
+                if (inherit is not null && type == "LeveledNpc" && carried.Contains(candidate))
                 {
                     crossed.Add(candidate);
                     templateOnly.Add(candidate);
@@ -268,7 +286,6 @@ public static class ReverseWalkBatch
             hops = hops.Select(h => h with { Reached = h.Reached.Where(k => !crossed.Contains(k)).ToList() }).ToList();
         foreach (var hop in hops)
             foreach (var k in hop.Reached) selection.Add(FormIdToken.Of(k));
-        foreach (var k in crossed) leftOut[k] = "LeveledNpc";
 
         return new Result(hops, selection, seedKeys.Count, capped,
                           new DropCensus(noLink.Count, unreadable, noLiveBody, noWinner), built.Note, stamp, null,
@@ -276,8 +293,8 @@ public static class ReverseWalkBatch
         {
             LeftOut = through is null ? null : leftOut.Values.ToList(),
             Boundaries = boundaries.Count,
-            Masked = inherit is null ? null
-                   : masked.Values.SelectMany(c => c).GroupBy(c => c).ToDictionary(g => g.Key, g => g.Count()),
+            Masked = inherit is null ? null : masked.Count,
+            Crossed = inherit is null ? null : crossed.Count,
         };
     }
 

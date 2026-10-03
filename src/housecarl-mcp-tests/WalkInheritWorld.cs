@@ -7,7 +7,8 @@ namespace HousecarlMcpTests;
 
 /// <summary>NPC template inheritance for walk.inherit: a carrier NPC wearing an outfit that holds a cuirass, NPCs
 /// templated on it directly and through a leveled NPC list, an NPC whose own outfit its Use Inventory flag masks,
-/// and NPCs whose flag is clear.</summary>
+/// NPCs whose flag is clear, an NPC whose death item (not its inventory) carries the cuirass, and a second plugin
+/// whose override sets the flag on an NPC the master leaves clear.</summary>
 public sealed class WalkInheritWorld : IDisposable
 {
     public string Root { get; }
@@ -20,6 +21,9 @@ public sealed class WalkInheritWorld : IDisposable
     public FormKey Masked { get; }
     public FormKey ClearOwn { get; }
     public FormKey ClearHeir { get; }
+    public FormKey DeathCarrier { get; }
+    public FormKey DeathHeir { get; }
+    public FormKey PatchedHeir { get; }
 
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
@@ -71,20 +75,38 @@ public sealed class WalkInheritWorld : IDisposable
         var clearHeir = NewNpc("HcIwClearHeir", NpcConfiguration.TemplateFlag.Traits);
         clearHeir.Template.SetTo(Carrier); ClearHeir = clearHeir.FormKey;
 
+        // The death item is Traits, not Inventory: an NPC reached only through it carries no inventory to its heirs.
+        var deathCarrier = NewNpc("HcIwDeathCarrier", 0); deathCarrier.DeathItem.SetTo(list.FormKey); DeathCarrier = deathCarrier.FormKey;
+        var deathHeir = NewNpc("HcIwDeathHeir", NpcConfiguration.TemplateFlag.Inventory);
+        deathHeir.Template.SetTo(DeathCarrier); DeathHeir = deathHeir.FormKey;
+
+        // The master leaves the flag clear; the patch's winning override sets it.
+        var patchedHeir = NewNpc("HcIwPatchedHeir", 0);
+        patchedHeir.Template.SetTo(Carrier); PatchedHeir = patchedHeir.FormKey;
+
         var instance = Path.Combine(Root, "inst");
         var modDir = Path.Combine(instance, "mods", "MasterMod");
         Directory.CreateDirectory(modDir);
         var masterName = masterKey.FileName.String;
         master.BeginWrite.ToPath(Path.Combine(modDir, masterName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
+        var patchKey = new ModKey("HcIwPatch", ModType.Plugin);
+        var patch = new SkyrimMod(patchKey, SkyrimRelease.SkyrimSE);
+        var over = patch.Npcs.GetOrAddAsOverride(patchedHeir);
+        over.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Inventory;
+        var patchDir = Path.Combine(instance, "mods", "PatchMod");
+        Directory.CreateDirectory(patchDir);
+        var patchName = patchKey.FileName.String;
+        patch.BeginWrite.ToPath(Path.Combine(patchDir, patchName)).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + masterName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + masterName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+MasterMod\r\n");
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + masterName + "\r\n" + patchName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + masterName + "\r\n*" + patchName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+PatchMod\r\n+MasterMod\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
     }

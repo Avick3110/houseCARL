@@ -3,8 +3,9 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>walk.inherit resolving NPC template inheritance: crossing a Template link where the category's flag is
-/// set, masking the NPC's own fields for it, in both directions, and unset leaving the walk as it was.</summary>
+/// <summary>walk.inherit resolving NPC template inheritance on the reverse walk: crossing a Template link from an NPC
+/// the category carried where the heir's flag is set, masking the heir's own fields for it, and unset leaving the
+/// walk as it was.</summary>
 [Trait("tier", "integration")]
 public sealed class WalkInheritTests : IClassFixture<WalkInheritWorld>
 {
@@ -42,9 +43,27 @@ public sealed class WalkInheritTests : IClassFixture<WalkInheritWorld>
         var r = Reverse(new[] { "Inventory" });
         Served(r);
         Assert.Contains("HcIwLvlHeir", r);
-        // The list is crossed, not reached: it is counted as left out and is not a row.
+        // The list is crossed, not reached: it has its own count and is not a row or left out.
         Assert.DoesNotContain("HcIwLvln", r);
-        Assert.Contains("left out, not in walk.through: 1 LeveledNpc", r);
+        Assert.Contains("crossed for template inheritance (Inventory): 1 LeveledNpc", r);
+        Assert.DoesNotContain("LeveledNpc", r.Split('\n').Single(l => l.StartsWith("left out, not in walk.through:")));
+    }
+
+    [Fact]
+    public void AnNpcReachedOnlyThroughItsDeathItemPassesNothingToUseInventoryNpcsTemplatedOnIt()
+    {
+        var r = Reverse(new[] { "Inventory" });
+        Served(r);
+        Assert.Contains("HcIwDeathCarrier", r);
+        Assert.DoesNotContain("HcIwDeathHeir", r);
+    }
+
+    [Fact]
+    public void ALaterPluginsOverrideSettingTheFlagIsWhatTheWalkJudges()
+    {
+        var r = Reverse(new[] { "Inventory" });
+        Served(r);
+        Assert.Contains("HcIwPatchedHeir", r);
     }
 
     [Fact]
@@ -78,40 +97,20 @@ public sealed class WalkInheritTests : IClassFixture<WalkInheritWorld>
     }
 
     [Fact]
-    public void AForwardWalkFromAnNpcWithTheFlagSetCrossesItsTemplateAndSkipsItsOwnOutfit()
+    public void AForwardWalkRefusesNamingTheChainForm()
     {
         var r = RecordsTools.Records(W.Svc, formids: new[] { Fid(W.Heir) },
                                      walk: new RecordsTools.RecordsWalk { depth = 8, inherit = new[] { "Inventory" } });
-        Served(r);
-        Assert.Contains("HcIwCarrier", r);
-        Assert.Contains("HcIwCuirass", r);
-        Assert.DoesNotContain("HcIwOtherOutfit", r);
-        Assert.Contains("masked by template (Inventory): 1 Npc", r);
+        Assert.StartsWith("error: walk.inherit is reverse-only", r);
+        Assert.Contains("walk.follow=\"Template\"", r);
     }
 
     [Fact]
-    public void AForwardWalkFromAnNpcWithTheFlagClearDoesNotCrossItsTemplate()
+    public void TwoCategoriesRefuseAskingForOneCallPerCategory()
     {
-        var r = RecordsTools.Records(W.Svc, formids: new[] { Fid(W.ClearHeir) },
-                                     walk: new RecordsTools.RecordsWalk { depth = 8, inherit = new[] { "Inventory" } });
-        Served(r);
-        Assert.Contains("HcIwClearHeir", r);
-        Assert.DoesNotContain("HcIwCarrier", r);
-    }
-
-    [Fact]
-    public void AForwardWalkCrossesALeveledNpcListTemplateOutsideWalkThrough()
-    {
-        var r = RecordsTools.Records(W.Svc, formids: new[] { Fid(W.LvlHeir) },
-                                     walk: new RecordsTools.RecordsWalk
-                                     {
-                                         depth = 8, inherit = new[] { "Inventory" },
-                                         through = new[] { "Npc", "Outfit", "LeveledItem" },
-                                     });
-        Served(r);
-        Assert.Contains("HcIwCarrier", r);
-        Assert.Contains("HcIwList", r);
-        Assert.DoesNotContain("HcIwLvln", r);
+        var r = Reverse(new[] { "Inventory", "Factions" });
+        Assert.StartsWith("error:", r);
+        Assert.Contains("one call per category", r);
     }
 
     [Theory]
@@ -131,6 +130,7 @@ public sealed class WalkInheritTests : IClassFixture<WalkInheritWorld>
         var r = Reverse(new[] { "Inventory" }, format: "json");
         Served(r);
         Assert.Contains("\"walk_masked\"", r);
+        Assert.Contains("\"walk_crossed\"", r);
         Assert.Contains("masked by template (Inventory): 1 Npc", r);
     }
 }
