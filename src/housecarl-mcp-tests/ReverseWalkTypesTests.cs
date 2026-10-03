@@ -77,6 +77,36 @@ public sealed class ReverseWalkTypesTests : IClassFixture<ReverseWalkTypesWorld>
     [Theory]
     [InlineData("through")]
     [InlineData("exclusions")]
+    public void ThroughOrExclusionsOnTheMgefCarrierWalkRefuses(string field)
+    {
+        var r = RecordsTools.Records(W.Svc, formids: new[] { Fid(W.Cuirass) },
+                                     walk: new RecordsTools.RecordsWalk
+                                     {
+                                         direction = "reverse", follow = "Effects[].BaseEffect",
+                                         through = field == "through" ? new[] { "Outfit" } : null,
+                                         exclusions = field == "exclusions" ? new[] { Stop("Npc") } : null,
+                                     });
+        Assert.StartsWith("error:", r);
+        Assert.Contains("walk.exclusions/through shape a walk that expands", r);
+        Assert.Contains("types=", r);
+    }
+
+    [Fact]
+    public void SeedPathsOnAReverseWalkRefusesAndKeepsFollow()
+    {
+        var r = RecordsTools.Records(W.Svc, formids: new[] { Fid(W.Cuirass) },
+                                     walk: new RecordsTools.RecordsWalk
+                                     {
+                                         direction = "reverse", seed_paths = new[] { "Keywords" },
+                                     });
+        Assert.StartsWith("error:", r);
+        Assert.Contains("walk.seed_paths shapes a FORWARD expansion", r);
+        Assert.Contains("walk.follow stays", r);
+    }
+
+    [Theory]
+    [InlineData("through")]
+    [InlineData("exclusions")]
     public void AnUnknownWalkTypeRefuses(string field)
     {
         var r = field == "through" ? Reverse(new[] { "Outfit", "Bogus" }) : Reverse(null, Stop("Bogus"));
