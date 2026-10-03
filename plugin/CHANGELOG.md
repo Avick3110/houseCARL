@@ -42,6 +42,8 @@ made the change.
   then `+N more`, and points at `housecarl_load_order_status` for the reason unless the response prints it.**
 - **The SkyPatcher overlay now matches key names without regard to case, as SkyPatcher does, and reads a `#` line, which
   can never be a key, as a comment.** A `filterByNPCs=...:race=...` line now changes the post-state Race.
+- **A walk now takes `walk.through`, the record types it expands through, and a reverse walk takes `walk.exclusions`,
+  so "which NPCs carry this gear" is one call.** Other types are left out and counted per type in the response.
 
 ## 2.0.3 — 2026-09-23
 
