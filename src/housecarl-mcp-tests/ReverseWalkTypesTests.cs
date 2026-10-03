@@ -39,6 +39,30 @@ public sealed class ReverseWalkTypesTests : IClassFixture<ReverseWalkTypesWorld>
     }
 
     [Fact]
+    public void AJsonReverseWalkCarriesTheLeftOutAndBoundaryCountsInItsEnvelope()
+    {
+        var r = RecordsTools.Records(W.Svc, formids: new[] { Fid(W.Cuirass) }, format: "json",
+                                     walk: new RecordsTools.RecordsWalk
+                                     {
+                                         direction = "reverse", depth = 6,
+                                         through = new[] { "LeveledItem", "Outfit", "LeveledNpc" },
+                                         exclusions = new[] { Stop("Npc"), Stop("Container") },
+                                     });
+        Served(r, "\"walk_left_out\"", "1 ConstructibleObject", "\"walk_boundaries\"", "2 reached record(s) matched a stop exclusion");
+    }
+
+    [Fact]
+    public void AForwardWalkNeverCountsASeedAnotherSeedReachesAsLeftOut()
+    {
+        var r = RecordsTools.Records(W.Svc, formids: new[] { Fid(W.Guard), Fid(W.Outfit) },
+                                     walk: new RecordsTools.RecordsWalk { depth = 6, through = new[] { "LeveledItem" } });
+        Served(r, "HcRwtGuard", "HcRwtOutfit", "HcRwtList");
+        var leftOut = r.Split('\n').Where(l => l.Contains("left out, not in walk.through:")).ToList();
+        Assert.NotEmpty(leftOut);
+        Assert.All(leftOut, l => Assert.EndsWith("left out, not in walk.through: 1 Armor", l.TrimEnd('\r')));
+    }
+
+    [Fact]
     public void AStopOnAReverseWalkWithoutThroughKeepsTheBoundaryAndDoesNotExpandPastIt()
     {
         var r = Reverse(null, Stop("Npc"));
