@@ -44,6 +44,8 @@ made the change.
   can never be a key, as a comment.** A `filterByNPCs=...:race=...` line now changes the post-state Race.
 - **A walk now takes `walk.through`, the record types it expands through, and a reverse walk takes `walk.exclusions`,
   so "which NPCs carry this gear" is one call.** Other types are left out and counted per type in the response.
+- **A reverse walk now takes `walk.inherit`, so NPCs that get their inventory from a template are found, and NPCs
+  whose own outfit the game ignores are not.** Add `inherit=["Inventory"]`; the response counts the NPCs it masked.
 
 ## 2.0.3 — 2026-09-23
 
