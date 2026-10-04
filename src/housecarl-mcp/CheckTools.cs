@@ -65,11 +65,11 @@ public static class CheckTools
              "has no class tokens and requires seeds=. A family token runs every class in it; a class token runs its " +
              "family narrowed to that class; several tokens run each. Default (omitted): the errors family alone, " +
              "and the response names the families that did not run and the findings= spelling that adds them. " +
-             "Leaving out 'dangling' skips the per-record link walk, so findings=['missing_masters'] is a cheap " +
+             "An unscoped scripts sweep takes minutes on a large order, so scope it. Leaving out 'dangling' skips the per-record link walk, so findings=['missing_masters'] is a cheap " +
              "whole-order missing-master check. An excluded class renders as 'not checked', never as 0. Unscannable " +
              "records, scan errors and unverifiable script attachments are always reported and cannot be filtered out. " +
              // ---- family: errors ---------------------------------------------------------------------------
-             "Errors family — the data-layer counterpart of the Creation Kit's 'Check For Errors'. For each plugin " +
+             "Errors family — the data-layer counterpart of the Creation Kit's 'Check For Errors' and xEdit's error check. For each plugin " +
              "in scope it walks every record's links and reports: dangling references (a non-null link whose target " +
              "no plugin in the active order defines); missing masters (a declared master absent from the active " +
              "order); parse failures (records that could not be read, and plugins excluded as unparseable). It does " +
@@ -124,14 +124,14 @@ public static class CheckTools
             string? format = null,
         [Description("Optional. Max findings listed per family (default 1000); the true totals are always " +
              "reported. Over the cap the response says so, and the errors family names the plugins that lost the " +
-             "most entries. Each family has one listing, filled plugin by plugin and type by type, so under several " +
+             "most entries, with a count each, and how many lost any. Each family has one listing, filled plugin by plugin and type by type, so under several " +
              "types= any of them can be short; the response names the knob that cut it (limit= or max_chars=), and " +
              "a type absent from a short listing is unlisted, not clean. Errors family: the base-game masters' " +
              "permanent vanilla dangling refs are split out of the total, and limit= is spent on every other plugin " +
              "first. Master-table findings and unverifiable notes are outside the cap; on the scripts family a note " +
              "repeating one already reported for the same script class is collapsed to a count (a note naming no " +
-             "script class is never collapsed). limit= caps findings, not the record roster: for a script-heavy " +
-             "plugin use counts_only=true or a record scope. Under counts_only=true it caps histogram rows. For the " +
+             "script class is never collapsed). A script-heavy plugin's listing can overflow the reply even under " +
+             "limit=, which caps findings, not the record roster: use counts_only=true or a record scope. Under counts_only=true it caps histogram rows. For the " +
              "dialogue family it caps how many seeds one call expands, and the response names how many it did not reach.")]
             int limit = 1000,
         [Description("Optional. Dialogue family only, and required by it: the topics and quests to validate, as " +
