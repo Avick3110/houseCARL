@@ -12,25 +12,20 @@ public static class NexusTools
 {
     [McpServerTool(Name = ToolNames.NexusSearch, ReadOnly = true, Title = "Search Nexus Mods"),
      Description(
-         "Search Nexus Mods for mods by name/keywords, WITHOUT opening a browser — houseCARL " +
-         "queries the Nexus catalog directly and returns a ranked list. Each hit gives the mod name, Nexus mod id, " +
-         "version, author, endorsement/download counts, category, last-updated date, a one-line summary, and the page " +
-         "URL. Sorted by endorsements by default (sort= downloads | recent | name | relevance), optionally narrowed to a " +
-         "category=, capped at limit= (default 10, max 50). Searches Skyrim Special Edition unless you pass game= " +
-         "(a Nexus domain name like 'baldursgate3' or a numeric game id). READ-ONLY and needs an internet connection — houseCARL's " +
-         "local load-order tools are unaffected if offline. Does NOT download or install anything: to install a result, " +
-         "open its page and use Nexus's 'Mod Manager Download' button as usual — houseCARL reads Nexus, your mod manager " +
-         "does the download. For full details (requirements and the newest MAIN file — the accurate latest version) of " +
-         "one result, pass its id to " + ToolNames.NexusMod + ".")]
+         "Search Nexus Mods for mods by name or keywords, without a browser; returns a ranked list. Each hit gives the " +
+         "mod name, Nexus mod id, version, author, endorsement and download counts, category, last-updated date, a " +
+         "one-line summary and the page URL. Searches Skyrim Special Edition unless game= names another game. Read-only " +
+         "and needs an internet connection. Downloads and installs nothing: to install a result, use the 'Mod Manager " +
+         "Download' button on its page. For one result's requirements and newest MAIN file (the accurate latest " +
+         "version), pass its id to " + ToolNames.NexusMod + ".")]
     public static Task<string> NexusSearch(
         NexusClient nexus,
         [Description("Words to search for in mod names, e.g. 'archery overhaul' or 'true storms'. Matched as a wildcard against the searched game's mod names.")]
             string query,
-        [Description("Optional. Narrow to a Nexus category name, e.g. 'Audio', 'Armour', 'Gameplay', 'Patches' — those are " +
-            "Skyrim SE's names. Category names are PER GAME and Nexus matches them exactly, so don't carry a Skyrim name to " +
-            "another game (Skyrim SE's 'Armour' is 'Armor' on Baldur's Gate 3, and a name the game doesn't use matches " +
-            "nothing): for a non-default game=, search without category= first and read the category off the hits. Omit to " +
-            "search all categories.")]
+        [Description("Optional. A Nexus category name to narrow to, matched exactly, e.g. 'Audio', 'Armour', 'Gameplay', " +
+            "'Patches' (Skyrim SE's names). Names differ per game (Skyrim SE's 'Armour' is 'Armor' on Baldur's Gate 3) " +
+            "and a name the game doesn't use matches nothing, so for another game= search without category= first and " +
+            "read the category off the hits. Omit to search all categories.")]
             string? category = null,
         [Description("Optional. Result ordering: 'endorsements' (default, best-regarded first), 'downloads' (most popular), 'recent' (recently updated), 'name' (A-Z), or 'relevance'.")]
             string sort = "endorsements",
@@ -38,7 +33,7 @@ public static class NexusTools
             int limit = 10,
         [Description("Optional. Which game to search: a Nexus domain name as it appears in a mod page URL " +
             "('skyrimspecialedition' (default), 'baldursgate3', 'cyberpunk2077', 'starfield', or any other Nexus game's " +
-            "domain) or its numeric game id. A domain Nexus doesn't know is refused, never silently searched as Skyrim.")]
+            "domain) or its numeric game id.")]
             string? game = null,
         CancellationToken ct = default) => Guard.Tool(ToolNames.NexusSearch, async () =>
     {
@@ -61,55 +56,39 @@ public static class NexusTools
 
     [McpServerTool(Name = ToolNames.NexusMod, ReadOnly = true, Title = "Look up a Nexus mod"),
      Description(
-         "Look up ONE mod on Nexus by its numeric mod id (e.g. 12604) OR a pasted mod URL — " +
-         "without opening a browser. Returns the mod's name, version, author, status, endorsement/download counts, " +
-         "category, last-updated date, summary, whether direct download is disabled (manager-only), its Nexus " +
-         "REQUIREMENTS (each required mod's name + id + notes, off-site deps flagged), and its newest MAIN file's " +
-         "version — the accurate 'latest version', because a mod's own version header can lag its newest file. " +
-         "Pass description=true to ALSO get the mod's full page write-up (what it does, how it works, usage, " +
-         "recommended INI settings, compatibility/conflict notes), cleaned of Nexus markup to plain text — off by default because it can run " +
-         "several KB. Pass files=true to list EVERY uploaded file (not just the newest MAIN) — each variant's name, " +
-         "version, category, and date — the accurate way to pin the version of a specific FOMOD/modular variant (an " +
-         "'SE' vs 'AE' main, an optional patch, a texture-size option) rather than the single newest-main summary. " +
-         "Pass changelog=true to read the mod's per-version CHANGELOG (what changed in each release); combine with " +
-         "since='<your installed version>' to show ONLY entries newer than what you have — the 'is this update worth " +
-         "installing' delta. A mod whose author wrote no changelog is reported UNKNOWN, never 'no changes', so a silent " +
-         "gap is never read as 'safe'. " +
-         "Looks the mod up on Skyrim Special Edition unless you pass game= (a Nexus domain name like 'baldursgate3' or a " +
-         "numeric game id); a pasted URL picks the game from its own domain segment, so any game's URL works as-is. " +
-         "READ-ONLY and needs an internet connection (local tools unaffected offline). Does NOT download or install — " +
-         "use your mod manager's 'Mod Manager Download' for that. To find a mod by name first, use " + ToolNames.NexusSearch + ".")]
+         "Look up one Nexus mod by its numeric mod id or a pasted mod URL, without a browser. Returns the mod's name, " +
+         "version, author, status, endorsement and download counts, category, last-updated date, summary, whether " +
+         "direct download is disabled (manager-only), its Nexus requirements (each required mod's name, id and notes; " +
+         "off-site ones flagged), and its newest MAIN file's version, which is the accurate latest version because a " +
+         "mod's own version header can lag. Optional sections: description= (the full page write-up), files= (every " +
+         "uploaded file), changelog= (per-version changes, narrowed by since= to what is newer than your version). " +
+         "Looks the mod up on Skyrim Special Edition unless game= or the URL names another game. Read-only and needs " +
+         "an internet connection; downloads and installs nothing. To find a mod by name first, use " + ToolNames.NexusSearch + ".")]
     public static Task<string> NexusMod(
         NexusClient nexus,
         [Description("The mod to look up: a numeric Nexus mod id (e.g. 12604) or a full mod URL for any game (e.g. " +
             "https://www.nexusmods.com/skyrimspecialedition/mods/12604, https://www.nexusmods.com/baldursgate3/mods/3479) — " +
             "a URL's domain segment picks the game.")]
             string mod,
-        [Description("Optional. When true, also include the mod's FULL page description — the long write-up of what it " +
-            "does, how it works, usage, recommended INI settings, and compatibility/conflict notes — cleaned of Nexus BBCode/HTML markup to plain " +
-            "text (capped, with an explicit marker if truncated). Default false: the lookup returns the compact summary, " +
-            "requirements, and latest version only, because the full description can run several KB. Set true when you " +
-            "need the detail, e.g. comparing two mods or understanding how one works.")]
+        [Description("Optional, default false. Include the mod's full page write-up (what it does, how it works, usage, " +
+            "recommended INI settings, compatibility notes) as plain text, capped with a marker if truncated. It can run " +
+            "several KB, so ask for it when you need the detail, e.g. comparing two mods.")]
             bool description = false,
-        [Description("Optional. When true, list ALL of the mod's uploaded files — every MAIN, UPDATE, OPTIONAL, " +
-            "MISCELLANEOUS, and archived/old file — with each one's name, version, category, and upload date, grouped by " +
-            "category. Default false: the lookup shows only the newest MAIN file. Set true to pin the version of a " +
-            "specific variant (e.g. which 'main' is the AE build, an optional add-on's version) — the fix for modular/FOMOD " +
-            "mods where the single newest-main line isn't enough.")]
+        [Description("Optional, default false. List every uploaded file (MAIN, UPDATE, OPTIONAL, MISCELLANEOUS, old and " +
+            "archived) with its name, version and upload date, grouped by category; a long list is cut with a marker. Use " +
+            "it to pin the version of one variant (which main is the AE build, an optional add-on) on a modular or FOMOD " +
+            "page, where the newest-MAIN line is not enough.")]
             bool files = false,
-        [Description("Optional. When true, include the mod's per-version CHANGELOG — each release's changelog lines, " +
-            "newest first. Default false. Versions whose author wrote no changelog are reported as UNKNOWN (never 'no " +
-            "changes'). Pair with since= to see only what's newer than your installed version.")]
+        [Description("Optional, default false. Include the per-version changelog, newest first. A version whose author " +
+            "wrote no changelog is reported UNKNOWN, never as 'no changes'.")]
             bool changelog = false,
-        [Description("Optional. Your currently-installed version (e.g. '5.2SE', '6.9'). When changelog=true, limits the " +
-            "changelog to releases uploaded AFTER the file matching this version — the 'what changed since I installed it' " +
-            "delta. Matching is by upload DATE (robust), so if this exact version string isn't found among the files, the " +
-            "tool says so and shows the full changelog rather than guessing (Q3). Ignored unless changelog=true.")]
+        [Description("Optional. Your installed version (e.g. '5.2SE', '6.9'). With changelog=true, shows only releases " +
+            "uploaded after the file with this version, compared by upload date; a version not found among the files is " +
+            "said, and the full changelog is shown. Ignored unless changelog=true.")]
             string? since = null,
         [Description("Optional. Which game the mod id belongs to: a Nexus domain name as it appears in a mod page URL " +
             "('skyrimspecialedition' (default), 'baldursgate3', 'cyberpunk2077', 'starfield', or any other Nexus game's " +
-            "domain) or its numeric game id. Ignore it when you paste a URL — the URL's own domain picks the game, and a " +
-            "game= naming a different one is refused rather than guessed.")]
+            "domain) or its numeric game id. Not needed with a URL, whose own domain picks the game.")]
             string? game = null,
         CancellationToken ct = default) => Guard.Tool(ToolNames.NexusMod, async () =>
     {
@@ -135,19 +114,16 @@ public static class NexusTools
 
     [McpServerTool(Name = ToolNames.NexusGraphql, ReadOnly = true, Title = "Run a raw Nexus GraphQL query"),
      Description(
-         "The COMPLETENESS BACKSTOP behind houseCARL's curated Nexus tools: run a RAW read-only query against the Nexus " +
-         "Mods public v2 GraphQL API (keyless), so any field the opinionated tools don't surface yet is never invisible. " +
-         "PREFER " + ToolNames.NexusSearch + " / " + ToolNames.NexusMod + " / " + ToolNames.NexusCheckUpdates + " for the common lookups — " +
-         "they render results with houseCARL's honest semantics (newest-file-vs-header version, changelog UNKNOWN-not-" +
-         "empty, manager-only flags) that a raw dump loses. Reach for THIS only for a field or query they don't cover — " +
-         "e.g. a mod's page tags, or other Mod/File metadata. Pass a GraphQL query string (and optional variables as a " +
-         "JSON object); it returns the raw JSON data, pretty-printed and bounded. READ-ONLY: mutation/subscription is " +
-         "refused, and the keyless endpoint cannot change anything regardless. Needs an internet connection (local tools " +
-         "work offline). The Skyrim SE gameId is 1704. Example: query{ mod(modId:\"51614\", gameId:\"1704\"){ name tags{ name } } }")]
+         "Run a raw read-only query against the Nexus Mods public v2 GraphQL API (keyless), for a field or query the " +
+         "other Nexus tools don't cover, e.g. a mod's page tags or other Mod/File metadata. Prefer " +
+         ToolNames.NexusSearch + " / " + ToolNames.NexusMod + " / " + ToolNames.NexusCheckUpdates + " for the common " +
+         "lookups: they report the newest file's version over the page header, a missing changelog as unknown, and " +
+         "manager-only flags, which a raw dump does not. Returns the raw JSON data, pretty-printed and capped with a " +
+         "marker. Needs an internet connection.")]
     public static Task<string> NexusGraphql(
         NexusClient nexus,
-        [Description("The GraphQL query to run against Nexus's v2 endpoint. Read-only — a query{ ... } document; " +
-            "mutation/subscription is refused. Inline arguments or use variables=. The Skyrim SE gameId is 1704. " +
+        [Description("The GraphQL query to run against Nexus's v2 endpoint: a query{ ... } document. Inline arguments " +
+            "or use variables=. The Skyrim SE gameId is 1704. " +
             "Example: 'query{ mod(modId:\"51614\", gameId:\"1704\"){ name summary tags{ name } } }'.")]
             string query,
         [Description("Optional. GraphQL variables as a JSON OBJECT string, e.g. '{\"modId\":\"51614\"}'. Omit when the " +
@@ -170,37 +146,32 @@ public static class NexusTools
 
     [McpServerTool(Name = ToolNames.NexusCheckUpdates, ReadOnly = true, Title = "Batch-check Nexus mods for updates (file-level)"),
      Description(
-         "Check MANY mods for updates in ONE call — at the FILE level, without a browser or an API " +
-         "key. The accurate question is 'is the exact FILE I installed still current?', NOT 'does my version match the " +
-         "page's newest main' — a Nexus page hosts many independently-versioned files (patch hubs, ENB pages, Xtudo " +
-         "mega-packs), so comparing your file to the page's single newest main is confidently WRONG for those. Pass each " +
-         "mod as 'id#fileid' — the fileid MO2 recorded for what you installed, which " + ToolNames.UpdateStatus + " prints per " +
-         "row as a 'verify:' token (several files installed from one page → 'id#fileid1#fileid2'). houseCARL resolves each " +
-         "installed file to its live status and reports per mod: CURRENT (your file is still a live file on the page), " +
-         "OUTDATED (your file was RETIRED to OLD_VERSION/ARCHIVED — it names the newest same-name file to grab), " +
-         "FILE-REMOVED (the author WITHDREW your file, REMOVED/DELETED — read the page for why before replacing it; a " +
-         "same-name live file is named as a lead, not as the fix), FILE-GONE " +
-         "(your file is no longer on the page — hidden/deleted, a loud unknown), or not-found (wrong id / LE/other-game). " +
-         "Checks Skyrim Special Edition unless you pass game= (a Nexus domain name like 'baldursgate3' or a numeric game " +
-         "id); every id in one call is checked against that one game. " +
-         "If you pass only 'id=version' with NO fileid (a FOMOD/manual install), it degrades LOUDLY to a best-effort " +
-         "'no-fileid' note — never a confident verdict, because the mod-level compare lies for multi-file pages. Batched " +
-         "(dozens of mods per call). READ-ONLY, needs an internet connection (local tools work offline). Does NOT download " +
-         "or update anything — it is a REPORT. Build the list cheaply with " + ToolNames.UpdateStatus + " (reads MO2's own local " +
-         "cache, no network, and prints each mod's fileid), then " + ToolNames.NexusMod + " changelog=true on anything OUTDATED " +
-         "to see what actually changed.")]
+         "Check many installed mods for updates in one call, at the file level, without a browser or an API key: is " +
+         "the exact file you installed still current, not whether your version matches the page's newest MAIN (a page " +
+         "can host many independently versioned files, such as patch hubs and ENB pages). Pass each mod as 'id#fileid', " +
+         "the file id MO2 recorded for what you installed; build that list offline with " + ToolNames.UpdateStatus + ", " +
+         "which prints it per row as the 'verify:' token. Verdict per mod: CURRENT (your file is still live on the " +
+         "page), OUTDATED (retired to OLD_VERSION or ARCHIVED; names the newest live file of the same name, if any), " +
+         "FILE-REMOVED (the author withdrew it, REMOVED or DELETED; read the page for why before replacing it, and a " +
+         "same-name live file is named only as a lead), FILE-GONE (no longer on the page, hidden or deleted; unknown, " +
+         "check by hand), or not-found (wrong id, an LE or other-game mod, or a hidden or deleted page). A mod checked " +
+         "with several files takes the first of FILE-REMOVED, OUTDATED, FILE-GONE that any file has, and each file is " +
+         "listed. An entry with no fileid gets a " +
+         "best-effort note, never a verdict. Checks Skyrim Special Edition unless game= names another game. Read-only " +
+         "and needs an internet connection; downloads and updates nothing. Then use " + ToolNames.NexusMod +
+         " changelog=true on anything OUTDATED to see what changed.")]
     public static Task<string> NexusCheckUpdates(
         NexusClient nexus,
-        [Description("The mods to check — one entry per mod, separated by commas or newlines. Preferred (FILE-LEVEL) form: " +
-            "'id#fileid', the mod id then '#' then the Nexus file id MO2 recorded for what you installed (" + ToolNames.UpdateStatus + " " +
-            "prints this as the 'verify:' token); if you installed several files from one page, add more with '#': " +
-            "'126608#533265, 99786#585300#585301'. Without a fileid you can pass 'id=version' (or 'id version') for a LOUD " +
-            "best-effort no-fileid note, or a bare 'id' for its latest version only — e.g. '12604=6.9, 3863'. The " +
-            "intra-fileid separator is '#', because ',' separates entries. Non-numeric junk is skipped and listed back to you.")]
+        [Description("The mods to check, one entry per mod, separated by commas or newlines. Preferred form: " +
+            "'id#fileid', the mod id then the Nexus file id MO2 recorded for what you installed (the 'verify:' token " +
+            ToolNames.UpdateStatus + " prints); several files from one page as 'id#fileid1#fileid2', e.g. " +
+            "'126608#533265, 99786#585300#585301'. Without a fileid: 'id=version' (or 'id version') gives a best-effort " +
+            "note, and a bare 'id' gives its newest MAIN version only, e.g. '12604=6.9, 3863'. Unreadable entries are " +
+            "skipped and listed back to you.")]
             string mods,
         [Description("Optional. Which game every id in this call belongs to: a Nexus domain name as it appears in a mod " +
             "page URL ('skyrimspecialedition' (default), 'baldursgate3', 'cyberpunk2077', 'starfield', or any other Nexus " +
-            "game's domain) or its numeric game id. A domain Nexus doesn't know is refused, never silently checked as Skyrim.")]
+            "game's domain) or its numeric game id.")]
             string? game = null,
         CancellationToken ct = default) => Guard.Tool(ToolNames.NexusCheckUpdates, async () =>
     {
@@ -255,13 +226,12 @@ public static class NexusTools
 
     [McpServerTool(Name = ToolNames.NexusIdentify, ReadOnly = true, Title = "Identify a file on Nexus by MD5"),
      Description(
-         "Identify which Nexus mod (and which uploaded file) a file came from, by its MD5 hash — without a browser or an " +
-         "API key. Give one or more 32-char MD5 hashes; houseCARL returns, per hash, the matching mod (name + id) and the " +
-         "file's name/version/category/size — or 'no match' when no Nexus file has that hash (a hand-edited, repacked, or " +
-         "non-Nexus file). Matching is across ALL games, so a hash belonging to a non-Skyrim-SE file is FLAGGED as such " +
-         "rather than mis-attributed to a same-hash SSE mod (Q3). Use it to trace a mystery loose file back to its source " +
-         "mod. READ-ONLY, needs an internet connection. To get a file's MD5 first, hash it locally (e.g. PowerShell " +
-         "Get-FileHash -Algorithm MD5).")]
+         "Identify which Nexus mod and uploaded file a file came from, by its MD5 hash, without a browser or an API " +
+         "key; use it to trace a mystery loose file to its source mod. Per hash returns the matching mod (name and id) " +
+         "and the file's name, version, category and size, or no match when no Nexus file has that hash (a hand-edited, " +
+         "repacked or non-Nexus file). Matching spans all games, and a hit on a non-Skyrim-SE file is flagged as such. " +
+         "Read-only and needs an internet connection. Hash the file locally first (e.g. PowerShell Get-FileHash " +
+         "-Algorithm MD5).")]
     public static Task<string> NexusIdentify(
         NexusClient nexus,
         [Description("One or more MD5 hashes (32 hex characters each), separated by commas, spaces, or newlines. " +

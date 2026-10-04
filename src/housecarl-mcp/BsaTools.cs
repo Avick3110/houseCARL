@@ -45,15 +45,15 @@ public static class BsaTools
 
     [McpServerTool(Name = ToolNames.BsaExtract, Title = "Extract a .bsa archive to a folder"),
      Description(
-         "Extract a Bethesda .bsa archive's contents to a folder so you can read the files. Reads the archive directly " +
-         "(via Mutagen — handles compressed archives too) — no external tool needed. Unpacks the WHOLE archive. Pass " +
-         "out_path= a folder to unpack into; OMIT out_path to let houseCARL unpack into a NEW reviewable mod folder under your " +
-         "mods directory (reported back) — that needs houseCARL pointed at your MO2 instance. Originals are never modified.")]
+         "Extract a Bethesda .bsa archive's whole contents to a folder so you can read the files. Reads the archive " +
+         "directly, compressed archives included; no external tool needed. Without out_path= it unpacks into a new mod " +
+         "folder under your mods directory, which needs houseCARL pointed at your MO2 instance. The archive is never " +
+         "modified.")]
     public static string BsaExtract(
         LoadOrderService svc,
         [Description("Full path to the .bsa archive to extract.")]
             string archive,
-        [Description("Optional. ABSOLUTE path to the folder to unpack into — a relative path is refused, because the server would resolve it against its own working directory. If omitted, houseCARL creates a NEW mod folder under your mods directory and reports its path.")]
+        [Description("Optional. Absolute path to the folder to unpack into. Omit for a new houseCARL mod folder under your mods directory; its path is reported.")]
             string? out_path = null) => Guard.Tool(ToolNames.BsaExtract, () =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
@@ -106,25 +106,21 @@ public static class BsaTools
 
     [McpServerTool(Name = ToolNames.BsaRepack, Title = "Pack a folder into a .bsa archive"),
      Description(
-         "Pack a folder of loose files into a Bethesda .bsa archive (via BSArch), placed in a NEW reviewable houseCARL mod " +
-         "folder under your mods directory (originals untouched; enable it in MO2 to use). patch= names that folder and the " +
-         ".bsa inside takes its name — a name already taken is refused, and an existing archive is never replaced, because " +
-         "the game loads an archive only under its plugin's exact basename. format defaults to 'sse' (Skyrim " +
-         "Special Edition). compress defaults to FALSE — a compressed archive is smaller but BREAKS any sounds/voices it " +
-         "contains (a BSArch limitation), so only compress archives with no audio. Needs the BSArch path (auto-prompts if " +
-         "unset) and houseCARL pointed at your MO2 instance (for the output folder).")]
+         "Pack a folder of loose files into a Bethesda .bsa archive with BSArch, written into a new houseCARL mod " +
+         "folder under your mods directory, or with into= an existing houseCARL patch; enable it in MO2 to use it. The " +
+         "source folder is untouched. The .bsa takes its mod folder's name.")]
     public static string BsaRepack(
         LoadOrderService svc,
         ToolPathResolver bridge,
         [Description("Full path to the source folder of loose files to pack (its tree becomes the archive's contents).")]
             string source_folder,
-        [Description("Optional. Base name for the NEW mod folder the .bsa lands in (default: the source folder's name). The archive inside takes that folder's name, so patch='MyArchive' writes 'houseCARL - MyArchive\\MyArchive.bsa'. A name already taken — by a mod folder, or by an active plugin of that basename — is REFUSED by name and nothing is written: the game auto-loads an archive only under its plugin's exact basename, so houseCARL never auto-renames it. Cannot be combined with into=.")]
+        [Description("Optional. Name for the new mod folder and the .bsa inside it: patch='MyArchive' writes 'houseCARL - MyArchive\\MyArchive.bsa'. The game loads an archive only under its plugin's exact basename. Default: the source folder's name, which gets a _001-style suffix if that name is already taken; a name you pass is never suffixed.")]
             string? patch = null,
         [Description("Optional. Archive format: 'sse' (default, Skyrim SE), 'tes5' (Skyrim LE), 'fo4', 'fo4dds', 'sf1', 'sf1dds', 'tes4', 'fo3', 'fnv', 'tes3'.")]
             string? format = null,
-        [Description("Optional. Compress the archive (default false). WARNING: compression breaks sounds/voices — leave false if the folder contains any audio.")]
+        [Description("Optional, default false. Compress the archive. Compression breaks any sounds or voices in it, so leave it false if the folder contains audio.")]
             bool compress = false,
-        [Description("Optional. Filename of an existing houseCARL patch mod to place the .bsa into instead of a fresh folder (the archive then takes THAT folder's name). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match). Cannot be combined with patch=, and an archive of that folder's name already there is REFUSED, never replaced — so a second repack into one folder says so instead of overwriting the first.")]
+        [Description("Optional. An existing houseCARL patch to place the .bsa into instead of a new folder; the archive takes that folder's name without the 'houseCARL - ' prefix. Pass the patch's plugin filename (found even if you renamed its MO2 folder), or the mod-folder name when two patches share a filename.")]
             string? into = null) => Guard.Tool(ToolNames.BsaRepack, () =>
     {
         if (string.IsNullOrWhiteSpace(source_folder)) return "error: no source_folder given.";

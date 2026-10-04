@@ -12,24 +12,20 @@ public static class SkyPatcherTools
 {
     [McpServerTool(Name = ToolNames.SkypatcherLayer, ReadOnly = true, Title = "SkyPatcher layer (INIs, apply order, conflicts)"),
      Description(
-         "Inventory the SkyPatcher distributor layer of the ACTIVE load order — the runtime record edits the record " +
-         "tools are otherwise blind to. Scans Data\\SKSE\\Plugins\\SkyPatcher exactly as the DLL reads it: every " +
-         "LOOSE INI (BSA-packed ones are flagged NOT applied), per type folder in filename apply order, with the mod " +
-         "that wins the VFS for each file, same-path collisions (the loser's content is never read — flagged), " +
-         "Plugin.esp.ini filename gates evaluated against the load order, and SkyPatcher.ini per-type toggles. Then " +
-         "reports the INI-vs-INI CONFLICTS: two files setting the SAME field of the SAME record to different values " +
-         "(the later-sorted file wins; add/remove ops accumulate and are not conflicts), plus the three ITM " +
-         "classes: intra-file DEAD WRITES (a later line of the SAME file unconditionally re-covers every target " +
-         "of an earlier set — dead regardless of value; partial or conditional-only overwrites are NOT flagged), " +
-         "cross-INI DUPLICATES (two files set the same field/target to the SAME value — one copy is redundant), " +
-         "and NO-OP WRITES (true ITM — the replay shows the SET writes the value the record already has). " +
-         "Entries whose applicability " +
-         "also hangs on other filters are flagged conditional rather than guessed. Pass filter= a type folder, mod, " +
-         "or filename substring to narrow to the type folders that hold a match — each still listed in full apply order, " +
-         "so the files sorting before and after a match stay visible, with the matching files expanded to their patch " +
-         "lines. For ONE record's computed " +
-         "post-SkyPatcher state use " + ToolNames.Records + " formids=[\"<FormID>\"] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} — source= is a version pole, not a selection, so the read needs formids= (or a scan scope). " +
-         "Read-only.")]
+         "Inventory the SkyPatcher layer of the active load order: the runtime record edits the record tools otherwise " +
+         "miss. Scans Data\\SKSE\\Plugins\\SkyPatcher as the DLL reads it: every loose INI per type folder in filename " +
+         "apply order (BSA-packed INIs are flagged as not applied), the mod that wins each file, same-path collisions " +
+         "(the loser's content is never read; flagged), Plugin.esp.ini filename gates evaluated against the load " +
+         "order, and SkyPatcher.ini per-type toggles. Then reports conflicts between INIs: two files setting the same " +
+         "field of the same record to different values (the later-sorted file wins; add and remove ops accumulate and " +
+         "are not conflicts), and three ITM classes: dead writes (a later line of the same file unconditionally " +
+         "re-covers every target of an earlier set, whatever the value; partial or conditional-only overwrites are not " +
+         "flagged), cross-INI duplicates (two files set the same field and target to the same value), and no-op writes " +
+         "(the replay shows the set writes the value the record already has). An entry whose applicability also " +
+         "depends on other filters is flagged conditional, not guessed. filter= narrows to the type folders holding a " +
+         "match. For one record's computed post-SkyPatcher state use " + ToolNames.Records + " formids=[\"<FormID>\"] " +
+         "source={\"overlay\": \"skypatcher\", \"state\": \"post\"}; source= is a version pole, not a selection, so " +
+         "the read needs formids= (or a scan scope). Read-only.")]
     public static string SkyPatcherLayer(
         LoadOrderService svc,
         [Description("Optional. A type-folder (e.g. 'weapon'), providing-mod, or INI filename substring (case-insensitive). " +

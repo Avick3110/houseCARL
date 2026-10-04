@@ -10,30 +10,25 @@ public static class StatusTools
 {
     [McpServerTool(Name = ToolNames.LoadOrderStatus, ReadOnly = true, Title = "Load-order status (enabled/disabled mods & plugins)"),
      Description(
-         "Report what houseCARL sees in the active MO2 profile: enabled vs DISABLED mods, active vs INACTIVE plugins, " +
-         "the implicit force-loaded masters/CC, how many plugins resolved to real files, and any load-order warnings. " +
-         "The enabled/disabled picture is read FRESH each call, so a mod/plugin you just toggled in MO2 shows " +
-         "immediately; the resolved count reflects the resolver's last build, which houseCARL refreshes AUTOMATICALLY on " +
-         "each call when the profile changed — no restart needed (a 'refresh still pending' note appears only in the rare " +
-         "case MO2 was mid-write). Pass filter= a mod folder name (e.g. 'Requiem " +
-         "Lite 2') or a plugin filename (e.g. 'Requiem.esp') to ask whether houseCARL sees that one as enabled/disabled " +
-         "(mod) or active/inactive/implicit (plugin) — a plugin filter also reports its LOCALIZED header flag, which is " +
-         "what an in-place write to it would be refused over. Also reports the resolved Papyrus script-log and SKSE crash-log " +
-         "FOLDERS — where to Read logs for triage/diagnosis (auto-detected, or as set via " + ToolNames.SetToolPath + "). " +
-         "Also reports the RUNNING SERVER's build version (the binary's informational version — the release version, " +
-         "then '+' and the full commit sha, e.g. '1.9.5-dev+e942910...'), so an installed-build-vs-source check never " +
-         "has to read the exe's file properties. " +
-         "Does NOT modify anything.")]
+         "Report what houseCARL sees in the active MO2 profile: enabled and disabled mods, active and inactive plugins, " +
+         "the implicit force-loaded masters and CC, how many plugins resolved to real files, and any load-order " +
+         "warnings. The enabled/disabled picture is read fresh each call, so a toggle in MO2 shows at once; the " +
+         "resolved count is rebuilt automatically when the profile changed, with no restart (a 'refresh still pending' " +
+         "note means MO2 was mid-write). Also reports the resolved Papyrus script-log and SKSE crash-log folders, " +
+         "where to read logs for triage (auto-detected, or set with " + ToolNames.SetToolPath + "), and the running " +
+         "server's build version (the release version, then '+' and the full commit sha). Changes nothing.")]
     public static string LoadOrderStatus(
         LoadOrderService svc,
         ToolPathResolver tools,
-        [Description("Optional. A mod folder name or plugin filename to look up. Omit for the whole-profile summary.")]
+        [Description("Optional. A mod folder name (e.g. 'Requiem Lite 2') or plugin filename (e.g. 'Requiem.esp'): " +
+            "reports whether houseCARL sees that mod as enabled or disabled, or that plugin as active, inactive or " +
+            "implicit, and a plugin's localized header flag, which in-place writes are refused over. Always reads the " +
+            "active profile. Omit for the whole-profile summary.")]
             string? filter = null,
-        [Description("Optional. A profile NAME to INSPECT without switching to it (e.g. 'Default', 'Modded') — reports that " +
-            "profile's enabled/disabled mods + active/inactive plugins even if it is not the active one, so you can compare " +
-            "load orders across profiles. Omit to describe the ACTIVE profile (which also lists the available profile names). " +
-            "MO2-instance mode only (explicit-paths mode has no profiles folder); if both filter= and profile= are given, " +
-            "both render.")]
+        [Description("Optional. A profile name to inspect without switching to it (e.g. 'Default', 'Modded'): reports " +
+            "its enabled and disabled mods and active and inactive plugins, to compare load orders across profiles. Omit " +
+            "for the active profile, whose report lists the available profile names. MO2-instance mode only. Given with " +
+            "filter=, both render.")]
             string? profile = null,
         [Description("Optional. Max characters before name lists are cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.LoadOrderStatus, () =>

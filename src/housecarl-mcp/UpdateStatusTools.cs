@@ -10,15 +10,14 @@ public static class UpdateStatusTools
 {
     [McpServerTool(Name = ToolNames.UpdateStatus, ReadOnly = true, Title = "MO2's local mod-update cache (no network)"),
      Description(
-         "Report which installed mods have a version DIFFERENT from MO2's cached 'newest' — read from MO2's OWN local " +
-         "cache (each mod's meta.ini), with NO network and NO API key. For every Nexus-linked mod it compares the " +
-         "installed version against the newest version MO2 last learned and lists the ones that DIFFER (candidates only — " +
-         "MO2's cache can be stale or a different version scheme, so direction isn't assured), plus any you told MO2 to " +
-         "ignore, and how many were never checked or match. This is the cheap FIRST pass of update triage — it " +
-         "narrows a big modlist to the handful worth checking online — but it is only as fresh as MO2's last Nexus check, " +
-         "and a 'never checked' mod is NOT 'up to date' (Q3). To verify live, pass the flagged mod ids to " +
-         ToolNames.NexusCheckUpdates + "; use " + ToolNames.NexusMod + " changelog=true to see what changed. READ-ONLY, works " +
-         "OFFLINE, and modifies/updates NOTHING. Needs a configured MO2 instance (" + ToolNames.SetMo2Instance + ").")]
+         "Report which installed mods have a version different from MO2's cached newest, read from MO2's own local " +
+         "cache (each mod's meta.ini) with no network or API key: the cheap first pass of update triage. For every " +
+         "Nexus-linked mod it compares the installed version with the newest MO2 last learned and lists the ones that " +
+         "differ, plus any you told MO2 to ignore, and counts those that match or were never checked. A difference is " +
+         "a candidate only: the cache is as fresh as MO2's last Nexus check and may use another version scheme, so " +
+         "the direction is not assured, and 'never checked' does not mean up to date. To verify live, pass each " +
+         "flagged row's 'verify:' token to " + ToolNames.NexusCheckUpdates + ", then " + ToolNames.NexusMod +
+         " changelog=true to see what changed. Changes nothing.")]
     public static string UpdateStatus(
         LoadOrderService svc,
         [Description("Optional. Max characters before the mod lists are cut with an explicit notice. 0 = the server default (~40k).")]

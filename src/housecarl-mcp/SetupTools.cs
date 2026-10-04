@@ -10,14 +10,12 @@ public static class SetupTools
 {
     [McpServerTool(Name = ToolNames.SetMo2Instance, Title = "Tell houseCARL where Mod Organizer 2 is"),
      Description(
-         "Point houseCARL at your Mod Organizer 2 instance folder — the folder that contains ModOrganizer.ini (for a " +
-         "Wabbajack / portable modlist, that's the list's install folder). houseCARL reads ModOrganizer.ini to derive the " +
-         "mods folder, the ACTIVE profile, and the game's Data folder automatically — you give ONLY the one folder, and " +
-         "the profile is always auto-detected (you never name it). Use this for FIRST-RUN setup (when a tool reports " +
-         "houseCARL isn't configured yet) and to SWITCH to a different MO2 instance later. It VALIDATES the folder is a " +
-         "real MO2 instance and reports exactly what's wrong if not (nothing is changed or saved on failure); on success " +
-         "it re-points houseCARL immediately (the next read/write resolves against it) and SAVES the choice so it persists " +
-         "across restarts. Returns the detected profile plus a quick enabled-mods / active-plugins summary.")]
+         "Point houseCARL at your Mod Organizer 2 instance folder. houseCARL derives the mods folder, the active " +
+         "profile and the game's Data folder from its ModOrganizer.ini; you never name the profile. Use it for " +
+         "first-run setup (when a tool says houseCARL isn't configured yet) and to switch to another MO2 instance. A " +
+         "folder that is not an MO2 instance changes nothing. On success houseCARL uses it from the next call and saves " +
+         "it for later sessions (a failed save is reported), and returns the detected profile with an enabled-mods and " +
+         "active-plugins summary.")]
     public static string SetMo2Instance(
         LoadOrderService svc,
         [Description("Full path to the MO2 instance folder — the one containing ModOrganizer.ini (e.g. a Wabbajack list's install folder).")]
@@ -36,15 +34,12 @@ public static class SetupTools
 
     [McpServerTool(Name = ToolNames.SetToolPath, Title = "Tell houseCARL where an external tool is"),
      Description(
-         "Give houseCARL the path to an external tool it drives: 'papyrus_compiler' (the Creation Kit's " +
-         "PapyrusCompiler.exe, for compiling .psc scripts to .pex), 'bsarch' (BSArch.exe, for .bsa archive " +
-         "list/extract/repack), 'papyrus_logs' (the Papyrus script-log FOLDER), or 'crash_logs' (the SKSE crash-log " +
-         "FOLDER) — the bridge houseCARL's compile / BSA / log-reading capabilities sit on. houseCARL AUTO-DETECTS the " +
-         "canonical homes for the compiler and the log folders, so you usually only need this for BSArch (no fixed home) " +
-         "or a non-standard install. VALIDATES the path — the .exe exists and looks like the right tool; the log folder " +
-         "exists — and reports exactly what's wrong if not, saving NOTHING on failure (Q3). On success it SAVES the choice " +
-         "to houseCARL.user.json so it persists across restarts, coexisting with your MO2 instance setting. tool must be " +
-         "one of: papyrus_compiler, bsarch, papyrus_logs, crash_logs.")]
+         "Give houseCARL the path to an external tool or log folder it uses: the Creation Kit's PapyrusCompiler.exe " +
+         "(compiling .psc to .pex), BSArch.exe (packing .bsa archives with " + ToolNames.BsaRepack + "), or the Papyrus " +
+         "script-log or SKSE crash-log folder. The compiler and the log folders are auto-detected in their usual " +
+         "homes, so this is mostly needed for BSArch or a non-standard install. The path is checked (the .exe exists " +
+         "and its name matches the tool; a log folder exists) and nothing is saved on failure; on success it is saved " +
+         "to houseCARL.user.json for later sessions (a failed save is reported).")]
     public static string SetToolPath(
         ToolPathResolver bridge,
         [Description("Which tool: 'papyrus_compiler' (CK PapyrusCompiler.exe), 'bsarch' (BSArch.exe), 'papyrus_logs' (script-log folder), or 'crash_logs' (SKSE crash-log folder).")]
