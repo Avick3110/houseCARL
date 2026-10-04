@@ -128,7 +128,7 @@ public sealed record CreateRecordSpec
     [SchemaRequired, JsonPropertyName("editorid"), Description("The EditorID the new record is referenced by (in SkyPatcher, SPID, xEdit); choose a clear, prefixed name.")]
     public string? Editorid { get; init; }
 
-    [JsonPropertyName("ops"), Description("The new record's fields, in the same op shape " + ToolNames.Apply + " takes, minus formid. e.g. ops=[{field_path:'Name', value:'My Spell'}, {field_path:'Effects', op:'Add', compose:{...}}]. Omit to create a bare record (type and editorid only).")]
+    [JsonPropertyName("ops"), Description("The new record's fields: [{field_path, op?, value?, key?, values?, entries?, compose?, composes?}, …], the same op shape " + ToolNames.Apply + " takes, minus formid. e.g. ops=[{field_path:'Name', value:'My Spell'}, {field_path:'Effects', op:'Add', compose:{...}}]. Omit to create a bare record (type and editorid only).")]
     public CreateFieldOp[]? Ops { get; init; }
 
     [JsonPropertyName("parent"), Description("For a nested record: the parent it nests under (a dialogue line under a topic, a placed ref in a cell), either an existing parent's FormID 'XXXXXX:Plugin.esp' or the editorid of a record declared earlier in this records= array. That is how a topic and its lines are authored in one call: records=[{record_type:'DialogTopic', editorid:'MyTopic'}, {record_type:'DialogResponses', editorid:'MyTopic_L1', parent:'MyTopic', ops:[{field_path:'Prompt', value:'Hello'}]}]. Omit for a flat top-level record.")]
