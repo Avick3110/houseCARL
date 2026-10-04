@@ -37,7 +37,7 @@ public static class CreateTools
             bool acknowledge = false,
         [Description("Overwrite a record the in_place= target already defines under an editorid in records=: it is re-created fresh at its own FormID from this call's spec, and everything else it held is discarded. Without it, such a collision refuses the whole call before anything is written. The check covers records with no parent= only: a nested child in a list whose editorid the target already uses is added as a second record.")]
             bool replace = false,
-        [Description("Show every field of every record this call created, not just the fields you set, to confirm composed structures landed without enabling the patch. " + LaneSentences.ReadbackIsTheFile)]
+        [Description("Show every field of every record this call created, not just the fields you set, to confirm composed structures landed without enabling the patch. In place, the verify always runs and shows compactly; this widens it. " + LaneSentences.ReadbackIsTheFile)]
             bool readback = false,
         [Description("'text' (default) or 'json' (the same data). " + LaneSentences.Epoch)]
             string? format = null,
