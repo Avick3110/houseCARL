@@ -114,7 +114,7 @@ public static class BsaTools
         ToolPathResolver bridge,
         [Description("Full path to the source folder of loose files to pack (its tree becomes the archive's contents).")]
             string source_folder,
-        [Description("Optional. Name for the new mod folder and the .bsa inside it: patch='MyArchive' writes 'houseCARL - MyArchive\\MyArchive.bsa'. The game loads an archive only under its plugin's exact basename. Default: the source folder's name, which gets a _001-style suffix if that name is already taken; a name you pass is never suffixed.")]
+        [Description("Optional. Name for the new mod folder and the .bsa inside it: patch='MyArchive' writes 'houseCARL - MyArchive\\MyArchive.bsa'. The game loads an archive only under its plugin's exact basename. Default: the source folder's name, which gets a _001-style suffix if that name is already taken; a taken name you pass is refused, not suffixed.")]
             string? patch = null,
         [Description("Optional. Archive format: 'sse' (default, Skyrim SE), 'tes5' (Skyrim LE), 'fo4', 'fo4dds', 'sf1', 'sf1dds', 'tes4', 'fo3', 'fnv', 'tes3'.")]
             string? format = null,

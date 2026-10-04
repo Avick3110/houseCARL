@@ -16,7 +16,7 @@ public static class UpdateStatusTools
          "differ, plus any you told MO2 to ignore, and counts those that match or were never checked. A difference is " +
          "a candidate only: the cache is as fresh as MO2's last Nexus check and may use another version scheme, so " +
          "the direction is not assured, and 'never checked' does not mean up to date. To verify live, pass each " +
-         "flagged row's 'verify:' token to " + ToolNames.NexusCheckUpdates + ", then " + ToolNames.NexusMod +
+         "flagged row's 'verify:' token (rows with a file id carry one) to " + ToolNames.NexusCheckUpdates + ", then " + ToolNames.NexusMod +
          " changelog=true to see what changed. Changes nothing.")]
     public static string UpdateStatus(
         LoadOrderService svc,
