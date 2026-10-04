@@ -259,7 +259,7 @@ public sealed record ApplyOp
     [JsonPropertyName("compose"), Description("Build a modeled struct for an Add, InsertAtIndex or SetAtIndex, or a polymorphic Set: a leveled-list entry (e.g. 'LeveledItemEntry'), an effect, a condition row, or a polymorphic list element by its concrete type (e.g. 'ScriptObjectProperty'). A script property: op=Add, field_path='VirtualMachineAdapter.Scripts[0].Properties', compose={type:'ScriptObjectProperty', fields:{Name:'MyProp', Flags:'Edited', Object:'XXXXXX:Plugin.esp', Alias:'-1'}}. Merging a weapon into a leveled list: op=Add, field_path='Entries', compose={type:'LeveledItemEntry', sets:[{path:'Data.Level',value:'1'},{path:'Data.Count',value:'1'},{path:'Data.Reference',value:'<weapon FormID>'}]}.")]
     public StructInput? Compose { get; init; }
 
-    [JsonPropertyName("composes"), Description("Build many modeled list elements in one op. With Add, appends each in order (e.g. a block of condition rows); with ReplaceAll, clears the list then appends each, and composes=[] clears it to empty. Pass only one of compose, composes, value and values.")]
+    [JsonPropertyName("composes"), Description("Build many modeled list elements in one op. With Add, appends each in order (e.g. a block of condition rows); with ReplaceAll, clears the list then appends each, and composes=[] clears it to empty. Pass only one of compose, composes, value, values and entries.")]
     public StructInput[]? Composes { get; init; }
 
     [JsonPropertyName("from"), Description("op='CopyFrom' only: a different record to copy the field from, of the same record type as formid.")]

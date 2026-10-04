@@ -166,6 +166,6 @@ public sealed record CreateFieldOp
     [JsonPropertyName("compose"), Description("Build a modeled struct (a leveled-list entry, an effect, a condition row): the arm for a polymorphic Set, or the element for a struct-element Add, InsertAtIndex or SetAtIndex.")]
     public StructInput? Compose { get; init; }
 
-    [JsonPropertyName("composes"), Description("Build many modeled list elements in one op. With Add, appends each in order; with ReplaceAll, clears the list then appends each. Pass only one of compose, composes, value and values.")]
+    [JsonPropertyName("composes"), Description("Build many modeled list elements in one op. With Add, appends each in order; with ReplaceAll, clears the list then appends each. Pass only one of compose, composes, value, values and entries.")]
     public StructInput[]? Composes { get; init; }
 }
