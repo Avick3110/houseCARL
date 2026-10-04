@@ -12,33 +12,26 @@ public static class DecompileTools
 {
     [McpServerTool(Name = ToolNames.DecompileScript, Title = "Decompile a compiled Papyrus script (.pex → .psc)"),
      Description(
-         "Decompile a compiled Papyrus script (.pex) back to source (.psc), landing the .psc in a NEW houseCARL " +
-         "patch-mod folder you review — or pass out_path= an absolute folder to land it there instead, for a read-only " +
-         "look at a declaration you don't want a mod folder for (originals untouched; an existing .psc is never " +
-         "overwritten). Pass pex= the full " +
-         "path to the .pex — for a script inside a BSA, extract it first with " + ToolNames.BsaExtract + " and pass the " +
-         "extracted path. Names, types, properties, states, events and docstrings survive; control flow is " +
-         "reconstructed and proven (98.80% of provable scripts recompile to identical bytecode). KNOWN LOSSES every " +
-         "decompiler shares, baked into the PEX format itself: parameter DEFAULTS don't exist in .pex (callers baked " +
-         "the literals), so a `= None` default comes back only where a call in the SAME script omitted that " +
-         "argument, and a parameter with no such call comes back plain, and comments/blank-line layout are " +
-         "gone (docstrings survive). Scripts built by an OPTIMIZING compiler (Caprica) decompile to correct source " +
-         "but won't re-produce byte-identical output under the CK compiler — the result says so when optimizer " +
-         "patterns are detected, but detection is best-effort: a result WITHOUT the note does not prove the .pex " +
-         "came from the CK compiler. Any " +
-         "function the engine cannot prove is emitted as a LOUD failure comment with its raw bytecode (the .psc then " +
-         "won't compile as-is) — never silently wrong source. Needs houseCARL pointed at your MO2 instance for the " +
-         "output folder, except with out_path=, which runs without one; when a piece of the class hierarchy could not " +
-         "be read the result says what the hierarchy is instead; no compiler or external tool required.")]
+         "Decompile a compiled Papyrus script (.pex) back to source (.psc). The .psc lands in Source\\Scripts of a new " +
+         "houseCARL patch-mod folder, or in a folder you name with out_path= (for a look without a mod folder). Originals " +
+         "are untouched and an existing .psc is never overwritten. Needs houseCARL pointed at your MO2 instance, " +
+         "except with out_path=; needs no compiler or external tool.\n\n" +
+         "Names, types, properties, states, events and docstrings survive; control flow is reconstructed and proven. Losses " +
+         "every decompiler shares: .pex has no parameter defaults, so a '= None' default comes back only where a call in the " +
+         "same script omitted that argument, and comments and blank-line layout are gone. A script built by an optimizing " +
+         "compiler (Caprica) decompiles to correct source that will not recompile byte-identical under the CK compiler; the " +
+         "result notes it when it detects optimizer patterns, but a result without the note does not prove the .pex came " +
+         "from the CK compiler. A function that cannot be proven is emitted as a failure comment with its raw bytecode, so " +
+         "that .psc will not compile as is. When part of the class hierarchy could not be read, the result says so.")]
     public static string DecompileScript(
         LoadOrderService svc,
-        [Description("Full path to the .pex compiled script to decompile. For a script inside a BSA, run " + ToolNames.BsaExtract + " first and pass the extracted path.")]
+        [Description("Full path to the .pex to decompile. For a script inside a BSA, run " + ToolNames.BsaExtract + " first and pass the extracted path.")]
             string pex,
-        [Description("Optional. Base name for the NEW patch-mod folder the .psc lands in (default 'houseCARL_Scripts'); auto-suffixed if taken.")]
+        [Description("Optional. Base name for the new patch-mod folder the .psc lands in (default 'houseCARL_Scripts', shared with " + ToolNames.CompileScript + "); auto-suffixed if taken.")]
             string? patch = null,
-        [Description("Optional. Filename of an existing houseCARL patch mod to add the .psc into instead of creating a fresh folder (accumulate sources; pairs with " + ToolNames.CompileScript + "'s into=). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
+        [Description("Optional. Filename of an existing houseCARL patch mod to add the .psc into instead of a fresh folder; found even if you renamed its MO2 mod folder. For two patches sharing a filename, pass the mod-folder name.")]
             string? into = null,
-        [Description("Optional. Land the .psc in a folder of YOUR choosing instead of a houseCARL patch folder — an ABSOLUTE path, created if it doesn't exist. The .psc is written straight into it (nothing appended: a .psc is source a compiler reads, not a file the game loads), so the folder is yours and houseCARL never deletes it. When set, patch=/into= are ignored, and the result says so; this lane also works with no MO2 instance configured.")]
+        [Description("Optional. Absolute path to a folder of your choosing, created if missing; the .psc is written straight into it and houseCARL never deletes it. patch= and into= are then ignored.")]
             string? out_path = null) => Guard.Tool(ToolNames.DecompileScript, () =>
     {
         // 1) lane: out_path= supersedes patch=/into= saying so; the note is APPENDED, so a refusal opens with "error:".

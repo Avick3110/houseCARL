@@ -10,39 +10,30 @@ public static class SeqTools
 {
     [McpServerTool(Name = ToolNames.WriteSeq, Title = "Write a start-game-enabled-quest .seq file"),
      Description(
-         "Write the SEQ file (Data\\SEQ\\<plugin>.seq) a plugin needs for its START-GAME-ENABLED quests to actually run. " +
-         "Ticking 'Start Game Enabled' on a quest does NOTHING on its own — without the .seq the quest, and any dialogue or " +
-         "change gated on it, silently never starts. Pass source= the plugin: its FILENAME (e.g. 'MyQuestMod.esp' — " +
-         "located across your MO2 mod folders, enabled or not, the overwrite folder and game Data) or an ABSOLUTE PATH " +
-         "(e.g. the path " + ToolNames.Create + " reported for a fresh patch, which is not in the load order yet). The response " +
-         "states WHICH copy it read: with the same filename in several folders the call is refused, naming them, rather " +
-         "than picking one. houseCARL reads that plugin's start-game-enabled quests and writes the .seq into a houseCARL " +
-         "mod folder you enable in MO2. If the plugin is itself in a houseCARL patch folder, the .seq defaults into THAT " +
-         "same folder (so enabling the one mod deploys both .esp and .seq); otherwise it lands in a fresh folder (pass " +
-         "into= an existing houseCARL patch to keep them together, or patch= to name the new folder). After an IN-PLACE " +
-         "edit the .esp is in the MOD's own folder, so pass out_path= that mod folder and the .seq lands beside it in " +
-         "its SEQ\\. When a LANE names the destination (out_path=/into=, or the plugin's own houseCARL folder) and it " +
-         "already holds exactly these bytes, nothing is written and the response says so; with no lane named the fresh " +
-         "folder is empty by construction, so that re-run always writes. " +
-         "A plugin with no " +
-         "start-game-enabled quests needs no .seq — that's reported, nothing is written. The .seq makes the quest START; " +
-         "it does not verify the quest or its dialogue is otherwise correct. format='json' returns the same data " +
-         "machine-readable. No epoch on this call, and that is a fact not an omission: a .seq is derived from the plugin " +
-         "FILE alone (its encoding is load-order-independent), so this call consults no load-order build. Needs houseCARL " +
-         "pointed at your MO2 instance (for the output folder).")]
+         "Write the .seq file (Data\\SEQ\\<plugin>.seq) a plugin needs for its Start Game Enabled quests to run. Without it " +
+         "such a quest, and anything gated on it, silently never starts. The .seq makes the quests start; it does not check " +
+         "that they or their dialogue are otherwise correct. A plugin with no such quests needs no .seq: that is reported " +
+         "and nothing is written.\n\n" +
+         "By default the .seq lands in the plugin's own houseCARL mod folder when it is in one, so enabling that one mod " +
+         "deploys both; otherwise in a fresh houseCARL folder you enable in MO2. After an in-place edit, pass out_path= the " +
+         "plugin's own mod folder. When the destination is the plugin's own houseCARL folder, into= or out_path= and it " +
+         "already holds exactly these bytes, nothing is written and the reply says 'unchanged'. A fresh folder (patch=, or " +
+         "the default for a plugin not in a houseCARL folder) always gets a write, so such a re-run makes another folder.\n\n" +
+         "The reply carries no epoch: a .seq is derived from the plugin file alone. Needs houseCARL pointed at your MO2 " +
+         "instance.")]
     public static string WriteSeq(
         LoadOrderService svc,
-        [Description("SOURCE: the plugin whose start-game-enabled quests need a .seq — a FILENAME ('MyQuestMod.esp', located across enabled, disabled and not-yet-listed mod folders, overwrite, and game Data) or an ABSOLUTE path to the .esp/.esm/.esl. A filename provided by several locations is refused, naming them.")]
+        [Description("The plugin: a filename ('MyQuestMod.esp', found across enabled and disabled mod folders, the overwrite folder and game Data) or an absolute path to the .esp/.esm/.esl, e.g. the path " + ToolNames.Create + " reported for a patch not yet in the load order. The reply says which copy it read.")]
             string source,
-        [Description("LANE: base name for a NEW patch-mod folder the .seq lands in (default: the plugin's own houseCARL folder if it's in one, else 'houseCARL_SEQ'); auto-suffixed if taken.")]
+        [Description("Base name for a new mod folder for the .seq (default 'houseCARL_SEQ'); auto-suffixed if taken. Not with into=.")]
             string? patch = null,
-        [Description("LANE: filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch that holds the .esp, so one mod deploys both). A .seq already there with exactly these bytes is left alone and reported 'unchanged', with only its timestamp refreshed if it was older than the plugin — the same skip the out_path= lane states, and the reason re-running after an edit is cheap.")]
+        [Description("Filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch holding the .esp). Not with patch=.")]
             string? into = null,
-        [Description("LANE: land the .seq in a folder of YOUR choosing instead of a houseCARL patch folder — pass the ABSOLUTE path to the mod-folder ROOT, typically the plugin's own mod after an in-place edit (a relative path is refused, because the server would resolve it against its own working directory); houseCARL appends SEQ\\ (and won't double it if you already point at a ...\\SEQ folder). When set, patch=/into= are ignored. An existing .seq at that path is OVERWRITTEN with no backup (the response says 'replaced'), and a byte-identical one is left alone with only its timestamp refreshed if it was older than the plugin. The game reads SEQ files from exactly <mods>\\<YourMod>\\SEQ, the MO2 overwrite folder, or <Data>\\SEQ — anywhere else the .seq is still written and you're warned it won't be read (a nested path like <mods>\\<YourMod>\\Sub is 'under mods' but does NOT deploy).")]
+        [Description("Absolute path to a mod-folder root of your choosing, typically the plugin's own mod after an in-place edit; houseCARL appends SEQ\\ unless the path already ends in it. patch= and into= are then ignored. An existing .seq there is overwritten with no backup (the reply says 'replaced'). The game reads .seq files only from <mods>\\<YourMod>\\SEQ, the MO2 overwrite folder or <Data>\\SEQ; anywhere else, including a nested folder under a mod, the file is still written with a warning that it will not be read.")]
             string? out_path = null,
-        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable).")]
+        [Description("'text' (default) or 'json' (the same data, machine-readable).")]
             string? format = null,
-        [Description("TRANSPORT: character ceiling on the render; past it trailing quest rows are dropped with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit.")]
+        [Description("Character ceiling on the reply; past it trailing quest rows are cut with a notice. 0 = a default under the host's response limit.")]
             int max_chars = 0) => Guard.Tool(ToolNames.WriteSeq, () =>
     {
         bool json = Wire.WantsJson(format, out var ferr);
