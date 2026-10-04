@@ -17,37 +17,39 @@ public static class PlaceTools
 {
     [McpServerTool(Name = ToolNames.Place, Title = "Place chosen file copies so they win MO2's VFS"),
      Description(
-         "Place chosen copies of files — ANY Data-relative file (a mesh, texture, script, sound, interface, etc.) — into " +
-         "ONE NEW houseCARL-owned MO2 mod folder, so the copy YOU pick wins the virtual file system. The WRITE " +
-         "counterpart to " + ToolNames.AssetStatus + " (which reports which copy currently wins). ONE surface: WHERE the " +
-         "bytes land (assets=) x WHOSE copy to read (the SOURCE pole) x WHICH folder it goes in (the LANE) x how it " +
-         "reads back (TRANSPORT). One file is a set of one — the same call shape places forty.\n\n" +
-         "Each axis's grammar is on its own parameters:\n" +
-         "DESTINATION — assets=, the set of destinations; kind= sets the FaceGen slot for every formid= member that " +
+         "Place chosen copies of any Data-relative files (meshes, textures, scripts, sounds, interface files) into " +
+         "one new houseCARL-owned MO2 mod folder, so the copy you pick wins the virtual file system. The write " +
+         "counterpart to " + ToolNames.AssetStatus + ", which reports which copy wins now. One file is a set of " +
+         "one; the same call shape places forty.\n\n" +
+         "Destination — assets=, the set of destinations; kind= sets the FaceGen slot for every formid= member that " +
          "does not name its own.\n" +
-         "SOURCE — source_provider= names whose copy to read, once for the whole set or per member; a member's own " +
+         "Source — source_provider= names whose copy to read, once for the whole set or per member; a member's own " +
          "source= names one exact file.\n" +
-         "LANE — patch= names the NEW mod folder | into= adds to an EXISTING houseCARL patch folder.\n" +
-         "TRANSPORT — format= | max_chars=.\n\n" +
-         "The write is crash-atomic and originals are never touched. IMPORTANT (and reported back): the placed copies " +
-         "do NOT win on write — you must ENABLE the mod in MO2. A NEW folder registers at MO2's highest priority, so " +
-         "enabling it is the whole job; an into= placement lands in a folder whose priority is already fixed and must " +
-         "also be SORTED above the current winner.")]
+         "Lane — patch= names the new mod folder | into= adds to an existing houseCARL patch folder.\n" +
+         "Transport — format= | max_chars=.\n\n" +
+         "The write is atomic and originals are never touched. The placed copies do not win until you enable the " +
+         "mod in MO2, and the response says so. A new folder registers at MO2's highest priority, so enabling it is " +
+         "enough, unless the current winner sits in MO2's overwrite folder, which no mod out-ranks: move or delete " +
+         "that copy. An into= folder's priority is already fixed, so it must also be sorted above a loose winner in " +
+         "another mod.")]
     public static string Place(
         LoadOrderService svc,
-        [Description("SELECT: the destinations, all placed into ONE reviewable mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH FaceGen files), path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" + AssetSourceChoice.WinnerToken + "' } — or \"@<absolute path>\" to read that SAME array from a JSON file. Set-valued at every size — one destination is a set of one. A member the shape does not declare is refused BY NAME at its element, never silently dropped. A malformed member — a bad FormID, a bad kind, neither or both of formid and path, or a formid member with no kind whose source= is not a FULL '.bsa' path — refuses the WHOLE call with per-member reasons and places nothing; a source that is ambiguous, absent or unreadable is a PER-MEMBER error and the rest still place. Each member's own description says what it takes.")]
+        [Description("The destinations, all placed into one mod folder: a list of members, each naming a formid or " +
+                     "a path, or \"@<absolute path>\" to read that same array from a JSON file. One destination is " +
+                     "a set of one. A source that is ambiguous, absent or unreadable fails that member only; the " +
+                     "rest still place.")]
             JsonElement? assets = null,
-        [Description("SOURCE: whose copy to read, for EVERY member that does not name its own — withheld (and said on that member's row) from one whose own source= is an on-disk file, which already names one exact copy. " + AssetSourceChoice.WinnerToken + " (the sigil is part of the token) for whichever copy currently wins the VFS, or the provider's NAME ALONE — a mod folder, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa' — matched exactly, without " + ToolNames.AssetStatus + "'s ' (loose)' / ' (BSA)' annotation. A bare name ALWAYS means a provider of that name. " + WriteSentences.PlaceSourceNameReachesUnticked + " An archive MO2 loads no plugin for is listed under neither name, so it is reachable only as an on-disk source= path. A name the active order already provides files under is answered by the active order, so a mod folder of that same name is not consulted. Omitted = the sole provider, refused if more than one contends.")]
+        [Description("Optional. Whose copy to read, for every member that does not name its own; withheld (and said on that member's row) from a member whose own source= is an on-disk file, which already names one exact copy. " + AssetSourceChoice.WinnerToken + " (the sigil is part of the token) for whichever copy wins the VFS now, or the provider's name alone (a mod folder, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa'), matched exactly, without " + ToolNames.AssetStatus + "'s ' (loose)' / ' (BSA)' annotation. A bare name always means a provider of that name. " + WriteSentences.PlaceSourceNameReachesUnticked + " An archive MO2 loads no plugin for is listed under neither name, so it is reachable only as an on-disk source= path. A name the active order already provides files under is answered by the active order, and a mod folder of that same name is not consulted. Omitted = the sole provider; a member with more than one contending provider fails.")]
             string? source_provider = null,
-        [Description("Which FaceGen file every formid= member places, when the member does not say: 'mesh' (the head .nif) or 'tint' (the face .dds). Omit to place BOTH. Ignored by path= members. A member's own kind= only NARROWS this to the other slot — once set here, no member can widen back to both, so leave it omitted and set kind= per member when the set is mixed.")]
+        [Description("Optional. Which FaceGen file every formid member places when the member does not say: 'mesh' (the head .nif) or 'tint' (the face .dds). Omit to place both. Ignored by path members. A member's own kind overrides this, but once this is set no member can get back to both, so for a mixed set leave it omitted and set kind per member.")]
             string? kind = null,
-        [Description("LANE: base name for the NEW houseCARL mod folder the files land in (default 'houseCARL_Assets'); auto-suffixed if taken, so a prior folder is never clobbered.")]
+        [Description("Optional. Base name for the new houseCARL mod folder the files land in (default 'houseCARL_Assets'); auto-suffixed if taken, so a prior folder is never overwritten. Ignored with into=.")]
             string? patch = null,
-        [Description("LANE: filename of an EXISTING houseCARL patch mod to place into instead of a fresh folder (accumulate across calls). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
+        [Description("Optional. Filename of an existing houseCARL patch mod to place into instead of a fresh folder, to add to it across calls. Found by the plugin's filename even if its MO2 mod folder was renamed; when two patches share a filename, pass the mod-folder name instead (folder and plugin names need not match).")]
             string? into = null,
-        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, the accounting and the enable+sort instruction in-band).")]
+        [Description("Optional. 'text' (default) | 'json' (the same data, machine-readable, with the accounting and the enable-and-sort instruction in the document).")]
             string? format = null,
-        [Description("TRANSPORT: character CEILING on the whole response. The row that would cross it is not written, and an explicit notice says how many were held back (never silent); the WRITE is unaffected. The accounting line and the enable+sort instruction always render and are charged BEFORE the rows, so they sit inside the ceiling rather than past it. 0 = the server default (~80k).")]
+        [Description("Optional. Character ceiling on the whole response; the row that would cross it is not written, and a notice says how many were held back. The write is unaffected. The accounting line and the enable-and-sort instruction are always inside the ceiling. 0 = the server default (about 80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.Place, () =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
@@ -369,23 +371,20 @@ static class PlaceWire
 /// <summary>One destination off the wire: a FormID (+ optional slot) or a Data-relative path, plus the optional per-member source and pole; either pole may be given once for the whole set.</summary>
 public sealed record PlaceTarget
 {
-    [JsonPropertyName("formid"), Description("The NPC's FormID 'XXXXXX:Plugin.esp' — houseCARL computes the FaceGen path. Omit kind to place BOTH the mesh and the tint. Provide this OR path.")]
+    [JsonPropertyName("formid"), Description("The NPC's FormID 'XXXXXX:Plugin.esp'; houseCARL computes the FaceGen path. Provide this or path.")]
     public string? Formid { get; init; }
 
-    [JsonPropertyName("kind"), Description("With formid: 'mesh' (head .nif) or 'tint' (face .dds). Omit to take the call's kind=, or BOTH if that is omitted too. Ignored with path.")]
+    [JsonPropertyName("kind"), Description("With formid: 'mesh' (head .nif) or 'tint' (face .dds). Omit to take the call's kind=, or both if that is omitted too. Ignored with path.")]
     public string? Kind { get; init; }
 
-    [JsonPropertyName("path"), Description("A Data-relative destination path (e.g. 'meshes/actors/...'), instead of formid. Provide this OR formid. A drive-rooted or '..'-escaping path is rejected.")]
+    [JsonPropertyName("path"), Description("A Data-relative destination path (e.g. 'meshes/actors/...'). Provide this or formid. A drive-rooted or '..'-escaping path fails this member.")]
     public string? Path { get; init; }
 
-    [JsonPropertyName("source"), Description("The copy to place, for THIS destination — a source names ONE file and a set of destinations is many, so it is PER MEMBER: a DATA-RELATIVE path resolved through the VFS, a full loose file path, '<archive.bsa path>|<entry inside>', or just a '.bsa' path (the entry is taken to be the destination — a quick way to pull ONE file out of a BSA as a loose override). A source path DIFFERENT from the destination is a RENAME: the bytes of one file land under another file's name, which is how a baked FaceGen head is carried onto a different NPC's FormID path. With no source=, the DESTINATION path is resolved instead: the sole provider the VFS offers, or the one source_provider= names, REFUSING (and listing the providers) when several contend and none was named — it will not guess which is correct. With formid and no kind, an explicit source must be a FULLY-QUALIFIED '.bsa' path (a relative one is a Data-relative asset path, and one path cannot serve both slots).")]
+    [JsonPropertyName("source"), Description("The copy to place for this destination: a Data-relative path resolved through the VFS, a full loose file path, '<archive.bsa path>|<entry inside>', or a full '.bsa' path alone (the entry is taken to be the destination, which pulls one file out of a BSA as a loose override). A source path different from the destination is a rename: one file's bytes land under another's name, which is how a baked FaceGen head is carried onto a different NPC's FormID path. With no source, the destination path itself is resolved: the sole provider, or the one source_provider names; when several contend and none is named, this member fails and lists them. With formid and no kind, a source must be a full '.bsa' path, since one file cannot serve both slots.")]
     public string? Source { get; init; }
 
-    [JsonPropertyName("source_provider"), Description("Whose copy to read for a VFS-resolved source, for THIS destination — overriding the call's source_provider=: "
-        + AssetSourceChoice.WinnerToken + " for the current VFS winner, or the provider's NAME ALONE (a mod folder, 'overwrite', "
-        + "'Data', or a BSA filename) — not asset_status's ' (loose)' / ' (BSA)' annotation. A bare name always means a provider "
-        + "of that name. " + WriteSentences.PlaceSourceNameReachesUnticked + " Applies BOTH with a Data-relative source= (whose copy to read it FROM) and with NO source= at all "
-        + "(whose copy of the DESTINATION path to place) — in the second case it is what resolves the contention an omitted "
-        + "source is otherwise refused for. Not valid with an on-disk source.")]
+    [JsonPropertyName("source_provider"), Description("Whose copy to read for this destination, overriding the call's source_provider=, in the same spelling: "
+        + AssetSourceChoice.WinnerToken + " or the provider's name alone. It applies with a Data-relative source (whose copy to read it from) and with no source "
+        + "(whose copy of the destination path to place, which settles the contention an omitted source otherwise fails on). Not valid with an on-disk source.")]
     public string? SourceProvider { get; init; }
 }
