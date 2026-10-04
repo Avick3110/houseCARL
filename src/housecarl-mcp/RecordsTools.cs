@@ -56,25 +56,25 @@ public static partial class RecordsTools
         [Description("Link fields that start the walk from each seed, e.g. [\"HeadParts\", \"WornArmor\"]; '*parent' climbs to the record that contains the seed (a REFR to its CELL). Forward only. Omit for every link on the seed.")]
         public string[]? seed_paths { get; set; }
 
-        [Description("The link path followed at every later hop. \"*\" (default) follows every link; a named path follows one chain, e.g. \"Template\" or \"*parent\". A reverse walk takes \"*\" (every link) or \"Effects[].BaseEffect\" (the MGEF carrier walk, one hop; types= narrows the carriers), and must name one under project.form='chain'.")]
+        [Description("The link path followed at every later hop. \"*\" (default) follows every link; a named path follows one chain, e.g. \"Template\" or \"*parent\". A reverse walk takes \"*\" (every link) or \"Effects[].BaseEffect\" (the MGEF carrier walk, one hop, with each carrier's magnitude, area and duration; types= narrows the carriers); under project.form='chain' only the carrier walk renders, so name it.")]
         public string? follow { get; set; }
 
-        [Description("'forward' (default): what the seeds point at. 'reverse': what points at them, at any depth, with no bounding scope; the every-link reverse walk reads the reverse-reference index, built once on first use at the cost of one whole-order link walk, reported in the response. Which NPCs carry an item: formids=[the item], walk={\"direction\": \"reverse\", \"through\": [\"LeveledItem\", \"Outfit\"], \"exclusions\": [{\"match\": \"Npc\", \"severity\": \"stop\"}]}.")]
+        [Description("'forward' (default): what the seeds point at. 'reverse': what points at them, at any depth, with no bounding scope; the every-link reverse walk reads the reverse-reference index, built once on first use at the cost of one whole-order link walk, reported in the response. Which NPCs carry an item: formids=[the item], walk={\"direction\": \"reverse\", \"through\": [\"LeveledItem\", \"Outfit\"], \"exclusions\": [{\"match\": \"Npc\", \"severity\": \"stop\"}], \"max_nodes\": 50000}.")]
         public string? direction { get; set; }
 
         [Description("Maximum hops from a seed (default 16). Nodes at the cap are recorded, not entered, and the response says the cap cut the walk.")]
         public int? depth { get; set; }
 
-        [Description("The node budget (default 2000): per seed, at most 250000, on a forward walk and on the reverse carrier walk; one budget shared by every seed and hop on the every-link reverse walk. A breach keeps what was reached and says so.")]
+        [Description("The node budget (default 2000). Per seed on a forward walk and the carrier walk, at most 250000; one uncapped budget shared by every seed and hop on the every-link reverse walk. A breach keeps what was reached and says so.")]
         public int? max_nodes { get; set; }
 
         /// <summary>The fixed hard upper bound on the PER-SEED reading of <see cref="max_nodes"/>, and not on the transitive reverse walk's one shared budget; contract in docs/architecture/records-tool-front.md.</summary>
         internal const int Ceiling = 250_000;
 
-        [Description("Record types the walk must not expand from, each {match, severity}. Not on the carrier walk.")]
+        [Description("Record types to stop at (kept, not expanded) or refuse (the call fails), each {match, severity}. Both directions; not on the carrier walk.")]
         public RecordsWalkExclusion[]? exclusions { get; set; }
 
-        [Description("Record types the walk expands through, e.g. [\"LeveledItem\", \"Outfit\"]. Seeds and stop boundaries stay in the reached set; any other type is left out and counted. Unset walks every type. Not on the carrier walk. A walk follows record links, not NPC template inheritance: an NPC with a templated inventory is not reached.")]
+        [Description("Record types the walk expands through, e.g. [\"LeveledItem\", \"Outfit\"]. Seeds and stop boundaries stay in the reached set; any type not listed is left out and counted. Unset walks every type. Not on the carrier walk. A walk follows record links, not NPC template inheritance: with Npc as a stop boundary, an NPC that takes its inventory from a template is not reached.")]
         public string[]? through { get; set; }
     }
 
