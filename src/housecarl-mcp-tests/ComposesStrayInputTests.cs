@@ -65,9 +65,11 @@ public sealed class ComposesStrayInputTests : IClassFixture<ComposesBatchWorld>
     public void TheDryRunRefusesTooAndPrintsNoWouldBeRow()
     {
         var o = _w.Svc.ApplyEdits(new[] { Op(value: "5") }, "HcStrayDry", null, dryRun: true);
+        var text = WriteTools.Render(o);
+        Assert.DoesNotContain("would become", text);
+        Assert.StartsWith("error: ", text);
+        Assert.Contains("no value=", text);
         Assert.False(o.Success);
-        Assert.Contains("no value=", o.Error);
-        Assert.DoesNotContain("would become", o.Error);
     }
 
     [Fact]
