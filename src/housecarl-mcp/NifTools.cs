@@ -152,9 +152,9 @@ public static class NifTools
          "and the render stay unseen, so report the render as unverified until it is checked in game.\n\n" +
          "By default the verified mesh is written at the same path into a new houseCARL MO2 mod folder, originals " +
          "untouched; a BSA-packed source becomes a loose override. A new folder registers at MO2's highest " +
-         "priority, so enabling it makes the edit win, unless the current winner sits in MO2's overwrite folder, " +
-         "which no mod out-ranks. An into= folder's priority is already fixed, so sort it above a loose " +
-         "winner in another mod. in_place=true instead overwrites the winning loose file where it sits, with no backup. Data " +
+         "priority, so enabling it makes the edit win; an into= folder's priority is already fixed, so sort it " +
+         "above a loose winner in another mod. Neither folder beats a winner in MO2's overwrite folder, which no mod " +
+         "out-ranks. in_place=true instead overwrites the winning loose file where it sits, with no backup. Data " +
          "values only: never geometry, vertices or .dds pixels.\n\n" +
          "Select — mesh_path= (which mesh) x target= (what inside it the op edits).\n" +
          "Source — source_provider= (empty = the VFS winner).\n" +

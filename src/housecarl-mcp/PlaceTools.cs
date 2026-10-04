@@ -29,9 +29,9 @@ public static class PlaceTools
          "Transport — format= | max_chars=.\n\n" +
          "The write is atomic and originals are never touched. The placed copies do not win until you enable the " +
          "mod in MO2, and the response says so. A new folder registers at MO2's highest priority, so enabling it is " +
-         "enough, unless the current winner sits in MO2's overwrite folder, which no mod out-ranks: move or delete " +
-         "that copy. An into= folder's priority is already fixed, so it must also be sorted above a loose winner in " +
-         "another mod.")]
+         "enough; an into= folder's priority is already fixed, so it must also be sorted above a loose winner in " +
+         "another mod. Neither folder beats a winner in MO2's overwrite folder, which no mod out-ranks: move or delete " +
+         "that copy.")]
     public static string Place(
         LoadOrderService svc,
         [Description("The destinations, all placed into one mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: " +
@@ -379,7 +379,7 @@ public sealed record PlaceTarget
     [JsonPropertyName("kind"), Description("With formid: 'mesh' (head .nif) or 'tint' (face .dds). Omit to take the call's kind=, or both if that is omitted too. Ignored with path.")]
     public string? Kind { get; init; }
 
-    [JsonPropertyName("path"), Description("A Data-relative destination path (e.g. 'meshes/actors/...'). Provide this or formid. A drive-rooted or '..'-escaping path fails this member.")]
+    [JsonPropertyName("path"), Description("A Data-relative destination path (e.g. 'meshes/actors/...'). Provide this or formid. A drive-rooted or '..'-escaping path fails this member, except a path inside MO2's mods folder, which refuses the whole call and names the source_provider= address to use.")]
     public string? Path { get; init; }
 
     [JsonPropertyName("source"), Description("The copy to place for this destination: a Data-relative path resolved through the VFS, a full loose file path, '<archive.bsa path>|<entry inside>', or a full '.bsa' path alone (the entry is taken to be the destination, which pulls one file out of a BSA as a loose override). A source path different from the destination is a rename: one file's bytes land under another's name, which is how a baked FaceGen head is carried onto a different NPC's FormID path. With no source, the destination path itself is resolved: the sole provider, or the one source_provider names; when several contend and none is named, this member fails and lists them. With formid and no kind, a source must be a full '.bsa' path, since one file cannot serve both slots.")]
