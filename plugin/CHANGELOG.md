@@ -45,8 +45,8 @@ made the change.
 - **A walk now takes `walk.through` and a reverse walk takes `walk.exclusions`, so one call finds the NPCs that carry an
   item through leveled lists and outfits.** Other types are left out and counted per type; NPC template inheritance is
   not followed.
-- **`housecarl_apply` and `housecarl_create` now refuse `value=`, `values=` or `entries=` beside `composes=`, instead of
-  dropping them unwritten.** A dry run with both now refuses rather than showing the dropped value.
+- **`housecarl_apply` and `housecarl_create` now refuse `value=`, `values=` or `entries=` beside `compose=` or `composes=`,
+  instead of dropping them unwritten.** A dry run with both now refuses rather than showing the dropped value.
 
 ## 2.0.3 — 2026-09-23
 
