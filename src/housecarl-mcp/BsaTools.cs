@@ -96,8 +96,8 @@ public static class BsaTools
     });
 
     /// <summary>How the repack lane names its mod folder, for the into= not-found refusal. That name is load-bearing
-    /// — the game auto-loads an archive only as &lt;activePluginBasename&gt;.bsa — so a taken stem REFUSES here
-    /// rather than suffixing the archive to a name nothing loads.</summary>
+    /// — the game auto-loads an archive only as &lt;activePluginBasename&gt;.bsa — so a taken stem the caller passed
+    /// refuses here rather than being suffixed; a defaulted stem is still suffixed.</summary>
     internal static readonly OutputLocations.RiderNaming RepackNaming = new(
         "patch",
         new OutputLocations.StemRefusal(
@@ -108,13 +108,17 @@ public static class BsaTools
      Description(
          "Pack a folder of loose files into a Bethesda .bsa archive with BSArch, written into a new houseCARL mod " +
          "folder under your mods directory, or with into= an existing houseCARL patch; enable it in MO2 to use it. The " +
-         "source folder is untouched. The .bsa takes its mod folder's name.")]
+         "source folder is untouched. The .bsa takes its mod folder's name without the 'houseCARL - ' prefix.")]
     public static string BsaRepack(
         LoadOrderService svc,
         ToolPathResolver bridge,
         [Description("Full path to the source folder of loose files to pack (its tree becomes the archive's contents).")]
             string source_folder,
-        [Description("Optional. Name for the new mod folder and the .bsa inside it: patch='MyArchive' writes 'houseCARL - MyArchive\\MyArchive.bsa'. The game loads an archive only under its plugin's exact basename. Default: the source folder's name, which gets a _001-style suffix if that name is already taken; a taken name you pass is refused, not suffixed.")]
+        [Description("Optional. Name for the new mod folder and the .bsa inside it: patch='MyArchive' writes " +
+            "'houseCARL - MyArchive\\MyArchive.bsa'. The game loads an archive only under its plugin's exact basename. " +
+            "Default: the source folder's name, which gets a _001-style suffix if that name is already taken (a " +
+            "'houseCARL - <name>' mod folder exists, or <name>.esp is active); a taken name you pass is refused, not " +
+            "suffixed.")]
             string? patch = null,
         [Description("Optional. Archive format: 'sse' (default, Skyrim SE), 'tes5' (Skyrim LE), 'fo4', 'fo4dds', 'sf1', 'sf1dds', 'tes4', 'fo3', 'fnv', 'tes3'.")]
             string? format = null,
