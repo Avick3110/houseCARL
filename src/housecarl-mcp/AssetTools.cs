@@ -21,8 +21,9 @@ public static class AssetTools
          "applying', for any mesh, texture, script, sound or interface path. Select with asset_paths=, under= (a " +
          "directory or glob) and formids= (NPC FaceGen pairs); they compose. An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
-         "that would resolve more than 1,200,000 paths is refused before it resolves any; limit= sets that count, " +
-         "except under to_file= and counts_only=, which resolve the whole selection. Read-only.")]
+         "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
+         "counts only the window, except under to_file= and counts_only=, which resolve the whole selection. " +
+         "Read-only.")]
     public static string AssetStatus(
         LoadOrderService svc,
         [Description("Data-relative asset path(s), e.g. 'textures/armor/iron/cuirass_1.dds'. Results come back in " +
@@ -43,13 +44,15 @@ public static class AssetTools
                      "both halves of its FaceGen pair, " +
                      "'meshes\\actors\\character\\facegendata\\facegeom\\<master>\\00<6hex>.nif' and " +
                      "'textures\\...\\facetint\\<master>\\00<6hex>.dds', as two rows, each naming the other half's " +
-                     "winner beside its own and flagging when both win from different mods: the dark-face split. That " +
-                     "is judged on the winning MO2 layer, so two archives of one mod are not a split, nor are two " +
-                     "files both in the game's Data folder or both in overwrite. The path is computed from the " +
-                     "FormID, so the folder is the defining master, never the conflict winner, and no record is " +
-                     "read. One half winning nowhere is also a dark face: the row shows it ABSENT, but the json's " +
-                     "pair.differs and the to_file= pair_differs flag only two present halves with different " +
-                     "owners, so a filter on that field misses it. A malformed FormID is one error row, not a failed call. Takes [\"@<absolute path>\"]: a " +
+                     "winner beside its own and flagging when both win from different mods, the usual dark-face cause " +
+                     "(housecarl_check findings=[\"facegen\"] separates a real split from one product spread over " +
+                     "two folders). That is judged on the winning MO2 layer, so two archives of one mod are not " +
+                     "flagged, nor are two files both in the game's Data folder or both in overwrite. The path is " +
+                     "computed from the FormID, so the folder is the defining master, never the conflict winner, and " +
+                     "no record is read. One half winning nowhere is also a dark face: the row shows it ABSENT, but " +
+                     "the json's pair.differs and the to_file= pair_differs flag only two present halves with " +
+                     "different owners, so a filter on that field misses it. A malformed FormID is one error row, " +
+                     "not a failed call. Takes [\"@<absolute path>\"]: a " +
                      "plain list file, or a housecarl_records artifact whose 'formid' column becomes the list " +
                      "(epoch-checked against the current build); records types=[\"NPC_\"] to_file= then " +
                      "formids=[\"@<that file>\"] sweeps the whole order.")]
