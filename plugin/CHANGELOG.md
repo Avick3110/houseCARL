@@ -43,7 +43,8 @@ made the change.
 - **The SkyPatcher overlay now matches key names without regard to case, as SkyPatcher does, and reads a `#` line, which
   can never be a key, as a comment.** A `filterByNPCs=...:race=...` line now changes the post-state Race.
 - **A walk now takes `walk.through`, the record types it expands through, and a reverse walk takes `walk.exclusions`,
-  so "which NPCs carry this gear" is one call.** Other types are left out and counted per type in the response.
+  so the NPCs that carry an item through leveled lists and outfits are one call.** Other types are left out and counted
+  per type; NPC template inheritance is not followed.
 
 ## 2.0.3 — 2026-09-23
 
