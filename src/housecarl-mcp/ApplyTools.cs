@@ -17,9 +17,9 @@ public static class ApplyTools
      Description(
          "Edit fields on one or many existing records and write the result to a new patch plugin; originals are " +
          "untouched by default.\n\n" +
-         "What to change: ops=, or the copy zip bundle= with assignments=; both can go in one call. Where it lands: " +
+         "What to change: ops=, or a copy with bundle= and assignments=; both can go in one call. Where it lands: " +
          "a new patch (patch=), an existing houseCARL patch (into=), or a plugin's own file (in_place= with " +
-         "acknowledge=); dry_run= works on each. How it reads back: readback=, format=, max_chars=.\n\n" +
+         "acknowledge=). How it reads back: readback=, format=, max_chars=.\n\n" +
          "Every FormID this tool takes (formid, from, target, a field value) is 'XXXXXX:Plugin.esp': 6 hex digits, a " +
          "colon, the defining master's filename. The 8-digit runtime form the game and console print is refused " +
          "here; " + ToolNames.Records + " reads either form. ops= and assignments= also take \"@<absolute path>\" " +
@@ -32,23 +32,23 @@ public static class ApplyTools
          "whole record verbatim is " + ToolNames.Forward + ". Read first with " + ToolNames.Records + ".")]
     public static string Apply(
         LoadOrderService svc,
-        [Description("The edits, all into one plugin: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …]. For a big job, write the ops to a manifest file, dry-run it, then apply it. The write is atomic, so an interrupted call leaves the old file or the whole new one; if it may have landed, read the target before re-running, because a list Add or InsertAtIndex would apply twice and on the default lane a re-run writes a second, suffixed patch. Which ops a field takes follows its cardinality, so read that off the schema first.")]
+        [Description("The edits, all into one plugin: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …]. For a big job, write the ops to a manifest file, dry-run it, then apply it. The plugin write is atomic, so an interrupted call leaves the old file or the whole new one, though on the default lane it can leave the new mod folder holding only meta.ini, so a re-run is suffixed. If it may have landed, read the target before re-running, because a list Add or InsertAtIndex would apply twice and on the default lane a re-run writes a second, suffixed patch. Which ops a field takes follows its cardinality, so read that off the schema first.")]
             JsonElement? ops = null,
-        [Description("Copy zip, with assignments=: the field paths copied for every pair, e.g. [\"BasicStats.Damage\", \"Keywords\"]. Only these fields are copied; the record's identity and every other field are untouched. There are no preset bundles (such as an appearance set); name the paths.")]
+        [Description("Copy, with assignments=: the field paths copied for every pair, e.g. [\"BasicStats.Damage\", \"Keywords\"]. Only these fields are copied; the record's identity and every other field are untouched. There are no preset bundles (such as an appearance set); name the paths.")]
             string[]? bundle = null,
-        [Description("Copy zip, with bundle=: [{target, from, from_source?}, …]. Each target is paired with its own source record, not with every source.")]
+        [Description("Copy, with bundle=: [{target, from, from_source?}, …]. Each target is paired with its own source record, not with every source.")]
             JsonElement? assignments = null,
-        [Description("Base filename for the new patch (default 'Patch'). A name already taken gets a suffix, so a prior patch is never overwritten, except that a '<name>.esp' your order is not loading (in another mod folder, the overwrite folder or game Data) is refused instead.")]
+        [Description("Base filename for the new patch (default 'Patch'). A name already taken gets a suffix, so a prior patch is never overwritten, except that a '<name>.esp' you pass that your order is not loading (in another mod folder, the overwrite folder or game Data) is refused instead.")]
             string? patch = null,
-        [Description("Filename of an existing houseCARL patch to extend instead of writing a new one, to build one patch across calls. A record the patch already carries is edited as it stands in the patch; a record it does not carry is copied in from the load-order winner first. So to build on one plugin's version of a record that another plugin wins, " + ToolNames.Forward + " it from that plugin into the patch, then apply into= the same patch. Found by filename even if its MO2 mod folder was renamed.")]
+        [Description("Filename of an existing houseCARL patch to extend instead of writing a new one, to build one patch across calls. A record the patch already carries is edited as it stands in the patch; a record it does not carry is copied in from the load-order winner first. So to build on one plugin's version of a record that another plugin wins, " + ToolNames.Forward + " it from that plugin into the patch, then apply into= the same patch. Found by filename even if its MO2 mod folder was renamed; for two patches sharing a filename, pass the mod-folder name instead.")]
             string? into = null,
         [Description("Opt-in: the filename of an active plugin to edit in its own file instead of writing a patch, e.g. \"CoolWeapons.esp\", including one houseCARL did not author. The original file is rewritten with no backup or undo; keep your own. The whole plugin is re-saved the way xEdit or the Creation Kit save it; the records you edit are verified, the rest is not.")]
             string? in_place = null,
-        [Description("Confirms the in-place trade-off for the plugin named by in_place=. Needed only until the first in-place write to that plugin lands (an edit, create, remove or forward); a refused call records nothing. Without it, that first call returns a confirmation prompt instead of writing. It confirms consent only; the record verify still runs.")]
+        [Description("Confirms the in-place trade-off for the plugin named by in_place=. Needed only until the first in-place write to that plugin lands (an edit, create, remove or forward); a refused call records nothing. Without it, that first call returns a confirmation prompt instead of writing. It confirms consent only.")]
             bool acknowledge = false,
         [Description("Run the whole pipeline (winner resolve, pre-flight, every op applied in memory, the reference check) and stop before anything touches disk. Returns the would-be values and masters, or the refusal the real call would give. Works on every lane; an in-place dry run needs no acknowledge= and records no consent. A fault while saving the file still shows only on the real call.")]
             bool dry_run = false,
-        [Description("Widen the read-back to every field of every record this call touched, not just the edited fields. In place, the verify always runs and shows compactly; this widens it. The read-back is the written file, not the load order: a new patch wins nothing until enabled in MO2, and a write into an existing mod keeps that mod's priority, so it may still need sorting above the current winner.")]
+        [Description("Widen the read-back to every field of every record this call touched, not just the edited fields. The read-back is the written file, not the load order: a new patch wins nothing until enabled in MO2, and a write into an existing mod keeps that mod's priority, so it may still need sorting above the current winner.")]
             bool readback = false,
         [Description("'text' (default) or 'json' (the same data). Every reply carries the stamp of the index build the winners were resolved from: epoch=<hex> in text, an 'epoch' member in json.")]
             string? format = null,
@@ -235,7 +235,7 @@ public static class ApplyTools
 /// and <c>from_source</c> (the pole it is read at).</summary>
 public sealed record ApplyOp
 {
-    [SchemaRequired, JsonPropertyName("formid"), Description("The record to edit.")]
+    [SchemaRequired, JsonPropertyName("formid"), Description("The record to edit, as 'XXXXXX:Plugin.esp'.")]
     public string? Formid { get; init; }
 
     [SchemaRequired, JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage', 'Name', 'Keywords' or 'Entries'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
@@ -244,7 +244,7 @@ public sealed record ApplyOp
     [SchemaValues(SchemaVocabulary.WriteVerbs), JsonPropertyName("op"), Description(WriteVerbs.AllRecital + ". SetAtIndex overwrites the element at key=; InsertAtIndex inserts a new one at key= and shifts the rest right (key = the list's length appends), e.g. adding an arm to an existing condition OR-group, where Add would put the row at the end as a separate AND-group. On a flags field (SPEL Flags, NPC Configuration.Flags, WEAP Data.Flags...) Add sets one bit and Remove clears one, leaving the other bits alone, while Set replaces them all; Set '0' clears every bit. CopyFrom takes no value: it copies a whole field (scalar, reference, modeled list, sub-struct) from the version named by from_source= (and from= for a different record); it cannot copy owned child records (use " + ToolNames.Forward + " on the whole record).")]
     public string? Op { get; init; }
 
-    [JsonPropertyName("value"), Description("The value, coerced to the field's type: a number, an enum name ('OneHanded'), or a FormID for a reference. Omit for ReplaceAll, Merge, compose and CopyFrom, and for a Remove that clears a whole nullable field.")]
+    [JsonPropertyName("value"), Description("The value, coerced to the field's type: a number, an enum name ('OneHanded'), or a FormID for a reference. Omit for ReplaceAll, Merge, compose and CopyFrom, and for a Remove by key= or one that clears a whole nullable field.")]
     public string? Value { get; init; }
 
     [JsonPropertyName("key"), Description("Dict key or list index at the leaf.")]
@@ -259,10 +259,10 @@ public sealed record ApplyOp
     [JsonPropertyName("compose"), Description("Build a modeled struct for an Add, InsertAtIndex or SetAtIndex, or a polymorphic Set: a leveled-list entry (e.g. 'LeveledItemEntry'), an effect, a condition row, or a polymorphic list element by its concrete type (e.g. 'ScriptObjectProperty'). A script property: op=Add, field_path='VirtualMachineAdapter.Scripts[0].Properties', compose={type:'ScriptObjectProperty', fields:{Name:'MyProp', Flags:'Edited', Object:'XXXXXX:Plugin.esp', Alias:'-1'}}. Merging a weapon into a leveled list: op=Add, field_path='Entries', compose={type:'LeveledItemEntry', sets:[{path:'Data.Level',value:'1'},{path:'Data.Count',value:'1'},{path:'Data.Reference',value:'<weapon FormID>'}]}.")]
     public StructInput? Compose { get; init; }
 
-    [JsonPropertyName("composes"), Description("Build many modeled list elements in one op. With Add, appends each in order (e.g. a block of condition rows); with ReplaceAll, clears the list then appends each, and composes=[] clears it to empty. Not with compose, value or values.")]
+    [JsonPropertyName("composes"), Description("Build many modeled list elements in one op. With Add, appends each in order (e.g. a block of condition rows); with ReplaceAll, clears the list then appends each, and composes=[] clears it to empty. Pass only one of compose, composes, value and values.")]
     public StructInput[]? Composes { get; init; }
 
-    [JsonPropertyName("from"), Description("op='CopyFrom' only: a different record to copy the field from, of the same record type as formid. Omit to copy this same record's version from another plugin, named in from_source.")]
+    [JsonPropertyName("from"), Description("op='CopyFrom' only: a different record to copy the field from, of the same record type as formid.")]
     public string? From { get; init; }
 
     [JsonPropertyName("from_source"), Description("op='CopyFrom' only: whose version of the source record to copy, an active plugin or a plugin file on disk outside the load order (e.g. a disabled old patch). Use it to base an edit on an authored plugin while a generated one wins the record. With from= it defaults to the source record's load-order winner; without from= it is required.")]
@@ -278,7 +278,7 @@ public sealed record ApplyOp
 /// optionally the pole that source is read at.</summary>
 public sealed record Assignment
 {
-    [SchemaRequired, JsonPropertyName("target"), Description("The record being written.")]
+    [SchemaRequired, JsonPropertyName("target"), Description("The record being written, as 'XXXXXX:Plugin.esp'.")]
     public string? Target { get; init; }
 
     [SchemaRequired, JsonPropertyName("from"), Description("The record the bundle is copied from, of the same record type as target.")]
