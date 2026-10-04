@@ -3,8 +3,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>walk.through and walk.exclusions shaping a walk: which types it expands through and where it stops,
-/// so "which NPCs carry this gear" is one reverse walk.</summary>
+/// <summary>walk.through and walk.exclusions shaping a walk: which types it expands through and where it stops.</summary>
 [Trait("tier", "integration")]
 public sealed class ReverseWalkTypesTests : IClassFixture<ReverseWalkTypesWorld>
 {

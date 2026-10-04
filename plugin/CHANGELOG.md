@@ -42,9 +42,9 @@ made the change.
   then `+N more`, and points at `housecarl_load_order_status` for the reason unless the response prints it.**
 - **The SkyPatcher overlay now matches key names without regard to case, as SkyPatcher does, and reads a `#` line, which
   can never be a key, as a comment.** A `filterByNPCs=...:race=...` line now changes the post-state Race.
-- **A walk now takes `walk.through` and a reverse walk takes `walk.exclusions`, so the NPCs that
-  carry an item through leveled lists and outfits are one call.** Other types are left out and counted per type; NPC
-  template inheritance is not followed.
+- **A walk now takes `walk.through` and a reverse walk takes `walk.exclusions`, so one call finds the NPCs that carry an
+  item through leveled lists and outfits.** Other types are left out and counted per type; NPC template inheritance is
+  not followed.
 
 ## 2.0.3 — 2026-09-23
 
