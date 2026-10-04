@@ -54,6 +54,7 @@ made the change.
 - **`housecarl_compile_script`, `housecarl_decompile_script`, `housecarl_copy`, `housecarl_nif_set` and
   `housecarl_place` now refuse `patch=` beside `into=` instead of dropping `patch=`.** A blank `patch=` or `into=` on copy now
   names the patch after `new_editorid=`, not 'Patch'.
+- **The in-place consent prompt no longer says records below 0x800 are refused before writing; nothing refused them.**
 
 ## 2.0.3 — 2026-09-23
 

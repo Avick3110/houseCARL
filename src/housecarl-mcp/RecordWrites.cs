@@ -354,7 +354,7 @@ internal sealed partial class RecordWrites
     static string InPlaceHandshakeText(string pluginName, string path) =>
         InPlaceConsent.HandshakeLead(pluginName, path, "plugin", "writes to") +
         "  • houseCARL re-lays-out the WHOLE plugin the way xEdit/CK do on save (every record re-serialized), VERIFIES the records you edit, and trusts Mutagen for the rest.\n" +
-        "  • It still refuses if the file can't be parsed, or carries engine-reserved (sub-0x800) records.\n" +
+        "  • It still refuses if the file can't be parsed.\n" +
         "  • The default lane (a NEW patch, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
         "Re-call the SAME edit with acknowledge=true to proceed.";
 
