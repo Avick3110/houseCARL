@@ -38,8 +38,8 @@ public static class SetupTools
          "(compiling .psc to .pex), BSArch.exe (packing .bsa archives with " + ToolNames.BsaRepack + "), or the Papyrus " +
          "script-log or SKSE crash-log folder. The compiler and the log folders are auto-detected in their usual " +
          "homes, so this is mostly needed for BSArch or a non-standard install. The path is checked (the .exe exists " +
-         "and its name matches the tool; a log folder exists) and nothing is saved on failure; on success it is saved " +
-         "to houseCARL.user.json for later sessions (a failed save is reported).")]
+         "and its name contains the tool's name; a log folder exists) and nothing is saved on failure; on success " +
+         "it is saved to houseCARL.user.json for later sessions (a failed save is reported).")]
     public static string SetToolPath(
         ToolPathResolver bridge,
         [Description("Which tool: 'papyrus_compiler' (CK PapyrusCompiler.exe), 'bsarch' (BSArch.exe), 'papyrus_logs' (script-log folder), or 'crash_logs' (SKSE crash-log folder).")]
