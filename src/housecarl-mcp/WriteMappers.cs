@@ -34,6 +34,7 @@ internal sealed partial class RecordWrites
             error = $"{where}: op=\"CopyFrom\" copies from an EXISTING record's other version — it isn't valid when CREATING a record (there is no other version yet). Set the new field with value= / compose= instead.";
             return null;
         }
+        if (RefuseStrayBesideCompose(op, where, out error)) return null;
 
         return new WriteRequest
         {
@@ -80,6 +81,7 @@ internal sealed partial class RecordWrites
 
         var fromPlugin = MapFromPlugin(op, verb, $"{where} ({op.Formid})", spec, specs, fromKey is not null, out error);
         if (error is not null) return null;
+        if (RefuseStrayBesideCompose(op, where, out error)) return null;
 
         return new WritePatchBuilder.PatchEdit
         {
@@ -146,6 +148,22 @@ internal sealed partial class RecordWrites
         return new StructSpec { Type = s.Type!, Fields = s.Fields, CtorArgs = s.CtorArgs, Sets = sets };
     }
 
+    /// <summary>compose= and composes= build their elements themselves, so a value, values or entries beside either would be dropped unwritten; refuse it. Empty values/entries count as absent.</summary>
+    static bool RefuseStrayBesideCompose(BulkOp op, string where, out string? error)
+    {
+        error = null;
+        if (op.Compose is null && op.Composes is null) return false;
+        var stray = new List<string>();
+        if (op.Value is not null) stray.Add("value=");
+        if (op.Values is { Length: > 0 }) stray.Add("values=");
+        if (op.Entries is { Count: > 0 }) stray.Add("entries=");
+        if (stray.Count == 0) return false;
+        var name = op.Composes is not null ? "composes=" : "compose=";
+        var builds = op.Composes is not null ? "each element" : "the element";
+        error = $"{where}: {name} builds {builds} itself, so it takes no {string.Join(" or ", stray)} beside it — remove {string.Join(" and ", stray)}, or drop {name}.";
+        return true;
+    }
+
     /// <summary>Map a wire op's composes[] to core StructSpecs through the same <see cref="MapStruct"/> the singular compose uses; mutually exclusive with it.</summary>
     static List<StructSpec>? MapComposes(BulkOp op, string where, StructSpec? singular, out string? error)
     {
@@ -154,15 +172,6 @@ internal sealed partial class RecordWrites
         if (singular is not null)
         {
             error = $"{where}: pass compose= (one element) OR composes= (many), not both.";
-            return null;
-        }
-        // composes= builds every element itself, so any other input on the op would be dropped unwritten.
-        var stray = new[] { ("value", op.Value is not null), ("values", op.Values is not null),
-                            ("entries", op.Entries is not null) }
-            .Where(f => f.Item2).Select(f => f.Item1 + "=").ToList();
-        if (stray.Count > 0)
-        {
-            error = $"{where}: composes= builds each element itself, so it takes no {string.Join(" or ", stray)} beside it — remove {string.Join(" and ", stray)}, or drop composes=.";
             return null;
         }
         if (op.Composes.Length == 0)
