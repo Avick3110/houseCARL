@@ -74,7 +74,7 @@ public static partial class RecordsTools
         [Description("Record types the walk must not expand from, each {match, severity}. Not on the carrier walk.")]
         public RecordsWalkExclusion[]? exclusions { get; set; }
 
-        [Description("Record types the walk expands through, e.g. [\"LeveledItem\", \"Outfit\"]. Seeds and stop boundaries stay in the reached set; any other type is left out and counted. Unset walks every type. Not on the carrier walk. A walk follows record links, not NPC template inheritance.")]
+        [Description("Record types the walk expands through, e.g. [\"LeveledItem\", \"Outfit\"]. Seeds and stop boundaries stay in the reached set; any other type is left out and counted. Unset walks every type. Not on the carrier walk. A walk follows record links, not NPC template inheritance: an NPC with a templated inventory is not reached.")]
         public string[]? through { get; set; }
     }
 
