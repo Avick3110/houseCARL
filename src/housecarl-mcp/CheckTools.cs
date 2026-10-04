@@ -14,211 +14,149 @@ public static class CheckTools
 {
     [McpServerTool(Name = ToolNames.Check, ReadOnly = true, Title = "Sweep the load order for derived findings"),
      Description(
-         // Only what belongs to no single parameter; each family's own grammar, cost and boundary lives on the
-         // parameter it is about, because this description is cut at 2,048 characters.
-         "DERIVED-FINDINGS SWEEP over the load order — one call, several finding FAMILIES, selected by findings=. " +
-         "Read-only; writes nothing. Resolves against the load-order WINNERS, like every other read. " +
-         "ONE surface: which FAMILIES run (findings=) x what they are run over (the SCOPE) x how it reads back " +
-         "(TRANSPORT). " +
-         "FAMILIES: 'errors' (load-order integrity), 'scripts' (VMAD script-property binding), 'dialogue' " +
-         "(dialogue graph validation over SEEDED topics and quests) and 'facegen' (the dark-face join: which mod " +
+         // Only what belongs to no single parameter; each family's grammar and boundary lives on the parameter it
+         // is about, because this description is cut at 2,048 characters.
+         "Sweeps the load order for derived findings: several finding families in one call, selected by findings=. " +
+         "Read-only; resolves against the load-order winners, like every other read. " +
+         "Families: 'errors' (load-order integrity), 'scripts' (VMAD script-property binding), 'dialogue' " +
+         "(dialogue graph validation over seeded topics and quests) and 'facegen' (the dark-face join: which mod " +
          "wins each NPC's head .nif, which wins its face .dds, which plugin wins the record). findings= takes " +
-         "whole families or the classes " +
-         "inside them, and carries what each family reports, what it does NOT, and what the default runs — omitted, " +
-         "it runs the errors family alone. " +
-         "SCOPE: the three SWEPT families share one — plugins= (off-order files included) / types= / formids= / " +
-         "editorid_contains= / exclude=, plus property_contains= on the scripts family. The dialogue family is " +
-         "SEEDED instead: seeds= names what to validate, source= folds ONE off-order plugin into the " +
-         "order where MO2 would load it, and no plugin scope narrows it. Narrowing narrows the " +
-         "COUNTS too: they are always the counts for the scope actually swept, and the response says so. " +
-         "TRANSPORT: counts_only= / format= / limit= / max_chars= / to_file=. Results cap at limit= and max_chars, both " +
-         "overruns explicit and per family: the response states how much of each family's listing it carries, why " +
-         "the rest is absent, and which knob moves it. " +
-         "NOT HERE: the effective merged INFO order — the sequence the game walks, which line MOVED and which " +
+         "whole families or the classes inside them, and says what each family reports, what it does not, and " +
+         "what the default runs (omitted: the errors family alone). " +
+         "Scope: errors, scripts and facegen share plugins= (off-order files included) / types= / formids= / " +
+         "editorid_contains= / exclude=, plus property_contains= on scripts. The dialogue family takes seeds= " +
+         "instead, source= folds one off-order plugin into it, and no plugin scope narrows it. Counts are always " +
+         "for the scope actually swept, and the response says so. " +
+         "Transport: counts_only= / format= / limit= / max_chars= / to_file=. A listing cut by limit= or " +
+         "max_chars= says so per family: how much it carries, why the rest is absent, and which knob moves it. " +
+         "Not here: the effective merged INFO order — the sequence the game walks, which line moved and which " +
          "plugin moved it, the answer to 'why does the wrong line play' — is an ordered sequence rather than a " +
-         "finding and lives on " + ToolNames.Records + " project='info_order'. To CREATE dialogue lines use " +
+         "finding and lives on " + ToolNames.Records + " project='info_order'. To create dialogue lines use " +
          ToolNames.Create + "; to inspect one record use " + ToolNames.Records + ".")]
     public static string CheckTool(
         LoadOrderService svc,
-        [Description("Optional. Plugin filenames to sweep (e.g. 'MyMod.esp'). A name not in the active order is " +
-             "resolved on disk — any mod folder, enabled, disabled, or not yet listed in MO2 (a fresh houseCARL " +
-             "patch, a disabled mod) — and swept OFF-ORDER by BOTH swept families, errors and scripts; found " +
-             "nowhere (or in several folders) it is an error. OFF-ORDER means its own records, with links resolved " +
-             "against the active order PLUS the file's own definitions: the pre-enable verify sweep for a patch " +
-             "houseCARL just wrote. On the SCRIPTS family the .pex chain is still read from the ACTIVE order, so a " +
-             "script shipped only inside the not-yet-enabled mod reads UNVERIFIABLE rather than clean. Omit to " +
-             "sweep the WHOLE active order — thorough but heavier; scope to one plugin for a fast, focused check " +
-             "like the CK's per-plugin 'Check For Errors'. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line, each line read as written; a filename that itself starts with '@' is written '@@' inline.")]
+        [Description("Optional. Plugin filenames to sweep (e.g. 'MyMod.esp'); omit to sweep the whole active " +
+             "order, which is heavier. A name not in the active order is found on disk in any mod folder (enabled, " +
+             "disabled, or not yet listed in MO2) and swept off-order by errors, scripts and facegen: its own " +
+             "records, with links resolved against the active order plus the file's own definitions, so a fresh " +
+             "patch can be checked before it is enabled. The scripts family still reads .pex files from the active " +
+             "order, so a script shipped only inside the not-yet-enabled mod reads unverifiable, not clean. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line, each line read as written; a filename that itself starts with '@' is written '@@' inline.")]
             string[]? plugins = null,
-        [Description("Optional. Record types to sweep — signatures ('WEAP') or catalog names ('Weapon'); one type is a set of one, and the sweep is the sweep over their UNION with the findings merged. Applied at the record STREAM, so it is the CHEAPEST scope: skipped records cost nothing (no link walk, no .pex chain read), and a two-type sweep costs the two type groups, not the order. An unknown type is refused by name, naming what is expected.")]
+        [Description("Optional. Record types to sweep — signatures ('WEAP') or catalog names ('Weapon'); several types sweep their union. The cheapest scope: records of other types are skipped before any link walk or .pex read.")]
             string[]? types = null,
-        [Description("Optional. Sweep ONLY these records ('0BCC84:Skyrim.esm', …) — the re-check-these-few pass after a fix, which limit= cannot do. A malformed token refuses the call before the sweep runs.")]
+        [Description("Optional. Sweep only these records ('0BCC84:Skyrim.esm', …) — the re-check after a fix.")]
             string[]? formids = null,
         [Description("Optional. Sweep only records whose EditorID contains this substring (case-insensitive). A record with no EditorID never matches.")]
             string? editorid_contains = null,
-        [Description("Optional. The SCRIPTS family only: report only findings whose PROPERTY NAME contains this substring (case-insensitive) — chasing one property across a plugin. A record left with no matching finding drops out of the listing entirely.")]
+        [Description("Optional. Scripts family only: report only findings whose property name contains this substring (case-insensitive). A record left with no matching finding drops out of the listing.")]
             string? property_contains = null,
-        [Description("Optional. Plugins to leave OUT of the sweep entirely — they cost no record walk, no .pex read " +
-             "and no limit= budget, in every SWEPT family. (The dialogue family is seeded, not swept: it takes seeds=, " +
-             "and no plugin-scope parameter narrows it — its own section says so.) Each value is either a plugin filename WITH its extension " +
-             "('CoolMod.esp') or one of two group names: base_masters (the five the game ships with) or implicit " +
-             "(every plugin the order force-loads because plugins.txt does not list it — this is where Creation Club " +
-             "plugins and _ResourcePack.esl are, and it INCLUDES the base masters). A value that is neither is " +
-             "refused before the sweep runs, whichever families you selected. A FILENAME YOU NAMED that nothing " +
-             "in scope matches is refused: the swept families share one scope — the plugins you named, off-order " +
-             "files included — so an unmatched name is a typo on every family that could have run, and an " +
-             "exclusion that removes the whole scope is refused too rather than sweeping nothing in silence. " +
-             "A group member that is not in this order " +
-             "is the ordinary case and is simply dropped. This does not change what " +
-             "counts as the vanilla BASELINE the errors family splits out (see limit=) — that is always Mutagen's own base-master set. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line, each line read as written; a filename that itself starts with '@' is written '@@' inline.")]
+        [Description("Optional. Plugins to leave out of the errors, scripts and facegen sweeps entirely: no record " +
+             "walk, no .pex read, no limit= budget. It does not narrow the dialogue family. Each value is a plugin " +
+             "filename with its extension ('CoolMod.esp') or a group: base_masters (the five the game ships with) or " +
+             "implicit (every plugin the order force-loads without a plugins.txt line: Creation Club plugins, " +
+             "_ResourcePack.esl, and the base masters). A group member not in this order is dropped. It does not " +
+             "change the vanilla baseline the errors family splits out (see limit=), which is always the base-master set. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line, each line read as written; a filename that itself starts with '@' is written '@@' inline.")]
             string[]? exclude = null,
-        [Description("Optional. Which finding FAMILIES and CLASSES to look for, in one vocabulary. Families: " +
-             "'errors', 'scripts', 'dialogue', 'facegen'. Classes inside them: 'dangling', 'missing_masters' (errors); " +
-             "'unbound_object' (HIGH — the silent-None footgun), 'unbound_scalar' (MEDIUM), 'unbound' (both), " +
+        [Description("Optional. Which finding families and classes to run. Families: " +
+             "'errors', 'scripts', 'dialogue', 'facegen'. Classes: 'dangling', 'missing_masters' (errors); " +
+             "'unbound_object' (high), 'unbound_scalar' (medium), 'unbound' (both), " +
              "'bound_null' (advisory) (scripts); 'tint_absent', 'mesh_absent', 'bake_absent', 'split_bake', " +
-             "'stale_bake', 'family_split', 'foreign_index', 'inert', 'never_baked' (facegen). The DIALOGUE family has no class token — it narrows by seeds=, " +
-             "which it requires. A family token means every class in it; a class token runs its family narrowed to " +
-             "that class; naming several runs each. DEFAULT (omitted) = the ERRORS family alone, and the response " +
-             "STATES which families ran, which registered families did not, and the exact findings= spelling that " +
-             "adds them — the default narrows only because the response says so. It cannot be every family: an " +
-             "unscoped scripts sweep is ~8 minutes on a 3800-plugin order (measured), and an unscoped dialogue " +
-             "sweep is refused outright (see seeds=). Excluding 'dangling' SKIPS the per-record link walk " +
-             "entirely — that is how you ask 'is any master missing anywhere in my order' without paying for a full " +
-             "sweep. An excluded class renders as 'not checked', never as 0. Unscannable records, scan errors and " +
-             "unverifiable script attachments are ALWAYS reported and cannot be filtered out (a suppressed 'could " +
-             "not read' would read as a clean result). " +
-             // ---- family: errors (harvested from housecarl_check_errors) -------------------------------
-             "ERRORS FAMILY — the data-layer twin of the Creation Kit's 'Check For Errors' / xEdit's error check. " +
-             "For each plugin in scope it walks every record's FormLinks and reports three classes: (1) DANGLING " +
-             "references — a non-null link whose target NO plugin in the ACTIVE order defines; (2) MISSING MASTERS " +
-             "— a master a plugin DECLARES that is not present in the active order (the most common load-order " +
-             "break); (3) PARSE failures — records houseCARL/Mutagen could not read, plus whole plugins the index " +
-             "excluded as unparseable. BOUNDARY (never a silent claim of more — Q3): it covers the " +
-             "FormLink-resolution / missing-master / parse class. It does NOT verify navmesh or terrain spatial " +
-             "integrity (CRC/grid — a Mutagen-delta residual), does NOT flag a required field left null (a null " +
-             "FormLink is a legal optional, not an error), does NOT list unused-master cleanup (a FormLink scan " +
-             "cannot prove a master is unused), and does NOT link-check an owned item's ownership 'variable' word " +
-             "(a rank/global Mutagen cannot type on an override without a link cache). " +
-             // ---- family: scripts (harvested from housecarl_validate_scripts) --------------------------
-             "SCRIPTS FAMILY — catches the silent-None footgun a byte-valid plugin hides: a record whose attached " +
-             "Papyrus script DECLARES a property (e.g. 'Spell Property CallVesyraPower Auto') the record's script " +
-             "data (VMAD) never BINDS, so at runtime it is None and the code that uses it no-ops while the log " +
-             "looks clean (the maximally-misleading 'the function ran, the effect is absent' class — the same as " +
-             "the Creation Kit's auto-add-property bug). For each record carrying a script it reads the attached " +
-             "script's compiled .pex — and every script it EXTENDS — from the load order (loose or BSA), and " +
-             "reports: (1) UNBOUND properties declared but not bound (an object/form type ⇒ None ⇒ the silent " +
-             "no-op, ranked first; an uninitialized scalar ⇒ a 0/false/\"\" default that may be wrong); (2) " +
-             "BOUND-BUT-NULL object properties (advisory — sometimes filled at runtime). BOUNDARY: it checks Auto " +
-             "(CK-editable) properties only, not code-driven full properties; 'unbound may be intentional' (a " +
-             "runtime-filled link), so a finding is a flag to VERIFY; and if a script's .pex is not on disk " +
-             "(uncompiled / not in the order) the attachment is reported UNVERIFIABLE, never passed clean. It has " +
-             "the SAME off-order lane as the errors family (see plugins=), so a fresh patch's bindings can be " +
-             "checked BEFORE it is enabled. " +
-             // ---- family: dialogue (harvested from housecarl_validate_dialogue) ------------------------
-             "DIALOGUE FAMILY — a topic's whole graph as the GAME sees it, and it is SEEDED, not swept (see " +
-             "seeds=). It checks what houseCARL CAN verify at the data layer: the topic is wired to a quest, the " +
-             "branch resolves, the INFO.LinkTo conversation chain has no dangling targets, " +
-             "and no previous-link (PNAM) is dangling — an EMPTY PNAM is NORMAL (vanilla selects among a topic's " +
-             "lines by their conditions, not a previous-link chain), so absence is never flagged; each voiced " +
-             "line's .fuz is on disk and each result script is bound + compiled; non-ASCII characters in the " +
-             "player-facing text (topic name, line prompt, response text) are flagged as likely in-game MOJIBAKE " +
-             "(the CK/Papyrus surface is Windows-1252/ASCII); each line's CTDA conditions are statically checked " +
-             "for a meaningful subset of MALFORMED shapes (a dangling form reference, a dead quest-alias index, an " +
-             "unset Run On reference, GetIsID pointed at a placed instance); and a Start-Game-Enabled quest's .seq " +
-             "is checked for coverage and staleness (without it the quest is dormant on a fresh save and its " +
-             "dialogue never shows). BOUNDARY: it cannot EVALUATE whether a WELL-FORMED condition passes — only " +
-             "the running game can — and it does not check lip-sync or audio content, so 'checks passed' never " +
-             "reads as 'this will play'. The dialogue family FLAGS, never silently rewrites: a stale .seq, a " +
-             "blank subtype marker or a missing CNAM/ENAM is reported for you to fix, and nothing in the checked " +
-             "plugin is touched. The ORDER rules a clean graph still has to respect — quest priority deciding " +
-             "which topic a generic greeting reaches, and the PNAM a re-listed INFO carries to keep its place — " +
-             "are at " + ReadSentences.DialogueDocUrl + ". " +
-             // ---- family: facegen (the dark-face join) -------------------------------------------------
-             "FACEGEN FAMILY - the dark/grey-face diagnosis, as ONE row per NPC: its formid, editorid, defining " +
-             "master, RECORD winner, MESH winner (provider + loose/BSA), TINT winner, the mismatch CLASS and a fix " +
-             "sentence. A dark face is the DESYNC between two independent precedences - the MO2 VFS decides the two " +
-             "baked files, plugin load order decides the record - which is exactly why xEdit shows no conflict. " +
-             "CLASSES: 'tint_absent' (the mesh wins, the .dds has no provider anywhere), 'mesh_absent' (the " +
-             "mirror), 'bake_absent' (the NPC needs a bake and has NEITHER half), 'split_bake' (both win, from " +
-             "different products), 'stale_bake' (a clean same-source pair whose WINNING record disagrees with the " +
-             "facegen owner's plugin on the seven face fields; HairColor alone does not touch the bake and is not " +
-             "a flag), 'family_split' (both win, from one product's two mods or a repack of its own archive - " +
-             "BENIGN, counted in the header and listed only under its own class token), 'foreign_index' (a " +
-             "same-local-id file carrying a different load-order index byte, inferred from the file itself), " +
-             "'inert' (the key resolves to a placed reference, to no record, to a plugin not in the order, or the " +
-             "filename is malformed - named and dropped, not a face bug), 'never_baked' (neither half, for the Player or a CharGen preset, " +
-             "which the Creation Kit never bakes; counted in the header and listed only under its own class token). POPULATION is the UNION: every NPC_ in " +
-             "scope that needs a bake, plus every facegen file on disk whose key resolves to nothing. An NPC whose " +
-             "Template carries the Traits flag inherits its appearance and has no bake of its own - it is EXCLUDED " +
-             "and counted, never flagged. The file half (inert/foreign_index) is reported only on an UNSCOPED " +
-             "sweep: under plugins=, exclude= or a record scope a file for an NPC outside the scope is out of " +
-             "scope, not orphaned. BOUNDARY: " +
-             "it reports PROVENANCE, never the render - it cannot read a .dds's pixels and cannot bake geometry " +
-             "(Ctrl+F4), so a clean row is not a promise the face looks right; and NOT this family: a purple or " +
-             "white face (a missing texture), player-only grey (RaceMenu/SKEE), a brown weight face (save-baked " +
-             "weight), or an appearance distributed at runtime by SPID. Causes and repairs: " + ReadSentences.FaceGenDocUrl + ".")]
+             "'stale_bake', 'family_split', 'foreign_index', 'inert', 'never_baked' (facegen). The dialogue family " +
+             "has no class tokens and requires seeds=. A family token runs every class in it; a class token runs its " +
+             "family narrowed to that class; several tokens run each. Default (omitted): the errors family alone, " +
+             "and the response names the families that did not run and the findings= spelling that adds them. " +
+             "Leaving out 'dangling' skips the per-record link walk, so findings=['missing_masters'] is a cheap " +
+             "whole-order missing-master check. An excluded class renders as 'not checked', never as 0. Unscannable " +
+             "records, scan errors and unverifiable script attachments are always reported and cannot be filtered out. " +
+             // ---- family: errors ---------------------------------------------------------------------------
+             "Errors family — the data-layer counterpart of the Creation Kit's 'Check For Errors'. For each plugin " +
+             "in scope it walks every record's links and reports: dangling references (a non-null link whose target " +
+             "no plugin in the active order defines); missing masters (a declared master absent from the active " +
+             "order); parse failures (records that could not be read, and plugins excluded as unparseable). It does " +
+             "not check navmesh or terrain integrity, flag a required field left null (a null link is a legal " +
+             "optional), list unused masters, or link-check an owned item's ownership variable (a rank or global). " +
+             // ---- family: scripts --------------------------------------------------------------------------
+             "Scripts family — for each record carrying a script, it reads the attached script's .pex and every " +
+             "script it extends (loose or BSA) and reports: unbound properties, declared but never bound in the " +
+             "record's VMAD (an object property is then None at runtime and the code using it silently does " +
+             "nothing; a scalar keeps a 0/false/\"\" default that may be wrong); and bound-but-null object properties " +
+             "(advisory, sometimes filled at runtime). It checks Auto properties only, not full properties with " +
+             "code; an unbound property may be filled at runtime, so a finding is a flag to verify; a script whose " +
+             ".pex is not on disk reads unverifiable, never clean. " +
+             // ---- family: dialogue -------------------------------------------------------------------------
+             "Dialogue family — each seeded topic's graph as the game sees it: the topic is wired to a quest, the " +
+             "branch resolves, no INFO.LinkTo target or previous link (PNAM) is dangling (an empty PNAM is normal " +
+             "and never flagged), each voiced line's .fuz is on disk, each result script is bound and compiled, " +
+             "non-ASCII player-facing text (topic name, prompt, response) is flagged as likely mojibake, each line's " +
+             "conditions are checked for some malformed shapes (a dangling form reference, a dead quest-alias " +
+             "index, an unset Run On reference, GetIsID on a placed reference), and a Start Game Enabled quest's " +
+             ".seq is checked for coverage and staleness. It cannot evaluate whether a well-formed condition passes " +
+             "and does not check lip-sync or audio content, so 'checks passed' does not mean 'this will play'. It " +
+             "reports and never edits: a stale .seq, a blank subtype marker or a missing CNAM/ENAM is yours to " +
+             "fix. Order rules a clean graph must still respect (quest priority for a generic greeting, the PNAM a " +
+             "re-listed INFO keeps its place by): " + ReadSentences.DialogueDocUrl + ". " +
+             // ---- family: facegen (the dark-face join) -----------------------------------------------------
+             "Facegen family — the dark or grey face diagnosis, one row per NPC: formid, editorid, defining " +
+             "master, record winner, mesh winner (provider, loose or BSA), tint winner, class and a fix sentence. " +
+             "A dark face is a mismatch between two precedences, the MO2 file winner of the two baked files and " +
+             "the plugin winner of the record, which xEdit does not show as a conflict. Classes: 'tint_absent' " +
+             "(the mesh wins, the .dds has no provider), 'mesh_absent' (the reverse), 'bake_absent' (needs a bake " +
+             "and has neither file), 'split_bake' (both win, from different products), 'stale_bake' (a same-source " +
+             "pair whose winning record differs from the facegen owner's plugin on the seven face fields; HairColor " +
+             "alone is not a flag), 'family_split' (both win, from one product's two mods or a repack of its own " +
+             "archive; benign, counted in the header and listed only under its own token), 'foreign_index' (a " +
+             "file with the same local id but a different load-order index byte), 'inert' (the file's key resolves " +
+             "to a placed reference, no record, a plugin not in the order, or a malformed filename; named and " +
+             "dropped, not a face bug), 'never_baked' (neither file, for the Player or a CharGen preset, which the " +
+             "Creation Kit never bakes; counted in the header and listed only under its own token). It covers " +
+             "every NPC_ in scope that needs a bake plus every facegen file on disk whose key resolves to nothing. " +
+             "An NPC whose template carries the Traits flag has no bake of its own: excluded and counted, never " +
+             "flagged. The file classes (inert, foreign_index) are reported only on an unscoped sweep; under " +
+             "plugins=, exclude= or a record scope they are out of scope, not orphaned. It reports which files and " +
+             "records win, never the render: it cannot read a .dds's pixels or bake geometry, so a clean row is " +
+             "not a promise the face looks right. Not this family: a purple or white face (a missing texture), " +
+             "player-only grey (RaceMenu), a brown weight face (save-baked weight), or an appearance distributed " +
+             "at runtime by SPID. Causes and repairs: " + ReadSentences.FaceGenDocUrl + ".")]
             string[]? findings = null,
-        [Description("Optional. true = return ONLY the header totals plus each running family's histograms, with no per-plugin or per-record listing. Errors: dangling-by-TARGET-plugin (which plugin the broken refs point INTO — the one absent dependency behind a wall of findings) and dangling-by-SOURCE-plugin (which plugin they come FROM — how much is vanilla baseline and how much your mods introduced). Scripts: unbound-by-PROPERTY-NAME. Dialogue: the totals and the unreachable-seed roster alone, no per-topic blocks — a seed nobody could reach bounds the answer rather than sitting inside it, so this does not silence it. The cheap before/after-a-fix comparison; totals stay exact (never limit-capped) and limit= caps the histogram ROWS instead.")]
+        [Description("Optional. true = only the header totals and each family's histograms, no per-plugin or per-record listing. Errors: dangling refs by target plugin (the absent dependency behind many findings) and by source plugin (vanilla baseline against what your mods introduced). Scripts: unbound by property name. Dialogue: the totals and the unreachable seeds, no per-topic blocks. Totals stay exact; limit= caps histogram rows instead. The cheap before/after comparison around a fix.")]
             bool counts_only = false,
-        [Description("Optional. 'text' (default) or 'json' — the machine-readable twin carrying the same data, sectioned per family, with the totals/capped/truncated accounting in-band.")]
+        [Description("Optional. 'text' (default) or 'json' — the same data sectioned per family, with the totals/capped/truncated accounting in the document.")]
             string? format = null,
-        [Description("Optional. Max findings to list per family (default 1000). The TRUE totals are always " +
-             "reported; over the cap the response says so, and for the errors family says how many plugins lost " +
-             "entries, names the ones that lost the most (a count each), and states how many it did not name. " +
-             "It is ONE listing per family for every type in scope, filled plugin by plugin and type by type " +
-             "inside each — so under a MULTI-TYPE types= scope ANY of those types can be short in it. The " +
-             "response says so whenever the listing came out short, and names the knob that cut it (limit= or " +
-             "max_chars=): a type absent from the listing is UNLISTED, not clean. " +
-             "BASELINE (errors family): the base-game masters carry permanent vanilla dangling refs no load order " +
-             "can fix, so the response splits them out of the total and spends limit= on every other plugin FIRST " +
-             "— vanilla cannot crowd mod findings out of the listing. Master-table findings and unverifiable " +
-             "notes are outside this cap, never trimmed by it; on the SCRIPTS family a note repeating one already " +
-             "reported for the same script class is collapsed to a count instead, so a disabled mod's unreadable " +
-             "scripts cannot fill the listing (a note that names no script class is never collapsed — the record " +
-             "is its only identity). A script-heavy plugin (~180 scripted records) does not fit a tool result " +
-             "unnarrowed, and limit= alone will not help there because it caps FINDINGS, not the record roster — " +
-             "counts_only=true or a record scope is what does. Under counts_only=true this caps the histogram " +
-             "ROWS instead. For the DIALOGUE family it caps how many SEEDS one call expands, and the response " +
-             "names how many it did not reach.")]
+        [Description("Optional. Max findings listed per family (default 1000); the true totals are always " +
+             "reported. Over the cap the response says so, and the errors family names the plugins that lost the " +
+             "most entries. Each family has one listing, filled plugin by plugin and type by type, so under several " +
+             "types= any of them can be short; the response names the knob that cut it (limit= or max_chars=), and " +
+             "a type absent from a short listing is unlisted, not clean. Errors family: the base-game masters' " +
+             "permanent vanilla dangling refs are split out of the total, and limit= is spent on every other plugin " +
+             "first. Master-table findings and unverifiable notes are outside the cap; on the scripts family a note " +
+             "repeating one already reported for the same script class is collapsed to a count (a note naming no " +
+             "script class is never collapsed). limit= caps findings, not the record roster: for a script-heavy " +
+             "plugin use counts_only=true or a record scope. Under counts_only=true it caps histogram rows. For the " +
+             "dialogue family it caps how many seeds one call expands, and the response names how many it did not reach.")]
             int limit = 1000,
-        [Description("Optional. The DIALOGUE family only, and required by it: the topics and quests to validate, " +
-             "as FormIDs ('0F1AC1:Skyrim.esm' — 6 hex digits, a colon, then the defining master's filename). A " +
-             "DIAL validates one topic; a QUST validates EVERY topic that quest owns (plus the quest's own " +
-             "CK-parity subrecords and its .seq, checked once); a DLVW or DLBR runs a record-level CK-parity check " +
-             "— a bare DLVW crashes the CK's Dialogue Views editor. This family is SEEDED, not swept — " +
-             "plugins=/types=/formids=/editorid_contains=/exclude= do not scope it — and findings=['dialogue'] with " +
-             "no seeds is REFUSED on cost, never widened to the whole order (a whole-order pass is a per-topic " +
-             "graph walk across every touching plugin, and the order this bound was measured on carries 82,343 " +
-             "dialogue topics). limit= caps how many seeds one call expands.")]
+        [Description("Optional. Dialogue family only, and required by it: the topics and quests to validate, as " +
+             "FormIDs ('0F1AC1:Skyrim.esm'). A DIAL validates one topic; a QUST validates every topic that quest " +
+             "owns, plus the quest's own subrecords and its .seq once; a DLVW or DLBR gets a record-level check " +
+             "(a bare DLVW crashes the Creation Kit's Dialogue Views editor). plugins=/types=/formids=/" +
+             "editorid_contains=/exclude= do not scope it.")]
             string[]? seeds = null,
-        [Description("Optional. The DIALOGUE family only: ONE plugin that is NOT in the active load order, FOLDED " +
-             "in where MO2 would load it — the END of the order for a regular plugin, after the LAST MASTER for a " +
-             ".esm/.esl or an ESM-flagged one, and that plugin's OWN SLOT when the order already carries the " +
-             "filename (a shadowed copy: enabling its mod folder swaps the bytes at a position the order has, and " +
-             "the projection ADDS that copy at the slot rather than replacing the file, so a record only the " +
-             "active copy holds still reads from it — the answer says so) — " +
-             "so a dialogue patch can be " +
-             "checked BEFORE it is enabled. Spelled as every other off-order address on this surface: a filename " +
-             "(\"MyPatch.esp\"), or {\"file\": \"MyPatch.esp\", \"mod\": \"<mod folder>\"} when two mod folders " +
-             "ship the same name. Every seed is then validated against the active order's WINNERS PLUS that file, " +
-             "and what the file carries wins; seeds= may name its own new records ('000800:MyPatch.esp'), which " +
-             "resolve nowhere in the order without it. The answer is a PROJECTION of what the check would say once " +
-             "the file is enabled and says so once at the top, including the one part that does not move with the " +
-             "plugin: its .fuz/.pex/.seq files resolve through the VFS, which serves only the mod folders MO2 has " +
-             "enabled. An ACTIVE filename is refused (it is already what the check reads), and so is source= " +
-             "alongside the swept families — errors, scripts and facegen take an off-order plugin on plugins= " +
-             "instead, which sweeps the file's own records rather than folding it into a resolution.")]
+        [Description("Optional. Dialogue family only: one plugin not in the active load order, folded in where " +
+             "MO2 would load it — the end of the order for a regular plugin, after the last master for a .esm/.esl " +
+             "or an ESM-flagged one, and at its own slot when the order already carries the filename (a shadowed " +
+             "copy is added at that slot rather than replacing the file, so a record only the active copy holds " +
+             "still reads from it, and the answer says so). A filename (\"MyPatch.esp\"), or {\"file\": " +
+             "\"MyPatch.esp\", \"mod\": \"<mod folder>\"} when two mod folders ship the same name. Seeds are " +
+             "validated against the active order's winners plus that file, and the file's records win; seeds= may " +
+             "name its new records ('000800:MyPatch.esp'). The answer is a projection of the check once the file is " +
+             "enabled, except its .fuz/.pex/.seq files, which resolve only through mod folders MO2 has enabled.")]
             System.Text.Json.JsonElement? source = null,
-        [Description("Optional. TRANSPORT: write the COMPLETE findings of every family that ran to this ABSOLUTE " +
-             ".jsonl path as an artifact (line 1 = manifest) and render only the manifest inline - the same " +
-             "convention " + ToolNames.Records + " uses, so an artifact re-enters via formids=[\"@<path>\"]. ONE " +
-             "file with a 'family' and a 'class' column, not one per family: a merged call's findings are one " +
-             "answer, and a column a family does not use is null. The rows are the SWEEP's findings, not the " +
-             "render's, so nothing is missing because the inline body ran out of characters; what limit= already " +
-             "cut is cut here too, and the manifest says so by carrying total above row_count. Refused with " +
-             "counts_only=true, which returns the histograms and no rows.")]
+        [Description("Optional. Write the complete findings of every family that ran to this absolute .jsonl " +
+             "path (line 1 = manifest) and render only the manifest inline, as " + ToolNames.Records + " does; the " +
+             "file re-enters via formids=[\"@<path>\"]. One file with 'family' and 'class' columns; a column a " +
+             "family does not use is null. The rows are the sweep's findings, so the inline character budget cuts " +
+             "nothing; what limit= cut is cut here too, and the manifest shows total above row_count.")]
             string? to_file = null,
-        [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k). The budget is DIVIDED among the families that ran and their parts, not spent in series — a family that renders second does not inherit what the first one left over. Raise it for a quest that owns many topics.")]
+        [Description("Optional. Max characters before the response stops with a notice. 0 = the server default (80,000). The budget is divided among the families that ran and their parts, not spent in series. Raise it for a quest that owns many topics.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Check, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
