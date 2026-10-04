@@ -12,9 +12,9 @@ public static class StatusTools
      Description(
          "Report what houseCARL sees in the active MO2 profile: enabled and disabled mods, active and inactive plugins, " +
          "the implicit force-loaded masters and CC, how many plugins resolved to real files, and any load-order " +
-         "warnings. The enabled/disabled picture is read fresh each call, so a toggle in MO2 shows at once; the " +
+         "warnings; filter= looks up one mod or plugin instead (enabled? localized?). The enabled/disabled picture is read fresh each call, so a toggle in MO2 shows at once; the " +
          "resolved count is rebuilt automatically when the profile changed, with no restart (a 'refresh still pending' " +
-         "note means MO2 was mid-write). Also reports the resolved Papyrus script-log and SKSE crash-log folders, " +
+         "note means MO2 was mid-write). Without filter=, also reports the resolved Papyrus script-log and SKSE crash-log folders, " +
          "where to read logs for triage (auto-detected, or set with " + ToolNames.SetToolPath + "), and the running " +
          "server's build version (the release version, then '+' and the full commit sha). Changes nothing.")]
     public static string LoadOrderStatus(
