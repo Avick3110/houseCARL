@@ -39,8 +39,11 @@ public static class CheckTools
              "order, which is heavier. A name not in the active order is found on disk in any mod folder (enabled, " +
              "disabled, or not yet listed in MO2) and swept off-order by errors, scripts and facegen: its own " +
              "records, with links resolved against the active order plus the file's own definitions, so a fresh " +
-             "patch can be checked before it is enabled. The scripts family still reads .pex files from the active " +
-             "order, so a script shipped only inside the not-yet-enabled mod reads unverifiable, not clean. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line, each line read as written; a filename that itself starts with '@' is written '@@' inline.")]
+             "patch can be checked before it is enabled. The scripts family's .pex files and facegen's baked head " +
+             ".nif/.dds still resolve only through mod folders MO2 has enabled, so a script shipped only inside the " +
+             "not-yet-enabled mod reads unverifiable, not clean, and that mod's own facegen files are not seen, so " +
+             "its NPCs read as absent bakes. Facegen resolves an NPC's race against the active order only, so NPCs " +
+             "of a race the file itself adds are counted as race-unresolved, not classified. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line, each line read as written; a filename that itself starts with '@' is written '@@' inline.")]
             string[]? plugins = null,
         [Description("Optional. Record types to sweep — signatures ('WEAP') or catalog names ('Weapon'); several types sweep their union. The cheapest scope: records of other types are skipped before any link walk or .pex read.")]
             string[]? types = null,
@@ -50,8 +53,9 @@ public static class CheckTools
             string? editorid_contains = null,
         [Description("Optional. Scripts family only: report only findings whose property name contains this substring (case-insensitive). A record left with no matching finding drops out of the listing.")]
             string? property_contains = null,
-        [Description("Optional. Plugins to leave out of the errors, scripts and facegen sweeps entirely: no record " +
-             "walk, no .pex read, no limit= budget. It does not narrow the dialogue family. Each value is a plugin " +
+        [Description("Optional. Plugins to leave out of the errors, scripts and facegen sweeps. Errors and scripts skip " +
+             "them entirely: no record walk, no .pex read, no limit= budget. Facegen still walks the NPCs in scope " +
+             "and drops one only when every plugin touching it is excluded. It does not narrow the dialogue family. Each value is a plugin " +
              "filename with its extension ('CoolMod.esp') or a group: base_masters (the five the game ships with) or " +
              "implicit (every plugin the order force-loads without a plugins.txt line: Creation Club plugins, " +
              "_ResourcePack.esl, and the base masters). A group member not in this order is dropped. It does not " +
@@ -118,7 +122,7 @@ public static class CheckTools
              "player-only grey (RaceMenu), a brown weight face (save-baked weight), or an appearance distributed " +
              "at runtime by SPID. Causes and repairs: " + ReadSentences.FaceGenDocUrl + ".")]
             string[]? findings = null,
-        [Description("Optional. true = only the header totals and each family's histograms, no per-plugin or per-record listing. Errors: dangling refs by target plugin (the absent dependency behind many findings) and by source plugin (vanilla baseline against what your mods introduced). Scripts: unbound by property name. Dialogue: the totals and the unreachable seeds, no per-topic blocks. Totals stay exact; limit= caps histogram rows instead. The cheap before/after comparison around a fix.")]
+        [Description("Optional. true = only the header totals and each family's histograms, no per-plugin or per-record listing. Errors: dangling refs by target plugin (the absent dependency behind many findings) and by source plugin (vanilla baseline against what your mods introduced). Scripts: unbound by property name. Dialogue: the totals and the unreachable seeds, no per-topic blocks. Facegen: by class, and by owning mod (the mod that wins the bake, not the plugin that wins the record). Totals stay exact; limit= caps histogram rows instead. The cheap before/after comparison around a fix.")]
             bool counts_only = false,
         [Description("Optional. 'text' (default) or 'json' — the same data sectioned per family, with the totals/capped/truncated accounting in the document.")]
             string? format = null,
@@ -154,7 +158,8 @@ public static class CheckTools
              "path (line 1 = manifest) and render only the manifest inline, as " + ToolNames.Records + " does; the " +
              "file re-enters via formids=[\"@<path>\"]. One file with 'family' and 'class' columns; a column a " +
              "family does not use is null. The rows are the sweep's findings, so the inline character budget cuts " +
-             "nothing; what limit= cut is cut here too, and the manifest shows total above row_count.")]
+             "nothing; what limit= cut is cut here too, and the manifest shows total above row_count. Refused with " +
+             "counts_only=true, but only after the sweep has run, so do not pair them.")]
             string? to_file = null,
         [Description("Optional. Max characters before the response stops with a notice. 0 = the server default (80,000). The budget is divided among the families that ran and their parts, not spent in series. Raise it for a quest that owns many topics.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Check, () =>
