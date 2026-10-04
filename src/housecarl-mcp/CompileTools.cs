@@ -65,7 +65,7 @@ public static class CompileTools
             string script,
         [Description("Optional. Extra import directories holding dependency sources (.psc), separated by ';'. They rank after the script's own folder and ahead of the discovered mods and vanilla.")]
             string? import_dirs = null,
-        [Description("Default true: add the source folders of your enabled MO2 mods that this script references, as described above. false: compile against only the script's own folder, import_dirs=, import_set= and the vanilla sources.")]
+        [Description("Default true: add the source folders of your enabled MO2 mods that this script references, in MO2 priority order. false: compile against only the script's own folder, import_dirs=, import_set= and the vanilla sources.")]
             bool auto_imports = true,
         [Description("Optional. Name of an import-directory set saved earlier with save_import_set=; its dirs rank after import_dirs=.")]
             string? import_set = null,
@@ -73,7 +73,7 @@ public static class CompileTools
             string? save_import_set = null,
         [Description("Optional. Base name for the new patch-mod folder the .pex lands in (default 'houseCARL_Scripts'); auto-suffixed if taken.")]
             string? patch = null,
-        [Description("Optional. Filename of an existing houseCARL patch mod to add the .pex into instead of a fresh folder; found even if you renamed its MO2 mod folder. For two patches sharing a filename, pass the mod-folder name.")]
+        [Description("Optional. An existing houseCARL patch mod to add the .pex into instead of a fresh folder: its plugin filename (found even if you renamed its MO2 mod folder), or its mod-folder name, which also picks between two patches sharing a filename. A script folder holds no plugin: pass its base name (into='houseCARL_Scripts' for the default) or its mod-folder name.")]
             string? into = null,
         [Description("Optional. Absolute path to a mod-folder root of your choosing; houseCARL appends Scripts\\ unless the path already ends in it. patch= and into= are then ignored. Scripts load only from <mods>\\<YourMod>\\Scripts, the MO2 overwrite folder or <Data>\\Scripts; anywhere else, including a nested folder under a mod, the .pex still compiles with a warning that it will not deploy.")]
             string? out_path = null) => Guard.Tool(ToolNames.CompileScript, () =>

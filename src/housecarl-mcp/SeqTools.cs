@@ -14,18 +14,19 @@ public static class SeqTools
          "such a quest, and anything gated on it, silently never starts. The .seq makes the quests start; it does not check " +
          "that they or their dialogue are otherwise correct. A plugin with no such quests needs no .seq: that is reported " +
          "and nothing is written.\n\n" +
-         "By default the .seq lands in the plugin's own houseCARL mod folder when it is in one, so enabling that one mod " +
-         "deploys both; otherwise in a fresh houseCARL folder you enable in MO2. After an in-place edit, pass out_path= the " +
-         "plugin's own mod folder. When the destination is the plugin's own houseCARL folder, into= or out_path= and it " +
-         "already holds exactly these bytes, nothing is written and the reply says 'unchanged'. A fresh folder (patch=, or " +
-         "the default for a plugin not in a houseCARL folder) always gets a write, so such a re-run makes another folder.\n\n" +
+         "By default the .seq lands in the plugin's own houseCARL mod folder when it is still under the name houseCARL gave " +
+         "it ('houseCARL - MyQuestMod' for MyQuestMod.esp), so enabling that one mod deploys both; otherwise in a fresh houseCARL folder you " +
+         "enable in MO2. For a renamed folder, pass into= the plugin's filename; after an in-place edit, pass out_path= the " +
+         "plugin's own mod folder. When the destination is that own folder, into= or out_path= and it already holds exactly " +
+         "these bytes, nothing is written and the reply says 'unchanged'. A fresh folder (patch=, or the default for any " +
+         "other plugin, a renamed folder's included) always gets a write, so such a re-run makes another folder.\n\n" +
          "The reply carries no epoch: a .seq is derived from the plugin file alone. Needs houseCARL pointed at your MO2 " +
          "instance.")]
     public static string WriteSeq(
         LoadOrderService svc,
         [Description("The plugin: a filename ('MyQuestMod.esp', found across enabled and disabled mod folders, the overwrite folder and game Data) or an absolute path to the .esp/.esm/.esl, e.g. the path " + ToolNames.Create + " reported for a patch not yet in the load order. The reply says which copy it read.")]
             string source,
-        [Description("Base name for a new mod folder for the .seq (default 'houseCARL_SEQ'); auto-suffixed if taken. Not with into=.")]
+        [Description("Base name for a new mod folder for the .seq (default 'houseCARL_SEQ'); auto-suffixed if taken.")]
             string? patch = null,
         [Description("Filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch holding the .esp). Not with patch=.")]
             string? into = null,

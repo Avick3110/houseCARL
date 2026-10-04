@@ -27,9 +27,9 @@ public static class DecompileTools
         LoadOrderService svc,
         [Description("Full path to the .pex to decompile. For a script inside a BSA, run " + ToolNames.BsaExtract + " first and pass the extracted path.")]
             string pex,
-        [Description("Optional. Base name for the new patch-mod folder the .psc lands in (default 'houseCARL_Scripts'); auto-suffixed if taken, so each call makes its own folder. Use into= to keep compile and decompile output together.")]
+        [Description("Optional. Base name for the new patch-mod folder the .psc lands in (default 'houseCARL_Scripts'); auto-suffixed if taken, so each call makes its own folder. To keep compile and decompile output together, add to one folder with into= (e.g. into='houseCARL_Scripts').")]
             string? patch = null,
-        [Description("Optional. Filename of an existing houseCARL patch mod to add the .psc into instead of a fresh folder; found even if you renamed its MO2 mod folder. For two patches sharing a filename, pass the mod-folder name.")]
+        [Description("Optional. An existing houseCARL patch mod to add the .psc into instead of a fresh folder: its plugin filename (found even if you renamed its MO2 mod folder), or its mod-folder name, which also picks between two patches sharing a filename. A script folder holds no plugin: pass its base name (into='houseCARL_Scripts' for the default) or its mod-folder name.")]
             string? into = null,
         [Description("Optional. Absolute path to a folder of your choosing, created if missing; the .psc is written straight into it and houseCARL never deletes it. patch= and into= are then ignored.")]
             string? out_path = null) => Guard.Tool(ToolNames.DecompileScript, () =>
