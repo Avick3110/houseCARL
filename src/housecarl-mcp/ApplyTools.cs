@@ -15,54 +15,44 @@ public static class ApplyTools
 {
     [McpServerTool(Name = ToolNames.Apply, Title = "Edit record fields"),
      Description(
-         "Edit fields on one or many records and write the result to a NEW patch plugin (originals untouched by " +
-         "default). ONE surface: what to change (ops=, or the bundle=/assignments= copy zip) x WHERE it lands (the " +
-         "LANE: a new patch | into= an existing one | in_place=\"X.esp\" | dry_run) x how it reads back (TRANSPORT).\n\n" +
-         "A FormID is 'XXXXXX:Plugin.esp' — 6 hex digits, a colon, the defining master's filename, and every FormID " +
-         "this tool takes (ops[].formid, from=, a field VALUE) is that form. The RUNTIME form the game, the console " +
-         "and the logs print — eight hex digits and no plugin name, 'FExxxYYY' / 'XX######' — is READ-ONLY, because " +
-         "it names a slot in the load order as it stands rather than a record: pass one here and it is refused with " +
-         "the 'XXXXXX:Plugin.esp' form to use in its place. " + ToolNames.Records + " reads by either form. The " +
-         "list inputs also take a JSON manifest on disk holding the SAME array: ops= and assignments= as " +
-         "\"@<absolute path>\", bundle= as [\"@<absolute path>\"]. The path must be ABSOLUTE (the server resolves " +
-         "relative paths against its OWN working directory, not yours), and the file is read at CALL time, so " +
-         "re-dry-run it after editing.\n\n" +
-         "Every edit " +
-         "resolves the record's load-order WINNER and overrides it into the patch; all edits land in ONE reviewable " +
-         ".esp, whose master header spans every plugin the edits reference (cross-master merge, derived not " +
-         "declared). ALL-OR-NOTHING (Q3): if ANY op is malformed or fails pre-flight, the whole call is refused " +
-         "with per-op reasons and NOTHING is written. No partial patches, ever.\n\n" +
-         "Each axis's grammar is on its own parameters:\n" +
-         "WHAT — ops= (the edit list), or the copy zip bundle= x assignments=.\n" +
-         "LANE — patch= | into= | in_place= with acknowledge= | dry_run=.\n" +
-         "TRANSPORT — readback= | format= | max_chars=.\n\n" +
-         "COMPOSITION: the zip composes with ops= in one call.\n\n" +
-         "This tool edits EXISTING records' fields. New records are " + ToolNames.Create + "; dropping whole records is " +
-         ToolNames.Remove + "; copying a whole record verbatim is " + ToolNames.Forward + ". Read first with " +
-         ToolNames.Records + ".")]
+         "Edit fields on one or many existing records and write the result to a new patch plugin; originals are " +
+         "untouched by default.\n\n" +
+         "What to change: ops=, or the copy zip bundle= with assignments=; both can go in one call. Where it lands: " +
+         "a new patch (patch=), an existing houseCARL patch (into=), or a plugin's own file (in_place= with " +
+         "acknowledge=); dry_run= works on each. How it reads back: readback=, format=, max_chars=.\n\n" +
+         "Every FormID this tool takes (formid, from, target, a field value) is 'XXXXXX:Plugin.esp': 6 hex digits, a " +
+         "colon, the defining master's filename. The 8-digit runtime form the game and console print is refused " +
+         "here; " + ToolNames.Records + " reads either form. ops= and assignments= also take \"@<absolute path>\" " +
+         "naming a JSON file that holds the array, and bundle= takes [\"@<absolute path>\"]; the file is read when " +
+         "the call runs.\n\n" +
+         "Each edit overrides the record's load-order winner into the patch. All edits land in one .esp whose " +
+         "masters cover every plugin the edits reference. If any op is malformed or fails pre-flight, the whole call " +
+         "is refused with a reason per op and nothing is written.\n\n" +
+         "New records are " + ToolNames.Create + "; dropping whole records is " + ToolNames.Remove + "; copying a " +
+         "whole record verbatim is " + ToolNames.Forward + ". Read first with " + ToolNames.Records + ".")]
     public static string Apply(
         LoadOrderService svc,
-        [Description("The edits, all into one artifact: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …] — or \"@<absolute path>\" to read that SAME array from a JSON manifest file. One op is a set of one. An op member the shape does not declare is refused BY NAME at its element, never silently dropped. The manifest is how a big job is run: write the ops once, dry-run the file, then apply it — and re-run the same manifest to recover an interrupted write (overrides are idempotent). op='Remove' CLEARS a nullable field — a nullable substruct, a nullable polymorphic field — and is REFUSED BY NAME on a required one rather than writing an invented null. Which verb an op may use is decided by the field's CARDINALITY, and this pre-flight is the source of truth for it: read the cardinality off the schema before composing the op. from_source= (op='CopyFrom' only) takes that field's value from the plugin you NAME rather than from the load-order winner — how an edit is based on an authored plugin when a generated one is winning the record.")]
+        [Description("The edits, all into one plugin: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …]. For a big job, write the ops to a manifest file, dry-run it, then apply it; re-run the same manifest to recover an interrupted write (overrides are idempotent). Which ops a field takes follows its cardinality, so read that off the schema first.")]
             JsonElement? ops = null,
-        [Description("THE COPY ZIP (with assignments=): the field paths copied for EVERY pair, e.g. [\"BasicStats.Damage\", \"Keywords\"] — to copy the SAME set of fields from one record to another, many pairs in one call, name the paths once here and pair them explicitly in assignments=. Accepts [\"@<absolute path>\"] to read the path list from a file. Only what this names is copied — identity and every other field are untouched BY CONSTRUCTION: a bundle only names what it copies. Which paths form an appearance set or a balance frame is knowledge a skill carries, not a verb this tool owns.")]
+        [Description("Copy zip, with assignments=: the field paths copied for every pair, e.g. [\"BasicStats.Damage\", \"Keywords\"]. Only these fields are copied; the record's identity and every other field are untouched. There are no preset bundles (such as an appearance set); name the paths.")]
             string[]? bundle = null,
-        [Description("THE COPY ZIP (with bundle=): the per-target source mapping — [{target: 'XXXXXX:Plugin.esp', from: 'YYYYYY:Other.esp', from_source?: 'SomePlugin.esp'}, …], or \"@<absolute path>\". A ZIP, never a product: each target takes its OWN source record. from_source defaults to the source record's load-order winner; target and from must be the SAME record type.")]
+        [Description("Copy zip, with bundle=: [{target, from, from_source?}, …]. Each target is paired with its own source record, not with every source.")]
             JsonElement? assignments = null,
-        [Description("LANE: base filename for the NEW patch this call writes (default 'Patch'); auto-suffixed if taken, so a prior patch is never overwritten — except when '<name>.esp' already exists somewhere your order is not loading it (another mod folder, the overwrite folder, or game Data), which is refused rather than suffixed, naming that place and the file. Mutually exclusive with into= and in_place= — naming both lanes is refused, never silently ignored.")]
+        [Description("Base filename for the new patch (default 'Patch'). A name already taken gets a suffix, so a prior patch is never overwritten, except that a '<name>.esp' your order is not loading (in another mod folder, the overwrite folder or game Data) is refused instead.")]
             string? patch = null,
-        [Description("LANE: filename of an EXISTING houseCARL patch to EXTEND with these edits instead of writing a fresh one — the way to accumulate across calls and sessions. PRECEDENCE (pinned): a FormKey the patch ALREADY CARRIES is edited AS-IS in the patch; only a FormKey it does NOT yet carry copies the load-order winner in first. So " + ToolNames.Forward + " from a source + apply into= the same patch is THE recipe to build on a specific plugin's version while a stale winner sits above it. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead.")]
+        [Description("Filename of an existing houseCARL patch to extend instead of writing a new one, to build one patch across calls. A record the patch already carries is edited as it stands in the patch; a record it does not carry is copied in from the load-order winner first. So to build on one plugin's version of a record that another plugin wins, " + ToolNames.Forward + " it from that plugin into the patch, then apply into= the same patch. Found by filename even if its MO2 mod folder was renamed.")]
             string? into = null,
-        [Description("LANE (opt-in): the FILENAME OF THE FILE BEING OVERWRITTEN, e.g. \"CoolWeapons.esp\" — edit that existing active plugin IN PLACE (incl. one houseCARL didn't author) instead of writing a patch. Your ORIGINAL file is rewritten; no houseCARL backup or undo (keep your own). It re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the records you edit, trusts Mutagen for the untouched rest, and refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. Naming the file is the point: it is what you are about to overwrite. OMIT for the default patch lane, which leaves every original untouched.")]
+        [Description("Opt-in: the filename of an active plugin to edit in its own file instead of writing a patch, e.g. \"CoolWeapons.esp\", including one houseCARL did not author. The original file is rewritten with no backup or undo; keep your own. The whole plugin is re-saved the way xEdit or the Creation Kit save it; the records you edit are verified, the rest is not.")]
             string? in_place = null,
-        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Without it that first call returns a confirmation prompt instead of writing; re-call with acknowledge=true. Waives the consent to touch your original ONLY; it NEVER skips the record verify. Meaningless without in_place=, and refused there rather than ignored.")]
+        [Description("Confirms the in-place trade-off for the plugin named by in_place=. Needed only until the first in-place write to that plugin lands (an edit, create, remove or forward); a refused call records nothing. Without it, that first call returns a confirmation prompt instead of writing. It confirms consent only; the record verify still runs.")]
             bool acknowledge = false,
-        [Description("DRY RUN: run the FULL real pipeline — winner resolve, schema pre-flight, every op applied in memory, the reference-resolution check — and STOP before anything touches disk. Returns what WOULD change (the would-be values, the expected masters), or EXACTLY the refusal the real call would give: catch a bad field path before the first write of a big batch, not after the last. Works on every lane (an in-place dry run needs no acknowledge and never records consent). Not a disk guarantee — a serialize/commit fault still surfaces only for real.")]
+        [Description("Run the whole pipeline (winner resolve, pre-flight, every op applied in memory, the reference check) and stop before anything touches disk. Returns the would-be values and masters, or the refusal the real call would give. Works on every lane; an in-place dry run needs no acknowledge= and records no consent. A fault while saving the file still shows only on the real call.")]
             bool dry_run = false,
-        [Description("TRANSPORT: expand the read-back to the FULL deep field-by-field dump of every record this call touched (not just the edited leaves) — confirm composed structures landed and nothing else was disturbed WITHOUT enabling the patch in MO2. In place, the verify ALWAYS runs and shows compactly by default; this widens it. The read-back is the WRITTEN FILE's content, NOT load-order truth: the patch wins nothing until enabled in MO2, and a write into an EXISTING mod keeps that mod's priority and may still need sorting above the current winner.")]
+        [Description("Widen the read-back to every field of every record this call touched, not just the edited fields. In place, the verify always runs and shows compactly; this widens it. The read-back is the written file, not the load order: a new patch wins nothing until enabled in MO2, and a write into an existing mod keeps that mod's priority, so it may still need sorting above the current winner.")]
             bool readback = false,
-        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band). Every response carries the epoch stamp — the identity of the index build the winners were resolved from — spelled epoch=<hex> on 'text', and as an 'epoch' member on 'json'.")]
+        [Description("'text' (default) or 'json' (the same data). Every reply carries the stamp of the index build the winners were resolved from: epoch=<hex> in text, an 'epoch' member in json.")]
             string? format = null,
-        [Description("TRANSPORT: character ceiling on the WHOLE render — in format=\"json\" the applied-op rows as well as the read-back; in text, the read-back. Past it, trailing rows are dropped with an explicit notice (never silent); the WRITE is unaffected. 0 = a safe default kept under the host's per-response limit; raise it to widen a readback=true dump.")]
+        [Description("Character limit on the reply: in json the applied-op rows and the read-back, in text the read-back. Rows past it are dropped with a notice; the write is unaffected. 0 (default) keeps the reply under the host's limit; raise it for a readback=true dump.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Apply, () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
@@ -245,16 +235,16 @@ public static class ApplyTools
 /// and <c>from_source</c> (the pole it is read at).</summary>
 public sealed record ApplyOp
 {
-    [SchemaRequired, JsonPropertyName("formid"), Description("The record to edit, as 'XXXXXX:Plugin.esp'.")]
+    [SchemaRequired, JsonPropertyName("formid"), Description("The record to edit.")]
     public string? Formid { get; init; }
 
     [SchemaRequired, JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage', 'Name', 'Keywords' or 'Entries'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
     public string? FieldPath { get; init; }
 
-    [SchemaValues(SchemaVocabulary.WriteVerbs), JsonPropertyName("op"), Description(WriteVerbs.AllRecital + ". SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a NEW one AT key= and shifts the rest right (key = the list's length appends) — use it to grow a POSITION-CONTIGUOUS run in place, e.g. adding an arm to an existing CTDA OR-group, where Add would land the row at the end as a separate AND-group. On a [Flags] enum (SPEL Flags, NPC Configuration.Flags, WEAP Data.Flags...) Add SETS a bit and Remove CLEARS one, leaving the OTHER bits untouched — the way to flip one flag WITHOUT a Set silently dropping every bit you didn't mention; to turn all bits off, Set the field to '0'. CopyFrom takes no value — the source IS another record's version, named by from_source= (and from= for a DIFFERENT record) — and it copies a WHOLE field (scalar, formlink, modeled list, sub-struct); it cannot copy owned child records (forward the whole record with " + ToolNames.Forward + " instead).")]
+    [SchemaValues(SchemaVocabulary.WriteVerbs), JsonPropertyName("op"), Description(WriteVerbs.AllRecital + ". SetAtIndex overwrites the element at key=; InsertAtIndex inserts a new one at key= and shifts the rest right (key = the list's length appends), e.g. adding an arm to an existing condition OR-group, where Add would put the row at the end as a separate AND-group. On a flags field (SPEL Flags, NPC Configuration.Flags, WEAP Data.Flags...) Add sets one bit and Remove clears one, leaving the other bits alone, while Set replaces them all; Set '0' clears every bit. CopyFrom takes no value: it copies a whole field (scalar, reference, modeled list, sub-struct) from the version named by from_source= (and from= for a different record); it cannot copy owned child records (use " + ToolNames.Forward + " on the whole record).")]
     public string? Op { get; init; }
 
-    [JsonPropertyName("value"), Description("The value, coerced to the field's real type — a number, an enum name ('OneHanded'), or a FormID for a reference. Omit for Remove / ReplaceAll / Merge / compose / CopyFrom; on a Remove, omitting it whole-clears a NULLABLE field.")]
+    [JsonPropertyName("value"), Description("The value, coerced to the field's type: a number, an enum name ('OneHanded'), or a FormID for a reference. Omit for ReplaceAll, Merge, compose and CopyFrom, and for a Remove that clears a whole nullable field.")]
     public string? Value { get; init; }
 
     [JsonPropertyName("key"), Description("Dict key or list index at the leaf.")]
@@ -266,16 +256,16 @@ public sealed record ApplyOp
     [JsonPropertyName("entries"), Description("Key->value pairs for a dict Merge or dict ReplaceAll.")]
     public Dictionary<string, string>? Entries { get; init; }
 
-    [JsonPropertyName("compose"), Description("Build a MODELED struct for an Add / InsertAtIndex / SetAtIndex, or a polymorphic Set — a leveled-list entry (e.g. 'LeveledItemEntry'), an effect, a condition row, or a polymorphic list element by its CONCRETE arm type (e.g. 'ScriptObjectProperty'). A VMAD script property: op=Add, field_path='VirtualMachineAdapter.Scripts[0].Properties', compose={type:'ScriptObjectProperty', fields:{Name:'MyProp', Flags:'Edited', Object:'XXXXXX:Plugin.esp', Alias:'-1'}}. Merging a weapon into a leveled list: op=Add, field_path='Entries', compose={type:'LeveledItemEntry', sets:[{path:'Data.Level',value:'1'},{path:'Data.Count',value:'1'},{path:'Data.Reference',value:'<weapon FormID>'}]}.")]
+    [JsonPropertyName("compose"), Description("Build a modeled struct for an Add, InsertAtIndex or SetAtIndex, or a polymorphic Set: a leveled-list entry (e.g. 'LeveledItemEntry'), an effect, a condition row, or a polymorphic list element by its concrete type (e.g. 'ScriptObjectProperty'). A script property: op=Add, field_path='VirtualMachineAdapter.Scripts[0].Properties', compose={type:'ScriptObjectProperty', fields:{Name:'MyProp', Flags:'Edited', Object:'XXXXXX:Plugin.esp', Alias:'-1'}}. Merging a weapon into a leveled list: op=Add, field_path='Entries', compose={type:'LeveledItemEntry', sets:[{path:'Data.Level',value:'1'},{path:'Data.Count',value:'1'},{path:'Data.Reference',value:'<weapon FormID>'}]}.")]
     public StructInput? Compose { get; init; }
 
-    [JsonPropertyName("composes"), Description("Build MANY modeled list elements in ONE op — the batch sibling of compose, a LIST built in one op. With Add, appends each in order (a whole block of condition rows at once); with ReplaceAll, clears the list then appends each — the way to replace a whole modeled list (composes=[] with ReplaceAll clears it to empty). Mutually exclusive with compose/value/values.")]
+    [JsonPropertyName("composes"), Description("Build many modeled list elements in one op. With Add, appends each in order (e.g. a block of condition rows); with ReplaceAll, clears the list then appends each, and composes=[] clears it to empty. Not with compose, value or values.")]
     public StructInput[]? Composes { get; init; }
 
-    [JsonPropertyName("from"), Description("op='CopyFrom' only: the SOURCE RECORD to copy the field from, as 'XXXXXX:Plugin.esp' — a DIFFERENT record from formid (SPEC §4.5's cross-record copy). Omit to copy this same record's version from another plugin (name it in from_source). Source and target must be the SAME record type — refused by name otherwise. What CopyFrom does and does not copy is on op=.")]
+    [JsonPropertyName("from"), Description("op='CopyFrom' only: a different record to copy the field from, of the same record type as formid. Omit to copy this same record's version from another plugin, named in from_source.")]
     public string? From { get; init; }
 
-    [JsonPropertyName("from_source"), Description("op='CopyFrom' only: WHOSE version of the source record to copy — an ACTIVE plugin, or a plugin FILE on disk that isn't in the load order (a disabled old patch you want to re-assert a field from). With from= it defaults to the source record's load-order winner; without from= it is required (there is no other source to name).")]
+    [JsonPropertyName("from_source"), Description("op='CopyFrom' only: whose version of the source record to copy, an active plugin or a plugin file on disk outside the load order (e.g. a disabled old patch). Use it to base an edit on an authored plugin while a generated one wins the record. With from= it defaults to the source record's load-order winner; without from= it is required.")]
     public string? FromSource { get; init; }
 
     /// <summary>NOT a wire member — <see cref="JsonIgnoreAttribute"/> keeps it out of the published schema and the
@@ -288,12 +278,12 @@ public sealed record ApplyOp
 /// optionally the pole that source is read at.</summary>
 public sealed record Assignment
 {
-    [SchemaRequired, JsonPropertyName("target"), Description("The record being WRITTEN, as 'XXXXXX:Plugin.esp' — the §5.2 meaning of the bare word 'target': a copy's destination record.")]
+    [SchemaRequired, JsonPropertyName("target"), Description("The record being written.")]
     public string? Target { get; init; }
 
-    [SchemaRequired, JsonPropertyName("from"), Description("The record the bundle is copied FROM, as 'XXXXXX:Plugin.esp'. Must be the same record type as target.")]
+    [SchemaRequired, JsonPropertyName("from"), Description("The record the bundle is copied from, of the same record type as target.")]
     public string? From { get; init; }
 
-    [JsonPropertyName("from_source"), Description("Optional. WHOSE version of the source record to read — a plugin filename (active, or a file on disk out of the load order). Defaults to the source record's load-order winner.")]
+    [JsonPropertyName("from_source"), Description("Whose version of the source record to read: a plugin filename, active or a file on disk outside the load order. Defaults to the source record's load-order winner.")]
     public string? FromSource { get; init; }
 }
