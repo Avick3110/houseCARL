@@ -38,21 +38,21 @@ public static class ApplyTools
             string[]? bundle = null,
         [Description("Copy, with bundle=: [{target, from, from_source?}, …]. Each target is paired with its own source record, not with every source.")]
             JsonElement? assignments = null,
-        [Description("Base filename for the new patch (default 'Patch'). A name already taken gets a suffix, so a prior patch is never overwritten, except that a '<name>.esp' you pass that your order is not loading (in another mod folder, the overwrite folder or game Data) is refused instead.")]
+        [Description(LaneSentences.PatchDefault + LaneSentences.PatchSuffix)]
             string? patch = null,
-        [Description("Filename of an existing houseCARL patch to extend instead of writing a new one, to build one patch across calls. A record the patch already carries is edited as it stands in the patch; a record it does not carry is copied in from the load-order winner first. So to build on one plugin's version of a record that another plugin wins, " + ToolNames.Forward + " it from that plugin into the patch, then apply into= the same patch. Found by filename even if its MO2 mod folder was renamed; for two patches sharing a filename, pass the mod-folder name instead.")]
+        [Description(LaneSentences.IntoLead + "A record the patch already carries is edited as it stands in the patch; a record it does not carry is copied in from the load-order winner first. So to build on one plugin's version of a record that another plugin wins, " + ToolNames.Forward + " it from that plugin into the patch, then apply into= the same patch. " + LaneSentences.IntoFound)]
             string? into = null,
-        [Description("Opt-in: the filename of an active plugin to edit in its own file instead of writing a patch, e.g. \"CoolWeapons.esp\", including one houseCARL did not author. The original file is rewritten with no backup or undo; keep your own. The whole plugin is re-saved the way xEdit or the Creation Kit save it; the records you edit are verified, the rest is not.")]
+        [Description("Opt-in: the filename of an active plugin to edit in its own file instead of writing a patch" + LaneSentences.InPlaceAnyPlugin + LaneSentences.InPlaceRewrite + "The records you edit are verified; the rest is not.")]
             string? in_place = null,
-        [Description("Confirms the in-place trade-off for the plugin named by in_place=. Needed only until the first in-place write to that plugin lands (an edit, create, remove or forward); a refused call records nothing. Without it, that first call returns a confirmation prompt instead of writing. It confirms consent only.")]
+        [Description(LaneSentences.Acknowledge)]
             bool acknowledge = false,
-        [Description("Run the whole pipeline (winner resolve, pre-flight, every op applied in memory, the reference check) and stop before anything touches disk. Returns the would-be values and masters, or the refusal the real call would give. Works on every lane; an in-place dry run needs no acknowledge= and records no consent. A fault while saving the file still shows only on the real call.")]
+        [Description("Run the whole pipeline (winner resolve, pre-flight, every op applied in memory, the reference check) and stop before anything touches disk. Returns the would-be values and masters, or the refusal the real call would give. " + LaneSentences.DryRunLanes)]
             bool dry_run = false,
-        [Description("Widen the read-back to every field of every record this call touched, not just the edited fields. The read-back is the written file, not the load order: a new patch wins nothing until enabled in MO2, and a write into an existing mod keeps that mod's priority, so it may still need sorting above the current winner.")]
+        [Description("Widen the read-back to every field of every record this call touched, not just the edited fields. " + LaneSentences.ReadbackIsTheFile)]
             bool readback = false,
-        [Description("'text' (default) or 'json' (the same data). Every reply carries the stamp of the index build the winners were resolved from: epoch=<hex> in text, an 'epoch' member in json.")]
+        [Description("'text' (default) or 'json' (the same data). " + LaneSentences.Epoch)]
             string? format = null,
-        [Description("Character limit on the reply: in json the applied-op rows and the read-back, in text the read-back. Rows past it are dropped with a notice; the write is unaffected. 0 (default) keeps the reply under the host's limit; raise it for a readback=true dump.")]
+        [Description("Character limit on the reply: in json the applied-op rows and the read-back, in text the read-back. " + LaneSentences.MaxCharsCut + "; raise it for a readback=true dump.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Apply, () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
