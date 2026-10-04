@@ -47,7 +47,9 @@ public static class AssetTools
                      "is judged on the winning MO2 layer, so two archives of one mod are not a split, nor are two " +
                      "files both in the game's Data folder or both in overwrite. The path is computed from the " +
                      "FormID, so the folder is the defining master, never the conflict winner, and no record is " +
-                     "read. A malformed FormID is one error row, not a failed call. Takes [\"@<absolute path>\"]: a " +
+                     "read. One half winning nowhere is also a dark face: the row shows it ABSENT, but the json's " +
+                     "pair.differs and the to_file= pair_differs flag only two present halves with different " +
+                     "owners, so a filter on that field misses it. A malformed FormID is one error row, not a failed call. Takes [\"@<absolute path>\"]: a " +
                      "plain list file, or a housecarl_records artifact whose 'formid' column becomes the list " +
                      "(epoch-checked against the current build); records types=[\"NPC_\"] to_file= then " +
                      "formids=[\"@<that file>\"] sweeps the whole order.")]
