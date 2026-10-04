@@ -11,34 +11,30 @@ public static class RemoveTools
 {
     [McpServerTool(Name = ToolNames.Remove, Title = "Remove whole records"),
      Description(
-         "Remove WHOLE records — a literal drop-from-plugin, NOT a flag-as-deleted stub. The counterpart to " +
-         ToolNames.Apply + ": where apply ADDS an override into a patch, this drops one OUT of it. ONE surface: what to " +
-         "drop (formids=) x WHERE from (the LANE: into= a houseCARL patch | in_place=\"X.esp\") x how it reads back " +
-         "(TRANSPORT).\n\n" +
-         "WHAT A REMOVAL MEANS. You CANNOT remove a record that lives in a master or another mod; you can only drop " +
-         "THIS file's override of it, which makes the load-order winner revert (the file stops touching that " +
-         "record). Unused masters are pruned automatically: if a removed record held the file's last reference to a " +
-         "master, that master drops from the header on the re-write.\n\n" +
-         "Each axis's grammar is on its own parameters:\n" +
-         "WHAT — formids=, the set of records to drop and the rule for which ones may be named.\n" +
-         "LANE — into= a houseCARL patch | in_place= an existing plugin (opt-in), with acknowledge=. Exactly one " +
-         "lane per call: a removal never creates an artifact, it edits one that already exists.\n" +
-         "TRANSPORT — format= | max_chars=.\n\n" +
-         "To remove a list ENTRY (a keyword, an item, a leveled-list line) rather than a whole record, use " +
-         ToolNames.Apply + " with op='Remove' instead. Read first with " + ToolNames.Records + ".")]
+         "Remove whole records from a plugin: a literal drop, not a deleted-flag stub; the counterpart to " +
+         ToolNames.Apply + ", which adds overrides. A record a master or another mod defines cannot be removed; " +
+         "dropping this file's override of it makes the record fall back to the next plugin's version. A master " +
+         "the file no longer references drops from its header.\n\n" +
+         "What to drop: formids=. Where from: an existing houseCARL patch (into=) or a plugin's own file (in_place= " +
+         "with acknowledge=); name exactly one, since a removal edits a file that exists. How it reads back: " +
+         "format=, max_chars=.\n\n" +
+         "All or nothing: if any record is rejected, the whole call is refused with a reason per record and nothing " +
+         "is written.\n\n" +
+         "To remove a list entry (a keyword, an item, a leveled-list line) rather than a whole record, use " +
+         ToolNames.Apply + " with op='Remove'. Read first with " + ToolNames.Records + ".")]
     public static string Remove(
         LoadOrderService svc,
-        [Description("The record(s) to drop, each 'XXXXXX:Plugin.esp' (6 hex digits, the defining master's filename) — SET-VALUED, so many records drop in ONE re-serialize (one is a set of one). Only a record the LANE FILE itself carries may be named; it reaches records in ANY group (cells, placed references, dialogue, navmesh). ALL-OR-NOTHING (Q3): a FormID the file doesn't carry is REFUSED loud — if ANY target isn't carried, the whole call is refused with per-record reasons and NOTHING is written. A singular owned child (a cell's Landscape, a worldspace's TopCell) is refused unless the records under it are named too — removing it means detaching it from its parent, which takes the records under it with it: name them in the same call so the removal reports every record it drops, or leave this one. Also accepts [\"@<absolute path>\"] to read the same list from a file, one FormID per line.")]
+        [Description("The records to drop, each 'XXXXXX:Plugin.esp'. Only a record the lane's file itself defines or overrides can be named, in any group (cells, placed references, dialogue, navmesh). Removing a record also drops every record nested under it (a cell's placed references, a topic's lines), and the reply lists only the records you named. A record in a parent's single-child slot (a cell's Landscape, a worldspace's TopCell) is refused unless the records under it are named too. Also takes [\"@<absolute path>\"], a file with one FormID per line.")]
             string[]? formids = null,
-        [Description("LANE: filename of the houseCARL patch to remove the records FROM (e.g. 'MyMerge.esp') — the same name you pass to " + ToolNames.Apply + "'s into=. It must be a patch houseCARL created that carries them, either because houseCARL created them there or because a prior apply/forward into= it accumulated them as overrides. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead. Mutually exclusive with in_place=.")]
+        [Description("Filename of the houseCARL patch to remove the records from, e.g. 'MyMerge.esp'; it must be a patch houseCARL created, and carry them. " + LaneSentences.IntoFound)]
             string? into = null,
-        [Description("LANE (opt-in): the FILENAME OF THE FILE BEING REWRITTEN, e.g. \"CoolWeapons.esp\" — drop the records straight out of ANY existing active plugin, incl. one houseCARL didn't author. Your ORIGINAL file is rewritten; no houseCARL backup or undo (keep your own). It drops only a record the file itself defines or overrides. Mutually exclusive with into=.")]
+        [Description("Opt-in: the filename of an active plugin to drop the records straight out of" + LaneSentences.InPlaceAnyPlugin + LaneSentences.InPlaceRewrite + "Every record you drop is checked gone on the re-opened file.")]
             string? in_place = null,
-        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Without it that first call returns a confirmation prompt instead of writing; re-call with acknowledge=true. Waives the consent to touch your original ONLY; it NEVER skips the absence verify, which confirms on the re-opened file that every record you dropped is actually gone. Meaningless without in_place=, and refused there rather than ignored.")]
+        [Description(LaneSentences.Acknowledge)]
             bool acknowledge = false,
-        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band). Either way the response states what was removed, the remaining masters, and how many records remain (0 = the file is an inert shell). Every response answered from a build carries the epoch stamp — the identity of the index build this removal's master context came from — spelled epoch=<hex> on 'text', and as an 'epoch' member on 'json'; a refusal that consulted no build carries none.")]
+        [Description("'text' (default) or 'json' (the same data). Either way the reply states what was removed, the masters left, and how many records remain (0: the file now holds none). " + LaneSentences.Epoch)]
             string? format = null,
-        [Description("TRANSPORT: character ceiling on the render; past it trailing rows are dropped with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit.")]
+        [Description("Character limit on the reply. " + LaneSentences.MaxCharsCut + ".")]
             int max_chars = 0) => Guard.Tool(ToolNames.Remove, () =>
     {
         // format first, ahead of the unconfigured-MO2 prompt; contract in docs/architecture/write-path.md.
