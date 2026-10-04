@@ -12,89 +12,66 @@ public static class AssetTools
 {
     [McpServerTool(Name = ToolNames.AssetStatus, ReadOnly = true, Title = "Asset status — which mod/BSA wins for a Data-relative path"),
      Description(
-         "Resolve one or more Data-relative asset paths through Mod Organizer 2's virtual file system and report, for " +
-         "each, WHICH copy the game actually uses: the winning source, every source that provides it (loose mods, the " +
-         "overwrite folder, the game Data folder, and active BSAs), whether more than one source contends, and whether " +
-         "the asset is absent. Precedence is the real engine/MO2 rule — loose files beat BSA-packed, among loose the " +
-         "higher-priority mod (then overwrite) wins, among BSAs the later-loaded plugin's archive wins. This is the " +
-         "file-layer counterpart to the load-order winner of a record: use it to answer 'which mod provides this file / " +
-         "is this texture loose or in a BSA / is this asset even present / why isn't my " +
-         "override applying' for ANY Data-relative path — mesh, texture, script, sound, interface. Pass " +
-         "asset_paths = one or more paths RELATIVE to the Data folder, and/or under = a Data-relative DIRECTORY or " +
-         "glob, which resolves every file the VFS provides beneath it — one call over " +
-         "'meshes/actors/character/facegendata/facegeom/Skyrim.esm' answers for every facegen mesh a master defines. " +
-         "Or formids = NPC FormIDs: BOTH halves of each one's FaceGen pair are derived and " +
-         "resolved (head mesh + face tint), each row naming the OTHER half's winner beside its own — a whole-order " +
-         "dark-face pairing sweep in ONE call. SELECT forms compose, and every " +
-         "list-valued one takes '@<absolute path>' in place of the inline list. An archive that cannot be read, or a " +
-         "missing Skyrim.ini base-archive list, is reported LOUD — so an 'absent' answer is never silently " +
-         "trusted. format='json' returns the same data machine-readably, with the same " +
-         "accounting in-band. TRANSPORT — format= | limit= | offset= | max_chars= | counts_only= | to_file=. BOUND: 1,200,000 paths " +
-         "RESOLVED a call — the window where limit= takes one, except under to_file= and counts_only=, which each " +
-         "resolve the whole selection — and past it the call refuses up front with the count and the estimate. Read-only: " +
-         "resolves nothing to disk, writes nothing, changes no load order.")]
+         "Resolve Data-relative asset paths through Mod Organizer 2's virtual file system and report, for each, which " +
+         "copy the game uses: the winner, every source that provides it (loose mods, the overwrite folder, the game " +
+         "Data folder, active BSAs), whether more than one contends, and whether the asset is absent. Precedence: loose " +
+         "beats BSA; among loose files the higher-priority mod (then overwrite) wins; among BSAs the later-loaded " +
+         "plugin's archive wins. The file-layer counterpart to a record's load-order winner: use it for 'which mod " +
+         "provides this file', 'is this texture loose or in a BSA', 'is this asset present', 'why isn't my override " +
+         "applying', for any mesh, texture, script, sound or interface path. Select with asset_paths=, under= (a " +
+         "directory or glob) and formids= (NPC FaceGen pairs); they compose. An archive that cannot be read, or a " +
+         "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
+         "that would resolve more than 1,200,000 paths is refused before it resolves any; limit= sets that count, " +
+         "except under to_file= and counts_only=, which resolve the whole selection. Read-only.")]
     public static string AssetStatus(
         LoadOrderService svc,
-        [Description("The Data-relative asset path(s) to resolve, e.g. " +
-                     "'textures/armor/iron/cuirass_1.dds' or 'meshes/clutter/common/tankard01.nif'. One or many; resolved " +
-                     "in order, results returned in the same order. Paths are relative to the game's Data folder; " +
-                     "forward or back slashes both fine, and a drive-rooted or '..'-escaping path is rejected " +
-                     "per-path rather than failing the call. " +
-                     "Optional when under= or formids= is given. Takes [\"@<absolute path>\"] in place of the inline " +
-                     "list: a plain list file one path per line, or an artifact this tool wrote with to_file= (whose " +
-                     "identity column is 'path'). A path list is NOT epoch-checked — a path is a string and every " +
-                     "answer about it is read live off the VFS — so yesterday's sweep re-enters here after you have " +
-                     "changed the order, which is the point.")]
+        [Description("Data-relative asset path(s), e.g. 'textures/armor/iron/cuirass_1.dds'. Results come back in " +
+                     "the order given. Forward or back slashes; a drive-rooted or '..'-escaping path is an error on " +
+                     "its own row, not a failed call. Optional when under= or formids= is given. Takes " +
+                     "[\"@<absolute path>\"] in place of the list: a plain file, one path per line, or a to_file= " +
+                     "artifact from this tool (identity column 'path'). A path list is not epoch-checked, so a saved " +
+                     "sweep re-enters after the order changes.")]
             string[]? asset_paths = null,
-        [Description("Optional. Data-relative DIRECTORY or glob selector(s): every file the load order provides beneath " +
-                     "it (loose and BSA both) is resolved, e.g. " +
-                     "'meshes/actors/character/facegendata/facegeom/Skyrim.esm' for one master's whole facegen set. " +
-                     "Wildcards: '*' matches within one path segment, '?' one character in a segment, '**' across " +
-                     "separators — 'textures/actors/character/**/*.dds'. Matches are added after any asset_paths, " +
-                     "sorted, with duplicates dropped. A selector that matches nothing says so rather than passing as " +
-                     "an empty sweep.")]
+        [Description("Optional. Data-relative directory or glob selector(s): every file the load order provides " +
+                     "beneath it, loose and BSA, is resolved, e.g. " +
+                     "'meshes/actors/character/facegendata/facegeom/Skyrim.esm' for one master's facegen set. '*' " +
+                     "matches within one path segment, '?' one character, '**' across separators: " +
+                     "'textures/actors/character/**/*.dds'. Matches come after the asset_paths and formids= rows, " +
+                     "sorted, duplicates dropped. A selector that matches nothing says so.")]
             string[]? under = null,
-        [Description("SELECT: NPC FormIDs ('XXXXXX:Plugin.esp' — 6 hex digits, a colon, then the DEFINING master's " +
-                     "filename). Each one contributes BOTH halves of that NPC's FaceGen pair — " +
+        [Description("Optional. NPC FormIDs ('XXXXXX:Plugin.esp', the defining master's filename). Each contributes " +
+                     "both halves of its FaceGen pair, " +
                      "'meshes\\actors\\character\\facegendata\\facegeom\\<master>\\00<6hex>.nif' and " +
-                     "'textures\\...\\facetint\\<master>\\00<6hex>.dds' — as two rows, each carrying the OTHER half's " +
-                     "winner beside its own, because a dark face is almost always the two halves winning from " +
-                     "different mods (or one of them winning nowhere). That verdict is taken on the winning copy's " +
-                     "MO2 LAYER, so two archives of one mod are not a split — and neither are two files both " +
-                     "installed into the game's own Data folder, or both in overwrite, which are layers rather than " +
-                     "mods. The path is a PURE transform of the FormID, so " +
-                     "this lane reads no record and costs no per-id winner seek; the folder is the defining master in " +
-                     "the FormID, never the conflict winner. A malformed FormID is ONE error row, not a failed call. " +
-                     "Takes [\"@<absolute path>\"] in place of the inline list — a plain list file, or a " +
-                     "housecarl_records artifact, whose 'formid' column becomes the list (epoch-checked against " +
-                     "the current build): records types=[\"NPC_\"] to_file= then formids=[\"@<that file>\"] is the " +
-                     "whole-order sweep.")]
+                     "'textures\\...\\facetint\\<master>\\00<6hex>.dds', as two rows, each naming the other half's " +
+                     "winner beside its own and flagging when both win from different mods: the dark-face split. That " +
+                     "is judged on the winning MO2 layer, so two archives of one mod are not a split, nor are two " +
+                     "files both in the game's Data folder or both in overwrite. The path is computed from the " +
+                     "FormID, so the folder is the defining master, never the conflict winner, and no record is " +
+                     "read. A malformed FormID is one error row, not a failed call. Takes [\"@<absolute path>\"]: a " +
+                     "plain list file, or a housecarl_records artifact whose 'formid' column becomes the list " +
+                     "(epoch-checked against the current build); records types=[\"NPC_\"] to_file= then " +
+                     "formids=[\"@<that file>\"] sweeps the whole order.")]
             string[]? formids = null,
-        [Description("Optional. Max paths to resolve and render from the selection. 0 = no limit. Ignored by to_file=, " +
-                     "which covers the WHOLE selection — the artifact is never a window. Under counts_only=true this " +
-                     "caps the census TABLE's rows instead: the census covers the whole selection too, and its table " +
-                     "is what needs paging.")]
+        [Description("Optional. Max paths to resolve and render. 0 = no limit. to_file= ignores it and covers the " +
+                     "whole selection. Under counts_only=true it caps the census table's rows instead; the census " +
+                     "still covers the whole selection.")]
             int limit = 0,
-        [Description("Optional. Where in the selection the rendered window starts, for paging a large under= sweep. 0 = the beginning. Refused with to_file= and with counts_only=, neither of which takes a selection window.")]
+        [Description("Optional. Where the rendered window starts in the selection, for paging. 0 = the beginning.")]
             int offset = 0,
-        [Description("TRANSPORT: write the COMPLETE result to this ABSOLUTE .jsonl path as an artifact (line 1 = " +
-                     "manifest) and render only the manifest inline — the same convention housecarl_records and " +
-                     "housecarl_check use. One row per resolved path, carrying the winner, the provider kind (loose " +
-                     "or BSA, and for a BSA which archive), the whole provider chain, and — on a formids= row — the " +
-                     "paired path with its own winner and whether the two differ. The artifact is never a window: " +
-                     "offset= is refused with it, limit= does not narrow it, and row_count equals total. Re-enter it " +
-                     "via asset_paths=[\"@<path>\"]; its identity column is 'path', so it is NOT a formids= list for " +
-                     "housecarl_records.")]
+        [Description("Optional. Write the complete result to this absolute .jsonl path (line 1 = manifest) and " +
+                     "render only the manifest inline, as housecarl_records and housecarl_check do. One row per " +
+                     "resolved path: the winner, loose or BSA (and which archive), the whole provider chain, and on " +
+                     "a formids= row the paired path, its winner, and whether the two differ. The file covers the " +
+                     "whole selection: limit= does not narrow it and row_count equals total. Re-enter it via " +
+                     "asset_paths=[\"@<path>\"]; its identity column is 'path', so it is not a formids= list.")]
             string? to_file = null,
-        [Description("TRANSPORT: return the census and no path rows — what the file layer looks like in aggregate: " +
-                     "which MO2 layers win how many paths, how the winners split between loose and BSA, and how " +
-                     "many are absent. The question a whole-order sweep usually has of its rows. It covers the " +
-                     "WHOLE selection whatever limit= says, so limit= caps the census table's rows instead and " +
-                     "offset= is refused. Refused beside to_file=, which writes the rows the census replaces.")]
+        [Description("Optional. Return a census instead of path rows: which MO2 layers win how many paths, how the " +
+                     "winners split between loose and BSA, and how many are absent. It covers the whole selection; " +
+                     "limit= caps its table's rows.")]
             bool counts_only = false,
-        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
+        [Description("Optional. 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
-        [Description("TRANSPORT: character CEILING on the whole response, not just on the per-path list — the path whose block would cross it is not written at all. What the ceiling holds back is NOT lost: the RESOLVED result is written whole to an artifact in the server's results directory and the response names that file — under limit= the resolved result IS the window, and the marker says so. The one exception is counts_only=, which spills nothing: a census whose layer table the ceiling cut says how many rows it held back, and those rows are in no file — raise max_chars, or page the table with limit=. Spilling also FINGERPRINTS the order, so on a path-only sweep, which otherwise reads no record at all, the first spill builds the record index (seconds on a big order). The alarms and the accounting line are charged before the paths render, so both are inside the ceiling. A cap too small for what the response carries whatever the budget says so and names the cap that clears it in one step. 0 = the server default (~80k).")]
+        [Description("Optional. Character ceiling on the whole response; the path whose block would cross it is not written. What it holds back is not lost: the resolved result (under limit=, the window) is written whole to a file in the server's results directory, and the response names it. counts_only= spills nothing: a cut census says how many layer rows it held back; raise max_chars or page the table with limit=. On a path-only sweep the first spill also builds the record index, which takes time on a large order. The alarms and the accounting line are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (about 80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.AssetStatus, () =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a document.

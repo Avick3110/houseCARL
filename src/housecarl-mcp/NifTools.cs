@@ -20,84 +20,63 @@ public static class NifTools
 
     [McpServerTool(Name = ToolNames.NifInspect, ReadOnly = true, Title = "Inspect the data values inside one or many Skyrim meshes (.nif)"),
      Description(
-         "Read the DATA VALUES inside one or many Skyrim meshes (.nif) at the data layer, beneath NifSkope — ONE " +
-         "surface: which meshes (SELECT) x whose copy (SOURCE) x how much of each mesh (PROJECT) compose in a single " +
-         "call.\n\n" +
-         "Every Data-relative path — typed in mesh_paths, or derived from an npc= FormID — resolves through Mod " +
-         "Organizer 2's virtual file system to the copy the game uses (loose beats BSA; among BSAs the " +
-         "later-loaded plugin wins), with ONE load-order resolution for the batch.\n\n" +
-         "WHAT A READ SEES, per mesh: the header version + whether it is a Skyrim SE stream; the block census (every " +
-         "block type and count); any UNKNOWN blocks (named + preserved, never silently dropped); and the shape names " +
-         "— that is the default summary. sections= expands it to each shape's flags, scale, partitions, alpha, shader " +
-         "and texture-set paths, its bone list, the node tree and the header string table. Scope: data values only; " +
-         "it does not read or edit geometry / visual content.\n\n" +
-         "Use it to answer 'what shapes / bones / textures / partitions / alpha does this mesh have', 'does it " +
-         "glow / use soft lighting / subsurface skin / env-mapping', to read a facegen mesh's baked shape names and " +
-         "tint path, to check a skeleton's bone names, or to see a dark-face mesh's flags/alpha/partitions — the " +
-         "asset-INTERNAL companion to " + ToolNames.AssetStatus + " (which mod wins) once you know the winning " +
-         "file.\n\n" +
-         "Each axis's grammar is on its own parameters:\n" +
-         "SELECT — mesh_paths= | npc=; one of the two is required, and the two compose into one batch.\n" +
-         "SOURCE — source_provider= (empty = the VFS winner).\n" +
-         "PROJECT — sections= (empty = the summary).\n" +
-         "TRANSPORT — max_chars=.\n\n" +
-         "A per-path failure — an absent path, a source_provider= name nothing provides, a mesh the underlying mesh library " +
-         "refuses — is reported LOUD by name on THAT path without aborting the rest; an unreadable archive is named " +
-         "once for the batch; never a silent 'absent' or a half-answer. Read-only: resolves nothing to disk, writes " +
-         "nothing, changes no load order — " + ToolNames.NifSet + " is the write counterpart.")]
+         "Read the data values inside one or many Skyrim meshes (.nif), beneath NifSkope. Each Data-relative path, " +
+         "typed in mesh_paths or derived from an npc= FormID, resolves through Mod Organizer 2's virtual file system " +
+         "to the copy the game uses, or to the copy source_provider= names.\n\n" +
+         "The default summary per mesh: the header version and whether it is a Skyrim SE stream, the block census " +
+         "(every block type and count), any unknown blocks (named, never dropped), and the shape names. sections= " +
+         "adds detail. Data values only: geometry and visual content are not read.\n\n" +
+         "Use it for 'what shapes / bones / textures / partitions / alpha does this mesh have', 'does it glow / use " +
+         "soft lighting / subsurface skin / env-mapping', a facegen mesh's baked shape names and tint path, a " +
+         "skeleton's bone names, or a dark-face mesh's flags, alpha and partitions. It reads inside a file; " +
+         ToolNames.AssetStatus + " says which mod's copy wins.\n\n" +
+         "Select — mesh_paths= | npc=; one is required, and the two compose into one batch.\n" +
+         "Source — source_provider= (empty = the VFS winner).\n" +
+         "Project — sections= (empty = the summary).\n" +
+         "Transport — max_chars=.\n\n" +
+         "A per-path failure (an absent path, a source_provider= name nothing provides, a mesh the mesh library " +
+         "refuses) is reported by name on that path and the rest still read; an unreadable archive is named once " +
+         "for the batch. Read-only; " + ToolNames.NifSet + " is the write counterpart.")]
     public static string NifInspect(
         LoadOrderService svc,
-        [Description("The Data-relative mesh path(s) to inspect, e.g. " +
+        [Description("Data-relative mesh path(s), e.g. " +
                      "'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif' or " +
-                     "'meshes\\armor\\iron\\cuirass_1.nif'. One or many at " + ToolNames.AssetStatus + " parity — a " +
-                     "whole facegen sweep's flagged subset is ONE call; inspected in order, results returned in the " +
-                     "same order. Relative to the game's Data folder (forward or back slashes both fine); a " +
-                     "drive-rooted path ('C:\\…') or one carrying a '..' segment is REFUSED on that path by name, " +
-                     "never silently normalized. Optional only if npc= is passed instead.")]
+                     "'meshes\\armor\\iron\\cuirass_1.nif'. Read and returned in the order given. Forward or back " +
+                     "slashes; a drive-rooted path ('C:\\…') or one with a '..' segment is an error on that path, " +
+                     "never normalized. Optional if npc= is passed.")]
             string[]? mesh_paths = null,
-        [Description("Optional. NPC FormID(s) to inspect the FaceGen HEAD MESH of — houseCARL derives each one's " +
-                     "'meshes\\actors\\character\\facegendata\\facegeom\\<defining master>\\00<6 hex>.nif' and reads it " +
-                     "like any other mesh path, so the record → facegen derivation stops being the caller's job. " +
-                     "'XXXXXX:Plugin.esp', or the runtime form the game/console prints ('FE012800', '0501A51A'). " +
-                     "The FOLDER is the plugin that DEFINES the NPC, never the conflict winner. Derived paths are " +
-                     "inspected AFTER any mesh_paths, in the order given; mesh_paths and npc may be passed together, " +
-                     "and one of the two is required. A FormID that will not PARSE refuses the whole call, naming it, " +
-                     "before any mesh is read; once a path is derived it fails like any other — on that path alone.")]
+        [Description("Optional. NPC FormID(s) whose FaceGen head mesh to read: " +
+                     "'meshes\\actors\\character\\facegendata\\facegeom\\<defining master>\\00<6 hex>.nif' is " +
+                     "derived and read like any other path. 'XXXXXX:Plugin.esp', or the runtime form the game or " +
+                     "console prints ('FE012800', '0501A51A'). The folder is the plugin that defines the NPC, never " +
+                     "the conflict winner. Derived paths are read after any mesh_paths, in the order given.")]
             string[]? npc = null,
-        [Description("Optional. Which detail sections to show beyond the summary — any of 'shapes', 'partitions', 'alpha', " +
-                     "'paths', 'shader', 'strings', 'nodes', 'bones', or 'all'. Comma-, space-, or JSON-array-separated (e.g. " +
-                     "[\"shapes\",\"shader\"]). What each adds — per shape, except 'nodes' and 'strings', which are " +
-                     "per mesh: 'shapes' the shape " +
-                     "name, the NiAVObject flags (hex, decoded by deviation from the type's documented default plus " +
-                     "the 0x80000 bit) and scale, with that shape's partitions, alpha, texture-set paths and bones " +
-                     "inline; 'partitions' the BSDismember body-part partitions (decoded to their SBP_* names); " +
-                     "'alpha' the alpha property (decoded blend / test / threshold); 'paths' the embedded texture-set " +
-                     "paths with their semantic slot names where the shader determines them; 'shader' the SHADER " +
-                     "property (block type, the shader TYPE enum — SkinTint / FaceTint / HairTint / EnvironmentMap / " +
-                     "Parallax / … — the SLSF1+SLSF2 flags decoded to their names, and the lighting values on a " +
-                     "Skyrim-layout shader — emissive colour and multiple, glossiness, specular strength and colour, " +
-                     "alpha. Anything not reported is NAMED, with its reason: the library stubs that accessor for " +
-                     "that block type, or the mesh reads as another game's layout, where houseCARL declines the group " +
-                     "rather than interpret the ones that survive the layout change and guess at the rest); 'bones' " +
-                     "the bone list; 'nodes' the node tree, each node with the same flag decode; 'strings' the header " +
-                     "string table. There is NO 'textures' section — a mesh's embedded texture-set slot paths " +
-                     "appear under 'shapes' (per-shape detail) and 'paths'. " +
-                     "Applies to every mesh in the batch; " +
-                     "unrecognized tokens are reported loud, and an all-unrecognized sections= is an error (never a " +
-                     "silent fallback to the summary). Empty = summary only (header + block census + shape names).")]
+        [Description("Optional. Detail sections beyond the summary: any of 'shapes', 'partitions', 'alpha', " +
+                     "'paths', 'shader', 'strings', 'nodes', 'bones', or 'all'; comma-, space- or JSON-array-separated " +
+                     "(e.g. [\"shapes\",\"shader\"]). Per shape unless noted: 'shapes' the shape name, the NiAVObject " +
+                     "flags (hex, decoded by deviation from the type's documented default plus the 0x80000 bit) and " +
+                     "scale, with that shape's partitions, alpha, texture-set paths and bones inline; 'partitions' " +
+                     "the BSDismember partitions (decoded to SBP_* names); 'alpha' the alpha property (blend / test / " +
+                     "threshold); 'paths' the embedded texture-set paths, with slot names where the shader determines " +
+                     "them; 'shader' the shader property (block type, the shader type such as SkinTint / FaceTint / " +
+                     "HairTint / EnvironmentMap / Parallax, the SLSF1+SLSF2 flags by name, and on a Skyrim-layout " +
+                     "shader the lighting values: emissive colour and multiple, glossiness, specular strength and " +
+                     "colour, alpha; anything not reported is named with its reason, either the library does not " +
+                     "read it for that block type or the mesh has another game's layout); 'bones' the bone list; " +
+                     "'nodes' the node tree per mesh, with the same flag decode; 'strings' the header string table " +
+                     "per mesh. There is no 'textures' section: texture-set paths are under 'shapes' and 'paths'. " +
+                     "Applies to every mesh in the batch; unrecognized tokens are reported. Empty = the summary.")]
             string sections = "",
-        [Description("Optional. Inspect a specific provider's copy instead of the VFS winner — the mod folder " +
-                     "name, 'overwrite', 'Data', or a BSA filename. The same pole " + ToolNames.Place + " takes, " +
-                     "spelled the same way. Pass the name EXACTLY as the providers chain " +
-                     "shows it INSIDE the double quotes; the kind after them ('loose' / 'BSA') is not part of the name. " +
-                     "Naming a MOD reaches that mod's loose files AND its own root archives, whether or not MO2 is " +
-                     "loading it, so a donor mod can be read without enabling it; the response then SAYS the game is " +
-                     "not loading that copy. '*winner' is the winner pole spelled out. A name that provides no copy " +
-                     "of a given mesh is THAT path's own named miss, listing the providers that do where any do; the " +
-                     "rest of the batch still reads. Applies to every mesh " +
-                     "in the batch. Empty = the winner.")]
+        [Description("Optional. Read a specific provider's copy instead of the VFS winner: the mod folder name, " +
+                     "'overwrite', 'Data', or a BSA filename, exactly as the providers chain shows it inside the " +
+                     "double quotes (the kind after them, 'loose' / 'BSA', is not part of the name). Naming a mod " +
+                     "reaches its loose files and its own root archives whether or not MO2 is loading it, so a donor " +
+                     "mod can be read without enabling it; the response then says the game is not loading that copy. " +
+                     "'*winner' is the winner spelled out. A name that provides no copy of a mesh is that path's own " +
+                     "miss, listing the providers that do; the rest of the batch still reads. Applies to every mesh. " +
+                     "Empty = the winner.")]
             string source_provider = "",
-        [Description("TRANSPORT: character CEILING on the whole response — one cap over the WHOLE batch's render, not per mesh: the mesh whose block would cross it is not written at all, and the notice says how many were held back; one mesh wider than the whole budget is named with the max_chars that clears it rather than dropped. Detail sections cut against what the batch has left, and a requested section with no room to start is counted. 0 = the server default (~80k).")]
+        [Description("Optional. Character ceiling on the whole batch's response, not per mesh: the mesh whose block would cross it is not written, and the notice says how many were held back; one mesh wider than the whole budget is named with the max_chars that clears it. Detail sections cut against what the batch has left, and a requested section with no room to start is counted. 0 = the server default (about 80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -162,68 +141,57 @@ public static class NifTools
 
     [McpServerTool(Name = ToolNames.NifSet, Title = "Write a whitelisted data value into a Skyrim mesh (.nif)"),
      Description(
-         "Write ONE whitelisted DATA VALUE into a Skyrim SE mesh (.nif) at the data layer, beneath NifSkope — then VERIFY " +
-         "the edit before anything lands. ONE surface: which mesh (SELECT) x whose copy (SOURCE) x what to change (the " +
-         "ACT) x WHERE it lands (the LANE) compose in a single call. The WRITE counterpart to " + ToolNames.NifInspect +
-         ", which reads the values this edits — the facegen head-mesh repairs are its canonical use; to make a DIFFERENT " +
-         "existing copy win instead of editing one, use " + ToolNames.Place + ".\n\n" +
-         "Resolve the Data-relative mesh_path through Mod Organizer 2's VFS to the winning copy (or source_provider=), apply the op, " +
-         "and pass it two offset-immune verification gates (only the block/value the op claims to touch changed; a reload " +
-         "re-reads the new value; census + SE-stream intact) — a failure writes NOTHING and says why. Every refusal is " +
-         "loud and named (Q3), never a silent half-write.\n\n" +
-         "By DEFAULT the verified mesh is written into a NEW houseCARL MO2 mod folder at the same path (originals " +
-         "untouched) — enable it in MO2 and the edit wins, because a NEW folder registers at MO2's highest priority; an " +
-         "into= folder's priority is already fixed, so sort it ABOVE the current winner. A BSA-packed source becomes a " +
-         "loose winning override this way. in_place=true instead OVERWRITES the winning LOOSE file where it sits (opt-in; " +
-         "rides the per-file consent handshake, needs acknowledge=true, NO backup). Only edits data VALUES — never " +
-         "geometry / vertices / the .dds pixels.\n\n" +
-         "Each axis's grammar is on its own parameters:\n" +
-         "SELECT — mesh_path= (which mesh) x target= (what inside it the op edits).\n" +
-         "SOURCE — source_provider= (empty = the VFS winner).\n" +
-         "ACT — op= names the write; its operands are new_name=, flags=, scale=, body_part_id= [+ partition_index=], " +
+         "Write one whitelisted data value into a Skyrim SE mesh (.nif), beneath NifSkope, and verify it before " +
+         "anything lands. The write counterpart to " + ToolNames.NifInspect + ", which reads the values this edits; " +
+         "the facegen head-mesh repairs are its main use. To make a different existing copy win instead of editing " +
+         "one, use " + ToolNames.Place + ".\n\n" +
+         "It resolves mesh_path through Mod Organizer 2's VFS to the winning copy (or source_provider='s), applies " +
+         "the op, and checks that only the block and value the op targets changed, that a reload reads the new " +
+         "value, and that the block census and SE stream are intact. A failed check writes nothing and says why. A " +
+         "passed check proves the value landed, not that the face or armour renders right: geometry, .dds pixels " +
+         "and the render stay unseen, so report the render as unverified until it is checked in game.\n\n" +
+         "By default the verified mesh is written at the same path into a new houseCARL MO2 mod folder, originals " +
+         "untouched; a BSA-packed source becomes a loose override. A new folder registers at MO2's highest " +
+         "priority, so enabling it makes the edit win, unless the current winner sits in MO2's overwrite folder, " +
+         "which no mod out-ranks. An into= folder's priority is already fixed, so sort it above a loose " +
+         "winner in another mod. in_place=true instead overwrites the winning loose file where it sits, with no backup. Data " +
+         "values only: never geometry, vertices or .dds pixels.\n\n" +
+         "Select — mesh_path= (which mesh) x target= (what inside it the op edits).\n" +
+         "Source — source_provider= (empty = the VFS winner).\n" +
+         "Act — op= names the write; its operands are new_name=, flags=, scale=, body_part_id= [+ partition_index=], " +
          "alpha_flags= / alpha_threshold=, path= [+ texture_slot=] (set_path with no slot is the header-string " +
          "form), and shader_value= + value=.\n" +
-         "LANE — patch= | into= on the default lane, or in_place= + acknowledge=.")]
+         "Lane — patch= | into= on the default lane, or in_place= + acknowledge=.")]
     public static string NifSet(
         LoadOrderService svc,
         [Description("The Data-relative mesh path to edit, e.g. " +
-                     "'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'. Relative to the " +
-                     "game's Data folder (forward or back slashes both fine); a drive-rooted path ('C:\\…') or one " +
-                     "carrying a '..' segment is REFUSED by name, never silently normalized. The mesh it resolves to " +
-                     "must be a Skyrim SE stream (user 12 / stream 100) — a non-SE mesh is refused by name, because a " +
-                     "normalized cross-game (LE / FO4 / Starfield) write is untested.")]
+                     "'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'. Forward or back " +
+                     "slashes. The mesh must be a Skyrim SE stream (user 12 / stream 100); another game's mesh (LE, " +
+                     "FO4, Starfield) is refused.")]
             string mesh_path,
         // Built from OpList so a shipped op cannot go missing from the tool schema a caller reads.
-        [Description("The write op — one of: " + OpList + ". What each one does: rename_shape / rename_node (retitle a " +
-                     "baked shape/node — the HDPT-EDID facegen case), set_flags (NiAVObject flags on a shape/node — the " +
-                     "0x80000 head/hair-class bit), set_scale, set_partition (a BSDismember body-part id — pass " +
-                     "body_part_id [+ partition_index]), set_alpha (alpha_flags word and/or alpha_threshold — the hair " +
-                     "0x12ED / hairline 0x12EE class), set_path (swap an asset reference, TWO addressing forms: with " +
-                     "texture_slot + path it swaps that BSShaderTextureSet slot on the named shape — e.g. the FaceTint " +
-                     "slot 6 or skin slots 0/1; with NO texture_slot it swaps the HEADER STRING target= names for path " +
-                     "— the material (.bgsm), .tri / BODYTRI and physics-xml refs that sections=strings lists), " +
-                     "set_shader_value (a shader LIGHTING value — pass shader_value + value: glossiness, " +
-                     "specular_strength, specular_color, emissive_color, emissive_multiple, alpha; the plastic-looking " +
-                     "armour or over-bright glow fix. NOT set_alpha — that is the separate NiAlphaProperty). An op that " +
-                     "does not APPLY to what target= names — set_partition on a shape carrying no BSDismember skin " +
-                     "instance — is refused by name, with nothing written. A mesh that is not a Skyrim SE stream is " +
-                     "refused too, rather than written through an untested cross-game path. WHAT A GREEN VERIFY " +
-                     "PROVES, whichever op ran: the two gates confirm the DATA VALUE landed, not that the face or the " +
-                     "armour RENDERS right — the geometry, the .dds pixels and the final render stay unseen. Report " +
-                     "what was read and written as fact and the render as unverified; a rewritten path or a renamed " +
-                     "shape still needs the in-game check.")]
+        [Description("The write op, one of: " + OpList + ". rename_shape / rename_node: retitle a baked shape or " +
+                     "node (the facegen head-part EditorID case). set_flags: NiAVObject flags on a shape or node " +
+                     "(e.g. the 0x80000 head/hair bit). set_scale. set_partition: a BSDismember body-part id " +
+                     "(body_part_id [+ partition_index]). set_alpha: the alpha_flags word and/or alpha_threshold " +
+                     "(the hair 0x12ED / hairline 0x12EE class). set_path: swap an asset reference, two forms: with " +
+                     "texture_slot it swaps that BSShaderTextureSet slot on the named shape (the FaceTint slot 6, or " +
+                     "skin slots 0/1); with no texture_slot it swaps the header string target= names (the .bgsm " +
+                     "material, .tri / BODYTRI and physics-xml references sections=strings lists). " +
+                     "set_shader_value: a shader lighting value (shader_value + value), the plastic-looking armour or " +
+                     "over-bright glow fix; not the NiAlphaProperty, which is set_alpha. An op that does not apply to " +
+                     "what target= names, such as set_partition on a shape with no BSDismember skin instance, is " +
+                     "refused with nothing written.")]
             string op,
-        [Description("What the op edits, as it currently reads (from " + ToolNames.NifInspect + "). For most ops the NAME of a " +
-                     "shape or node; for a rename the OLD name; for set_path WITHOUT texture_slot the header STRING to " +
-                     "replace, exactly as sections=strings prints it (case-sensitive). A target this mesh does not carry " +
-                     "is refused by name with nothing written — no shape or node of that name, or, on the header-string " +
-                     "form, no string reading exactly that. A shape/node name more than one block answers to is refused " +
-                     "as AMBIGUOUS rather than written to the first match; several blocks referencing the SAME header " +
-                     "string are not ambiguous — they all move together. Two header strings are refused by redirect " +
-                     "rather than swapped: a shape's or node's NAME is 'not an asset reference — use op=rename_shape " +
-                     "or op=rename_node, which refuse renaming onto a name already in use', and 'the KEY an extra-data " +
-                     "block is looked up by' is refused because swapping it would hide the block from the engine — " +
-                     "pass the block's VALUE instead.")]
+        [Description("What the op edits, as " + ToolNames.NifInspect + " shows it. For most ops the name of a " +
+                     "shape or node; for a rename the old name; for set_path without texture_slot the header string " +
+                     "to replace, exactly as sections=strings prints it (case-sensitive). A target the mesh does not " +
+                     "carry is refused with nothing written. A shape or node name more than one block answers to is " +
+                     "refused as ambiguous rather than written to the first match; several blocks referencing the " +
+                     "same header string all move together. Two kinds of header string cannot be swapped: a shape's " +
+                     "or node's name (use rename_shape or rename_node, which refuse a name already in use), and the " +
+                     "key an extra-data block is looked up by (swapping it would hide the block; pass the block's " +
+                     "value instead).")]
             string target,
         [Description("rename_shape / rename_node: the new name.")] string new_name = "",
         [Description("set_flags: the NiAVObject flags value — hex ('0x800000E') or decimal.")] string flags = "",
@@ -232,47 +200,39 @@ public static class NifTools
         [Description("set_partition: which partition to change when a shape has more than one (0-based). Omit if it has exactly one.")] string partition_index = "",
         [Description("set_alpha: the 16-bit alpha flags word — hex ('0x12ED') or decimal. Optional if only changing the threshold.")] string alpha_flags = "",
         [Description("set_alpha: the alpha test threshold, 0-255. Optional if only changing the flags word.")] string alpha_threshold = "",
-        [Description("set_path: the BSShaderTextureSet slot index (0 diffuse, 1 normal, 6 tint/skin/detail, ...) - " +
-                     "the BINARY index, which is what " + ToolNames.NifInspect + " prints and what this takes. " +
-                     "NifSkope numbers the same slot ONE HIGHER (binary 6 is its slot 7), so a number read off " +
-                     "NifSkope is off by one here. The '(Name)' the read prints beside a slot is DERIVED from the " +
-                     "shape's shader type and its SLSF flags, not from the index - slot 2 is glow or " +
-                     "skin-subsurface or soft-lighting and slot 7 backlight or specular depending on them, a slot " +
-                     "the shader does not determine prints bare, and on a non-Skyrim layout none is named - so pass " +
-                     "the NUMBER, never the name. TWO logically distinct references live in one block: slot 6 is the " +
-                     "per-NPC FaceTint .dds (the head shape's shader type is FaceTint, which is what names it) and " +
-                     "slots 0/1 are the base skin diffuse and normal. OMIT this to swap the header string target= " +
-                     "names instead.")] string texture_slot = "",
-        [Description("set_path: the new path - a texture (Data-relative, e.g. " +
+        [Description("set_path: the BSShaderTextureSet slot index (0 diffuse, 1 normal, 6 tint/skin/detail, ...), " +
+                     "the binary index " + ToolNames.NifInspect + " prints. NifSkope numbers the same slot one " +
+                     "higher (binary 6 is its slot 7). The '(Name)' a read prints beside a slot is derived from the " +
+                     "shader type and SLSF flags, not the index (slot 2 may be glow, skin subsurface or soft " +
+                     "lighting), so pass the number, never the name. On a head shape slot 6 is the per-NPC FaceTint " +
+                     ".dds and slots 0/1 are the base skin diffuse and normal. Omit to swap the header string " +
+                     "target= names instead.")] string texture_slot = "",
+        [Description("set_path: the new path: a Data-relative texture (e.g. " +
                      "'textures\\...\\facetint\\Mod.esp\\00000ABC.dds') with texture_slot, or the replacement header " +
-                     "string (a .bgsm material, a .tri, a physics xml) without it. WHEN SLOT 6 NEEDS REWRITING: the " +
-                     "FaceTint path is baked into each head mesh, so an ESL compaction or a merge that renumbers the " +
-                     "FormID, or a copy onto a DIFFERENT FormKey, leaves it pointing at the old id and the face " +
-                     "renders grey even after the files are renamed. FaceGenEslify and its siblings automate the " +
-                     "RENAME and leave this as a manual NifSkope step; this op is that step. A same-FormID, " +
-                     "same-defining-master placement needs NO edit here - the embedded path is a pure function of " +
-                     "(defining master, local FormID) and already resolves to the destination. SLOTS 0/1 are the " +
-                     "other repair: a head mesh hardcoding the vanilla skin while a per-race body framework gives a " +
-                     "different body is the face-versus-body mismatch, not the dark-face bug, and rewriting them is " +
-                     "what NPC Facegen Patcher does in bulk - a whole mod's meshes are still faster there. Causes " +
-                     "and repairs by class: " + ReadSentences.FaceGenDocUrl + ".")] string path = "",
+                     "string (a .bgsm material, a .tri, a physics xml) without it. Slot 6 needs rewriting when an ESL " +
+                     "compaction, a merge that renumbers the FormID, or a copy onto a different FormKey leaves the " +
+                     "baked FaceTint path at the old id, and the face renders grey even after the files are renamed; " +
+                     "FaceGenEslify and similar tools rename the files and leave this step to NifSkope. A " +
+                     "same-FormID, same-defining-master placement needs no edit here. Slots 0/1: a head mesh " +
+                     "hardcoding the vanilla skin under a per-race body framework is the face-versus-body mismatch, " +
+                     "not the dark-face bug; NPC Facegen Patcher rewrites a whole mod's meshes faster. Causes and " +
+                     "repairs by class: " + ReadSentences.FaceGenDocUrl + ".")] string path = "",
         [Description("set_shader_value: which lighting value — 'glossiness', 'specular_strength', 'specular_color', 'emissive_color', 'emissive_multiple', or 'alpha'.")] string shader_value = "",
-        [Description("set_shader_value: the new value — one number for a scalar ('30'), or three comma-separated components for a colour ('1,0.5,0.25'). Colours and alpha are conventionally 0-1 (NOT 0-255); a value outside that is written as asked but WARNED about.")] string value = "",
-        [Description("Optional. Edit a specific provider's copy instead of the VFS winner — the mod folder name, 'overwrite', " +
-                     "'Data', or a BSA filename. The same pole " + ToolNames.Place + " takes, spelled the same way. " +
-                     "Pass the name EXACTLY as the providers chain shows it INSIDE the double " +
-                     "quotes; the kind after them ('loose' / 'BSA') is not part of the name. Naming a MOD reaches that mod's " +
-                     "loose files AND its own root archives, whether or not MO2 is loading it — a copy the game is NOT " +
-                     "loading is stated on the default lane and refused by in_place. '*winner' is the winner pole spelled " +
-                     "out. Empty = the winner.")]
+        [Description("set_shader_value: the new value: one number for a scalar ('30'), or three comma-separated components for a colour ('1,0.5,0.25'). Colours and alpha are conventionally 0-1, not 0-255; a value outside that is written as asked, with a warning.")] string value = "",
+        [Description("Optional. Edit a specific provider's copy instead of the VFS winner: the mod folder name, " +
+                     "'overwrite', 'Data', or a BSA filename, exactly as the providers chain shows it inside the " +
+                     "double quotes (the kind after them, 'loose' / 'BSA', is not part of the name). Naming a mod " +
+                     "reaches its loose files and its own root archives whether or not MO2 is loading it; a copy the " +
+                     "game is not loading is stated on the default lane and refused by in_place. '*winner' is the " +
+                     "winner spelled out. Empty = the winner.")]
             string source_provider = "",
-        [Description("Optional. Base name for the NEW mod folder the edited mesh is written into (default lane; auto-suffixed if taken). Ignored with in_place=true.")]
+        [Description("Optional. Base name for the new mod folder the edited mesh is written into (default 'houseCARL_NifEdit'); auto-suffixed if taken. Ignored with into= or in_place=true.")]
             string patch = "",
-        [Description("Optional. Write into an EXISTING houseCARL-owned mod folder instead of a fresh one (default lane). Mutually exclusive with in_place.")]
+        [Description("Optional. Write into an existing houseCARL-owned mod folder instead of a fresh one. Not with in_place.")]
             string into = "",
-        [Description("Optional, default false. IN-PLACE LANE (opt-in): OVERWRITE the winning LOOSE file where it sits instead of writing a new folder — NO backup. Requires acknowledge=true (see below). OMIT (the default) to write a new winning override and leave the original untouched.")]
+        [Description("Optional, default false. Overwrite the winning loose file where it sits instead of writing a new folder, with no backup. Needs acknowledge=true on the first in-place edit of a mesh. Omit to write a new override and leave the original untouched.")]
             bool in_place = false,
-        [Description("Optional, default false. Confirms the one-time in-place trade-off for this file — needed only on the FIRST in-place edit of a given mesh, and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to overwrite your original ONLY; it NEVER skips the mesh verification.")]
+        [Description("Optional, default false. Confirms the one-time in-place trade-off for this file: needed only on the first in-place edit of a given mesh, and not again once one has landed; a call that is refused records nothing, so it may be needed again. It waives the consent to overwrite the original only, never the mesh verification.")]
             bool acknowledge = false) => Guard.Tool(ToolNames.NifSet, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
