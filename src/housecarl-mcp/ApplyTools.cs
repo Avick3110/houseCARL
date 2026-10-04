@@ -32,7 +32,7 @@ public static class ApplyTools
          "whole record verbatim is " + ToolNames.Forward + ". Read first with " + ToolNames.Records + ".")]
     public static string Apply(
         LoadOrderService svc,
-        [Description("The edits, all into one plugin: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …]. For a big job, write the ops to a manifest file, dry-run it, then apply it; re-run the same manifest to recover an interrupted write (overrides are idempotent). Which ops a field takes follows its cardinality, so read that off the schema first.")]
+        [Description("The edits, all into one plugin: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …]. For a big job, write the ops to a manifest file, dry-run it, then apply it. The write is atomic, so an interrupted call leaves the old file or the whole new one; if it may have landed, read the target before re-running, because a list Add or InsertAtIndex would apply twice and on the default lane a re-run writes a second, suffixed patch. Which ops a field takes follows its cardinality, so read that off the schema first.")]
             JsonElement? ops = null,
         [Description("Copy zip, with assignments=: the field paths copied for every pair, e.g. [\"BasicStats.Damage\", \"Keywords\"]. Only these fields are copied; the record's identity and every other field are untouched. There are no preset bundles (such as an appearance set); name the paths.")]
             string[]? bundle = null,
