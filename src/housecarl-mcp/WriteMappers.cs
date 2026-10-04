@@ -156,6 +156,15 @@ internal sealed partial class RecordWrites
             error = $"{where}: pass compose= (one element) OR composes= (many), not both.";
             return null;
         }
+        // composes= builds every element itself, so any other input on the op would be dropped unwritten.
+        var stray = new[] { ("value", op.Value is not null), ("values", op.Values is not null),
+                            ("entries", op.Entries is not null) }
+            .Where(f => f.Item2).Select(f => f.Item1 + "=").ToList();
+        if (stray.Count > 0)
+        {
+            error = $"{where}: composes= builds each element itself, so it takes no {string.Join(" or ", stray)} beside it — remove {string.Join(" and ", stray)}, or drop composes=.";
+            return null;
+        }
         if (op.Composes.Length == 0)
         {
             // An empty composes=[] is the clear intent for a ReplaceAll; for any other verb it is a caller mistake.
