@@ -13,7 +13,8 @@ public static class RemoveTools
      Description(
          "Remove whole records from a plugin: a literal drop, not a deleted-flag stub; the counterpart to " +
          ToolNames.Apply + ", which adds overrides. A record a master or another mod defines cannot be removed; " +
-         "dropping this file's override of it makes the record fall back to the next plugin's version. A master " +
+         "only this file's override of it is dropped, and the record falls back to the next plugin's version only " +
+         "when this file was its winner. A master " +
          "the file no longer references drops from its header.\n\n" +
          "What to drop: formids=. Where from: an existing houseCARL patch (into=) or a plugin's own file (in_place= " +
          "with acknowledge=); name exactly one, since a removal edits a file that exists. How it reads back: " +
@@ -24,7 +25,7 @@ public static class RemoveTools
          ToolNames.Apply + " with op='Remove'. Read first with " + ToolNames.Records + ".")]
     public static string Remove(
         LoadOrderService svc,
-        [Description("The records to drop, each 'XXXXXX:Plugin.esp'. Only a record the lane's file itself defines or overrides can be named, in any group (cells, placed references, dialogue, navmesh). Removing a record also drops every record nested under it (a cell's placed references, a topic's lines), and the reply lists only the records you named. A record in a parent's single-child slot (a cell's Landscape, a worldspace's TopCell) is refused unless the records under it are named too. Also takes [\"@<absolute path>\"], a file with one FormID per line.")]
+        [Description("The records to drop, each 'XXXXXX:Plugin.esp'. Only a record the lane's file itself defines or overrides can be named, in any group (cells, placed references, dialogue, navmesh). Removing a record also drops every record nested under it (a cell's placed references, a topic's lines), and the reply lists only the records you named. A record in a parent's single-child slot (a cell's Landscape, a worldspace's TopCell) is refused unless the records under it are named too. Also takes [\"@<absolute path>\"], a plain list file with one FormID per line, not a result artifact.")]
             string[]? formids = null,
         [Description("Filename of the houseCARL patch to remove the records from, e.g. 'MyMerge.esp'; it must be a patch houseCARL created, and carry them. " + LaneSentences.IntoFound)]
             string? into = null,

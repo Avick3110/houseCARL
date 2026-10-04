@@ -41,7 +41,7 @@ public static class CreateTools
             bool readback = false,
         [Description("'text' (default) or 'json' (the same data). " + LaneSentences.Epoch)]
             string? format = null,
-        [Description("TRANSPORT: character ceiling on the whole reply: the created-record rows with their FormIDs, the voice, result-script and cell reports, then the read-back, in that order. Past it, trailing rows are dropped with a notice and a rendered-versus-total count per block. The write is unaffected. 0 = a default kept under the host's per-response limit.")]
+        [Description("Character limit on the reply: the created-record rows with their FormIDs, the voice, result-script and cell reports, then the read-back, in that order. " + LaneSentences.MaxCharsCut + ".")]
             int max_chars = 0) => Guard.Tool(ToolNames.Create, () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
