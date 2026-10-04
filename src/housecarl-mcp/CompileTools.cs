@@ -44,42 +44,38 @@ public static class CompileTools
 
     [McpServerTool(Name = ToolNames.CompileScript, Title = "Compile a Papyrus script (.psc → .pex)"),
      Description(
-         "Compile a Papyrus script (.psc) to .pex using the Creation Kit's PapyrusCompiler.exe, landing the .pex in a NEW " +
-         "houseCARL patch-mod folder you review and enable in MO2 (originals untouched) — or pass out_path= to land it in a " +
-         "folder you choose (houseCARL appends Scripts\\ so MO2 deploys it). Pass script= the full path to the " +
-         ".psc to compile. IMPORT PATH: houseCARL adds the script's own folder, then AUTO-DISCOVERS the Papyrus source " +
-         "folders your enabled MO2 mods already ship (Source\\Scripts / Scripts\\Source, in MO2 priority order — so SKSE, " +
-         "PapyrusUtil, PO3, SkyUI, JContainers and friends need no retyping), NARROWED to the folders this script actually " +
-         "references (directly or transitively), then the vanilla sources LAST; pass " +
-         "auto_imports=false to leave your enabled mods off the import path. Add anything the scan can't reach (local stubs, a dev project tree, " +
-         "sources you extracted from a BSA — the CK compiler cannot read archives) via import_dirs= (';'-separated), and " +
-         "save_import_set=<name> to persist that list so later calls just pass import_set=<name>. Precedence is your " +
-         "import_dirs=/import_set= > the auto-discovered mods > vanilla, so mod-extended copies of vanilla scripts " +
-         "(SKSE's Actor.psc etc.) win. The import path searched is REPORTED on every call. On a compile FAILURE it returns " +
-         "the per-line errors as 'name(line,col): message' so you can fix " +
-         "the .psc and recompile (look unfamiliar functions up with the papyrus-reference skill); on SUCCESS it returns the " +
-         ".pex path. Needs houseCARL pointed at your MO2 instance (for the output folder) and the Papyrus compiler path — if " +
-         "the compiler isn't set yet, houseCARL tells you exactly what to ask for and how to set it. The CK compiler ships " +
-         "with the vanilla Steam game install, NOT a Wabbajack 'Stock Game' copy.")]
+         "Compile a Papyrus script (.psc) to .pex with the Creation Kit's PapyrusCompiler.exe. The .pex lands in a new " +
+         "houseCARL patch-mod folder you review and enable in MO2, or in a folder you name with out_path=; originals are " +
+         "untouched.\n\n" +
+         "Import path, highest precedence first: the script's own folder; your import_dirs= and import_set=; the Papyrus " +
+         "source folders your enabled MO2 mods ship (Source\\Scripts or Scripts\\Source, in MO2 priority order), narrowed to " +
+         "the ones this script references directly or transitively; the vanilla sources last. So SKSE, PapyrusUtil, SkyUI " +
+         "and similar need no retyping, and mod-extended copies of vanilla scripts (SKSE's Actor.psc) win. Pass anything the " +
+         "scan cannot reach (local stubs, a dev tree, sources extracted from a BSA, since the compiler cannot read archives) " +
+         "with import_dirs=. Every reply lists the import path searched.\n\n" +
+         "On failure it returns the errors as 'name(line,col): message' to fix and recompile (look functions up with the " +
+         "papyrus-reference skill); on success, the .pex path. Needs houseCARL pointed at your MO2 instance and the compiler " +
+         "path; if the compiler is not set, the reply says how to set it. The compiler ships with the vanilla Steam game " +
+         "install, not a Wabbajack 'Stock Game' copy.")]
     public static string CompileScript(
         LoadOrderService svc,
         ToolPathResolver bridge,
         UserConfigStore store,
         [Description("Full path to the .psc source file to compile.")]
             string script,
-        [Description("Optional. Extra import directories where dependency sources (.psc) live — separated by ';'. The script's own folder, your enabled mods' source folders (unless auto_imports=false), and the vanilla source folder are added automatically; these directories outrank all of those (first match wins), so extended copies of vanilla scripts take precedence.")]
+        [Description("Optional. Extra import directories holding dependency sources (.psc), separated by ';'. They rank after the script's own folder and ahead of the discovered mods and vanilla.")]
             string? import_dirs = null,
-        [Description("Optional (default true). Scan the enabled MO2 mods for Papyrus source folders (Source\\Scripts / Scripts\\Source) and put the ones this script references — by name, followed transitively through those scripts — on the import path, in MO2 priority order, so installed frameworks need no retyping. The narrowing is not optional: a big modlist ships hundreds of source folders (measured: 501 on a 3617-mod order), which together exceed what a Windows command line can carry. Pass false to compile against only the script's own folder, your import_dirs=/import_set=, and the vanilla sources.")]
+        [Description("Default true: add the source folders of your enabled MO2 mods that this script references, as described above. false: compile against only the script's own folder, import_dirs=, import_set= and the vanilla sources.")]
             bool auto_imports = true,
-        [Description("Optional. Name of a SAVED import-directory set (see save_import_set=) to add to the import path. Its dirs rank after import_dirs= and before the auto-discovered mods. An unknown name is refused, and the saved names are listed.")]
+        [Description("Optional. Name of an import-directory set saved earlier with save_import_set=; its dirs rank after import_dirs=.")]
             string? import_set = null,
-        [Description("Optional. Save this call's import_dirs= (plus any import_set= it loaded) under this name for reuse via import_set=. Persisted in houseCARL's user config, so it survives restarts; re-saving an existing name replaces it.")]
+        [Description("Optional. Save this call's import_dirs= (plus any import_set= it loaded) under this name for later import_set= calls. Kept in houseCARL's user config across restarts; saving an existing name replaces it.")]
             string? save_import_set = null,
-        [Description("Optional. Base name for the NEW patch-mod folder the .pex lands in (default 'houseCARL_Scripts'); auto-suffixed if taken.")]
+        [Description("Optional. Base name for the new patch-mod folder the .pex lands in (default 'houseCARL_Scripts'); auto-suffixed if taken.")]
             string? patch = null,
-        [Description("Optional. Filename of an existing houseCARL patch mod to add the .pex into instead of creating a fresh folder (accumulate compiled scripts). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
+        [Description("Optional. Filename of an existing houseCARL patch mod to add the .pex into instead of a fresh folder; found even if you renamed its MO2 mod folder. For two patches sharing a filename, pass the mod-folder name.")]
             string? into = null,
-        [Description("Optional. Land the .pex in a folder of YOUR choosing instead of a fresh houseCARL patch folder — pass the ABSOLUTE path to the mod-folder ROOT (a relative path is refused, because the server would resolve it against its own working directory); houseCARL appends Scripts\\ (and won't double it if you already point at a ...\\Scripts folder). When set, patch=/into= are ignored. Scripts load from exactly <mods>\\<YourMod>\\Scripts, the MO2 overwrite folder, or <Data>\\Scripts — anywhere else (including a NESTED path under a mod) the .pex still compiles but you're warned it won't deploy automatically.")]
+        [Description("Optional. Absolute path to a mod-folder root of your choosing; houseCARL appends Scripts\\ unless the path already ends in it. patch= and into= are then ignored. Scripts load only from <mods>\\<YourMod>\\Scripts, the MO2 overwrite folder or <Data>\\Scripts; anywhere else, including a nested folder under a mod, the .pex still compiles with a warning that it will not deploy.")]
             string? out_path = null) => Guard.Tool(ToolNames.CompileScript, () =>
     {
         // 1) MO2 must be configured — the .pex lands under the instance's mods folder.
