@@ -38,8 +38,9 @@ public static class PlaceTools
                      "'mesh'|'tint', path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | " +
                      "'<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" +
                      AssetSourceChoice.WinnerToken + "' }, or \"@<absolute path>\" to read that same array from a " +
-                     "JSON file. One destination is a set of one. A source that is ambiguous, absent or unreadable " +
-                     "fails that member only; the rest still place.")]
+                     "JSON file. One destination is a set of one. A malformed member refuses the whole call and " +
+                     "places nothing; a source that is ambiguous, absent or unreadable fails that member only, and " +
+                     "the rest still place.")]
             JsonElement? assets = null,
         [Description("Optional. Whose copy to read, for every member that does not name its own; withheld (and said on that member's row) from a member whose own source= is an on-disk file, which already names one exact copy. " + AssetSourceChoice.WinnerToken + " (the sigil is part of the token) for whichever copy wins the VFS now, or the provider's name alone (a mod folder, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa'), matched exactly, without " + ToolNames.AssetStatus + "'s ' (loose)' / ' (BSA)' annotation. A bare name always means a provider of that name. " + WriteSentences.PlaceSourceNameReachesUnticked + " An archive MO2 loads no plugin for is listed under neither name, so it is reachable only as an on-disk source= path. A name the active order already provides files under is answered by the active order, and a mod folder of that same name is not consulted. Omitted = the sole provider; a member with more than one contending provider fails.")]
             string? source_provider = null,

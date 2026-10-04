@@ -67,14 +67,11 @@ public static class NifTools
                      "per mesh. There is no 'textures' section: texture-set paths are under 'shapes' and 'paths'. " +
                      "Applies to every mesh in the batch; unrecognized tokens are reported. Empty = the summary.")]
             string sections = "",
-        [Description("Optional. Read a specific provider's copy instead of the VFS winner: the mod folder name, " +
-                     "'overwrite', 'Data', or a BSA filename, exactly as the providers chain shows it inside the " +
-                     "double quotes (the kind after them, 'loose' / 'BSA', is not part of the name). Naming a mod " +
-                     "reaches its loose files and its own root archives whether or not MO2 is loading it, so a donor " +
-                     "mod can be read without enabling it; the response then says the game is not loading that copy. " +
-                     "'*winner' is the winner spelled out. A name that provides no copy of a mesh is that path's own " +
-                     "miss, listing the providers that do; the rest of the batch still reads. Applies to every mesh. " +
-                     "Empty = the winner.")]
+        [Description("Optional. Read a specific provider's copy instead of the VFS winner: " +
+                     ProviderNameSentence + ", so a donor mod can be read without enabling it; the response then " +
+                     "says the game is not loading that copy. A name that provides no copy of a mesh is that path's " +
+                     "own miss, listing the providers that do; the rest of the batch still reads. Applies to every " +
+                     "mesh. Empty = the winner.")]
             string source_provider = "",
         [Description("Optional. Character ceiling on the whole batch's response, not per mesh: the mesh whose block would cross it is not written, and the notice says how many were held back; one mesh wider than the whole budget is named with the max_chars that clears it. Detail sections cut against what the batch has left, and a requested section with no room to start is counted. 0 = the server default (about 80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, () =>
@@ -145,8 +142,8 @@ public static class NifTools
          "anything lands. The write counterpart to " + ToolNames.NifInspect + ", which reads the values this edits; " +
          "the facegen head-mesh repairs are its main use. To make a different existing copy win instead of editing " +
          "one, use " + ToolNames.Place + ".\n\n" +
-         "It resolves mesh_path through Mod Organizer 2's VFS to the winning copy (or source_provider='s), applies " +
-         "the op, and checks that only the block and value the op targets changed, that a reload reads the new " +
+         "It resolves mesh_path through Mod Organizer 2's VFS to the winning copy, or to the copy source_provider= " +
+         "names, applies the op, and checks that only the block and value the op targets changed, that a reload reads the new " +
          "value, and that the block census and SE stream are intact. A failed check writes nothing and says why. A " +
          "passed check proves the value landed, not that the face or armour renders right: geometry, .dds pixels " +
          "and the render stay unseen, so report the render as unverified until it is checked in game.\n\n" +
@@ -154,7 +151,9 @@ public static class NifTools
          "untouched; a BSA-packed source becomes a loose override. A new folder registers at MO2's highest " +
          "priority, so enabling it makes the edit win; an into= folder's priority is already fixed, so sort it " +
          "above a loose winner in another mod. Neither folder beats a winner in MO2's overwrite folder, which no mod " +
-         "out-ranks. in_place=true instead overwrites the winning loose file where it sits, with no backup. Data " +
+         "out-ranks. in_place=true instead overwrites the chosen loose copy (the winner, or the copy " +
+         "source_provider= names) where it sits, with no backup; editing a shadowed copy leaves the game loading " +
+         "the winner. Data " +
          "values only: never geometry, vertices or .dds pixels.\n\n" +
          "Select — mesh_path= (which mesh) x target= (what inside it the op edits).\n" +
          "Source — source_provider= (empty = the VFS winner).\n" +
@@ -219,18 +218,15 @@ public static class NifTools
                      "repairs by class: " + ReadSentences.FaceGenDocUrl + ".")] string path = "",
         [Description("set_shader_value: which lighting value — 'glossiness', 'specular_strength', 'specular_color', 'emissive_color', 'emissive_multiple', or 'alpha'.")] string shader_value = "",
         [Description("set_shader_value: the new value: one number for a scalar ('30'), or three comma-separated components for a colour ('1,0.5,0.25'). Colours and alpha are conventionally 0-1, not 0-255; a value outside that is written as asked, with a warning.")] string value = "",
-        [Description("Optional. Edit a specific provider's copy instead of the VFS winner: the mod folder name, " +
-                     "'overwrite', 'Data', or a BSA filename, exactly as the providers chain shows it inside the " +
-                     "double quotes (the kind after them, 'loose' / 'BSA', is not part of the name). Naming a mod " +
-                     "reaches its loose files and its own root archives whether or not MO2 is loading it; a copy the " +
-                     "game is not loading is stated on the default lane and refused by in_place. '*winner' is the " +
-                     "winner spelled out. Empty = the winner.")]
+        [Description("Optional. Edit a specific provider's copy instead of the VFS winner: " +
+                     ProviderNameSentence + "; a copy the game is not loading is stated on the default lane and " +
+                     "refused by in_place. Empty = the winner.")]
             string source_provider = "",
         [Description("Optional. Base name for the new mod folder the edited mesh is written into (default 'houseCARL_NifEdit'); auto-suffixed if taken. Ignored with into= or in_place=true.")]
             string patch = "",
         [Description("Optional. Write into an existing houseCARL-owned mod folder instead of a fresh one. Not with in_place.")]
             string into = "",
-        [Description("Optional, default false. Overwrite the winning loose file where it sits instead of writing a new folder, with no backup. Needs acknowledge=true on the first in-place edit of a mesh. Omit to write a new override and leave the original untouched.")]
+        [Description("Optional, default false. Overwrite the chosen loose copy (the winner, or the copy source_provider= names) where it sits instead of writing a new folder, with no backup; editing a shadowed copy leaves the game loading the winner. Needs acknowledge=true on the first in-place edit of a mesh. Omit to write a new override and leave the original untouched.")]
             bool in_place = false,
         [Description("Optional, default false. Confirms the one-time in-place trade-off for this file: needed only on the first in-place edit of a given mesh, and not again once one has landed; a call that is refused records nothing, so it may be needed again. It waives the consent to overwrite the original only, never the mesh verification.")]
             bool acknowledge = false) => Guard.Tool(ToolNames.NifSet, () =>
@@ -312,6 +308,13 @@ public static class NifTools
 
     /// <summary>The op names in one place, so no refusal message can carry a stale list.</summary>
     internal const string OpList = "rename_shape, rename_node, set_flags, set_scale, set_partition, set_alpha, set_path, set_shader_value";
+
+    /// <summary>How a provider is named, shared by the inspect and set source_provider= descriptions.</summary>
+    internal const string ProviderNameSentence =
+        "the mod folder name, 'overwrite', 'Data', or a BSA filename, exactly as the providers chain shows it inside " +
+        "the double quotes (the kind after them, 'loose' / 'BSA', is not part of the name), or '" +
+        AssetSourceChoice.WinnerToken + "' for the winner spelled out. Naming a mod reaches its loose files and its " +
+        "own root archives whether or not MO2 is loading it";
 
     /// <summary>Parse a uint from hex ('0x...') or decimal.</summary>
     static bool TryParseUInt(string s, out uint value)
