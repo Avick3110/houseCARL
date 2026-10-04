@@ -29,7 +29,7 @@ public static class CreateTools
             JsonElement? records = null,
         [Description("LANE: base filename for the new patch this call writes (default 'Patch'); auto-suffixed if taken, so a prior patch is never overwritten.")]
             string? patch = null,
-        [Description("LANE: filename of an existing houseCARL patch to add these records to instead of writing a fresh one, to build one patch across calls. A parent created in an earlier into= call can be the parent here. A flat record whose editorid this patch already defines is re-created at the FormID it already has. Found by the plugin's filename even if its MO2 mod folder was renamed; when two patches share a filename, pass the mod-folder name instead.")]
+        [Description("LANE: filename of an existing houseCARL patch to add these records to instead of writing a fresh one, to build one patch across calls. A parent created in an earlier into= call can be the parent here. A flat non-cell record this patch already defines under that editorid (same type, one record) is re-created fresh at the FormID it already has, discarding its old fields and any records nested under it; an interior cell, or the editorid on another type, on an override or on two records, is refused instead. A nested record is not re-created: a re-run adds it to a list again. Found by the plugin's filename even if its MO2 mod folder was renamed; when two patches share a filename, pass the mod-folder name instead.")]
             string? into = null,
         [Description("LANE (opt-in): the filename of an existing active plugin to create these records straight into, e.g. \"CoolWeapons.esp\", including one houseCARL did not author. Your original file is rewritten, with no houseCARL backup or undo; keep your own. Nesting works here too: a parent the target owns hosts the child, and a parent from another plugin is overridden in.")]
             string? in_place = null,
@@ -166,6 +166,6 @@ public sealed record CreateFieldOp
     [JsonPropertyName("compose"), Description("Build a modeled struct (a leveled-list entry, an effect, a condition row): the arm for a polymorphic Set, or the element for a struct-element Add, InsertAtIndex or SetAtIndex.")]
     public StructInput? Compose { get; init; }
 
-    [JsonPropertyName("composes"), Description("Build many modeled list elements in one op. With Add, appends each in order; with ReplaceAll, clears the list then appends each. Mutually exclusive with compose, value and values.")]
+    [JsonPropertyName("composes"), Description("Build many modeled list elements in one op. With Add, appends each in order; with ReplaceAll, clears the list then appends each. Pass only one: compose beside it is refused, and value and values beside it are ignored.")]
     public StructInput[]? Composes { get; init; }
 }
