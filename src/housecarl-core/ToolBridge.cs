@@ -5,7 +5,7 @@ public enum ToolDependency
 {
     /// <summary>The Creation Kit's PapyrusCompiler.exe, which compiles .psc to .pex.</summary>
     PapyrusCompiler,
-    /// <summary>BSArch.exe — list, extract and repack .bsa archives; no canonical home, so it always prompts.</summary>
+    /// <summary>BSArch.exe — repacks .bsa archives (housecarl_bsa_repack only); no canonical home, so it always prompts.</summary>
     Bsarch,
     PapyrusLogs,
     /// <summary>The SKSE crash-log directory (Crash Logger SSE or .NET Script Framework), read for crash diagnosis.</summary>
@@ -30,7 +30,7 @@ public static class ToolBridge
             "it ships with the Creation Kit (Bethesda's free modding tool, on Steam); it lives in your REAL Steam Skyrim SE install " +
             "at <Skyrim SE>\\Papyrus Compiler\\PapyrusCompiler.exe — NOT a Wabbajack/MO2 'Stock Game' copy (that's the data dir; the CK and the vanilla script sources are in the Steam install)"),
         new(ToolDependency.Bsarch, "bsarch", "BSArch (BSArch.exe)", false, "bsarch",
-            "listing, extracting, and repacking .bsa archives",
+            "packing a folder into a .bsa archive with housecarl_bsa_repack (listing and extracting need no external tool)",
             "BSArch is a standalone tool on Nexus Mods (also bundled with 'Cathedral Assets Optimizer' / 'BSA Browser')"),
         new(ToolDependency.PapyrusLogs, "papyrus_logs", "the Papyrus script-log folder", true, null,
             "reading Papyrus script logs for triage",
