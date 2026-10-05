@@ -49,6 +49,8 @@ made the change.
   instead of dropping them unwritten.** A dry run with both now refuses rather than showing the dropped value.
 - **`housecarl_apply` with `patch=` omitted now writes `Patch_001` when a disabled mod holds `Patch.esp`, as create,
   forward and copy do, instead of refusing.** Passing `patch="Patch"` is still refused.
+- **`housecarl_apply` and `housecarl_create` now refuse `key=` on an op that does not read it, such as a list Add, instead
+  of appending at the end.** A list Add with `key=` now refuses and points at InsertAtIndex.
 
 ## 2.0.3 — 2026-09-23
 

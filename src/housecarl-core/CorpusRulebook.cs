@@ -362,9 +362,10 @@ public sealed class CorpusRulebook
                 return hasKey ? $"Set on {c} field '{leaf.Name}' does not take a key." : null;
             case "Add":
                 // A dict Add coerces req.Key into the new entry's key, so key PRESENCE is gated here; a list Add
-                // appends and takes no key. The key VALUE-shape is ValueLegality's job.
+                // appends and takes no key, so a key there is refused rather than left unread. The key VALUE-shape is ValueLegality's job.
                 if (c == "dict") return hasKey ? null : $"Add on dict field '{leaf.Name}' requires a key.";
-                if (c == "list") return null;
+                if (c == "list")
+                    return hasKey ? $"Add on list '{leaf.Name}' appends at the end, so it takes no key — remove key=, or use InsertAtIndex to put the element at that index." : null;
                 // A [Flags] enum accepts Add as a bit-SET, preserving the other bits. No key; the flag VALUE is gated
                 // in ValueLegality.
                 if (IsFlagsEnumLeaf(leaf))
@@ -379,7 +380,8 @@ public sealed class CorpusRulebook
                 // whole-clear below. No key; the flag VALUE is gated in ValueLegality.
                 if (IsFlagsEnumLeaf(leaf))
                     return hasKey ? $"Remove on flags field '{leaf.Name}' takes no key — the value IS the flag to clear." : null;
-                return leaf.Nullable ? null : $"Remove on non-nullable {c} field '{leaf.Name}' is not valid.";
+                if (!leaf.Nullable) return $"Remove on non-nullable {c} field '{leaf.Name}' is not valid.";
+                return hasKey ? $"Remove on {c} field '{leaf.Name}' clears the whole field, so it takes no key — remove key=." : null;
             case "ReplaceAll":
                 return c is "list" or "dict" ? null : $"ReplaceAll is only valid on list/dict; '{leaf.Name}' is {c}.";
             case "SetAtIndex":
