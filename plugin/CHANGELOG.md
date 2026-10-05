@@ -47,6 +47,8 @@ made the change.
   not followed.
 - **`housecarl_apply` and `housecarl_create` now refuse `value=`, `values=` or `entries=` beside `compose=` or `composes=`,
   instead of dropping them unwritten.** A dry run with both now refuses rather than showing the dropped value.
+- **`housecarl_apply` with `patch=` omitted now writes `Patch_001` when a disabled mod holds `Patch.esp`, as create,
+  forward and copy do, instead of refusing.** Passing `patch="Patch"` is still refused.
 
 ## 2.0.3 — 2026-09-23
 
