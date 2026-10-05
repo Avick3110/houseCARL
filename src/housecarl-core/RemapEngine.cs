@@ -789,8 +789,7 @@ public static class RemapEngine
             catch (Exception ex)
             {
                 return RepointResult.Fail(
-                    $"writing '{pluginName}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}" +
-                    " — note: a sub-0x800 originating record (e.g. a vanilla master) is rejected by the light-/master-aware floor here, not silently written.");
+                    $"writing '{pluginName}' in place failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}");
             }
         }
         finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }

@@ -290,6 +290,9 @@ internal sealed partial class RecordWrites
         if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
             return WritePatchBuilder.PatchOutcome.Fail(locRefusal)
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
+        // A target defining its own sub-0x800 records is refused here too, before the dry-run branch and the consent prompt.
+        if (ReservedOwnRecords.RefusalFor(targetPath, targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } resRefusal)
+            return WritePatchBuilder.PatchOutcome.Fail(resRefusal) with { Stamp = view.Stamp };
 
         // The consent axis: the persistent first-touch handshake keyed off the resolved path; a dry run bypasses it.
         bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);
@@ -354,7 +357,7 @@ internal sealed partial class RecordWrites
     static string InPlaceHandshakeText(string pluginName, string path) =>
         InPlaceConsent.HandshakeLead(pluginName, path, "plugin", "writes to") +
         "  • houseCARL re-lays-out the WHOLE plugin the way xEdit/CK do on save (every record re-serialized), VERIFIES the records you edit, and trusts Mutagen for the rest.\n" +
-        "  • It still refuses if the file can't be parsed.\n" +
+        "  • It still refuses, before writing, a file it can't parse, a localized plugin, a write that would drop or resize a subrecord, and a plugin that defines records of its own below 0x800 (vanilla / Creation Club: you override those, you don't edit them).\n" +
         "  • The default lane (a NEW patch, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
         "Re-call the SAME edit with acknowledge=true to proceed.";
 
@@ -516,6 +519,9 @@ internal sealed partial class RecordWrites
         if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemoveNoEquivalent) is { } locRefusal)
             return WritePatchBuilder.RemovalOutcome.Fail(locRefusal)
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
+        // A target defining its own sub-0x800 records is refused here too, before the consent prompt.
+        if (ReservedOwnRecords.RefusalFor(targetPath, targetName, LocalizedTargetUnsupportedException.RemoveNoEquivalent) is { } resRefusal)
+            return WritePatchBuilder.RemovalOutcome.Fail(resRefusal) with { Stamp = view.Stamp };
 
         // The consent axis: the shared first-touch handshake keyed off the resolved path.
         bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);
@@ -636,6 +642,9 @@ internal sealed partial class RecordWrites
         if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
             return WritePatchBuilder.ForwardOutcome.Fail(locRefusal)
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
+        // A target defining its own sub-0x800 records is refused here too, before the dry-run branch and the consent prompt.
+        if (ReservedOwnRecords.RefusalFor(targetPath, targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } resRefusal)
+            return WritePatchBuilder.ForwardOutcome.Fail(resRefusal) with { Stamp = view.Stamp };
 
         // The consent axis: the shared first-touch handshake; a dry run bypasses it and notes it instead.
         bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);

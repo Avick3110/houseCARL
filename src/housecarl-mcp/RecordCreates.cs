@@ -140,6 +140,9 @@ internal sealed partial class RecordWrites
         if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
             return WritePatchBuilder.CreateOutcome.Fail(locRefusal)
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
+        // A target defining its own sub-0x800 records is refused here too, before the consent prompt.
+        if (ReservedOwnRecords.RefusalFor(targetPath, targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } resRefusal)
+            return WritePatchBuilder.CreateOutcome.Fail(resRefusal) with { Stamp = view.Stamp };
 
         // The consent axis: the shared first-touch handshake keyed off the resolved path.
         bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);
