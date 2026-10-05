@@ -689,6 +689,8 @@ internal sealed partial class RecordWrites
                              bool? stemFromCaller = null, OutputLocations.StemRefusal? refuseTaken = null)
     {
         createdFolder = false;
+        // Naming both lanes is refused before any folder is touched.
+        if (LaneSentences.PatchIntoRefusal(patchName, into) is { } lane) throw new InvalidOperationException(lane);
         var roots = snapshot.Roots;
         if (!Directory.Exists(roots.ModsDir))
             throw new InvalidOperationException($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");

@@ -47,9 +47,8 @@ public static class DecompileTools
 
         // 2) the instance, which the default lane needs and out_path= runs without, all it adds being the top-up.
         if (!chosenOutput && svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
-        if (!chosenOutput && !string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
-            return $"error: patch='{patch}' names a NEW mod folder for the .psc, but into='{into}' writes it into an existing houseCARL "
-                 + "patch — the two lanes are exclusive. Drop patch= to write into that patch, or drop into= to make a new folder.";
+        if (!chosenOutput && LaneSentences.PatchIntoFolderRefusal(patch, into, ".psc") is { } patchInto)
+            return "error: " + patchInto;
 
         // 3) validate the pex path.
         if (string.IsNullOrWhiteSpace(pex))

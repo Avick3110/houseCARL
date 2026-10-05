@@ -102,7 +102,8 @@ public static class BsaTools
         "patch",
         new OutputLocations.StemRefusal(
             "the .bsa (the game auto-loads an archive only under its plugin's exact basename)",
-            "Remove it in MO2, pass patch= a different name, or pass into= to place the archive in an existing houseCARL patch folder."));
+            "Remove it in MO2, pass patch= a different name, or pass into= to place the archive in an existing houseCARL patch folder."),
+        Noun: ".bsa");
 
     [McpServerTool(Name = ToolNames.BsaRepack, Title = "Pack a folder into a .bsa archive"),
      Description(
@@ -130,12 +131,6 @@ public static class BsaTools
         if (string.IsNullOrWhiteSpace(source_folder)) return "error: no source_folder given.";
         source_folder = Path.GetFullPath(source_folder.Trim().Trim('"'));
         if (!Directory.Exists(source_folder)) return $"error: no such folder: '{source_folder}'.";
-        // Lane exclusivity, as on write_seq: the .bsa takes whichever folder's name, so two ways of naming it with
-        // no way to choose refuses rather than silently taking into='s folder.
-        if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
-            return $"error: patch='{patch}' names a NEW mod folder for the .bsa, but into='{into}' packs it into an existing "
-                 + "houseCARL patch — the two lanes are exclusive, and the archive takes the folder's name either way. "
-                 + "Drop patch= to pack into that patch, or drop into= to make a new folder.";
         if (svc.ConfigPromptOrNull() is { } cfg) return cfg;
         if (bridge.RequireOrPrompt(ToolDependency.Bsarch, out var bsarch) is { } prompt) return prompt;
 
@@ -144,6 +139,7 @@ public static class BsaTools
         OutputLocations.RiderFolder rf;
         var stem = patch?.Trim().Trim('"');
         if (stem is not null && stem.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) stem = stem[..^4];
+        // The resolver refuses patch= beside into= before any folder is cut.
         try { rf = svc.ResolvePatchModFolder(stem, into, new DirectoryInfo(source_folder).Name, RepackNaming); }
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }
         var folder = rf.OutputDir;

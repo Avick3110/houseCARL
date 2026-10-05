@@ -864,7 +864,7 @@ internal sealed partial class AssetLayers
 
         // ---- DEFAULT (new-folder) lane ----
         OutputLocations.RiderFolder rf;
-        try { rf = _output.ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new OutputLocations.RiderNaming("patch")); }
+        try { rf = _output.ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new OutputLocations.RiderNaming("patch", Noun: "edited mesh")); }
         catch (InvalidOperationException ex) { return NifSetResult.Fail(ex.Message, providers, profileName); }
 
         var dest = Path.Combine(rf.OutputDir, rel);
@@ -931,7 +931,7 @@ internal sealed partial class AssetLayers
         {
             // Precondition: the write gate is held for the WHOLE method, which straddles two gate holds. Do not call PlaceOne or capture assets outside that hold.
             OutputLocations.RiderFolder rf;
-            try { rf = _output.ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new OutputLocations.RiderNaming("patch")); }   // neutral default stem; a caller with a better name passes patch
+            try { rf = _output.ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new OutputLocations.RiderNaming("patch", Noun: "placed files")); }   // neutral default stem; a caller with a better name passes patch
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
 
             // One asset build for the whole batch, captured rather than live, so no two placements describe two builds.

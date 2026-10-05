@@ -1,7 +1,7 @@
 namespace HousecarlMcp;
 
 /// <summary>One source for the parameter-description sentences the record write tools share (create, apply, forward,
-/// copy, remove), so a lane reads the same on every tool that has it.</summary>
+/// copy, remove), so a lane reads the same on every tool that has it, and the patch=/into= refusal every writing lane shares.</summary>
 internal static class LaneSentences
 {
     /// <summary>patch=: the default name, on every lane whose default is 'Patch'.</summary>
@@ -20,6 +20,18 @@ internal static class LaneSentences
     internal const string IntoFound =
         "Found by filename even if its MO2 mod folder was renamed; for two patches sharing a filename, pass the " +
         "mod-folder name instead.";
+
+    /// <summary>The refusal for patch= beside into= on a lane that writes a patch plugin, or null unless both are named.</summary>
+    internal static string? PatchIntoRefusal(string? patch, string? into) =>
+        string.IsNullOrWhiteSpace(patch) || string.IsNullOrWhiteSpace(into) ? null
+        : $"patch='{patch}' names a NEW patch to write, but into='{into}' extends an existing one — the two lanes are " +
+          "exclusive. Drop patch= to extend, or drop into= to write fresh.";
+
+    /// <summary>The refusal for patch= beside into= on a lane that writes <paramref name="noun"/> into a mod folder, or null unless both are named.</summary>
+    internal static string? PatchIntoFolderRefusal(string? patch, string? into, string noun) =>
+        string.IsNullOrWhiteSpace(patch) || string.IsNullOrWhiteSpace(into) ? null
+        : $"patch='{patch}' names a NEW mod folder for the {noun}, but into='{into}' names an existing houseCARL patch " +
+          "to write into — the two lanes are exclusive. Drop patch= to write into that patch, or drop into= to make a new folder.";
 
     /// <summary>in_place=: follows the tool's own "the filename of an active plugin to ..." lead.</summary>
     internal const string InPlaceAnyPlugin = ", e.g. \"CoolWeapons.esp\", including one houseCARL did not author. ";

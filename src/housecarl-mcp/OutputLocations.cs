@@ -27,8 +27,8 @@ internal sealed class OutputLocations
     /// <summary>The resolved output location for a NON-.esp rider: the directory to WRITE into, the mod-folder ROOT cleanup operates on, whether THIS call created it fresh, and the folder's <paramref name="Stem"/> without the "houseCARL - " prefix; contract in docs/architecture/output-and-artifacts.md.</summary>
     public readonly record struct RiderFolder(string OutputDir, string ModFolder, bool CreatedFresh, string Stem);
 
-    /// <summary>How ONE rider lane names the mod folder it creates — the calling tool's own statement, the way <see cref="FreshPatchRemedy"/> is for the record lanes. <paramref name="RefuseTaken"/> is set only by a lane whose artifact's exact basename is load-bearing.</summary>
-    public readonly record struct RiderNaming(string Param, StemRefusal? RefuseTaken = null);
+    /// <summary>How ONE rider lane names the mod folder it creates — the calling tool's own statement, the way <see cref="FreshPatchRemedy"/> is for the record lanes. <paramref name="RefuseTaken"/> is set only by a lane whose artifact's exact basename is load-bearing; <paramref name="Noun"/> is what the lane writes, for the patch=/into= refusal.</summary>
+    public readonly record struct RiderNaming(string Param, StemRefusal? RefuseTaken = null, string Noun = "output");
 
     /// <summary>Resolve a houseCARL-owned mod folder under ModsDir for a non-.esp output: a fresh marker-stamped folder, auto-suffixed so a prior one is never clobbered, or <paramref name="into"/> an existing owned one. Derives ModsDir with no index build, and throws the unconfigured prompt when there is no instance.</summary>
     public RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming)
@@ -37,6 +37,8 @@ internal sealed class OutputLocations
     /// <summary>The body of <see cref="ResolvePatchModFolder(string?, string?, string, RiderNaming?)"/> over a snapshot the caller captured; no index lock held, so the create runs outside it.</summary>
     internal RiderFolder ResolvePatchModFolder(OutputRoots snapshot, string? patchName, string? into, string defaultStem, RiderNaming? naming)
     {
+        // Naming both lanes is refused before any folder is touched.
+        if (LaneSentences.PatchIntoFolderRefusal(patchName, into, naming?.Noun ?? "output") is { } lane) throw new InvalidOperationException(lane);
         var roots = snapshot.Roots;
         if (!Directory.Exists(roots.ModsDir))
             throw new InvalidOperationException($"cannot write: ModsDir '{roots.ModsDir}' does not exist.");
@@ -63,7 +65,7 @@ internal sealed class OutputLocations
     /// <summary>The <c>Scripts\</c> output folder for a compiled .pex, under a houseCARL mod folder, which MO2 deploys into the game's Data\Scripts.</summary>
     public RiderFolder ResolveCompiledScriptFolder(string? patchName, string? into)
     {
-        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch"));
+        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch", Noun: ".pex"));
         var scripts = Path.Combine(f.ModFolder, "Scripts");
         Directory.CreateDirectory(scripts);
         return f with { OutputDir = scripts };
@@ -184,7 +186,7 @@ internal sealed class OutputLocations
     /// <summary>The <c>Source\Scripts\</c> output folder for a decompiled .psc — the SE-canonical layout, under the same default patch stem as the compile lane so decompile, edit and compile accumulate in one folder.</summary>
     public RiderFolder ResolveDecompiledSourceFolder(string? patchName, string? into)
     {
-        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch"));
+        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch", Noun: ".psc"));
         var src = Path.Combine(f.ModFolder, "Source", "Scripts");
         Directory.CreateDirectory(src);
         return f with { OutputDir = src };
@@ -229,7 +231,7 @@ internal sealed class OutputLocations
     /// <summary>The <c>SEQ\</c> output folder for a generated <c>.seq</c>, under a houseCARL mod folder, which MO2 deploys into the game's <c>Data\SEQ</c>, over a snapshot the caller captured.</summary>
     RiderFolder ResolveSeqFolder(OutputRoots snapshot, string? patchName, string? into)
     {
-        var f = ResolvePatchModFolder(snapshot, patchName, into, "houseCARL_SEQ", new RiderNaming("patch"));
+        var f = ResolvePatchModFolder(snapshot, patchName, into, "houseCARL_SEQ", new RiderNaming("patch", Noun: ".seq"));
         var seq = Path.Combine(f.ModFolder, "SEQ");
         Directory.CreateDirectory(seq);
         return f with { OutputDir = seq };

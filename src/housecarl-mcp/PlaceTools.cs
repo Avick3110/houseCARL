@@ -89,9 +89,8 @@ public static class PlaceTools
     static string PlaceTargets(LoadOrderService svc, PlaceTarget[] assets, string? source_provider,
                                string? kind, string? patch, string? into, int max_chars, bool json)
     {
-        if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
-            return Refuse(json, $"patch='{patch}' names a NEW mod folder for the placed files, but into='{into}' writes them into an existing houseCARL "
-                              + "patch — the two lanes are exclusive. Drop patch= to write into that patch, or drop into= to make a new folder.");
+        if (LaneSentences.PatchIntoFolderRefusal(patch, into, "placed files") is { } patchInto)
+            return Refuse(json, patchInto);
         // The set-level slot is validated ONCE, under its own name: attributed to a member it would blame input the caller never wrote there.
         if (ParseSlot(NullIfBlank(kind), out var setKindErr) is null && setKindErr is not null)
             return Refuse(json, setKindErr);

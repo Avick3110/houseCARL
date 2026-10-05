@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HousecarlCore;
 using HousecarlMcp;
 using Xunit;
@@ -109,6 +110,35 @@ public sealed class PatchIntoLaneRefusalTests
     }
 
     [Fact]
+    public void CopyWithABlankPatchAndABlankIntoNamesThePatchAfterNewEditorid()
+    {
+        using var w = new TwoDisabledDonorsWorld();
+
+        var r = CopyTools.Copy(w.Svc, w.Fid(w.DonorNpc), new[] { "Donor.esp" }, new[] { "HeadParts" },
+                               new[] { "Race:refuse" }, null, "MyClone", "  ", "");
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Single(Directory.EnumerateDirectories(w.ModsDir, "houseCARL - MyClone"));
+        Assert.Empty(Directory.EnumerateDirectories(w.ModsDir, "houseCARL - Patch*"));
+    }
+
+    [Fact]
+    public void NifSetInPlaceWithPatchAndIntoReportsIntoBesideInPlace()
+    {
+        using var own = new NifSourceSoleWorld();
+        var mods = Path.Combine(own.Root, "inst", "mods");
+        var before = Folders(mods);
+
+        var r = NifTools.NifSet(own.Svc, mesh_path: S.SoleRel, op: "set_flags", target: "GuardShape",
+                                flags: "0x800000E", source_provider: S.SoleMod, patch: "HcLaneA", into: "HcLaneB",
+                                in_place: true);
+
+        Assert.Contains("in_place and into are mutually exclusive", r);
+        Assert.DoesNotContain("the two lanes are exclusive", r);
+        Assert.Equal(before, Folders(mods));
+    }
+
+    [Fact]
     public void NifSetRefusesPatchWithInto()
     {
         using var own = new NifSourceSoleWorld();
@@ -134,6 +164,24 @@ public sealed class PatchIntoLaneRefusalTests
 
         Assert.StartsWith("error:", r);
         Assert.Contains("exclusive", r);
+        Assert.Equal(before, Folders(own.P.Mods));
+    }
+
+    [Fact]
+    public void PlaceRefusesPatchWithIntoInJson()
+    {
+        using var own = new PlaceSpecWorld();
+        var before = Folders(own.P.Mods);
+
+        var r = PlaceTools.Place(own.Svc, new[] { new PlaceTarget { Formid = PlaceInstance.FacegenFormId } },
+                                 patch: "HcLaneA", into: "HcLaneB.esp", format: "json");
+
+        using var doc = JsonDocument.Parse(r);
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        var error = doc.RootElement.GetProperty("error").GetString()!;
+        Assert.Contains("HcLaneA", error);
+        Assert.Contains("HcLaneB.esp", error);
+        Assert.Contains("the two lanes are exclusive", error);
         Assert.Equal(before, Folders(own.P.Mods));
     }
 }

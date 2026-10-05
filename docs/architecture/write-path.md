@@ -189,10 +189,17 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   itself.
 - `RemapEngine.LocalizedAmong` fails closed on a referencer it could not open, which is what forces the two-class
   split in `SplitBlockedReferencers`.
-- A call's destinations are mutually exclusive — `patch=` / `into=` / `in_place=`, and `.seq`'s `out_path=`, which
-  supersedes the `patch=`/`into=` pair, says so, and is checked before it — and a named lane is honoured or refused BY
-  NAME rather than accepted-and-ignored. Emptiness is judged one way for a lane string, so the exclusivity checks and
-  the write cannot disagree about whether a lane was named.
+- A call's destinations are mutually exclusive — `patch=` / `into=` / `in_place=`, and the `out_path=` of `write_seq`,
+  `compile_script` and `decompile_script`, which supersedes the `patch=`/`into=` pair, says so, and is checked before
+  it — and a named lane is honoured or refused BY NAME rather than accepted-and-ignored. Emptiness is judged one way
+  for a lane string, so the exclusivity checks and the write cannot disagree about whether a lane was named.
+- `patch=` beside `into=` is refused by apply, create, forward, copy, write_seq, compile_script, decompile_script,
+  nif_set, place and bsa_repack, in one sentence per kind from `LaneSentences` (a patch plugin, or a mod folder naming
+  what lands in it). The two shared resolvers, `RecordWrites.ResolveOutputPath` and
+  `OutputLocations.ResolvePatchModFolder`, refuse the pair before touching a folder, so every lane that reaches them is
+  covered; bsa_repack relies on that alone. The others do real work first (an index build, a compile, a mesh edit),
+  so each also calls the same check at its top, before any work and before a dry run. On nif_set, `in_place=` ignores
+  `patch=`, so with it the conflict reported is `into=` beside `in_place=`.
 - `format=` is resolved BEFORE the unconfigured-MO2 prompt, which is prose a json caller could not parse, and every
   refusal below it answers in the requested format with a null epoch.
 - The lane a response reports is the one the CALL named, never one derived from the outcome's flags, which sit at
@@ -469,6 +476,11 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - `DryRunGuardPatchLaneTests` and `DryRunGuardForwardTests` (the former `dry-run-guard` RENDER HONESTY arm) — a dry
   outcome leads with DRY RUN and nothing-written and never reads like a write, with the `full_readback` dump labelled
   as the IN-MEMORY preview.
+- `PatchIntoLaneRefusalTests` — compile_script, decompile_script, copy, nif_set and place refuse `patch=` beside
+  `into=` with no folder cut (place in both formats), compile and decompile with `out_path=` state the ignored pair
+  instead of refusing, a blank `patch=` or `into=` on copy is no name so `new_editorid=` names the patch, and nif_set
+  with `in_place=` reports `into=` beside `in_place=`; `PatchArtifactCollisionTests` holds the same refusal on
+  bsa_repack through the resolver, and `ApplyGuardLaneTests` on apply.
 - `SeqWriteToolLaneTests` and `SeqWriteUnchangedTests` (the former `seq-write-guard` arms TOOL-LANE and UNCHANGED /
   -DIFFERS / RENDER-UNCHANGED / JSON-UNCHANGED) — `out_path=` wins
   over `patch=`/`into=` with the ignored lane STATED, and a byte-identical destination is left alone and renders as

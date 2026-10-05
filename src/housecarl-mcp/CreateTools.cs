@@ -61,8 +61,8 @@ public static class CreateTools
         bool hasInPlace = !string.IsNullOrWhiteSpace(in_place);
         if (hasInto && hasInPlace)
             return Refuse("into= and in_place= are different lanes — into= ADDS to a houseCARL patch, in_place= writes the records into an existing plugin's own file. Name one.");
-        if (hasPatch && hasInto)
-            return Refuse($"patch='{patch}' names a NEW patch to write, but into='{into}' extends an existing one — the two lanes are exclusive. Drop patch= to extend, or drop into= to write fresh.");
+        if (LaneSentences.PatchIntoRefusal(patchName, into) is { } patchInto)
+            return Refuse(patchInto);
         if (hasPatch && hasInPlace)
             return Refuse($"patch='{patch}' names a NEW patch to write, but in_place='{in_place}' writes into that plugin's own file — the two lanes are exclusive. Drop patch= to create in place, or drop in_place= to write a patch.");
         if (acknowledge && !hasInPlace)
