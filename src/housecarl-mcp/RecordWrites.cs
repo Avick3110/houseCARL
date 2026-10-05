@@ -286,13 +286,10 @@ internal sealed partial class RecordWrites
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place edits the file the game actually loads. Nothing was written.")
                 with { Stamp = view.Stamp };
 
-        // A localized target is refused BEFORE the dry-run branch below, in this lane's words.
-        if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
-            return WritePatchBuilder.PatchOutcome.Fail(locRefusal)
+        // The shared in-place pre-flight, BEFORE the dry-run branch and the consent prompt below.
+        if (InPlacePreflight(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } refusal)
+            return WritePatchBuilder.PatchOutcome.Fail(refusal)
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
-        // A target defining its own sub-0x800 records is refused here too, before the dry-run branch and the consent prompt.
-        if (ReservedOwnRecords.RefusalFor(targetPath, targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } resRefusal)
-            return WritePatchBuilder.PatchOutcome.Fail(resRefusal) with { Stamp = view.Stamp };
 
         // The consent axis: the persistent first-touch handshake keyed off the resolved path; a dry run bypasses it.
         bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);
@@ -353,11 +350,17 @@ internal sealed partial class RecordWrites
         return null;
     }
 
+    /// <summary>The in-place pre-flight every lane behind the plugin consent prompt runs first: the first refusal (localized, then
+    /// own records below 0x800), or null. <paramref name="reservedClause"/> defaults to <paramref name="laneClause"/>.</summary>
+    static string? InPlacePreflight(string targetPath, string targetName, string? dataDir, string laneClause, string? reservedClause = null) =>
+        LocalizedStrings.RefusalFor(targetPath, targetName, dataDir, laneClause)
+        ?? ReservedOwnRecords.RefusalFor(targetPath, targetName, reservedClause ?? laneClause);
+
     /// <summary>The first-touch in-place consent prompt for a PLUGIN: the shared lead plus the plugin-specific trade-off, waiving the CONSENT axis only.</summary>
     static string InPlaceHandshakeText(string pluginName, string path) =>
         InPlaceConsent.HandshakeLead(pluginName, path, "plugin", "writes to") +
         "  • houseCARL re-lays-out the WHOLE plugin the way xEdit/CK do on save (every record re-serialized), VERIFIES the records you edit, and trusts Mutagen for the rest.\n" +
-        "  • It still refuses, before writing, a file it can't parse, a localized plugin, a write that would drop or resize a subrecord, and a plugin that defines records of its own below 0x800 (vanilla / Creation Club: you override those, you don't edit them).\n" +
+        "  • It still refuses, before writing, a file it can't parse, a localized plugin, a write that would drop or resize a subrecord, and a plugin with a header version below 1.71 that defines records of its own below 0x800 (vanilla / Creation Club: you override those, you don't edit them).\n" +
         "  • The default lane (a NEW patch, originals untouched) stays the recommended way — this is the explicit opt-in.\n" +
         "Re-call the SAME edit with acknowledge=true to proceed.";
 
@@ -515,13 +518,11 @@ internal sealed partial class RecordWrites
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place removes from the file the game actually loads. Nothing was written.")
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
-        // A localized target is predicted here rather than met at the write, with this lane's remedy clause.
-        if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemoveNoEquivalent) is { } locRefusal)
-            return WritePatchBuilder.RemovalOutcome.Fail(locRefusal)
+        // The shared in-place pre-flight, before the consent prompt, with remove's own remedy clauses.
+        if (InPlacePreflight(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemoveNoEquivalent,
+                             WriteSentences.RemoveReservedRemedy) is { } refusal)
+            return WritePatchBuilder.RemovalOutcome.Fail(refusal)
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
-        // A target defining its own sub-0x800 records is refused here too, before the consent prompt.
-        if (ReservedOwnRecords.RefusalFor(targetPath, targetName, LocalizedTargetUnsupportedException.RemoveNoEquivalent) is { } resRefusal)
-            return WritePatchBuilder.RemovalOutcome.Fail(resRefusal) with { Stamp = view.Stamp };
 
         // The consent axis: the shared first-touch handshake keyed off the resolved path.
         bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);
@@ -638,13 +639,10 @@ internal sealed partial class RecordWrites
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place forwards into the file the game actually loads. Nothing was written.")
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
-        // A localized target is refused BEFORE the dry-run branch below, in this lane's words.
-        if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
-            return WritePatchBuilder.ForwardOutcome.Fail(locRefusal)
+        // The shared in-place pre-flight, BEFORE the dry-run branch and the consent prompt below.
+        if (InPlacePreflight(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } refusal)
+            return WritePatchBuilder.ForwardOutcome.Fail(refusal)
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
-        // A target defining its own sub-0x800 records is refused here too, before the dry-run branch and the consent prompt.
-        if (ReservedOwnRecords.RefusalFor(targetPath, targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } resRefusal)
-            return WritePatchBuilder.ForwardOutcome.Fail(resRefusal) with { Stamp = view.Stamp };
 
         // The consent axis: the shared first-touch handshake; a dry run bypasses it and notes it instead.
         bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);

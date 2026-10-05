@@ -136,13 +136,10 @@ internal sealed partial class RecordWrites
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place creates into the file the game actually loads. Nothing was written.")
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 
-        // A localized target is predicted here rather than met at the write, with this lane's remedy clause.
-        if (LocalizedStrings.RefusalFor(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } locRefusal)
-            return WritePatchBuilder.CreateOutcome.Fail(locRefusal)
+        // The shared in-place pre-flight, before the consent prompt.
+        if (InPlacePreflight(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } refusal)
+            return WritePatchBuilder.CreateOutcome.Fail(refusal)
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
-        // A target defining its own sub-0x800 records is refused here too, before the consent prompt.
-        if (ReservedOwnRecords.RefusalFor(targetPath, targetName, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } resRefusal)
-            return WritePatchBuilder.CreateOutcome.Fail(resRefusal) with { Stamp = view.Stamp };
 
         // The consent axis: the shared first-touch handshake keyed off the resolved path.
         bool already = _host.InPlaceConsent.IsAcknowledged(targetPath);
