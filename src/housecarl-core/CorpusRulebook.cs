@@ -312,6 +312,11 @@ public sealed class CorpusRulebook
                    "refuses until every record it would drop is named. (To see which record this is: read the " +
                    $"parent at depth=2 — the '{leaf.Name}' field shows the child's FormID.)";
 
+        // (3a-key) A whole-field Remove reads no key; asked after the owned-child answer, which names the bigger problem.
+        if (string.Equals(req.Verb, "Remove", StringComparison.Ordinal) && req.Key is not null
+            && leaf.Cardinality is not ("list" or "dict"))
+            return $"Remove on {leaf.Cardinality} field '{leaf.Name}' clears the whole field, so it takes no key — remove key=.";
+
         // (3b) record identity (FormKey/ModKey) is a flat, honest reject regardless of Mutagen's setter.
         if (leaf.IsIdentity)
             return $"'{leaf.Name}' on '{leafOwner.Name}' is record identity (FormKey/ModKey), not an editable content field.";
@@ -380,8 +385,7 @@ public sealed class CorpusRulebook
                 // whole-clear below. No key; the flag VALUE is gated in ValueLegality.
                 if (IsFlagsEnumLeaf(leaf))
                     return hasKey ? $"Remove on flags field '{leaf.Name}' takes no key — the value IS the flag to clear." : null;
-                if (!leaf.Nullable) return $"Remove on non-nullable {c} field '{leaf.Name}' is not valid.";
-                return hasKey ? $"Remove on {c} field '{leaf.Name}' clears the whole field, so it takes no key — remove key=." : null;
+                return leaf.Nullable ? null : $"Remove on non-nullable {c} field '{leaf.Name}' is not valid.";
             case "ReplaceAll":
                 return c is "list" or "dict" ? null : $"ReplaceAll is only valid on list/dict; '{leaf.Name}' is {c}.";
             case "SetAtIndex":
