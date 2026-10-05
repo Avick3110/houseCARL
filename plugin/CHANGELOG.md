@@ -51,6 +51,9 @@ made the change.
   forward and copy do, instead of refusing.** Passing `patch="Patch"` is still refused.
 - **`housecarl_apply` and `housecarl_create` now refuse `key=` on an op that does not read it, such as a list Add, instead
   of appending at the end.** A list Add with `key=` now refuses and points at InsertAtIndex.
+- **`housecarl_compile_script`, `housecarl_decompile_script`, `housecarl_copy`, `housecarl_nif_set` and
+  `housecarl_place` now refuse `patch=` beside `into=` instead of dropping `patch=`.** A blank `patch=` on copy now
+  names the patch after `new_editorid=`, not 'Patch'.
 
 ## 2.0.3 — 2026-09-23
 

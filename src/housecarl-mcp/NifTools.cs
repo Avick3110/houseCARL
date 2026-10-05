@@ -222,7 +222,7 @@ public static class NifTools
                      ProviderNameSentence + "; a copy the game is not loading is stated on the default lane and " +
                      "refused by in_place. Empty = the winner.")]
             string source_provider = "",
-        [Description("Optional. Base name for the new mod folder the edited mesh is written into (default 'houseCARL_NifEdit'); auto-suffixed if taken. Ignored with into= or in_place=true.")]
+        [Description("Optional. Base name for the new mod folder the edited mesh is written into (default 'houseCARL_NifEdit'); auto-suffixed if taken. Refused with into=; ignored with in_place=true.")]
             string patch = "",
         [Description("Optional. Write into an existing houseCARL-owned mod folder instead of a fresh one. Not with in_place.")]
             string into = "",
@@ -232,6 +232,9 @@ public static class NifTools
             bool acknowledge = false) => Guard.Tool(ToolNames.NifSet, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
+            return $"error: patch='{patch}' names a NEW mod folder for the edited mesh, but into='{into}' writes it into an existing houseCARL "
+                 + "patch — the two lanes are exclusive. Drop patch= to write into that patch, or drop into= to make a new folder.";
         if (string.IsNullOrWhiteSpace(mesh_path)) return "error: mesh_path is empty. Pass a Data-relative mesh path.";
         if (string.IsNullOrWhiteSpace(op)) return "error: op is empty. Pass one of: " + OpList + ".";
         if (string.IsNullOrWhiteSpace(target)) return "error: target is empty. Pass the shape/node NAME the op edits (from " + ToolNames.NifInspect + ").";
