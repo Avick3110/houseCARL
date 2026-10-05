@@ -460,12 +460,6 @@ internal static class WriteSentences
     internal const string RemoveNoFreshPatch =
         "houseCARL will not create a patch here, since a removal only drops a record the patch ITSELF already carries";
 
-    [MustState("housecarl_forward", "xEdit or the Creation Kit")]
-    internal const string RemoveReservedRemedy =
-        "Remove's default lane only drops records from a patch houseCARL made, so houseCARL cannot remove anything from this "
-      + "plugin: to undo one of its overrides, forward the master's version into a new plugin with housecarl_forward "
-      + "(no in_place=), and to delete a record it defines, use xEdit or the Creation Kit.";
-
 
     /// <summary>Sentences the SAME outcome must carry on BOTH transports, as whole invariant strings.</summary>
     internal static class Twins

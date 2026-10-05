@@ -520,7 +520,7 @@ internal sealed partial class RecordWrites
 
         // The shared in-place pre-flight, before the consent prompt, with remove's own remedy clauses.
         if (InPlacePreflight(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemoveNoEquivalent,
-                             WriteSentences.RemoveReservedRemedy) is { } refusal)
+                             LocalizedTargetUnsupportedException.RemoveReservedRemedy) is { } refusal)
             return WritePatchBuilder.RemovalOutcome.Fail(refusal)
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
 

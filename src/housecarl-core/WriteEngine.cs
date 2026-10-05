@@ -3073,6 +3073,12 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
         "This lane has no new-plugin form: a separate plugin can override a record but cannot un-define one, so there is " +
         "no way to remove this record without rewriting the plugin that defines it.";
 
+    /// <summary>Remove's clause for a plugin refused in place for its own sub-0x800 records: remove's default lane cannot reach it, so it names what can.</summary>
+    public const string RemoveReservedRemedy =
+        "Remove's default lane only drops records from a patch houseCARL made, so houseCARL cannot remove anything from this " +
+        "plugin: to undo one of its overrides, forward the master's version into a new plugin with housecarl_forward " +
+        "(no in_place=), and to delete a record it defines, use xEdit or the Creation Kit.";
+
     /// <summary>Where this plugin's strings are, as a clause a lane refusing for its OWN reason can drop in.</summary>
     public static string ShapeClause(LocalizedAssessment a) => a.Shape switch
     {
