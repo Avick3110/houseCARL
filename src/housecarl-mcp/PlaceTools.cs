@@ -46,7 +46,7 @@ public static class PlaceTools
             string? source_provider = null,
         [Description("Optional. Which FaceGen file every formid member places when the member does not say: 'mesh' (the head .nif) or 'tint' (the face .dds). Omit to place both. Ignored by path members. A member's own kind overrides this, but once this is set no member can get back to both, so for a mixed set leave it omitted and set kind per member.")]
             string? kind = null,
-        [Description("Optional. Base name for the new houseCARL mod folder the files land in (default 'houseCARL_Assets'); auto-suffixed if taken, so a prior folder is never overwritten. Ignored with into=.")]
+        [Description("Optional. Base name for the new houseCARL mod folder the files land in (default 'houseCARL_Assets'); auto-suffixed if taken, so a prior folder is never overwritten. Refused with into=.")]
             string? patch = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to place into instead of a fresh folder, to add to it across calls. Found by the plugin's filename even if its MO2 mod folder was renamed; when two patches share a filename, pass the mod-folder name instead (folder and plugin names need not match).")]
             string? into = null,
@@ -89,6 +89,9 @@ public static class PlaceTools
     static string PlaceTargets(LoadOrderService svc, PlaceTarget[] assets, string? source_provider,
                                string? kind, string? patch, string? into, int max_chars, bool json)
     {
+        if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
+            return Refuse(json, $"patch='{patch}' names a NEW mod folder for the placed files, but into='{into}' writes them into an existing houseCARL "
+                              + "patch — the two lanes are exclusive. Drop patch= to write into that patch, or drop into= to make a new folder.");
         // The set-level slot is validated ONCE, under its own name: attributed to a member it would blame input the caller never wrote there.
         if (ParseSlot(NullIfBlank(kind), out var setKindErr) is null && setKindErr is not null)
             return Refuse(json, setKindErr);

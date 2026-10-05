@@ -80,6 +80,10 @@ public static class CompileTools
     {
         // 1) MO2 must be configured — the .pex lands under the instance's mods folder.
         if (svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
+        // Lane exclusivity, out_path= first (it supersedes both); contract in docs/architecture/write-path.md.
+        if (string.IsNullOrWhiteSpace(out_path) && !string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
+            return $"error: patch='{patch}' names a NEW mod folder for the .pex, but into='{into}' writes it into an existing houseCARL "
+                 + "patch — the two lanes are exclusive. Drop patch= to write into that patch, or drop into= to make a new folder.";
 
         // 2) validate the script path.
         if (string.IsNullOrWhiteSpace(script))

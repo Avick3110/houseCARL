@@ -48,6 +48,11 @@ public static class CopyTools
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
 
+        // A blank patch= is no name, so the new_editorid= default applies; naming both lanes is refused.
+        var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
+        if (patchName is not null && !string.IsNullOrWhiteSpace(into))
+            return $"error: patch='{patch}' names a NEW patch to write, but into='{into}' extends an existing one — the two lanes are exclusive. Drop patch= to extend, or drop into= to write fresh.";
+
         // One door for every token in the call, so the source and the target resolve against one index build.
         var door = svc.OpenWriteFormIdDoor();
         FormKey fromKey;
@@ -115,7 +120,7 @@ public static class CopyTools
         // refused above, rather than a list that quietly becomes something shorter.
         if (poles.Count == 0) poles.Add(SourcePoles.Winner);
 
-        return Render(svc.CopyClosure(fromKey, poles, seeds, exclusions, targetKey, new_editorid, patch, into));
+        return Render(svc.CopyClosure(fromKey, poles, seeds, exclusions, targetKey, new_editorid, patchName, into));
     });
 
     /// <summary>Render one outcome. Internal so a test can read the sentences without going through the wire.</summary>
