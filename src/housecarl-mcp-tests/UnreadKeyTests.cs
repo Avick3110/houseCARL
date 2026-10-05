@@ -71,6 +71,20 @@ public sealed class UnreadKeyTests : IClassFixture<ComposesBatchWorld>
     }
 
     [Fact]
+    public void ApplyMergeWithKeyIsRefused()
+    {
+        var op = new BulkOp { Formid = _w.WeaponFid, FieldPath = "Keywords", Verb = "Merge", Key = "0", Entries = new() { ["0"] = KwFid } };
+        NothingWritten(_w.Svc.ApplyEdits(new[] { op }, "HcKeyMerge", null), "HcKeyMerge", "Merge merges the pairs in entries=, so it takes no key=");
+    }
+
+    [Fact]
+    public void ApplyCopyFromWithKeyIsRefused()
+    {
+        var op = new BulkOp { Formid = _w.WeaponFid, FieldPath = "BasicStats.Damage", Verb = "CopyFrom", Key = "0", FromPlugin = "HcW3Master.esm" };
+        NothingWritten(_w.Svc.ApplyEdits(new[] { op }, "HcKeyCopyFrom", null), "HcKeyCopyFrom", "CopyFrom copies the whole field, so it takes no key=");
+    }
+
+    [Fact]
     public void TheDryRunRefusesAListAddWithKey()
     {
         var o = _w.Svc.ApplyEdits(new[] { KeywordAdd() }, "HcKeyDry", null, dryRun: true);
