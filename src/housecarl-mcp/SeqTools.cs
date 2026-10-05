@@ -49,12 +49,8 @@ public static class SeqTools
             if (!string.IsNullOrWhiteSpace(patch) || !string.IsNullOrWhiteSpace(into))
                 outputNote = "note: out_path= was given, so patch=/into= are ignored (the .seq lands in out_path, not a houseCARL patch folder).";
         }
-        else if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
-        {
-            var laneErr = $"patch='{patch}' names a NEW mod folder for the .seq, but into='{into}' writes it into an existing houseCARL "
-                        + "patch — the two lanes are exclusive. Drop patch= to write into that patch, or drop into= to make a new folder.";
+        else if (LaneSentences.PatchIntoFolderRefusal(patch, into, ".seq") is { } laneErr)
             return json ? JsonWire.RenderError(laneErr, null) : "error: " + laneErr;
-        }
 
         var o = svc.WriteSeq(source, patch, into, out_path);
         if (json) return JsonWire.RenderSeqOutcome(o, max_chars, outputNote);

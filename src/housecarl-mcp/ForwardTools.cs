@@ -66,8 +66,8 @@ public static class ForwardTools
         bool hasInPlace = !string.IsNullOrWhiteSpace(in_place);
         if (hasInto && hasInPlace)
             return Refuse("into= and in_place= are different lanes — into= EXTENDS a houseCARL patch, in_place= rewrites an existing plugin's own file. Name one.");
-        if (hasPatch && hasInto)
-            return Refuse($"patch='{patch}' names a NEW patch to write, but into='{into}' extends an existing one — the two lanes are exclusive. Drop patch= to extend, or drop into= to write fresh.");
+        if (LaneSentences.PatchIntoRefusal(patchName, into) is { } patchInto)
+            return Refuse(patchInto);
         if (hasPatch && hasInPlace)
             return Refuse($"patch='{patch}' names a NEW patch to write, but in_place='{in_place}' rewrites that plugin's own file — the two lanes are exclusive. Drop patch= to forward in place, or drop in_place= to write a patch.");
         if (acknowledge && !hasInPlace)

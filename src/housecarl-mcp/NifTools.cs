@@ -232,9 +232,9 @@ public static class NifTools
             bool acknowledge = false) => Guard.Tool(ToolNames.NifSet, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
-            return $"error: patch='{patch}' names a NEW mod folder for the edited mesh, but into='{into}' writes it into an existing houseCARL "
-                 + "patch — the two lanes are exclusive. Drop patch= to write into that patch, or drop into= to make a new folder.";
+        // in_place= ignores patch=, so with it the conflict is into= beside in_place=, which the service refuses before any work.
+        if (!in_place && LaneSentences.PatchIntoFolderRefusal(patch, into, "edited mesh") is { } patchInto)
+            return "error: " + patchInto;
         if (string.IsNullOrWhiteSpace(mesh_path)) return "error: mesh_path is empty. Pass a Data-relative mesh path.";
         if (string.IsNullOrWhiteSpace(op)) return "error: op is empty. Pass one of: " + OpList + ".";
         if (string.IsNullOrWhiteSpace(target)) return "error: target is empty. Pass the shape/node NAME the op edits (from " + ToolNames.NifInspect + ").";
