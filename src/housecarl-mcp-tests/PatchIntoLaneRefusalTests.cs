@@ -1,3 +1,4 @@
+using HousecarlCore;
 using HousecarlMcp;
 using Xunit;
 using S = HousecarlMcpTests.NifSourceSoleWorld;
@@ -21,7 +22,7 @@ public sealed class PatchIntoLaneRefusalTests
     {
         var before = Folders(W.ModsDir);
 
-        var store = new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-1061-" + Guid.NewGuid().ToString("N") + ".json"));
+        var store = new UserConfigStore(Path.Combine(W.Root, "hc-1061-" + Guid.NewGuid().ToString("N") + ".json"));
 
         var r = CompileTools.CompileScript(W.Svc, new ToolPathResolver(store), store,
                                            Path.Combine(W.ScriptsDir, ScriptsWorld.BaseScript + ".psc"),
@@ -30,6 +31,42 @@ public sealed class PatchIntoLaneRefusalTests
         Assert.StartsWith("error:", r);
         Assert.Contains("exclusive", r);
         Assert.Equal(before, Folders(W.ModsDir));
+    }
+
+    [Fact]
+    public void CompileWithOutPathIgnoresPatchAndIntoInsteadOfRefusing()
+    {
+        // A stub compiler gets the call past the tool prompt; a relative out_path= then stops it at the output folder,
+        // before anything runs, where the ignored-lane note rides the refusal.
+        var own = Path.Combine(W.Root, "hc-1061-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(own);
+        var stub = Path.Combine(own, "PapyrusCompiler.exe");
+        File.WriteAllText(stub, "stub");
+        var psc = Path.Combine(own, "HcLaneScript.psc");
+        File.WriteAllText(psc, "ScriptName HcLaneScript\n");
+        var store = new UserConfigStore(Path.Combine(own, "user.json"));
+        var bridge = new ToolPathResolver(store);
+        Assert.True(bridge.Save(ToolDependency.PapyrusCompiler, stub).ok);
+
+        var r = CompileTools.CompileScript(W.Svc, bridge, store, psc,
+                                           auto_imports: false, patch: "HcLaneA", into: "houseCARL_Scripts",
+                                           out_path: "hc-1061-relative");
+
+        Assert.DoesNotContain("exclusive", r);
+        Assert.Contains("out_path= was given, so patch=/into= are ignored", r);
+    }
+
+    [Fact]
+    public void DecompileWithOutPathIgnoresPatchAndIntoInsteadOfRefusing()
+    {
+        var dest = Path.Combine(W.Root, "hc-1061-" + Guid.NewGuid().ToString("N"));
+
+        var r = DecompileTools.DecompileScript(W.Svc, Path.Combine(W.ScriptsDir, ScriptsWorld.BaseScript + ".pex"),
+                                               patch: "HcLaneA", into: "houseCARL_Scripts", out_path: dest);
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("out_path= was given, so patch=/into= are ignored", r);
+        Assert.True(File.Exists(Path.Combine(dest, ScriptsWorld.BaseScript + ".psc")), r);
     }
 
     [Fact]
