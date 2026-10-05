@@ -144,7 +144,7 @@ public sealed class InPlaceReservedFormIdTests : IDisposable
         var o = _svc.RemoveRecords(new[] { Id(_masterLow, MasterName) }, null, target: OwnName, inPlace: true, acknowledge: true);
         Assert.False(o.Success);
         Assert.Contains(Below, o.Error, StringComparison.Ordinal);
-        Assert.Contains(WriteSentences.RemoveReservedRemedy, o.Error, StringComparison.Ordinal);
+        Assert.Contains(LocalizedTargetUnsupportedException.RemoveReservedRemedy, o.Error, StringComparison.Ordinal);
         Assert.Equal(before, File.ReadAllBytes(_own));
     }
 
