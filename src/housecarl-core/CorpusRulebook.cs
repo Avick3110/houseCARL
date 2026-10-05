@@ -294,7 +294,7 @@ public sealed class CorpusRulebook
         // (3a-copyfrom) CopyFrom transplants the WHOLE field from another plugin's version. Writable, not-identity and
         // a transplantable KIND are gated here; the SOURCE resolution happens later.
         if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
-            return CopyFromLegality(leaf, leafOwner, ownedChildHop, ownedChildHopOwner);
+            return CopyFromLegality(leaf, leafOwner, req, ownedChildHop, ownedChildHopOwner);
 
         // (3a) verb legal for this cardinality?
         if (VerbLegality(leaf, req) is { } verbErr) return verbErr;
@@ -312,17 +312,17 @@ public sealed class CorpusRulebook
                    "refuses until every record it would drop is named. (To see which record this is: read the " +
                    $"parent at depth=2 — the '{leaf.Name}' field shows the child's FormID.)";
 
-        // (3a-key) A whole-field Remove reads no key; asked after the owned-child answer, which names the bigger problem.
-        if (string.Equals(req.Verb, "Remove", StringComparison.Ordinal) && req.Key is not null
-            && leaf.Cardinality is not ("list" or "dict"))
-            return $"Remove on {leaf.Cardinality} field '{leaf.Name}' clears the whole field, so it takes no key — remove key=.";
-
         // (3b) record identity (FormKey/ModKey) is a flat, honest reject regardless of Mutagen's setter.
         if (leaf.IsIdentity)
             return $"'{leaf.Name}' on '{leafOwner.Name}' is record identity (FormKey/ModKey), not an editable content field.";
 
         // (3c) writable? (discriminators route to their own rejection)
         if (!leaf.Writable) return WritabilityRejection(leafOwner, leaf);
+
+        // (3c-key) A whole-field Remove takes no key.
+        if (string.Equals(req.Verb, "Remove", StringComparison.Ordinal) && KeyGiven(req)
+            && leaf.Cardinality is not ("list" or "dict"))
+            return $"Remove on {leaf.Cardinality} field '{leaf.Name}' clears the whole field, so it takes no key — remove key=.";
 
         // (4) value / key coercion + enum/legal-set legality
         return ValueLegality(leaf, req, siblingEditorIds);
@@ -367,10 +367,14 @@ public sealed class CorpusRulebook
                 return hasKey ? $"Set on {c} field '{leaf.Name}' does not take a key." : null;
             case "Add":
                 // A dict Add coerces req.Key into the new entry's key, so key PRESENCE is gated here; a list Add
-                // appends and takes no key, so a key there is refused rather than left unread. The key VALUE-shape is ValueLegality's job.
+                // appends and takes no key. The key VALUE-shape is ValueLegality's job.
                 if (c == "dict") return hasKey ? null : $"Add on dict field '{leaf.Name}' requires a key.";
+                // A list Add with a key is refused, except on owned child records, whose own refusal answers below.
                 if (c == "list")
-                    return hasKey ? $"Add on list '{leaf.Name}' appends at the end, so it takes no key — remove key=, or use InsertAtIndex to put the element at that index." : null;
+                    return KeyGiven(req) && !IsOwnedChildRecordCollection(leaf)
+                        ? $"Add on list '{leaf.Name}' appends at the end, so it takes no key — remove key=, or place one " +
+                          $"element at an index: {HowToPlaceOneAt(leaf)}."
+                        : null;
                 // A [Flags] enum accepts Add as a bit-SET, preserving the other bits. No key; the flag VALUE is gated
                 // in ValueLegality.
                 if (IsFlagsEnumLeaf(leaf))
@@ -387,7 +391,11 @@ public sealed class CorpusRulebook
                     return hasKey ? $"Remove on flags field '{leaf.Name}' takes no key — the value IS the flag to clear." : null;
                 return leaf.Nullable ? null : $"Remove on non-nullable {c} field '{leaf.Name}' is not valid.";
             case "ReplaceAll":
-                return c is "list" or "dict" ? null : $"ReplaceAll is only valid on list/dict; '{leaf.Name}' is {c}.";
+                if (c is not ("list" or "dict")) return $"ReplaceAll is only valid on list/dict; '{leaf.Name}' is {c}.";
+                // A ReplaceAll with a key is refused, except on owned child records, whose own refusal answers below.
+                return KeyGiven(req) && !IsOwnedChildRecordCollection(leaf)
+                    ? $"ReplaceAll on {c} '{leaf.Name}' replaces the whole field, so it takes no key — remove key=."
+                    : null;
             case "SetAtIndex":
                 // A list SetAtIndex parses req.Key as the index, so PRESENCE is required up front; the VALUE-shape is
                 // gated in ValueLegality's key block.
@@ -399,7 +407,10 @@ public sealed class CorpusRulebook
                 if (c != "list") return $"InsertAtIndex is only valid on list; '{leaf.Name}' is {c}.";
                 return hasKey ? null : $"InsertAtIndex on list '{leaf.Name}' requires an index (the position to insert AT; the list's length appends).";
             case "Merge":
-                return c == "dict" ? null : $"Merge is only valid on dict; '{leaf.Name}' is {c}.";
+                if (c != "dict") return $"Merge is only valid on dict; '{leaf.Name}' is {c}.";
+                return KeyGiven(req)
+                    ? $"Merge on dict '{leaf.Name}' sets each pair in entries=, so it takes no key — remove key=."
+                    : null;
             default:
                 // The verb set comes from its one home (WriteVerbs.All), never a hand-typed copy.
                 return $"Unknown verb '{req.Verb}'. Legal: {string.Join(", ", WriteVerbs.All)}.";
@@ -412,6 +423,15 @@ public sealed class CorpusRulebook
         WriteVerbs.OfField(leaf, _corpus) is { } shape
             ? WriteVerbs.HowToPlace(shape)
             : "the verbs this field takes are in the op member's description";
+
+    /// <summary>"How do I put one element at an index in this collection", derived from the leaf's own shape.</summary>
+    string HowToPlaceOneAt(FieldSchema leaf) =>
+        WriteVerbs.OfField(leaf, _corpus) is { } shape
+            ? WriteVerbs.HowToPlaceOneAt(shape)
+            : "the verbs this field takes are in the op member's description";
+
+    /// <summary>True iff the request carries a key; a blank key counts as absent.</summary>
+    static bool KeyGiven(WriteRequest req) => !string.IsNullOrWhiteSpace(req.Key);
 
     /// <summary>Validate a composes= batch whole, on a LIST of modeled elements only, through the same
     /// <see cref="StructElementLegality"/> the singular compose Add uses. All-or-nothing: the first bad element names
@@ -443,6 +463,12 @@ public sealed class CorpusRulebook
                    $"ReplaceAll (clear, then append each), not {req.Verb}. " +
                    // The shape is settled by the two checks above, so it is NAMED rather than looked up.
                    $"(One element at a time: {WriteVerbs.HowToPlaceOne(new CollectionShape(CollectionKind.List, ElementPlacement.Composed))}.)";
+        // A key beside composes= is refused.
+        if (KeyGiven(req))
+            return req.Verb is "Add"
+                ? "composes= with Add appends each element at the end of the list, so it takes no key — remove key=, or " +
+                  $"place one element at an index: {WriteVerbs.HowToPlaceOneAt(new CollectionShape(CollectionKind.List, ElementPlacement.Composed))}."
+                : $"composes= with ReplaceAll replaces the whole list '{leaf.Name}', so it takes no key — remove key=.";
         if (req.Structs!.Count == 0)
             return req.Verb is "ReplaceAll"
                 ? null   // ReplaceAll composes=[] = CLEAR the modeled list (the modeled twin of ReplaceAll values=[]); apply Clears + appends nothing
@@ -456,7 +482,7 @@ public sealed class CorpusRulebook
     /// <summary>Validate a CopyFrom target leaf: writable, not record identity, and a TRANSPLANTABLE kind. The one
     /// non-transplantable kind is an owned-child record, in either shape, refused by name; everything else
     /// WriteEngine.CopyField transplants by construction.</summary>
-    string? CopyFromLegality(FieldSchema leaf, TypeSchema owner, FieldSchema? ownedChildHop = null, TypeSchema? hopOwner = null)
+    string? CopyFromLegality(FieldSchema leaf, TypeSchema owner, WriteRequest req, FieldSchema? ownedChildHop = null, TypeSchema? hopOwner = null)
     {
         if (leaf.IsIdentity)
             return $"'{leaf.Name}' on '{owner.Name}' is record identity (FormKey/ModKey), not a copyable content field.";
@@ -486,7 +512,9 @@ public sealed class CorpusRulebook
         if (leaf.Cardinality == "dict")
             return $"'{leaf.Name}' on '{owner.Name}' is a dict field; CopyFrom transplants scalar / formlink / list / " +
                    "sub-struct fields — a dict isn't transplanted yet. Set its entries individually, or forward the whole record.";
-        return null;
+        return KeyGiven(req)
+            ? $"CopyFrom copies the whole field '{leaf.Name}', so it takes no key — remove key=."
+            : null;
     }
 
     /// <summary>The ONE sentence every value-shaped Set at an owned child record gets — <c>value=</c>, <c>compose=</c>
