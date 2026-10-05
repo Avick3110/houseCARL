@@ -35,12 +35,10 @@ internal sealed partial class RecordWrites
             return null;
         }
         if (RefuseStrayBesideCompose(op, where, out error)) return null;
-        var verb = string.IsNullOrWhiteSpace(op.Verb) ? "Set" : op.Verb;
-        if (RefuseUnreadKey(op, verb, where, out error)) return null;
 
         return new WriteRequest
         {
-            RecordType = recordType, Path = path, Verb = verb,
+            RecordType = recordType, Path = path, Verb = string.IsNullOrWhiteSpace(op.Verb) ? "Set" : op.Verb,
             Key = op.Key, Value = op.Value, Values = op.Values, Entries = op.Entries, Struct = spec, Structs = specs,
         };
     }
@@ -84,7 +82,6 @@ internal sealed partial class RecordWrites
         var fromPlugin = MapFromPlugin(op, verb, $"{where} ({op.Formid})", spec, specs, fromKey is not null, out error);
         if (error is not null) return null;
         if (RefuseStrayBesideCompose(op, where, out error)) return null;
-        if (RefuseUnreadKey(op, verb, where, out error)) return null;
 
         return new WritePatchBuilder.PatchEdit
         {
@@ -164,26 +161,6 @@ internal sealed partial class RecordWrites
         var name = op.Composes is not null ? "composes=" : "compose=";
         var builds = op.Composes is not null ? "each element" : "the element";
         error = $"{where}: {name} builds {builds} itself, so it takes no {string.Join(" or ", stray)} beside it — remove {string.Join(" and ", stray)}, or drop {name}.";
-        return true;
-    }
-
-    /// <summary>Refuse key= on a verb that never reads it whatever the field: ReplaceAll, Merge, CopyFrom, and Add with
-    /// composes=, which appends. A list Add and a whole-field Remove depend on the field's shape, so the rulebook refuses those.</summary>
-    static bool RefuseUnreadKey(BulkOp op, string verb, string where, out string? error)
-    {
-        error = null;
-        if (op.Key is null) return false;
-        var reason = verb switch
-        {
-            "ReplaceAll" => "ReplaceAll replaces the whole field",
-            "Merge" => "Merge merges the pairs in entries=",
-            WriteVerbs.Transplanting => "CopyFrom copies the whole field",
-            "Add" when op.Composes is not null => "composes= with Add appends each element at the end of the list",
-            _ => null,
-        };
-        if (reason is null) return false;
-        var remedy = verb == "Add" ? "remove key=, or place one element at an index with compose= and InsertAtIndex" : "remove key=";
-        error = $"{where}: {reason}, so it takes no key= — {remedy}.";
         return true;
     }
 
