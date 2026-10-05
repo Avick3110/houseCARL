@@ -11,6 +11,10 @@ made the change.
 
 ## Unreleased
 
+## 2.0.4 — 2026-10-05
+
+houseCARL 2.0.4 refuses more inputs it used to drop without a word and keeps more answers inside the room they are given. `housecarl_apply` and `housecarl_create` refuse `value=`, `values=` or `entries=` beside `compose=` or `composes=`, and `key=` on an op that does not read it; the compile, decompile, copy, NIF-set and place tools refuse `patch=` beside `into=`; and `housecarl_apply` with `patch=` omitted writes `Patch_001` when a disabled mod holds `Patch.esp`, as the other write tools do, instead of refusing. An in-place write now refuses a plugin below header version 1.71 that defines records of its own below 0x800, as 2.0 promised, and an in-place or `into=` write refuses before touching the file when the parser would drop a subrecord or change its length. `housecarl_skypatcher_layer` and `info_order` stay inside `max_chars` and mark what they cut. The facegen and scripts checks name the archives that failed to open, facegen names a mod folder it could not list, and presets that were never baked get their own `never_baked` class. The errors and dialogue checks, and a `housecarl_records` call over the SkyPatcher layer, can no longer mix two profiles when MO2 switches mid-call. A walk takes `walk.through` to find the NPCs that carry an item through leveled lists and outfits, the SkyPatcher overlay matches keys without regard to case, plugin lists take `@file`, delta and tree reads refuse only once a call would pass ten minutes, an answer on an order that lost plugins names them, and a malformed NIF is named instead of running the server out of memory. The tool descriptions now say each thing once, so the tool list takes about a quarter less of a session's context. The entries below are in the order they landed.
+
 - **`housecarl_skypatcher_layer` now stays inside the `max_chars` it is given, or says it ran over when
   that cap cannot hold its header and warnings.** Pass `max_chars=8000` on a large layer: the answer is 8,000 characters or fewer.
 - **`housecarl_records project=info_order` now lists as many lines of a topic as fit in `max_chars` and marks the cut,
