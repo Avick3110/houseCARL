@@ -2172,7 +2172,7 @@ public static class WritePatchBuilder
             {
                 return CompactBuildResult.Fail(
                     $"writing the compacted plugin failed (serialize or commit; nothing partial left): {WriteEngine.Describe(ex)} — " +
-                    $"note: a sub-0x{RemapEngine.EslFloor:X} originating record, or (for the light range) one above 0x{RemapEngine.EslCeiling:X}, is rejected by the light-/master-aware write here.");
+                    $"note: for the light range, a record above 0x{RemapEngine.EslCeiling:X} is rejected by the light-aware write here.");
             }
         }
         finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }
