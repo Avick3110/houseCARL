@@ -293,6 +293,15 @@ public sealed class ForwardFromPluginTests : IDisposable
         Assert.Contains("only meaningful with in_place", svc.ForwardRecords(new[] { XId }, ModAName, null, null, false, target: OtherName, inPlace: false).Error);
     }
 
+    // #1061: the shared record resolver refuses patch= beside into= itself, past the tool's own check
+    [Fact]
+    public void TheRecordResolverRefusesPatchBesideInto()
+    {
+        var r = Service().ForwardRecords(new[] { XId }, ModAName, "HcFwdNew", "HcFwdOld.esp", false);
+        Assert.Contains("patch='HcFwdNew' names a NEW patch to write, but into='HcFwdOld.esp'", r.Error);
+        Assert.Contains("the two lanes are exclusive", r.Error);
+    }
+
     // INPLACE-OPTIN: forward's in_place/acknowledge default OFF, and it declares no target=
     [Fact]
     public void TheForwardToolsInPlaceIsOffByDefaultAndDeclaresNoTarget()

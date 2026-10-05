@@ -86,7 +86,7 @@ public sealed class ExtendResolveRefusalTests
 
     // the rider lane still refuses in ONE sentence, naming the .esp searched; hands back patch= with the caller's
     // guessed name, qualified with the auto-suffix; never the retired patch_name=; says to DROP into=;
-    // keeping into= and adding patch= returns the IDENTICAL refusal; following it creates that folder fresh
+    // keeping into= and adding patch= is refused for naming both lanes (#1061); following it creates that folder fresh
     [Fact]
     public void TheRiderLaneNamesItsOwnFolderParameterAndFollowingItCreatesTheFolder()
     {
@@ -101,7 +101,8 @@ public sealed class ExtendResolveRefusalTests
         Assert.Contains("dropping into= and passing patch=\"GhostRider\"", err);
 
         var both = RiderRefusal(() => w.Svc.ResolvePatchModFolder("GhostRider", "GhostRider", "HcRiderDefault", BsaTools.RepackNaming));
-        Assert.Equal(err, both);
+        Assert.Contains("patch='GhostRider' names a NEW mod folder for the .bsa", both);
+        Assert.Contains("the two lanes are exclusive", both);
 
         var fresh = w.Svc.ResolvePatchModFolder("GhostRider", null, "HcRiderDefault", BsaTools.RepackNaming);
         Assert.True(fresh.CreatedFresh);
