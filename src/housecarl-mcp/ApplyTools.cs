@@ -146,7 +146,7 @@ public static class ApplyTools
             return Refuse($"refused — {problems.Count} of {edits.Count} operation(s) malformed; NOTHING written:\n  - "
                         + string.Join("\n  - ", problems));
 
-        var outcome = svc.ApplyEdits(wire, patchName ?? "Patch", into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins);
+        var outcome = svc.ApplyEdits(wire, patchName, into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins);
         // The lane the CALL named; contract in docs/architecture/write-path.md.
         return json
             ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
