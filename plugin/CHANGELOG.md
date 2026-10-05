@@ -54,8 +54,8 @@ made the change.
 - **`housecarl_compile_script`, `housecarl_decompile_script`, `housecarl_copy`, `housecarl_nif_set` and
   `housecarl_place` now refuse `patch=` beside `into=` instead of dropping `patch=`.** A blank `patch=` or `into=` on copy now
   names the patch after `new_editorid=`, not 'Patch'.
-- **An in-place apply, create, remove or forward now refuses, before writing, a plugin that defines records of its own
-  below 0x800, as 2.0 promised.** An `in_place=` apply to such a plugin leaves the file byte-identical.
+- **An in-place apply, create, remove or forward now refuses, before writing, a plugin with a header version below 1.71
+  that defines records of its own below 0x800, as 2.0 promised.** A 1.71 plugin, which may use that range, is not refused.
 
 ## 2.0.3 — 2026-09-23
 
