@@ -110,4 +110,60 @@ public sealed class SkseConfigReferenceShapeTests
         var a = OnlyToken(@"SKSE\Plugins\Foo\x.ini", "x = 0x800|SomeMod.esl");
         Assert.Equal(("SomeMod.esl", (uint?)0x800), (a.Plugin, a.LocalId));
     }
+
+    [Fact] // #1067 line 27: Asuras Guard [Armor].esp|000821 → whole name, not the '.esp' stub
+    public void ABracketGroupInsideAPluginNameIsKeptWhole()
+    {
+        var toks = Tokens(Ex(@"SKSE\Plugins\SkyPatcher\armor\x.ini",
+            "filterByArmors=Asuras Guard [Armor].esp|000821:armorAddonsToRemove=CBBE_to_UBE_Combined.esp|000E7B:armorAddonsToAdd=zz UBE Pending Test.esp|00087F"));
+        Assert.Equal(new[] { ("Asuras Guard [Armor].esp", (uint?)0x821), ("CBBE_to_UBE_Combined.esp", (uint?)0xE7B), ("zz UBE Pending Test.esp", (uint?)0x87F) },
+            toks.Select(t => (t.Plugin, t.LocalId)));
+    }
+
+    [Fact] // #1067 line 61: [Caenarvon] Magecore.esp|000B49 → whole name, no leading space
+    public void APluginNameThatOpensWithABracketGroupIsKeptWhole()
+    {
+        var toks = Tokens(Ex(@"SKSE\Plugins\SkyPatcher\armor\x.ini",
+            "filterByArmors=[Caenarvon] Magecore.esp|000B49:armorAddonsToRemove=CBBE_to_UBE_Combined.esp|000D94:armorAddonsToAdd=zz UBE Pending Test.esp|00083B"));
+        Assert.Equal(("[Caenarvon] Magecore.esp", (uint?)0xB49), (toks[0].Plugin, toks[0].LocalId));
+    }
+
+    [Fact] // hex-first 0x800|[FB] Arcane Mage Armor.esp → whole name
+    public void AHexFirstTokenKeepsABracketedPluginName()
+    {
+        var a = OnlyToken(@"SKSE\Plugins\Foo\x.json", "\"form\": \"0x800|[FB] Arcane Mage Armor.esp\"");
+        Assert.Equal(("[FB] Arcane Mage Armor.esp", (uint?)0x800), (a.Plugin, a.LocalId));
+    }
+
+    [Fact] // tilde both ways: 0xFE2~[Caenarvon] Magecore.esp and Asuras Guard [Armor].esp~0x821
+    public void ATildeTokenKeepsABracketedPluginNameInEitherOrder()
+    {
+        var a = OnlyToken(@"SKSE\Plugins\Foo\x.ini", "Spell = 0x000FE2~[Caenarvon] Magecore.esp");
+        var b = OnlyToken(@"SKSE\Plugins\Foo\x.ini", "Spell = Asuras Guard [Armor].esp~0x821");
+        Assert.Equal(("[Caenarvon] Magecore.esp", (uint?)0xFE2), (a.Plugin, a.LocalId));
+        Assert.Equal(("Asuras Guard [Armor].esp", (uint?)0x821), (b.Plugin, b.LocalId));
+    }
+
+    [Fact] // Mod (v2).esp|0x800 → whole name: a closed parenthesis group is part of the name
+    public void AParenthesisGroupInsideAPluginNameIsKeptWhole()
+    {
+        var a = OnlyToken(@"SKSE\Plugins\Foo\x.ini", "form = Mod (v2).esp|0x800");
+        Assert.Equal(("Mod (v2).esp", (uint?)0x800), (a.Plugin, a.LocalId));
+    }
+
+    [Fact] // JSON array ["Skyrim.esm|0x800"] and section-like [Skyrim.esm|0x5] → the lone bracket stays outside the name
+    public void ALoneBracketBeforeAPluginNameBoundsIt()
+    {
+        var a = OnlyToken(@"SKSE\Plugins\Foo\x.json", "\"forms\": [\"Skyrim.esm|0x800\"]");
+        var b = OnlyToken(@"SKSE\Plugins\Foo\x.ini", "[Skyrim.esm|0x5]");
+        Assert.Equal(("Skyrim.esm", (uint?)0x800), (a.Plugin, a.LocalId));
+        Assert.Equal(("Skyrim.esm", (uint?)0x5), (b.Plugin, b.LocalId));
+    }
+
+    [Fact] // path gate \[Caenarvon] Magecore.esp\ → the folder name whole
+    public void ABracketedPluginNamedFolderIsOneGateWithTheWholeName()
+    {
+        var gate = Assert.Single(Ex(@"SKSE\Plugins\DynamicStringDistributor\[Caenarvon] Magecore.esp\names.json", "{}"));
+        Assert.Equal((SkseRefShape.PathSegmentGate, "[Caenarvon] Magecore.esp"), (gate.Shape, gate.Plugin));
+    }
 }
