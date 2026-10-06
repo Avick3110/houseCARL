@@ -10,11 +10,14 @@ public static class SkseConfigReferenceExtractor
     // A name may carry a closed [..] or (..) group but never a lone bracket; the rule is in docs/architecture/skse-layer.md.
     const string NameChar = @"[^|~""=,:{}()\[\]/\\\r\n]";
     const string PluginRun = $@"(?:{NameChar}|\[{NameChar}*\]|\({NameChar}*\))*?\.es[lmp]";
+    // A plugin-first name starts only where it cannot reach further left: line start, just past the previous token, or
+    // after a char a name cannot hold. That is the start the leftmost match takes anyway, and it keeps the scan linear.
+    const string NameStart = $@"(?<=^|\G.|\G\[{NameChar}*\]|\G\({NameChar}*\)|[|~""=,:{{}}/\\(\[]|(?<!\[{NameChar}*)\]|(?<!\({NameChar}*)\))";
     const string HexRun = @"(?:0x)?[0-9A-Fa-f]{1,16}";
     static readonly Regex FormToken = new(
         @"(?<![0-9A-Za-z])(?:" +
             $@"(?<hexA>{HexRun})\s*(?<delimA>[|~])\s*(?<pluginA>{PluginRun})" + "|" +
-            $@"(?<pluginB>{PluginRun})\s*(?<delimB>[|~])\s*(?<hexB>{HexRun})" +
+            $@"{NameStart}(?<pluginB>{PluginRun})\s*(?<delimB>[|~])\s*(?<hexB>{HexRun})" +
         @")(?![0-9A-Za-z])",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 

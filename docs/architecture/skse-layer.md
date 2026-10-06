@@ -149,14 +149,21 @@ would drown the signal. An over-wide or unparseable hex is CAPTURED and named, n
 
 The plugin-name charset in `PluginRun` is two deliberate choices. Apostrophes are ALLOWED, because excluding them
 truncates real names mid-word (`kryptopyr's Trade & Barter.esp`). Brackets and parentheses are allowed only as a CLOSED
-group inside the name — `[Caenarvon] Magecore.esp`, `Asuras Guard [Armor].esp`, `Mod (v2).esp` are read whole — and a
-LONE `[` or `(` still bounds it. The lone bracket is what the surrounding syntax looks like: prose
+group of name characters inside the name — `[Caenarvon] Magecore.esp`, `Asuras Guard [Armor].esp`, `Mod (v2).esp` are
+read whole — and a LONE `[` or `(` still bounds it. A group holding a character a name cannot carry is not a group:
+`[Mod, Inc] Foo.esp|0x800` reads as `Foo.esp`. The lone bracket is what the surrounding syntax looks like: prose
 (`will cast fireball (Skyrim.esm|0x5)`), a JSON array (`["Skyrim.esm|0x800"]`), a section-like `[Skyrim.esm|0x5]`; in
 each the group cannot close before the `|`, so the name starts after the bracket. A name never carries `=`, `,`, `:`,
-a double quote, a brace or a slash, so those still bound it from the left as before. The rule is the same in the plugin-first,
-hex-first and tilde forms; a path-segment gate is a whole directory component and was never cut. What it still cannot
-tell apart is a closed group of prose glued to a token (`see (note) Skyrim.esm|0x5`), which reads as one name and
-surfaces as PLUGIN MISSING — the same exposure a prose prefix with no bracket always had, since spaces are part of names.
+a double quote, a brace or a slash, so those still bound it from the left as before. The rule is the same in the
+plugin-first, hex-first and tilde forms; a path-segment gate is a whole directory component and was never cut. What it
+still cannot tell apart is a closed group glued to a token: prose (`see (note) Skyrim.esm|0x5`), a section header and a
+token on one line (`[Section] Skyrim.esm|0x5`), a trailing comment (`Skyrim.esm|0x5 ; (comment) Dawnguard.esm|0x6`).
+Each reads as one name and surfaces as PLUGIN MISSING (INERT), never DANGLING — the same exposure a prose prefix with
+no bracket always had, since spaces are part of names.
+
+A plugin-first name starts only where it cannot reach further left: line start, just past the previous token, or after
+a character a name cannot hold, a lone bracket among them. That is the start the leftmost match takes anyway, and it
+keeps the scan linear: without it a long line of closed groups was rescanned from every position.
 
 The verdict is the service's, over the active order: OK, PLUGIN MISSING, DANGLING, UNPARSEABLE. The headline keeps two
 signals apart. BROKEN (dangling + unparseable) should resolve and does not, and is actionable. INERT (plugin missing) is

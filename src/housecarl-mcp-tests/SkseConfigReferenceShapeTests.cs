@@ -160,6 +160,19 @@ public sealed class SkseConfigReferenceShapeTests
         Assert.Equal(("Skyrim.esm", (uint?)0x5), (b.Plugin, b.LocalId));
     }
 
+    [Fact] // 100k chars of "[a] (b) " then "|0x5" and then "x.esp|0x5" → read in well under a second, not quadratic
+    public void ALongLineOfClosedGroupsIsScannedInLinearTime()
+    {
+        var groups = string.Concat(Enumerable.Repeat("[a] (b) ", 12_500));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var none = Tokens(Ex(@"SKSE\Plugins\Foo\x.ini", groups + "|0x5"));
+        var one = OnlyToken(@"SKSE\Plugins\Foo\x.ini", groups + "x.esp|0x5");
+        clock.Stop();
+        Assert.Empty(none);
+        Assert.Equal((groups.Trim() + " x.esp").Length, one.Plugin.Length);
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"took {clock.Elapsed.TotalMilliseconds:F0} ms");
+    }
+
     [Fact] // path gate \[Caenarvon] Magecore.esp\ → the folder name whole
     public void ABracketedPluginNamedFolderIsOneGateWithTheWholeName()
     {
