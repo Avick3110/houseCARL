@@ -11,6 +11,9 @@ made the change.
 
 ## Unreleased
 
+- **`housecarl_skse findings='config'` now reads a plugin name with brackets or parentheses whole, so a reference
+  into `[Caenarvon] Magecore.esp` or `Asuras Guard [Armor].esp` is checked instead of counted as a missing plugin.**
+
 ## 2.0.4 — 2026-10-05
 
 houseCARL 2.0.4 refuses inputs it used to drop silently and keeps more answers inside their cap. `housecarl_apply` and `housecarl_create` refuse stray arguments, five tools refuse `patch=` beside `into=`, and apply's default patch name steps past a disabled `Patch.esp` as the others do. An in-place apply, create, remove or forward now refuses a pre-1.71 plugin with its own records below 0x800, as 2.0 promised, and an in-place or `into=` write refuses when the parser would drop or resize a subrecord. `housecarl_skypatcher_layer` and `info_order` cut to fit `max_chars` and mark the cut, and the layer says when a cap is too small for its header. The facegen and scripts checks name what they could not read, and never-baked presets get their own class. The errors and dialogue checks and SkyPatcher-layer reads no longer mix two profiles when MO2 switches mid-call. A walk takes `walk.through` to find the NPCs that carry an item, SkyPatcher keys match without regard to case, plugin lists take `@file`, delta and tree reads skip walks they cannot use and refuse only past ten minutes, a text answer names plugins lost to a load failure, and a malformed NIF is named. The tool descriptions now say each thing once, so the tool list is about a quarter smaller. The entries below are in the order they landed.

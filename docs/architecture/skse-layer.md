@@ -147,13 +147,16 @@ block still surfaces, and the framing is "references this file declares", never 
 EditorID and name strings are out of scope: a JSON string is not unambiguously an EditorID, and validating every string
 would drown the signal. An over-wide or unparseable hex is CAPTURED and named, never guessed.
 
-The plugin-name charset in `PluginRun` is two deliberate choices with one accepted cost. Apostrophes are ALLOWED,
-because excluding them truncates real names mid-word (`kryptopyr's Trade & Barter.esp`). Parentheses are EXCLUDED,
-because a token embedded in prose (`will cast fireball (Skyrim.esm|0x5)`) otherwise takes the whole prose prefix as the
-plugin name. The price, which the extractor accepts rather than solves, is a KNOWN false negative: a plugin literally
-named `Mod (v2).esp` is never matched, so a reference to it is silently absent from the audit rather than reported.
-That is the safe direction for this family — a missed reference is a gap, a prose false positive would be a false
-DANGLING.
+The plugin-name charset in `PluginRun` is two deliberate choices. Apostrophes are ALLOWED, because excluding them
+truncates real names mid-word (`kryptopyr's Trade & Barter.esp`). Brackets and parentheses are allowed only as a CLOSED
+group inside the name — `[Caenarvon] Magecore.esp`, `Asuras Guard [Armor].esp`, `Mod (v2).esp` are read whole — and a
+LONE `[` or `(` still bounds it. The lone bracket is what the surrounding syntax looks like: prose
+(`will cast fireball (Skyrim.esm|0x5)`), a JSON array (`["Skyrim.esm|0x800"]`), a section-like `[Skyrim.esm|0x5]`; in
+each the group cannot close before the `|`, so the name starts after the bracket. A name never carries `=`, `,`, `:`,
+a double quote, a brace or a slash, so those still bound it from the left as before. The rule is the same in the plugin-first,
+hex-first and tilde forms; a path-segment gate is a whole directory component and was never cut. What it still cannot
+tell apart is a closed group of prose glued to a token (`see (note) Skyrim.esm|0x5`), which reads as one name and
+surfaces as PLUGIN MISSING — the same exposure a prose prefix with no bracket always had, since spaces are part of names.
 
 The verdict is the service's, over the active order: OK, PLUGIN MISSING, DANGLING, UNPARSEABLE. The headline keeps two
 signals apart. BROKEN (dangling + unparseable) should resolve and does not, and is actionable. INERT (plugin missing) is
@@ -203,7 +206,9 @@ number describes a wider set than the rows beside it.
   official archive's class is the ENGINE's even under a winning loose override; `NativePairingRenderVerdictTests` —
   UNPAIRED is framed a verify flag, never "broken".
 - *Config references*: both charset directions are pinned by `SkseConfigReferenceShapeTests`
-  (`APluginNameWithAnApostropheIsNotCutAtTheApostrophe`, `AnOpeningParenthesisBoundsThePluginNameInProse`); the rest
+  (`APluginNameWithAnApostropheIsNotCutAtTheApostrophe`, `ABracketGroupInsideAPluginNameIsKeptWhole`,
+  `AParenthesisGroupInsideAPluginNameIsKeptWhole`, `AnOpeningParenthesisBoundsThePluginNameInProse`,
+  `ALoneBracketBeforeAPluginNameBoundsIt`); the rest
   of that class pins the extractor against every reference shape the evidence sample established, because a false
   DANGLING is this family's worst failure mode; `SkseConfigVerdictTests` pins each verdict against a synthetic order,
   and `SkseConfigRenderFramingTests` pins the BROKEN / INERT headline.
