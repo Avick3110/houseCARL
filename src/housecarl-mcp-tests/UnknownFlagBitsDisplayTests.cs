@@ -9,8 +9,8 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>A flags value carrying bits its enum does not name renders as a bare decimal from ToString; the read hangs
-/// a display-only decode off the leaf that keeps the named bits and states the rest as hex, and leaves the round-trip
-/// token alone. The enum bits are found by reflection, so the fixtures follow Mutagen's flag sets.</summary>
+/// a display-only decode off the leaf that keeps the named bits and names each other bit as bitN, and leaves the
+/// round-trip token alone. The enum bits are found by reflection, so the fixtures follow Mutagen's flag sets.</summary>
 [Trait("tier", "unit")]
 public sealed class UnknownFlagBitsDisplayTests
 {
@@ -34,6 +34,8 @@ public sealed class UnknownFlagBitsDisplayTests
         return 0;
     }
 
+    static int Index(ulong bit) => System.Numerics.BitOperations.TrailingZeroCount(bit);
+
     static FieldValue Leaf(RecordFields rf, string path) => Assert.Single(rf.Fields, f => f.Path.EndsWith(path, StringComparison.Ordinal));
 
     /// <summary>The NPC Configuration.Flags enum, one named single-bit member of it, and an unnamed bit.</summary>
@@ -56,12 +58,12 @@ public sealed class UnknownFlagBitsDisplayTests
 
     // Probe DECODE: "known name + unnamed hex remainder". Probe TOKEN-INTACT: "round-trip token = bare decimal".
     [Fact]
-    public void ANamedBitPlusAnUnnamedBit_DisplaysTheNameAndTheHexRemainderAndKeepsTheDecimalToken()
+    public void ANamedBitPlusAnUnnamedBit_DisplaysTheNameAndABitTokenAndKeepsTheDecimalToken()
     {
         var (npc, type, named, namedBit, unknownBit) = NpcFlags();
         var leaf = ReadNpcFlags(npc, type, namedBit | unknownBit);
         Assert.True(leaf.HasValue);
-        Assert.Equal($"{named} (+unknown bits 0x{unknownBit:X})", leaf.Display);
+        Assert.Equal($"{named}, bit{Index(unknownBit)}", leaf.Display);
         Assert.Equal(Enum.ToObject(type, namedBit | unknownBit).ToString(), leaf.Token);
         Assert.NotEqual(leaf.Display, leaf.Token);
     }
@@ -84,10 +86,10 @@ public sealed class UnknownFlagBitsDisplayTests
         armo.BodyTemplate = new BodyTemplate { FirstPersonFlags = BipedObjectFlag.Body };
         var leaf = Leaf(ReadEngine.ReadFields(armo, new[] { "BodyTemplate.FirstPersonFlags" }), "BodyTemplate.FirstPersonFlags");
         Assert.Contains("slot", leaf.Display);
-        Assert.DoesNotContain("unknown bits", leaf.Display);
+        Assert.Equal("slot 32", leaf.Display);
     }
 
-    // Probe COMBO-ALONE: "combo-only bit → 'unknown bits …'". Probe COMBO-MIXED: "combo-only+unnamed → no decimal name".
+    // Probe COMBO-ALONE: "combo-only bit → a bitN token". Probe COMBO-MIXED: "combo-only+unnamed → no decimal name".
     [Fact]
     public void ABitOnlyInsideAComboMember_IsPartOfTheUnknownRemainder()
     {
@@ -108,8 +110,8 @@ public sealed class UnknownFlagBitsDisplayTests
         Assert.NotEqual(0UL, freeBit);
 
         prop.SetValue(pack, Enum.ToObject(type, comboBit));
-        Assert.Equal($"unknown bits 0x{comboBit:X}", Leaf(ReadEngine.ReadFields(pack, new[] { "Flags" }), "Flags").Display);
+        Assert.Equal($"bit{Index(comboBit)}", Leaf(ReadEngine.ReadFields(pack, new[] { "Flags" }), "Flags").Display);
         prop.SetValue(pack, Enum.ToObject(type, comboBit | freeBit));
-        Assert.Equal($"unknown bits 0x{comboBit | freeBit:X}", Leaf(ReadEngine.ReadFields(pack, new[] { "Flags" }), "Flags").Display);
+        Assert.Equal($"bit{Math.Min(Index(comboBit), Index(freeBit))}, bit{Math.Max(Index(comboBit), Index(freeBit))}", Leaf(ReadEngine.ReadFields(pack, new[] { "Flags" }), "Flags").Display);
     }
 }
