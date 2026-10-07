@@ -139,9 +139,6 @@ static class RefusalCompletenessScan
         // exactly that in its own comment at the site.
         ("*", HitKind.Binding, "ferr",   "#7", "the format= parse refusal cannot know the shape the caller wanted"),
         ("*", HitKind.Binding, "fmtErr", "#7", "the format= parse refusal cannot know the shape the caller wanted"),
-        // dense is a textual transport, so its two refusals are text by definition rather than by omission.
-        ("RecordsTools.cs", HitKind.Literal, "format='dense' is the scan lane's columnar form",     "#7", "dense is a textual transport"),
-        ("RecordsTools.cs", HitKind.Literal, "format='dense' is the in-order scan's columnar form", "#7", "dense is a textual transport"),
     };
 
     /// <summary>THE KNOWN-RED FIXTURE — <c>RecordsTools.cs:223</c> as it stood BEFORE the fold: a return whose

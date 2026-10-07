@@ -142,7 +142,7 @@ public static partial class RecordsTools
             RecordsProject? project = null,
         [Description("SELECT: follow record links from this call's SELECT (the seeds) and select what the walk reaches. project.form='chain' renders the paths, endpoints and cycles (for NPC template chains, the per-category inheritance report); any other form reads the reached set. The walk expands on the winner's links; source= picks whose version the form reads.")]
             RecordsWalk? walk = null,
-        [Description("TRANSPORT: 'text' (default) | 'json' (machine-readable, same accounting in-band) | 'dense' (scan lane: positional columns 1:1 with the requested fields, for bulk enumeration and joins). On 'json' a record's fields are an ordered list of {path, value}, or {path, note} saying why no value was read, in the answer's own order, and a path repeats under a quantified step ('Effects[*].Data.Magnitude'). Every response carries the epoch stamp, the index build it was answered from: epoch=<hex> on 'text' and 'dense', an 'epoch' member on 'json'.")]
+        [Description("TRANSPORT: 'text' (default) | 'json' (machine-readable, same accounting in-band) | 'dense' (positional columns 1:1 with the requested fields, for bulk enumeration and joins). On 'json' a record's fields are an ordered list of {path, value}, or {path, note} saying why no value was read, in the answer's own order, and a path repeats under a quantified step ('Effects[*].Data.Magnitude'). Every response carries the epoch stamp, the index build it was answered from: epoch=<hex> on 'text' and 'dense', an 'epoch' member on 'json'.")]
             string? format = null,
         [Description("TRANSPORT: max rows to render (default 500). The true total is always reported; page a scan with offset=. A delta or tree row reads every provider of its record, so on a scan limit= and offset= bound that reading too; a census or to_file= on those forms covers the whole selection, so narrow the scan terms instead. chain, info_order and any walk consume every scan match, and limit= windows only the rendered rows, so on a big order the scan terms (types=/plugins=/where=) are the cost bound. A comparison that would pass ten minutes refuses, before reading when even the cheapest rate would, else mid-run naming the rate it measured. A render too big to finish refuses up front, naming shapes that fit; a scan's accounting reports render_ms. Per row, form='everything' costs far more than named fields. On a formids= read every id is read before limit= and offset= apply, so pass fewer ids rather than paging, and form='identity' costs more per row than form='summary', which answers the same identity question; the accounting counts bodies read, which a source= pole holding no version of an id, or a malformed id, leaves short of the list.")]
             int limit = DefaultLimit,
@@ -214,9 +214,6 @@ public static partial class RecordsTools
                 return Wire.Refuse(json, form == "rows"
                     ? $"error: project.fields path '{foldPlan.First.Requested}' quantifies a step, and the 'rows' form already folds the list it names to one line per element — drop the token, or use form='fields' to mix quantified and ordinary paths."
                     : $"error: project.fields path '{foldPlan.First.Requested}' quantifies a step, and the '{form}' form lines its two sides up path for path — drop the token, or read the elements with form='fields'.");
-            // dense lays ONE row per element, and two different lists share no element to lay a row on.
-            if (foldPlan is not null && dense && foldPlan.SetRoots is { Count: > 1 } roots)
-                return Wire.Refuse(json, $"error: format='dense' lays one row per element, and '{roots[0]}' and '{roots[1]}' are different lists — one row cannot be an element of both. Quantify one of them and read the other as an ordinary path, or make one call per list.");
         }
         if (project?.depth is { } dv)
         {
@@ -270,6 +267,8 @@ public static partial class RecordsTools
         bool resolveNames = project?.resolve_names ?? false;
         // The lever vocabulary is a function of (tool, FORM); docs/architecture/records-tool-front.md.
         var formLevers = form == "everything" ? LeverNames.Records.WithoutFieldSelector() : LeverNames.Records;
+        // A collapsed container names the depth knob, and under dense the format hop beside it, since dense refuses depth>1.
+        var containerHint = dense ? LeverNames.Records.DenseContainerHint : LeverNames.Records.ContainerHint;
         // The rows form IS the fields form plus this fold, applied wherever a lane produces bodies, so the render,
         // the artifact and the json document see the same folded rows; a quantified path rides the same seam.
         IReadOnlyList<ReadOutcome> FoldRows(IReadOnlyList<ReadOutcome> read)
@@ -372,8 +371,6 @@ public static partial class RecordsTools
             }
             if (references is { Length: > 0 })
                 return Wire.Refuse(json, "error: walk= and references= are the same construct (references= IS the reverse walk at depth 1) — use one spelling per call.");
-            if (dense)
-                return Wire.Refuse(json, "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and a walk's outputs (chains; reached-set reads) have no fixed column set — use format='text' or 'json'.");
             if (comparisonForm || form is "info_order" or "identity")
                 return Wire.Refuse(json, $"error: walk= derives a selection (the reached set), and the '{form}' form does not consume one — use form='chain' for the walk's own paths, or summary/fields/rows/everything/aggregate over the reached set. To compare reached records, walk with to_file= and re-enter the artifact via formids=[\"@<file>\"] with form='{form}'.");
             if (where is { Length: > 0 })
@@ -433,21 +430,9 @@ public static partial class RecordsTools
                 : "error: the reverse walk needs its seeds — pass formids= (the record(s) whose referrers to trace).");
         // The lane, decided once and read by the dispatch below and by every remedy sentence that depends on it.
         bool scanLane = hasScan && !reverseWalk;
-        // dense is positional cells 1:1 with the requested field paths, so a form with no fixed column set refuses by name.
-        if (dense && form == "everything")
-            return Wire.Refuse(json, "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'everything' form has no fixed column set — use format='text' or 'json', or name the paths via form='fields'.");
-        if (dense && form == "rows")
-            return Wire.Refuse(json, "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'rows' form folds a list's elements into one variable-length line each — use format='text' or 'json'.");
-        if (dense && form == "aggregate")
-            return Wire.Refuse(json, "error: format='dense' is the per-row columnar transport, and the 'aggregate' form is a count table — its json render IS the compact form; use format='json'.");
-        // The same rule at the depth knob, on the scan lane only: the list lane refuses dense outright below, and
-        // firing this first would send the caller to fix depth and then hit that.
-        if (scanLane && dense && project?.depth is { } denseDepth && denseDepth > 1)
-            return Wire.Refuse(json, $"error: format='dense' renders positional columnar cells 1:1 with the requested {LeverNames.Records.Fields} paths, and project.depth={denseDepth} emits extra sub-paths that have no column — use format='text' or 'json' for depth expansion, or drop project.depth for the dense summary cells.");
-        if (dense && comparisonForm)
-            return Wire.Refuse(json, $"error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the '{form}' form's rows are variable-length delta lists with no fixed column set — use format='text' or 'json'.");
-        if (dense && form == "info_order")
-            return Wire.Refuse(json, "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'info_order' form is an ordered sequence render with no fixed column set — use format='text' or 'json'.");
+        // Whether dense can carry this answer is decided here, once, for every lane; each lane then renders it.
+        if (dense && DenseRefusal(form, project, foldPlan, walk is not null) is { } denseNo)
+            return Wire.Refuse(json, denseNo);
         // info_order takes exactly ONE thing on source=, an OFF-ORDER file; the merge IS the answer, so no other
         // pole has anything to pick.
         if (form == "info_order" && srcSpec.Kind is RecordReads.PoleKind.Overlay or RecordReads.PoleKind.PreviousProvider)
@@ -611,8 +596,6 @@ public static partial class RecordsTools
         // ================================================================================================
         string ListLane()
         {
-            if (dense) return "error: format='dense' is the scan lane's columnar form — a formids= read renders text or json.";
-
             var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids!, "formids");
             if (xerr is not null) return Wire.Refuse(json, xerr);
             var ids = toks!;
@@ -724,7 +707,7 @@ public static partial class RecordsTools
                 // The overlay post source: every winner replayed through the SkyPatcher INI layer, read at the
                 // caller's own depth.
                 outcomes = svc.OverlayPostBatch(ids, readFields, depth, resolveNames, demand, out var ovRefusal, out var ovEpoch, out _,
-                                                LeverNames.Records.ContainerHint, readFieldDepths, ct,
+                                                containerHint, readFieldDepths, ct,
                                                 draft: srcSpec.Draft, overlayWarnings: overlayWarnings);
                 if (ovRefusal is not null)
                     return json ? JsonWire.RenderError(ovRefusal, ovEpoch)
@@ -739,7 +722,7 @@ public static partial class RecordsTools
             else if (srcName is null)
             {
                 if (srcOverlay) Arm("skypatcher overlay (pre) = winner — the body the INI layer starts from");
-                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, LeverNames.Records.ContainerHint, readFieldDepths, ct, countFields: readFieldCounts);
+                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, containerHint, readFieldDepths, ct, countFields: readFieldCounts);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + Wire.EpochLine(refusalEpoch);
@@ -749,7 +732,7 @@ public static partial class RecordsTools
             {
                 outcomes = svc.ResolveBatchFromPole(ids, srcName, srcMod, readFields, depth, resolveNames, demand,
                                                     out pole, out var refusal, out var refusalEpoch,
-                                                    LeverNames.Records.ContainerHint, readFieldDepths, ct, countFields: readFieldCounts);
+                                                    containerHint, readFieldDepths, ct, countFields: readFieldCounts);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + Wire.EpochLine(refusalEpoch);
@@ -763,6 +746,8 @@ public static partial class RecordsTools
             listClock.Stop();
             // One cost for every form this lane renders, counted over the bodies actually READ.
             var listCost = (outcomes.Count(o => o.Record is not null), listClock.ElapsedMilliseconds);
+            // dense folds a quantified path as it writes each row, as on the scan, so it renders the unfolded read.
+            var unfolded = outcomes;
             outcomes = FoldRows(outcomes);
             var epoch2 = outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
             if (SeamTear(epoch2) is { } seamTear)
@@ -775,12 +760,12 @@ public static partial class RecordsTools
             if (counts_only)
             {
                 int ok = outcomes.Count(o => o.Error is null), err = outcomes.Count - outcomes.Count(o => o.Error is null);
-                return json
+                return json || dense
                     ? JsonWire.RenderCounts(envelope, outcomes.Count, ok, err, epoch2, max_chars)
                     : Census($"{headerLine}\ncount={outcomes.Count} ok={ok} errors={err}" + Wire.EpochLine(epoch2));
             }
 
-            var winOutcomes = Windowed(outcomes);   // render window; census/aggregate/artifacts stay complete
+            var winOutcomes = Windowed(dense ? unfolded : outcomes);   // render window; census/aggregate/artifacts stay complete
             SpillState? spill2 = null;
             if (wantFile)
             {
@@ -788,7 +773,9 @@ public static partial class RecordsTools
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch2) : "error: " + aerr;
                 spill2 = SpillState.Spilled(s!, manifestOnly: true);
             }
-            string Render2(SpillState? sp, out bool trunc) => form == "summary"
+            string Render2(SpillState? sp, out bool trunc) => dense
+                ? JsonWire.RenderBatchDense(winOutcomes, form == "fields" ? readPaths : null, foldPlan, max_chars, sp, out trunc, envelope, listCost)
+                : form == "summary"
                 ? RenderRecordsSummary(winOutcomes, json, headerLine, envelope, max_chars, sp, listCost, out trunc)
                 : json ? JsonWire.RenderBatch(winOutcomes, max_chars, sp, out trunc, envelope, formLevers, listCost)
                        : Wire.RenderBatch(winOutcomes, max_chars, sp, out trunc, formLevers, listCost, headerLine);
@@ -1582,7 +1569,7 @@ public static partial class RecordsTools
                 if (srcName is not null)
                 {
                     bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, bodyFields ? readPaths : null, depth, resolveNames, null,
-                                                      out _, out var bref, out var brefEpoch, LeverNames.Records.ContainerHint, readDepths,
+                                                      out _, out var bref, out var brefEpoch, containerHint, readDepths,
                                                       ct, outcome.GetterTypes, countFields);
                     // A refusal is judged on the named cause, never on row count: a zero-match scan is honest.
                     if (bref is not null)
@@ -1596,7 +1583,7 @@ public static partial class RecordsTools
                     // fields_source="winner" retargeting display to the winner.
                     var srcs = outcome.Sources;
                     if (winnerFields || srcs is null || srcs.Take(keys.Count).All(s => s is null))
-                        bodies = svc.ResolveBatch(keys, bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
+                        bodies = svc.ResolveBatch(keys, bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
                     else
                     {
                         var byIndex = new ReadOutcome[keys.Count];
@@ -1611,18 +1598,19 @@ public static partial class RecordsTools
                         }
                         if (winnerIdx.Count > 0)
                         {
-                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
+                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
                             for (int i = 0; i < winnerIdx.Count; i++) byIndex[winnerIdx[i]] = res[i];
                         }
                         foreach (var kv in bySource)
                         {
-                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, kv.Key, LeverNames.Records.ContainerHint, readDepths, ct, outcome.GetterTypes, countFields);
+                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, kv.Key, containerHint, readDepths, ct, outcome.GetterTypes, countFields);
                             for (int i = 0; i < kv.Value.Count; i++) byIndex[kv.Value[i]] = res[i];
                         }
                         bodies = byIndex;
                     }
                 }
                 bodyClock.Stop();
+                var unfoldedBodies = bodies;   // dense folds as it writes each row
                 bodies = FoldRows(bodies);
                 // Rows the pole does not touch come back as per-item refusals naming the touchers, counted explicitly.
                 if (scopePlusPole)
@@ -1658,7 +1646,9 @@ public static partial class RecordsTools
                 // Selected by the scan, so they carry its multi-target references= un-merge too, one row per key in
                 // key order, which is what makes the list parallel to the bodies.
                 var evMatches = outcome.MatchedTargets;
-                string RenderEv(SpillState? sp, out bool trunc) => json
+                string RenderEv(SpillState? sp, out bool trunc) => dense
+                    ? JsonWire.RenderBatchDense(unfoldedBodies, readPaths, foldPlan, max_chars, sp, out trunc, envelope, (bodies.Count, bodyClock.ElapsedMilliseconds), evMatches)
+                    : json
                     ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds), evMatches)
                     : Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds), headerLine, evMatches);
                 SpillState? evSpill = null;
@@ -1723,7 +1713,6 @@ public static partial class RecordsTools
                 return Wire.Refuse(json, "error: the info_order form merges the ACTIVE order's touching plugins — an out-of-load-order file is not in that frame. Read the winner's merge (drop source=), or enumerate the file's DIAL records with form='summary'.", pole.Stamp);
             if (walk is not null)
                 return Wire.Refuse(json, "error: the walk expands the ACTIVE order's winner link graph — an out-of-load-order file's records are not in that graph. Enumerate the file with form='summary', then walk specific records via formids= (dropping source=).", pole.Stamp);
-            if (dense) return "error: format='dense' is the in-order scan's columnar form — an off-order file scan renders text or json.";
             if (versusSpec?.Kind == RecordReads.PoleKind.Overlay)
                 return Wire.Refuse(json, "error: an overlay pole on a SCAN would replay the SkyPatcher INI layer over every match — a per-record replay at scan scale " +
                        "(a scan comparison compares EVERY match, so it is not a bound). Name the records via formids= — the list lane reads and " +
@@ -1857,8 +1846,9 @@ public static partial class RecordsTools
                 var offClock = System.Diagnostics.Stopwatch.StartNew();
                 var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, bodyFields ? readPaths : null,
                                                       depth, resolveNames, null, out _, out var bref, out var brefEpoch,
-                                                      LeverNames.Records.ContainerHint, readDepths, ct, countFields: countFields);
+                                                      containerHint, readDepths, ct, countFields: countFields);
                 offClock.Stop();
+                var unfoldedOff = bodies;   // dense folds as it writes each row
                 bodies = FoldRows(bodies);
                 if (bref is not null)
                     return json ? JsonWire.RenderError(bref, brefEpoch)
@@ -1884,7 +1874,9 @@ public static partial class RecordsTools
                 var offLevers = formLevers.OnScanSelection();
                 // Same rule as the in-order body lane: the file scan's rows carry its references= un-merge too.
                 var offMatches = outcome.MatchedTargets;
-                string RenderOff(SpillState? sp, out bool trunc) => json
+                string RenderOff(SpillState? sp, out bool trunc) => dense
+                    ? JsonWire.RenderBatchDense(unfoldedOff, readPaths, foldPlan, max_chars, sp, out trunc, envelope, (bodies.Count, offClock.ElapsedMilliseconds), offMatches)
+                    : json
                     ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, offLevers, (bodies.Count, offClock.ElapsedMilliseconds), offMatches)
                     : Wire.RenderBatch(bodies, max_chars, sp, out trunc, offLevers, (bodies.Count, offClock.ElapsedMilliseconds), headerLine, offMatches);
                 SpillState? offSpill = null;
@@ -1919,6 +1911,7 @@ public static partial class RecordsTools
             var offQLevers = LeverNames.Records.WithNothingToDrop();
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
+                Wire.QueryFormat.Dense when offGroupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, null, max_chars, false, false, sp, out trunc, envelope, offQLevers, ct: ct),
                 Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, envelope, offQLevers, rowLimit: TableRowLimit(limit)),
                 _ => Wire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, offQLevers, header: headerLine, rowLimit: TableRowLimit(limit)),
             };
@@ -1932,6 +1925,31 @@ public static partial class RecordsTools
             return rendered;
         }
     }, ct);
+
+    /// <summary>Can format='dense' carry this call's answer? Null when it can, on any lane; else the one refusal
+    /// sentence naming what to use instead. Dense cells are 1:1 with the requested field paths.</summary>
+    static string? DenseRefusal(string form, RecordsProject? project, FoldPlan? fold, bool walk)
+    {
+        const string Head = "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and ";
+        var list = project?.fields is { Length: > 0 } pf ? pf[0] : "Conditions";
+        if (walk)
+            return Head + "a walk's outputs (chains; reached-set reads) have no fixed column set — use format='text' or 'json'.";
+        // dense lays ONE row per element, and two different lists share no element to lay a row on.
+        if (fold?.SetRoots is { Count: > 1 } roots)
+            return $"error: format='dense' lays one row per element, and '{roots[0]}' and '{roots[1]}' are different lists — one row cannot be an element of both. Quantify one of them and read the other as an ordinary path, or make one call per list.";
+        return form switch
+        {
+            "identity" => Head + "the 'identity' form is a labeling render with no field paths — use form='summary' for the dense identity columns, or format='text' or 'json'.",
+            "everything" => Head + "the 'everything' form has no fixed column set — use format='text' or 'json', or name the paths via form='fields'.",
+            "rows" => Head + $"the 'rows' form folds a list's elements into one variable-length line each — use form='fields' with '{list}[*]' for one dense row per element, or format='text' or 'json'.",
+            "aggregate" => "error: format='dense' is the per-row columnar transport, and the 'aggregate' form is a count table — its json render IS the compact form; use format='json'.",
+            "delta" or "tree" => Head + $"the '{form}' form's rows are variable-length delta lists with no fixed column set — use format='text' or 'json'.",
+            "info_order" => Head + "the 'info_order' form is an ordered sequence render with no fixed column set — use format='text' or 'json'.",
+            _ when project?.depth is { } d && d > 1 =>
+                $"error: format='dense' renders positional columnar cells 1:1 with the requested {LeverNames.Records.Fields} paths, and project.depth={d} emits extra sub-paths that have no column — quantify a list path ('Effects[*].Data.Magnitude') for one dense row per element, drop project.depth for the dense summary cells, or use format='text' or 'json'.",
+            _ => null,
+        };
+    }
 
     /// <summary>Recognize the one off-order-lane where-clause: <c>editorid contains &lt;text&gt;</c>.</summary>
     static bool TryEditorIdContains(string clause, out string? text)

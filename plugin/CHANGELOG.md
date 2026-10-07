@@ -26,6 +26,9 @@ made the change.
   `CopyFrom` names the source's missing value.
 - **`housecarl_records types=… where=` now refuses an enum value the field does not have, with a "did you mean",
   instead of answering 0 matches.** `Archetype.ActorValue in [HeavyArmorMod]` on MGEF names `HeavyArmorModifier`.
+- **`housecarl_records format='dense'` now works on a `formids=` read, an off-order `source=`, and a
+  `plugins=` scope with a named `source=`, which used to refuse or answer in text; other forms refuse, naming what
+  to use.**
 
 ## 2.0.4 — 2026-10-05
 

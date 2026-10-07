@@ -1252,152 +1252,23 @@ static class JsonWire
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null);
 
-                bool hasMatches = q.MatchedTargets is not null;               // multi-target references= → one extra column
-                w.WriteStartArray("columns");
-                if (detail)
-                {
-                    w.WriteStringValue("formid"); w.WriteStringValue("runtime_formid"); w.WriteStringValue("editorid");
-                    foreach (var f in fold?.Requested ?? fields!) w.WriteStringValue(f);   // cells align positionally: one column per REQUESTED path, in order — a quantified path keeps its own spelling
-                    // Under a plugins= scope a row's values are SOME scoped plugin's own body, so provenance is per row.
-                    if (anyScoped) w.WriteStringValue("source");
-                }
-                else
-                    foreach (var c in new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth" }) w.WriteStringValue(c);
-                if (hasMatches) w.WriteStringValue("matches");
-                w.WriteEndArray();
-
                 var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
                 // One session, one link cache and one chunked body prefetch for every rendered match.
                 using var reader = detail
                     ? new ScanDetailReader(svc, q, fields, fold?.Depth ?? 1, resolveNames, winnerFields,
                                            (levers ?? LeverNames.Legacy).DenseContainerHint, foldDepths, ct)
                     : null;
-                List<(string Formid, string Error)>? errors = null;
-                int rendered = 0; bool rowsTruncated = false;
-                var renderClock = System.Diagnostics.Stopwatch.StartNew();
-                var childFields = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // the clause per tier, over the cells the rows carried
-                var foldNotes = new SortedSet<string>(StringComparer.Ordinal);   // what the read said that no column carries — the truncation note above all
-                int foldRows = 0;            // rows, which a fold makes ELEMENTS; `rendered` stays records
-                w.WriteStartArray("rows");
-                for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
-                {
-                    w.Flush();
-                    if (Chars(ms) >= cap) { rowsTruncated = true; break; }
-                    var fk = q.Keys[i];
-                    string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
-                    if (detail)
+                // dense refuses depth>1 unless a quantifier asks for it; every read is pinned to the scan's build.
+                truncated = WriteDenseTable(w, ms, cap, manifestOnly, q.Keys, fields, fold, anyScoped, q.MatchedTargets,
+                    i => reader!.Row(i),
+                    i => q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, q.Keys[i]),
+                    renderMs =>
                     {
-                        var o = reader!.Row(i);   // dense refuses depth>1 unless a quantifier asks for it; pinned to the scan's build
-                        if (o.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), o.Error)); rendered++; continue; }
-                        var r = o.Record!;
-                        if (fold is not null)
-                        {
-                            // A quantified path makes the requested paths PER ELEMENT: one row each, identity repeated.
-                            var (cols, carried, ferr) = fold.Columns(r);
-                            if (ferr is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), ferr)); rendered++; continue; }
-                            // A row is keyed by its ELEMENT KEY as TEXT, never by its place in the column; key order
-                            // for a positional list, read order otherwise.
-                            var byKey = new Dictionary<string, HousecarlCore.FieldValue>?[cols!.Length];
-                            var keys = new List<string>();
-                            var seenKeys = new HashSet<string>(StringComparer.Ordinal);
-                            for (int c = 0; c < cols.Length; c++)
-                            {
-                                if (fold.Folds[c] is not { Fold: HousecarlCore.PathFold.Set } fc) continue;
-                                var map = byKey[c] = new Dictionary<string, HousecarlCore.FieldValue>(StringComparer.Ordinal);
-                                for (int k = 0; k < cols[c].Count; k++)
-                                {
-                                    var key = FoldPlan.ElementKey(cols[c][k].Path, fc.Root) ?? k.ToString();
-                                    map[key] = cols[c][k];
-                                    if (seenKeys.Add(key)) keys.Add(key);
-                                }
-                            }
-                            if (keys.Count > 1 && keys.All(k => int.TryParse(k, out _)))
-                                keys.Sort((x, y) => int.Parse(x).CompareTo(int.Parse(y)));   // a positional list reads in index order whatever order the columns name
-                            int elems = Math.Max(1, keys.Count);   // no set column, or an empty list: still one row
-                            // The owned-child clause is earned per CELL, keyed on the column's own list path.
-                            for (int c = 0; c < cols.Length; c++)
-                            {
-                                var owner = fold.Folds[c]?.Root ?? (cols[c].Count > 0 ? cols[c][0].Path : null);
-                                if (owner is not null && o.OwnedChildFields?.TryGetValue(owner, out var tier) == true) childFields[owner] = tier is not null;
-                            }
-                            foreach (var note in carried) if (note.Note is { } n) foldNotes.Add(n);
-                            bool cut = false;
-                            for (int e = 0; e < elems; e++)
-                            {
-                                // The cap is per ROW, not per record: one record's element rows are unbounded.
-                                w.Flush();
-                                if (Chars(ms) >= cap) { rowsTruncated = true; cut = true; break; }
-                                w.WriteStartArray();
-                                w.WriteStringValue(r.FormKey);
-                                WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
-                                WriteCell(w, r.EditorId);
-                                for (int c = 0; c < cols.Length; c++)
-                                {
-                                    var col = cols[c];
-                                    var cell = byKey[c] is { } map ? (e < keys.Count && map.TryGetValue(keys[e], out var v) ? v : null)
-                                                                   : (col.Count > 0 ? col[0] : null);
-                                    WriteCell(w, cell is null ? null : DenseCell(cell));
-                                }
-                                if (anyScoped) WriteCell(w, o.SourcePlugin);
-                                if (hasMatches) WriteCell(w, matches);
-                                w.WriteEndArray();
-                                foldRows++;
-                            }
-                            if (cut) break;                                   // a half-written record is not a rendered one
-                            rendered++;
-                            continue;
-                        }
-                        w.WriteStartArray();
-                        w.WriteStringValue(r.FormKey);
-                        WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
-                        WriteCell(w, r.EditorId);
-                        foreach (var f in r.Fields)
-                        {
-                            WriteCell(w, DenseCell(f));
-                            // Registered at EMISSION, so the clause is earned by what the document carries.
-                            if (o.OwnedChildFields?.TryGetValue(f.Path, out var cellTier) == true) childFields[f.Path] = cellTier is not null;
-                        }
-                        if (anyScoped) WriteCell(w, o.SourcePlugin);          // the body this row's values were read from (winner_fields=true → the winner)
-                        if (hasMatches) WriteCell(w, matches);
-                        w.WriteEndArray();
-                    }
-                    else
-                    {
-                        var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // pinned to the scan's build
-                        if (m.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(m.FormKey), m.Error)); rendered++; continue; }
-                        w.WriteStartArray();
-                        w.WriteStringValue(FormIdToken.Of(m.FormKey));
-                        WriteCell(w, RuntimeCell(m.RuntimeFormId, m.RuntimeFormIdNote));
-                        w.WriteStringValue(m.Type);
-                        WriteCell(w, m.EditorId);
-                        w.WriteStringValue(m.Winner);
-                        w.WriteNumberValue(m.OverrideDepth);
-                        if (hasMatches) WriteCell(w, matches);
-                        w.WriteEndArray();
-                    }
-                    rendered++;
-                }
-                w.WriteEndArray();
-                if (errors is not null)
-                {
-                    w.WriteStartArray("errors");
-                    foreach (var (efk, err) in errors)
-                    { w.WriteStartObject(); w.WriteString("formid", efk); w.WriteString("error", err); w.WriteEndObject(); }
-                    w.WriteEndArray();
-                }
-                renderClock.Stop();
-                w.WriteNumber("rendered", rendered);
-                // A fold makes a row an ELEMENT, so `rendered` (records) no longer counts the rows: say both.
-                if (fold is not null) w.WriteNumber("rows_rendered", foldRows);
-                // The other half of a call's cost, stated in-band beside the rows it bought (#582).
-                if (detail && manifestOnly && spill?.Spill is { RenderMs: { } artifactMs } a)
-                { w.WriteNumber("rendered_to_file", a.Manifest.RowCount); w.WriteNumber("render_ms", artifactMs); }
-                else if (detail && !manifestOnly) w.WriteNumber("render_ms", renderClock.ElapsedMilliseconds);
-                w.WriteBoolean("truncated", rowsTruncated);
-                WriteOwnedChildNote(w, childFields);
-                // The read's own note — a truncated expansion above all — belongs to this document.
-                if (foldNotes.Count > 0) w.WriteString("read_note", string.Join(" ", foldNotes));
-                truncated = rowsTruncated;
+                        // The other half of a call's cost, stated in-band beside the rows it bought (#582).
+                        if (detail && manifestOnly && spill?.Spill is { RenderMs: { } artifactMs } a)
+                        { w.WriteNumber("rendered_to_file", a.Manifest.RowCount); w.WriteNumber("render_ms", artifactMs); }
+                        else if (detail && !manifestOnly) w.WriteNumber("render_ms", renderMs);
+                    });
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
             // A REFUSAL is not bounded by max_chars — it ships whole, and "raise max_chars" would not change it — so
@@ -1406,6 +1277,182 @@ static class JsonWire
             w.WriteEndObject();
         }
         return Finish(ms);
+    }
+
+    /// <summary>The dense columnar render of a list read's bodies — a <c>formids=</c> read, or a scan's body lane —
+    /// through the same table the scan's dense render writes; the call's source rides the envelope.</summary>
+    public static string RenderBatchDense(IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string>? fields, FoldPlan? fold,
+                                          int maxChars, SpillState? spill, out bool truncated,
+                                          IReadOnlyList<KeyValuePair<string, string>>? envelope, (int RowsRead, long Millis) bodyCost,
+                                          IReadOnlyList<string?>? matches = null)
+    {
+        int cap = Wire.Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
+        using var ms = new CharCountedStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            WriteEnvelope(w, envelope);
+            w.WriteNumber("count", outcomes.Count);
+            WriteEpoch(w, outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp);
+            truncated = WriteDenseTable(w, ms, cap, manifestOnly, outcomes.Select(o => o.FormKey).ToList(), fields, fold, false, matches,
+                i => outcomes[i],
+                i => outcomes[i] is { Error: null, Record: { } r } o
+                    ? new RecordSummary(o.FormKey, r.Type, r.EditorId, o.WinnerPlugin!, o.OverrideDepth, null)
+                      { RuntimeFormId = o.RuntimeFormId, RuntimeFormIdNote = o.RuntimeFormIdNote }
+                    : new RecordSummary(outcomes[i].FormKey, "", null, "", 0, outcomes[i].Error ?? "no record was read"),
+                _ => { w.WriteNumber("rows_read", bodyCost.RowsRead); w.WriteNumber("render_ms", bodyCost.Millis); });
+            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
+            WriteCapOverrun(w, ms, cap);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    /// <summary>The dense table: a <c>columns</c> array once, then ONE positional row array per match (per element
+    /// under a fold), a failed read in <c>errors</c>; returns whether the cap cut the rows.</summary>
+    static bool WriteDenseTable(Utf8JsonWriter w, CharCountedStream ms, int cap, bool manifestOnly, IReadOnlyList<FormKey> rowKeys,
+                                IReadOnlyList<string>? fields, FoldPlan? fold, bool anyScoped, IReadOnlyList<string?>? matchedTargets,
+                                Func<int, ReadOutcome> detailRow, Func<int, RecordSummary> summaryRow, Action<long> writeCost)
+    {
+        bool detail = fields is { Count: > 0 };
+        bool hasMatches = matchedTargets is not null;               // multi-target references= → one extra column
+        w.WriteStartArray("columns");
+        if (detail)
+        {
+            w.WriteStringValue("formid"); w.WriteStringValue("runtime_formid"); w.WriteStringValue("editorid");
+            foreach (var f in fold?.Requested ?? fields!) w.WriteStringValue(f);   // cells align positionally: one column per REQUESTED path, in order — a quantified path keeps its own spelling
+            // Under a plugins= scope a row's values are SOME scoped plugin's own body, so provenance is per row.
+            if (anyScoped) w.WriteStringValue("source");
+        }
+        else
+            foreach (var c in new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth" }) w.WriteStringValue(c);
+        if (hasMatches) w.WriteStringValue("matches");
+        w.WriteEndArray();
+
+        List<(string Formid, string Error)>? errors = null;
+        int rendered = 0; bool rowsTruncated = false;
+        var renderClock = System.Diagnostics.Stopwatch.StartNew();
+        var childFields = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // the clause per tier, over the cells the rows carried
+        var foldNotes = new SortedSet<string>(StringComparer.Ordinal);   // what the read said that no column carries — the truncation note above all
+        int foldRows = 0;            // rows, which a fold makes ELEMENTS; `rendered` stays records
+        w.WriteStartArray("rows");
+        for (int i = 0; i < rowKeys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
+        {
+            w.Flush();
+            if (Chars(ms) >= cap) { rowsTruncated = true; break; }
+            var fk = rowKeys[i];
+            string? matches = matchedTargets is { } mt && i < mt.Count ? mt[i] : null;
+            if (detail)
+            {
+                var o = detailRow(i);
+                if (o.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), o.Error)); rendered++; continue; }
+                var r = o.Record!;
+                if (fold is not null)
+                {
+                    // A quantified path makes the requested paths PER ELEMENT: one row each, identity repeated.
+                    var (cols, carried, ferr) = fold.Columns(r);
+                    if (ferr is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), ferr)); rendered++; continue; }
+                    // A row is keyed by its ELEMENT KEY as TEXT, never by its place in the column; key order
+                    // for a positional list, read order otherwise.
+                    var byKey = new Dictionary<string, HousecarlCore.FieldValue>?[cols!.Length];
+                    var keys = new List<string>();
+                    var seenKeys = new HashSet<string>(StringComparer.Ordinal);
+                    for (int c = 0; c < cols.Length; c++)
+                    {
+                        if (fold.Folds[c] is not { Fold: HousecarlCore.PathFold.Set } fc) continue;
+                        var map = byKey[c] = new Dictionary<string, HousecarlCore.FieldValue>(StringComparer.Ordinal);
+                        for (int k = 0; k < cols[c].Count; k++)
+                        {
+                            var key = FoldPlan.ElementKey(cols[c][k].Path, fc.Root) ?? k.ToString();
+                            map[key] = cols[c][k];
+                            if (seenKeys.Add(key)) keys.Add(key);
+                        }
+                    }
+                    if (keys.Count > 1 && keys.All(k => int.TryParse(k, out _)))
+                        keys.Sort((x, y) => int.Parse(x).CompareTo(int.Parse(y)));   // a positional list reads in index order whatever order the columns name
+                    int elems = Math.Max(1, keys.Count);   // no set column, or an empty list: still one row
+                    // The owned-child clause is earned per CELL, keyed on the column's own list path.
+                    for (int c = 0; c < cols.Length; c++)
+                    {
+                        var owner = fold.Folds[c]?.Root ?? (cols[c].Count > 0 ? cols[c][0].Path : null);
+                        if (owner is not null && o.OwnedChildFields?.TryGetValue(owner, out var tier) == true) childFields[owner] = tier is not null;
+                    }
+                    foreach (var note in carried) if (note.Note is { } n) foldNotes.Add(n);
+                    bool cut = false;
+                    for (int e = 0; e < elems; e++)
+                    {
+                        // The cap is per ROW, not per record: one record's element rows are unbounded.
+                        w.Flush();
+                        if (Chars(ms) >= cap) { rowsTruncated = true; cut = true; break; }
+                        w.WriteStartArray();
+                        w.WriteStringValue(r.FormKey);
+                        WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
+                        WriteCell(w, r.EditorId);
+                        for (int c = 0; c < cols.Length; c++)
+                        {
+                            var col = cols[c];
+                            var cell = byKey[c] is { } map ? (e < keys.Count && map.TryGetValue(keys[e], out var v) ? v : null)
+                                                           : (col.Count > 0 ? col[0] : null);
+                            WriteCell(w, cell is null ? null : DenseCell(cell));
+                        }
+                        if (anyScoped) WriteCell(w, o.SourcePlugin);
+                        if (hasMatches) WriteCell(w, matches);
+                        w.WriteEndArray();
+                        foldRows++;
+                    }
+                    if (cut) break;                                   // a half-written record is not a rendered one
+                    rendered++;
+                    continue;
+                }
+                w.WriteStartArray();
+                w.WriteStringValue(r.FormKey);
+                WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
+                WriteCell(w, r.EditorId);
+                foreach (var f in r.Fields)
+                {
+                    WriteCell(w, DenseCell(f));
+                    // Registered at EMISSION, so the clause is earned by what the document carries.
+                    if (o.OwnedChildFields?.TryGetValue(f.Path, out var cellTier) == true) childFields[f.Path] = cellTier is not null;
+                }
+                if (anyScoped) WriteCell(w, o.SourcePlugin);          // the body this row's values were read from (winner_fields=true → the winner)
+                if (hasMatches) WriteCell(w, matches);
+                w.WriteEndArray();
+            }
+            else
+            {
+                var m = summaryRow(i);
+                if (m.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(m.FormKey), m.Error)); rendered++; continue; }
+                w.WriteStartArray();
+                w.WriteStringValue(FormIdToken.Of(m.FormKey));
+                WriteCell(w, RuntimeCell(m.RuntimeFormId, m.RuntimeFormIdNote));
+                w.WriteStringValue(m.Type);
+                WriteCell(w, m.EditorId);
+                w.WriteStringValue(m.Winner);
+                w.WriteNumberValue(m.OverrideDepth);
+                if (hasMatches) WriteCell(w, matches);
+                w.WriteEndArray();
+            }
+            rendered++;
+        }
+        w.WriteEndArray();
+        if (errors is not null)
+        {
+            w.WriteStartArray("errors");
+            foreach (var (efk, err) in errors)
+            { w.WriteStartObject(); w.WriteString("formid", efk); w.WriteString("error", err); w.WriteEndObject(); }
+            w.WriteEndArray();
+        }
+        renderClock.Stop();
+        w.WriteNumber("rendered", rendered);
+        // A fold makes a row an ELEMENT, so `rendered` (records) no longer counts the rows: say both.
+        if (fold is not null) w.WriteNumber("rows_rendered", foldRows);
+        writeCost(renderClock.ElapsedMilliseconds);
+        w.WriteBoolean("truncated", rowsTruncated);
+        WriteOwnedChildNote(w, childFields);
+        // The read's own note — a truncated expansion above all — belongs to this document.
+        if (foldNotes.Count > 0) w.WriteString("read_note", string.Join(" ", foldNotes));
+        return rowsTruncated;
     }
 
     /// <summary>One dense cell: the round-trip token, else the leaf's parenthetical note, with annotations appended.</summary>
