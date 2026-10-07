@@ -71,10 +71,11 @@ public static class BsaArchive
         finally { (reader as IDisposable)?.Dispose(); }
     }
 
-    /// <summary>Unpack the WHOLE archive into <paramref name="destFolder"/> via Mutagen, writing each file's
-    /// decompressed bytes. Path-traversal-guarded and content-aware: a byte-identical file is skipped, which is why
-    /// the managed flow's pre-seeded meta.ini marker is left untouched.</summary>
-    public static BsaResult Unpack(string archive, string destFolder)
+    /// <summary>Unpack the archive into <paramref name="destFolder"/> via Mutagen, writing each file's decompressed
+    /// bytes: every file, or with <paramref name="keep"/> only the paths it accepts. Path-traversal-guarded and
+    /// content-aware: a byte-identical file is skipped, which is why the managed flow's pre-seeded meta.ini marker is
+    /// left untouched.</summary>
+    public static BsaResult Unpack(string archive, string destFolder, Func<string, bool>? keep = null)
     {
         Directory.CreateDirectory(destFolder);
         var hdr = ReadBsaHeader(archive);
@@ -83,11 +84,12 @@ public static class BsaArchive
         catch (Exception ex) { return new BsaResult(false, "", OpenError(archive, ex)); }
 
         string destFull = Path.GetFullPath(destFolder);
-        int written = 0, already = 0;
+        int written = 0, already = 0, skipped = 0;
         try
         {
             foreach (var f in reader.Files)
             {
+                if (keep is not null && !keep(f.Path.Replace('/', '\\'))) { skipped++; continue; }
                 if (f.Size > MaxEntryBytes)   // corrupt/hostile header — refuse loud rather than OOM the server
                     return new BsaResult(false,
                         $"archive entry '{f.Path}' declares {f.Size:N0} bytes, over the {MaxEntryBytes:N0}-byte safety ceiling — refusing to read it in-process (the archive header may be corrupt).", null);
@@ -111,9 +113,9 @@ public static class BsaArchive
 
         int total = written + already;
         // Cross-check against the header's own count: a reader mis-parse down to zero must not report as success.
-        if (hdr is { fileCount: var declared } && declared != (uint)total)
+        if (hdr is { fileCount: var declared } && declared != (uint)(total + skipped))
             return new BsaResult(false,
-                $"extracted {total} file(s) from '{Path.GetFileName(archive)}' but its header declares {declared} — the archive may be corrupt or unsupported; refusing to report it as success.", null);
+                $"read {total + skipped} file(s) from '{Path.GetFileName(archive)}' but its header declares {declared} — the archive may be corrupt or unsupported; refusing to report it as success.", null);
 
         string note = written > 0
             ? $"extracted {written} file(s)" + (already > 0 ? $" ({already} already present byte-identical)" : "") + "."

@@ -140,6 +140,10 @@ Data-relative path, compiled `NonBacktracking` because `**` nests quantifiers. T
 with **no literal directory prefix** is refused, and the enumeration is **bounded by matches, not candidates** —
 the pattern filters inside the walk, which stops at the cap.
 
+`bsa_list` and `bsa_extract` `under=` use the same grammar through `AssetGlob.Matcher`, over one archive's own
+listing. Neither bound applies there: the listing is already finite and already read, so an unanchored `*.pex` is
+allowed. A plain path matches that file or everything beneath that folder.
+
 `AssetLinkHarvest` is the other selector: every asset path a set of records declares, from a generic
 `IAssetLinkGetter` walk over each record's property graph. Generated coverage, not a per-record-type field list.
 
