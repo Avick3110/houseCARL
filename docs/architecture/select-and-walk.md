@@ -39,7 +39,9 @@ path walk, and containment comes off Mutagen's context walk.
 - A predicate never returns a silently wrong answer: every candidate that produced no value is
   accounted per cause (no such field, list hop, non-list quantified step, no containing record,
   container, read fault, unresolved link target, genuinely unset), and a numeric operator on a
-  non-numeric field is a named `FatalError` on the first value-bearing candidate.
+  non-numeric field is a named `FatalError` on the first value-bearing candidate. A step into an
+  element the record does not carry (a null gendered arm such as a male-only addon's `WorldModel[1]`,
+  an absent list, dict key, or an index past the end) is unset, never a read fault (#1071).
 - The value operators take scalar-leaf paths only. `exists`/`missing` are the exception that matches
   a carried substruct or non-empty list; `in`/`not in` on `formid` test identity and read no body.
 - `exists`/`missing` read a PRESENT subrecord carrying FormID zero as PRESENT rather than absent, so

@@ -256,6 +256,7 @@ public static class ReadEngine
             }
             return EmitToken(leaf.GetValue(current), leaf.PropertyType, current);
         }
+        catch (ExpectedApplyRejectionException) { return LeafRead.None(AbsentNote); }   // an absent arm, collection, key or index: unset, not a fault
         catch (Exception ex) { return LeafRead.Unreadable(UnreadableNote(Reason(ex))); }
     }
 
@@ -709,6 +710,7 @@ public static class ReadEngine
             }
             return (true, leaf.GetValue(current), leaf.PropertyType, current, null, true);
         }
+        catch (ExpectedApplyRejectionException) { return (false, null, typeof(object), record, AbsentNote, true); }
         catch (Exception ex) { return (false, null, typeof(object), record, UnreadableNote(Reason(ex)), false); }
     }
 
