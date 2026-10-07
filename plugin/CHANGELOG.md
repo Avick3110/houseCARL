@@ -16,6 +16,9 @@ made the change.
 - **houseCARL's server instructions now reach a Claude Code session whole, so the enable, generated-output and
   SkyPatcher routing rules are no longer cut off.** The housecarl instructions in a new session no longer end in
   `[truncated]`.
+- **`housecarl_bsa_list` and `housecarl_bsa_extract` take `under=` paths or globs, as `asset_status` does, and
+  `bsa_list` takes `counts_only=`, so reading two scripts no longer unpacks the whole archive.** Try
+  `bsa_extract under=["scripts/dlc2thirskdoorscript.pex"]` on `Skyrim - Misc.bsa`.
 
 ## 2.0.4 — 2026-10-05
 

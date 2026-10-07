@@ -30,7 +30,8 @@ machine call the houseCARL MCP server, and a lookup never has to wait on one.
 This covers the **API surface**. Reading a modlist's actual `.psc` source is a file job (ask
 `housecarl_asset_status` which mod or BSA wins a `Scripts\...` path first, then read it with your
 own file tool — or, when the winner is inside an archive, which is where most framework scripts
-ship, `housecarl_bsa_extract` with `archive=` and `out_path=` first and read the extracted path);
+ship, `housecarl_bsa_extract` with `archive=`, `out_path=` and `under=` the script's path first,
+and read the extracted file);
 compiling is `housecarl_compile_script`.
 
 The corpus is the cheap route to a signature, not the only one and not the proof. The deterministic
@@ -159,8 +160,9 @@ Then work the checks, in cost order:
    `out_path=` an absolute folder to land the `.psc` there instead of in a new mod folder, which is
    what you want when you are only reading a signature. Give each lookup its own empty folder: a
    `.psc` already at that path is refused, never overwritten, so a reused folder stops the second
-   lookup. For a class inside an archive, `housecarl_bsa_extract` with `archive=` and `out_path=`
-   first, then decompile the extracted path with `out_path=` a different, empty folder.
+   lookup. For a class inside an archive, `housecarl_bsa_extract` with `archive=`, `out_path=` and
+   `under=` its `scripts/<name>.pex` path first (a path or glob, as `asset_status` takes), then
+   decompile the extracted path with `out_path=` a different, empty folder.
    **Parameter defaults do not survive a decompile** — they
    never existed in the `.pex` — so a decompiled declaration answers arity and types and cannot
    answer a default.
