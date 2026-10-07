@@ -18,6 +18,10 @@ public static class BsaTools
     public static string BsaList(
         [Description("Full path to the .bsa archive to list.")]
             string archive,
+        [Description(UnderText)]
+            string[]? under = null,
+        [Description("Optional. Return only the file count, of the under= matches when given.")]
+            bool counts_only = false,
         [Description("Optional. Max characters before the file list is cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.BsaList, () =>
     {
@@ -25,27 +29,53 @@ public static class BsaTools
         try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
         catch (Exception ex) { return $"error: '{archive}' is not a usable path ({ex.Message})."; }
         if (!File.Exists(archive)) return $"error: no such file: '{archive}'.";
+        if (Keep(under, out var keep) is { } bad) return bad;
 
         var r = HousecarlCore.BsaArchive.List(archive);
         if (!r.Ran) return "error: " + r.RunError;
         if (!r.Success) return "error: " + r.Raw;   // header-vs-reader file-count mismatch (possible corruption)
 
+        var files = keep is null ? r.Files : r.Files.Where(f => keep(f.Replace('/', '\\'))).ToList();
         int cap = max_chars > 0 ? max_chars : 80_000;
         var sb = new StringBuilder();
         sb.Append(Path.GetFileName(archive)).Append("  [").Append(r.Format ?? "unknown format").Append("]  ")
-          .Append(r.DeclaredCount).Append(" file(s)\n");
+          .Append(r.DeclaredCount).Append(" file(s)");
+        if (keep is not null) sb.Append(", ").Append(files.Count).Append(" matching under=");
+        if (counts_only) return sb.ToString();
+        sb.Append('\n');
         int shown = 0;
-        foreach (var f in r.Files)
+        foreach (var f in files)
         {
-            if (sb.Length >= cap) { sb.Append("  ... [").Append(r.Files.Count - shown).Append(" more omitted at max_chars=").Append(cap).Append("]\n"); break; }
+            if (sb.Length >= cap) { sb.Append("  ... [").Append(files.Count - shown).Append(" more omitted at max_chars=").Append(cap).Append("]\n"); break; }
             sb.Append("  ").Append(f).Append('\n'); shown++;
         }
         return sb.ToString().TrimEnd('\n');
     });
 
+    const string UnderText =
+        "Optional. Archive path(s) or glob(s) to keep, as asset_status under=: forward or back slashes, any case; " +
+        "'*' within one segment, '?' one character, '**' across separators; a plain path keeps that file or " +
+        "everything beneath that folder.";
+
+    /// <summary>The under= selectors as one predicate over archive paths, null when none were given, or the refusal.</summary>
+    static string? Keep(string[]? under, out Func<string, bool>? keep)
+    {
+        keep = null;
+        var given = (under ?? Array.Empty<string>()).Select(u => (u ?? "").Trim()).Where(u => u.Length > 0).ToList();
+        if (given.Count == 0) return under is { Length: > 0 } ? "error: under= holds only empty selectors. Pass an archive path or glob, e.g. 'scripts/**/*.pex'." : null;
+        var tests = new List<Func<string, bool>>();
+        foreach (var sel in given)
+        {
+            try { tests.Add(HousecarlCore.AssetGlob.Matcher(sel)); }
+            catch (ArgumentException ex) { return $"error: under '{sel}': {ex.Message}"; }
+        }
+        keep = p => tests.Any(t => t(p));
+        return null;
+    }
+
     [McpServerTool(Name = ToolNames.BsaExtract, Title = "Extract a .bsa archive to a folder"),
      Description(
-         "Extract a Bethesda .bsa archive's whole contents to a folder so you can read the files. Reads the archive " +
+         "Extract a Bethesda .bsa archive's contents, or with under= only the matching files, to a folder so you can read the files. Reads the archive " +
          "directly, compressed archives included; no external tool needed. Without out_path= it unpacks into a new mod " +
          "folder under your mods directory, which needs houseCARL pointed at your MO2 instance. The archive is never " +
          "modified.")]
@@ -54,12 +84,27 @@ public static class BsaTools
         [Description("Full path to the .bsa archive to extract.")]
             string archive,
         [Description("Optional. Absolute path to the folder to unpack into. Omit for a new houseCARL mod folder under your mods directory; its path is reported.")]
-            string? out_path = null) => Guard.Tool(ToolNames.BsaExtract, () =>
+            string? out_path = null,
+        [Description("Optional. Extract only the files matching these, as " + ToolNames.BsaList + " under=; matching none is refused.")]
+            string[]? under = null) => Guard.Tool(ToolNames.BsaExtract, () =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
         try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
         catch (Exception ex) { return $"error: '{archive}' is not a usable path ({ex.Message})."; }
         if (!File.Exists(archive)) return $"error: no such file: '{archive}'.";
+        if (Keep(under, out var keep) is { } bad) return bad;
+        // Matched before any folder is cut, so an empty match refuses with nothing written.
+        string matched = "";
+        if (keep is not null)
+        {
+            var listed = HousecarlCore.BsaArchive.List(archive);
+            if (!listed.Ran) return "error: " + listed.RunError;
+            if (!listed.Success) return "error: " + listed.Raw;
+            int hits = listed.Files.Count(f => keep(f.Replace('/', '\\')));
+            if (hits == 0)
+                return $"error: under= matched none of the {listed.Files.Count} file(s) in '{Path.GetFileName(archive)}', so nothing was extracted; check the pattern with {ToolNames.BsaList} under=.";
+            matched = $"{hits} of {listed.Files.Count} file(s) matched under=.\n";
+        }
 
         string target;
         bool managed = string.IsNullOrWhiteSpace(out_path);
@@ -81,14 +126,14 @@ public static class BsaTools
         }
 
         string residue = managed ? $"\nThe freshly created mod folder was left at '{target}' — delete it or retry into it." : "";
-        var r = HousecarlCore.BsaArchive.Unpack(archive, target);
+        var r = HousecarlCore.BsaArchive.Unpack(archive, target, keep);
         if (!r.Ran) return "error: " + r.RunError + residue;   // archive couldn't be opened/read
         if (!r.Success)                                          // path-traversal refusal or a mid-extract error
             return "extract FAILED: " + r.Raw + residue;
 
         var sb = new StringBuilder();
         sb.Append("extracted ").Append(Path.GetFileName(archive)).Append(" → ").Append(target).Append('\n');
-        sb.Append(r.Raw).Append('\n');   // e.g. "extracted 5826 file(s)."
+        sb.Append(matched).Append(r.Raw).Append('\n');   // e.g. "extracted 5826 file(s)."
         sb.Append(managed
             ? "(a new houseCARL mod folder — read the files you need from it; enable it in MO2 only if you want the loose files in your load order.)"
             : "(read the files you need from that folder.)");
