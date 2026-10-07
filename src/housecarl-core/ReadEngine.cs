@@ -12,7 +12,7 @@ namespace HousecarlCore;
 public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null, ResolvedRef? Link = null,
                                 bool Present = true, int? Count = null, bool Readable = true,
                                 IReadOnlyList<FieldValue>? Cells = null, string? NoteRef = null, int? Bytes = null,
-                                ushort? BytesFormVersion = null);
+                                ushort? BytesFormVersion = null, IReadOnlyList<int>? Slots = null);
 
 /// <summary>The resolved identity of a form reference, behind housecarl_resolve and the resolve_names
 /// annotation.</summary>
@@ -137,7 +137,7 @@ public static class ReadEngine
                 if (note is { Length: > 0 } && note[0] == '[' && !string.IsNullOrEmpty(containerHint)) note += containerHint;
                 fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, FlagDisplay(r),
                                           Present: r.Present, Count: r.ContainerCount, Readable: r.Readable,
-                                          Bytes: r.ByteLength));
+                                          Bytes: r.ByteLength, Slots: FlagSlots(r)));
                 // Annotated off ON, the record the leaf was actually read on — a '*parent' hop rebinds it.
                 AnnotateOpaqueBytes(fields, fields.Count - 1, on.FormVersion);
             }
@@ -488,7 +488,7 @@ public static class ReadEngine
     {
         if (budget < 0) return;
         var leaf = EmitToken(val, declaredType, parent);
-        if (leaf.HasValue) { Emit(sink, ref budget, new FieldValue(path, true, leaf.Token, null, FlagDisplay(leaf), Bytes: leaf.ByteLength)); return; }
+        if (leaf.HasValue) { Emit(sink, ref budget, new FieldValue(path, true, leaf.Token, null, FlagDisplay(leaf), Bytes: leaf.ByteLength, Slots: FlagSlots(leaf))); return; }
         if (val is null) { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note, Present: false)); return; }
         // a link (incl. a null FormKey, or an FLOI) is a note, not an openable container; both flags travel with it.
         if (val is IFormLinkGetter || WriteEngine.IsFormLinkOrIndex(Nullable.GetUnderlyingType(declaredType) ?? declaredType))
@@ -918,25 +918,32 @@ public static class ReadEngine
         catch { return false; }
     }
 
-    /// <summary>The DISPLAY-ONLY biped-slot decode for a <c>BodyTemplate.FirstPersonFlags</c> leaf (slot = 30 +
-    /// bit index), gated to BipedObjectFlag by name.</summary>
-    internal static string? FlagSlotDisplay(LeafRead leaf)
+    /// <summary>The biped slot numbers of a <c>BipedObjectFlag</c> leaf (slot = 30 + bit index), else null.</summary>
+    internal static IReadOnlyList<int>? FlagSlots(LeafRead leaf)
     {
-        if (!leaf.HasValue || leaf.Flags is not { } fb || fb.EnumType.Name != "BipedObjectFlag") return null;
+        if (!leaf.HasValue || leaf.Flags is not { } fb || !IsBipedSlots(fb)) return null;
         var slots = new List<int>();
         for (int i = 0; i < 32; i++) if ((fb.Bits & (1UL << i)) != 0) slots.Add(30 + i);
-        if (slots.Count == 0) return null;
-        return (slots.Count == 1 ? "slot " : "slots ") + string.Join(", ", slots);
+        return slots.Count == 0 ? null : slots;
     }
 
-    /// <summary>The DISPLAY-ONLY annotation for a <c>[Flags]</c> enum leaf; the two decodes are exclusive.</summary>
-    internal static string? FlagDisplay(LeafRead leaf) => FlagSlotDisplay(leaf) ?? FlagBitsDisplay(leaf);
+    static bool IsBipedSlots(FlagBits fb) => fb.EnumType.Name == "BipedObjectFlag";
 
-    /// <summary>The DISPLAY-ONLY decode for a <c>[Flags]</c> enum leaf carrying bits the catalog does NOT name:
-    /// the known bits by NAME plus the unnamed remainder as an explicit hex mask.</summary>
-    internal static string? FlagBitsDisplay(LeafRead leaf)
+    /// <summary>The DISPLAY-ONLY decode of a <c>[Flags]</c> enum leaf: the bits by name when the token is not already
+    /// the names, then a biped field's slot numbers. Null when the token says it all.</summary>
+    internal static string? FlagDisplay(LeafRead leaf)
     {
         if (!leaf.HasValue || leaf.Flags is not { } fb) return null;
+        var names = FlagNames(fb);
+        var slots = FlagSlots(leaf);
+        var slotText = slots is null ? null : (slots.Count == 1 ? "slot " : "slots ") + string.Join(", ", slots);
+        return names is null ? slotText : slotText is null ? names : $"{names}; {slotText}";
+    }
+
+    /// <summary>The named bits plus one token per unnamed bit (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere),
+    /// or null when every set bit is named and the token already lists them.</summary>
+    static string? FlagNames(FlagBits fb)
+    {
         // Peel the NAMEABLE bits the way .NET's [Flags].ToString() does: greedily apply each named member that is
         // FULLY contained, largest first.
         var members = new List<ulong>();
@@ -945,13 +952,14 @@ public static class ReadEngine
         members.Sort((a, b) => b.CompareTo(a));   // descending (unsigned) — a combo before its constituent bits
         ulong remainder = fb.Bits;
         foreach (var mb in members) if ((remainder & mb) == mb) remainder &= ~mb;
-        if (remainder == 0) return null;   // every set bit is nameable — ToString already gave the full name list
-        // The nameable bits are a union of whole members, so the remainder is stated as an explicit hex mask.
+        if (remainder == 0) return null;
+        var parts = new List<string>();
         ulong nameable = fb.Bits & ~remainder;
-        var names = nameable == 0 ? null : Enum.ToObject(fb.EnumType, nameable).ToString();
-        return string.IsNullOrEmpty(names) || names == "0"
-            ? $"unknown bits 0x{remainder:X}"
-            : $"{names} (+unknown bits 0x{remainder:X})";
+        if (nameable != 0) parts.Add(Enum.ToObject(fb.EnumType, nameable).ToString()!);
+        bool biped = IsBipedSlots(fb);
+        for (int i = 0; i < 64; i++)
+            if ((remainder & (1UL << i)) != 0) parts.Add(biped ? $"slot{30 + i}" : $"bit{i}");
+        return string.Join(", ", parts);
     }
 
     // -- primitive family (mirror TryPrimitive) --------------------------------

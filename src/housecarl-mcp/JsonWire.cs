@@ -302,6 +302,8 @@ static class JsonWire
         // The FormID a no-value summary note SPELLED, beside the prose that spells it.
         if (f.NoteRef is { } noteRef && f.Cells is null) w.WriteString("note_ref", noteRef);
         if (f.Display is not null) w.WriteString("display", f.Display);
+        // A biped field's slot numbers as NUMBERS beside its raw value.
+        if (f.Slots is { } slots) { w.WriteStartArray("slots"); foreach (var n in slots) w.WriteNumberValue(n); w.WriteEndArray(); }
         // The blob's byte length as a NUMBER beside its hex value.
         if (f.Bytes is { } opaque) w.WriteNumber("opaque_bytes", opaque);
         if (f.Link is { } link)
