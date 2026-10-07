@@ -2343,7 +2343,7 @@ public static class WriteEngine
         throw new InvalidOperationException($"'{name}' is not a navigable collection (no [read-only] IList/IDictionary).");
     }
 
-    /// <summary>The gendered-arm twin of <see cref="StepIntoElement"/>'s branches: a WRITE materializes and writes back, a READ fails LOUD.</summary>
+    /// <summary>The gendered-arm twin of <see cref="StepIntoElement"/>'s branches: a WRITE materializes and writes back, a READ refuses an absent arm as live state.</summary>
     static object StepIntoGenderedArm(object parent, PropertyInfo prop, string name, string key, bool materialize)
     {
         int idx = key switch { "0" => 0, "1" => 1, _ => -1 };
@@ -2356,7 +2356,7 @@ public static class WriteEngine
         if (gendered is null)
         {
             if (!materialize)
-                throw new InvalidOperationException($"Cannot navigate into '{name}[{key}]': the gendered field is absent (null).");
+                throw new ExpectedApplyRejectionException($"Cannot navigate into '{name}[{key}]': the gendered field is absent (null).");
             gendered = MaterializeSubstruct(parent, prop, name);   // build the pair (default parts) + write back — named-path parity
         }
 
@@ -2367,7 +2367,7 @@ public static class WriteEngine
         if (arm is null)
         {
             if (!materialize)
-                throw new InvalidOperationException($"Gendered arm '{name}[{key}]' ({armName}) is absent (null).");
+                throw new ExpectedApplyRejectionException($"Gendered arm '{name}[{key}]' ({armName}) is absent (null).");
             arm = MaterializeSubstruct(gendered, armProp, armName);   // materialize the ref arm + WRITE BACK via the setter, or it is an orphan
         }
         return arm;
