@@ -1,25 +1,12 @@
 using System.Globalization;
-using System.Text.RegularExpressions;
 
 namespace HousecarlCore;
 
 /// <summary>The catalog-FREE extractor for the SKSE config audit, pure and line-local; contract in docs/architecture/skse-layer.md.</summary>
 public static class SkseConfigReferenceExtractor
 {
-    // A hex FormID and a plugin filename joined by '|' or '~' in either order; every shape is pinned by SkseConfigReferenceShapeTests.
-    // A name may carry a closed [..] or (..) group but never a lone bracket; the rule is in docs/architecture/skse-layer.md.
-    const string NameChar = @"[^|~""=,:{}()\[\]/\\\r\n]";
-    const string PluginRun = $@"(?:{NameChar}|\[{NameChar}*\]|\({NameChar}*\))*?\.es[lmp]";
-    // A plugin-first name starts only where it cannot reach further left: line start, just past the previous token, or
-    // after a char a name cannot hold. That is the start the leftmost match takes anyway, and it keeps the scan linear.
-    const string NameStart = $@"(?<=^|\G.|\G\[{NameChar}*\]|\G\({NameChar}*\)|[|~""=,:{{}}/\\(\[]|(?<!\[{NameChar}*)\]|(?<!\({NameChar}*)\))";
-    const string HexRun = @"(?:0x)?[0-9A-Fa-f]{1,16}";
-    static readonly Regex FormToken = new(
-        @"(?<![0-9A-Za-z])(?:" +
-            $@"(?<hexA>{HexRun})\s*(?<delimA>[|~])\s*(?<pluginA>{PluginRun})" + "|" +
-            $@"{NameStart}(?<pluginB>{PluginRun})\s*(?<delimB>[|~])\s*(?<hexB>{HexRun})" +
-        @")(?![0-9A-Za-z])",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // Characters a plugin name never holds; the name rule is in docs/architecture/skse-layer.md.
+    const string NotNameChars = "|~\"=,:{}()[]/\\\r\n";
 
     /// <summary>Every form-shaped reference and path-segment gate a config declares — pure, and faithful: duplicates included.</summary>
     public static IReadOnlyList<SkseConfigRef> Extract(string relPath, string text)
@@ -36,26 +23,148 @@ public static class SkseConfigReferenceExtractor
                 refs.Add(new SkseConfigRef(seg, SkseRefShape.PathSegmentGate, seg, null, null, 0, null));
         }
 
-        // 2) Form-shaped tokens, one regex pass per physical line (references are line-local).
+        // 2) Form-shaped tokens, one scan per physical line (references are line-local).
         if (!string.IsNullOrEmpty(text))
         {
             int line = 0;
             foreach (var raw in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
             {
                 line++;
-                if (raw.IndexOf('|') < 0 && raw.IndexOf('~') < 0) continue;   // no possible delimiter → skip the regex
-                foreach (Match m in FormToken.Matches(raw))
-                {
-                    bool altA = m.Groups["hexA"].Success;
-                    string rawHex = (altA ? m.Groups["hexA"] : m.Groups["hexB"]).Value;
-                    // Strip a leading TOML single-quote / whitespace that rode in with the plugin name.
-                    string plugin = (altA ? m.Groups["pluginA"] : m.Groups["pluginB"]).Value.Trim().Trim('\'');
-                    refs.Add(BuildTokenRef(m.Value, plugin, rawHex, line));
-                }
+                foreach (var t in ScanLine(raw))
+                    refs.Add(BuildTokenRef(raw[t.Start..t.End], raw[t.NameStart..t.NameEnd].Trim().Trim('\''), raw[t.HexStart..t.HexEnd], line));
             }
         }
         return refs;
     }
+
+    readonly record struct Token(int Start, int End, int NameStart, int NameEnd, int HexStart, int HexEnd);
+
+    /// <summary>Every token on one line, left to right: each '|' or '~' joined to a hex on one side and a plugin name on the other.</summary>
+    static IEnumerable<Token> ScanLine(string s)
+    {
+        int floor = 0;   // end of the previous token
+        int lead = 0;    // first non-blank character of the line
+        while (lead < s.Length && char.IsWhiteSpace(s[lead])) lead++;
+        for (int d = 0; d < s.Length; d++)
+        {
+            if (s[d] != '|' && s[d] != '~') continue;
+            var a = HexFirst(s, d, floor, lead);
+            var b = PluginFirst(s, d, floor, lead);
+            var t = a is null ? b : b is null || a.Value.Start <= b.Value.Start ? a : b;
+            if (t is null) continue;
+            yield return t.Value;
+            floor = t.Value.End;
+        }
+    }
+
+    /// <summary>The hex-then-plugin token around delimiter <paramref name="d"/>, or null.</summary>
+    static Token? HexFirst(string s, int d, int floor, int lead)
+    {
+        int hexEnd = d;
+        while (hexEnd > floor && char.IsWhiteSpace(s[hexEnd - 1])) hexEnd--;
+        int hexStart = hexEnd;
+        while (hexStart > floor && IsHex(s[hexStart - 1])) hexStart--;
+        if (hexStart == hexEnd) return null;
+        if (hexStart - 2 >= floor && (s[hexStart - 1] | 0x20) == 'x' && s[hexStart - 2] == '0') hexStart -= 2;
+        if (hexEnd - hexStart - (IsPrefixed(s, hexStart) ? 2 : 0) > 16 || (hexStart > 0 && IsAlnum(s[hexStart - 1]))) return null;
+
+        int nameStart = d + 1;
+        while (nameStart < s.Length && char.IsWhiteSpace(s[nameStart])) nameStart++;
+        int lastGroupEnd = nameStart;
+        for (int i = nameStart; i < s.Length;)
+        {
+            if (s[i] == '[' || s[i] == '(')
+            {
+                int close = MatchRight(s, i, lead);
+                if (close < 0) return null;
+                i = lastGroupEnd = close + 1;
+                continue;
+            }
+            if (!IsNameChar(s, i, lead)) return null;
+            i++;
+            if (i - 4 >= lastGroupEnd && EndsInPluginExtension(s, i) && (i == s.Length || !IsAlnum(s[i])))
+                return new Token(hexStart, i, nameStart, i, hexStart, hexEnd);
+        }
+        return null;
+    }
+
+    /// <summary>The plugin-then-hex token around delimiter <paramref name="d"/>, or null; the name runs left to the first boundary.</summary>
+    static Token? PluginFirst(string s, int d, int floor, int lead)
+    {
+        int hexStart = d + 1;
+        while (hexStart < s.Length && char.IsWhiteSpace(s[hexStart])) hexStart++;
+        int digits = IsPrefixed(s, hexStart) ? hexStart + 2 : hexStart;
+        int hexEnd = digits;
+        while (hexEnd < s.Length && IsHex(s[hexEnd])) hexEnd++;
+        if (hexEnd == digits || hexEnd - digits > 16 || (hexEnd < s.Length && IsAlnum(s[hexEnd]))) return null;
+
+        int nameEnd = d;
+        while (nameEnd > floor && char.IsWhiteSpace(s[nameEnd - 1])) nameEnd--;
+        if (nameEnd - 4 < floor || !EndsInPluginExtension(s, nameEnd)) return null;
+        int i = nameEnd - 5;
+        while (i >= floor)
+        {
+            if (s[i] == ']' || s[i] == ')')
+            {
+                int open = MatchLeft(s, i, floor, lead);
+                if (open < 0) break;
+                i = open - 1;
+            }
+            else if (IsNameChar(s, i, lead)) i--;
+            else break;
+        }
+        int start = i + 1;
+        if (start > 0 && IsAlnum(s[start - 1]))   // the unit glued to the previous token cannot start a name
+            start = s[start] == '[' || s[start] == '(' ? MatchRight(s, start, lead) + 1 : start + 1;
+        if (start > nameEnd - 4) return null;
+        return new Token(start, hexEnd, start, nameEnd, hexStart, hexEnd);
+    }
+
+    /// <summary>The closer that balances the opener at <paramref name="open"/>, holding only name characters and groups, or -1.</summary>
+    static int MatchRight(string s, int open, int lead)
+    {
+        var want = new Stack<char>();
+        for (int k = open; k < s.Length; k++)
+        {
+            char c = s[k];
+            if (c == '[' || c == '(') want.Push(c == '[' ? ']' : ')');
+            else if (c == ']' || c == ')') { if (want.Pop() != c) return -1; if (want.Count == 0) return k; }
+            else if (!IsNameChar(s, k, lead)) return -1;
+        }
+        return -1;
+    }
+
+    /// <summary>The opener that balances the closer at <paramref name="close"/>, not before <paramref name="floor"/>, or -1.</summary>
+    static int MatchLeft(string s, int close, int floor, int lead)
+    {
+        var want = new Stack<char>();
+        for (int k = close; k >= floor; k--)
+        {
+            char c = s[k];
+            if (c == ']' || c == ')') want.Push(c == ']' ? '[' : '(');
+            else if (c == '[' || c == '(') { if (want.Pop() != c) return -1; if (want.Count == 0) return k; }
+            else if (!IsNameChar(s, k, lead)) return -1;
+        }
+        return -1;
+    }
+
+    /// <summary>A character a plugin name can hold here; a ';' or '#' that opens a comment cannot.</summary>
+    static bool IsNameChar(string s, int i, int lead)
+    {
+        char c = s[i];
+        if (NotNameChars.IndexOf(c) >= 0) return false;
+        if (c != ';' && c != '#') return true;
+        return !(i == lead || i + 1 == s.Length || char.IsWhiteSpace(s[i + 1]));
+    }
+
+    static bool EndsInPluginExtension(string s, int end) =>
+        end >= 4 && s[end - 4] == '.' && (s[end - 3] | 0x20) == 'e' && (s[end - 2] | 0x20) == 's' && "lmp".IndexOf((char)(s[end - 1] | 0x20)) >= 0;
+
+    static bool IsPrefixed(string s, int i) => i + 2 < s.Length && s[i] == '0' && (s[i + 1] | 0x20) == 'x' && IsHex(s[i + 2]);
+
+    static bool IsHex(char c) => c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
+
+    static bool IsAlnum(char c) => c is >= '0' and <= '9' or >= 'a' and <= 'z' or >= 'A' and <= 'Z';
 
     /// <summary>Normalize one matched token — an over-wide or unparseable hex is named LOUDLY, never guessed.</summary>
     static SkseConfigRef BuildTokenRef(string rawMatch, string plugin, string rawHex, int line)
