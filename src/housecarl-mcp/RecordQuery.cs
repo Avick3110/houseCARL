@@ -1,3 +1,4 @@
+using System.Globalization;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Aspects;
 using Mutagen.Bethesda.Plugins.Records;
@@ -157,7 +158,7 @@ internal sealed partial class RecordReads
         try { types = _host.Types.ResolveSet(hasType ? typeSet : null); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
-        if (predicate is not null && hasType && QuantifierShapeRefusal(typeSet!, predicate) is { } qerr)
+        if (predicate is not null && hasType && SchemaPlanRefusal(typeSet!, predicate) is { } qerr)
             return CrossQueryOutcome.Fail(qerr) with { Stamp = view.Stamp };
 
         var keys = new List<FormKey>();
@@ -514,15 +515,16 @@ internal sealed partial class RecordReads
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList() };
     }
 
-    /// <summary>The schema's answer to a quantifier on a step that is not a list: a refusal naming the step's real
-    /// cardinality, or null.</summary>
-    string? QuantifierShapeRefusal(IReadOnlyList<string> typeTokens, FieldPredicateSet predicate)
+    /// <summary>The schema's plan-time refusal: an enum literal the field's enum does not name, or a quantifier on a
+    /// step that is not a list, naming the step's real cardinality; null when the schema has no objection.</summary>
+    string? SchemaPlanRefusal(IReadOnlyList<string> typeTokens, FieldPredicateSet predicate)
     {
         var schemas = new List<TypeSchema>();
         foreach (var token in typeTokens)
             foreach (var ts in _host.Rulebook.RecordTypesNamed(token))
                 if (!schemas.Contains(ts)) schemas.Add(ts);
         if (schemas.Count == 0) return null;
+        if (EnumLiteralRefusal(schemas, predicate) is { } enumErr) return enumErr;
 
         foreach (var step in predicate.QuantifiedSteps)
         {
@@ -545,6 +547,39 @@ internal sealed partial class RecordReads
         }
         return null;
     }
+
+    /// <summary>A '=', '!=', 'in' or 'not in' literal that names no value of the leaf's enum on any scanned type, or null;
+    /// a numeric literal, and any type the schema cannot answer for or calls non-enum, never refuses.</summary>
+    string? EnumLiteralRefusal(IReadOnlyList<TypeSchema> schemas, FieldPredicateSet predicate)
+    {
+        foreach (var cmp in predicate.ValueComparisons)
+        {
+            var enums = new List<Type>();
+            bool open = false;
+            foreach (var ts in schemas)
+            {
+                var (answered, enumType) = _host.Rulebook.LeafEnumType(ts, cmp.Path, cmp.Folds);
+                if (!answered) continue;
+                if (enumType is null) { open = true; break; }
+                if (!enums.Contains(enumType)) enums.Add(enumType);
+            }
+            if (open || enums.Count == 0) continue;
+            foreach (var literal in cmp.Literals)
+            {
+                if (IsNumericLiteral(literal) || enums.Any(e => Enum.TryParse(e, literal, ignoreCase: true, out _))) continue;
+                var names = enums.SelectMany(Enum.GetNames).Distinct();
+                return $"predicate '{cmp.Text}': '{literal}' is not a value of the {string.Join(" or ", enums.Select(e => e.Name))} enum " +
+                       $"this field holds, so it can never match.{PluginNameSuggest.DidYouMean(literal, names)}";
+            }
+        }
+        return null;
+    }
+
+    /// <summary>A decimal or 0x-hex number: the literal forms the comparison accepts on any enum leaf.</summary>
+    static bool IsNumericLiteral(string s) =>
+        double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+        || (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+            && ulong.TryParse(s.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _));
 
     /// <summary>The one sentence a scan owes for records it filtered only after reading around content Mutagen
     /// refused: they are answers, not skips, and the gap is named because it cannot prove a non-match.</summary>
@@ -653,7 +688,7 @@ internal sealed partial class RecordReads
         try { types = _host.Types.ResolveSet(typeSet); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }
 
-        if (predicate is not null && typeSet is { Count: > 0 } && QuantifierShapeRefusal(typeSet, predicate) is { } qerr)
+        if (predicate is not null && typeSet is { Count: > 0 } && SchemaPlanRefusal(typeSet, predicate) is { } qerr)
             return CrossQueryOutcome.Fail(qerr) with { Stamp = view.Stamp };
 
         // The same split the in-order scan makes: a name the active order does not carry costs that name's share

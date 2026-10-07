@@ -24,6 +24,8 @@ made the change.
 - **A `where=` step into a gendered arm, list or index a record lacks (`WorldModel[1].File` on a male-only ARMA)
   now counts as unset, not a read fault.** A read past a list's end prints `(absent: list has N element(s))`, and
   `CopyFrom` names the source's missing value.
+- **`housecarl_records where=` now refuses an enum value the field does not have, with a "did you mean", instead of
+  answering 0 matches.** `Archetype.ActorValue in [HeavyArmorMod]` on MGEF names `HeavyArmorModifier`.
 
 ## 2.0.4 — 2026-10-05
 
