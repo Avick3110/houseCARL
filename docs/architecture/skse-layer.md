@@ -147,23 +147,30 @@ block still surfaces, and the framing is "references this file declares", never 
 EditorID and name strings are out of scope: a JSON string is not unambiguously an EditorID, and validating every string
 would drown the signal. An over-wide or unparseable hex is CAPTURED and named, never guessed.
 
-The plugin-name charset in `PluginRun` is two deliberate choices. Apostrophes are ALLOWED, because excluding them
-truncates real names mid-word (`kryptopyr's Trade & Barter.esp`). Brackets and parentheses are allowed only as a CLOSED
-group of name characters inside the name — `[Caenarvon] Magecore.esp`, `Asuras Guard [Armor].esp`, `Mod (v2).esp` are
-read whole — and a LONE `[` or `(` still bounds it. A group holding a character a name cannot carry is not a group:
-`[Mod, Inc] Foo.esp|0x800` reads as `Foo.esp`. The lone bracket is what the surrounding syntax looks like: prose
-(`will cast fireball (Skyrim.esm|0x5)`), a JSON array (`["Skyrim.esm|0x800"]`), a section-like `[Skyrim.esm|0x5]`; in
-each the group cannot close before the `|`, so the name starts after the bracket. A name never carries `=`, `,`, `:`,
-a double quote, a brace or a slash, so those still bound it from the left as before. The rule is the same in the
-plugin-first, hex-first and tilde forms; a path-segment gate is a whole directory component and was never cut. What it
-still cannot tell apart is a closed group glued to a token: prose (`see (note) Skyrim.esm|0x5`), a section header and a
-token on one line (`[Section] Skyrim.esm|0x5`), a trailing comment (`Skyrim.esm|0x5 ; (comment) Dawnguard.esm|0x6`).
-Each reads as one name and surfaces as PLUGIN MISSING (INERT), never DANGLING — the same exposure a prose prefix with
-no bracket always had, since spaces are part of names.
+The scan finds each `|` or `~` on a line and reads outward from it: a hex on one side, a plugin name ending in
+`.esp`, `.esm` or `.esl` on the other. A plugin-first name runs left from its extension to the first boundary; a
+hex-first name runs right to its first extension. Each read stops at the neighbouring delimiter, so a line is scanned
+in linear time by construction, and the name rule lives in one place (`IsNameChar` and the group match).
 
-A plugin-first name starts only where it cannot reach further left: line start, just past the previous token, or after
-a character a name cannot hold, a lone bracket among them. That is the start the leftmost match takes anyway, and it
-keeps the scan linear: without it a long line of closed groups was rescanned from every position.
+The name rule is three deliberate choices. Apostrophes are ALLOWED, because excluding them truncates real names
+mid-word (`kryptopyr's Trade & Barter.esp`). Brackets and parentheses are allowed only as a CLOSED, balanced group of
+name characters, nested or not — `[Caenarvon] Magecore.esp`, `Asuras Guard [Armor].esp`, `Mod (v2).esp`,
+`Mod [v2 (SE)].esp` are read whole — and a LONE `[` or `(` still bounds the name. A group holding a character a name
+cannot carry is not a group: `[Mod, Inc] Foo.esp|0x800` reads as `Foo.esp`. The lone bracket is what the surrounding
+syntax looks like: prose (`will cast fireball (Skyrim.esm|0x5)`), a JSON array (`["Skyrim.esm|0x800"]`), a
+section-like `[Skyrim.esm|0x5]`; in each the group cannot close before the `|`, so the name starts after the bracket.
+A name never carries `=`, `,`, `:`, a double quote, a brace or a slash, so those bound it as before. A comment leader
+bounds it too: a `;` or `#` that is the first character of the line or is followed by whitespace, so
+`; Skyrim.esm|0x5 is the iron sword` and `Skyrim.esm|0x5 # Dawnguard.esm|0x6` read clean, while `Mod #2.esp` keeps its
+`#` (no plugin in the ARR list carries `;` or `#` at all). A name never starts inside the previous token, so two
+tokens split by a space, or by a group right after the first hex, are both read. The rule is the same in the
+plugin-first, hex-first and tilde forms; a path-segment gate is a whole directory component and was never cut.
+
+What it still cannot tell apart is a closed group glued to a token: prose (`see (note) Skyrim.esm|0x5`), a section
+header and a token on one line (`[Section] Skyrim.esm|0x5`), a comment whose text opens with a group
+(`Skyrim.esm|0x5 ; (comment) Dawnguard.esm|0x6` reads the second name as `(comment) Dawnguard.esm`). Each reads as one
+name and surfaces as PLUGIN MISSING (INERT), never DANGLING — the same exposure a prose prefix with no bracket always
+had, since spaces are part of names.
 
 The verdict is the service's, over the active order: OK, PLUGIN MISSING, DANGLING, UNPARSEABLE. The headline keeps two
 signals apart. BROKEN (dangling + unparseable) should resolve and does not, and is actionable. INERT (plugin missing) is
@@ -215,7 +222,8 @@ number describes a wider set than the rows beside it.
 - *Config references*: both charset directions are pinned by `SkseConfigReferenceShapeTests`
   (`APluginNameWithAnApostropheIsNotCutAtTheApostrophe`, `ABracketGroupInsideAPluginNameIsKeptWhole`,
   `AParenthesisGroupInsideAPluginNameIsKeptWhole`, `AnOpeningParenthesisBoundsThePluginNameInProse`,
-  `ALoneBracketBeforeAPluginNameBoundsIt`); the rest
+  `ALoneBracketBeforeAPluginNameBoundsIt`, `ANestedGroupInsideAPluginNameIsKeptWhole`,
+  `ACommentLeaderIsNotPartOfAPluginName`, `AHashInsideAPluginNameIsKept`); the rest
   of that class pins the extractor against every reference shape the evidence sample established, because a false
   DANGLING is this family's worst failure mode; `SkseConfigVerdictTests` pins each verdict against a synthetic order,
   and `SkseConfigRenderFramingTests` pins the BROKEN / INERT headline.

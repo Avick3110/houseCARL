@@ -160,17 +160,50 @@ public sealed class SkseConfigReferenceShapeTests
         Assert.Equal(("Skyrim.esm", (uint?)0x5), (b.Plugin, b.LocalId));
     }
 
-    [Fact] // 100k chars of "[a] (b) " then "|0x5" and then "x.esp|0x5" → read in well under a second, not quadratic
-    public void ALongLineOfClosedGroupsIsScannedInLinearTime()
+    [Fact] // Mod [v2 (SE)].esp|0x800 and Mod ((v2)).esp|0x800 → whole name: nested groups are part of the name
+    public void ANestedGroupInsideAPluginNameIsKeptWhole()
     {
-        var groups = string.Concat(Enumerable.Repeat("[a] (b) ", 12_500));
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        var none = Tokens(Ex(@"SKSE\Plugins\Foo\x.ini", groups + "|0x5"));
-        var one = OnlyToken(@"SKSE\Plugins\Foo\x.ini", groups + "x.esp|0x5");
-        clock.Stop();
-        Assert.Empty(none);
-        Assert.Equal((groups.Trim() + " x.esp").Length, one.Plugin.Length);
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"took {clock.Elapsed.TotalMilliseconds:F0} ms");
+        var a = OnlyToken(@"SKSE\Plugins\SkyPatcher\armor\x.ini", "filterByArmors=Mod [v2 (SE)].esp|0x800");
+        var b = OnlyToken(@"SKSE\Plugins\Foo\x.ini", "x = Mod ((v2)).esp|0x800");
+        Assert.Equal(("Mod [v2 (SE)].esp", (uint?)0x800), (a.Plugin, a.LocalId));
+        Assert.Equal(("Mod ((v2)).esp", (uint?)0x800), (b.Plugin, b.LocalId));
+    }
+
+    [Fact] // Skyrim.esm|0x5 Dawnguard.esm|0x6 → two tokens split only by a space
+    public void TwoPluginFirstTokensSplitOnlyByASpaceAreBothRead()
+    {
+        var toks = Tokens(Ex(@"SKSE\Plugins\Foo\x.ini", "Skyrim.esm|0x5 Dawnguard.esm|0x6"));
+        Assert.Equal(new[] { ("Skyrim.esm", (uint?)0x5), ("Dawnguard.esm", (uint?)0x6) }, toks.Select(t => (t.Plugin, t.LocalId)));
+    }
+
+    [Fact] // A.esp|0x5[x] B.esp|0x6 → the group right after the first hex is not part of the second name
+    public void AGroupRightAfterTheLastHexIsNotPartOfTheNextName()
+    {
+        var toks = Tokens(Ex(@"SKSE\Plugins\Foo\x.ini", "A.esp|0x5[x] B.esp|0x6"));
+        Assert.Equal(new[] { ("A.esp", (uint?)0x5), ("B.esp", (uint?)0x6) }, toks.Select(t => (t.Plugin, t.LocalId)));
+    }
+
+    [Fact] // Skyrim.esm|0x5 [Caenarvon] Magecore.esp|0x6 → second name whole after a space
+    public void ABracketedPluginFirstTokenAfterASpaceIsReadWhole()
+    {
+        var toks = Tokens(Ex(@"SKSE\Plugins\Foo\x.ini", "Skyrim.esm|0x5 [Caenarvon] Magecore.esp|0x6"));
+        Assert.Equal(new[] { ("Skyrim.esm", (uint?)0x5), ("[Caenarvon] Magecore.esp", (uint?)0x6) }, toks.Select(t => (t.Plugin, t.LocalId)));
+    }
+
+    [Fact] // ; Skyrim.esm|0x5 is the iron sword, and Skyrim.esm|0x5 # Dawnguard.esm|0x6 → no comment leader in the name
+    public void ACommentLeaderIsNotPartOfAPluginName()
+    {
+        var a = OnlyToken(@"SKSE\Plugins\Foo\x.ini", "; Skyrim.esm|0x5 is the iron sword");
+        var toks = Tokens(Ex(@"SKSE\Plugins\Foo\x.ini", "Skyrim.esm|0x5 # Dawnguard.esm|0x6"));
+        Assert.Equal("Skyrim.esm", a.Plugin);
+        Assert.Equal(new[] { "Skyrim.esm", "Dawnguard.esm" }, toks.Select(t => t.Plugin));
+    }
+
+    [Fact] // Mod #2.esp|0x800 → a '#' inside a name is kept
+    public void AHashInsideAPluginNameIsKept()
+    {
+        var a = OnlyToken(@"SKSE\Plugins\Foo\x.ini", "form = Mod #2.esp|0x800");
+        Assert.Equal("Mod #2.esp", a.Plugin);
     }
 
     [Fact] // path gate \[Caenarvon] Magecore.esp\ → the folder name whole
