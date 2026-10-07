@@ -11,10 +11,10 @@ static partial class Wire
 {
     internal static int Cap(int maxChars) => maxChars > 0 ? maxChars : DefaultMaxChars;
 
-    /// <summary>The scan lane's format vocabulary — the one lane with a third format, the columnar <c>dense</c> render.</summary>
+    /// <summary>The records tool's format vocabulary — the one tool with a third format, the columnar <c>dense</c> render.</summary>
     internal enum QueryFormat { Text, Json, Dense }
 
-    /// <summary>Parse the scan lane's <c>format=</c>: text (default), json or dense; anything else is a named refusal listing all three.</summary>
+    /// <summary>Parse the records tool's <c>format=</c>: text (default), json or dense; anything else is a named refusal listing all three.</summary>
     internal static QueryFormat CrossQueryFormat(string? format, out string? error)
     {
         error = null;

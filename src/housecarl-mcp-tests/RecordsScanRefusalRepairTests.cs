@@ -42,27 +42,24 @@ public sealed class RecordsScanRefusalRepairTests : IDisposable
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
     }
 
-    /// <summary>The list lane. The dense+depth refusal above ends "or drop project.depth for the dense summary
-    /// cells" — followable only in the scan lane, because a <c>formids=</c> read refuses dense outright. So that
-    /// refusal is gated to the scan lane and the list lane answers with its own complete sentence.</summary>
+    /// <summary>The list lane serves dense too (#1073), so it gets the same depth refusal, and the remedy that
+    /// refusal names, dropping project.depth, is served there.</summary>
     [Fact]
-    public void DenseWithADepthInTheFormidsLane_GetsTheListLanesOwnRefusal_NotTheDepthOne()
+    public void DenseWithADepthInTheFormidsLane_GetsTheSameDepthRefusal()
     {
         var r = RecordsTools.Records(_w.Svc, formids: new[] { RecordsWorld.Fid(_w.Weapons[0]) },
                                      format: "dense", project: FieldsAt(2));
 
         Assert.StartsWith("error:", r);
-        Assert.Contains("the scan lane's columnar form", r);
-        Assert.DoesNotContain("drop project.depth", r);
+        Assert.Contains("project.depth=2", r);
+        Assert.Contains("drop project.depth", r);
     }
 
-    /// <summary>The remedy that sentence does name is followable: the same read in text is served. Without this
-    /// the list lane's refusal could name a transport that is also refused.</summary>
     [Fact]
-    public void TheRemedyTheListLanesDenseRefusalNames_IsServed()
+    public void TheDepthRefusalsRemedy_IsServedInTheFormidsLane()
     {
         var r = RecordsTools.Records(_w.Svc, formids: new[] { RecordsWorld.Fid(_w.Weapons[0]) },
-                                     format: "text", project: FieldsAt(2));
+                                     format: "dense", project: FieldsAt(1));
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
     }
