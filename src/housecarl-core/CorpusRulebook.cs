@@ -123,6 +123,42 @@ public sealed class CorpusRulebook
         return err is null ? field?.Cardinality : null;
     }
 
+    /// <summary>The enum type the schema gives a read path's leaf, rooted at <paramref name="root"/>: Answered is false
+    /// where the schema cannot say, and Enum is null where it says the leaf is not an enum.</summary>
+    public (bool Answered, Type? Enum) LeafEnumType(TypeSchema root, IReadOnlyList<string> path, IReadOnlyList<PathFold>? folds)
+    {
+        var current = root;
+        for (int i = 0; i < path.Count; i++)
+        {
+            if (!TrySeg(path[i], out var name, out var key, out _)) return (false, null);
+            var field = FindField(current, name, out _, out var err);
+            if (field is null || err is not null) return (false, null);
+            bool element = key is not null || (folds is not null && i < folds.Count && folds[i] != PathFold.None);
+            bool last = i == path.Count - 1;
+            string? next;
+            if (element)
+            {
+                if (field.Cardinality is not ("list" or "dict")) return (false, null);
+                if (last) return (true, EnumOf(field.ElementTypeAssemblyQualified));
+                next = field.ElementTypeRef;
+            }
+            else if (last)
+                return (true, field.Cardinality == "enum" ? EnumOf(field.MutableTypeAssemblyQualified ?? field.GetterTypeAssemblyQualified) : null);
+            else if (field.Cardinality is "substruct" or "polymorphic") next = field.TypeRef;
+            else return (false, null);
+            if (next is null || Type(next) is not { } t) return (false, null);
+            current = t;
+        }
+        return (false, null);
+
+        static Type? EnumOf(string? aq)
+        {
+            if (aq is null || WriteEngine.ResolveType(aq) is not { } rt) return null;
+            var u = System.Nullable.GetUnderlyingType(rt) ?? rt;
+            return u.IsEnum ? u : null;
+        }
+    }
+
     /// <summary>The ONE source of truth for where corpus.json lives, defaulting to the dev-harness location. The MCP
     /// server is launched from an arbitrary working directory and MUST set this to an absolute path at startup.</summary>
     public static string CorpusPath { get; set; } = Path.Combine("generated", "corpus.json");

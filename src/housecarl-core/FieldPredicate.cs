@@ -156,6 +156,19 @@ public sealed class FieldPredicateSet
         }
     }
 
+    /// <summary>One value comparison rooted at the scanned type: the path, its folds, and the literal(s) it compares against.</summary>
+    public readonly record struct ValueComparison(IReadOnlyList<string> Path, IReadOnlyList<PathFold>? Folds,
+                                                  IReadOnlyList<string> Literals, string Text);
+
+    /// <summary>Every '=', '!=', 'in' and 'not in' term on the scanned type's own body, for the schema's plan-time literal check.</summary>
+    public IReadOnlyList<ValueComparison> ValueComparisons =>
+        _predicates.Where(p => p.Op is Op.Eq or Op.Ne or Op.In or Op.NotIn && p.Pseudo == PseudoPath.None
+                               && p.LinkPath is null && p.ParentHops == 0
+                               && (p.PathFolds is null || p.PathFolds[^1] != Fold.Count))
+                   .Select(p => new ValueComparison(p.PathSegments, p.PathFolds,
+                                                    p.RawMembers ?? (IReadOnlyList<string>)new[] { p.Operand }, p.Text))
+                   .ToList();
+
     // PARSE — "<path> <op> <value>", longest-match the operator.
 
     /// <summary>Parse the wire <c>where</c> list into an evaluable set, or return the first parse error. An empty list is a parse error.</summary>
