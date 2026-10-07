@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-30
+updated: 2026-10-07
 covers: [src/housecarl-core/ReadEngine.cs, src/housecarl-core/BodyGather.cs, src/housecarl-core/WinnerBodies.cs, src/housecarl-core/RecordLinks.cs, src/housecarl-core/RecordArms.cs, src/housecarl-core/RecordNaming.cs, src/housecarl-core/PathFold.cs, src/housecarl-core/PluginFile.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/RecordPoles.cs, src/housecarl-mcp/RecordWalk.cs, src/housecarl-mcp/RecordQuery.cs, src/housecarl-mcp/TreeFold.cs, src/housecarl-mcp/FieldFold.cs, src/housecarl-mcp/ReverseWalkBatch.cs, src/housecarl-mcp/ScanDetailReader.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/ScopeSplit.cs, src/housecarl-mcp/BodyPrefetch.cs, src/housecarl-mcp/PoleGather.cs, src/housecarl-mcp/PluginPaths.cs, src/housecarl-core/FieldsDiff.cs]
 ---
 # The read engine
@@ -18,7 +18,8 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 ## Contracts
 - A value leaf's token is the faithful inverse of `WriteEngine.Coerce`: reading a value and writing that exact token back is a byte-level no-op.
 - Navigation is the write engine's own walk (`ResolveProperty` / `StepIntoElement`), but the READ never materialises an absent optional substruct: reading must not mutate.
-- `Display`, `Link`, `NoteRef`, `Bytes` and `BytesFormVersion` are display-only — never part of the round-trip token, so write, read-proof and the conflict diff never see them.
+- `Display`, `Link`, `NoteRef`, `Bytes`, `BytesFormVersion` and `Slots` are display-only — never part of the round-trip token, so write and read-proof never see them; the conflict diff prints a flags decode beside its token, which cannot change what differs because the decode is a function of the bits.
+- A `[Flags]` value decodes one way in every format (`ReadEngine.FlagDisplay`): when any set bit is unnamed, the decode lists the named bits and one `slotNN` (biped) or `bitN` token per unnamed bit, and a `BipedObjectFlag` field also states its slot numbers (slot = 30 + bit), which json carries as a numeric `slots` array beside the raw value.
 - Presence is carried structurally (`Present`, `Readable`, `Count`), never decided by matching a note's prose: an unreadable leaf is not evidence of absence.
 - A fault is isolated to the leaf, the list element or the child it happened on; the line names itself and the walk carries on with its siblings.
 - The deep walk generates at most `MaxExpandNodes` lines and emits one truncation note at the bound.
