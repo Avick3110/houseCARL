@@ -40,9 +40,9 @@ public static class StatusTools
         var data = svc.StatusData();
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
         var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inactive-profile inspection: text parse only, no index build, no switch
-        // Read only for a filter: the flag is a per-plugin header read, and the whole-profile summary asks about none.
-        var localized = filter is { Length: > 0 } ? svc.PluginLocalizedFlag(filter.Trim()) : null;
-        return StatusWire.Render(data, logs, profiles, filter, localized, max_chars > 0 ? max_chars : 80_000);
+        // Read only for a filter: the facts are a per-plugin locate and header read, and the whole-profile summary asks about none.
+        var facts = filter is { Length: > 0 } ? svc.PluginFactsFor(filter.Trim()) : null;
+        return StatusWire.Render(data, logs, profiles, filter, facts, max_chars > 0 ? max_chars : 80_000);
     });
 }
 
@@ -53,7 +53,7 @@ static class StatusWire
     public static string ServerLine => "server:   " + ServerBuild.Line + "\n";
 
     public static string Render(LoadOrderStatusData d, IReadOnlyList<LogFolderView> logs, NamedProfileResult profiles,
-                                string? filter, HousecarlCore.LocalizedFlagRead? localized, int cap)
+                                string? filter, PluginFacts? facts, int cap)
     {
         var c = d.Composition;
         int checkedActive = c.ActivePluginNames.Count;
@@ -86,7 +86,7 @@ static class StatusWire
 
         if (filter is { Length: > 0 })
         {
-            AppendLookup(sb, c, d.ExcludedPlugins, filter.Trim(), localized);
+            AppendLookup(sb, c, d.ExcludedPlugins, filter.Trim(), facts);
             return sb.ToString().TrimEnd('\n');
         }
 
@@ -221,7 +221,7 @@ static class StatusWire
 
     static void AppendLookup(StringBuilder sb, HousecarlCore.Mo2Composition c,
                              IReadOnlyDictionary<string, string> excluded, string name,
-                             HousecarlCore.LocalizedFlagRead? localized = null)
+                             PluginFacts? facts = null)
     {
         sb.Append("\nfilter '").Append(name).Append("':\n");
 
@@ -253,8 +253,9 @@ static class StatusWire
             sb.Append("  [!] EXCLUDED this session: ").Append(why).Append("\n      → houseCARL does NOT read this plugin (every other plugin is unaffected).\n");
 
         // The LOCALIZED header flag: a localized plugin's text lives in .STRINGS files, which is what the in-place write lanes refuse on. Three answers, never a bool, and rendered for every name the profile lists as a plugin.
-        if (localized is { } flag)
-            sb.Append("  localized:   ").Append(flag switch
+        if (facts is null) return;
+        AppendCopies(sb, facts.Copies);
+        sb.Append("  localized:   ").Append(facts.Localized switch
             {
                 HousecarlCore.LocalizedFlagRead.Localized =>
                     "YES (header flag set) — its text lives in separate .STRINGS files, not in the plugin. An IN-PLACE " +
@@ -263,6 +264,25 @@ static class StatusWire
                     "no (header flag clear) — its text is inside the plugin.",
                 _ => "UNKNOWN — houseCARL could not read this plugin's header, so neither answer is established.",
             }).Append('\n');
+        if (facts.Header is not { } h) return;
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        sb.Append("  header:      master flag ").Append(h.Master ? "YES" : "no").Append(" · ESL flag ").Append(h.Light ? "YES" : "no")
+          .Append(" · ").Append(h.RecordCount.ToString("N0", inv)).Append(" records (HEDR)\n");
+        sb.Append("  masters (").Append(h.Masters.Count).Append("): ").Append(h.Masters.Count == 0 ? "none" : string.Join(", ", h.Masters)).Append('\n');
+    }
+
+    /// <summary>Which folder serves the plugin, then every other same-named copy with its layer state and size.</summary>
+    static void AppendCopies(StringBuilder sb, IReadOnlyList<PluginCopy> copies)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        string Line(PluginCopy x) => x.Where + " · " + (x.Bytes is { } b ? b.ToString("N0", inv) + " bytes" : "size unreadable")
+                                     + (x.Enabled && !x.Serves ? " · shadowed" : "");
+        var served = copies.FirstOrDefault(x => x.Serves);
+        sb.Append("  served from: ").Append(served is null
+            ? (copies.Count == 0 ? "none — no folder holds a file of this name" : "none — no enabled folder holds this file")
+            : Line(served)).Append('\n');
+        foreach (var x in copies)
+            if (!x.Serves) sb.Append("  also in:     ").Append(Line(x)).Append('\n');
     }
 
     static bool Contains(IReadOnlyList<string> list, string name)

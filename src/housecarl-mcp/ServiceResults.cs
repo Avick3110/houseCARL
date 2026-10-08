@@ -190,3 +190,19 @@ public sealed record SeqOutcome(
 /// <param name="SiblingPexMissing">Why the .pex files beside the input were not all read; the service cannot know it, so the decompile lane sets it after its own sibling walk.</param>
 public sealed record ClassParents(
     Dictionary<string, string> Edges, string? BaselineNote, string? TopUpMissing, string? SiblingPexMissing = null);
+
+/// <summary>One plugin's facts for the status verdict: its header read off the served copy (null when unreadable or no copy serves), and every same-named copy on disk.</summary>
+public sealed record PluginFacts(HousecarlCore.PluginHeaderFacts? Header, IReadOnlyList<PluginCopy> Copies)
+{
+    public HousecarlCore.LocalizedFlagRead Localized => HousecarlCore.WriteEngine.LocalizedFlag(Header);
+
+    internal static PluginCopy Copy(string path, string where, bool enabled, bool serves)
+    {
+        long? bytes;
+        try { bytes = new FileInfo(path).Length; } catch { bytes = null; }
+        return new PluginCopy(path, where, enabled, serves, bytes);
+    }
+}
+
+/// <summary>One on-disk copy of a plugin filename: where it sits, whether that layer is enabled, whether it is the copy MO2 serves, and its size.</summary>
+public sealed record PluginCopy(string Path, string Where, bool Enabled, bool Serves, long? Bytes);
