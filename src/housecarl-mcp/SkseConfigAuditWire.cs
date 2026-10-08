@@ -225,13 +225,14 @@ static class SkseConfigAuditWire
             else if (f.Refs.Count == 0) sb.Append("  (no form-shaped references)\n");
             int head = sb.Length;
             if (f.ReadError is null)
-                foreach (var r in f.Refs) sb.Append(RefLine(r));
+                foreach (var r in f.Refs) { sb.Append(RefLine(r)); if (sb.Length > budget) break; }
             if (sb.Length <= budget) { shownFiles++; tally.Mark(f.RelPath); continue; }
             // A file that does not fit whole is cut per reference line, its non-OK references first.
             sb.Length = head;
-            int nonOk = f.ReadError is null ? f.Refs.Count(r => r.Verdict != SkseRefVerdict.Ok) : 0;
+            if (f.ReadError is not null || f.Refs.Count == 0) { sb.Length = mark; sb.Append(FilesCut(shownFiles)); break; }
+            int nonOk = f.Refs.Count(r => r.Verdict != SkseRefVerdict.Ok);
             int room = budget - RefsCut(f.Refs.Count, f.Refs.Count, $"{nonOk} of {nonOk} non-OK shown").Length;
-            if (f.ReadError is not null || f.Refs.Count == 0 || sb.Length > room) { sb.Length = mark; sb.Append(FilesCut(shownFiles)); break; }
+            if (sb.Length > room) { sb.Length = mark; sb.Append(FilesCut(shownFiles)); break; }
             int shown = 0, shownNonOk = 0;
             foreach (var r in CutOrder(f.Refs))
             {
