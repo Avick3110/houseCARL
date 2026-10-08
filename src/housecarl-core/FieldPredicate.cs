@@ -1155,7 +1155,7 @@ public sealed class FieldPredicateSet
             return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' needs a flags/bitmask or integer field, but '{p.PathDisplay}' read '{Trunc(token)}', not a number.");
 
         if (opBits == 0)
-            return (false, $"predicate '{p.Text}': '{OpStr(p.Op)} 0' tests no bits — give a non-zero bit value or a flag name.");
+            return (false, $"predicate '{p.Text}': '{OpStr(p.Op)} {p.Operand}' tests no bits — give a non-zero bit value or a flag name.");
         return (p.Op switch
         {
             Op.HasAny => (leafBits & opBits) != 0,

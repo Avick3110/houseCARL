@@ -82,6 +82,14 @@ public sealed class HasFamilyOperandTests
     public void BadFlagName_StillRefuses() =>
         Assert.Contains("not a bit value or a valid BipedObjectFlag flag name", Run("BodyTemplate.FirstPersonFlags has_any [Body, Nope]").Fatal ?? "");
 
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("|")]
+    [InlineData(",")]
+    [InlineData("0")]
+    public void AnOperandWithNoBits_RefusesNamingTheOperandWritten(string operand) =>
+        Assert.Contains($"'has_any {operand}' tests no bits", Run($"BodyTemplate.FirstPersonFlags has_any {operand}").Fatal ?? "");
+
     [Fact]
     public void HasNone_OnAKeywordList_RefusesWithTheNoneRewrite() =>
         Assert.Contains($"'Keywords[*none] in [{Fid(_kwB)}]'", Run($"Keywords has_none [{Fid(_kwB)}]").Fatal ?? "");
