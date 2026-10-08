@@ -592,7 +592,7 @@ static partial class RecordsTools
     /// <param name="requestedTypes">The display names of the types the call NAMED, or null when it named none; under group_by=type each one gets a row, so a requested type with no records reads as 0.</param>
     /// <param name="rowLimit">the caller's limit= as the TABLE's row cap (0 = uncapped): a count table caps with
     /// limit= and does not page (#810), and the counts above it stay the whole tally.</param>
-    static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, bool dense, OrderStamp? epoch,
+    static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, OrderStamp? epoch,
                                       string headerLine, List<KeyValuePair<string, string>> envelope,
                                       (int RowsRead, long Millis) bodyCost, int maxChars,
                                       IReadOnlyList<string>? requestedTypes = null, int rowLimit = 0)
@@ -622,7 +622,7 @@ static partial class RecordsTools
         // it sorts last and is what a cap discards first.
         var empties = all.Where(g => g.Value == 0).Select(g => g.Key).ToList();
         var rows = empties.Count == 0 ? all : all.Where(g => g.Value > 0).ToList();
-        if (json || dense)
+        if (json)
             return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, cap, envelope, empties, rowLimit);
         var sb = new StringBuilder();
         sb.Append(headerLine).Append("  group_by=").Append(gb).Append('\n');

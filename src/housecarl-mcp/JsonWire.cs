@@ -1279,8 +1279,7 @@ static class JsonWire
         return Finish(ms);
     }
 
-    /// <summary>The dense columnar render of a list read's bodies — a <c>formids=</c> read, or a scan's body lane —
-    /// through the same table the scan's dense render writes; the call's source rides the envelope.</summary>
+    /// <summary>The dense render of a list read's bodies (a formids= read or a scan's body lane), through the scan's table.</summary>
     public static string RenderBatchDense(IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string>? fields, FoldPlan? fold,
                                           int maxChars, SpillState? spill, out bool truncated,
                                           IReadOnlyList<KeyValuePair<string, string>>? envelope, (int RowsRead, long Millis) bodyCost,
@@ -1293,9 +1292,9 @@ static class JsonWire
         {
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
-            w.WriteNumber("count", outcomes.Count);
-            // counts_only: the scan's shape, an empty table carrying the census.
-            if (countsOnly) w.WriteNumber("resolved", outcomes.Count(o => o.Error is null));
+            // counts_only takes the scan's shape, an empty table under its total, plus the census's error count.
+            if (countsOnly) { w.WriteNumber("total", outcomes.Count); w.WriteNumber("errors", outcomes.Count(o => o.Error is not null)); }
+            else w.WriteNumber("count", outcomes.Count);
             WriteEpoch(w, outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp);
             var rowKeys = countsOnly ? new List<FormKey>() : outcomes.Select(o => o.FormKey).ToList();
             truncated = WriteDenseTable(w, ms, cap, manifestOnly, rowKeys, fields, fold, false, matches,
@@ -1312,8 +1311,7 @@ static class JsonWire
         return Finish(ms);
     }
 
-    /// <summary>The dense table: a <c>columns</c> array once, then ONE positional row array per match (per element
-    /// under a fold), a failed read in <c>errors</c>; returns whether the cap cut the rows.</summary>
+    /// <summary>The dense table: columns once, one positional row per match (per element under a fold), failed reads in errors.</summary>
     static bool WriteDenseTable(Utf8JsonWriter w, CharCountedStream ms, int cap, bool manifestOnly, IReadOnlyList<FormKey> rowKeys,
                                 IReadOnlyList<string>? fields, FoldPlan? fold, bool anyScoped, IReadOnlyList<string?>? matchedTargets,
                                 Func<int, ReadOutcome> detailRow, Func<int, RecordSummary> summaryRow, Action<long> writeCost)
@@ -1333,7 +1331,7 @@ static class JsonWire
         if (hasMatches) w.WriteStringValue("matches");
         w.WriteEndArray();
 
-        List<(string Formid, string Error)>? errors = null;
+        List<(string Formid, string Error, string? Matches)>? errors = null;
         int rendered = 0; bool rowsTruncated = false;
         var renderClock = System.Diagnostics.Stopwatch.StartNew();
         var childFields = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // the clause per tier, over the cells the rows carried
@@ -1349,13 +1347,13 @@ static class JsonWire
             if (detail)
             {
                 var o = detailRow(i);
-                if (o.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), o.Error)); rendered++; continue; }
+                if (o.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), o.Error, matches)); rendered++; continue; }
                 var r = o.Record!;
                 if (fold is not null)
                 {
                     // A quantified path makes the requested paths PER ELEMENT: one row each, identity repeated.
                     var (cols, carried, ferr) = fold.Columns(r);
-                    if (ferr is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), ferr)); rendered++; continue; }
+                    if (ferr is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), ferr, matches)); rendered++; continue; }
                     // A row is keyed by its ELEMENT KEY as TEXT, never by its place in the column; key order
                     // for a positional list, read order otherwise.
                     var byKey = new Dictionary<string, HousecarlCore.FieldValue>?[cols!.Length];
@@ -1425,7 +1423,7 @@ static class JsonWire
             else
             {
                 var m = summaryRow(i);
-                if (m.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(m.FormKey), m.Error)); rendered++; continue; }
+                if (m.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(m.FormKey), m.Error, matches)); rendered++; continue; }
                 w.WriteStartArray();
                 w.WriteStringValue(FormIdToken.Of(m.FormKey));
                 WriteCell(w, RuntimeCell(m.RuntimeFormId, m.RuntimeFormIdNote));
@@ -1442,8 +1440,12 @@ static class JsonWire
         if (errors is not null)
         {
             w.WriteStartArray("errors");
-            foreach (var (efk, err) in errors)
-            { w.WriteStartObject(); w.WriteString("formid", efk); w.WriteString("error", err); w.WriteEndObject(); }
+            foreach (var (efk, err, em) in errors)
+            {
+                w.WriteStartObject(); w.WriteString("formid", efk); w.WriteString("error", err);
+                if (em is not null) w.WriteString("matches", em);   // as the json render keeps it on an error row
+                w.WriteEndObject();
+            }
             w.WriteEndArray();
         }
         renderClock.Stop();
