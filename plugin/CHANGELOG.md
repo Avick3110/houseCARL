@@ -11,31 +11,6 @@ made the change.
 
 ## Unreleased
 
-- **`housecarl_skse findings='config'` now reads a plugin name with brackets or parentheses whole, so a reference
-  into `[Caenarvon] Magecore.esp` or `Asuras Guard [Armor].esp` is checked instead of counted as a missing plugin.**
-- **houseCARL's server instructions now reach a Claude Code session whole, so the enable, generated-output and
-  SkyPatcher routing rules are no longer cut off.** The housecarl instructions in a new session no longer end in
-  `[truncated]`.
-- **`housecarl_bsa_list` and `housecarl_bsa_extract` take `under=` paths or globs, as `asset_status` does, and
-  `bsa_list` takes `counts_only=`, so reading two scripts no longer unpacks the whole archive.** Try
-  `bsa_extract under=["scripts/dlc2thirskdoorscript.pex"]` on `Skyrim - Misc.bsa`.
-- **`housecarl_records` now names every flag bit in every format, known bits by name and others as `slotNN` or
-  `bitN`; json adds a numeric `slots` array on biped fields.** Read an ARMA with slot 60 set.
-- **A `where=` step into a gendered arm, list or index a record lacks (`WorldModel[1].File` on a male-only ARMA)
-  now counts as unset, not a read fault.** A read past a list's end prints `(absent: list has N element(s))`, and
-  `CopyFrom` names the source's missing value.
-- **`housecarl_records types=… where=` now refuses an enum value the field does not have, with a "did you mean",
-  instead of answering 0 matches.** `Archetype.ActorValue in [HeavyArmorMod]` on MGEF names `HeavyArmorModifier`.
-- **`housecarl_records format='dense'` now works on a `formids=` read, an off-order `source=`, and a
-  `plugins=` scope with a named `source=`, which used to refuse or answer in text; other forms refuse, naming what
-  to use.**
-- **`housecarl_load_order_status filter=<plugin>` now names the folder serving the plugin, every other copy with
-  its size, and the header's ESL and master flags, masters and record count.** Try `filter="Requiem.esp"`.
-- **A SkyPatcher overlay read now shows only the warnings whose INI line can reach the records read; the rest are one
-  line pointing to `housecarl_skypatcher_layer filter=<INI>`, which lists each line's warnings under it.**
-- **`housecarl_asset_status` answers a first call over many folders several times faster on a large order, for
-  `under=`, `asset_paths=` and `@file` alike.** A whole mod's files as `asset_paths=@file` on a fresh server shows it.
-
 ## 2.0.4 — 2026-10-05
 
 houseCARL 2.0.4 refuses inputs it used to drop silently and keeps more answers inside their cap. `housecarl_apply` and `housecarl_create` refuse stray arguments, five tools refuse `patch=` beside `into=`, and apply's default patch name steps past a disabled `Patch.esp` as the others do. An in-place apply, create, remove or forward now refuses a pre-1.71 plugin with its own records below 0x800, as 2.0 promised, and an in-place or `into=` write refuses when the parser would drop or resize a subrecord. `housecarl_skypatcher_layer` and `info_order` cut to fit `max_chars` and mark the cut, and the layer says when a cap is too small for its header. The facegen and scripts checks name what they could not read, and never-baked presets get their own class. The errors and dialogue checks and SkyPatcher-layer reads no longer mix two profiles when MO2 switches mid-call. A walk takes `walk.through` to find the NPCs that carry an item, SkyPatcher keys match without regard to case, plugin lists take `@file`, delta and tree reads skip walks they cannot use and refuse only past ten minutes, a text answer names plugins lost to a load failure, and a malformed NIF is named. The tool descriptions now say each thing once, so the tool list is about a quarter smaller. The entries below are in the order they landed.
