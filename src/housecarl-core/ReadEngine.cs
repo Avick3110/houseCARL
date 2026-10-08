@@ -930,20 +930,21 @@ public static class ReadEngine
     static bool IsBipedSlots(FlagBits fb) => fb.EnumType.Name == "BipedObjectFlag";
 
     /// <summary>The DISPLAY-ONLY decode of a <c>[Flags]</c> enum leaf: the bits by name when the token is not already
-    /// the names, then a biped field's slot numbers. Null when the token says it all.</summary>
+    /// the names, then a biped field's slot numbers unless every set bit is already a <c>slotNN</c> token.</summary>
     internal static string? FlagDisplay(LeafRead leaf)
     {
         if (!leaf.HasValue || leaf.Flags is not { } fb) return null;
-        var names = FlagNames(fb);
-        var slots = FlagSlots(leaf);
+        var names = FlagNames(fb, out bool anyNamed);
+        var slots = names is not null && !anyNamed ? null : FlagSlots(leaf);
         var slotText = slots is null ? null : (slots.Count == 1 ? "slot " : "slots ") + string.Join(", ", slots);
         return names is null ? slotText : slotText is null ? names : $"{names}; {slotText}";
     }
 
     /// <summary>The named bits plus one token per unnamed bit (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere),
     /// or null when every set bit is named and the token already lists them.</summary>
-    static string? FlagNames(FlagBits fb)
+    static string? FlagNames(FlagBits fb, out bool anyNamed)
     {
+        anyNamed = false;
         // Peel the NAMEABLE bits the way .NET's [Flags].ToString() does: greedily apply each named member that is
         // FULLY contained, largest first.
         var members = new List<ulong>();
@@ -955,7 +956,8 @@ public static class ReadEngine
         if (remainder == 0) return null;
         var parts = new List<string>();
         ulong nameable = fb.Bits & ~remainder;
-        if (nameable != 0) parts.Add(Enum.ToObject(fb.EnumType, nameable).ToString()!);
+        anyNamed = nameable != 0;
+        if (anyNamed) parts.Add(Enum.ToObject(fb.EnumType, nameable).ToString()!);
         bool biped = IsBipedSlots(fb);
         for (int i = 0; i < 64; i++)
             if ((remainder & (1UL << i)) != 0) parts.Add(biped ? $"slot{30 + i}" : $"bit{i}");
