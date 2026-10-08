@@ -1007,17 +1007,24 @@ public static class ReadEngine
     /// joined by " | ", or null when every set bit is named and the token already lists them.</summary>
     static string? FlagNames(FlagBits fb, out bool anyNamed)
     {
-        var parts = FlagParts(fb, out ulong remainder);
-        anyNamed = remainder != 0 && (fb.Bits & ~remainder) != 0;
-        return remainder == 0 ? null : string.Join(" | ", parts);
+        anyNamed = false;
+        ulong remainder = Unnamed(fb);
+        if (remainder == 0) return null;
+        anyNamed = (fb.Bits & ~remainder) != 0;
+        return string.Join(" | ", FlagParts(fb, remainder));
+    }
+
+    /// <summary>The set bits no flag member names, peeled the way .NET's [Flags].ToString() greedily applies each fully contained member.</summary>
+    internal static ulong Unnamed(FlagBits fb)
+    {
+        ulong remainder = fb.Bits;
+        foreach (var mb in SortedMemberMasks(fb.EnumType)) if ((remainder & mb) == mb) remainder &= ~mb;
+        return remainder;
     }
 
     /// <summary>Each set bit's flag name, then one token per unnamed bit (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere).</summary>
-    internal static List<string> FlagParts(FlagBits fb, out ulong remainder)
+    internal static List<string> FlagParts(FlagBits fb, ulong remainder)
     {
-        // Peel the NAMEABLE bits the way .NET's [Flags].ToString() does: greedily apply each FULLY contained member.
-        remainder = fb.Bits;
-        foreach (var mb in SortedMemberMasks(fb.EnumType)) if ((remainder & mb) == mb) remainder &= ~mb;
         var parts = new List<string>();
         ulong nameable = fb.Bits & ~remainder;
         if (nameable != 0) parts.AddRange(Enum.ToObject(fb.EnumType, nameable).ToString()!.Split(", "));
