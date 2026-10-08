@@ -312,6 +312,18 @@ public sealed class PlaceOffOrderLaneTests : IClassFixture<PlaceOffOrderWorld>
         Assert.Contains(WriteSentences.PlaceSourceNotAFolderName, r.Error);
     }
 
+    // A destination whose last segment is only dots fails loud rather than writing a FILE named for its parent folder.
+    [Fact]
+    public void ADestinationEndingInADotsOnlySegmentIsRefused()
+    {
+        var o = Place(@"textures\hcprobe\...", Shared, null);
+
+        Assert.False(o.Results[0].Placed);
+        Assert.Contains(@"textures\hcprobe\...", o.Results[0].Error);
+        Assert.Contains("only dots or spaces", o.Results[0].Error);
+        Assert.Null(o.ModFolder);
+    }
+
     // Probe M23: "*winner (no source= / with source=) is never refused as a named PROVIDER" and "…and the pole is not
     // quoted back as though it were a mod name". Strengthened: the probe held negatives only; each shape now also
     // asserts the refusal it does get, the ordinary nothing-provides-it one.
