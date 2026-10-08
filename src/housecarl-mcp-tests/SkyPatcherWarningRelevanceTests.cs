@@ -9,75 +9,107 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>An overlay read carries the SkyPatcher warnings that bear on its records; a note from a line that cannot
-/// reach them is one pointer to housecarl_skypatcher_layer filter=, which lists it under its line (#1093).</summary>
-[Trait("tier", "integration")]
-public sealed class SkyPatcherWarningRelevanceTests : IDisposable
+/// <summary>A test instance holding three armors and the given armor-folder INIs: HcHeelBoots carries HcHeelKw,
+/// HcBothBoots carries HcHeelKw and HcKw2, HcPlainCuirass carries none.</summary>
+sealed class SkyPatcherRelevanceWorld : IDisposable
 {
     const string PluginName = "HcSpRel.esp";
-    const string IniName = "HcRelevance.ini";
-    readonly string _root;
-    readonly LoadOrderService _svc;
-    readonly string _heel, _plain;
+    public readonly string Root;
+    public readonly LoadOrderService Svc;
+    public readonly string Heel, Both, Plain;
 
-    public SkyPatcherWarningRelevanceTests()
+    public SkyPatcherRelevanceWorld(IEnumerable<(string Name, string Text)> inis)
     {
-        _root = Path.Combine(Path.GetTempPath(), "hc-skypatcher-relevance-" + Guid.NewGuid().ToString("N"));
-        var instance = Path.Combine(_root, "instance");
+        Root = Path.Combine(Path.GetTempPath(), "hc-skypatcher-relevance-" + Guid.NewGuid().ToString("N"));
+        var instance = Path.Combine(Root, "instance");
         var profileDir = Path.Combine(instance, "profiles", "Default");
         var mods = Path.Combine(instance, "mods");
         var iniDir = Path.Combine(mods, "HcSpRelIni", "SKSE", "Plugins", "SkyPatcher", "armor");
-        foreach (var d in new[] { profileDir, Path.Combine(_root, "game", "Data"), Path.Combine(mods, "HcSpRelPlugins"), iniDir })
+        foreach (var d in new[] { profileDir, Path.Combine(Root, "game", "Data"), Path.Combine(mods, "HcSpRelPlugins"), iniDir })
             Directory.CreateDirectory(d);
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
-            + Path.Combine(_root, "game").Replace('\\', '/') + ")\r\n");
+            + Path.Combine(Root, "game").Replace('\\', '/') + ")\r\n");
 
         var mod = new SkyrimMod(ModKey.FromFileName(PluginName), SkyrimRelease.SkyrimSE);
         var heelKw = new Keyword(new FormKey(mod.ModKey, 0x800), SkyrimRelease.SkyrimSE) { EditorID = "HcHeelKw" };
         var addKw = new Keyword(new FormKey(mod.ModKey, 0x801), SkyrimRelease.SkyrimSE) { EditorID = "HcAddKw" };
+        var kw2 = new Keyword(new FormKey(mod.ModKey, 0x802), SkyrimRelease.SkyrimSE) { EditorID = "HcKw2" };
         mod.Keywords.Add(heelKw);
         mod.Keywords.Add(addKw);
+        mod.Keywords.Add(kw2);
         var heel = new Armor(new FormKey(mod.ModKey, 0x810), SkyrimRelease.SkyrimSE)
         {
             EditorID = "HcHeelBoots",
             Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { heelKw.ToLink() },
         };
         var plain = new Armor(new FormKey(mod.ModKey, 0x811), SkyrimRelease.SkyrimSE) { EditorID = "HcPlainCuirass" };
+        var both = new Armor(new FormKey(mod.ModKey, 0x812), SkyrimRelease.SkyrimSE)
+        {
+            EditorID = "HcBothBoots",
+            Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { heelKw.ToLink(), kw2.ToLink() },
+        };
         mod.Armors.Add(heel);
         mod.Armors.Add(plain);
+        mod.Armors.Add(both);
         mod.BeginWrite.ToPath(Path.Combine(mods, "HcSpRelPlugins", PluginName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-        _heel = RecordsWorld.Fid(heel.FormKey);
-        _plain = RecordsWorld.Fid(plain.FormKey);
+        Heel = RecordsWorld.Fid(heel.FormKey);
+        Plain = RecordsWorld.Fid(plain.FormKey);
+        Both = RecordsWorld.Fid(both.FormKey);
 
-        // :1 an Or list (a missing keyword cannot flip it), :2 a bare list (a missing keyword forces NoMatch), :3 an unknown key.
-        File.WriteAllText(Path.Combine(iniDir, IniName),
-            "filterByKeywordsOr=HcNoSuchA,HcHeelKw,HcNoSuchB:keywordsToAdd=HcAddKw\r\n"
-            + "filterByKeywords=HcHeelKw,HcNoSuchC:keywordsToAdd=HcAddKw\r\n"
-            + "filterByBogusThing=1:keywordsToAdd=HcAddKw\r\n");
+        foreach (var (name, text) in inis)
+            File.WriteAllText(Path.Combine(iniDir, name), text);
 
         File.WriteAllText(Path.Combine(profileDir, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
         File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), $"# header\r\n{PluginName}\r\n");
         File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), $"*{PluginName}\r\n");
         File.WriteAllText(Path.Combine(profileDir, "modlist.txt"), "# header\r\n+HcSpRelIni\r\n+HcSpRelPlugins\r\n");
 
-        _svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(_root, "houseCARL.user.json")));
+        Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
     }
 
     public void Dispose()
     {
-        _svc.Dispose();
-        try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
+        Svc.Dispose();
+        try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 
-    static JsonElement Post => JsonDocument.Parse("{\"overlay\": \"skypatcher\", \"state\": \"post\"}").RootElement.Clone();
+    /// <summary>The post-state overlay source, with a draft INI folded in when given.</summary>
+    public static JsonElement Post(string? draft = null) => JsonDocument.Parse(
+        "{\"overlay\": \"skypatcher\", \"state\": \"post\"" + (draft is null ? "" : $", \"ini\": \"{draft.Replace('\\', '/')}\"") + "}").RootElement.Clone();
 
-    string Read(string fid, string? format = null) => RecordsTools.Records(_svc, formids: new[] { fid }, source: Post, format: format);
+    public string Read(string[] fids, string? format = null, string? draft = null)
+        => RecordsTools.Records(Svc, formids: fids, source: Post(draft), format: format);
+}
+
+/// <summary>An overlay read carries the SkyPatcher warnings that bear on its records; a note from a line that cannot
+/// reach them is one pointer to housecarl_skypatcher_layer filter=, which lists it under its line (#1093).</summary>
+[Trait("tier", "integration")]
+public sealed class SkyPatcherWarningRelevanceTests : IDisposable
+{
+    const string IniName = "HcRelevance.ini";
+    const string RidingIni = "HcRiding.ini";
+    readonly SkyPatcherRelevanceWorld _w;
+
+    // HcRelevance :1 an Or list (a missing keyword cannot flip it), :2 a bare list (a missing keyword forces NoMatch), :3 an unknown key.
+    // HcRiding: two Or lines sharing one missing keyword; HcBothBoots meets both, HcHeelBoots only the first.
+    public SkyPatcherWarningRelevanceTests() => _w = new SkyPatcherRelevanceWorld(new[]
+    {
+        (IniName, "filterByKeywordsOr=HcNoSuchA,HcHeelKw,HcNoSuchB:keywordsToAdd=HcAddKw\r\n"
+                  + "filterByKeywords=HcHeelKw,HcNoSuchC:keywordsToAdd=HcAddKw\r\n"
+                  + "filterByBogusThing=1:keywordsToAdd=HcAddKw\r\n"),
+        (RidingIni, "filterByKeywordsOr=HcNoSuchD,HcHeelKw:keywordsToAdd=HcAddKw\r\n"
+                    + "filterByKeywordsOr=HcNoSuchD,HcKw2:keywordsToAdd=HcAddKw\r\n"),
+    });
+
+    public void Dispose() => _w.Dispose();
+
+    string Read(string fid, string? format = null) => _w.Read(new[] { fid }, format);
 
     [Fact]
     public void ARecordNoLineReachesGetsOnePointerAndNoWarningText()
     {
-        var text = Read(_plain);
+        var text = Read(_w.Plain);
 
         Assert.Contains($"3 note(s) on lines that do not reach these records — {ToolNames.SkypatcherLayer} filter={IniName} lists them", text);
         Assert.DoesNotContain("HcNoSuchA", text);
@@ -86,28 +118,53 @@ public sealed class SkyPatcherWarningRelevanceTests : IDisposable
 
     [Fact]
     public void ARecordTheOrLineMatchesGetsItsWarnings()
-        => Assert.Contains("keyword 'HcNoSuchA' (in a filterByKeywordsOr) resolves to nothing", Read(_heel));
+        => Assert.Contains("keyword 'HcNoSuchA' (in a filterByKeywordsOr) resolves to nothing", Read(_w.Heel));
 
     // the bare list's resolved keyword is on the record, so only the missing one stops the line
     [Fact]
     public void AMissingKeywordThatStopsABareLineRidesTheRead()
-        => Assert.Contains("keyword 'HcNoSuchC' (in a filterByKeywords) resolves to nothing", Read(_heel));
+        => Assert.Contains("keyword 'HcNoSuchC' (in a filterByKeywords) resolves to nothing", Read(_w.Heel));
 
     [Fact]
     public void AnUnknownKeyRidesEveryRead()
-        => Assert.Contains("'filterByBogusThing' are not in the SkyPatcher reference", Read(_plain));
+        => Assert.Contains("'filterByBogusThing' are not in the SkyPatcher reference", Read(_w.Plain));
+
+    // HcRiding:2 reaches HcBothBoots (its warning deduped behind :1's), so it is no note for HcHeelBoots, which it misses
+    [Fact]
+    public void ALineThatReachesOneRecordReadIsNoNoteForAnother()
+    {
+        var text = _w.Read(new[] { _w.Both, _w.Heel });
+
+        Assert.Contains("keyword 'HcNoSuchD' (in a filterByKeywordsOr) resolves to nothing", text);
+        Assert.DoesNotContain($"filter={RidingIni}", text);
+    }
+
+    // a draft is in no layer listing, so a pointer would name a list that does not hold its notes
+    [Fact]
+    public void ADraftLineThatReachesNoRecordStillRidesTheRead()
+    {
+        var dir = Path.Combine(_w.Root, "draft", "armor");
+        Directory.CreateDirectory(dir);
+        var draft = Path.Combine(dir, "HcDraft.ini");
+        File.WriteAllText(draft, "filterByKeywordsOr=HcNoSuchE:keywordsToAdd=HcAddKw\r\n");
+
+        var text = _w.Read(new[] { _w.Plain }, draft: draft);
+
+        Assert.Contains("keyword 'HcNoSuchE' (in a filterByKeywordsOr) resolves to nothing", text);
+        Assert.DoesNotContain("filter=HcDraft.ini", text);
+    }
 
     [Fact]
     public void TheJsonWarningsMemberCarriesThePointer()
     {
-        using var doc = JsonDocument.Parse(Read(_plain, "json"));
+        using var doc = JsonDocument.Parse(Read(_w.Plain, "json"));
         Assert.Contains($"filter={IniName} lists them", doc.RootElement.GetProperty("skypatcher_warnings").GetString());
     }
 
     [Fact]
     public void TheLayerFilterShowsTheLintUnderItsLine()
     {
-        var text = SkyPatcherTools.SkyPatcherLayer(_svc, filter: IniName);
+        var text = SkyPatcherTools.SkyPatcherLayer(_w.Svc, filter: IniName);
 
         int line1 = text.IndexOf(":1  filterByKeywordsOr", StringComparison.Ordinal);
         int lint = text.IndexOf("[!] keyword 'HcNoSuchA' (in a filterByKeywordsOr) resolves to nothing", StringComparison.Ordinal);
