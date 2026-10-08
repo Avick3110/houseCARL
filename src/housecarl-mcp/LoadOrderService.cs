@@ -695,31 +695,41 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         return (view.PluginCount, view.RecordCount, view.ConflictCount, view.MaxDepth, view.LoadFailures, view.Epoch);
     }
 
-    /// <summary>The LOCALIZED header flag of ONE plugin, for housecarl_load_order_status' filter= (#376): null when the name is not a plugin at all, else the three-way read, Unreadable included.</summary>
-    public LocalizedFlagRead? PluginLocalizedFlag(string pluginName)
+    /// <summary>One plugin's facts for housecarl_load_order_status' filter= (#376, #1001, #1096): null when the name is not a plugin at all, else every same-named copy on disk with the one MO2 serves marked, and the header read off the served copy.</summary>
+    public PluginFacts? PluginFactsFor(string pluginName)
     {
         LoadOrderResolver.IndexView view;
         lock (_gate) { view = Resolver.Capture(); }
-        if (view.PluginPath(pluginName) is { } activePath) return WriteEngine.PluginIsLocalized(activePath);
+        var activePath = view.PluginPath(pluginName);
 
         string modsDir, dataDir, overwriteDir, profileDir;
-        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
-        catch { return null; }
         Mo2Composition comp;
-        try { comp = Mo2LoadOrder.ReadComposition(profileDir); }
-        catch { return null; }
+        try
+        {
+            lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
+            comp = Mo2LoadOrder.ReadComposition(profileDir);
+        }
+        catch
+        {
+            if (activePath is null) return null;
+            return new PluginFacts(PluginFile.ReadHeader(activePath), new[] { PluginFacts.Copy(activePath, Path.GetDirectoryName(activePath) ?? "", true, true) });
+        }
         // Only a name the profile lists as a plugin: a mod folder and a typo both have no header to read.
-        bool isPlugin = comp.OrderedPluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase))
+        bool isPlugin = activePath is not null
+                        || comp.OrderedPluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase))
                         || comp.InactivePluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase))
                         || comp.ImplicitPluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
         if (!isPlugin) return null;
-        var loc = OutputLocations.LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, pluginName, null, offerModParam: false);
-        if (loc.Path is { } path) return WriteEngine.PluginIsLocalized(path);
-        // Several folders provide the name: MO2 priority already decides which copy serves, so that copy answers.
-        if (loc.Ambiguous is { Count: > 0 } hits && hits.FirstOrDefault(h => h.Enabled) is { } served)
-            return WriteEngine.PluginIsLocalized(served.Path);
-        // Listed as a plugin, and no file behind the name serves it: the flag is not established.
-        return LocalizedFlagRead.Unreadable;
+
+        var hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, pluginName);
+        // The resolver's file serves an active plugin; otherwise MO2 priority does, which is the first enabled copy.
+        var served = activePath ?? hits.FirstOrDefault(h => h.Enabled)?.Path;
+        var copies = hits.Select(h => PluginFacts.Copy(h.Path, h.Where, h.Enabled, served is not null && PluginPaths.SamePluginFile(h.Path, served))).ToList();
+        if (served is not null && !copies.Any(c => c.Serves))
+            copies.Insert(0, PluginFacts.Copy(served, Path.GetDirectoryName(served) ?? "", true, true));
+        // No copy serves the name: a lone copy still has a header to read, and several leave none established.
+        var read = served ?? (hits.Count == 1 ? hits[0].Path : null);
+        return new PluginFacts(read is null ? null : PluginFile.ReadHeader(read), copies);
     }
 
     /// <summary>Read MO2's OWN local Nexus update cache — every managed mod's meta.ini Nexus fields — with NO network; only Nexus-linked mods become entries, and a missing mods folder is named.</summary>

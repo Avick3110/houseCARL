@@ -1407,19 +1407,15 @@ public static class WriteEngine
     /// <summary>Is the plugin at <paramref name="path"/> flagged LOCALIZED — three answers, not a bool, which would
     /// answer false on a read fault. HEADER-ONLY and without the resolver's game-Data strings redirect, so
     /// <c>Unreadable</c> means the file would not open, never that its tables were not found.</summary>
-    public static LocalizedFlagRead PluginIsLocalized(string path)
+    public static LocalizedFlagRead PluginIsLocalized(string path) => LocalizedFlag(PluginFile.ReadHeader(path));
+
+    /// <summary>The three-way localized answer from one header read; a null read is <c>Unreadable</c>.</summary>
+    public static LocalizedFlagRead LocalizedFlag(PluginHeaderFacts? header) => header switch
     {
-        ISkyrimModGetter? ov = null;
-        try
-        {
-            ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path));
-            return ov.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Localized)
-                ? LocalizedFlagRead.Localized
-                : LocalizedFlagRead.NotLocalized;
-        }
-        catch { return LocalizedFlagRead.Unreadable; }
-        finally { if (ov is IDisposable d) { try { d.Dispose(); } catch { } } }
-    }
+        null => LocalizedFlagRead.Unreadable,
+        { Localized: true } => LocalizedFlagRead.Localized,
+        _ => LocalizedFlagRead.NotLocalized,
+    };
 
     /// <summary>Stage 1 of the in-place write: own declared masters, the counter verbatim with NO floor, no baseline, staged in the sibling temp.</summary>
     static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath)

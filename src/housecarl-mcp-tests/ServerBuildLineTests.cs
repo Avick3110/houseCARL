@@ -20,7 +20,7 @@ public class ServerBuildLineTests
     static string Render(string? lookup = null) => StatusWire.Render(
         Empty(), Array.Empty<LogFolderView>(),
         new NamedProfileResult(false, Array.Empty<string>(), null, null, null, Array.Empty<string>()),
-        lookup, localized: null, cap: 80_000);
+        lookup, facts: null, cap: 80_000);
 
     [Fact]
     public void TheStatusHeaderNamesTheBuildTheServerAssemblyEmbeds()
