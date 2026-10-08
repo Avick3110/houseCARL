@@ -361,8 +361,8 @@ static class SkseConfigAuditWire
                 int refs = 0;
                 foreach (var r in whole ? file.Refs : CutOrder(file.Refs))
                 {
-                    // One config can carry tens of thousands of form tokens, so the cap bounds the inner loop too.
-                    if (!SkseJsonDoc.Fits(w, ms, cap - rowTail,
+                    // A row measured whole is laid whole; else the cap bounds the inner loop, a config can carry tens of thousands of tokens.
+                    if (!whole && !SkseJsonDoc.Fits(w, ms, cap - rowTail,
                             JsonWire.MeasureUnit(depths.SkseConfigRefs, refs > 0, mw => WriteConfigRefJson(mw, r)))) break;
                     WriteConfigRefJson(w, r);
                     refs++;
