@@ -999,19 +999,24 @@ public static class ReadEngine
     /// joined by " | ", or null when every set bit is named and the token already lists them.</summary>
     static string? FlagNames(FlagBits fb, out bool anyNamed)
     {
-        anyNamed = false;
+        var parts = FlagParts(fb, out ulong remainder);
+        anyNamed = remainder != 0 && (fb.Bits & ~remainder) != 0;
+        return remainder == 0 ? null : string.Join(" | ", parts);
+    }
+
+    /// <summary>Each set bit's flag name, then one token per unnamed bit (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere).</summary>
+    internal static List<string> FlagParts(FlagBits fb, out ulong remainder)
+    {
         // Peel the NAMEABLE bits the way .NET's [Flags].ToString() does: greedily apply each FULLY contained member.
-        ulong remainder = fb.Bits;
+        remainder = fb.Bits;
         foreach (var mb in SortedMemberMasks(fb.EnumType)) if ((remainder & mb) == mb) remainder &= ~mb;
-        if (remainder == 0) return null;
         var parts = new List<string>();
         ulong nameable = fb.Bits & ~remainder;
-        anyNamed = nameable != 0;
-        if (anyNamed) parts.Add(Enum.ToObject(fb.EnumType, nameable).ToString()!.Replace(", ", " | "));
+        if (nameable != 0) parts.AddRange(Enum.ToObject(fb.EnumType, nameable).ToString()!.Split(", "));
         bool biped = IsBipedSlots(fb);
         for (int i = 0; i < 64; i++)
             if ((remainder & (1UL << i)) != 0) parts.Add(biped ? $"slot{30 + i}" : $"bit{i}");
-        return string.Join(" | ", parts);
+        return parts;
     }
 
     // -- primitive family (mirror TryPrimitive) --------------------------------
