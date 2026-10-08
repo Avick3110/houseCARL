@@ -53,6 +53,14 @@ public sealed class ConditionSummaryLineTests : IDisposable
         byAlias.Object = new FormLinkOrIndex<IReferenceableObjectGetter>(byAlias, 3u);
         holder.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = byAlias });
 
+        var onAlias = new GetIsIDConditionData { RunOnType = Condition.RunOnType.QuestAlias, RunOnTypeIndex = 5 };
+        onAlias.Object = new FormLinkOrIndex<IReferenceableObjectGetter>(onAlias, npc.FormKey);
+        holder.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = onAlias });
+
+        var onPackage = new GetIsIDConditionData { RunOnType = Condition.RunOnType.PackageData, RunOnTypeIndex = 2 };
+        onPackage.Object = new FormLinkOrIndex<IReferenceableObjectGetter>(onPackage, npc.FormKey);
+        holder.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = onPackage });
+
         var path = Path.Combine(_dir, _mod.ModKey.FileName);
         _mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
     }
@@ -91,6 +99,41 @@ public sealed class ConditionSummaryLineTests : IDisposable
         Assert.StartsWith($"[HasPerk({_perk}) == 1 on Subject OR]", Line(Read(1, "Conditions[0]"), "Conditions[0]"));
 
     [Fact]
+    public void AQuestAliasRunOnCarriesItsIndex() =>
+        Assert.Equal($"[GetIsID({_npc}) == 1 on QuestAlias 5]", Line(Read(2, "Conditions"), "Conditions[5]"));
+
+    [Fact]
+    public void APackageDataRunOnCarriesItsIndex() =>
+        Assert.Equal($"[GetIsID({_npc}) == 1 on PackageData 2]", Line(Read(2, "Conditions"), "Conditions[6]"));
+
+    [Fact]
+    public void ADepthOneReadCarriesTheLinesFormIdForResolveNames() =>
+        Assert.Equal(_perk, Read(1, "Conditions[0]").Single().NoteRef);
+
+    [Fact]
+    public void APresenceReadOfTheElementIsItsTypeAndNeverRendersTheLine()
+    {
+        var overlayPath = Path.Combine(_dir, _mod.ModKey.FileName);
+        using var overlay = SkyrimMod.CreateFromBinaryOverlay(overlayPath, SkyrimRelease.SkyrimSE);
+        var holder = overlay.Perks.Single(p => p.EditorID == "HC_CondLine_Holder");
+        Assert.Equal("[ConditionFloat]", ReadEngine.ReadLeaf(holder, new[] { "Conditions[0]" }).Note);
+    }
+
+    [Fact]
+    public void AConditionThatCannotBeReadIsAFaultInFieldsAndRows()
+    {
+        var head = ReadEngine.ConditionHead("Conditions[0]", ThrowingCondition.Create(), null);
+        Assert.False(head.Readable);
+        Assert.StartsWith(ReadEngine.UnreadablePrefix, head.Note);
+        var row = Assert.Single(RowProjection.Fold(new[]
+        {
+            head,
+            new FieldValue("Conditions[0].CompareOperator", true, "EqualTo", null),
+        }, new[] { "Conditions" }, RowProjection.DefaultDepth));
+        Assert.StartsWith(ReadEngine.UnreadablePrefix + "no condition here", row.Note);
+    }
+
+    [Fact]
     public void TheLineCarriesTheFirstFormIdItSpellsForResolveNames() =>
         Assert.Equal(_perk, Read(2, "Conditions").Single(f => f.Path == "Conditions[0]").NoteRef);
 
@@ -113,6 +156,14 @@ public sealed class ConditionSummaryLineTests : IDisposable
         Assert.Equal("EqualTo", Line(fields, "Conditions[0].CompareOperator"));
         Assert.NotNull(Line(fields, "Conditions[0].Unknown1"));
     }
+}
+
+/// <summary>A condition whose every member throws, so its line cannot be read.</summary>
+public class ThrowingCondition : System.Reflection.DispatchProxy
+{
+    public static IConditionGetter Create() => Create<IConditionGetter, ThrowingCondition>();
+    protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args) =>
+        throw new InvalidOperationException("no condition here");
 }
 
 /// <summary>The checks that key on a summary starting with '[' still read a condition element as a present container.</summary>

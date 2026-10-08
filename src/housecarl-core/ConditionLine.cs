@@ -8,28 +8,19 @@ namespace HousecarlCore;
 /// <summary>A condition element's one-line summary, e.g. <c>[HasPerk(058200:Skyrim.esm) == 1 on Subject OR]</c>.</summary>
 static class ConditionLine
 {
-    /// <summary>The line for a condition, else null; <paramref name="refToken"/> is its first FormID.</summary>
-    internal static string? Of(object val, out string? refToken)
+    /// <summary>The line for a condition; <paramref name="refToken"/> is its first FormID. Throws when a part cannot be read.</summary>
+    internal static string Of(IConditionGetter cond, out string? refToken)
     {
-        refToken = null;
-        if (val is not IConditionGetter cond) return null;
         string? firstRef = null;
-        try
-        {
-            var data = cond.Data;
-            var args = new List<string>();
-            foreach (var p in OwnParameters(data.GetType()))
-                args.Add(Token(p.GetValue(data), p.PropertyType, data, ref firstRef));
+        var data = cond.Data;
+        var args = new List<string>();
+        foreach (var p in OwnParameters(data.GetType()))
+            args.Add(Token(p.GetValue(data), p.PropertyType, data, ref firstRef));
 
-            var line = $"{data.Function}({string.Join(", ", args)}) {Operator(cond.CompareOperator)} {Comparand(cond, ref firstRef)} on {RunOn(data, ref firstRef)}";
-            var flags = FlagWords(cond.Flags);
-            refToken = firstRef;
-            return $"[{line}{(flags.Length == 0 ? "" : " " + flags)}]";
-        }
-        catch (Exception ex)
-        {
-            return $"[{RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(val.GetType().Name))}] {ReadEngine.UnreadableNote(ReadEngine.Reason(ex))}";
-        }
+        var line = $"{data.Function}({string.Join(", ", args)}) {Operator(cond.CompareOperator)} {Comparand(cond, ref firstRef)} on {RunOn(data, ref firstRef)}";
+        var flags = FlagWords(cond.Flags);
+        refToken = firstRef;
+        return $"[{line}{(flags.Length == 0 ? "" : " " + flags)}]";
     }
 
     /// <summary>The parameters the concrete Data arm declares itself, minus the ones Mutagen names unused.</summary>
