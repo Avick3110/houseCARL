@@ -318,6 +318,8 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
                        .Select(f => f.GetProperty("path").GetString()!).ToArray();
         // Each element's own entry, its leaves listed flat after it.
         Assert.Equal(new[] { "Effects[0]", "Effects[1]" }, paths.Where(p => !p.Contains('.')));
+        Assert.Contains("Effects[0].Data.Magnitude", paths);
+        Assert.Contains("Effects[1].Data.Magnitude", paths);
     }
 
     /// <summary>The one rendered line for a row, by its path.</summary>
@@ -351,6 +353,8 @@ public sealed class RecordsFieldFoldArtifactTests : ArtifactTestBase, IClassFixt
         var paths = Je(row).GetProperty("fields").EnumerateArray()
                            .Select(f => f.GetProperty("path").GetString()!).ToArray();
         Assert.Equal(new[] { "Effects[0]", "Effects[1]" }, paths.Where(p => !p.Contains('.')));
+        Assert.Contains("Effects[0].Data.Magnitude", paths);
+        Assert.Contains("Effects[1].Data.Magnitude", paths);
         Assert.DoesNotContain(Je(row).GetProperty("fields").EnumerateArray(), f => f.TryGetProperty("note", out var n) && HousecarlCore.ReadEngine.IsAbsentNote(n.GetString()));
     }
 }
