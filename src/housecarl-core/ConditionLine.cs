@@ -5,13 +5,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-/// <summary>The one-line summary of a condition element, e.g. <c>[HasPerk(058200:Skyrim.esm) == 1 [Subject] OR]</c>.
-/// A display rule keyed on <see cref="IConditionGetter"/>; the full form stays one depth level below. Contract in
-/// docs/architecture/read-engine.md.</summary>
+/// <summary>A condition element's one-line summary, e.g. <c>[HasPerk(058200:Skyrim.esm) == 1 [Subject] OR]</c>.</summary>
 static class ConditionLine
 {
-    /// <summary>The compact line for <paramref name="val"/> when it is a condition, else null. <paramref name="refToken"/>
-    /// is the first FormID the line spells, for resolve_names.</summary>
+    /// <summary>The line for a condition, else null; <paramref name="refToken"/> is its first FormID.</summary>
     internal static string? Of(object val, out string? refToken)
     {
         refToken = null;
