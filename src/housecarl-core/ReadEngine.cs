@@ -886,7 +886,7 @@ public static class ReadEngine
         return LeafRead.Container(summary, count);
     }
 
-    /// <summary>The unsigned bit pattern of a boxed enum value, read through the declared underlying type.</summary>
+    /// <summary>The unsigned bit pattern of a boxed enum value, masked to the declared underlying type's width.</summary>
     internal static bool TryEnumBits(object val, Type enumType, out ulong bits)
     {
         bits = 0;
@@ -898,11 +898,11 @@ public static class ReadEngine
                 ulong ul => ul,
                 long l => unchecked((ulong)l),
                 uint ui => ui,
-                int i => unchecked((ulong)(long)i),
+                int i => unchecked((uint)i),
                 ushort us => us,
-                short s => unchecked((ulong)(long)s),
+                short s => unchecked((ushort)s),
                 byte b => b,
-                sbyte sb => unchecked((ulong)(long)sb),
+                sbyte sb => unchecked((byte)sb),
                 _ => Convert.ToUInt64(prim, CultureInfo.InvariantCulture),
             };
             return true;
