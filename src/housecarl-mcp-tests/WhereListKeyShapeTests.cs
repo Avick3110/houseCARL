@@ -48,8 +48,14 @@ public sealed class WhereListKeyShapeTests
         Assert.Equal(new[] { _equal }.ToHashSet(), Run("Conditions[*any].CompareOperator = EqualTo").Hits);
 
     [Fact]
-    public void ADifferentOperatorDoesNotMatch() =>
-        Assert.DoesNotContain(_equal, Run("Conditions[*any].CompareOperator = GreaterThan").Hits);
+    public void ADifferentOperatorDoesNotMatch()
+    {
+        var (hits, set) = Run("Conditions[*any].CompareOperator = GreaterThan");
+        Assert.Empty(hits);
+        Assert.Null(set.FatalError);
+        Assert.Null(set.AccountingNote());
+        Assert.Equal(new[] { _notEqual }.ToHashSet(), Run("Conditions[*any].CompareOperator = NotEqualTo").Hits);
+    }
 
     [Fact]
     public void AWordKeyRefusesAndNamesTheStarredStep()
