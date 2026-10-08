@@ -123,27 +123,27 @@ public sealed class CorpusRulebook
         return err is null ? field?.Cardinality : null;
     }
 
-    /// <summary>The enum type the schema gives a read path's leaf, rooted at <paramref name="root"/>: Answered is false
-    /// where the schema cannot say, and Enum is null where it says the leaf is not an enum.</summary>
-    public (bool Answered, Type? Enum) LeafEnumType(TypeSchema root, IReadOnlyList<string> path, IReadOnlyList<PathFold>? folds)
+    /// <summary>A read path's leaf enum on <paramref name="root"/>: Lacks where a step names no field, Enum null where the schema cannot say or it is no enum.</summary>
+    public (bool Lacks, Type? Enum) LeafEnumType(TypeSchema root, IReadOnlyList<string> path, IReadOnlyList<PathFold>? folds)
     {
         var current = root;
         for (int i = 0; i < path.Count; i++)
         {
             if (!TrySeg(path[i], out var name, out var key, out _)) return (false, null);
             var field = FindField(current, name, out _, out var err);
-            if (field is null || err is not null) return (false, null);
+            if (err is not null) return (false, null);
+            if (field is null) return (true, null);
             bool element = key is not null || (folds is not null && i < folds.Count && folds[i] != PathFold.None);
             bool last = i == path.Count - 1;
             string? next;
             if (element)
             {
                 if (field.Cardinality is not ("list" or "dict")) return (false, null);
-                if (last) return (true, EnumOf(field.ElementTypeAssemblyQualified));
+                if (last) return (false, EnumOf(field.ElementTypeAssemblyQualified));
                 next = field.ElementTypeRef;
             }
             else if (last)
-                return (true, field.Cardinality == "enum" ? EnumOf(field.MutableTypeAssemblyQualified ?? field.GetterTypeAssemblyQualified) : null);
+                return (false, field.Cardinality == "enum" ? EnumOf(field.MutableTypeAssemblyQualified ?? field.GetterTypeAssemblyQualified) : null);
             else if (field.Cardinality is "substruct" or "polymorphic") next = field.TypeRef;
             else return (false, null);
             if (next is null || Type(next) is not { } t) return (false, null);

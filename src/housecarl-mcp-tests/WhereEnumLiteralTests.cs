@@ -22,7 +22,11 @@ public sealed class WhereEnumLiteralTests : IDisposable
         Add(m, "HcLight", ActorValue.LightArmorModifier);
         Add(m, "HcHealth", ActorValue.Health);
         m.BeginWrite.ToPath(Path.Combine(_mo2.DataDir, key.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-        _mo2.Profile("HcEnumWorld.esm\r\n", "*HcEnumWorld.esm\r\n", "");
+        var offKey = new ModKey("HcEnumOff", ModType.Plugin);
+        var off = new SkyrimMod(offKey, SkyrimRelease.SkyrimSE);
+        Add(off, "HcOffHeavy", ActorValue.HeavyArmorModifier);
+        off.BeginWrite.ToPath(Path.Combine(_mo2.DataDir, offKey.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        _mo2.Profile("HcEnumWorld.esm\r\nHcEnumOff.esp\r\n", "*HcEnumWorld.esm\r\nHcEnumOff.esp\r\n", "");
     }
 
     static void Add(SkyrimMod m, string eid, ActorValue av)
@@ -34,17 +38,17 @@ public sealed class WhereEnumLiteralTests : IDisposable
 
     public void Dispose() => _mo2.Delete();
 
-    string Where(string clause)
+    string Where(string clause, params string[] types)
     {
         using var svc = _mo2.Open();
-        return RecordsTools.Records(svc, types: new[] { "MGEF" }, where: new[] { clause }, counts_only: true);
+        return RecordsTools.Records(svc, types: types.Length > 0 ? types : new[] { "MGEF" }, where: new[] { clause }, counts_only: true);
     }
 
     [Fact]
     public void TheIssuesCallRefusesAndNamesTheRealValue()
     {
         var r = Where("Archetype.ActorValue in [HeavyArmorMod, LightArmorMod]");
-        Assert.Contains("'HeavyArmorMod' is not a value of the ActorValue enum", r);
+        Assert.Contains("'HeavyArmorMod' names no value of the ActorValue enum", r);
         Assert.Contains("`HeavyArmorModifier`", r);
         Assert.DoesNotContain("0 matches", r);
     }
@@ -56,7 +60,7 @@ public sealed class WhereEnumLiteralTests : IDisposable
     public void EveryValueOperatorRefusesABadName(string clause)
     {
         var r = Where(clause);
-        Assert.Contains("is not a value of the ActorValue enum", r);
+        Assert.Contains("names no value of the ActorValue enum", r);
         Assert.Contains("Did you mean", r);
     }
 
@@ -74,7 +78,7 @@ public sealed class WhereEnumLiteralTests : IDisposable
 
     [Fact]
     public void ACommaListOnAFlagsEnumIsNotRefused() =>
-        Assert.DoesNotContain("is not a value of", Where("Flags = Hostile, Recover"));
+        Assert.DoesNotContain("names no value of", Where("Flags = Hostile, Recover"));
 
     [Fact]
     public void ANestedEnumIsNamedByItsDeclaringType() =>
@@ -98,7 +102,56 @@ public sealed class WhereEnumLiteralTests : IDisposable
     public void ANumericLiteralIsNotRefused(string clause)
     {
         var r = Where(clause);
-        Assert.DoesNotContain("is not a value of", r);
+        Assert.DoesNotContain("names no value of", r);
         Assert.Contains("4 match", r);
+    }
+
+    [Theory]
+    [InlineData("Archetype.ActorValue = 1.5")]
+    [InlineData("Archetype.ActorValue = NaN")]
+    [InlineData("Archetype.ActorValue = 1e3")]
+    public void ANonIntegerNumberRefuses(string clause) =>
+        Assert.Contains("names no value of the ActorValue enum", Where(clause));
+
+    [Fact]
+    public void ARefusalUnderNotEqualsDoesNotClaimTheTermCanNeverMatch()
+    {
+        var r = Where("Archetype.ActorValue != HeavyArmorMod");
+        Assert.Contains("so the test means nothing", r);
+        Assert.DoesNotContain("never match", r);
+    }
+
+    [Fact]
+    public void AMisspelledMemberOfAFlagsComboGetsADidYouMeanForThatMember()
+    {
+        var r = Where("Flags = Hostile, Recovr");
+        Assert.Contains("'Recovr' is no flag of it", r);
+        Assert.Contains("`Recover`", r);
+        Assert.DoesNotContain("not a [Flags] enum", r);
+    }
+
+    [Fact]
+    public void ATypeLackingTheFieldHasNoSayInTheRefusal() =>
+        Assert.Contains("names no value of the ActorValue enum", Where("Archetype.ActorValue = HeavyArmorMod", "MGEF", "WEAP"));
+
+    [Fact]
+    public void ANameOnlyOneTypesEnumHasIsNotRefused() =>
+        Assert.DoesNotContain("names no value", Where("Flags = Hostile", "MGEF", "SPEL"));
+
+    [Fact]
+    public void ANameNeitherTypesEnumHasRefusesNamingBoth() =>
+        Assert.Contains("the MagicEffect.Flag or SpellDataFlag enum", Where("Flags = Hostil", "MGEF", "SPEL"));
+
+    [Fact]
+    public void TheOffOrderScanRefusesABadNameToo()
+    {
+        using var svc = _mo2.Open();
+        var source = System.Text.Json.JsonDocument.Parse("\"HcEnumOff.esp\"").RootElement;
+        var bad = RecordsTools.Records(svc, types: new[] { "MGEF" }, where: new[] { "Archetype.ActorValue = HeavyArmorMod" },
+                                       counts_only: true, source: source);
+        Assert.Contains("names no value of the ActorValue enum", bad);
+        var good = RecordsTools.Records(svc, types: new[] { "MGEF" }, where: new[] { "Archetype.ActorValue = HeavyArmorModifier" },
+                                        counts_only: true, source: source);
+        Assert.Contains("1 match", good);
     }
 }

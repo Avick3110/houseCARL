@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿using System.Collections.Concurrent;
+using System.Globalization;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Fold = HousecarlCore.PathFold;   // the fold vocabulary is shared with project.fields — one word list, one meaning
@@ -1098,24 +1099,25 @@ public sealed class FieldPredicateSet
         return string.Equals(token, operand, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>One leaf against one operand: an enum leaf by its underlying value when the operand names one, else <see cref="ValueEquals"/>.</summary>
+    /// <summary>One leaf against one operand: an enum leaf by its underlying integer when the operand names one, else <see cref="ValueEquals"/>.</summary>
     static bool LeafEquals(ReadEngine.LeafRead leaf, string operand)
-        => leaf.Enum is { } ev && EnumOperandValue(operand, ev.EnumType, out var v) ? ev.Number == v : ValueEquals(leaf.Token, operand);
+        => leaf.EnumBox is { } box && EnumOperand(operand, box.GetType()) is { } v ? ReadEngine.EnumNumber(box) == v : ValueEquals(leaf.Token, operand);
 
-    /// <summary>The underlying value an operand names on an enum: a number (decimal or 0x hex), else one defined name.</summary>
-    static bool EnumOperandValue(string operand, Type enumType, out double v)
+    static readonly ConcurrentDictionary<(Type Enum, string Operand), Int128?> EnumOperands = new();
+
+    /// <summary>The integer an operand names on an enum (whole number, 0x hex, or one defined name), resolved once per pair.</summary>
+    static Int128? EnumOperand(string operand, Type enumType) => EnumOperands.GetOrAdd((enumType, operand), static k =>
     {
-        if (TryNum(operand, out v)) return true;
-        if (TryBits(operand, out var bits)) { v = bits; return true; }
-        var t = operand.Trim();
-        var name = Enum.GetNames(enumType).FirstOrDefault(n => n.Equals(t, StringComparison.OrdinalIgnoreCase));
-        return name is not null && ReadEngine.TryEnumNumber(Enum.Parse(enumType, name), enumType, out v);
-    }
+        var t = k.Operand.Trim();
+        if (long.TryParse(t, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var whole)) return whole;
+        if (TryBits(t, out var bits)) return bits;
+        var name = Enum.GetNames(k.Enum).FirstOrDefault(n => n.Equals(t, StringComparison.OrdinalIgnoreCase));
+        return name is null ? null : ReadEngine.EnumNumber((Enum)Enum.Parse(k.Enum, name));
+    });
 
-    /// <summary>Whether an '=', '!=', 'in' or 'not in' literal can ever equal a leaf of this enum, by the comparison's own
-    /// rules: a number, one defined name, or on a [Flags] enum a name combo.</summary>
+    /// <summary>Whether an '=', '!=', 'in' or 'not in' literal can ever equal a leaf of this enum, by the comparison's own rules.</summary>
     public static bool EnumLiteralFits(string literal, Type enumType)
-        => EnumOperandValue(literal, enumType, out _)
+        => EnumOperand(literal, enumType) is not null
            || (enumType.IsDefined(typeof(FlagsAttribute), false) && TryResolveBits(literal, enumType, out _));
 
     static bool TryNum(string s, out double d)

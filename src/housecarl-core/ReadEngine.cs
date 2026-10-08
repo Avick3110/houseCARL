@@ -33,7 +33,7 @@ public static class ReadEngine
     /// <summary>The outcome of reading one leaf: a round-trippable <see cref="Token"/>, else the <see cref="Note"/>
     /// saying why there is none.</summary>
     internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null, int? ContainerCount = null,
-                                             bool Present = true, bool Readable = true, int? ByteLength = null, EnumValue? Enum = null)
+                                             bool Present = true, bool Readable = true, int? ByteLength = null, Enum? EnumBox = null)
     {
         public static LeafRead Value(string token) => new(true, token, null);
         public static LeafRead FlagsValue(string token, FlagBits bits) => new(true, token, null, bits);
@@ -53,9 +53,6 @@ public static class ReadEngine
 
     /// <summary>The bit-test view of a <c>[Flags]</c> enum leaf — the bit pattern plus the enum type.</summary>
     internal readonly record struct FlagBits(ulong Bits, Type EnumType);
-
-    /// <summary>Any enum leaf's underlying value plus its type, so an equality can compare a number or a name by value.</summary>
-    internal readonly record struct EnumValue(double Number, Type EnumType);
 
     /// <summary>A modeled leaf that exists but holds no value.</summary>
     public const string AbsentNote = "(absent)";
@@ -876,10 +873,9 @@ public static class ReadEngine
         {
             var token = val.ToString() ?? "";
             var enumType = u.IsEnum ? u : val.GetType();
-            EnumValue? ev = TryEnumNumber(val, enumType, out var number) ? new EnumValue(number, enumType) : null;
             if (enumType.IsDefined(typeof(FlagsAttribute), false) && TryEnumBits(val, enumType, out var bits))
-                return LeafRead.FlagsValue(token, new FlagBits(bits, enumType)) with { Enum = ev };
-            return LeafRead.Value(token) with { Enum = ev };
+                return LeafRead.FlagsValue(token, new FlagBits(bits, enumType)) with { EnumBox = val as Enum };
+            return LeafRead.Value(token) with { EnumBox = val as Enum };
         }
         // formlink (inverse of TryFormLink). A present-but-null link is not round-trippable, so it is a note.
         if (val is IFormLinkGetter fl)
@@ -930,17 +926,11 @@ public static class ReadEngine
         catch { return false; }
     }
 
-    /// <summary>A boxed enum value's underlying number, sign kept.</summary>
-    internal static bool TryEnumNumber(object val, Type enumType, out double number)
-    {
-        number = 0;
-        try
-        {
-            number = Convert.ToDouble(Convert.ChangeType(val, Enum.GetUnderlyingType(enumType), CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
-            return true;
-        }
-        catch { return false; }
-    }
+    /// <summary>A boxed enum value's underlying integer, sign kept.</summary>
+    internal static Int128 EnumNumber(Enum val)
+        => Enum.GetUnderlyingType(val.GetType()) == typeof(ulong)
+            ? Convert.ToUInt64(val, CultureInfo.InvariantCulture)
+            : Convert.ToInt64(val, CultureInfo.InvariantCulture);
 
     /// <summary>Resolve a flag NAME, or a comma-combo, against a <c>[Flags]</c> enum type to its bit pattern.</summary>
     internal static bool TryEnumBitsFromName(Type enumType, string name, out ulong bits)

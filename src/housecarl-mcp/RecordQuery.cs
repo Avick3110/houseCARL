@@ -514,8 +514,7 @@ internal sealed partial class RecordReads
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList() };
     }
 
-    /// <summary>The schema's plan-time refusal: an enum literal the field's enum does not name, or a quantifier on a
-    /// step that is not a list, naming the step's real cardinality; null when the schema has no objection.</summary>
+    /// <summary>The schema's plan-time refusal: a quantifier on a step that is not a list, or an enum literal the field's enum lacks.</summary>
     string? SchemaPlanRefusal(IReadOnlyList<string> typeTokens, FieldPredicateSet predicate)
     {
         var schemas = new List<TypeSchema>();
@@ -523,7 +522,6 @@ internal sealed partial class RecordReads
             foreach (var ts in _host.Rulebook.RecordTypesNamed(token))
                 if (!schemas.Contains(ts)) schemas.Add(ts);
         if (schemas.Count == 0) return null;
-        if (EnumLiteralRefusal(schemas, predicate) is { } enumErr) return enumErr;
 
         foreach (var step in predicate.QuantifiedSteps)
         {
@@ -544,11 +542,10 @@ internal sealed partial class RecordReads
                    $"it is {string.Join(", ", whatItIs.Take(3))}{(whatItIs.Count > 3 ? $", and {whatItIs.Count - 3} more" : "")}. " +
                    "Drop the quantifier, or point it at a list-valued field.";
         }
-        return null;
+        return EnumLiteralRefusal(schemas, predicate);
     }
 
-    /// <summary>A '=', '!=', 'in' or 'not in' literal that can equal no value of the leaf's enum on any scanned type, or
-    /// null; like the quantifier check, a type the schema cannot answer for, or calls non-enum, leaves the schema no say.</summary>
+    /// <summary>A value literal that every scanned type carrying the field rejects by its enum; a type lacking the field has no say.</summary>
     string? EnumLiteralRefusal(IReadOnlyList<TypeSchema> schemas, FieldPredicateSet predicate)
     {
         foreach (var cmp in predicate.ValueComparisons)
@@ -557,8 +554,9 @@ internal sealed partial class RecordReads
             bool open = false;
             foreach (var ts in schemas)
             {
-                var (answered, enumType) = _host.Rulebook.LeafEnumType(ts, cmp.Path, cmp.Folds);
-                if (!answered || enumType is null) { open = true; break; }
+                var (lacks, enumType) = _host.Rulebook.LeafEnumType(ts, cmp.Path, cmp.Folds);
+                if (lacks) continue;
+                if (enumType is null) { open = true; break; }
                 if (!enums.Contains(enumType)) enums.Add(enumType);
             }
             if (open || enums.Count == 0) continue;
@@ -566,15 +564,22 @@ internal sealed partial class RecordReads
             {
                 if (enums.Any(e => FieldPredicateSet.EnumLiteralFits(literal, e))) continue;
                 var enumNames = string.Join(" or ", enums.Select(e => e.DeclaringType is { } d ? $"{d.Name}.{e.Name}" : e.Name));
+                var flags = enums.Where(e => e.IsDefined(typeof(FlagsAttribute), false)).ToList();
                 var bare = literal.Trim('"', '\'');
                 string hint;
                 if (bare.Length < literal.Length && enums.Any(e => FieldPredicateSet.EnumLiteralFits(bare, e)))
                     hint = $" The quotes are read as part of the value; write it bare: '{cmp.Text.Replace(literal, bare)}'.";
+                else if (literal.Contains(',') && flags.Count > 0)
+                {
+                    var bad = literal.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                                     .FirstOrDefault(m => !flags.Any(e => FieldPredicateSet.EnumLiteralFits(m, e))) ?? literal;
+                    hint = $" '{bad}' is no flag of it.{PluginNameSuggest.DidYouMean(bad, flags.SelectMany(Enum.GetNames).Distinct())}";
+                }
                 else if (literal.Contains(','))
                     hint = $" {enumNames} is not a [Flags] enum, so a field holds one name and a comma list never matches; test several with 'in [a, b]'.";
                 else
                     hint = PluginNameSuggest.DidYouMean(literal, enums.SelectMany(Enum.GetNames).Distinct());
-                return $"predicate '{cmp.Text}': '{literal}' is not a value of the {enumNames} enum this field holds, so it can never match.{hint}";
+                return $"predicate '{cmp.Text}': '{literal}' names no value of the {enumNames} enum this field holds, so the test means nothing.{hint}";
             }
         }
         return null;
