@@ -496,10 +496,8 @@ public sealed class FieldPredicateSet
 
         var members = new List<string>();
         HashSet<FormKey>? runtime = null;
-        foreach (var t in content.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var tok in ListMembers(content))
         {
-            var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
-            if (tok.Length == 0) continue;
             // Same door as the scalar operand.
             if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, null, null, hybrid);
             // And the same door for a bare runtime FormID entry, resolved through the order the call already holds.
@@ -570,11 +568,8 @@ public sealed class FieldPredicateSet
         else content = operand;
 
         var set = new HashSet<FormKey>();
-        foreach (var t in content.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var tok in ListMembers(content))
         {
-            // One trim with whitespace in the set, so interleaved wrapping strips clean.
-            var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
-            if (tok.Length == 0) continue;
             // Named before the door runs, so the sentence is the same with or without a load order in hand.
             if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, hybrid);
             try { set.Add(toKey(tok)); }
@@ -596,6 +591,16 @@ public sealed class FieldPredicateSet
 
     /// <summary>Commas and newlines ONLY — a bare space is legal inside a plugin filename.</summary>
     static readonly char[] ListSeparators = { ',', '\r', '\n' };
+
+    /// <summary>A list operand's entries: split on <see cref="ListSeparators"/>, one trim of brackets, quotes and whitespace, empties dropped.</summary>
+    static IEnumerable<string> ListMembers(string content)
+    {
+        foreach (var t in content.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
+            if (tok.Length > 0) yield return tok;
+        }
+    }
 
     static bool IsOpChar(char c) => c is '=' or '!' or '<' or '>';
     static bool IsNumericOp(Op op) => op is Op.Gt or Op.Ge or Op.Lt or Op.Le;
@@ -903,7 +908,16 @@ public sealed class FieldPredicateSet
             var note = leaf.Note ?? "";
             if (note.StartsWith("(no field", StringComparison.Ordinal)) return (false, ClassifyNoField(note));
             if (note.StartsWith("(unreadable", StringComparison.Ordinal)) return (false, EvalKind.Unreadable);
-            if (note.Length > 0 && note[0] == '[') return (false, EvalKind.Container);
+            if (note.Length > 0 && note[0] == '[')
+            {
+                // The has-family tests a flags leaf's bits; on a list it is refused with the quantified rewrite.
+                if (p.Op is Op.Has or Op.HasAny or Op.HasNone && leaf.ContainerCount is not null)
+                {
+                    _fatal ??= HasOnListRefusal(p);
+                    return (false, EvalKind.Definite);
+                }
+                return (false, EvalKind.Container);
+            }
             return (false, EvalKind.Unset);
         }
 
@@ -1116,17 +1130,26 @@ public sealed class FieldPredicateSet
     /// <summary>The bitwise set-test (<c>has</c>): true iff every bit of the operand is set on the field, other bits free.</summary>
     static (bool satisfied, string? error) CompareHas(Predicate p, string token, ReadEngine.FlagBits? flags)
     {
-        ulong leafBits, opBits;
+        ulong leafBits, opBits = 0;
         if (flags is { } fi)
         {
             leafBits = fi.Bits;
-            if (!TryResolveBits(p.Operand, fi.EnumType, out opBits))
-                return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' value '{p.Operand}' is not a bit value or a valid {fi.EnumType.Name} flag name.");
+            foreach (var name in HasOperandMembers(p.Operand))
+            {
+                if (!TryResolveBits(name, fi.EnumType, out var b) && !TryDecodeToken(name, fi.EnumType, out b, out var tokenRefusal))
+                    return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' value '{name}' " +
+                                   (tokenRefusal ?? $"is not a bit value or a valid {fi.EnumType.Name} flag name") + ".");
+                opBits |= b;
+            }
         }
         else if (TryBits(token, out leafBits))   // a plain integer leaf — bit-test its numeric value
         {
-            if (!TryBits(p.Operand, out opBits))
-                return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' value '{p.Operand}' must be a bit value (decimal or 0x hex) for the integer field '{p.PathDisplay}'.");
+            foreach (var value in HasOperandMembers(p.Operand))
+            {
+                if (!TryBits(value, out var b))
+                    return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' value '{value}' must be a bit value (decimal or 0x hex) for the integer field '{p.PathDisplay}'.");
+                opBits |= b;
+            }
         }
         else
             return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' needs a flags/bitmask or integer field, but '{p.PathDisplay}' read '{Trunc(token)}', not a number.");
@@ -1141,9 +1164,46 @@ public sealed class FieldPredicateSet
         }, null);
     }
 
+    /// <summary>The refusal for a has-family op on a list path: the list members' own spelling, written on the caller's path.</summary>
+    static string HasOnListRefusal(Predicate p)
+    {
+        var path = p.LinkPathDisplay is null ? p.PathDisplay : p.LinkPathDisplay + "->" + p.PathDisplay;
+        var members = string.Join(", ", HasOperandMembers(p.Operand));
+        var rewrite = p.Op switch
+        {
+            Op.HasNone => $"'{path}[*none] in [{members}]'",
+            Op.HasAny => $"'{path}[*any] in [{members}]'",
+            _ => $"one '{path}[*any] = <form>' per member",
+        };
+        return $"predicate '{p.Text}': '{path}' is a list here, not a scalar leaf, and '{OpStr(p.Op)}' tests a flags leaf's bits. " +
+               $"For list members write {rewrite} ([*any] / [*all] / [*none] fold the same way), or use references= for list→FormID membership.";
+    }
+
     /// <summary>Resolve a <c>has</c>/<c>=</c> operand against a [Flags] enum to its bit pattern: a numeric literal, else a flag name or comma-combo.</summary>
     static bool TryResolveBits(string operand, Type enumType, out ulong bits)
         => TryBits(operand, out bits) || ReadEngine.TryEnumBitsFromName(enumType, operand, out bits);
+
+    /// <summary>A has-family operand's members: the <c>in</c> list split, with the flags decode's <c>|</c> read as a separator too.</summary>
+    static IEnumerable<string> HasOperandMembers(string operand) => ListMembers(operand.Replace('|', ','));
+
+    /// <summary>The flags decode's unnamed-bit token (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere) as its bit, or the refusal naming the range.</summary>
+    static bool TryDecodeToken(string name, Type enumType, out ulong bits, out string? refusal)
+    {
+        bits = 0; refusal = null;
+        bool biped = ReadEngine.IsBipedSlots(enumType);
+        var prefix = biped ? "slot" : "bit";
+        int first = biped ? 30 : 0;
+        if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            || !int.TryParse(name.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var n)) return false;
+        int width = System.Runtime.InteropServices.Marshal.SizeOf(Enum.GetUnderlyingType(enumType)) * 8;
+        if (n < first || n >= first + width)
+        {
+            refusal = $"is not a {prefix} of {enumType.Name} — write a flag name, a bit value, or {prefix}{first} to {prefix}{first + width - 1}";
+            return false;
+        }
+        bits = 1UL << (n - first);
+        return true;
+    }
 
     /// <summary>Parse a bit value — decimal, or <c>0x</c>-prefixed hex; unsigned, and a sign or a non-integer is rejected.</summary>
     static bool TryBits(string s, out ulong bits)
