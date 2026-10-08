@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-24
+updated: 2026-10-08
 covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs, src/housecarl-core/SkseConfigReferenceExtractor.cs, src/housecarl-core/NativePairing.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkseInventoryWire.cs, src/housecarl-mcp/SkseConfigAuditWire.cs, src/housecarl-mcp/NativePairingWire.cs, src/housecarl-mcp/SkseRenderParts.cs, src/housecarl-mcp/SkseJsonDoc.cs]
 ---
 # The SKSE layer: what a DLL declares, and the static-load rule
@@ -183,7 +183,11 @@ Every family render charges its tail before laying a row: the scope note, the ca
 footer, each list's own cut notice, and the headings written whatever the rows cost. `cap` stays the caller's own
 `max_chars` — the number every notice quotes — while `budget` is the room content has once that tail is charged. A row
 is measured against what it is about to write, not against what the buffer holds, and a row that crossed is taken back
-out whole. The one arm a bounded render can still exceed — a cap too small for what the response carries whatever the
+out whole. The filtered config audit is the exception to "whole": a file that fits is written whole, in the order it
+declares its references; the first file that does not is cut per reference line, its non-OK references (DANGLING,
+PLUGIN MISSING, UNPARSEABLE) first and then the OKs, and ends on `showing N of M references (all K non-OK shown)` or
+`(J of K non-OK shown)`. A cut file counts as rendered; the files after it are cut, and a file that cannot show even one
+reference line is taken back out whole. The one arm a bounded render can still exceed — a cap too small for what the response carries whatever the
 budget — is named by `RenderCap.Settle`.
 
 The json twin states the same rows and the same accounting in named fields, and classifies with the SAME judge the text
@@ -235,6 +239,8 @@ number describes a wider set than the rows beside it.
   `TheConfigTwinsCensusCountsTheFiltersReferencesNotTheWholeAudit` — a census counts the filter's matches (all in
   the same class).
 - *Transport*: `SkseTransportWireTests` — the json twin's rows and accounting in named fields, driven over the wire.
+- *Transport*: `SkseConfigFilteredCutTests` — the filtered audit's per-reference cut, non-OK first, its notice and its
+  file accounting, and a file that fits whole kept in file order.
 
 ## Where
 
