@@ -1,0 +1,107 @@
+using System.Reflection;
+using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Records;
+using Mutagen.Bethesda.Skyrim;
+
+namespace HousecarlCore;
+
+/// <summary>The one-line summary of a condition element, e.g. <c>[HasPerk(058200:Skyrim.esm) == 1 [Subject] OR]</c>.
+/// A display rule keyed on <see cref="IConditionGetter"/>; the full form stays one depth level below. Contract in
+/// docs/architecture/read-engine.md.</summary>
+static class ConditionLine
+{
+    /// <summary>The compact line for <paramref name="val"/> when it is a condition, else null. <paramref name="refToken"/>
+    /// is the first FormID the line spells, for resolve_names.</summary>
+    internal static string? Of(object val, out string? refToken)
+    {
+        refToken = null;
+        if (val is not IConditionGetter cond) return null;
+        string? firstRef = null;
+        try
+        {
+            var data = cond.Data;
+            var args = new List<string>();
+            foreach (var p in OwnParameters(data.GetType()))
+                args.Add(Token(p.GetValue(data), p.PropertyType, data, ref firstRef));
+
+            var line = $"{data.Function}({string.Join(", ", args)}) {Operator(cond.CompareOperator)} {Comparand(cond, ref firstRef)} [{RunOn(data, ref firstRef)}]";
+            var flags = FlagWords(cond.Flags);
+            refToken = firstRef;
+            return $"[{line}{(flags.Length == 0 ? "" : " " + flags)}]";
+        }
+        catch (Exception ex)
+        {
+            return $"[{RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(val.GetType().Name))}] {ReadEngine.UnreadableNote(ReadEngine.Reason(ex))}";
+        }
+    }
+
+    /// <summary>The parameters the concrete Data arm declares itself, minus the ones Mutagen names unused.</summary>
+    static IReadOnlyList<PropertyInfo> OwnParameters(Type armType) => _parameters.GetOrAdd(armType, t =>
+    {
+        var arm = t.GetInterfaces()
+            .Where(i => typeof(IConditionDataGetter).IsAssignableFrom(i) && i != typeof(IConditionDataGetter) && i.Name.EndsWith("Getter", StringComparison.Ordinal))
+            .OrderByDescending(i => i.GetInterfaces().Length)
+            .FirstOrDefault();
+        if (arm is null) return Array.Empty<PropertyInfo>();
+        return arm.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(p => p.GetIndexParameters().Length == 0 && !p.Name.Contains("Unused", StringComparison.Ordinal))
+            .ToArray();
+    });
+
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, IReadOnlyList<PropertyInfo>> _parameters = new();
+
+    /// <summary>One value as the read emits it, its note when it has no token; the first FormID is kept.</summary>
+    static string Token(object? v, Type declared, object parent, ref string? firstRef)
+    {
+        var leaf = ReadEngine.EmitToken(v, declared, parent);
+        if (!leaf.HasValue) return leaf.Note ?? "";
+        if (firstRef is null && IsLink(v, declared)) firstRef = leaf.Token;
+        return leaf.Token;
+    }
+
+    static bool IsLink(object? v, Type declared) =>
+        v is IFormLinkGetter || WriteEngine.IsFormLinkOrIndex(Nullable.GetUnderlyingType(declared) ?? declared);
+
+    static string Comparand(IConditionGetter cond, ref string? firstRef) => cond switch
+    {
+        IConditionFloatGetter f => Token(f.ComparisonValue, typeof(float), cond, ref firstRef),
+        IConditionGlobalGetter g => Token(g.ComparisonValue, typeof(IFormLinkGetter<IGlobalGetter>), cond, ref firstRef),
+        _ => "?",
+    };
+
+    /// <summary>The run-on target; Reference carries its form and the alias and package-data kinds their index.</summary>
+    static string RunOn(IConditionDataGetter data, ref string? firstRef) => data.RunOnType switch
+    {
+        Condition.RunOnType.Reference => $"Reference {Token(data.Reference, typeof(IFormLinkGetter<ISkyrimMajorRecordGetter>), data, ref firstRef)}",
+        Condition.RunOnType.QuestAlias or Condition.RunOnType.PackageData => $"{data.RunOnType} {data.RunOnTypeIndex}",
+        _ => data.RunOnType.ToString(),
+    };
+
+    static string Operator(CompareOperator op) => op switch
+    {
+        CompareOperator.EqualTo => "==",
+        CompareOperator.NotEqualTo => "!=",
+        CompareOperator.GreaterThan => ">",
+        CompareOperator.GreaterThanOrEqualTo => ">=",
+        CompareOperator.LessThan => "<",
+        CompareOperator.LessThanOrEqualTo => "<=",
+        _ => op.ToString(),
+    };
+
+    /// <summary>The set flag names, an unnamed bit as <c>bitN</c>, OR last.</summary>
+    static string FlagWords(Condition.Flag flags)
+    {
+        var bits = (ulong)flags;
+        var words = new List<string>();
+        foreach (Condition.Flag f in Enum.GetValues(typeof(Condition.Flag)))
+        {
+            var b = (ulong)f;
+            if (b == 0 || (bits & b) != b) continue;
+            bits &= ~b;
+            if (f != Condition.Flag.OR) words.Add(f.ToString());
+        }
+        for (int i = 0; i < 64; i++) if ((bits & (1UL << i)) != 0) words.Add($"bit{i}");
+        if (flags.HasFlag(Condition.Flag.OR)) words.Add("OR");
+        return string.Join(" ", words);
+    }
+}
