@@ -150,9 +150,11 @@ foreach ($r in $LeakRoots) {
 # ---- 6. plugin source files ------------------------------------------------
 Step '6/12' 'Copy plugin files'
 Copy-Item (Join-Path $PluginSrc '.claude-plugin') $DistRoot -Recurse -Force   # -> dist/housecarl/.claude-plugin/plugin.json
-foreach ($f in @('.mcp.json','LICENSE','THIRD-PARTY-NOTICES.txt','README.md','CHANGELOG.md')) {
+foreach ($f in @('.mcp.json','LICENSE','THIRD-PARTY-NOTICES.txt','README.md')) {
   Copy-Item (Join-Path $PluginSrc $f) (Join-Path $DistRoot $f) -Force
 }
+# the shipped changelog carries plugin/changelog.d's fragments under Unreleased; the repo file and fragments stay as they are
+& (Join-Path $PSScriptRoot 'fold-changelog.ps1') -Version Unreleased -OutFile (Join-Path $DistRoot 'CHANGELOG.md')
 
 # ---- 7. leak-check the shipped skill trees (excluded files + markdown pointers) ----
 # Runs on both trees before the -PluginTreeOnly return, so CI (which assembles with that switch)
