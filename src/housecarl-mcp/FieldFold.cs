@@ -102,9 +102,35 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         if (o.Record is null) return o;
         var (cols, carried, error) = Columns(o.Record);
         // The carried note leads: it is what the read did to the columns below it.
-        return error is null ? o with { Record = o.Record with { Fields = carried.Concat(cols!.SelectMany(c => c)).ToList() },
+        return error is null ? o with { Record = o.Record with { Fields = carried.Concat(Merge(cols!)).ToList() },
                                         OwnedChildFields = WithQuantifiedSpellings(o.OwnedChildFields) }
                              : o with { Record = null, Error = error };
+    }
+
+    /// <summary>The columns as one list with each path once, every line beside its own element: a path an earlier
+    /// column listed, or one inside an element row already listed, is dropped, and an earlier column's lines under a
+    /// later line move to follow it (into the row, when that line is an element row holding them).</summary>
+    IEnumerable<FieldValue> Merge(IReadOnlyList<FieldValue>[] cols)
+    {
+        bool overlap = false;
+        for (int i = 0; i < Paths.Length && !overlap; i++)
+            for (int j = i + 1; j < Paths.Length && !overlap; j++)
+                overlap = Paths[i] == Paths[j] || RowProjection.IsUnder(Paths[i], Paths[j]) || RowProjection.IsUnder(Paths[j], Paths[i]);
+        if (!overlap) return cols.SelectMany(c => c);
+        var kept = new List<(FieldValue F, int Col)>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (int c = 0; c < cols.Length; c++)
+            foreach (var f in cols[c])
+            {
+                if (seen.Contains(f.Path) || kept.Any(k => k.F.Cells is not null && RowProjection.IsUnder(f.Path, k.F.Path))) continue;
+                var under = kept.Where(k => k.Col < c && RowProjection.IsUnder(k.F.Path, f.Path)).ToList();
+                kept.RemoveAll(k => k.Col < c && RowProjection.IsUnder(k.F.Path, f.Path));
+                kept.Add((f, c));
+                seen.Add(f.Path);
+                if (f.Cells is { } cells) foreach (var x in cells) seen.Add(x.Path);
+                kept.AddRange(under.Where(u => f.Cells?.Any(x => x.Path == u.F.Path) != true));
+            }
+        return kept.Select(k => k.F);
     }
 
     /// <summary>The child-union annotation keyed by the spelling each quantified column RENDERS under.</summary>
