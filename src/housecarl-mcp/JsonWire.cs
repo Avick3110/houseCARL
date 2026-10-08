@@ -1284,7 +1284,7 @@ static class JsonWire
     public static string RenderBatchDense(IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string>? fields, FoldPlan? fold,
                                           int maxChars, SpillState? spill, out bool truncated,
                                           IReadOnlyList<KeyValuePair<string, string>>? envelope, (int RowsRead, long Millis) bodyCost,
-                                          IReadOnlyList<string?>? matches = null)
+                                          IReadOnlyList<string?>? matches = null, bool countsOnly = false)
     {
         int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
@@ -1294,8 +1294,11 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             w.WriteNumber("count", outcomes.Count);
+            // counts_only: the scan's shape, an empty table carrying the census.
+            if (countsOnly) w.WriteNumber("resolved", outcomes.Count(o => o.Error is null));
             WriteEpoch(w, outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp);
-            truncated = WriteDenseTable(w, ms, cap, manifestOnly, outcomes.Select(o => o.FormKey).ToList(), fields, fold, false, matches,
+            var rowKeys = countsOnly ? new List<FormKey>() : outcomes.Select(o => o.FormKey).ToList();
+            truncated = WriteDenseTable(w, ms, cap, manifestOnly, rowKeys, fields, fold, false, matches,
                 i => outcomes[i],
                 i => outcomes[i] is { Error: null, Record: { } r } o
                     ? new RecordSummary(o.FormKey, r.Type, r.EditorId, o.WinnerPlugin!, o.OverrideDepth, null)
