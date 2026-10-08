@@ -7,8 +7,25 @@ public static class FieldsDiff
 {
     /// <summary>Field-level deltas, preformatted for the conflict-tree render; <see cref="Complete"/> false means an empty <see cref="Deltas"/> must NOT be rendered as "identical to winner".</summary>
     /// <param name="NoVerdictCount">How many of <paramref name="Deltas"/> are no-verdict lines (UNREADABLE, or NO FIELD on both sides) rather than value differences.</param>
+    /// <param name="NoFieldCount">How many of those no-verdicts are NO FIELD on both sides: a wrong path, not a read fault.</param>
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
-        int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount);
+        int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount, int NoFieldCount = 0, bool Capped = false)
+    {
+        /// <summary>Why the comparison is incomplete, in words; empty when it is complete.</summary>
+        public string Why => IncompleteWhy(NoVerdictCount - NoFieldCount, NoFieldCount, Capped);
+    }
+
+    /// <summary>The causes of an incomplete comparison as one phrase; a fields= narrowing is offered only where it helps.</summary>
+    public static string IncompleteWhy(int unreadable, int noField, bool capped)
+    {
+        var parts = new List<string>();
+        if (unreadable > 0) parts.Add("a field above could not be read (nothing at or under it was compared)");
+        if (noField > 0) parts.Add("a path above names no field on either record, a wrong path to fix against the record's schema");
+        if (capped) parts.Add("the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record)");
+        // A hand-built incomplete result names neither cause, so it gets both the read and the cap.
+        return parts.Count > 0 ? string.Join(", and ", parts)
+            : "a field above could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record)";
+    }
 
     /// <summary>True when a value is a read-engine "no value here" sentinel; <see cref="ReadEngine.PresentNullLinkNote"/> is deliberately not one.</summary>
     static bool IsAbsentSentinel(string val) =>
@@ -136,7 +153,7 @@ public static class FieldsDiff
 
         // On a CAPPED comparison the agreed set would be a where-the-cap-fell artifact; an unreadable leaf does not touch it.
         if (capped) { agreedCount = 0; agreedSample.Clear(); }
-        return new Result(deltas, complete, agreedCount, agreedSample, noVerdict.Count);
+        return new Result(deltas, complete, agreedCount, agreedSample, noVerdict.Count, noField.Count, capped);
     }
 
     /// <summary>How many agreed-field paths to keep for the render — a small sample, not the full set.</summary>

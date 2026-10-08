@@ -645,6 +645,7 @@ static class JsonWire
         w.WriteNumber("delta_count", d.Deltas.Count);
         // How many of those lines are NO-VERDICTS rather than value differences.
         w.WriteNumber("no_verdict_count", d.NoVerdictCount);
+        if (d.NoFieldCount > 0) w.WriteNumber("no_field_count", d.NoFieldCount);
         if (cut) { w.WriteNumber("deltas_rendered", rendered); w.WriteBoolean("deltas_truncated", true); }
         w.WriteNumber("agreed_count", d.AgreedCount);
         w.WriteEndObject();

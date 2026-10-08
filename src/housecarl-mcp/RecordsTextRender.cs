@@ -11,14 +11,14 @@ static partial class RecordsTools
     internal static string RenderRecordsDelta(IReadOnlyList<RecordReads.DeltaRow> rows, int total, int differing, int identical,
                                      int noVerdict, int errors,
                                      string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated,
-                                     bool unreserved = false)
+                                     bool unreserved = false, int noField = 0)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
         if (!unreserved)
         {
             var whole = RenderRecordsDelta(rows, total, differing, identical, noVerdict, errors, headerLine, epoch,
-                                           maxChars, spill, out _, unreserved: true);
+                                           maxChars, spill, out _, unreserved: true, noField: noField);
             if (whole.Length <= cap) return whole;
         }
         bool manifestOnly = spill?.ManifestOnly ?? false;
@@ -27,7 +27,8 @@ static partial class RecordsTools
         sb.Append(total).Append(" record(s): ").Append(differing).Append(" differing, ").Append(identical)
           .Append(" identical, ");
         // Named only when there are any, since such a record is in neither of the two counts above.
-        if (noVerdict > 0) sb.Append(noVerdict).Append(" with a field that could not be read, ");
+        if (noVerdict - noField > 0) sb.Append(noVerdict - noField).Append(" with a field that could not be read, ");
+        if (noField > 0) sb.Append(noField).Append(" with a path that names no field, ");
         sb.Append(errors).Append(" error(s)");
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
@@ -76,15 +77,20 @@ static partial class RecordsTools
                 int values = d.Deltas.Count - d.NoVerdictCount;
                 sb.Append("  ");
                 if (values > 0) sb.Append(values).Append(values == 1 ? " difference" : " differences");
-                if (d.NoVerdictCount > 0)
-                    sb.Append(values > 0 ? " and " : "").Append(d.NoVerdictCount)
-                      .Append(d.NoVerdictCount == 1 ? " field that could not be read" : " fields that could not be read");
+                int unread = d.NoVerdictCount - d.NoFieldCount;
+                if (unread > 0)
+                    sb.Append(values > 0 ? " and " : "").Append(unread)
+                      .Append(unread == 1 ? " field that could not be read" : " fields that could not be read");
+                if (d.NoFieldCount > 0)
+                    sb.Append(values + unread > 0 ? " and " : "").Append(d.NoFieldCount)
+                      .Append(d.NoFieldCount == 1 ? " path with no field" : " paths with no field");
                 sb.Append(" — each value line: ").Append(s.LabelVersus(r.Plugin)).Append("'s value (reference = ")
                   .Append(r.LabelVersus(s.Plugin)).Append("):\n");
                 // INCOMPLETE says deltas were never COMPUTED, where the cut notice says computed lines did not fit,
                 // so the note is reserved beside every line and written either way.
                 string incomplete = d.Complete ? ""
-                    : "  note: the comparison is INCOMPLETE — a field above could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record). Narrow with " + LeverNames.Records.Fields + " to compare those in full.\n";
+                    : "  note: the comparison is INCOMPLETE — " + d.Why + "." +
+                      (d.NoVerdictCount > d.NoFieldCount || d.Capped || d.NoVerdictCount == 0 ? " Narrow with " + LeverNames.Records.Fields + " to compare those in full." : "") + "\n";
                 foreach (var delta in d.Deltas)
                 {
                     // The line goes in only where its own cut notice still fits beside it.
@@ -227,7 +233,7 @@ static partial class RecordsTools
                     // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas.
                     string body = n.Deltas.Count > 0
                         ? string.Join("; ", n.Deltas) +
-                          (n.Complete ? "" : " — the comparison is INCOMPLETE: a field could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record)") + "\n"
+                          (n.Complete ? "" : " — the comparison is INCOMPLETE: " + (n.Why.Length > 0 ? n.Why : FieldsDiff.IncompleteWhy(0, 0, false))) + "\n"
                         : !n.Complete
                             ? "no differing fields in what was read, but the comparison is INCOMPLETE — the deep read was TRUNCATED at the cap, so this is not a clean 'identical'.\n"
                             : fieldsNarrow
