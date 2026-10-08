@@ -546,6 +546,13 @@ internal sealed partial class RecordReads
                    $"it is {string.Join(", ", whatItIs.Take(3))}{(whatItIs.Count > 3 ? $", and {whatItIs.Count - 3} more" : "")}. " +
                    "Drop the quantifier, or point it at a list-valued field.";
         }
+        // A has-family op on a path every scanned type's schema calls a list or dict: refused before any data.
+        foreach (var leaf in predicate.HasLeaves)
+        {
+            var fields = schemas.Select(ts => _host.Rulebook.StepField(ts, leaf.Path, leaf.Path.Count - 1)).ToList();
+            if (fields.Count > 0 && fields.All(f => f?.Cardinality is "list" or "dict"))
+                return predicate.HasOnContainerRefusal(leaf.Predicate, fields[0]!.Cardinality == "dict", fields.All(f => f!.FormLinkTarget is not null));
+        }
         return EnumLiteralRefusal(schemas, predicate);
     }
 
