@@ -143,7 +143,8 @@ the pattern filters inside the walk, which stops at the cap.
 `bsa_list` and `bsa_extract` `under=` use the same grammar through `AssetGlob.Matcher`, over one archive's own
 listing. Neither bound applies there: the listing is already finite and already read, so an unanchored selector is
 allowed. `*` still stays within one segment, so `**/*.pex` is the form that finds an archive's scripts. A plain path
-matches that file or everything beneath that folder, and each selector that matches nothing is named.
+matches that file or everything beneath that folder. As in `asset_status`, each selector that matches nothing is named,
+and a blank or bad selector beside a usable one is noted while the rest answer; only a call with no usable selector refuses.
 
 `AssetLinkHarvest` is the other selector: every asset path a set of records declares, from a generic
 `IAssetLinkGetter` walk over each record's property graph. Generated coverage, not a per-record-type field list.
@@ -285,7 +286,8 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   — the enumeration is bounded by matches, not candidates.
 - *Selecting a set of paths*: `BsaFilterTests` — `bsa_list` and `bsa_extract` `under=` keep an exact path, a `**` glob,
   a plain folder and everything beneath it but not a sibling prefix, and the union of several selectors; each selector
-  that matches nothing is named; an extract writes only the matches and refuses an empty match.
+  that matches nothing is named, and a blank or bad one beside a usable one is noted; an extract writes only the matches
+  and refuses an empty match.
 - *Carrying assets across a renumber*: the four contracts are pinned by `CompactFacegenCarryTests` and
   `CompactVoiceCarryTests` — the two-phase carry (the overlapping-window arm), the old files left as
   orphans, a record with nothing to carry is not a failure, and voice found by scanning disk.

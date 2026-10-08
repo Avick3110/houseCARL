@@ -132,4 +132,64 @@ public sealed class BsaFilterTests : IDisposable
         Assert.Contains("filter.bsa", r);
         Assert.False(Directory.Exists(dest));
     }
+
+    [Fact]
+    public void AnUnpackWhoseFilterKeepsNothingSaysNoneMatchedNotEmpty()
+    {
+        var r = HousecarlCore.BsaArchive.Unpack(_archive, Path.Combine(_work, "kept-none"), keep: _ => false);
+
+        Assert.False(r.Success);
+        Assert.Contains("none of the 3 file(s)", r.Raw);
+        Assert.DoesNotContain("contained no files", r.Raw);
+    }
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("C:/x")]
+    [InlineData("../x")]
+    public void ABadSelectorAloneRefusesNamingTheFix(string selector)
+    {
+        var r = BsaTools.BsaList(_archive, under: new[] { selector });
+
+        Assert.StartsWith("error:", r);
+        Assert.Contains("such as 'scripts/**/*.pex'", r);
+    }
+
+    [Fact]
+    public void ABlankSelectorBesideALiveOneIsNoted()
+    {
+        var r = BsaTools.BsaList(_archive, under: new[] { "", "scripts/main.pex" }, counts_only: true);
+
+        Assert.Contains("1 matching", r);
+        Assert.Contains("an empty selector was skipped", r);
+    }
+
+    [Fact]
+    public void ABadSelectorBesideALiveOneIsNotedAndTheListAnswers()
+    {
+        var r = BsaTools.BsaList(_archive, under: new[] { "scripts/main.pex", "../x" });
+
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("main.pex", r);
+        Assert.Contains("under '../x':", r);
+    }
+
+    [Fact]
+    public void ABadSelectorBesideALiveOneIsNotedAndTheExtractRuns()
+    {
+        var dest = Path.Combine(_work, "bad-beside");
+
+        var r = BsaTools.BsaExtract(null!, _archive, out_path: dest, under: new[] { "scripts/main.pex", "C:/x" });
+
+        Assert.Contains("under 'C:/x':", r);
+        Assert.Single(Directory.GetFiles(dest, "*", SearchOption.AllDirectories));
+    }
+
+    [Theory]
+    [InlineData("scripts/*.pex")]
+    [InlineData("scripts")]
+    public void TheMatcherFoldsForwardSlashesInTheCandidatePath(string selector)
+    {
+        Assert.True(HousecarlCore.AssetGlob.Matcher(selector)("Scripts/Main.pex"));
+    }
 }
