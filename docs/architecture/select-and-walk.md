@@ -98,6 +98,8 @@ path walk, and containment comes off Mutagen's context walk.
   which no test names.
 - `ValuePredicateTests` — the by-construction extraction through `ReadEngine.ReadLeaf`, over records built in memory: each operator's matched set against a
   brute-force set from the records' known values.
+- `GenderedArmAccountingTests` / `AbsentStepAccountingTests` — the #1071 bullet: a missing gendered arm,
+  absent list or index past the end is unset (and answers `missing`), and a genuine parse failure stays a read fault.
 
 ## Where
 

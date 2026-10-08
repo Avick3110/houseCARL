@@ -22,7 +22,8 @@ made the change.
 - **`housecarl_records` now names every flag bit in every format, known bits by name and others as `slotNN` or
   `bitN`; json adds a numeric `slots` array on biped fields.** Read an ARMA with slot 60 set.
 - **A `where=` over a gendered arm or list element the record does not carry, such as `WorldModel[1].File` on a
-  male-only ARMA, now counts that record as unset instead of a Mutagen read fault.**
+  male-only ARMA, now counts that record as unset instead of a Mutagen read fault, and `missing`/`exists` on it now
+  answer correctly.**
 
 ## 2.0.4 — 2026-10-05
 
