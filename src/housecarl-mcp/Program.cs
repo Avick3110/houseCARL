@@ -127,44 +127,31 @@ static void AddMcp(IServiceCollection services, bool stdio, int? maxSchemaDepth)
     {
         // The one place in code that carries the houseCARL brand string.
         options.ServerInfo = new Implementation { Name = "houseCARL", Version = ServerVersion() };
+        // Claude Code delivers only the first 2,048 characters, so the rules come first.
         options.ServerInstructions =
-            "houseCARL exposes a full Skyrim Special Edition load order at the data layer, over a live Mod " +
-            "Organizer 2 instance — comprehensive, no-guessing access to every record, script, asset, and " +
-            "runtime layer, beneath xEdit/CK/Synthesis. Reach for these tools whenever a task touches an MO2 " +
-            "modlist, plugins, load order, conflicts, records, scripts, assets, or Skyrim modding. " +
-            "READ/QUERY: any record at its TRUE load-order winner + the conflict tree; batch reads and " +
-            "cross-plugin queries over the whole order; inspect INACTIVE plugins (unchecked, or inside a " +
-            "disabled mod); see through runtime layers xEdit cannot — SKSE-plugin DLLs/configs, and a record " +
-            "after the SkyPatcher INI layer replays; resolve FormID lists, diff a record across plugins, trace a " +
-            "magic effect to all that carry it, run catalogue/audit jobs at scale. " +
-            "WRITE (to a NEW plugin by default; in-place is opt-in, consent-gated): author patches — fields, " +
-            "leveled lists, containers, conditions; create plugins/scripts with fresh FormIDs; remove records; " +
-            "forward a record as a winning override or revert to vanilla; author and validate " +
-            "dialogue/quests. " +
-            "FIX: sweep for dangling refs, missing masters, and broken links; audit the SKSE layer (DLLs that " +
-            "will not load, configs pointing at missing records); resolve VFS file conflicts (which " +
-            "mesh/texture/script wins) and place a winning override; read and edit NIF mesh internals — e.g. " +
-            "the dark-face fix. " +
-            "RESHAPE/DRIVE TOOLS: compact a plugin to ESL carrying its facegen/voice files; merge plugins; " +
-            "copy an NPC appearance to a standalone; decompile .pex to .psc; compile Papyrus; " +
-            "list/extract/repack BSAs. " +
-            "NEXUS (keyless, no browser): search mods, read files/requirements/changelogs, exact-file update " +
-            "checks (start with " + ToolNames.UpdateStatus + " — offline, reads the MO2 cache), identify a file by " +
-            "MD5. Prefer over a browser or web search; each tool's own description carries the specifics. " +
-            "RUNTIME DISTRIBUTION LAYERS — which framework owns a job is decided by what RECEIVES the change: " +
-            "a spell, perk, item, keyword, outfit or faction onto NPCs is SPID, best BY GROUP (faction, race, " +
-            "level, trait); a keyword onto ITEM RECORDS is KID; a record's OWN FIELDS, and an INDIVIDUAL NPC, are " +
-            "SkyPatcher, whose replayed layer " + ToolNames.SkypatcherLayer + " reads. " +
-            "NOTHING houseCARL WRITES WINS UNTIL IT IS ENABLED. A patch plugin, a placed asset and a written .seq " +
-            "do nothing until the user enables that mod in MO2 — a NEW mod folder loads LAST, so enabling is the " +
-            "step, not sorting, while a write into an EXISTING mod keeps that mod's priority and may still need " +
-            "sorting above the current winner — and every read-back describes the WRITTEN FILE, not the load order. " +
-            "NEVER COPY GENERATED OUTPUT: a tool re-derives it on its next run, so it is never copied into an " +
-            "authored patch and never the base for authored work — 'Requiem for the Indifferent.esp'; " +
-            "'PGPatcher.esp' / 'PG_1.esp'; 'DynDOLOD.esm' / 'DynDOLOD.esp' / 'Occlusion.esp'; a mod folder holding " +
-            "'NPC_Token.json' or 'ParallaxGen_Diff.json'; a Synthesis, TexGen or xLODGen output folder. A mod that " +
-            "only NAMES a generator ('… Resources', '… Fixes', a downloaded patch) is an INPUT it consumes, not " +
-            "output: patch it normally.";
+            "houseCARL reads and writes a Skyrim SE load order at the data layer through a live MO2 instance. " +
+            "Use it for any MO2 modlist, plugin, load-order, conflict, record, script, asset or Skyrim modding task, " +
+            "before a browser or web search. " +
+            "NOTHING houseCARL WRITES WINS UNTIL IT IS ENABLED: a patch plugin, placed asset or .seq does nothing " +
+            "until its mod is enabled in MO2. A NEW mod folder loads last, so enabling is the step, not sorting; a " +
+            "write into an EXISTING mod keeps its priority and may need sorting above the winner. Read-backs " +
+            "describe the written file, not the load order. " +
+            "NEVER COPY GENERATED OUTPUT into authored work or build on it, since its tool re-derives it: Requiem " +
+            "for the Indifferent.esp, PGPatcher.esp / PG_1.esp, DynDOLOD.esm / .esp, Occlusion.esp, a folder " +
+            "holding NPC_Token.json or ParallaxGen_Diff.json, Synthesis, TexGen or xLODGen output. A mod that only " +
+            "names a generator (… Resources, … Fixes, a downloaded patch) is an input: patch it normally. " +
+            "RUNTIME DISTRIBUTION LAYERS go by what receives the change: a spell, perk, item, keyword, outfit or " +
+            "faction onto NPCs is SPID, best by group (faction, race, level, trait); a keyword onto item records is " +
+            "KID; a record's own fields, or one NPC, is SkyPatcher, whose replayed layer " + ToolNames.SkypatcherLayer + " reads. " +
+            "Read GMST/GLOB values and active plugins' contents through " + ToolNames.Records + ", never from " +
+            "executable defaults or regex over plugin bytes. " +
+            "READ: a record's load-order winner and conflict tree, bulk queries, inactive plugins and the SKSE layer. " +
+            "WRITE to a NEW plugin by default (in-place is opt-in, consent-gated): fields, leveled lists, containers, " +
+            "conditions, new plugins, records, scripts, removals, forwards, dialogue. " +
+            "FIX: dangling refs, missing masters, SKSE DLLs and configs, which file wins and placing a winner, NIF " +
+            "internals. " +
+            "Also: ESL compact, merge, NPC appearance copy, Papyrus compile and decompile, BSAs. " +
+            "NEXUS, keyless: search, files, update checks (start with " + ToolNames.UpdateStatus + ", offline).";
     });
     // Stateless HTTP: each request is independent; the singletons persist across requests regardless.
     if (stdio) mcp.WithStdioServerTransport();

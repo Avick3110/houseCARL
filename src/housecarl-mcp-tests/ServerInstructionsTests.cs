@@ -9,12 +9,8 @@ namespace HousecarlMcpTests;
 /// <see cref="PublishedDescriptionBoundTests"/> holds the descriptions <c>tools/list</c> publishes, not on the source
 /// literal in <c>Program.cs</c>.
 ///
-/// <para>Its length is MEASURED here and written to the test output, because the fold ledger states a length and a
-/// stated length nobody measures is a guess. There is no client cut to hold it under — the cut is on tool
-/// descriptions — so the number is recorded rather than bounded. Measured 3,173 characters: the ledger's 2,875 plus
-/// 121 for the write-into-an-existing-mod clause and 137 for the generator-input exception, both from review, less 2
-/// for the CID clause dropped from the routing sentence, plus 42 for the SPID form list restored to that sentence on
-/// review of PR #649.</para>
+/// <para>Claude Code delivers the first 2,048 characters of the instructions and appends "[truncated]", so the
+/// string is bounded there; at 3,173 characters the enable and generated-output rules never reached a session.</para>
 ///
 /// <para>The three cross-skill facts folded in are held by their lead phrase and held to ONE occurrence: the point of
 /// folding them here was that they are stated once, in the one place a session always sees.</para>
@@ -27,6 +23,9 @@ public sealed class ServerInstructionsTests
     readonly ITestOutputHelper _out;
     public ServerInstructionsTests(ServerFixture s, ITestOutputHelper output) { _s = s; _out = output; }
 
+    /// <summary>Claude Code's cut on server instructions, in characters of the string.</summary>
+    const int ClaudeCodeInstructionsCut = 2048;
+
     [Fact]
     public void TheStandingInstructionsAreServedAndMeasured()
     {
@@ -36,6 +35,18 @@ public sealed class ServerInstructionsTests
         Assert.False(string.IsNullOrWhiteSpace(text),
             "initialize published no instructions — the standing context is what a session gets before any skill " +
             "loads, so an empty string is a silent loss, not a smaller payload.");
+    }
+
+    [Fact]
+    public void TheInstructionsFitClaudeCodesCutOf2048Characters()
+    {
+        var length = _s.PublishedInstructions.Length;
+        _out.WriteLine($"ServerInstructions: {length} characters (Claude Code cut {ClaudeCodeInstructionsCut})");
+
+        Assert.True(length <= ClaudeCodeInstructionsCut,
+            $"The published instructions are {length} characters; Claude Code delivers the first " +
+            $"{ClaudeCodeInstructionsCut} and drops the rest. Shorten them, or move a tool-specific line into that " +
+            "tool's description.");
     }
 
     [Theory]

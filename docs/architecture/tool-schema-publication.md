@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-10-08
 covers: [src/housecarl-mcp/ToolSchemas.cs, src/housecarl-mcp/NestedSchemaConstraints.cs, src/housecarl-mcp/SchemaDepthCap.cs, src/housecarl-mcp/Program.cs]
 ---
 # Tool schema publication
@@ -211,7 +211,16 @@ provider the cap was set for.
 The cap applies to the server entry, not to a model, so every model behind that entry gets the cut
 schemas; two entries split them.
 
+### The server instructions and the 2,048 cut
+
+Claude Code delivers the first 2,048 characters of the `initialize` instructions (characters of the string) and
+appends `[truncated]`, the same cut it applies to a tool description. The instructions in `Program.cs` stay under it,
+with the rules first and the capability map last; a line that only one tool needs belongs in that tool's description.
+
 ## Pinned by
+
+- *The instructions cut*: `ServerInstructionsTests.TheInstructionsFitClaudeCodesCutOf2048Characters`, on the served
+  string.
 
 - *Pass 1 — the `@file` union*: `PublishedSchemaShapeTests.EveryFileListUnionPublishesAnyOfGeneratedArrayOrString`
   and `EveryFileListUnionsArrayArmCarriesItsGeneratedElementMembers` — the union, with the array arm generated from
