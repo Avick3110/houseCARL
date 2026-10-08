@@ -362,6 +362,20 @@ public sealed class AssetLooseFreshnessTests : IDisposable
         Assert.Null(Winner(r, Provided));
     }
 
+    /// <summary>A segment is looked up the way Windows opens it, so a trailing dot reaches the folder a file open does and
+    /// a trailing space on a folder does not; each answer must match the file system's own.</summary>
+    [Theory]
+    [InlineData(@"meshes\hcfresh.\a.nif", true)]
+    [InlineData(@"meshes\hcfresh\a.nif. ", true)]
+    [InlineData(@"meshes\hcfresh \a.nif", false)]
+    [InlineData(@"meshes\hcfresh..\a.nif", false)]
+    public void ATrailingDotOrSpaceResolvesAsAFileOpenDoes(string query, bool opens)
+    {
+        using var r = Build();
+        Assert.Equal(opens, File.Exists(Path.Combine(_mods, Provider, query)));
+        Assert.Equal(opens ? Provider : null, Winner(r, query));
+    }
+
     /// <summary>The one case two stats cannot settle: a mod folder that stats but will not list, so its subtree does
     /// not stat either and the absence cannot be proved. That root is named as a failure and nothing is watched for
     /// it; watching the missing name there anyway would find the folder unlistable on every check and rebuild the
