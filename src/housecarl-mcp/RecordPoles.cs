@@ -521,13 +521,12 @@ internal sealed partial class RecordReads
         return outcomes;
     }
 
-    /// <summary>Carry one replay's warnings into the caller's sink, deduplicated; each already names its own file and line.</summary>
+    /// <summary>Carry one replay's warnings and notes into the caller's sink, deduplicated; each already names its own file and line.</summary>
     static void CollectOverlayWarnings(IReadOnlyList<SkyPatcherFolderOutcome> folders, SkyPatcherOverlay.WarningSink? sink)
     {
         if (sink is null) return;
         foreach (var f in folders)
-            foreach (var w in f.Result?.Warnings ?? Array.Empty<string>())
-                sink.Add(w);
+            if (f.Result is { } r) sink.Add(r);
     }
 
     /// <summary>One provider's node in a project=tree row: its position plus its delta against the row's reference

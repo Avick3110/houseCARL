@@ -7,7 +7,7 @@ namespace HousecarlCore;
 /// <summary>The SkyPatcher overlay engine — replay an ordered union of parsed INI lines onto a mutable copy of one record and report the true post-patch state; contract in docs/architecture/skypatcher-layer.md.</summary>
 public static class SkyPatcherOverlay
 {
-    /// <summary>One call's collector for the replay's warnings: it keeps <see cref="Cap"/> distinct warnings and counts the rest, so neither the kept list nor the seen set grows with the batch.</summary>
+    /// <summary>One call's collector for the replay's warnings: it keeps <see cref="Cap"/> distinct warnings and counts the rest, so neither the kept list nor the seen set grows with the batch. Notes from lines that reach no record read are counted per file, never listed.</summary>
     public sealed class WarningSink
     {
         /// <summary>How many warnings are kept for rendering; the rest are counted.</summary>
@@ -15,6 +15,8 @@ public static class SkyPatcherOverlay
 
         readonly HashSet<string> _seen = new(StringComparer.Ordinal);
         readonly List<string> _kept = new();
+        readonly HashSet<(string File, int Line)> _riding = new();
+        readonly Dictionary<string, SkyPatcherNote> _notes = new(StringComparer.Ordinal);
 
         /// <summary>The warnings a render lists, in the order they were first raised.</summary>
         public IReadOnlyList<string> Kept => _kept;
@@ -27,7 +29,24 @@ public static class SkyPatcherOverlay
             if (_kept.Count < Cap) { if (_seen.Add(warning)) _kept.Add(warning); return; }
             if (!_seen.Contains(warning)) Overflow++;
         }
+
+        /// <summary>Take one record's replay: its riding warnings, the lines they ride on, and its notes.</summary>
+        public void Add(SkyPatcherOverlayResult result)
+        {
+            foreach (var w in result.Warnings) Add(w);
+            _riding.UnionWith(result.RidingLines);
+            foreach (var n in result.Notes) _notes.TryAdd(n.Text, n);
+        }
+
+        /// <summary>Per INI filename, how many notes sit on lines that reach no record read, in first-seen order.</summary>
+        public IReadOnlyList<(string File, int Count)> NotesByFile =>
+            _notes.Values.Where(n => !_riding.Contains((n.File, n.LineNumber)) && !_seen.Contains(n.Text))
+                .GroupBy(n => Path.GetFileName(n.File.Replace('\\', '/')), StringComparer.OrdinalIgnoreCase)
+                .Select(g => (g.Key, g.Count())).ToList();
     }
+
+    /// <summary>A warning raised on a line that does not reach the record read: the file, the line, and the text a read would print.</summary>
+    public sealed record SkyPatcherNote(string File, int LineNumber, string Text);
 
     /// <summary>Everything the overlay needs from the load order, behind an interface so the engine stays testable off fixtures.</summary>
     public interface IFormResolver
@@ -61,13 +80,15 @@ public static class SkyPatcherOverlay
     /// <summary>One HARD op that applies to this record but has no static resolution; <see cref="Reason"/> names why.</summary>
     public sealed record SkyPatcherDirective(string File, int LineNumber, string Op, string RawValue, string Reason);
 
-    /// <summary>The overlay outcome for one record: what applied in order, what stayed a directive, and every warning.</summary>
+    /// <summary>The overlay outcome for one record: what applied in order, what stayed a directive, the warnings that bear on it, the lines they ride on, and the notes from lines that do not reach it.</summary>
     public sealed record SkyPatcherOverlayResult(
         IReadOnlyList<SkyPatcherAppliedOp> Applied,
         IReadOnlyList<SkyPatcherDirective> Directives,
         IReadOnlyList<string> Warnings,
         int LinesMatched,
-        int LinesSkippedUnresolvedFilter);
+        int LinesSkippedUnresolvedFilter,
+        IReadOnlyList<SkyPatcherNote> Notes,
+        IReadOnlyList<(string File, int Line)> RidingLines);
 
     // ---- entry: replay the ordered lines onto one record copy ----
 
@@ -87,9 +108,9 @@ public static class SkyPatcherOverlay
         {
             if (line.Parsed.Kind != SkyPatcherLineKind.Patch) continue;
             var where = $"{line.File}:{line.LineNumber}";
-            warn.At(line.File, where);
+            warn.At(line, where);
             if (line.Parsed.Note is { } parseNote)
-                warnings.Add($"{where}: parse note — {parseNote}");
+                warn.Add($"pn:{line.LineNumber}", ParseNoteText(parseNote));
 
             // ---- split the line into filters and ops, classifying every key (unknowns are loud). ----
             var filters = new List<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)>();
@@ -109,16 +130,15 @@ public static class SkyPatcherOverlay
             if (unknownKey)
             {
                 unresolvedSkips++;
-                var bad = string.Join(", ", line.Parsed.Segments
-                    .Where(s => catalog.Classify(recordCatalog, s.Key).Role == SkyPatcherKeyRole.Unknown)
-                    .Select(s => $"'{s.Key}'"));
-                warnings.Add($"{where}: line skipped — key(s) {bad} are not in the SkyPatcher reference for record type '{recordCatalog.RecordType}' (an unrecognized key may be a filter, so whether the line applies is UNRESOLVED; verify the spelling or the reference version).");
+                warn.Flush(rides: true);
+                warnings.Add($"{where}: {UnknownKeyText(line, catalog, recordCatalog)}");
                 continue;
             }
-            if (ops.Count == 0) continue;   // a line with no operation does nothing
+            if (ops.Count == 0) { warn.Flush(rides: false); continue; }   // a line with no operation does nothing
 
             // ---- evaluate the filters against THIS record (unsupported ⇒ loud skip). ----
             var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, fieldMap, filters, resolver, warn);
+            warn.Flush(rides: verdict != FilterVerdict.NoMatch);
             if (verdict == FilterVerdict.Unresolved)
             {
                 unresolvedSkips++;
@@ -158,8 +178,69 @@ public static class SkyPatcherOverlay
             }
         }
 
-        return new SkyPatcherOverlayResult(applied, directives, warnings, matched, unresolvedSkips);
+        return new SkyPatcherOverlayResult(applied, directives, warnings, matched, unresolvedSkips, warn.Notes, warn.RidingLines);
     }
+
+    static string ParseNoteText(string note) => $"parse note — {note}";
+
+    /// <summary>The skip warning of a line carrying keys the reference does not know, shared by the read and the layer's lint.</summary>
+    static string UnknownKeyText(OrderedLine line, SkyPatcherCatalog catalog, SkyPatcherRecordCatalog recordCatalog)
+    {
+        var bad = string.Join(", ", line.Parsed.Segments
+            .Where(s => catalog.Classify(recordCatalog, s.Key).Role == SkyPatcherKeyRole.Unknown)
+            .Select(s => $"'{s.Key}'"));
+        return $"line skipped — key(s) {bad} are not in the SkyPatcher reference for record type '{recordCatalog.RecordType}' (an unrecognized key may be a filter, so whether the line applies is UNRESOLVED; verify the spelling or the reference version).";
+    }
+
+    /// <summary>One line's lint, whatever record is read: its unknown keys and each filter form token that resolves to nothing, in the words a read uses; the parse note is the line's own.</summary>
+    public static IReadOnlyList<string> LineLint(OrderedLine line, SkyPatcherCatalog catalog,
+        SkyPatcherRecordCatalog recordCatalog, RecordMap? fieldMap, IFormResolver resolver)
+    {
+        var lint = new List<string>();
+        if (line.Parsed.Kind != SkyPatcherLineKind.Patch) return lint;
+        var classes = line.Parsed.Segments.Select(s => (seg: s, cls: catalog.Classify(recordCatalog, s.Key))).ToList();
+        if (classes.Any(c => c.cls.Role == SkyPatcherKeyRole.Unknown))
+        {
+            lint.Add(UnknownKeyText(line, catalog, recordCatalog));
+            return lint;
+        }
+        foreach (var (seg, cls) in classes)
+        {
+            if (cls.Role != SkyPatcherKeyRole.Filter || FormTokens(cls, fieldMap) is not { } ft) continue;
+            foreach (var v in seg.Values)
+                if (ResolveFormValue(v, ft.FormType, resolver) is null)
+                    lint.Add(ft.IsEquality ? UnresolvedEqualsText(v, seg, ft.FormType) : UnresolvedInListText(ft.Noun, v, seg));
+        }
+        return lint;
+    }
+
+    /// <summary>What a filter's values resolve against, as its evaluator below resolves them; null for a filter whose unresolved values raise no warning.</summary>
+    static (string? FormType, bool IsEquality, string Noun)? FormTokens(SkyPatcherKeyClass cls, RecordMap? fieldMap)
+    {
+        var f = cls.Filter!;
+        if (f.Kind is not (SkyPatcherFilterKind.Primary or SkyPatcherFilterKind.HasPlugins or SkyPatcherFilterKind.NoFilter)
+            && fieldMap?.Filters.GetValueOrDefault(f.Name) is { } spec)
+            return spec.IsUnmapped ? null : spec.Eval switch
+            {
+                SkyPatcherFilterEval.FormEquals => (spec.FormType, true, "form"),
+                SkyPatcherFilterEval.FormInList when !spec.EidSubstring => (spec.FormType, false, "form"),
+                SkyPatcherFilterEval.DonorKeywords => ("Keyword", false, "keyword"),
+                _ => null,
+            };
+        return f.Name switch
+        {
+            "filterByKeywords" or "restrictToKeywords" => ("Keyword", false, "keyword"),
+            "filterByMgefs" => ("MagicEffect", false, "form"),
+            "filterByAlternateTextures" => ("TextureSet", false, "form"),
+            _ => null,
+        };
+    }
+
+    static string UnresolvedInListText(string noun, SkyPatcherValue v, SkyPatcherSegment seg)
+        => $"{noun} '{v.Raw}' (in a {seg.Key}) resolves to nothing in the active order — treated as attached to no record.";
+
+    static string UnresolvedEqualsText(SkyPatcherValue v, SkyPatcherSegment seg, string? formType)
+        => $"form '{v.Raw}' (in a {seg.Key}) resolves to nothing in the active order{(formType is null ? "" : $" among {formType} winners")} — treated as matching no record.";
 
     static string Ident(FormKey fk, string? editorId) => editorId is null ? FormIdToken.Of(fk) : $"{FormIdToken.Of(fk)} ({editorId})";
 
@@ -186,15 +267,40 @@ public static class SkyPatcherOverlay
         "filterByMgefs", "filterByAlternateTextures",
     };
 
-    /// <summary>Where the filter evaluators put their warnings, each prefixed with the file and line being evaluated; the dedupe key is scoped to the file.</summary>
+    /// <summary>Where one line's warnings wait until its verdict is known; a flushed warning rides the read (deduped per file) or becomes a note.</summary>
     sealed class FilterWarnings
     {
         readonly List<string> _out;
         readonly HashSet<string> _seen = new(StringComparer.Ordinal);
-        string _file = "", _where = "";
+        readonly List<(string Key, string Text, bool Decides)> _pending = new();
+        readonly List<SkyPatcherNote> _notes = new();
+        readonly List<(string File, int Line)> _riding = new();
+        OrderedLine? _line;
+        string _where = "";
         public FilterWarnings(List<string> sink) => _out = sink;
-        public void At(string file, string where) { _file = file; _where = where; }
-        public void Add(string key, string text) { if (_seen.Add(_file + "|" + key)) _out.Add($"{_where}: {text}"); }
+        public IReadOnlyList<SkyPatcherNote> Notes => _notes;
+        public IReadOnlyList<(string File, int Line)> RidingLines => _riding;
+        public void At(OrderedLine line, string where) { _line = line; _where = where; _pending.Clear(); }
+
+        /// <summary>Hold one warning for the line; <paramref name="decides"/> marks one that forces a NoMatch on its own.</summary>
+        public void Add(string key, string text, bool decides = false) => _pending.Add((key, text, decides));
+
+        /// <summary>Settle the line's held warnings: all ride when the line reaches the record, otherwise only the deciding ones.</summary>
+        public void Flush(bool rides)
+        {
+            bool any = false;
+            foreach (var (key, text, decides) in _pending)
+            {
+                if (rides || decides)
+                {
+                    any = true;
+                    if (_seen.Add(_line!.File + "|" + key)) _out.Add($"{_where}: {text}");
+                }
+                else _notes.Add(new SkyPatcherNote(_line!.File, _line.LineNumber, $"{_where}: {text}"));
+            }
+            if (rides || any) _riding.Add((_line!.File, _line.LineNumber));
+            _pending.Clear();
+        }
     }
 
     static FilterVerdict EvaluateFilters(object record, FormKey fk, string? editorId,
@@ -563,19 +669,19 @@ public static class SkyPatcherOverlay
         string name, string conn, string? formType, IFormResolver resolver,
         FilterWarnings warn, string noun = "form")
     {
-        var wanted = new List<FormKey>();
-        int unresolved = 0;
+        var hits = new List<bool>();
+        var missing = new List<SkyPatcherValue>();
         foreach (var v in seg.Values)
         {
             var k = ResolveFormValue(v, formType, resolver);
-            if (k is null)
-            {
-                unresolved++;
-                warn.Add($"fs:{name}:{v.Raw}", $"{noun} '{v.Raw}' (in a {seg.Key}) resolves to nothing in the active order — treated as attached to no record.");
-            }
-            else wanted.Add(k.Value);
+            if (k is null) missing.Add(v);
+            else hits.Add(mine.Contains(k.Value));
         }
-        return ConnectiveVerdict(conn, wanted.Select(mine.Contains).ToList(), bareGuard: unresolved == 0)
+        // Under the bare guard a missing token forces NoMatch, so its warning decides the verdict when the resolved tokens alone would match.
+        bool decides = conn is not ("Or" or "Excluded" or "Exclude") && hits.All(h => h);
+        foreach (var v in missing)
+            warn.Add($"fs:{name}:{v.Raw}", UnresolvedInListText(noun, v, seg), decides);
+        return ConnectiveVerdict(conn, hits, bareGuard: missing.Count == 0)
             ? FilterVerdict.Match : FilterVerdict.NoMatch;
     }
 
@@ -679,7 +785,7 @@ public static class SkyPatcherOverlay
     static void WarnUnresolvableForm(SkyPatcherValue v, SkyPatcherSegment seg, string name, FilterSpec spec,
         FilterWarnings warn)
     {
-        warn.Add($"fe:{name}:{v.Raw}", $"form '{v.Raw}' (in a {seg.Key}) resolves to nothing in the active order{(spec.FormType is null ? "" : $" among {spec.FormType} winners")} — treated as matching no record.");
+        warn.Add($"fe:{name}:{v.Raw}", UnresolvedEqualsText(v, seg, spec.FormType));
     }
 
     static bool ContainsVerdict(SkyPatcherSegment seg, string conn, string haystack)

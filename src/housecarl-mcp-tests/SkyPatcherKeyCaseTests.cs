@@ -75,11 +75,11 @@ public sealed class SkyPatcherKeyCaseTests
     {
         var (npc, _, _) = CaseNpc();
         var r = Apply(npc, npc.FormKey, npc.EditorID, "npc", "Npc", new StubResolver(),
-            Line("Case.ini", 1, "FILTERBYKEYWORDSOR=HcNoSuchKeyword:race=UBE_AllRace.esp|5A184"),
-            Line("Case.ini", 2, "filterByKeywordsOr=HcNoSuchKeyword:race=UBE_AllRace.esp|5A184"));
+            Line("Case.ini", 1, "FILTERBYKEYWORDS=HcNoSuchKeyword:race=UBE_AllRace.esp|5A184"),
+            Line("Case.ini", 2, "filterByKeywords=HcNoSuchKeyword:race=UBE_AllRace.esp|5A184"));
 
         var w = Assert.Single(r.Warnings, w => w.Contains("HcNoSuchKeyword"));
-        Assert.Contains("(in a FILTERBYKEYWORDSOR)", w);
+        Assert.Contains("(in a FILTERBYKEYWORDS)", w);
     }
 
     // the conflict and no-op lookups key on the catalog's op name, so two spellings of one op still collide
