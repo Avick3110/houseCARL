@@ -27,6 +27,36 @@ public sealed class StatusPluginFactsTests : IClassFixture<StatusPluginFactsWorl
         Assert.Contains("also in:     mod 'RealMod' (DISABLED) · " + Bytes(_w.RealCopy), text);
     }
 
+    /// <summary>Two enabled folders hold the name: the higher-priority one serves, and the lower one is marked shadowed.</summary>
+    [Fact]
+    public void TwoEnabledCopiesMarkTheLowerOneShadowed()
+    {
+        var text = Lookup(StatusPluginFactsWorld.Two);
+
+        Assert.Contains("served from: mod 'TwoHigh' (enabled) · " + Bytes(_w.TwoHighCopy) + "\n", text);
+        Assert.Contains("also in:     mod 'TwoLow' (enabled) · " + Bytes(_w.TwoLowCopy) + " · shadowed\n", text);
+    }
+
+    /// <summary>The served copy need not be the first one found: a disabled mod's copy comes before game Data's, and game Data serves.</summary>
+    [Fact]
+    public void TheServedCopyIsTheFirstEnabledOneNotTheFirstFound()
+    {
+        var text = Lookup(StatusPluginFactsWorld.Base);
+
+        Assert.Contains("served from: game Data · " + Bytes(_w.BaseDataCopy) + "\n", text);
+        Assert.Contains("also in:     mod 'BaseOff' (DISABLED) · " + Bytes(_w.BaseOffCopy) + "\n", text);
+    }
+
+    /// <summary>A .esl with both header bits clear still loads as a light master, and the header line says why.</summary>
+    [Fact]
+    public void AnEslWithClearBitsSaysItLoadsLightByItsExtension()
+    {
+        var text = Lookup(StatusPluginFactsWorld.Lite);
+
+        Assert.Equal(0u, BitConverter.ToUInt32(File.ReadAllBytes(_w.LiteCopy), 8) & 0x201);   // the fixture's master and ESL bits really are clear
+        Assert.Contains("header:      master flag no, master by .esl extension · ESL flag no, light by .esl extension · ", text);
+    }
+
     /// <summary>The ESL flag, the masters in order and the record count match what the fixture's TES4 header holds, read here from the raw bytes.</summary>
     [Fact]
     public void TheHeaderFactsMatchTheFixtureHeader()
@@ -65,9 +95,17 @@ public sealed class StatusPluginFactsWorld : IDisposable
     public string DummyCopy { get; }
     public string RealCopy { get; }
     public string HdrCopy { get; }
+    public string TwoHighCopy { get; }
+    public string TwoLowCopy { get; }
+    public string BaseDataCopy { get; }
+    public string BaseOffCopy { get; }
+    public string LiteCopy { get; }
 
     public const string Dup = "HcFactDup.esp";
     public const string Hdr = "HcFactHdr.esp";
+    public const string Two = "HcFactTwo.esp";
+    public const string Base = "HcFactBase.esp";
+    public const string Lite = "HcFactLite.esl";
 
     public StatusPluginFactsWorld()
     {
@@ -97,11 +135,24 @@ public sealed class StatusPluginFactsWorld : IDisposable
             real.Weapons.Add(new Weapon(new FormKey(real.ModKey, 0x801 + i), SkyrimRelease.SkyrimSE) { EditorID = "HcFactRealWeap" + i });
         RealCopy = Save(mods, "RealMod", real);
 
-        var order = new[] { "HcFactA.esm", "HcFactB.esm", Hdr, Dup };
+        TwoHighCopy = Save(mods, "TwoHigh", new SkyrimMod(ModKey.FromFileName(Two), SkyrimRelease.SkyrimSE));
+        TwoLowCopy = Save(mods, "TwoLow", Filled(Two, 3));
+        BaseDataCopy = Save(Path.Combine(Root, "game"), "Data", Filled(Base, 2));
+        BaseOffCopy = Save(mods, "BaseOff", new SkyrimMod(ModKey.FromFileName(Base), SkyrimRelease.SkyrimSE));
+        LiteCopy = Save(mods, "LiteMod", Filled(Lite, 1));
+        using (var f = new FileStream(LiteCopy, FileMode.Open, FileAccess.ReadWrite))   // clear the master and ESL bits Mutagen may set for a .esl
+        {
+            var flags = new byte[4];
+            f.Position = 8; f.ReadExactly(flags);
+            uint v = BitConverter.ToUInt32(flags) & ~0x201u;
+            f.Position = 8; f.Write(BitConverter.GetBytes(v));
+        }
+
+        var order = new[] { "HcFactA.esm", "HcFactB.esm", Lite, Hdr, Dup, Two, Base };
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), string.Join("\r\n", order.Select(p => "*" + p)) + "\r\n");
         File.WriteAllText(Path.Combine(profile, "modlist.txt"),
-            "# header\r\n+DummyMod\r\n-RealMod\r\n+HdrMod\r\n+BMod\r\n+AMod\r\n");
+            "# header\r\n+DummyMod\r\n-RealMod\r\n+HdrMod\r\n+BMod\r\n+AMod\r\n+TwoHigh\r\n+TwoLow\r\n-BaseOff\r\n+LiteMod\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "houseCARL.user.json"));
         Svc = LoadOrderService.WithInstance(instance, 0, store);
@@ -114,6 +165,14 @@ public sealed class StatusPluginFactsWorld : IDisposable
         m.ModHeader.Flags |= SkyrimModHeader.HeaderFlag.Master;
         m.Weapons.Add(new Weapon(new FormKey(m.ModKey, 0x801), SkyrimRelease.SkyrimSE) { EditorID = name + "Weap" });
         Save(mods, folder, m);
+        return m;
+    }
+
+    static SkyrimMod Filled(string name, int weapons)
+    {
+        var m = new SkyrimMod(ModKey.FromFileName(name), SkyrimRelease.SkyrimSE);
+        for (uint i = 0; i < weapons; i++)
+            m.Weapons.Add(new Weapon(new FormKey(m.ModKey, 0x801 + i), SkyrimRelease.SkyrimSE) { EditorID = m.ModKey.Name + "Weap" + i });
         return m;
     }
 
