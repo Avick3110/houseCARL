@@ -33,7 +33,8 @@ public static class ReadEngine
     /// <summary>The outcome of reading one leaf: a round-trippable <see cref="Token"/>, else the <see cref="Note"/>
     /// saying why there is none.</summary>
     internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null, int? ContainerCount = null,
-                                             bool Present = true, bool Readable = true, int? ByteLength = null, Enum? EnumBox = null)
+                                             bool Present = true, bool Readable = true, int? ByteLength = null, Enum? EnumBox = null,
+                                             bool LinkElements = false)
     {
         public static LeafRead Value(string token) => new(true, token, null);
         public static LeafRead FlagsValue(string token, FlagBits bits) => new(true, token, null, bits);
@@ -47,7 +48,7 @@ public static class ReadEngine
         public static LeafRead Unreadable(string note) => new(false, "", note, null, null, Present: false, Readable: false);
         /// <summary>A no-value CONTAINER/substruct summary carrying its element <paramref name="count"/>: null for a
         /// substruct, a number for a list/dict (0 = present-but-EMPTY), for the presence predicate.</summary>
-        public static LeafRead Container(string note, int? count) => new(false, "", note, null, count);
+        public static LeafRead Container(string note, int? count, bool links = false) => new(false, "", note, null, count, LinkElements: links);
         public override string ToString() => HasValue ? Token : Note ?? "(none)";
     }
 
@@ -906,7 +907,9 @@ public static class ReadEngine
         bool isDict = WriteEngine.ClosedInterface(val.GetType(), typeof(IDictionary<,>)) is not null
                    || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null;
         var summary = SummariseContainer(val, isDict, out var count);
-        return LeafRead.Container(summary, count);
+        // Whether the elements are form links, so a has-family refusal knows an 'in' rewrite fits.
+        bool links = !isDict && count is not null && ElementType(val) is { } et && typeof(IFormLinkGetter).IsAssignableFrom(et);
+        return LeafRead.Container(summary, count, links);
     }
 
     /// <summary>The unsigned bit pattern of a boxed enum value, masked to the declared underlying type's width.</summary>
