@@ -233,7 +233,7 @@ static class SkseConfigAuditWire
             int room = budget - RefsCut(f.Refs.Count, f.Refs.Count, $"{nonOk} of {nonOk} non-OK shown").Length;
             if (f.ReadError is not null || f.Refs.Count == 0 || sb.Length > room) { sb.Length = mark; sb.Append(FilesCut(shownFiles)); break; }
             int shown = 0, shownNonOk = 0;
-            foreach (var r in f.Refs.Where(r => r.Verdict != SkseRefVerdict.Ok).Concat(f.Refs.Where(r => r.Verdict == SkseRefVerdict.Ok)))
+            foreach (var r in CutOrder(f.Refs))
             {
                 var line = RefLine(r);
                 if (sb.Length + line.Length > room) break;
@@ -243,7 +243,7 @@ static class SkseConfigAuditWire
             if (shown == 0) { sb.Length = mark; sb.Append(FilesCut(shownFiles)); break; }
             sb.Append(RefsCut(shown, f.Refs.Count,
                 nonOk == 0 ? "all OK" : shownNonOk == nonOk ? $"all {nonOk} non-OK shown" : $"{shownNonOk} of {nonOk} non-OK shown"));
-            shownFiles++; tally.Mark(f.RelPath);
+            // A partly shown file counts as cut, so the accounting says so and the next page starts on it again.
             if (i + 1 < hits.Count) sb.Append(FilesCut(shownFiles));
             break;
         }
@@ -257,6 +257,10 @@ static class SkseConfigAuditWire
         (r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? $"folder gate '{r.Ref.Plugin}'" : $"'{r.Ref.Raw}'") +
         (r.Ref.Line > 0 ? $" (line {r.Ref.Line})" : "") +
         (r.Detail is null ? "" : " → " + r.Detail) + "\n";
+
+    // The order a cut file shows its references in, in both twins: non-OK first, then OK, each in file order.
+    internal static IEnumerable<SkseAuditedRef> CutOrder(IReadOnlyList<SkseAuditedRef> refs) =>
+        refs.Where(r => r.Verdict != SkseRefVerdict.Ok).Concat(refs.Where(r => r.Verdict == SkseRefVerdict.Ok));
 
     // The notice a file cut per reference ends on; the note says how many of its non-OK references made the cut.
     static string RefsCut(int shown, int total, string note) => SkseRenderParts.Showing(shown, total, "references (" + note + ")");
@@ -344,10 +348,18 @@ static class SkseConfigAuditWire
                 int rowTail = ConfigRowTailCost(file, depths.SkseRows);
                 if (!SkseJsonDoc.Fits(w, ms, cap - rowTail,
                         JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw => WriteConfigRowHead(mw, file, close: true)))) break;
+                bool whole = SkseJsonDoc.Fits(w, ms, cap, JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw =>
+                {
+                    WriteConfigRowHead(mw, file, close: false);
+                    mw.WriteStartArray("references");
+                    foreach (var r in file.Refs) WriteConfigRefJson(mw, r);
+                    mw.WriteEndArray();
+                    mw.WriteEndObject();
+                }));
                 WriteConfigRowHead(w, file, close: false);
                 w.WriteStartArray("references");
                 int refs = 0;
-                foreach (var r in file.Refs)
+                foreach (var r in whole ? file.Refs : CutOrder(file.Refs))
                 {
                     // One config can carry tens of thousands of form tokens, so the cap bounds the inner loop too.
                     if (!SkseJsonDoc.Fits(w, ms, cap - rowTail,
@@ -359,6 +371,8 @@ static class SkseConfigAuditWire
                 // How many of the file's references the cap cut is said here, because the accounting counts files.
                 if (refs < file.Refs.Count) w.WriteNumber("references_truncated", file.Refs.Count - refs);
                 w.WriteEndObject();
+                // A partly shown row counts as cut, as in the text twin, and nothing after it is laid.
+                if (refs < file.Refs.Count) break;
                 rendered++;
             }
             w.WriteEndArray();
