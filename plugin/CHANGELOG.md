@@ -13,6 +13,9 @@ made the change.
 
 - **`housecarl_skse findings='config'` now reads a plugin name with brackets or parentheses whole, so a reference
   into `[Caenarvon] Magecore.esp` or `Asuras Guard [Armor].esp` is checked instead of counted as a missing plugin.**
+- **houseCARL's server instructions now fit Claude Code's 2,048-character cut, so the enable, generated-output and
+  SkyPatcher routing rules reach the session.** The housecarl instructions in a new session no longer end in
+  `[truncated]`.
 
 ## 2.0.4 — 2026-10-05
 
