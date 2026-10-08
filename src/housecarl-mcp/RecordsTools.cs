@@ -85,14 +85,14 @@ public static partial class RecordsTools
     /// <summary>How many INIs get their own pointer line before the rest are summed into one.</summary>
     const int NotePointerFiles = 5;
 
-    /// <summary>One line per INI counting its notes on lines that reach no record read, and where they are listed.</summary>
-    static List<string> SkyPatcherNotePointers(IReadOnlyList<(string File, int Count)> byFile)
+    /// <summary>One line per INI holding notes on lines that reach no record read, and where they are listed.</summary>
+    static List<string> SkyPatcherNotePointers(IReadOnlyList<string> files)
     {
-        var lines = byFile.Take(NotePointerFiles)
-            .Select(f => $"{f.Count} note(s) on lines that do not reach these records — {ToolNames.SkypatcherLayer} filter={f.File} lists them")
+        var lines = files.Take(NotePointerFiles)
+            .Select(f => $"note(s) on lines that do not reach these records — {ToolNames.SkypatcherLayer} filter={f} lists them")
             .ToList();
-        if (byFile.Count > NotePointerFiles)
-            lines.Add($"{byFile.Skip(NotePointerFiles).Sum(f => f.Count)} more note(s) in {byFile.Count - NotePointerFiles} other INI(s) — {ToolNames.SkypatcherLayer} filter=<INI filename> lists each one's");
+        if (files.Count > NotePointerFiles)
+            lines.Add($"note(s) in {files.Count - NotePointerFiles} other INI(s) — {ToolNames.SkypatcherLayer} filter=<INI filename> lists each one's");
         return lines;
     }
 
@@ -531,7 +531,7 @@ public static partial class RecordsTools
         {
             var shown = overlayWarnings.Kept.ToList();
             int over = overlayWarnings.Overflow;
-            var pointers = SkyPatcherNotePointers(overlayWarnings.NotesByFile);
+            var pointers = SkyPatcherNotePointers(overlayWarnings.NoteFiles);
             if (shown.Count == 0 && pointers.Count == 0) return;
             var overflow = over > 0 ? new[] { $"{over} further warning(s) not listed" } : Array.Empty<string>();
             envelope.Add(new("skypatcher_warnings", string.Join(" | ", shown.Concat(overflow).Concat(pointers))));

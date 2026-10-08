@@ -7,7 +7,7 @@ namespace HousecarlCore;
 /// <summary>The SkyPatcher overlay engine — replay an ordered union of parsed INI lines onto a mutable copy of one record and report the true post-patch state; contract in docs/architecture/skypatcher-layer.md.</summary>
 public static class SkyPatcherOverlay
 {
-    /// <summary>One call's collector for the replay's warnings: it keeps <see cref="Cap"/> distinct warnings and counts the rest, so neither the kept list nor the seen set grows with the batch. Notes from lines that reach no record read are counted per file, never listed.</summary>
+    /// <summary>One call's collector for the replay's warnings: it keeps <see cref="Cap"/> distinct warnings and counts the other distinct ones. Notes from lines that reach no record read are named per file, never listed.</summary>
     public sealed class WarningSink
     {
         /// <summary>How many warnings are kept for rendering; the rest are counted.</summary>
@@ -16,18 +16,18 @@ public static class SkyPatcherOverlay
         readonly HashSet<string> _seen = new(StringComparer.Ordinal);
         readonly List<string> _kept = new();
         readonly HashSet<(string File, int Line)> _riding = new();
-        readonly Dictionary<string, SkyPatcherNote> _notes = new(StringComparer.Ordinal);
+        readonly HashSet<(string File, int Line)> _notes = new();
 
         /// <summary>The warnings a render lists, in the order they were first raised.</summary>
         public IReadOnlyList<string> Kept => _kept;
 
-        /// <summary>How many further warnings were raised beyond <see cref="Kept"/>.</summary>
+        /// <summary>How many further distinct warnings were raised beyond <see cref="Kept"/>.</summary>
         public int Overflow { get; private set; }
 
         public void Add(string warning)
         {
             if (_kept.Count < Cap) { if (_seen.Add(warning)) _kept.Add(warning); return; }
-            if (!_seen.Contains(warning)) Overflow++;
+            if (_seen.Add(warning)) Overflow++;
         }
 
         /// <summary>Take one record's replay: its riding warnings, the lines they ride on, and its notes.</summary>
@@ -35,18 +35,15 @@ public static class SkyPatcherOverlay
         {
             foreach (var w in result.Warnings) Add(w);
             _riding.UnionWith(result.RidingLines);
-            foreach (var n in result.Notes) _notes.TryAdd(n.Text, n);
+            _notes.UnionWith(result.NoteLines);
         }
 
-        /// <summary>Per INI filename, how many notes sit on lines that reach no record read, in first-seen order.</summary>
-        public IReadOnlyList<(string File, int Count)> NotesByFile =>
-            _notes.Values.Where(n => !_riding.Contains((n.File, n.LineNumber)) && !_seen.Contains(n.Text))
-                .GroupBy(n => Path.GetFileName(n.File.Replace('\\', '/')), StringComparer.OrdinalIgnoreCase)
-                .Select(g => (g.Key, g.Count())).ToList();
+        /// <summary>The INI filenames holding notes on lines that reach no record read, in first-seen order.</summary>
+        public IReadOnlyList<string> NoteFiles =>
+            _notes.Where(n => !_riding.Contains(n))
+                .Select(n => Path.GetFileName(n.File.Replace('\\', '/')))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
-
-    /// <summary>A warning raised on a line that does not reach the record read: the file, the line, and the text a read would print.</summary>
-    public sealed record SkyPatcherNote(string File, int LineNumber, string Text);
 
     /// <summary>Everything the overlay needs from the load order, behind an interface so the engine stays testable off fixtures.</summary>
     public interface IFormResolver
@@ -80,14 +77,14 @@ public static class SkyPatcherOverlay
     /// <summary>One HARD op that applies to this record but has no static resolution; <see cref="Reason"/> names why.</summary>
     public sealed record SkyPatcherDirective(string File, int LineNumber, string Op, string RawValue, string Reason);
 
-    /// <summary>The overlay outcome for one record: what applied in order, what stayed a directive, the warnings that bear on it, the lines they ride on, and the notes from lines that do not reach it.</summary>
+    /// <summary>The overlay outcome for one record: what applied in order, what stayed a directive, the warnings that bear on it, the lines they ride on, and the lines holding notes because they do not reach it.</summary>
     public sealed record SkyPatcherOverlayResult(
         IReadOnlyList<SkyPatcherAppliedOp> Applied,
         IReadOnlyList<SkyPatcherDirective> Directives,
         IReadOnlyList<string> Warnings,
         int LinesMatched,
         int LinesSkippedUnresolvedFilter,
-        IReadOnlyList<SkyPatcherNote> Notes,
+        IReadOnlyList<(string File, int Line)> NoteLines,
         IReadOnlyList<(string File, int Line)> RidingLines);
 
     // ---- entry: replay the ordered lines onto one record copy ----
@@ -178,7 +175,7 @@ public static class SkyPatcherOverlay
             }
         }
 
-        return new SkyPatcherOverlayResult(applied, directives, warnings, matched, unresolvedSkips, warn.Notes, warn.RidingLines);
+        return new SkyPatcherOverlayResult(applied, directives, warnings, matched, unresolvedSkips, warn.NoteLines, warn.RidingLines);
     }
 
     static string ParseNoteText(string note) => $"parse note — {note}";
@@ -277,22 +274,34 @@ public static class SkyPatcherOverlay
         readonly List<string> _out;
         readonly HashSet<string> _seen = new(StringComparer.Ordinal);
         readonly List<(string Key, string Text, bool Decides)> _pending = new();
-        readonly List<SkyPatcherNote> _notes = new();
+        readonly List<(string File, int Line)> _notes = new();
         readonly List<(string File, int Line)> _riding = new();
         OrderedLine? _line;
         string _where = "";
         public FilterWarnings(List<string> sink) => _out = sink;
-        public IReadOnlyList<SkyPatcherNote> Notes => _notes;
+        public IReadOnlyList<(string File, int Line)> NoteLines => _notes;
         public IReadOnlyList<(string File, int Line)> RidingLines => _riding;
         public void At(OrderedLine line, string where) { _line = line; _where = where; _pending.Clear(); }
 
         /// <summary>Hold one warning for the line; <paramref name="decides"/> marks one that forces a NoMatch on its own.</summary>
         public void Add(string key, string text, bool decides = false) => _pending.Add((key, text, decides));
 
+        /// <summary>A mark to pass to <see cref="DecidesSince"/>.</summary>
+        public int Mark => _pending.Count;
+
+        /// <summary>Whether a warning held since <paramref name="mark"/> decides its filter's NoMatch.</summary>
+        public bool DecidesSince(int mark) => _pending.Skip(mark).Any(p => p.Decides);
+
+        /// <summary>The line misses on another filter too, so no held warning decides it.</summary>
+        public void Undecide()
+        {
+            for (int i = 0; i < _pending.Count; i++) _pending[i] = _pending[i] with { Decides = false };
+        }
+
         /// <summary>Settle the line's held warnings: all ride when the line reaches the record or no listing holds it, otherwise only the deciding ones.</summary>
         public void Flush(bool rides)
         {
-            bool any = false;
+            bool any = false, noted = false;
             foreach (var (key, text, decides) in _pending)
             {
                 if (rides || decides || !_line!.Listed)
@@ -300,9 +309,10 @@ public static class SkyPatcherOverlay
                     any = true;
                     if (_seen.Add(_line!.File + "|" + key)) _out.Add($"{_where}: {text}");
                 }
-                else _notes.Add(new SkyPatcherNote(_line!.File, _line.LineNumber, $"{_where}: {text}"));
+                else noted = true;
             }
             if (rides || any) _riding.Add((_line!.File, _line.LineNumber));
+            else if (noted) _notes.Add((_line!.File, _line.LineNumber));
             _pending.Clear();
         }
     }
@@ -336,7 +346,9 @@ public static class SkyPatcherOverlay
         // No filter set → every record of the type is patched.
         if (filters.Count == 0) return FilterVerdict.Match;
 
-        bool any = false;
+        // A NoMatch resting only on a deciding warning keeps evaluating, so the warning decides the line only if no other filter misses.
+        bool any = false, resting = false;
+        FilterVerdict Miss() { if (resting) warn.Undecide(); return FilterVerdict.NoMatch; }
         foreach (var (seg, cls) in filters)
         {
             var f = cls.Filter!;
@@ -349,7 +361,7 @@ public static class SkyPatcherOverlay
                     : f.Name.EndsWith("LL", StringComparison.Ordinal) ? "LeveledItem"
                     : null;
                 if (required is not null && !required.Equals(mutagenRecordType, StringComparison.OrdinalIgnoreCase))
-                    return FilterVerdict.NoMatch;
+                    return Miss();
                 any = true; continue;
             }
 
@@ -357,7 +369,7 @@ public static class SkyPatcherOverlay
             {
                 var plugins = seg.Values.Select(v => v.Raw).ToList();
                 bool ok = conn == "Or" ? plugins.Any(resolver.PluginPresent) : plugins.All(resolver.PluginPresent);
-                if (!ok) return FilterVerdict.NoMatch;
+                if (!ok) return Miss();
                 any = true; continue;
             }
 
@@ -365,15 +377,18 @@ public static class SkyPatcherOverlay
             {
                 bool inSet = seg.Values.Any(v => MatchesIdentity(v, fk, editorId));
                 bool ok = conn is "Excluded" or "Exclude" ? !inSet : inSet;
-                if (!ok) return FilterVerdict.NoMatch;
+                if (!ok) return Miss();
                 any = true; continue;
             }
 
+            int mark = warn.Mark;
             var verdict = EvaluateOneFilter(record, fk, editorId, cls, seg, conn, fieldMap, resolver, warn);
-            if (verdict != FilterVerdict.Match) return verdict;
+            if (verdict == FilterVerdict.NoMatch && warn.DecidesSince(mark)) { resting = true; continue; }
+            if (verdict == FilterVerdict.NoMatch) return Miss();
+            if (verdict == FilterVerdict.Unresolved) return resting ? FilterVerdict.NoMatch : verdict;
             any = true;
         }
-        return any ? FilterVerdict.Match : FilterVerdict.NoMatch;
+        return resting || !any ? FilterVerdict.NoMatch : FilterVerdict.Match;
     }
 
     /// <summary>One non-primary, non-gate filter segment: the built-in families first, then the field map's per-record <see cref="FilterSpec"/>, which overrides a built-in of the same name; anything else is Unresolved.</summary>

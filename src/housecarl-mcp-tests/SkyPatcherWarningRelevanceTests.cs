@@ -10,15 +10,17 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>A test instance holding three armors and the given armor-folder INIs: HcHeelBoots carries HcHeelKw,
-/// HcBothBoots carries HcHeelKw and HcKw2, HcPlainCuirass carries none.</summary>
+/// HcBothBoots carries HcHeelKw and HcKw2, HcPlainCuirass carries none; with <c>otherPlugin</c>, a second plugin
+/// at <see cref="OtherPath"/> defines the keyword HcOtherKw.</summary>
 sealed class SkyPatcherRelevanceWorld : IDisposable
 {
     const string PluginName = "HcSpRel.esp";
-    public readonly string Root;
+    const string OtherName = "HcSpRelOther.esp";
+    public readonly string Root, OtherPath;
     public readonly LoadOrderService Svc;
     public readonly string Heel, Both, Plain;
 
-    public SkyPatcherRelevanceWorld(IEnumerable<(string Name, string Text)> inis)
+    public SkyPatcherRelevanceWorld(IEnumerable<(string Name, string Text)> inis, bool otherPlugin = false)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-skypatcher-relevance-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
@@ -60,10 +62,21 @@ sealed class SkyPatcherRelevanceWorld : IDisposable
         foreach (var (name, text) in inis)
             File.WriteAllText(Path.Combine(iniDir, name), text);
 
+        OtherPath = Path.Combine(mods, "HcSpRelOther", OtherName);
+        if (otherPlugin)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(OtherPath)!);
+            var other = new SkyrimMod(ModKey.FromFileName(OtherName), SkyrimRelease.SkyrimSE);
+            other.Keywords.Add(new Keyword(new FormKey(other.ModKey, 0x800), SkyrimRelease.SkyrimSE) { EditorID = "HcOtherKw" });
+            other.BeginWrite.ToPath(OtherPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        }
+        var order = otherPlugin ? new[] { PluginName, OtherName } : new[] { PluginName };
+
         File.WriteAllText(Path.Combine(profileDir, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
-        File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), $"# header\r\n{PluginName}\r\n");
-        File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), $"*{PluginName}\r\n");
-        File.WriteAllText(Path.Combine(profileDir, "modlist.txt"), "# header\r\n+HcSpRelIni\r\n+HcSpRelPlugins\r\n");
+        File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), "# header\r\n" + string.Concat(order.Select(o => o + "\r\n")));
+        File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), string.Concat(order.Select(o => "*" + o + "\r\n")));
+        File.WriteAllText(Path.Combine(profileDir, "modlist.txt"),
+            "# header\r\n+HcSpRelIni\r\n+HcSpRelPlugins\r\n" + (otherPlugin ? "+HcSpRelOther\r\n" : ""));
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
     }
@@ -111,7 +124,7 @@ public sealed class SkyPatcherWarningRelevanceTests : IDisposable
     {
         var text = Read(_w.Plain);
 
-        Assert.Contains($"3 note(s) on lines that do not reach these records — {ToolNames.SkypatcherLayer} filter={IniName} lists them", text);
+        Assert.Contains($"[!] skypatcher: note(s) on lines that do not reach these records — {ToolNames.SkypatcherLayer} filter={IniName} lists them", text);
         Assert.DoesNotContain("HcNoSuchA", text);
         Assert.DoesNotContain("HcNoSuchC", text);
     }
@@ -194,7 +207,7 @@ public sealed class SkyPatcherNotePointerRollUpTests : IDisposable
         var text = _w.Read(new[] { _w.Plain });
 
         Assert.Contains("filter=HcNote5.ini lists them", text);
-        Assert.Contains($"1 more note(s) in 1 other INI(s) — {ToolNames.SkypatcherLayer} filter=<INI filename> lists each one's", text);
+        Assert.Contains($"note(s) in 1 other INI(s) — {ToolNames.SkypatcherLayer} filter=<INI filename> lists each one's", text);
         Assert.DoesNotContain("filter=HcNote6.ini", text);
     }
 
@@ -207,5 +220,63 @@ public sealed class SkyPatcherNotePointerRollUpTests : IDisposable
         int over = member.IndexOf("| 1 further warning(s) not listed |", StringComparison.Ordinal);
         int pointer = member.IndexOf("note(s) on lines that do not reach", StringComparison.Ordinal);
         Assert.True(over >= 0 && over < pointer, member);
+    }
+}
+
+/// <summary>A deciding warning is judged on the whole line, a repeat warning past the cap counts once, and the lint's
+/// incomplete-table sentence is said once (#1093).</summary>
+[Trait("tier", "integration")]
+public sealed class SkyPatcherLineLevelWarningTests : IDisposable
+{
+    const string IniName = "HcLineLevel.ini";
+    readonly SkyPatcherRelevanceWorld _w;
+
+    // :1 the bare list's missing keyword would decide, but the EditorID filter misses HcHeelBoots anyway; :2 the EditorID filter passes.
+    public SkyPatcherLineLevelWarningTests() => _w = new SkyPatcherRelevanceWorld(new[]
+    {
+        (IniName, "filterByKeywords=HcHeelKw,HcNoSuchF:filterByEditorIdContains=Cuirass:keywordsToAdd=HcAddKw\r\n"
+                  + "filterByKeywords=HcHeelKw,HcNoSuchG:filterByEditorIdContains=Heel:keywordsToAdd=HcAddKw\r\n"),
+    }, otherPlugin: true);
+
+    public void Dispose() => _w.Dispose();
+
+    [Fact]
+    public void AMissingKeywordDoesNotRideWhenAnotherFilterOnItsLineMisses()
+    {
+        var text = _w.Read(new[] { _w.Heel });
+
+        Assert.DoesNotContain("HcNoSuchF", text);
+        Assert.Contains($"filter={IniName} lists them", text);
+    }
+
+    [Fact]
+    public void AMissingKeywordRidesWhenEveryOtherFilterOnItsLinePasses()
+        => Assert.Contains("keyword 'HcNoSuchG' (in a filterByKeywords) resolves to nothing", _w.Read(new[] { _w.Heel }));
+
+    [Fact]
+    public void ARepeatedWarningPastTheCapCountsOnce()
+    {
+        var sink = new HousecarlCore.SkyPatcherOverlay.WarningSink();
+        for (int i = 0; i <= HousecarlCore.SkyPatcherOverlay.WarningSink.Cap; i++) sink.Add("w" + i);
+        for (int i = 0; i < 5; i++) sink.Add("w" + HousecarlCore.SkyPatcherOverlay.WarningSink.Cap);
+
+        Assert.Equal(1, sink.Overflow);
+    }
+
+    // the second plugin turns unreadable after the index is built, so every keyword lookup reads an incomplete table
+    [Fact]
+    public void TheIncompleteTableSentenceIsSaidOnce()
+    {
+        _w.Read(new[] { _w.Heel });
+        // same size and write time, so the index keeps the plugin and only the record sweep finds it unreadable
+        var stamp = File.GetLastWriteTimeUtc(_w.OtherPath);
+        File.WriteAllBytes(_w.OtherPath, new byte[new FileInfo(_w.OtherPath).Length]);
+        File.SetLastWriteTimeUtc(_w.OtherPath, stamp);
+
+        var text = SkyPatcherTools.SkyPatcherLayer(_w.Svc, filter: IniName);
+
+        int first = text.IndexOf("EditorID table missing a plugin", StringComparison.Ordinal);
+        Assert.True(first >= 0, text);
+        Assert.Equal(-1, text.IndexOf("EditorID table missing a plugin", first + 1, StringComparison.Ordinal));
     }
 }
