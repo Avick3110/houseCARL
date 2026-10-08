@@ -1177,6 +1177,7 @@ public static partial class RecordsTools
             int differing = rows.Count(x => x.Error is null && x.Diff!.Deltas.Count > x.Diff.NoVerdictCount);
             int identical = rows.Count(x => x.Error is null && x.Diff!.Deltas.Count == 0 && x.Diff.Complete);
             int noVerdict = rows.Count(x => x.Error is null && x.Diff!.NoVerdictCount > 0);
+            int noField = rows.Count(x => x.Error is null && x.Diff!.NoFieldCount > 0 && x.Diff.NoFieldCount == x.Diff.NoVerdictCount);
             int errs = rows.Count(x => x.Error is not null);
             if (counts_only)
                 return json
@@ -1193,7 +1194,7 @@ public static partial class RecordsTools
             var deltaCounts = CmpCounts(KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs));
             string Render(SpillState? sp, out bool trunc) => json
                 ? JsonWire.RenderDelta(winRows, max_chars, epoch, envelope, deltaCounts, sp, out trunc)
-                : RenderRecordsDelta(winRows, rows.Count, differing, identical, noVerdict, errs, headerLine, epoch, max_chars, sp, out trunc);
+                : RenderRecordsDelta(winRows, rows.Count, differing, identical, noVerdict, errs, headerLine, epoch, max_chars, sp, out trunc, noField: noField);
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
