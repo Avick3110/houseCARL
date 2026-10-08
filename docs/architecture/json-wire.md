@@ -1,6 +1,6 @@
 ---
 updated: 2026-10-08
-covers: [src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/ToolFrontWire.cs]
+covers: [src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/FieldFold.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/ToolFrontWire.cs]
 ---
 # The json wire: the shape a machine-readable response is allowed to take
 
@@ -26,16 +26,25 @@ The accounting and the notes ride inside the document rather than beside it.
 
 ### One leaf shape
 
-Every entry of a record's `fields` array, inline and in a `to_file` row, is `{path, value}` or `{path, note}`, with
-a concrete path (indices filled in), listed flat. No entry nests others, and no path repeats: where overlapping
-requests (`Effects[*]` beside `Effects[*].Data.Magnitude`) reach one leaf twice, the first stands. A quantified `X[*]` column and the `rows`
-form list each element's own summary leaf first, then its sub-leaves. What rides on a leaf (`display`, `slots`,
-`link`, `opaque_bytes`, `note_ref`, a child union) stays on that leaf.
+Every entry of a record's `fields` array, inline and in a `to_file` row, is `{path, value}` or `{path, note}`,
+listed flat, and no entry nests others. A path is concrete (indices filled in), with one exception: a `[*]` column
+over an empty or absent list, or whose sub-path no element carries, answers with ONE entry under the requested
+quantified path (`Armature[*]`, `Effects[*].Data.Magnitude`) and a note or the list's own value. A quantified
+`X[*]` column and the `rows` form list each element's own summary leaf first, then its sub-leaves. What rides on a
+leaf (`display`, `slots`, `link`, `opaque_bytes`, `note_ref`, a child union) stays on that leaf.
+
+No path repeats, on any lane. Where overlapping columns reach one element (`Effects[*]` beside `Effects` or
+`Effects[*].Data.Magnitude`), `FoldPlan.Apply` lists it once, at the first column that reaches it: a path an
+earlier column listed, or one inside an element row already listed, is dropped, and an earlier column's lines under
+a later line move to follow it, so each element's leaves follow their own element. Text gets the same list.
 
 A folded element row still carries its leaves in `FieldValue.Cells`, because the text lane joins them on one display
-line. `WriteFieldsArray` writes those leaves in the row's place, so no `cells` member reaches the wire. A consumer
-reads `f[path] = value`; to group by element it cuts the path at the quantified step's index. Text and dense are
-untouched by this: dense already pivots one row per element.
+line. `WriteFieldsArray` writes those leaves in the row's place, so no `cells` member reaches the wire. A max_chars
+or `to_file` cut lands between field lines, never inside a row: an element is written whole or not at all, and the
+cut counts field lines, the text lane's unit. One `…` entry, last, carries the cuts: the read's own expansion note,
+with the max_chars sentence after it when both apply. A consumer reads `f[path] = value`; to group by element it
+cuts the path at the quantified step's index, and expects the quantified path itself where a list had no element.
+Text and dense are untouched by the leaf shape: dense already pivots one row per element.
 
 ### `ok` is a discriminant, and it is document-level only
 
@@ -194,7 +203,9 @@ own lane can survive.
 
 - *One leaf shape*: `RecordsOneLeafShapeTests` — json and `to_file` rows for `Armature[*]`, `Effects[*]`,
   `Effects[*].Data.Magnitude` and the `rows` form carry no `cells`, and each entry has exactly one of `value` or
-  `note`; `RecordsRowsFormTests.ARowsJsonEntryIsItsLeavesListedFlatNotANote` keeps a row's link object on its leaf.
+  `note`; overlapping columns list each path once beside its own element on json, `to_file` and text; a max_chars cut
+  writes an element whole and counts field lines; `RecordsOneLeafCutTests` keeps one `…` entry for both cuts;
+  `RecordsRowsFormTests.ARowsJsonEntryIsItsLeavesListedFlatNotANote` keeps a row's link object on its leaf.
 - *The epoch stamp and the degraded-order marker*: `DegradedOrderMarkerTests` — the marker rides on both transports on
   the read, scan and write lanes, and `TheCheckDocumentCarriesTheMarkerAtItsRootAndOnTheErrorsFamily` pins the root
   sentence against the per-family flag and count. The write lane is asserted on the text transport only
