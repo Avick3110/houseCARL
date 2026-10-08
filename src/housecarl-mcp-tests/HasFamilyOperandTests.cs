@@ -124,14 +124,59 @@ public sealed class HasFamilyOperandTests
         Assert.Equal(Head(clause, "Keywords", "has") + "For list members write one 'Keywords[*any] = <form>' per member " + Tail, Run(clause).Fatal);
     }
 
-    [Fact]
-    public void HasAny_OnAFormListWithANonFormOperand_GivesTheSubPathAdvice()
+    [Theory]
+    [InlineData("Armature has_any 1", "Armature", "1")]
+    [InlineData("Keywords has_any ArmorHeavy", "Keywords", "ArmorHeavy")]
+    public void HasAny_OnAFormListWithANonFormOperand_GivesTheLinkStepAdvice(string clause, string path, string operand)
     {
-        const string clause = "Armature has_any 1";
-        Assert.Equal(Head(clause, "Armature", "has_any") +
-                     "Filter on a scalar sub-path instead (e.g. 'Armature[*any].<field> has_any 1' or 'Armature[0]'), or use references= for list→FormID membership.",
+        Assert.Equal(Head(clause, path, "has_any") +
+                     $"Step through the links instead (e.g. '{path}-><field> has_any {operand}', or '{path}->editorid = {operand}' " +
+                     "to match a linked record by EditorID), or use references= for list→FormID membership.",
                      Run(clause).Fatal);
     }
+
+    [Fact]
+    public void HasAny_OnADict_GivesTheEntryAdvice()
+    {
+        var race = _mod.Races.AddNew();
+        race.BipedObjectNames[BipedObject.Head] = "Head";
+        const string clause = "BipedObjectNames has_any 1";
+        Assert.Equal($"predicate '{clause}': 'BipedObjectNames' is a dict here, not a scalar leaf, and 'has_any' tests a flags leaf's bits. " +
+                     "Filter on one entry instead (e.g. 'BipedObjectNames[<key>] has_any 1').", RunOn(new[] { race }, clause).Fatal);
+    }
+
+    [Theory]
+    [InlineData("BodyTemplate.FirstPersonFlags = Head | Body")]
+    [InlineData("BodyTemplate.FirstPersonFlags = [Head, Body]")]
+    public void Equals_TakesTheSameOperandSpellingsAsHas(string clause)
+    {
+        var (hits, fatal) = Run(clause);
+        Assert.Null(fatal);
+        Assert.Equal(new[] { _headBody }.ToHashSet(), hits);
+    }
+
+    [Fact]
+    public void Equals_TakesTheSlotToken() =>
+        Assert.Equal(new[] { _hands }.ToHashSet(), Run("BodyTemplate.FirstPersonFlags = slot33").Hits);
+
+    [Fact]
+    public void ASlotTokenAndAPipeFitTheEnumLiteralCheck()
+    {
+        Assert.True(FieldPredicateSet.EnumLiteralFits("Body | Hands", typeof(BipedObjectFlag)));
+        Assert.True(FieldPredicateSet.EnumLiteralFits("slot44", typeof(BipedObjectFlag)));
+    }
+
+    [Fact]
+    public void ASignedNumberIsNoFlagName()
+    {
+        Assert.False(ReadEngine.TryEnumBitsFromName(typeof(FileAttributes), "-1", out _));
+        Assert.True(ReadEngine.TryEnumBitsFromName(typeof(FileAttributes), "ReadOnly", out var b));
+        Assert.Equal((ulong)FileAttributes.ReadOnly, b);
+    }
+
+    [Fact]
+    public void ASignedOperandRefusesInsteadOfMatchingEveryBit() =>
+        Assert.Contains("value '-1' is not a bit value or a valid BipedObjectFlag flag name", Run("BodyTemplate.FirstPersonFlags has_any -1").Fatal ?? "");
 
     [Theory]
     [InlineData("Factions has_any 1")]
@@ -168,4 +213,44 @@ public sealed class HasFamilyOperandTests
         var clause = $"BodyTemplate.FirstPersonFlags has_any {operand}";
         Assert.Equal($"predicate '{clause}': 'has_any' value '{operand}' is the read's display spelling — write {spelling}.", Run(clause).Fatal);
     }
+}
+
+/// <summary>A typed scan refuses a has-family op on a list from the schema, so a scope where no record carries the
+/// list still refuses rather than answering 0 matches; the link-step advice it gives is a working predicate.</summary>
+[Trait("tier", "integration")]
+public sealed class HasFamilyPlanTests : IDisposable
+{
+    readonly ScratchMo2 _mo2 = new("hc-has-plan-");
+
+    public HasFamilyPlanTests()
+    {
+        var key = new Mutagen.Bethesda.Plugins.ModKey("HcHasPlan", Mutagen.Bethesda.Plugins.ModType.Master);
+        var m = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
+        m.Armors.AddNew().EditorID = "HcNoKeywords";
+        var kw = m.Keywords.AddNew(); kw.EditorID = "HcHeavy";
+        var a = m.Weapons.AddNew(); a.EditorID = "HcHeavyWeapon";
+        a.Keywords = new Noggog.ExtendedList<Mutagen.Bethesda.Plugins.IFormLinkGetter<IKeywordGetter>> { new Mutagen.Bethesda.Plugins.FormLink<IKeywordGetter>(kw.FormKey) };
+        m.BeginWrite.ToPath(Path.Combine(_mo2.DataDir, key.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        _mo2.Profile("HcHasPlan.esm\r\n", "*HcHasPlan.esm\r\n", "");
+    }
+
+    public void Dispose() => _mo2.Delete();
+
+    string Where(string type, string clause)
+    {
+        using var svc = _mo2.Open();
+        return HousecarlMcp.RecordsTools.Records(svc, types: new[] { type }, where: new[] { clause }, counts_only: true);
+    }
+
+    [Fact]
+    public void AListThatNoScannedRecordCarriesStillRefuses()
+    {
+        var r = Where("ARMO", "Keywords has_any ArmorHeavy");
+        Assert.Contains("'Keywords' is a list here", r);
+        Assert.DoesNotContain("0 matches", r);
+    }
+
+    [Fact]
+    public void TheLinkStepAdviceIsAWorkingPredicate() =>
+        Assert.Contains("1 match", Where("WEAP", "Keywords->editorid = HcHeavy"));
 }
