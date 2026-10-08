@@ -235,7 +235,7 @@ public static class ReadEngine
     static string Reason(Exception ex) => (ex as TargetInvocationException)?.InnerException?.Message ?? ex.Message;
 
     /// <summary>The opening of the no-field note a bracket key the collection can never take emits.</summary>
-    public const string BadKeyPrefix = NoFieldPrefix + "— ";
+    public const string BadKeyPrefix = "(no field — ";
 
     /// <summary>The note a walk's throw becomes: a bad bracket key is a wrong path, anything else a read fault.</summary>
     static string ThrowNote(Exception ex) =>
