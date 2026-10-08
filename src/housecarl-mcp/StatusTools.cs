@@ -41,7 +41,7 @@ public static class StatusTools
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
         var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inactive-profile inspection: text parse only, no index build, no switch
         // Read only for a filter: the facts are a per-plugin locate and header read, and the whole-profile summary asks about none.
-        var facts = filter is { Length: > 0 } ? svc.PluginFactsFor(filter.Trim(), data.Composition) : null;
+        var facts = filter is { Length: > 0 } ? svc.PluginFactsFor(filter.Trim(), data) : null;
         return StatusWire.Render(data, logs, profiles, filter, facts, max_chars > 0 ? max_chars : 80_000);
     });
 }
@@ -252,27 +252,36 @@ static class StatusWire
         if (excluded.TryGetValue(name, out var why))
             sb.Append("  [!] EXCLUDED this session: ").Append(why).Append("\n      → houseCARL does NOT read this plugin (every other plugin is unaffected).\n");
 
-        // The LOCALIZED header flag: a localized plugin's text lives in .STRINGS files, which is what the in-place write lanes refuse on. Three answers, never a bool, and rendered for every name the profile lists as a plugin.
+        // A name the profile lists as a plugin: its copies, then the header facts and the LOCALIZED flag the in-place write lanes refuse on.
         if (facts is null) return;
         AppendCopies(sb, facts.Copies);
+        if (facts.Header is { } h)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            // A .esm or .esl loads as a master, and a .esl loads light, whatever the header bits say.
+            var ext = System.IO.Path.GetExtension(name).ToLowerInvariant();
+            string Bit(bool set, bool byExt, string what) => set ? "YES" : byExt ? "no, " + what + " by " + ext + " extension" : "no";
+            sb.Append("  header:      ");
+            // Nothing serves the name, so the lone copy read is named: its facts are that file's, not a loaded plugin's.
+            if (facts.HeaderFrom is { Served: not OutputLocations.ServedStanding.Serves } from)
+                sb.Append("from ").Append(from.Where).Append(", not served · ");
+            sb.Append("master flag ").Append(Bit(h.Master, ext is ".esm" or ".esl", "master"))
+              .Append(" · ESL flag ").Append(Bit(h.Light, ext == ".esl", "light"))
+              .Append(" · ").Append(h.RecordCount.ToString("N0", inv)).Append(" records (HEDR)\n");
+            sb.Append("  masters (").Append(h.Masters.Count).Append("): ").Append(h.Masters.Count == 0 ? "none" : string.Join(", ", h.Masters)).Append('\n');
+        }
         sb.Append("  localized:   ").Append(facts.Localized switch
-            {
-                HousecarlCore.LocalizedFlagRead.Localized =>
-                    "YES (header flag set) — its text lives in separate .STRINGS files, not in the plugin. An IN-PLACE " +
-                    "write to it is refused; write to a new plugin instead.",
-                HousecarlCore.LocalizedFlagRead.NotLocalized =>
-                    "no (header flag clear) — its text is inside the plugin.",
-                _ => "UNKNOWN — houseCARL could not read this plugin's header, so neither answer is established.",
-            }).Append('\n');
-        if (facts.Header is not { } h) return;
-        var inv = System.Globalization.CultureInfo.InvariantCulture;
-        // A .esm or .esl loads as a master, and a .esl loads light, whatever the header bits say.
-        var ext = System.IO.Path.GetExtension(name).ToLowerInvariant();
-        string Bit(bool set, bool byExt, string what) => set ? "YES" : byExt ? "no, " + what + " by " + ext + " extension" : "no";
-        sb.Append("  header:      master flag ").Append(Bit(h.Master, ext is ".esm" or ".esl", "master"))
-          .Append(" · ESL flag ").Append(Bit(h.Light, ext == ".esl", "light"))
-          .Append(" · ").Append(h.RecordCount.ToString("N0", inv)).Append(" records (HEDR)\n");
-        sb.Append("  masters (").Append(h.Masters.Count).Append("): ").Append(h.Masters.Count == 0 ? "none" : string.Join(", ", h.Masters)).Append('\n');
+        {
+            HousecarlCore.LocalizedFlagRead.Localized =>
+                "YES (header flag set) — its text lives in separate .STRINGS files, not in the plugin. An IN-PLACE " +
+                "write to it is refused; write to a new plugin instead.",
+            HousecarlCore.LocalizedFlagRead.NotLocalized =>
+                "no (header flag clear) — its text is inside the plugin.",
+            _ when facts.HeaderFrom is not null =>
+                "UNKNOWN — houseCARL could not read this plugin's header, so neither answer is established.",
+            _ => "UNKNOWN — " + (facts.Copies.Count == 0 ? "no file of this name" : "several copies and none served") +
+                 ", so no header was read.",
+        }).Append('\n');
     }
 
     /// <summary>Which folder serves the plugin, then every other same-named copy with its layer state and size.</summary>
@@ -280,13 +289,13 @@ static class StatusWire
     {
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         string Line(PluginCopy x) => x.Where + " · " + (x.Bytes is { } b ? b.ToString("N0", inv) + " bytes" : "size unreadable")
-                                     + (x.Shadowed ? " · shadowed" : "");
-        var served = copies.FirstOrDefault(x => x.Serves);
+                                     + (x.Served == OutputLocations.ServedStanding.Shadowed ? " · shadowed" : "");
+        var served = copies.FirstOrDefault(x => x.Served == OutputLocations.ServedStanding.Serves);
         sb.Append("  served from: ").Append(served is null
             ? (copies.Count == 0 ? "none — no folder holds a file of this name" : "none — no enabled folder holds this file")
             : Line(served)).Append('\n');
         foreach (var x in copies)
-            if (!x.Serves) sb.Append("  also in:     ").Append(Line(x)).Append('\n');
+            if (x != served) sb.Append("  also in:     ").Append(Line(x)).Append('\n');
     }
 
     static bool Contains(IReadOnlyList<string> list, string name)

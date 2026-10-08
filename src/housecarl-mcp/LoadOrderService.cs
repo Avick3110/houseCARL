@@ -672,19 +672,20 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public LoadOrderStatusData StatusData()
     {
         // The view and the per-build fields beside it are snapshotted under ONE gate hold, so no status line mixes two builds.
-        LoadOrderResolver.IndexView view; IReadOnlyList<string> warnings; bool profileChanged; string profileDir; string profileName; string? instanceDir;
+        LoadOrderResolver.IndexView view; IReadOnlyList<string> warnings; bool profileChanged; string profileDir, modsDir, dataDir, overwriteDir; string profileName; string? instanceDir;
         lock (_gate)
         {
             view = Resolver.Capture();                             // force build/refresh; one build for count + exclusions
             warnings = _orderWarnings;
             profileChanged = ProfileFilesChanged();
             profileDir = _profileDir;
+            modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir;
             profileName = _profileName;                            // captured under the same gate — one snapshot, never re-derived at render
             instanceDir = _instanceDir;                            // the configured MO2 instance folder; null ⇒ explicit-paths / unconfigured mode
         }
         var comp = Mo2LoadOrder.ReadComposition(profileDir);       // fresh composition (always current)
         return new LoadOrderStatusData(
-            comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, profileName, instanceDir, view.ExcludedPlugins,
+            comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, modsDir, dataDir, overwriteDir, profileName, instanceDir, view.ExcludedPlugins,
             view.Epoch, view.ContainedRecordCount);
     }
 
@@ -695,22 +696,20 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         return (view.PluginCount, view.RecordCount, view.ConflictCount, view.MaxDepth, view.LoadFailures, view.Epoch);
     }
 
-    /// <summary>One plugin's facts for housecarl_load_order_status' filter= (#376, #1001, #1096), over the composition the verdict already read: null when the name is not a plugin at all, else every same-named copy on disk with its served standing, and the header read off the served copy.</summary>
-    public PluginFacts? PluginFactsFor(string pluginName, Mo2Composition comp)
+    /// <summary>One plugin's facts for housecarl_load_order_status' filter= (#376, #1001, #1096), over the composition and roots the verdict captured together: null when the name is not a plugin at all, else every same-named copy on disk with its served standing, and the header read off the served copy.</summary>
+    internal PluginFacts? PluginFactsFor(string pluginName, LoadOrderStatusData d)
     {
-        string modsDir, dataDir, overwriteDir;
-        lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; }
-        // Only a name the profile lists as a plugin: a mod folder and a typo both have no header to read.
-        bool isPlugin = comp.OrderedPluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase))
-                        || comp.InactivePluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase))
-                        || comp.ImplicitPluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
-        if (!isPlugin) return null;
+        var comp = d.Composition;
+        // A plugin by the same test the ACTIVE line uses: a mod folder and a typo both have no header to read.
+        if (OutputLocations.JudgeTick(comp, pluginName) == OutputLocations.TickStanding.Unregistered) return null;
 
-        var hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, pluginName);
-        var copies = hits.Select(h => PluginFacts.Copy(h, OutputLocations.JudgeServed(comp, hits, h.Path).Served)).ToList();
+        var hits = Mo2LoadOrder.LocatePlugin(comp, d.ModsDir, d.DataDir, d.OverwriteDir, pluginName);
+        var copies = hits.Select(h => new PluginCopy(h.Path, h.Where, OutputLocations.JudgeServed(comp, hits, h.Path).Served, SizeOf(h.Path))).ToList();
         // No copy serves the name: a lone copy still has a header to read, and several leave none established.
-        var read = copies.FirstOrDefault(c => c.Serves)?.Path ?? (hits.Count == 1 ? hits[0].Path : null);
-        return new PluginFacts(read is null ? null : PluginFile.ReadHeader(read), copies);
+        var from = copies.FirstOrDefault(c => c.Served == OutputLocations.ServedStanding.Serves) ?? (copies.Count == 1 ? copies[0] : null);
+        return new PluginFacts(copies, from, from is null ? null : PluginFile.ReadHeader(from.Path));
+
+        static long? SizeOf(string path) { try { return new FileInfo(path).Length; } catch { return null; } }
     }
 
     /// <summary>Read MO2's OWN local Nexus update cache — every managed mod's meta.ini Nexus fields — with NO network; only Nexus-linked mods become entries, and a missing mods folder is named.</summary>

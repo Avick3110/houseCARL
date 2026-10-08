@@ -818,7 +818,7 @@ internal sealed class OutputLocations
     }
 
     /// <summary>Judge the tick half for one plugin filename from the profile text files, kept beside <see cref="JudgeServed"/> so no lane computes either half its own way.</summary>
-    static TickStanding JudgeTick(Mo2Composition comp, string fileName)
+    internal static TickStanding JudgeTick(Mo2Composition comp, string fileName)
     {
         if (comp.ActivePluginNames.Contains(fileName)) return TickStanding.Ticked;
         foreach (var x in comp.ImplicitPluginNames)
