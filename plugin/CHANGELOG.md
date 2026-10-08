@@ -33,6 +33,8 @@ made the change.
   its size, and the header's ESL and master flags, masters and record count.** Try `filter="Requiem.esp"`.
 - **A SkyPatcher overlay read now shows only the warnings whose INI line can reach the records read; the rest are one
   line pointing to `housecarl_skypatcher_layer filter=<INI>`, which lists each line's warnings under it.**
+- **`housecarl_asset_status` answers a first call over many folders several times faster on a large order, for
+  `under=`, `asset_paths=` and `@file` alike.** A whole mod's files as `asset_paths=@file` on a fresh server shows it.
 
 ## 2.0.4 — 2026-10-05
 
