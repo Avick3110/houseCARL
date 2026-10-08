@@ -263,8 +263,8 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
     [Fact]
     public void TheScopedDenseRowCarriesTheScopedBodysValueBesideTheSourceThatProducedIt()
     {
-        var row = DenseRow(DenseScoped(), Fid(W.W1));
-        Assert.Equal("10", row[3].GetString());            // the master's own body
+        var row = DenseRow(Doc(RecordsTools.Records(Svc, plugins: MasterScope, format: "dense", project: Fields(DamagePath))), Fid(W.W1));
+        Assert.Equal("10", row[3].GetString());            // the master's own body, not the winner's 15
         Assert.Equal(W.MasterName, row[4].GetString());    // ... attributed in-row, so it cannot read as live truth
     }
 
