@@ -560,7 +560,7 @@ static class NifWire
     {
         if (w is null) return;
         sb.Append("    ").Append(w.Label).Append(" 0x").Append(w.Raw.ToString("X8")).Append(": ")
-          .Append(w.Names.Count > 0 ? string.Join(", ", w.Names) : "(no bit set)");
+          .Append(w.Names.Count > 0 ? string.Join(", ", w.Names) : "(no named bit set)");
         sb.Append('\n');
     }
 
