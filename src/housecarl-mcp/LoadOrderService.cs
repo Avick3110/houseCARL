@@ -265,7 +265,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public SkseInventoryData SkseInventory(string? peekFilter = null) => _assetLayers.SkseInventory(peekFilter);
     public SkseConfigAuditData SkseConfigAudit() => _assetLayers.SkseConfigAudit();
     public NativePairingAuditData NativePairingAudit() => _assetLayers.NativePairingAudit();
-    public SkyPatcherLayerData SkyPatcherLayer(Func<SkyPatcherDiscovery.FolderScan, SkyPatcherDiscovery.IniFile, bool>? lintFiles = null) => _assetLayers.SkyPatcherLayer(lintFiles);
+    public SkyPatcherLayerData SkyPatcherLayer() => _assetLayers.SkyPatcherLayer();
+    public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use) => _assetLayers.SkyPatcherLayer(use);
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider) => _assetLayers.NifInspect(relPaths, sourceProvider);
     public NifSetResult NifSet(string relPath, IReadOnlyList<NifSetOp> ops, string? sourceProvider, string? patchName, string? into, bool inPlace, bool acknowledge)
         => _assetLayers.NifSet(relPath, ops, sourceProvider, patchName, into, inPlace, acknowledge);

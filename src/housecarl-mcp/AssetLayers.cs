@@ -572,7 +572,10 @@ internal sealed partial class AssetLayers
 
     /// <summary>Scan the whole SkyPatcher layer: every loose INI as the DLL reads it, the same-field SET collisions,
     /// and the three ITM classes including the no-op writes the per-record replay finds. Report-only.</summary>
-    public SkyPatcherLayerData SkyPatcherLayer(Func<SkyPatcherDiscovery.FolderScan, SkyPatcherDiscovery.IniFile, bool>? lintFiles = null)
+    public SkyPatcherLayerData SkyPatcherLayer() => SkyPatcherLayer(d => d, lint: false);
+
+    /// <summary>The layer scan handed to <paramref name="use"/> while its replay is open, so <see cref="SkyPatcherLayerData.Lint"/> resolves a line only when <paramref name="use"/> asks; the lookup is valid only inside it.</summary>
+    public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, bool lint = true)
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
         // One hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself.
@@ -596,14 +599,17 @@ internal sealed partial class AssetLayers
             duplicates.AddRange(report.Duplicates);
         }
 
-        // The lint of each line in the files the caller expands, resolved once per line, not per record.
-        var lint = new Dictionary<(string File, int Line), IReadOnlyList<string>>();
-        if (lintFiles is not null)
-            foreach (var folder in scan.Folders)
-                foreach (var file in folder.Files.Where(x => lintFiles(folder, x)))
-                    for (int i = 0; i < file.Lines.Count; i++)
-                        if (replay.LineLint(folder, new SkyPatcherOverlay.OrderedLine(file.RelPath, i + 1, file.Lines[i])) is { Count: > 0 } l)
-                            lint[(file.RelPath, i + 1)] = l;
+        // One line's lint, resolved when the render admits the line, not per record.
+        bool incompleteStated = false;
+        IReadOnlyList<string> LintOf(SkyPatcherDiscovery.FolderScan folder, SkyPatcherDiscovery.IniFile file, int i)
+        {
+            var (l, incomplete) = replay.LineLint(folder, new SkyPatcherOverlay.OrderedLine(file.RelPath, i + 1, file.Lines[i]));
+            // A miss read off a table a plugin is missing from is not proof the name does not exist; said once, under the first such line.
+            if (!incomplete || incompleteStated) return l;
+            incompleteStated = true;
+            return l.Append("a name above was looked up in an EditorID table missing a plugin, so it and any later miss may exist — "
+                            + string.Join(" ", replay.Unreadable.Select(u => u.Message).Distinct())).ToList();
+        }
 
         // ---- the TRUE-ITM scan: replay every explicitly-targeted record through the same per-record core the post-state
         //      read uses, and flag SET ops whose before == after. Broad (type-wide) lines see only the explicit targets ----
@@ -656,8 +662,8 @@ internal sealed partial class AssetLayers
                 noOpNotes.Add($"no-op scan: {msg} Lines naming a record it defines could not be resolved.");
         }
 
-        return new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
-            scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint);
+        return use(new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
+            scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null));
     }
 
     /// <summary>A form-scope string to getter Types, or null when it names neither a type nor a link-interface group; see <see cref="TypeLookup.ResolveScope"/>.</summary>
