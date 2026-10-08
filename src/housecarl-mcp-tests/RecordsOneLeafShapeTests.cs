@@ -141,6 +141,28 @@ public sealed class RecordsOneLeafShapeTests : IClassFixture<OneLeafFixture>
     }
 
     [Theory]
+    [InlineData(false, "Effects[*]", "Effects[*].Data.Magnitude")]
+    [InlineData(true, "Effects[*]", "Effects[*].Data.Magnitude")]
+    [InlineData(false, "Effects", "Effects[*]")]
+    [InlineData(true, "Effects", "Effects[*]")]
+    public void OverlappingRequestsListEachPathOnce(bool toFile, string a, string b)
+    {
+        var p = new RecordsTools.RecordsProject { form = "fields", fields = new[] { a, b }, depth = 4 };
+        var leaves = Leaves(toFile ? FileRow(_w.Spell, p) : JsonRow(_w.Spell, p));   // Leaves asserts the paths are distinct
+        Assert.Equal("5", leaves.Single(l => l.Path == "Effects[0].Data.Magnitude").Value);
+        Assert.Equal("4", leaves.Single(l => l.Path == "Effects[1].Data.Magnitude").Value);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AnElementAskedTwiceIsListedOnce(bool toFile)
+    {
+        var leaves = Leaves(toFile ? FileRow(_w.Armor, Fields("Armature[*]", "Armature[0]")) : JsonRow(_w.Armor, Fields("Armature[*]", "Armature[0]")));
+        Assert.Equal(new[] { "Armature[0]", "Armature[1]" }, leaves.Select(l => l.Path).ToArray());
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void TheRowsFormListsItsLeavesFlatToo(bool toFile)

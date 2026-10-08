@@ -263,7 +263,8 @@ static class JsonWire
     {
         var lv = levers ?? LeverNames.Legacy;
         // A folded element row is its leaves on this wire, the element's own line first; its joined text is display only.
-        var leaves = r.Fields.SelectMany(f => f.Cells ?? new[] { f }).ToList();
+        // One entry per path: overlapping projections repeat a leaf with an equal value, and the first one stands.
+        var leaves = r.Fields.SelectMany(f => f.Cells ?? new[] { f }).DistinctBy(f => f.Path).ToList();
         w.WriteStartArray("fields");
         for (int i = 0; i < leaves.Count; i++)
         {

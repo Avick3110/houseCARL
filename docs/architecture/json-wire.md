@@ -27,7 +27,8 @@ The accounting and the notes ride inside the document rather than beside it.
 ### One leaf shape
 
 Every entry of a record's `fields` array, inline and in a `to_file` row, is `{path, value}` or `{path, note}`, with
-a concrete path (indices filled in), listed flat. No entry nests others. A quantified `X[*]` column and the `rows`
+a concrete path (indices filled in), listed flat. No entry nests others, and no path repeats: where overlapping
+requests (`Effects[*]` beside `Effects[*].Data.Magnitude`) reach one leaf twice, the first stands. A quantified `X[*]` column and the `rows`
 form list each element's own summary leaf first, then its sub-leaves. What rides on a leaf (`display`, `slots`,
 `link`, `opaque_bytes`, `note_ref`, a child union) stays on that leaf.
 
