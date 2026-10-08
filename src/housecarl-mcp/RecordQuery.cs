@@ -335,6 +335,7 @@ internal sealed partial class RecordReads
                 foreach (var (fk, depth, body, source) in stream)
                 {
                     ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
+                    if (!seen.Add(fk)) continue;   // one row per key, judged on the copy shown, even if a plugin changed since the build
                     if (setFilter is not null && !setFilter.Contains(fk)) continue;   // the identity intersection, cheapest first
                     if (conflictsOnly && depth <= 1) continue;
                     // defined_in= keeps only records whose origin FormKey is a scoped plugin — a definition, not an
@@ -345,9 +346,6 @@ internal sealed partial class RecordReads
                         if (!ScanRow(fk, depth, body, source)) { stopped = true; break; }
                         continue;
                     }
-                    // RecordsIn already yields one copy per key, the highest-loading scoped one, and that copy is the
-                    // one shown; the winner verdict is FormKey-intrinsic either way.
-                    if (!seen.Add(fk)) continue;
                     // A record the order gives no winner at all is a clean non-match, exactly as the per-record
                     // fetch treated it — never an unscannable row naming a winner there is none of.
                     if (view.ResolveWinner(fk) is not { } w) continue;
@@ -412,8 +410,6 @@ internal sealed partial class RecordReads
                             if (predicate.AbortError is not null) return false;   // e.g. a numeric op against a non-numeric field — abort and surface it
                             return true;
                         }
-                        // RecordsIn yields each key once; this keeps it once if a plugin changed on disk since the build.
-                        if (!whereWinnerActive && !seen.Add(fk)) return true;
                         total++;
                         if (groups is not null)                                   // group_by=: aggregate over all matches, no keys or prefill, no limit cap
                         {
