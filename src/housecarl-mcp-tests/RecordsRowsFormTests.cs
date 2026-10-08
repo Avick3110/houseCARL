@@ -304,8 +304,9 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
         // The sub-leaves sit at the top level, not nested in their element's entry.
         foreach (var k in new[] { 0, 1, 2 }) Assert.Contains(paths, p => p.StartsWith($"Conditions[{k}].", StringComparison.Ordinal));
         // Every leaf sits after its own element's entry and before the next element's.
-        for (int i = 1; i < paths.Count; i++)
-            Assert.StartsWith(paths.Take(i + 1).Last(p => !p.Contains('.')), paths[i]);
+        RecordsOneLeafShapeTests.AssertGrouped(paths, "Conditions");
+        foreach (var k in new[] { 0, 1, 2 })
+            Assert.True(paths.IndexOf($"Conditions[{k}]") < paths.FindIndex(p => p.StartsWith($"Conditions[{k}].", StringComparison.Ordinal)));
     }
 
     [Fact]
