@@ -115,7 +115,7 @@ public sealed class RecordsDenseLaneTests : BulkRecordsTestBase
         };
         Served(r);
         var doc = Doc(r);
-        if (!lane.EndsWith("counts")) Assert.True(doc.TryGetProperty("columns", out _), $"{lane}: no columns in {First(r)}");
+        Assert.True(doc.TryGetProperty("columns", out _), $"{lane}: no columns in {First(r)}");
     }
 
     // ---- the refusals, each naming what to use instead ------------------------------------------------
@@ -147,6 +147,22 @@ public sealed class RecordsDenseLaneTests : BulkRecordsTestBase
         var doc = Doc(RecordsTools.Records(Svc, formids: new[] { Fid(W.W3) }, format: "dense", project: Fields("Keywords[*]")));
         var cells = doc.GetProperty("rows").EnumerateArray().Select(r => r[3].GetString()).ToList();
         Assert.Equal(new[] { Fid(W.KwA), Fid(W.KwB) }, cells);
+    }
+
+    /// <summary>counts_only takes the scan's dense shape on every lane: the columns, no rows, the census beside them.</summary>
+    [Fact]
+    public void DenseCountsOnlyIsAnEmptyTableOnTheFormidsAndScanLanes()
+    {
+        var absent = "FFFFFF:" + W.MasterName;
+        var list = Doc(RecordsTools.Records(Svc, formids: new[] { Fid(W.W1), Fid(W.W2), absent }, format: "dense",
+                                            project: Fields(DamagePath), counts_only: true));
+        var scan = Doc(RecordsTools.Records(Svc, types: Weap, format: "dense", project: Fields(DamagePath), counts_only: true));
+        Assert.Equal(DenseColumns(scan), DenseColumns(list));
+        Assert.Equal(0, list.GetProperty("rows").GetArrayLength());
+        Assert.Equal(0, scan.GetProperty("rows").GetArrayLength());
+        Assert.Equal(3, list.GetProperty("count").GetInt32());
+        Assert.Equal(2, list.GetProperty("resolved").GetInt32());
+        Assert.True(scan.GetProperty("total").GetInt32() > 0);
     }
 
     [Fact]

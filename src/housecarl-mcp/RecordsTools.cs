@@ -757,10 +757,12 @@ public static partial class RecordsTools
                 return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2, headerLine, envelope, listCost,
                                            max_chars, svc.Types.DisplayNames(types), TableRowLimit(limit));
 
+            if (counts_only && dense)
+                return JsonWire.RenderBatchDense(outcomes, form == "fields" ? readPaths : null, foldPlan, max_chars, null, out _, envelope, listCost, countsOnly: true);
             if (counts_only)
             {
                 int ok = outcomes.Count(o => o.Error is null), err = outcomes.Count - outcomes.Count(o => o.Error is null);
-                return json || dense
+                return json
                     ? JsonWire.RenderCounts(envelope, outcomes.Count, ok, err, epoch2, max_chars)
                     : Census($"{headerLine}\ncount={outcomes.Count} ok={ok} errors={err}" + Wire.EpochLine(epoch2));
             }
