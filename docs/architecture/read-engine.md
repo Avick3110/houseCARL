@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-07
+updated: 2026-10-08
 covers: [src/housecarl-core/ReadEngine.cs, src/housecarl-core/BodyGather.cs, src/housecarl-core/WinnerBodies.cs, src/housecarl-core/RecordLinks.cs, src/housecarl-core/RecordArms.cs, src/housecarl-core/RecordNaming.cs, src/housecarl-core/PathFold.cs, src/housecarl-core/PluginFile.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/RecordPoles.cs, src/housecarl-mcp/RecordWalk.cs, src/housecarl-mcp/RecordQuery.cs, src/housecarl-mcp/TreeFold.cs, src/housecarl-mcp/FieldFold.cs, src/housecarl-mcp/ReverseWalkBatch.cs, src/housecarl-mcp/ScanDetailReader.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/ScopeSplit.cs, src/housecarl-mcp/BodyPrefetch.cs, src/housecarl-mcp/PoleGather.cs, src/housecarl-mcp/PluginPaths.cs, src/housecarl-core/FieldsDiff.cs]
 ---
 # The read engine
@@ -42,6 +42,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 - `resolve_names` is type-agnostic: a token that parses as a FormKey IS a form reference, so the annotation inherits its coverage from the read surface with no per-type wiring, and an unresolvable target is a named unresolved row rather than a dropped one.
 - The conflict diff reads at `ConflictDiffDepth`, deep enough to reach every modeled scalar leaf rather than compare depth-1 count summaries, and is bounded by the corpus boundary and `MaxExpandNodes`, whose truncation sentinel it surfaces as `Complete=false`.
 - A named plugin that does not touch a record refuses by naming the plugins that DO, on every lane — active, off-order and pole alike — never a bare "does not define".
+- A `plugins=` scan reads each record once, from the highest-loading scoped plugin that touches it, whatever order the names came in, and `where=` (scoped) judges that copy, so a lower copy that would pass makes no match.
 - A per-record fault is isolated and accounted, never silent: an unscannable record, a leniently read one and an unreadable plugin are three separate counts in the scan's own note.
 - The conflict-tree diff compares DEEP reads, not depth-1 rendered lines. Positional lists compare as
   order-insensitive multisets of whole elements, with a pure reorder reported as its own delta; dict
@@ -60,6 +61,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
   contributor CARRIES it as a distinct subrecord.
 
 ## Pinned by
+- `RecordsScopeCopyOrderTests` — a two-plugin scope answers the same rows under either name order, and a filter only the lower copy passes matches nothing.
 - `WriteProof` step 6, the read-proof oracle (`src/housecarl-generator`, the manual `read-proof` mode) — the round-trip no-op, over every coercible value leaf the write surface drives.
 - `RecordsBulkSelectTests.AMalformedFormidIsAPerItemErrorRowWhileTheOtherRowsStillResolve` and `TheIdentityJsonCarriesOneResolvedRowPerInput` — a bad formid is a per-item error, and the batch renders one row per input.
 - `RuntimeFormIdTests.AMissingRecordInAnEslFlaggedPluginIsToldAboutCompaction` and `RecordsRemedyRepairTests.AndDoesNotBlameEslCompactionOnAPluginThatIsNotEslFlagged` — the ESL clause is stated on a light-flagged plugin and NOT on a plain full master.

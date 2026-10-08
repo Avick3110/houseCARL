@@ -932,8 +932,8 @@ public sealed class LoadOrderResolver : IDisposable
         }
     }
 
-    /// <summary>Stream every record contained in the given plugins (optionally only of the given type(s)), each with that PLUGIN'S body in hand; a FormKey several scoped plugins touch is
-    /// yielded once per plugin and the SERVICE de-dupes. Throws <see cref="PluginUnreadableException"/> on a scoped plugin that cannot be opened now, ending the stream.</summary>
+    /// <summary>Stream every record contained in the given plugins (optionally only of the given type(s)), each with that PLUGIN'S body in hand, in load order whatever order the names
+    /// came in; a FormKey several scoped plugins touch is yielded once, from the highest-loading of them. Throws <see cref="PluginUnreadableException"/> on a scoped plugin that cannot be opened now, ending the stream.</summary>
     public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
         IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
         => RecordsIn(plugins, getterTypes, _snap, null);                   // ONE build for the whole scan (captured here, at the call)
@@ -941,7 +941,10 @@ public sealed class LoadOrderResolver : IDisposable
     IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
         IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes, IndexSnapshot s, AbsenceCache? absences)
     {
-        foreach (int i in ScopeIndices(plugins, s, absences))
+        var scope = ScopeIndices(plugins, s, absences);
+        var inScope = new bool[_paths.Length];
+        foreach (int i in scope) inScope[i] = true;
+        foreach (int i in scope)
         {
             ISkyrimModGetter ov;
             // A plugin that opened at build time but not now became unreadable after it; surfaced with the name.
@@ -953,14 +956,23 @@ public sealed class LoadOrderResolver : IDisposable
                     ? ov.EnumerateMajorRecords()
                     : RecordArms.OfTypes(ov, getterTypes);   // the shared arm re-check
                 foreach (var rec in recs)
-                    if (s.Index.TryGetValue(rec.FormKey, out var e))
+                    if (s.Index.TryGetValue(rec.FormKey, out var e)
+                        && (e.count == 1 || !HigherScopedCopy(s.Overriders[rec.FormKey], i, inScope)))
                         yield return (rec.FormKey, e.count, rec, _names[i]);   // _names[i] = this scoped plugin's filename (the source body)
             }
             finally { (ov as IDisposable)?.Dispose(); }
         }
     }
 
-    /// <summary>Resolve a scope (plugin filenames) to overlay indices; null or empty = the whole order. Throws on a name not in the order, naming it, off the caller's captured snapshot.</summary>
+    /// <summary>Whether a scoped plugin loading after overlay <paramref name="i"/> also touches the key; <paramref name="touching"/> is the key's ascending touching list.</summary>
+    static bool HigherScopedCopy(int[] touching, int i, bool[] inScope)
+    {
+        for (int k = touching.Length - 1; k >= 0 && touching[k] > i; k--)
+            if (inScope[touching[k]]) return true;
+        return false;
+    }
+
+    /// <summary>Resolve a scope (plugin filenames) to overlay indices in load order, each once; null or empty = the whole order. Throws on a name not in the order, naming it, off the caller's captured snapshot.</summary>
     IReadOnlyList<int> ScopeIndices(IReadOnlyList<string>? scopePlugins, IndexSnapshot s, AbsenceCache? absences)
     {
         if (scopePlugins is null || scopePlugins.Count == 0)
@@ -974,7 +986,7 @@ public sealed class LoadOrderResolver : IDisposable
                 throw new ArgumentException($"plugin '{name}' was excluded from this session: {s.ExcludedPlugins[name]}");
             idxs.Add(i);
         }
-        return idxs;
+        return idxs.Distinct().Order().ToArray();
     }
 
     // ---- Freshness -----------------------------------------------------

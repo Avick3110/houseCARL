@@ -67,15 +67,16 @@ public sealed class ScopedRecordSourcePairingTests : IDisposable
         Assert.Equal(damage, Damage(hit.body));
     }
 
-    // Probe: "plugins=[A,B]: weapon yielded once per scoped plugin (2)", "A's yield → source=A & dmg=50", "B's yield →
-    // source=B & dmg=99", "EVERY yield's body matches its source plugin (no mispairing — the heart of the fix)".
-    [Fact]
-    public void ATwoPluginScopeYieldsEachPluginsOwnBodyOnce()
+    // A two-plugin scope yields the record once, from the higher-loading plugin, with that plugin's own body, under
+    // either name order (#1098).
+    [Theory]
+    [InlineData(AName, BName)]
+    [InlineData(BName, AName)]
+    public void ATwoPluginScopeYieldsTheHigherLoadingPluginsBodyOnce(string first, string second)
     {
-        var pairs = _resolver.RecordsIn(new[] { AName, BName }, Weapons).Where(x => x.fk == _fk)
-            .Select(x => (x.source.ToLowerInvariant(), Damage(x.body))).OrderBy(p => p.Item1).ToList();
-
-        Assert.Equal(new[] { (AName.ToLowerInvariant(), (ushort?)DmgA), (BName.ToLowerInvariant(), (ushort?)DmgB) }, pairs);
+        var hit = Assert.Single(_resolver.RecordsIn(new[] { first, second }, Weapons).Where(x => x.fk == _fk));
+        Assert.Equal(BName, hit.source, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(DmgB, Damage(hit.body));
     }
 
     // Probe: "type=: weapon yielded once (the winner only)", "type=: winner body is B's (dmg 99)".
