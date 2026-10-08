@@ -34,6 +34,21 @@ public sealed class RecordsScopeCopyOrderTests : RecordsTestBase
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void AScopeWithoutTheWinnerShowsItsHighestScopedCopy(bool swap)
+    {
+        var names = swap ? new[] { W.MidName, W.MasterName } : new[] { W.MasterName, W.MidName };
+
+        var text = Scan(names);
+
+        Assert.Contains("from " + W.MidName, text);
+        Assert.Contains("Damage = 50", text);
+        Assert.DoesNotContain("Damage = 99", text);
+        Assert.DoesNotContain("Damage = 10", text);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void AFilterOnlyTheLowerScopedCopyPassesMatchesNothing(bool swap)
     {
         var names = swap ? new[] { W.OverrideName, W.MidName } : new[] { W.MidName, W.OverrideName };
