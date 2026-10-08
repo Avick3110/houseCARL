@@ -180,6 +180,15 @@ public sealed class NifInspectRenderTests
         Assert.DoesNotContain("unknown bits", text);
     }
 
+    // a zero flag word, common on real meshes, reads as it did before bitN
+    [Fact]
+    public void AZeroFlagWordReadsNoNamedBitSet()
+    {
+        var word = NifService.DecodeFlagWord("TEST", (GappedFlags)0);
+        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderAndPaths);
+        Assert.Contains("TEST 0x00000000: (no named bit set)\n", text);
+    }
+
     // probe: "NiAVObject flags decode by deviation from the nif.xml default + the 0x80000 bit (no invented bit-names)"
     [Theory]
     [InlineData("0x80000 clear")]
