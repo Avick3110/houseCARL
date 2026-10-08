@@ -221,7 +221,7 @@ public static class ReadEngine
     public const string UnreadablePrefix = "(unreadable: ";
 
     /// <summary>The ONE spelling of a read-fault note, so the sentence cannot drift between the walks that emit it.</summary>
-    static string UnreadableNote(string reason) => $"{UnreadablePrefix}{reason})";
+    internal static string UnreadableNote(string reason) => $"{UnreadablePrefix}{reason})";
 
     /// <summary>The opening of the NO-SUCH-FIELD note — the one <c>Readable=false</c> answer that is knowledge
     /// about the record rather than a fault, so the conflict diff still compares it.</summary>
@@ -233,7 +233,7 @@ public static class ReadEngine
 
     /// <summary>The reason an unreadable note reports — the INNER exception's message, since reflection wraps a
     /// getter's throw in a <see cref="TargetInvocationException"/> naming nothing a caller can act on.</summary>
-    static string Reason(Exception ex) => (ex as TargetInvocationException)?.InnerException?.Message ?? ex.Message;
+    internal static string Reason(Exception ex) => (ex as TargetInvocationException)?.InnerException?.Message ?? ex.Message;
 
     /// <summary>The opening of the no-field note a bracket key the collection can never take emits.</summary>
     public const string BadKeyPrefix = "(no field — ";
@@ -779,6 +779,7 @@ public static class ReadEngine
     {
         refToken = null;
         if (val is System.Collections.IEnumerable && val is not string) return SummariseContainer(val, isDict);
+        if (ConditionLine.Of(val, out refToken) is { } condition) return condition;
         var t = val.GetType();
         var typeName = RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(t.Name));
         // An owned child RECORD element leads with its FormKey, checked BEFORE the Name/EditorID/Title scan.
@@ -1224,6 +1225,7 @@ public static class ReadEngine
             count = n;
             return $"[{(isDict ? "dict" : "list")}: {n} {(isDict ? "pair(s)" : "item(s)")}]";
         }
+        if (ConditionLine.Of(val, out _) is { } condition) return condition;
         // StripOverlay too, matching ElementSummary: an overlay loads WeaponBasicStatsBinaryOverlay for WeaponBasicStats.
         return $"[{RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(val.GetType().Name))}]";
     }

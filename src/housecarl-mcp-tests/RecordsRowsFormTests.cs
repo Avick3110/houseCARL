@@ -107,7 +107,7 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
         var r = Effects(Rows("Effects"));
         var row = RowLine(r, "Effects[1]");
         Assert.Contains("Conditions=[list: 1 item(s)]", row);   // the nested list keeps its count
-        Assert.Contains("Conditions[0]=[ConditionFloat]", row);
+        Assert.Contains("Conditions[0]=[GetRandomPercent() == 2 [Subject]]", row);
         Assert.DoesNotContain("\n  Effects[1].Conditions", r);  // and never as lines of its own
     }
 
@@ -177,8 +177,8 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     {
         var row = RowLine(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) },
                               project: Rows("Effects", "Effects[1].Conditions")), "Effects[1].Conditions[0]");
-        // One occurrence of the element's own type token, not one per root that reached it.
-        Assert.Equal(1, row.Split("[ConditionFloat]").Length - 1);
+        // One occurrence of the element's own summary line, not one per root that reached it.
+        Assert.Equal(1, row.Split("[GetRandomPercent() == 2 [Subject]]").Length - 1);
     }
 
     [Fact]
@@ -277,7 +277,7 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     {
         // depth= means the same thing here as on the fields form: how far into each element the line reaches.
         var row = RowLine(Conditions(new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Conditions" }, depth = 2 }), "Conditions[0]");
-        Assert.Contains("[ConditionFloat]", row);
+        Assert.Contains("[GetActorValue(Conjuration) == 1 [Subject]]", row);
         Assert.DoesNotContain("Data.ActorValue", row);
     }
 
