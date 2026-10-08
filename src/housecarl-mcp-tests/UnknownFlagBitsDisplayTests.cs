@@ -89,6 +89,18 @@ public sealed class UnknownFlagBitsDisplayTests
         Assert.Equal("slot 32", leaf.Display);
     }
 
+    // An int-backed flag with bit 31 set is read at the enum's own width: one bit31 token, not bit31 to bit63.
+    [Fact]
+    public void AnIntFlagWithBit31Set_DecodesAsOneBitToken()
+    {
+        var type = typeof(Armor.MajorFlag);
+        Assert.Equal(typeof(int), Enum.GetUnderlyingType(type));
+        Assert.False(Enum.IsDefined(type, unchecked((int)0x80000000)));
+        var armo = _mod.Armors.AddNew();
+        armo.MajorFlags = Armor.MajorFlag.NonPlayable | (Armor.MajorFlag)unchecked((int)0x80000000);
+        Assert.Equal("NonPlayable, bit31", Leaf(ReadEngine.ReadFields(armo, new[] { "MajorFlags" }), "MajorFlags").Display);
+    }
+
     // Probe COMBO-ALONE: "combo-only bit → a bitN token". Probe COMBO-MIXED: "combo-only+unnamed → no decimal name".
     [Fact]
     public void ABitOnlyInsideAComboMember_IsPartOfTheUnknownRemainder()
