@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-10-08
 covers: [src/housecarl-core/Mo2Instance.cs, src/housecarl-core/Mo2LoadOrder.cs, src/housecarl-core/QtIniEscapes.cs, src/housecarl-core/Mo2ModMeta.cs, src/housecarl-core/UserConfig.cs, src/housecarl-mcp/SetupTools.cs, src/housecarl-mcp/StatusTools.cs, src/housecarl-mcp/UpdateStatusTools.cs]
 ---
 # The MO2 instance
@@ -36,6 +36,21 @@ drawn from the same set of places.
 
 A plugin the load order lists that no searched place provides goes into `Warnings`, never a silent
 drop, and the warning names only the places actually searched.
+
+### The status verdict for one plugin
+
+`housecarl_load_order_status filter=<plugin>` prints every copy `LocatePlugin` finds, each with its
+layer label and size. The copy that serves the name is the resolver's file for an active plugin,
+otherwise the first enabled hit; an enabled copy that does not serve is marked shadowed. A dummy
+copy serving the name while the real file sits in a disabled folder is then visible, not mistaken
+for a read bug (#1001).
+
+The header facts come from one read of the served copy, `PluginFile.ReadHeader`: the master, ESL
+and localized flags, the masters in order, and HEDR's record count. `WriteEngine.PluginIsLocalized`
+is that same reader, so the verdict and the in-place write refusal cannot disagree on the localized
+flag. A header that will not open prints the localized line as UNKNOWN and no other header line.
+With several copies and none serving, no header is read. Only `filter=<plugin>` reads these; a mod
+name and the whole-profile summary do not.
 
 ### Deriving the roots from one path
 
@@ -117,6 +132,9 @@ swallows the note turns a recoverable state into a silent loss.
 - *The priority model*: `MasterSplitInstallLocationsTests.TheSplitFilesEachMasterByWhichInstallLayerHoldsItsFile` —
   `AllPluginFileNames` walks all five layers. No test calls `LocatePlugin`, so that the two draw from the same places
   rests on their shared `CandidateFolders`, not on an assertion.
+- *The status verdict for one plugin*: `StatusPluginFactsTests` — a dummy copy in an enabled folder is named as
+  serving and the real copy in a disabled folder beside it, both with sizes; the ESL flag, masters and record count
+  match the fixture's raw TES4 header. `StatusLocalizedLookupTests` — the localized line from the same read.
 - *Deriving the roots from one path*: `Mo2InstanceResolveTests` — the roots and the active profile
   derived from the instance folder, the `base_directory` override, and a missing required piece named rather than
   half-derived.
