@@ -102,6 +102,8 @@ a legitimate reorder changes the epoch too and the epoch alone cannot tell a deg
 (#353). The health is a SIBLING of the epoch, never folded into it: the epoch is opaque and compared only for
 equality.
 
+Standing notices are stateless; relevance, never memory: a call carries what bears on its own records, the same on every call, and points to where the rest is listed.
+
 ### The absolute-path rule
 
 Every path a CALLER names — an `out_path=` folder, a `to_file=` artifact, an `@file` list, a draft INI — must be

@@ -31,6 +31,8 @@ made the change.
   to use.**
 - **`housecarl_load_order_status filter=<plugin>` now names the folder serving the plugin, every other copy with
   its size, and the header's ESL and master flags, masters and record count.** Try `filter="Requiem.esp"`.
+- **A SkyPatcher overlay read now shows only the warnings whose INI line can reach the records read; the rest are one
+  line pointing to `housecarl_skypatcher_layer filter=<INI>`, which lists each line's warnings under it.**
 
 ## 2.0.4 — 2026-10-05
 

@@ -119,6 +119,15 @@ warnings. Every CLEAN and COLLECTION op in the catalog has exactly one field-map
 mapping or an explicit `Unmapped` with a reason; HARD ops have none, and CI rejects one that
 acquires a mapping.
 
+A warning rides an overlay read when its line bears on a record read: the line's verdict is Match
+or Unresolved for some record, or its NoMatch rests on the warned value (today only the bare-list
+guard, where a token that resolves to nothing forces NoMatch while the resolved ones are present).
+An unknown-key line always rides. Any other warning is a note, and the read prints one line per INI
+counting them, `N note(s) on lines that do not reach these records — housecarl_skypatcher_layer
+filter=<INI> lists them`; in json the same lines join the `skypatcher_warnings` member. Each line's
+lint lives under that line in `housecarl_skypatcher_layer filter=`: unknown keys and the filter form
+tokens that resolve to nothing, resolved once per line, in the words a read uses.
+
 ### Reports and drafts
 
 `SkyPatcherConflicts` is report-only: it names same-field, same-target SET collisions across files
@@ -165,6 +174,9 @@ hardened.
   an unknown key poisoning the whole line, an unmapped filter skipping the line loud, and a HARD op coming back as a
   directive; `SkyPatcherOverlayFilterTests`, `SkyPatcherOverlayEntryOpsTests` and `SkyPatcherOverlayOpClosureTests`
   — the filter kinds, the entry and list ops, and the op closures.
+- *Tiered honesty*, which warnings ride a read: `SkyPatcherWarningRelevanceTests` — a record no line reaches gets the
+  pointer and no warning text, a matched Or line and a bare line stopped by a missing keyword ride, an unknown key
+  always rides, and `filter=` lists the lint under its line.
 - *How the overlay replays onto a record*: `SkyPatcherFieldMapGuardTests.AMappedHardOpIsCaught` — CI rejects a
   HARD op that acquires a mapping.
 - *Reports and drafts*: `SkyPatcherConflictsTests` — SET collisions with the later
