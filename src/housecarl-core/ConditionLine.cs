@@ -85,20 +85,11 @@ static class ConditionLine
         _ => op.ToString(),
     };
 
-    /// <summary>The set flag names, an unnamed bit as <c>bitN</c>, OR last.</summary>
+    /// <summary>The set flag names as the read decodes them, OR moved last.</summary>
     static string FlagWords(Condition.Flag flags)
     {
-        var bits = (ulong)flags;
-        var words = new List<string>();
-        foreach (Condition.Flag f in Enum.GetValues(typeof(Condition.Flag)))
-        {
-            var b = (ulong)f;
-            if (b == 0 || (bits & b) != b) continue;
-            bits &= ~b;
-            if (f != Condition.Flag.OR) words.Add(f.ToString());
-        }
-        for (int i = 0; i < 64; i++) if ((bits & (1UL << i)) != 0) words.Add($"bit{i}");
-        if (flags.HasFlag(Condition.Flag.OR)) words.Add("OR");
+        var words = ReadEngine.FlagParts(new ReadEngine.FlagBits((ulong)flags, typeof(Condition.Flag)), out _);
+        if (words.Remove(nameof(Condition.Flag.OR))) words.Add(nameof(Condition.Flag.OR));
         return string.Join(" ", words);
     }
 }
