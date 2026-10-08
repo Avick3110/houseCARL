@@ -169,7 +169,7 @@ static class DescriptionVocabularyScan
     static readonly string[] NotInReach =
     {
         "comments and XML docstrings (not literals — the #337/#330 authored-prose residue, deliberately out)",
-        "the READMEs, the shipped skills, plugin/CHANGELOG.md, and the plugin / marketplace JSON metadata (not in a scanned tree)",
+        "the READMEs, the shipped skills, plugin/CHANGELOG.md and its plugin/changelog.d/ fragments, and the plugin / marketplace JSON metadata (not in a scanned tree)",
         "a phrase split around a VALUE — \"shown \" + n + \"once\", or across an interpolation hole (no fragment carries it)",
         "prose assembled ACROSS CONTROL FLOW or through a helper — a run of Append calls broken by an 'if', or a "
             + "sentence one method starts and another finishes. A +-run and an unbroken Append or Write run on one "
