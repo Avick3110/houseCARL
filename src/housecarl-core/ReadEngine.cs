@@ -964,7 +964,10 @@ public static class ReadEngine
         return (names is null ? slotText : slotText is null ? names : $"{names} | {slotText}", slots);
     }
 
-    static bool IsBipedSlots(FlagBits fb) => fb.EnumType.Name == "BipedObjectFlag";
+    static bool IsBipedSlots(FlagBits fb) => IsBipedSlots(fb.EnumType);
+
+    /// <summary>True for the biped slot enum, whose unnamed bits the decode prints as <c>slotNN</c>.</summary>
+    internal static bool IsBipedSlots(Type enumType) => enumType.Name == "BipedObjectFlag";
 
     static readonly ConcurrentDictionary<Type, ulong[]> MemberMasks = new();
 
