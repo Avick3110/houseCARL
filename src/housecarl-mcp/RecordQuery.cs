@@ -345,8 +345,8 @@ internal sealed partial class RecordReads
                         if (!ScanRow(fk, depth, body, source)) { stopped = true; break; }
                         continue;
                     }
-                    // where_source=winner de-dups up front: the winner verdict is FormKey-intrinsic, so any scoped
-                    // copy gives the same answer. The scoped path instead de-dups AFTER the filters, in ScanRow.
+                    // RecordsIn already yields one copy per key, the highest-loading scoped one, and that copy is the
+                    // one shown; the winner verdict is FormKey-intrinsic either way.
                     if (!seen.Add(fk)) continue;
                     // A record the order gives no winner at all is a clean non-match, exactly as the per-record
                     // fetch treated it — never an unscannable row naming a winner there is none of.
@@ -412,7 +412,7 @@ internal sealed partial class RecordReads
                             if (predicate.FatalError is not null) return false;   // e.g. a numeric op against a non-numeric field — abort and surface it
                             return true;
                         }
-                        // De-dup, since a key can recur across scoped plugins.
+                        // RecordsIn yields each key once; this keeps it once if a plugin changed on disk since the build.
                         if (!whereWinnerActive && !seen.Add(fk)) return true;
                         total++;
                         if (groups is not null)                                   // group_by=: aggregate over all matches, no keys or prefill, no limit cap
@@ -474,7 +474,7 @@ internal sealed partial class RecordReads
         // Unscannable accounting: the count, the first few offenders with the reason, and what a caller can still do.
         string? scanNote = unscannable == 0 ? null
             : $"note: {unscannable} record instance(s) could not be scanned and were skipped where the failure occurred "
-              + "(Mutagen could not parse their content, or — under where_source=winner — a winner body the index named did not re-resolve on fetch; another plugin's copy of the same FormKey can still match): "
+              + "(Mutagen could not parse their content, or — under where_source=winner — a winner body the index named did not re-resolve on fetch): "
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "")
               + $". Inspect one with {ToolNames.Records} formids=[the FormID] (per-field fault isolation applies).";

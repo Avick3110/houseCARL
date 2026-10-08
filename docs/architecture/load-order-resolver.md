@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-10-08
 covers: [src/housecarl-core/LoadOrderResolver.cs]
 ---
 # The load-order resolver
@@ -48,9 +48,11 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 - A refusal naming a plugin the order does not contain carries the INJECTED explanation of why when there is one, and the did-you-mean otherwise. The resolver is built from a bare ordered path list and knows nothing of MO2, so the explanation is injected by the service.
 - `OpenOverlay` is the single overlay-open choke point, and it redirects strings lookup to the real game-Data folder only when the plugin's OWN folder carries no strings source for that plugin.
 - Light and master-block are separate per-plugin facts read off the same open header: an esp-fe is light in the FormID space and a regular plugin in the order.
+- `RecordsIn` walks its plugins in load order, each once, and yields a FormKey several of them touch only from the highest-loading one, so its answer does not depend on the order the names were passed in.
 - The first active plugin whose KIND could not be read is kept as a position, not a flag: a runtime FormID landing at or after it is refused, one landing before it answers normally.
 
 ## Pinned by
+- `ScopedRecordSourcePairingTests.ATwoPluginScopeYieldsTheHigherLoadingPluginsBodyOnce` — `RecordsIn` over two plugins yields the higher-loading one's body once, under either name order.
 - `atrest-probe` (generator, a manual probe run by name) — zero handles at rest: after a build, after a read through a session, and after a create, every plugin file is renamable and the created patch deletable.
 - `SnapshotViewPinningTests` — a view captured before a real `RefreshIfStale` still answers all-old, a view taken after it answers all-new, and the service answers one operation off one view.
 - `EpochFingerprintTests` — the fingerprint is deterministic over the world state, a content edit (newer OR older), a reorder and a set change each change it, and every index-backed lane carries the capture's epoch.
