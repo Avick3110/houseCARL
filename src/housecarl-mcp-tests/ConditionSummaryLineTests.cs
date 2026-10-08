@@ -15,7 +15,7 @@ public sealed class ConditionSummaryLineTests : IDisposable
 {
     readonly string _dir = Path.Combine(Path.GetTempPath(), "hc-condition-line-" + Guid.NewGuid().ToString("N"));
     readonly SkyrimMod _mod = new(new ModKey("hc_condline", ModType.Plugin), SkyrimRelease.SkyrimSE);
-    readonly string _perk, _npc, _global, _threshold, _ref;
+    readonly string _perk, _npc, _global, _threshold, _ref, _quest;
 
     public ConditionSummaryLineTests()
     {
@@ -61,6 +61,11 @@ public sealed class ConditionSummaryLineTests : IDisposable
         onPackage.Object = new FormLinkOrIndex<IReferenceableObjectGetter>(onPackage, npc.FormKey);
         holder.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = onPackage });
 
+        var quest = _mod.Quests.AddNew(); quest.EditorID = "HC_CondLine_Quest"; _quest = quest.FormKey.ToString();
+        var stage = new GetStageDoneConditionData { Stage = 10 };
+        stage.Quest = new FormLinkOrIndex<IQuestGetter>(stage, quest.FormKey);
+        holder.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = stage });
+
         var path = Path.Combine(_dir, _mod.ModKey.FileName);
         _mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
     }
@@ -105,6 +110,10 @@ public sealed class ConditionSummaryLineTests : IDisposable
     [Fact]
     public void APackageDataRunOnCarriesItsIndex() =>
         Assert.Equal($"[GetIsID({_npc}) == 1 on PackageData 2]", Line(Read(2, "Conditions"), "Conditions[6]"));
+
+    [Fact]
+    public void TwoParametersReadInDeclarationOrder() =>
+        Assert.Equal($"[GetStageDone({_quest}, 10) == 1 on Subject]", Line(Read(2, "Conditions"), "Conditions[7]"));
 
     [Fact]
     public void ADepthOneReadCarriesTheLinesFormIdForResolveNames() =>
