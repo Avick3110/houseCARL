@@ -9,18 +9,20 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>A flags value decodes the same way in text, json, dense, to_file rows and the conflict tree: named bits by
-/// name, each unnamed bit as slotNN (biped) or bitN, and a biped field's slot numbers. Three values: every bit named,
-/// the issue's 1073741828 (Body plus the unnamed slot 60), and an Armor MajorFlags carrying an unnamed bit.</summary>
+/// name, each unnamed bit as slotNN (biped) or bitN, and a biped field's slot numbers unless every bit is a slotNN token.
+/// Values: every bit named, the issue's 1073741828 (Body plus the unnamed slot 60), slot 60 alone, and an Armor
+/// MajorFlags carrying an unnamed bit.</summary>
 [Trait("tier", "integration")]
 public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTests.World>
 {
     const BipedObjectFlag AllNamed = BipedObjectFlag.Body | BipedObjectFlag.Forearms;   // slots 32, 34
     const BipedObjectFlag WithSlot60 = (BipedObjectFlag)1073741828;                      // Body + slot 60
+    const BipedObjectFlag LoneSlot60 = (BipedObjectFlag)1073741824;                      // slot 60 alone
     const Armor.MajorFlag WithBit8 = Armor.MajorFlag.NonPlayable | (Armor.MajorFlag)0x100;
 
-    const string AllNamedDecode = "Body, Forearms (slots 32, 34)";
-    const string Slot60Decode = "1073741828 (Body, slot60; slots 32, 60)";
-    const string Bit8Decode = "260 (NonPlayable, bit8)";
+    const string AllNamedDecode = "Body, Forearms [slots 32, 34]";
+    const string Slot60Decode = "1073741828 [Body, slot60; slots 32, 60]";
+    const string Bit8Decode = "260 [NonPlayable, bit8]";
 
     public sealed class World : IDisposable
     {
@@ -41,6 +43,7 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
             var master = new SkyrimMod(ModKey.FromNameAndExtension("hcFlagMaster.esp"), SkyrimRelease.SkyrimSE);
             Arma(master, "hcFlagNamed", AllNamed);
             Arma(master, "hcFlagSlot60", WithSlot60);
+            Arma(master, "hcFlagLoneSlot", LoneSlot60);
             Armo(master, "hcFlagMajor", WithBit8);
             var treeArma = Arma(master, "hcFlagTreeArma", WithSlot60);
             var treeArmo = Armo(master, "hcFlagTreeArmo", WithBit8);
@@ -104,6 +107,10 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
         Assert.Contains("BodyTemplate.FirstPersonFlags = 1073741828   (Body, slot60; slots 32, 60)", Read("ARMA", "hcFlagSlot60", Slots));
 
     [Fact]
+    public void Text_ALoneUnnamedSlotIsNotDecodedTwice() =>
+        Assert.Contains("BodyTemplate.FirstPersonFlags = 1073741824   (slot60)\n", Read("ARMA", "hcFlagLoneSlot", Slots).ReplaceLineEndings("\n"));
+
+    [Fact]
     public void Text_MajorFlagsWithAnUnnamedBitNamesItAsABitToken() =>
         Assert.Contains("MajorFlags = 260   (NonPlayable, bit8)", Read("ARMO", "hcFlagMajor", Major));
 
@@ -124,6 +131,14 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
         Assert.Equal("1073741828", f.GetProperty("value").GetString());
         Assert.Equal("Body, slot60; slots 32, 60", f.GetProperty("display").GetString());
         Assert.Equal(new[] { 32, 60 }, SlotArray(f));
+    }
+
+    [Fact]
+    public void Json_ALoneUnnamedSlotDecodesOnceAndKeepsTheSlotArray()
+    {
+        var f = Field(Read("ARMA", "hcFlagLoneSlot", Slots, "json"));
+        Assert.Equal("slot60", f.GetProperty("display").GetString());
+        Assert.Equal(new[] { 60 }, SlotArray(f));
     }
 
     [Fact]
@@ -149,6 +164,10 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
         Assert.Equal("1073741828   (Body, slot60; slots 32, 60)", DenseCell(Read("ARMA", "hcFlagSlot60", Slots, "dense")));
 
     [Fact]
+    public void Dense_ALoneUnnamedSlotDecodesOnce() =>
+        Assert.Equal("1073741824   (slot60)", DenseCell(Read("ARMA", "hcFlagLoneSlot", Slots, "dense")));
+
+    [Fact]
     public void Dense_MajorFlagsDecodes() =>
         Assert.Equal("260   (NonPlayable, bit8)", DenseCell(Read("ARMO", "hcFlagMajor", Major, "dense")));
 
@@ -172,6 +191,14 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
         var f = FileField("ARMA", "hcFlagSlot60", Slots);
         Assert.Equal("Body, slot60; slots 32, 60", f.GetProperty("display").GetString());
         Assert.Equal(new[] { 32, 60 }, SlotArray(f));
+    }
+
+    [Fact]
+    public void ToFile_ALoneUnnamedSlotDecodesOnce()
+    {
+        var f = FileField("ARMA", "hcFlagLoneSlot", Slots);
+        Assert.Equal("slot60", f.GetProperty("display").GetString());
+        Assert.Equal(new[] { 60 }, SlotArray(f));
     }
 
     [Fact]

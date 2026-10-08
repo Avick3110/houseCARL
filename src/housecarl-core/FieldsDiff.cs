@@ -157,7 +157,7 @@ public static class FieldsDiff
             if (!f.Readable && !ReadEngine.IsNoSuchFieldNote(f.Note)) { unreadable[f.Path] = f.Note ?? ""; continue; }
             if (f.HasValue) valueLeaves.Add(f.Path);
             // A flags leaf carries its decode beside the token; the decode is a function of the bits, so equality holds.
-            var shown = f is { HasValue: true, Bytes: null, Display: { } d } ? $"{f.Token} ({d})" : f.Token ?? "";
+            var shown = f is { HasValue: true, Bytes: null, Display: { } d } ? $"{f.Token} [{d}]" : f.Token ?? "";
             lines.Add((f.Path, f.HasValue ? shown : f.Note ?? ""));
         }
         return (lines, capped);
