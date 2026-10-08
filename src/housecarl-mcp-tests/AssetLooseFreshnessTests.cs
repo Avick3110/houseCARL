@@ -108,6 +108,22 @@ public sealed class AssetLooseFreshnessTests : IDisposable
         Assert.False(r.RefreshIfStale(), "an unrelated file in a mod folder threw the whole build away");
     }
 
+    /// <summary>A root's top listing answers every folder a call warms, so it must not outlive the freshness check:
+    /// warming `textures\` lists the newcomer's mod folder, a `meshes\` folder lands there that nothing watches, and the
+    /// next call's `meshes\` warm must read the folder again rather than reuse the listing that lacks it.</summary>
+    [Fact]
+    public void AFileAddedToASecondRootAfterAnotherFolderWarmedIsSeen()
+    {
+        using var r = Build();
+        Assert.Null(Winner(r, @"textures\hcfresh\t.dds"));     // lists the newcomer's mod folder, watching only `textures`
+
+        Directory.CreateDirectory(Path.Combine(_mods, Newcomer, Subtree));
+        File.WriteAllText(Path.Combine(_mods, Newcomer, Provided), "newcomer");
+
+        Assert.False(r.RefreshIfStale(), "nothing the build answered changed");
+        Assert.Equal(Newcomer, Winner(r, Provided));
+    }
+
     /// <summary>A file that goes and comes BACK between calls. The build memoizes a directory's listing the first time
     /// anything asks about it, and that memo can be many calls older than the warm that takes a baseline from it — so a
     /// baseline must be a fresh listing. With the memo as the baseline the fresh listing equals it and the file stays
