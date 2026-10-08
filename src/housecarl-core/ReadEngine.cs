@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
 using Mutagen.Bethesda;
@@ -135,9 +136,10 @@ public static class ReadEngine
                 // An UNEXPANDED container leaf self-documents the lever that opens it; the leading-'[' test targets
                 // exactly the container/substruct summaries, since no-value NOTES are parenthesized.
                 if (note is { Length: > 0 } && note[0] == '[' && !string.IsNullOrEmpty(containerHint)) note += containerHint;
-                fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, FlagDisplay(r),
+                var (flagDisplay, slots) = FlagDecode(r);
+                fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, flagDisplay,
                                           Present: r.Present, Count: r.ContainerCount, Readable: r.Readable,
-                                          Bytes: r.ByteLength, Slots: FlagSlots(r)));
+                                          Bytes: r.ByteLength, Slots: slots));
                 // Annotated off ON, the record the leaf was actually read on — a '*parent' hop rebinds it.
                 AnnotateOpaqueBytes(fields, fields.Count - 1, on.FormVersion);
             }
@@ -488,7 +490,12 @@ public static class ReadEngine
     {
         if (budget < 0) return;
         var leaf = EmitToken(val, declaredType, parent);
-        if (leaf.HasValue) { Emit(sink, ref budget, new FieldValue(path, true, leaf.Token, null, FlagDisplay(leaf), Bytes: leaf.ByteLength, Slots: FlagSlots(leaf))); return; }
+        if (leaf.HasValue)
+        {
+            var (flagDisplay, slots) = FlagDecode(leaf);
+            Emit(sink, ref budget, new FieldValue(path, true, leaf.Token, null, flagDisplay, Bytes: leaf.ByteLength, Slots: slots));
+            return;
+        }
         if (val is null) { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note, Present: false)); return; }
         // a link (incl. a null FormKey, or an FLOI) is a note, not an openable container; both flags travel with it.
         if (val is IFormLinkGetter || WriteEngine.IsFormLinkOrIndex(Nullable.GetUnderlyingType(declaredType) ?? declaredType))
@@ -918,41 +925,45 @@ public static class ReadEngine
         catch { return false; }
     }
 
-    /// <summary>The biped slot numbers of a <c>BipedObjectFlag</c> leaf (slot = 30 + bit index), else null.</summary>
-    internal static IReadOnlyList<int>? FlagSlots(LeafRead leaf)
+    /// <summary>The DISPLAY-ONLY decode of a <c>[Flags]</c> enum leaf and, on a biped field, its slot numbers (slot = 30 + bit).</summary>
+    internal static (string? Display, IReadOnlyList<int>? Slots) FlagDecode(LeafRead leaf)
     {
-        if (!leaf.HasValue || leaf.Flags is not { } fb || !IsBipedSlots(fb)) return null;
-        var slots = new List<int>();
-        for (int i = 0; i < 32; i++) if ((fb.Bits & (1UL << i)) != 0) slots.Add(30 + i);
-        return slots.Count == 0 ? null : slots;
+        if (!leaf.HasValue || leaf.Flags is not { } fb) return (null, null);
+        List<int>? slots = null;
+        if (IsBipedSlots(fb))
+        {
+            slots = new List<int>();
+            for (int i = 0; i < 32; i++) if ((fb.Bits & (1UL << i)) != 0) slots.Add(30 + i);
+        }
+        var names = FlagNames(fb, out bool anyNamed);
+        // The slot list is dropped from the display when every set bit is already a slotNN token.
+        var slotText = slots is not { Count: > 0 } || (names is not null && !anyNamed) ? null
+                     : (slots.Count == 1 ? "slot " : "slots ") + string.Join(" ", slots);
+        return (names is null ? slotText : slotText is null ? names : $"{names} | {slotText}", slots);
     }
 
     static bool IsBipedSlots(FlagBits fb) => fb.EnumType.Name == "BipedObjectFlag";
 
-    /// <summary>The DISPLAY-ONLY decode of a <c>[Flags]</c> enum leaf: the bits by name when the token is not already
-    /// the names, then a biped field's slot numbers unless every set bit is already a <c>slotNN</c> token.</summary>
-    internal static string? FlagDisplay(LeafRead leaf)
+    static readonly ConcurrentDictionary<Type, ulong[]> MemberMasks = new();
+
+    /// <summary>An enum type's nonzero member bit patterns, descending (unsigned) so a combo comes before its bits.</summary>
+    static ulong[] SortedMemberMasks(Type enumType) => MemberMasks.GetOrAdd(enumType, t =>
     {
-        if (!leaf.HasValue || leaf.Flags is not { } fb) return null;
-        var names = FlagNames(fb, out bool anyNamed);
-        var slots = names is not null && !anyNamed ? null : FlagSlots(leaf);
-        var slotText = slots is null ? null : (slots.Count == 1 ? "slot " : "slots ") + string.Join(" ", slots);
-        return names is null ? slotText : slotText is null ? names : $"{names} | {slotText}";
-    }
+        var members = new List<ulong>();
+        foreach (var member in Enum.GetValues(t))
+            if (TryEnumBits(member, t, out var mb) && mb != 0) members.Add(mb);
+        members.Sort((a, b) => b.CompareTo(a));
+        return members.ToArray();
+    });
 
     /// <summary>The named bits plus one token per unnamed bit (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere),
     /// joined by " | ", or null when every set bit is named and the token already lists them.</summary>
     static string? FlagNames(FlagBits fb, out bool anyNamed)
     {
         anyNamed = false;
-        // Peel the NAMEABLE bits the way .NET's [Flags].ToString() does: greedily apply each named member that is
-        // FULLY contained, largest first.
-        var members = new List<ulong>();
-        foreach (var member in Enum.GetValues(fb.EnumType))
-            if (TryEnumBits(member, fb.EnumType, out var mb) && mb != 0) members.Add(mb);
-        members.Sort((a, b) => b.CompareTo(a));   // descending (unsigned) — a combo before its constituent bits
+        // Peel the NAMEABLE bits the way .NET's [Flags].ToString() does: greedily apply each FULLY contained member.
         ulong remainder = fb.Bits;
-        foreach (var mb in members) if ((remainder & mb) == mb) remainder &= ~mb;
+        foreach (var mb in SortedMemberMasks(fb.EnumType)) if ((remainder & mb) == mb) remainder &= ~mb;
         if (remainder == 0) return null;
         var parts = new List<string>();
         ulong nameable = fb.Bits & ~remainder;

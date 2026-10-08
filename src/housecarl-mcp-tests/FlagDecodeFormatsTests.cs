@@ -44,6 +44,7 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
             Arma(master, "hcFlagNamed", AllNamed);
             Arma(master, "hcFlagSlot60", WithSlot60);
             Arma(master, "hcFlagLoneSlot", LoneSlot60);
+            Arma(master, "hcFlagNoSlot", 0);
             Armo(master, "hcFlagMajor", WithBit8);
             var treeArma = Arma(master, "hcFlagTreeArma", WithSlot60);
             var treeArmo = Armo(master, "hcFlagTreeArmo", WithBit8);
@@ -139,6 +140,14 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
         var f = Field(Read("ARMA", "hcFlagLoneSlot", Slots, "json"));
         Assert.Equal("slot60", f.GetProperty("display").GetString());
         Assert.Equal(new[] { 60 }, SlotArray(f));
+    }
+
+    [Fact]
+    public void Json_ABipedValueWithNoSlotSetCarriesAnEmptySlotArray()
+    {
+        var f = Field(Read("ARMA", "hcFlagNoSlot", Slots, "json"));
+        Assert.Equal("0", f.GetProperty("value").GetString());
+        Assert.Empty(SlotArray(f));
     }
 
     [Fact]
