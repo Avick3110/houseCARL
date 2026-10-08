@@ -68,15 +68,18 @@ resolver reads no profile.
   the mod set or profile changes. Granting permission moves no mtime, so it clears nothing on its own: the modder
   toggles something in MO2, or restarts the server, and the next call reads the folder again.
 - **A folder is warmed across roots top-down**, each root answered off listings of its mod folder and of each folder
-  below it that its parent lists as a directory; a listing serves every warm until the next `RefreshIfStale`, so a
-  call warming many folders lists each directory once, not once per folder per root. A listing that will not read
-  falls back to the stat-and-prove path.
+  below it that its parent lists as a directory; a listing serves only the **read pass** it was taken in (one
+  `Capture()` or one single-shot read), so a call warming many folders lists each directory on the way once, not once
+  per folder per root, and the next call lists again. The pass, not the freshness check, bounds the reuse, because the
+  service skips `RefreshIfStale` while a write is in flight. An absent subtree therefore costs each root the listings
+  down to its first missing name, once per call that warms one. A listing that will not read falls back to the
+  stat-and-prove path.
 - **A freshness baseline is read at the warm, never off an older memo.** Every directory a warmed subtree puts under
-  watch is baselined by what that warm reads — a listing taken since the last freshness check, which is also what
+  watch is baselined by what that warm reads — a listing taken in the warm's own read pass, which is also what
   the answer came from; on the fallback path, the whole listing for a root's own copy, or for a root that has nothing
   there, two stats on the missing name (no directory, no file), taken only once the absence is proved; where it is
   not (a name listed that will not stat, or an ancestor that stats but will not list, both of which look absent to
-  the two stats) the root is a named failure and nothing is watched. A memo from before the last check answers the
+  the two stats) the root is a named failure and nothing is watched. A memo from an earlier pass answers the
   absence VERDICT and nothing else, because it can predate the warm by any number of calls, and a baseline older
   than the warm makes a file that goes and comes back invisible for the life of the build.
 - **A bad path fails loud.** `NormalizeQueryPath` refuses a drive-rooted or `..`-escaping path naming the input, and
@@ -259,9 +262,10 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   `ThePerPropertyReasonNamesTheRootItCouldNotRead` in the same class — the `ScriptPropertyCheck` exception.
 - *What an answer may claim*: Pinned by `AssetLooseFreshnessTests` — a freshness baseline is read at the warm, never
   off an older memo (`AFileDeletedAndPutBackBetweenCallsIsSeen`, `ASubtreeDeletedAfterASweepMemoizedItsParentIsSeenComingBack`,
-  `AFileAddedToASecondRootAfterAnotherFolderWarmedIsSeen`);
-  an absent root is watched by two stats, with no listing (`WarmingAnAbsentSubtreeListsNothingAndStillSeesItAppear`),
-  only once the absence is proved (`AModFolderThatWillNotListDoesNotMakeEveryCallStale`,
+  `AFileAddedToASecondRootAfterAnotherFolderWarmedIsSeen`), and never off a listing an earlier call took, checked or
+  not (`AFileDeletedWithNoCheckBetweenCallsReadsAbsent`); a read pass lists each directory once, the next call lists
+  again, and the absence stays watched (`APassListsEachDirectoryOnceAndALaterCallListsItAgain`); on the fallback path an absence is watched only
+  once it is proved (`AModFolderThatWillNotListDoesNotMakeEveryCallStale`,
   `AMemoThatWronglyProvesAnAbsenceCostsOneRebuildNotOnePerCall`); a memo never makes a failure
   (`AnAbsenceUnderAFolderGivenBackAfterItWouldNotListIsProvedAndWatched`).
 - *One build per call*: **Zero archive handles at rest:** pinned by `AssetResolverTests.TheResolverHoldsNoArchiveHandleAtRest`

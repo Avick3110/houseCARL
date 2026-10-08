@@ -321,26 +321,45 @@ public sealed class AssetLooseFreshnessTests : IDisposable
         Assert.True(r.RefreshIfStale(), "a root-level path is resolved from the mod folder's own listing");
     }
 
-    /// <summary>Once the absence memo holds each root's ancestor, warming a further absent subtree lists nothing: the
-    /// watch is two stats on the missing name, not a fresh ancestor listing per root per warm (#861). The absence is
-    /// still watched: the name appearing afterwards is seen on the next call.</summary>
+    /// <summary>One read pass lists each directory on a root's path once, however many absent subtrees it warms (#861
+    /// forbade one listing per root per subtree); a later call lists them again rather than trust an older listing, and
+    /// the absence is still watched: the name appearing afterwards is seen on the next call.</summary>
     [Fact]
-    public void WarmingAnAbsentSubtreeListsNothingAndStillSeesItAppear()
+    public void APassListsEachDirectoryOnceAndALaterCallListsItAgain()
     {
         using var r = Build();
-        Assert.Equal(Provider, Winner(r, Provided));
-        Assert.Null(Winner(r, @"meshes\hcgonefirst\x.nif"));  // fills the absence memo for each root's ancestor
-        var before = r.WarmListingCount;
+        var view = r.Capture();
+        Assert.False(view.Resolve(@"meshes\hcgonefirst\x.nif").Exists);
+        var perPass = r.WarmListingCount;
+        Assert.Equal(3, perPass);                              // both mod folders, and the provider's `meshes`
 
-        for (int i = 0; i < 20; i++) Assert.Null(Winner(r, $@"meshes\hcgone{i}\x.nif"));
+        for (int i = 0; i < 20; i++) Assert.False(view.Resolve($@"meshes\hcgone{i}\x.nif").Exists);
+        Assert.Equal(perPass, r.WarmListingCount);             // one listing per root per subtree would be 60 more
 
-        Assert.Equal(before, r.WarmListingCount);              // an ancestor listing per root per subtree would be 40
+        Assert.False(r.RefreshIfStale(), "nothing the build answered changed");
+        var next = r.Capture();
+        for (int i = 20; i < 40; i++) Assert.False(next.Resolve($@"meshes\hcgone{i}\x.nif").Exists);
+        Assert.Equal(2 * perPass, r.WarmListingCount);         // the next call reads its own listings, once
 
-        Directory.CreateDirectory(Path.Combine(_mods, Provider, "meshes", "hcgone7"));
-        File.WriteAllText(Path.Combine(_mods, Provider, "meshes", "hcgone7", "x.nif"), "x");
+        Directory.CreateDirectory(Path.Combine(_mods, Provider, "meshes", "hcgone27"));
+        File.WriteAllText(Path.Combine(_mods, Provider, "meshes", "hcgone27", "x.nif"), "x");
 
-        Assert.True(r.RefreshIfStale(), "the subtree established absent by stats appeared and was not noticed");
-        Assert.Equal(Provider, Winner(r, @"meshes\hcgone7\x.nif"));
+        Assert.True(r.RefreshIfStale(), "the subtree established absent appeared and was not noticed");
+        Assert.Equal(Provider, Winner(r, @"meshes\hcgone27\x.nif"));
+    }
+
+    /// <summary>A write in flight skips the freshness check, so a call must never answer off a listing an earlier call
+    /// took: warming a deeper folder lists `hcfresh`, the file then goes, and the next call, with no check between,
+    /// must read it absent.</summary>
+    [Fact]
+    public void AFileDeletedWithNoCheckBetweenCallsReadsAbsent()
+    {
+        using var r = Build();
+        Assert.Null(Winner(r, Subtree + @"\deeper\x.nif"));    // lists the provider's `hcfresh` on the way down
+
+        File.Delete(Path.Combine(_mods, Provider, Provided));
+
+        Assert.Null(Winner(r, Provided));
     }
 
     /// <summary>The one case two stats cannot settle: a mod folder that stats but will not list, so its subtree does
