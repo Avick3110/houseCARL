@@ -34,7 +34,7 @@ public static class ReadEngine
     /// saying why there is none.</summary>
     internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null, int? ContainerCount = null,
                                              bool Present = true, bool Readable = true, int? ByteLength = null, Enum? EnumBox = null,
-                                             Type? ContainerType = null)
+                                             Type? ContainerType = null, IConditionGetter? Condition = null)
     {
         public static LeafRead Value(string token) => new(true, token, null);
         public static LeafRead FlagsValue(string token, FlagBits bits) => new(true, token, null, bits);
@@ -140,6 +140,7 @@ public static class ReadEngine
                 var (on, tail, hopNote) = HopToParent(record, seg, parentOf);
                 if (hopNote is not null) { fields.Add(new FieldValue(p, false, null, hopNote, null, Present: false, Count: null, Readable: false)); continue; }
                 var r = ReadLeaf(on, tail);
+                if (r.Condition is { } cond) { fields.Add(ConditionHead(p, cond, containerHint)); continue; }
                 string? note = r.HasValue ? null : r.Note;
                 // An UNEXPANDED container leaf self-documents the lever that opens it; the leading-'[' test targets
                 // exactly the container/substruct summaries, since no-value NOTES are parenthesized.
@@ -221,7 +222,7 @@ public static class ReadEngine
     public const string UnreadablePrefix = "(unreadable: ";
 
     /// <summary>The ONE spelling of a read-fault note, so the sentence cannot drift between the walks that emit it.</summary>
-    internal static string UnreadableNote(string reason) => $"{UnreadablePrefix}{reason})";
+    static string UnreadableNote(string reason) => $"{UnreadablePrefix}{reason})";
 
     /// <summary>The opening of the NO-SUCH-FIELD note — the one <c>Readable=false</c> answer that is knowledge
     /// about the record rather than a fault, so the conflict diff still compares it.</summary>
@@ -233,7 +234,7 @@ public static class ReadEngine
 
     /// <summary>The reason an unreadable note reports — the INNER exception's message, since reflection wraps a
     /// getter's throw in a <see cref="TargetInvocationException"/> naming nothing a caller can act on.</summary>
-    internal static string Reason(Exception ex) => (ex as TargetInvocationException)?.InnerException?.Message ?? ex.Message;
+    static string Reason(Exception ex) => (ex as TargetInvocationException)?.InnerException?.Message ?? ex.Message;
 
     /// <summary>The opening of the no-field note a bracket key the collection can never take emits.</summary>
     public const string BadKeyPrefix = "(no field — ";
@@ -491,6 +492,13 @@ public static class ReadEngine
 
     static FieldValue Fault(string path, Exception ex) => Fault(path, Reason(ex));
 
+    /// <summary>A condition element's display line with the FormID it names, or the fault line when a part cannot be read.</summary>
+    internal static FieldValue ConditionHead(string path, IConditionGetter cond, string? hint)
+    {
+        try { return new FieldValue(path, false, null, ConditionLine.Of(cond, out var noteRef) + hint, Present: true, NoteRef: noteRef); }
+        catch (Exception ex) { return Fault(path, ex); }
+    }
+
     /// <summary>Recurse into ONE child under the same isolation its getter has: a throw beneath it names THAT
     /// child's path and the sibling walk carries on.</summary>
     static void ExpandChild(object? val, Type declaredType, object parent, string childPath, int depth,
@@ -524,8 +532,9 @@ public static class ReadEngine
 
         // a container or substruct — summarise, then maybe open it. NoteRef carries the FormID the summary spelled.
         int? deepCount = val is System.Collections.IEnumerable de and not string ? CountOf(de) : null;
-        var summary = ElementSummary(val, isDict, out var summaryRef);
-        if (!Emit(sink, ref budget, new FieldValue(path, false, null, summary, Present: true, Count: deepCount, NoteRef: summaryRef))) return;
+        var head = val is IConditionGetter cond ? ConditionHead(path, cond, null)
+            : new FieldValue(path, false, null, ElementSummary(val, isDict, out var summaryRef), Present: true, Count: deepCount, NoteRef: summaryRef);
+        if (!Emit(sink, ref budget, head)) return;
 
         // Two POLYMORPHIC-ARM families — a VMAD script property and a Conditions[].Data arm — surface their VALUE
         // ONE bounded level deeper even at the depth floor, for parity with the write surface.
@@ -779,7 +788,6 @@ public static class ReadEngine
     {
         refToken = null;
         if (val is System.Collections.IEnumerable && val is not string) return SummariseContainer(val, isDict);
-        if (ConditionLine.Of(val, out refToken) is { } condition) return condition;
         var t = val.GetType();
         var typeName = RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(t.Name));
         // An owned child RECORD element leads with its FormKey, checked BEFORE the Name/EditorID/Title scan.
@@ -908,7 +916,7 @@ public static class ReadEngine
         bool isDict = WriteEngine.ClosedInterface(val.GetType(), typeof(IDictionary<,>)) is not null
                    || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null;
         var summary = SummariseContainer(val, isDict, out var count);
-        return LeafRead.Container(summary, count, val.GetType());
+        return LeafRead.Container(summary, count, val.GetType()) with { Condition = val as IConditionGetter };
     }
 
     /// <summary>The unsigned bit pattern of a boxed enum value, masked to the declared underlying type's width.</summary>
@@ -1230,7 +1238,6 @@ public static class ReadEngine
             count = n;
             return $"[{(isDict ? "dict" : "list")}: {n} {(isDict ? "pair(s)" : "item(s)")}]";
         }
-        if (ConditionLine.Of(val, out _) is { } condition) return condition;
         // StripOverlay too, matching ElementSummary: an overlay loads WeaponBasicStatsBinaryOverlay for WeaponBasicStats.
         return $"[{RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(val.GetType().Name))}]";
     }
