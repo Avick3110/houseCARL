@@ -72,6 +72,34 @@ public sealed class BsaFilterTests : IDisposable
     }
 
     [Fact]
+    public void APlainFolderPathKeepsEverythingBeneathIt()
+    {
+        var r = BsaTools.BsaList(_archive, under: new[] { "scripts" });
+
+        Assert.Contains("2 matching", r);
+        Assert.Contains("main.pex", r);
+        Assert.Contains("helper.pex", r);
+    }
+
+    [Fact]
+    public void AFolderPrefixShortOfASeparatorMatchesNothing()
+    {
+        var r = BsaTools.BsaList(_archive, under: new[] { "scrip" }, counts_only: true);
+
+        Assert.Contains("0 matching", r);
+    }
+
+    [Fact]
+    public void TwoSelectorsKeepTheUnionOfTheirMatches()
+    {
+        var r = BsaTools.BsaList(_archive, under: new[] { "scripts/main.pex", "scripts/helper.pex" });
+
+        Assert.Contains("2 matching", r);
+        Assert.Contains("main.pex", r);
+        Assert.Contains("helper.pex", r);
+    }
+
+    [Fact]
     public void AListNamesTheSelectorThatMatchedNothingBesideALiveOne()
     {
         var r = BsaTools.BsaList(_archive, under: new[] { "scripts/main.pex", "scripts/mian.pex" }, counts_only: true);
