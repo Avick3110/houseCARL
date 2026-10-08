@@ -533,8 +533,8 @@ public static partial class RecordsTools
             int over = overlayWarnings.Overflow;
             var pointers = SkyPatcherNotePointers(overlayWarnings.NotesByFile);
             if (shown.Count == 0 && pointers.Count == 0) return;
-            envelope.Add(new("skypatcher_warnings",
-                             string.Join(" | ", shown.Concat(pointers)) + (over > 0 ? $" (+{over} more not listed)" : "")));
+            var overflow = over > 0 ? new[] { $"{over} further warning(s) not listed" } : Array.Empty<string>();
+            envelope.Add(new("skypatcher_warnings", string.Join(" | ", shown.Concat(overflow).Concat(pointers))));
             foreach (var w in shown) headerLine += "\n[!] skypatcher: " + w;
             if (over > 0) headerLine += $"\n[!] skypatcher: {over} further warning(s) not listed.";
             foreach (var p in pointers) headerLine += "\n[!] skypatcher: " + p;

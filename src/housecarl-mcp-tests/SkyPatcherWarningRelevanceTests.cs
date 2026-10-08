@@ -172,3 +172,40 @@ public sealed class SkyPatcherWarningRelevanceTests : IDisposable
         Assert.True(line1 >= 0 && line1 < lint && lint < line2, text);
     }
 }
+
+/// <summary>Past the warning cap and the per-INI pointer count: the overflow count stays with the warnings, and the
+/// INIs past the fifth roll into one line.</summary>
+[Trait("tier", "integration")]
+public sealed class SkyPatcherNotePointerRollUpTests : IDisposable
+{
+    readonly SkyPatcherRelevanceWorld _w;
+
+    // HcOver: one unknown-key line more than the cap, each riding; HcNote1..6: one Or line each that reaches no record.
+    public SkyPatcherNotePointerRollUpTests() => _w = new SkyPatcherRelevanceWorld(
+        new[] { ("HcOver.ini", string.Concat(Enumerable.Range(1, HousecarlCore.SkyPatcherOverlay.WarningSink.Cap + 1)
+                    .Select(i => $"filterByBogus{i}=1:keywordsToAdd=HcAddKw\r\n"))) }
+        .Concat(Enumerable.Range(1, 6).Select(i => ($"HcNote{i}.ini", $"filterByKeywordsOr=HcNoSuchN{i}:keywordsToAdd=HcAddKw\r\n"))));
+
+    public void Dispose() => _w.Dispose();
+
+    [Fact]
+    public void TheSixthInisNotesRollIntoOneLine()
+    {
+        var text = _w.Read(new[] { _w.Plain });
+
+        Assert.Contains("filter=HcNote5.ini lists them", text);
+        Assert.Contains($"1 more note(s) in 1 other INI(s) — {ToolNames.SkypatcherLayer} filter=<INI filename> lists each one's", text);
+        Assert.DoesNotContain("filter=HcNote6.ini", text);
+    }
+
+    [Fact]
+    public void TheJsonOverflowCountSitsWithTheWarningsBeforeThePointers()
+    {
+        using var doc = JsonDocument.Parse(_w.Read(new[] { _w.Plain }, "json"));
+        var member = doc.RootElement.GetProperty("skypatcher_warnings").GetString()!;
+
+        int over = member.IndexOf("| 1 further warning(s) not listed |", StringComparison.Ordinal);
+        int pointer = member.IndexOf("note(s) on lines that do not reach", StringComparison.Ordinal);
+        Assert.True(over >= 0 && over < pointer, member);
+    }
+}
