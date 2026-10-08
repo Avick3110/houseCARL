@@ -127,7 +127,7 @@ static class RowProjection
         var val = f.HasValue ? f.Token : f.Note;
         bool trimmed = false;
         if (trimToType && !f.HasValue && val is { Length: > 0 } n && n[0] == '['
-            && LeadClose(n) is var close && close > 0 && close < n.Length - 1)
+            && n.IndexOf(']') is var close && close > 0 && close < n.Length - 1)
             { val = n[..(close + 1)]; trimmed = true; }
         // A blob takes its SHORT annotation here: a cell is joined positionally and bounded by width.
         if (f.Bytes is { } opaque) val += " " + ReadEngine.BytesShortDisplay(opaque, f.BytesFormVersion);
@@ -136,17 +136,5 @@ static class RowProjection
         if (f.Link is not null && !trimmed) val += $" ({Wire.LinkText(f.Link)})";
         if (f.Path.Length == rowKey.Length) return val ?? "";
         return $"{f.Path[rowKey.Length..].TrimStart('.')}={val}";
-    }
-
-    /// <summary>The index of the ']' that closes a summary's leading '[', so a condition line's inner [Subject] is not the cut.</summary>
-    static int LeadClose(string n)
-    {
-        int open = 0;
-        for (int i = 0; i < n.Length; i++)
-        {
-            if (n[i] == '[') open++;
-            else if (n[i] == ']' && --open == 0) return i;
-        }
-        return -1;
     }
 }
