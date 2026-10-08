@@ -215,13 +215,13 @@ schemas; two entries split them.
 
 Claude Code delivers the first 2,048 characters of the `initialize` instructions (characters of the string) and
 appends `[truncated]`, the same cut it applies to a tool description. The instructions in `Program.cs` stay under it,
-with the rules first and the capability map last; a line that only one tool needs belongs in that tool's description.
+with the rules first and a keyword capability map last. The map stays even where a tool description repeats it:
+with deferred tools a session sees only tool names up front, so the instructions are its only capability text.
 
 ## Pinned by
 
 - *The instructions cut*: `ServerInstructionsTests.TheInstructionsFitClaudeCodesCutOf2048Characters`, on the served
   string.
-
 - *Pass 1 — the `@file` union*: `PublishedSchemaShapeTests.EveryFileListUnionPublishesAnyOfGeneratedArrayOrString`
   and `EveryFileListUnionsArrayArmCarriesItsGeneratedElementMembers` — the union, with the array arm generated from
   the C# element type.

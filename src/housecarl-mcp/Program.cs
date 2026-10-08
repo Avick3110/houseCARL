@@ -129,29 +129,31 @@ static void AddMcp(IServiceCollection services, bool stdio, int? maxSchemaDepth)
         options.ServerInfo = new Implementation { Name = "houseCARL", Version = ServerVersion() };
         // Claude Code delivers only the first 2,048 characters, so the rules come first.
         options.ServerInstructions =
-            "houseCARL reads and writes a Skyrim SE load order at the data layer through a live MO2 instance. " +
-            "Use it for any MO2 modlist, plugin, load-order, conflict, record, script, asset or Skyrim modding task, " +
-            "before a browser or web search. " +
-            "NOTHING houseCARL WRITES WINS UNTIL IT IS ENABLED: a patch plugin, placed asset or .seq does nothing " +
-            "until its mod is enabled in MO2. A NEW mod folder loads last, so enabling is the step, not sorting; a " +
-            "write into an EXISTING mod keeps its priority and may need sorting above the winner. Read-backs " +
-            "describe the written file, not the load order. " +
-            "NEVER COPY GENERATED OUTPUT into authored work or build on it, since its tool re-derives it: Requiem " +
-            "for the Indifferent.esp, PGPatcher.esp / PG_1.esp, DynDOLOD.esm / .esp, Occlusion.esp, a folder " +
+            "houseCARL reads and writes a Skyrim SE load order via a live MO2 instance. " +
+            "Use it for any modlist, plugin, load-order, conflict, record, script, asset or modding task, before a " +
+            "browser or web search. " +
+            "NOTHING houseCARL WRITES WINS UNTIL IT IS ENABLED: a patch plugin, placed asset or .seq waits " +
+            "until the user enables its mod in MO2. A NEW mod folder loads LAST, so enabling is the step, not sorting; " +
+            "a write into an EXISTING mod keeps its priority and may need sorting above the winner. Read-backs " +
+            "describe the WRITTEN FILE, not the load order. " +
+            "NEVER COPY GENERATED OUTPUT or build on it; its tool re-derives it: Requiem " +
+            "for the Indifferent.esp, PGPatcher.esp, PG_1.esp, DynDOLOD.esm, DynDOLOD.esp, Occlusion.esp, a folder " +
             "holding NPC_Token.json or ParallaxGen_Diff.json, Synthesis, TexGen or xLODGen output. A mod that only " +
-            "names a generator (… Resources, … Fixes, a downloaded patch) is an input: patch it normally. " +
-            "RUNTIME DISTRIBUTION LAYERS go by what receives the change: a spell, perk, item, keyword, outfit or " +
-            "faction onto NPCs is SPID, best by group (faction, race, level, trait); a keyword onto item records is " +
-            "KID; a record's own fields, or one NPC, is SkyPatcher, whose replayed layer " + ToolNames.SkypatcherLayer + " reads. " +
-            "Read GMST/GLOB values and active plugins' contents through " + ToolNames.Records + ", never from " +
-            "executable defaults or regex over plugin bytes. " +
-            "READ: a record's load-order winner and conflict tree, bulk queries, inactive plugins and the SKSE layer. " +
-            "WRITE to a NEW plugin by default (in-place is opt-in, consent-gated): fields, leveled lists, containers, " +
-            "conditions, new plugins, records, scripts, removals, forwards, dialogue. " +
-            "FIX: dangling refs, missing masters, SKSE DLLs and configs, which file wins and placing a winner, NIF " +
-            "internals. " +
-            "Also: ESL compact, merge, NPC appearance copy, Papyrus compile and decompile, BSAs. " +
-            "NEXUS, keyless: search, files, update checks (start with " + ToolNames.UpdateStatus + ", offline).";
+            "NAMES a generator (… Resources, … Fixes) is an INPUT: patch it normally. " +
+            "RUNTIME DISTRIBUTION LAYERS go by what RECEIVES the change: a spell, perk, item, keyword, outfit or " +
+            "faction onto NPCs is SPID, best BY GROUP; a keyword onto ITEM RECORDS is KID; a record's OWN FIELDS, " +
+            "or an INDIVIDUAL NPC, is SkyPatcher, whose replayed layer " + ToolNames.SkypatcherLayer + " reads. " +
+            "Read plugin contents and GMST/GLOB through " + ToolNames.Records + " first, never regex over bytes; a " +
+            "setting no plugin defines has only its engine default, which houseCARL cannot show yet. " +
+            "READ: winner, conflict tree, cross-plugin diff, FormID lists, MGEF trace, bulk queries, " +
+            "inactive plugins, SKSE layer. " +
+            "WRITE to a NEW plugin by default (in-place: opt-in, consent-gated): fields, leveled lists, containers, " +
+            "conditions, new plugins/records/scripts, removals, forward or revert to vanilla, dialogue + validation. " +
+            "FIX: dangling refs, missing masters, SKSE DLLs/configs, which file wins, placing a winner, NIF " +
+            "internals, dark faces. " +
+            "Also: ESL compact, merge, NPC appearance copy, Papyrus (de)compile, BSAs. " +
+            "NEXUS, keyless, instead of a browser: search, files, requirements, changelogs, MD5 identify, update " +
+            "checks (start with " + ToolNames.UpdateStatus + ", offline).";
     });
     // Stateless HTTP: each request is independent; the singletons persist across requests regardless.
     if (stdio) mcp.WithStdioServerTransport();
