@@ -6,7 +6,7 @@ namespace HousecarlCore;
 public static class FieldsDiff
 {
     /// <summary>Field-level deltas, preformatted for the conflict-tree render; <see cref="Complete"/> false means an empty <see cref="Deltas"/> must NOT be rendered as "identical to winner".</summary>
-    /// <param name="NoVerdictCount">How many of <paramref name="Deltas"/> are UNREADABLE no-verdict lines rather than value differences.</param>
+    /// <param name="NoVerdictCount">How many of <paramref name="Deltas"/> are no-verdict lines (UNREADABLE, or NO FIELD on both sides) rather than value differences.</param>
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
         int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount);
 
@@ -24,7 +24,11 @@ public static class FieldsDiff
         var (tLines, tCapped) = CleanLines(theirs, tValueLeaves, tUnreadable);
         var (wLines, wCapped) = CleanLines(winner, wValueLeaves, wUnreadable);
         bool capped = tCapped || wCapped;
-        var noVerdict = tUnreadable.Keys.Union(wUnreadable.Keys).OrderBy(p => p, StringComparer.Ordinal).ToList();
+        // A path with no field on either side is a wrong path, never two equal values.
+        var wNoField = wLines.Where(l => ReadEngine.IsNoSuchFieldNote(l.val)).Select(l => l.path).ToHashSet(StringComparer.Ordinal);
+        var noField = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (p, v) in tLines) if (ReadEngine.IsNoSuchFieldNote(v) && wNoField.Contains(p)) noField.TryAdd(p, v);
+        var noVerdict = tUnreadable.Keys.Union(wUnreadable.Keys).Union(noField.Keys).OrderBy(p => p, StringComparer.Ordinal).ToList();
         bool complete = !capped && noVerdict.Count == 0;
 
         // A path is OUT of the comparison when it, or a path it hangs under, could not be read on either side.
@@ -58,6 +62,7 @@ public static class FieldsDiff
         // Unreadable leaves: a no-verdict, named, saying which field and on which side.
         foreach (var path in noVerdict)
         {
+            if (noField.TryGetValue(path, out var nf)) { deltas.Add($"{path}: NO FIELD on both sides — not compared {nf}"); continue; }
             bool t = tUnreadable.TryGetValue(path, out var tn), w = wUnreadable.TryGetValue(path, out var wn);
             var side = t && w ? "on both sides" : t ? "here" : $"in {referenceLabel}";
             deltas.Add($"{path}: UNREADABLE {side} — not compared{Why(t, tn, w, wn)}");
@@ -145,7 +150,7 @@ public static class FieldsDiff
         return null;
     }
 
-    /// <summary>The read's lines minus the expansion-cap sentinel and the UNREADABLE ones; keyed on <c>Readable</c>, with a no-such-field note carved out as a comparable shape difference.</summary>
+    /// <summary>The read's lines minus the expansion-cap sentinel and the UNREADABLE ones; keyed on <c>Readable</c>; a no-such-field note stays a line, a shape difference when only one side has it.</summary>
     static (List<(string path, string val)> lines, bool capped) CleanLines(RecordFields rf,
         HashSet<string> valueLeaves, Dictionary<string, string> unreadable)
     {

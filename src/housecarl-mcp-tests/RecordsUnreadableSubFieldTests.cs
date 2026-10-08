@@ -374,15 +374,14 @@ public sealed class UnreadableLeafComparisonTests
         Assert.Contains(d.Deltas, x => x.StartsWith("Conditions[0].Data.Reference: UNREADABLE on both sides — not compared (floi: ", StringComparison.Ordinal));
     }
 
-    /// <summary>A no-such-field is the OTHER Readable=false answer and stays comparable: it says something true
-    /// about the record, so two sides that both lack the field still agree on that.</summary>
+    /// <summary>A path with no field on both sides is a wrong path, so it is not compared, never called identical (#1126).</summary>
     [Fact]
-    public void ANoSuchFieldStillCompares()
+    public void ANoSuchFieldOnBothSidesIsNotCompared()
     {
         var missing = new FieldValue("Nope", false, null, "(no field Nope)", Present: false, Readable: false);
         var d = FieldsDiff.Compare(Rec(missing), Rec(missing));
 
-        Assert.True(d.Complete);
-        Assert.Empty(d.Deltas);
+        Assert.False(d.Complete);
+        Assert.Equal("Nope: NO FIELD on both sides — not compared (no field Nope)", Assert.Single(d.Deltas));
     }
 }
