@@ -234,6 +234,13 @@ public static class ReadEngine
     /// getter's throw in a <see cref="TargetInvocationException"/> naming nothing a caller can act on.</summary>
     static string Reason(Exception ex) => (ex as TargetInvocationException)?.InnerException?.Message ?? ex.Message;
 
+    /// <summary>The opening of the no-field note a bracket key the collection can never take emits.</summary>
+    public const string BadKeyPrefix = NoFieldPrefix + "— ";
+
+    /// <summary>The note a walk's throw becomes: a bad bracket key is a wrong path, anything else a read fault.</summary>
+    static string ThrowNote(Exception ex) =>
+        ex is PathKeyShapeException ? $"{BadKeyPrefix}{ex.Message})" : UnreadableNote(Reason(ex));
+
     /// <summary>Read one leaf path off a located record and return its token, or a sentinel — the write engine's
     /// path walk, READ-ONLY: an absent optional substruct is surfaced, never materialised.</summary>
     internal static LeafRead ReadLeaf(object record, string[] path)
@@ -264,7 +271,7 @@ public static class ReadEngine
             return EmitToken(leaf.GetValue(current), leaf.PropertyType, current);
         }
         catch (ExpectedApplyRejectionException ex) { return LeafRead.None(AbsentWith(ex)); }   // an absent arm, collection, key or index: unset, not a fault
-        catch (Exception ex) { return LeafRead.Unreadable(UnreadableNote(Reason(ex))); }
+        catch (Exception ex) { return LeafRead.Unreadable(ThrowNote(ex)); }
     }
 
     /// <summary>The FormKeys on a record's <c>Keywords</c> list — the ONE keyword walk.</summary>
@@ -300,7 +307,7 @@ public static class ReadEngine
             if (nav.val is null) return (null, AbsentNote);
             return LinksIn(nav.val, string.Join(".", path));
         }
-        catch (Exception ex) { return (null, UnreadableNote(Reason(ex))); }
+        catch (Exception ex) { return (null, ThrowNote(ex)); }
     }
 
     /// <summary>The link-shape half of <see cref="CollectLinksAt"/>, over a value already navigated to.</summary>
@@ -718,7 +725,7 @@ public static class ReadEngine
             return (true, leaf.GetValue(current), leaf.PropertyType, current, null, true);
         }
         catch (ExpectedApplyRejectionException ex) { return (false, null, typeof(object), record, AbsentWith(ex), true); }
-        catch (Exception ex) { return (false, null, typeof(object), record, UnreadableNote(Reason(ex)), false); }
+        catch (Exception ex) { return (false, null, typeof(object), record, ThrowNote(ex), false); }
     }
 
     /// <summary>Best-effort COMPACT identity of the element a list/dict verb just acted on. NEVER throws.</summary>
