@@ -20,7 +20,11 @@ public sealed class FieldPredicateSet
                             Fold[]? PathFolds = null, Fold[]? LinkFolds = null,
                             int ParentHops = 0, int LinkParentHops = 0,
                             FormKey? RuntimeKey = null, HashSet<FormKey>? RuntimeKeys = null,
-                            bool Negate = false);
+                            bool Negate = false)
+    {
+        /// <summary>The path as the caller wrote it, with its '->' link side when it has one.</summary>
+        public string FullPath => LinkPathDisplay is null ? PathDisplay : LinkPathDisplay + "->" + PathDisplay;
+    }
 
     /// <summary>The identity pseudo-paths a predicate may name instead of a body leaf.</summary>
     enum PseudoPath { None, EditorId, Winner, FormId }
@@ -911,9 +915,10 @@ public sealed class FieldPredicateSet
             if (note.Length > 0 && note[0] == '[')
             {
                 // The has-family tests a flags leaf's bits; on a list it is refused with the quantified rewrite.
-                if (p.Op is Op.Has or Op.HasAny or Op.HasNone && leaf.ContainerCount is not null)
+                if (p.Op is Op.Has or Op.HasAny or Op.HasNone && leaf.ContainerCount is not null && leaf.ContainerType is { } ct)
                 {
-                    _fatal ??= HasOnListRefusal(p, leaf.LinkElements);
+                    var (dict, links) = ReadEngine.ContainerShape(ct);
+                    _fatal ??= HasOnContainerRefusal(p, dict, links);
                     return (false, EvalKind.Definite);
                 }
                 return (false, EvalKind.Container);
@@ -1134,13 +1139,11 @@ public sealed class FieldPredicateSet
         if (flags is { } fi)
         {
             leafBits = fi.Bits;
-            foreach (var name in HasOperandMembers(p.Operand))
-            {
-                if (!TryResolveBits(name, fi.EnumType, out var b) && !TryDecodeToken(name, fi.EnumType, out b, out var tokenRefusal))
-                    return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' value '{name}' " +
-                                   (tokenRefusal ?? $"is not a bit value or a valid {fi.EnumType.Name} flag name") + ".");
-                opBits |= b;
-            }
+            var r = ResolveBits(p.Operand, fi.EnumType);
+            if (r.Bad is { } name)
+                return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' value '{name}' " +
+                               (r.Refusal ?? $"is not a bit value or a valid {fi.EnumType.Name} flag name") + ".");
+            opBits = r.Bits;
         }
         else if (TryBits(token, out leafBits))   // a plain integer leaf — bit-test its numeric value
         {
@@ -1164,13 +1167,33 @@ public sealed class FieldPredicateSet
         }, null);
     }
 
-    /// <summary>The refusal for a has-family op on a list path: the 'in' rewrite when form links meet form operands, else the scalar sub-path advice.</summary>
-    static string HasOnListRefusal(Predicate p, bool linkElements)
+    /// <summary>A has-family op on the scanned type's own path, for the schema's plan-time container check.</summary>
+    public readonly record struct HasLeaf(IReadOnlyList<string> Path, int Predicate);
+
+    /// <summary>Every has-family term on the scanned type's own body.</summary>
+    public IReadOnlyList<HasLeaf> HasLeaves =>
+        _predicates.Select((p, i) => (p, i))
+                   .Where(x => x.p.Op is Op.Has or Op.HasAny or Op.HasNone && x.p.Pseudo == PseudoPath.None
+                               && x.p.LinkPath is null && x.p.ParentHops == 0 && x.p.PathFolds is null)
+                   .Select(x => new HasLeaf(x.p.PathSegments, x.i)).ToList();
+
+    /// <summary>The plan-time twin of the runtime container refusal, for a predicate the schema calls a list or dict.</summary>
+    public string HasOnContainerRefusal(int predicate, bool dict, bool links) => HasOnContainerRefusal(_predicates[predicate], dict, links);
+
+    /// <summary>The refusal for a has-family op on a list or dict path: the 'in' rewrite when form links meet form
+    /// operands, a '->' step on other links, an entry on a dict, else the scalar sub-path advice.</summary>
+    static string HasOnContainerRefusal(Predicate p, bool dict, bool linkElements)
     {
-        var path = p.LinkPathDisplay is null ? p.PathDisplay : p.LinkPathDisplay + "->" + p.PathDisplay;
+        var path = p.FullPath;
         var list = HasOperandMembers(p.Operand).ToList();
-        var head = $"predicate '{p.Text}': '{path}' is a list here, not a scalar leaf, and '{OpStr(p.Op)}' tests a flags leaf's bits. ";
-        if (!linkElements || list.Count == 0 || !list.All(m => TryFormKey(m, out _) || RuntimeFormId.TryParse(m, out _)))
+        var head = $"predicate '{p.Text}': '{path}' is a {(dict ? "dict" : "list")} here, not a scalar leaf, and '{OpStr(p.Op)}' tests a flags leaf's bits. ";
+        if (dict)
+            return head + $"Filter on one entry instead (e.g. '{path}[<key>] {OpStr(p.Op)} {p.Operand}').";
+        bool formOperands = list.Count > 0 && list.All(m => TryFormKey(m, out _) || RuntimeFormId.TryParse(m, out _));
+        if (linkElements && !formOperands)
+            return head + $"Step through the links instead (e.g. '{path}-><field> {OpStr(p.Op)} {p.Operand}', or " +
+                   $"'{path}->editorid = {(list.Count > 0 ? list[0] : "<EditorID>")}' to match a linked record by EditorID), or use references= for list→FormID membership.";
+        if (!linkElements || !formOperands)
             return head + $"Filter on a scalar sub-path instead (e.g. '{path}[*any].<field> {OpStr(p.Op)} {p.Operand}' or '{path}[0]'), " +
                    "or use references= for list→FormID membership.";
         var members = string.Join(", ", list);
@@ -1183,9 +1206,31 @@ public sealed class FieldPredicateSet
         return head + $"For list members write {rewrite} ([*any] / [*all] / [*none] fold the same way), or use references= for list→FormID membership.";
     }
 
-    /// <summary>Resolve a <c>has</c>/<c>=</c> operand against a [Flags] enum to its bit pattern: a numeric literal, else a flag name or comma-combo.</summary>
+    /// <summary>Resolve a <c>has</c>/<c>=</c> operand against a [Flags] enum to its bit pattern: members split on
+    /// ',' and '|', each a bit value, a flag name, or the decode's slot/bit token.</summary>
     static bool TryResolveBits(string operand, Type enumType, out ulong bits)
-        => TryBits(operand, out bits) || ReadEngine.TryEnumBitsFromName(enumType, operand, out bits);
+    {
+        var r = ResolveBits(operand, enumType);
+        bits = r.Bits;
+        return r.Bad is null;
+    }
+
+    /// <summary>One operand's resolution on one enum, once per pair: its bits, or the member that fails and why.</summary>
+    static (ulong Bits, string? Bad, string? Refusal) ResolveBits(string operand, Type enumType) =>
+        FlagOperands.GetOrAdd((enumType, operand), static k =>
+        {
+            ulong bits = 0;
+            foreach (var m in HasOperandMembers(k.Operand))
+            {
+                string? refusal = null;
+                if (!TryBits(m, out var b) && !ReadEngine.TryEnumBitsFromName(k.Enum, m, out b) && !TryDecodeToken(m, k.Enum, out b, out refusal))
+                    return (0, m, refusal);
+                bits |= b;
+            }
+            return (bits, null, null);
+        });
+
+    static readonly ConcurrentDictionary<(Type Enum, string Operand), (ulong Bits, string? Bad, string? Refusal)> FlagOperands = new();
 
     /// <summary>A has-family operand's members: the <c>in</c> list split, with the flags decode's <c>|</c> read as a separator too.</summary>
     static IEnumerable<string> HasOperandMembers(string operand) => ListMembers(operand.Replace('|', ','));
@@ -1279,7 +1324,7 @@ public sealed class FieldPredicateSet
         for (int k = 0; k < _predicates.Count; k++)
         {
             var pk = _predicates[k];
-            var path = pk.LinkPathDisplay is null ? pk.PathDisplay : pk.LinkPathDisplay + "->" + pk.PathDisplay;
+            var path = pk.FullPath;
             if (_valueRead[k] == 0)
             {
                 // No candidate read a value — the CAUSE decides whether this is a wrong path or a correct path over a value-less scope.

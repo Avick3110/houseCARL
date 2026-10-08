@@ -34,7 +34,7 @@ public static class ReadEngine
     /// saying why there is none.</summary>
     internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null, int? ContainerCount = null,
                                              bool Present = true, bool Readable = true, int? ByteLength = null, Enum? EnumBox = null,
-                                             bool LinkElements = false)
+                                             Type? ContainerType = null)
     {
         public static LeafRead Value(string token) => new(true, token, null);
         public static LeafRead FlagsValue(string token, FlagBits bits) => new(true, token, null, bits);
@@ -48,7 +48,7 @@ public static class ReadEngine
         public static LeafRead Unreadable(string note) => new(false, "", note, null, null, Present: false, Readable: false);
         /// <summary>A no-value CONTAINER/substruct summary carrying its element <paramref name="count"/>: null for a
         /// substruct, a number for a list/dict (0 = present-but-EMPTY), for the presence predicate.</summary>
-        public static LeafRead Container(string note, int? count, bool links = false) => new(false, "", note, null, count, LinkElements: links);
+        public static LeafRead Container(string note, int? count, Type? type = null) => new(false, "", note, null, count, ContainerType: type);
         public override string ToString() => HasValue ? Token : Note ?? "(none)";
     }
 
@@ -907,9 +907,7 @@ public static class ReadEngine
         bool isDict = WriteEngine.ClosedInterface(val.GetType(), typeof(IDictionary<,>)) is not null
                    || WriteEngine.ClosedInterface(val.GetType(), typeof(IReadOnlyDictionary<,>)) is not null;
         var summary = SummariseContainer(val, isDict, out var count);
-        // Whether the elements are form links, so a has-family refusal knows an 'in' rewrite fits.
-        bool links = !isDict && count is not null && ElementType(val) is { } et && typeof(IFormLinkGetter).IsAssignableFrom(et);
-        return LeafRead.Container(summary, count, links);
+        return LeafRead.Container(summary, count, val.GetType());
     }
 
     /// <summary>The unsigned bit pattern of a boxed enum value, masked to the declared underlying type's width.</summary>
@@ -946,9 +944,21 @@ public static class ReadEngine
     internal static bool TryEnumBitsFromName(Type enumType, string name, out ulong bits)
     {
         bits = 0;
-        try { return TryEnumBits(Enum.Parse(enumType, name.Trim(), ignoreCase: true), enumType, out bits); }
-        catch { return false; }
+        // Names only: Enum.TryParse would also take a signed number, and '-1' is every bit.
+        if (!name.Split(',').All(m => m.Trim() is { Length: > 0 } t && (char.IsLetter(t[0]) || t[0] == '_'))) return false;
+        return Enum.TryParse(enumType, name.Trim(), ignoreCase: true, out var v) && TryEnumBits(v!, enumType, out bits);
     }
+
+    /// <summary>Whether a container type is a dict and whether its elements are form links, worked out once per type.</summary>
+    internal static (bool Dict, bool Links) ContainerShape(Type t) => ContainerShapes.GetOrAdd(t, static t =>
+    {
+        bool dict = WriteEngine.ClosedInterface(t, typeof(IDictionary<,>)) is not null
+                 || WriteEngine.ClosedInterface(t, typeof(IReadOnlyDictionary<,>)) is not null;
+        var el = (WriteEngine.ClosedInterface(t, typeof(IEnumerable<>)))?.GetGenericArguments()[0];
+        return (dict, !dict && el is not null && typeof(IFormLinkGetter).IsAssignableFrom(el));
+    });
+
+    static readonly ConcurrentDictionary<Type, (bool, bool)> ContainerShapes = new();
 
     /// <summary>The DISPLAY-ONLY decode of a <c>[Flags]</c> enum leaf and, on a biped field, its slot numbers (slot = 30 + bit).</summary>
     internal static (string? Display, IReadOnlyList<int>? Slots) FlagDecode(LeafRead leaf)
