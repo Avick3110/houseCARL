@@ -349,18 +349,16 @@ static class SkseConfigAuditWire
                 int rowTail = ConfigRowTailCost(file, depths.SkseRows);
                 if (!SkseJsonDoc.Fits(w, ms, cap - rowTail,
                         JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw => WriteConfigRowHead(mw, file, close: true)))) break;
-                bool whole = SkseJsonDoc.Fits(w, ms, cap, JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw =>
-                {
-                    WriteConfigRowHead(mw, file, close: false);
-                    mw.WriteStartArray("references");
-                    foreach (var r in file.Refs) WriteConfigRefJson(mw, r);
-                    mw.WriteEndArray();
-                    mw.WriteEndObject();
-                }));
+                // A filtered row is laid whole, cut per reference non-OK first, or dropped whole as in the text twin;
+                // the unfiltered audit keeps its file-order cut.
+                bool whole = filtered && RowFitsWhole(w, ms, cap, depths.SkseRows, rendered > 0, file);
+                if (filtered && !whole && !SkseJsonDoc.Fits(w, ms, cap - rowTail,
+                        JsonWire.MeasureUnit(depths.SkseRows, rendered > 0, mw => { WriteConfigRowHead(mw, file, close: false); mw.WriteStartArray("references"); }) +
+                        JsonWire.MeasureUnit(depths.SkseConfigRefs, false, mw => WriteConfigRefJson(mw, CutOrder(file.Refs).First())))) break;
                 WriteConfigRowHead(w, file, close: false);
                 w.WriteStartArray("references");
                 int refs = 0;
-                foreach (var r in whole ? file.Refs : CutOrder(file.Refs))
+                foreach (var r in filtered && !whole ? CutOrder(file.Refs) : file.Refs)
                 {
                     // A row measured whole is laid whole; else the cap bounds the inner loop, a config can carry tens of thousands of tokens.
                     if (!whole && !SkseJsonDoc.Fits(w, ms, cap - rowTail,
@@ -372,8 +370,8 @@ static class SkseConfigAuditWire
                 // How many of the file's references the cap cut is said here, because the accounting counts files.
                 if (refs < file.Refs.Count) w.WriteNumber("references_truncated", file.Refs.Count - refs);
                 w.WriteEndObject();
-                // A partly shown row counts as cut, as in the text twin, and nothing after it is laid.
-                if (refs < file.Refs.Count) break;
+                // A partly shown filtered row counts as cut, as in the text twin, and nothing after it is laid.
+                if (filtered && refs < file.Refs.Count) break;
                 rendered++;
             }
             w.WriteEndArray();
@@ -399,6 +397,27 @@ static class SkseConfigAuditWire
         w.WriteStartArray("references");
         w.WriteEndArray();
         w.WriteEndObject();
+    }
+
+    /// <summary>Whether the whole row fits the room left under <paramref name="cap"/>; the probe stops once it passes that room.</summary>
+    static bool RowFitsWhole(Utf8JsonWriter w, CharCountedStream ms, int cap, int depth, bool subsequent, SkseConfigFileAudit file)
+    {
+        w.Flush();
+        int room = cap - JsonWire.Chars(ms);
+        return JsonWire.MeasureUnit(depth, subsequent, (mw, size) =>
+        {
+            int before = size();
+            WriteConfigRowHead(mw, file, close: false);
+            mw.WriteStartArray("references");
+            foreach (var r in file.Refs)
+            {
+                WriteConfigRefJson(mw, r);
+                if (size() - before > room) return room + 1;
+            }
+            mw.WriteEndArray();
+            mw.WriteEndObject();
+            return size() - before;
+        }) <= room;
     }
 
     /// <summary>One resolved reference, in the json lane.</summary>

@@ -108,14 +108,15 @@ public sealed class SkseConfigFilteredCutTests
     }
 
     [Fact]
-    public void AJsonCapSweptAcrossOneRowsLengthNeverCutsInFileOrder()
+    public void AJsonCapSweptAcrossOneRowsLengthCutsNonOkFirstOrDropsTheRowWhole()
     {
         var file = File("sweep", 20, dangling: 3);
         int whole = Json(1_000_000, "Cut", file).Length;
-        for (int cap = whole - 600; cap <= whole + 600; cap++)
+        for (int cap = Json(1, "Cut", file).Length; cap <= whole + 600; cap++)
         {
             var (verdicts, cut, rendered, truncated, length) = Json(cap, "Cut", file);
             Assert.True(length <= cap, $"cap {cap}: returned {length} chars");
+            Assert.False(cut && verdicts.Count == 0, $"cap {cap}: a row with no reference is laid, not dropped whole");
             if (cut)
                 Assert.All(verdicts.Take(3), v => Assert.Equal("dangling", v));
             else if (verdicts.Count > 0)
@@ -126,7 +127,7 @@ public sealed class SkseConfigFilteredCutTests
     }
 
     [Fact]
-    public void TheUnfilteredJsonCountsAPartlyShownRowCutAndLaysNothingAfterIt()
+    public void TheUnfilteredJsonKeepsItsFileOrderCutAndCountsAPartlyShownRowRendered()
     {
         var files = new[] { File("a-small", 3, dangling: 1), File("b-big", 200, dangling: 3), File("c-small", 3, dangling: 1) };
         var json = SkseConfigAuditWire.RenderJson(Data(files), null, 4_000);
@@ -134,13 +135,13 @@ public sealed class SkseConfigFilteredCutTests
 
         var rows = doc.RootElement.GetProperty("files").EnumerateArray().ToList();
         Assert.Equal(new[] { "a-small.json", "b-big.json" }, rows.Select(r => r.GetProperty("file_name").GetString()));
-        Assert.False(rows[0].TryGetProperty("references_truncated", out _));
-        int shown = rows[1].GetProperty("references").GetArrayLength();
-        Assert.Equal(200 - shown, rows[1].GetProperty("references_truncated").GetInt32());
+        var big = rows[1].GetProperty("references").EnumerateArray().Select(r => r.GetProperty("verdict").GetString()).ToList();
+        Assert.All(big, v => Assert.Equal("ok", v));
+        Assert.Equal(200 - big.Count, rows[1].GetProperty("references_truncated").GetInt32());
         var acct = doc.RootElement.GetProperty("accounting");
         Assert.Equal(3, acct.GetProperty("total").GetInt32());
-        Assert.Equal(1, acct.GetProperty("rendered").GetInt32());
-        Assert.Equal(2, acct.GetProperty("truncated").GetInt32());
+        Assert.Equal(2, acct.GetProperty("rendered").GetInt32());
+        Assert.Equal(1, acct.GetProperty("truncated").GetInt32());
         Assert.True(json.Length <= 4_000, $"returned {json.Length} chars");
     }
 
