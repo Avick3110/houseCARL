@@ -63,7 +63,7 @@ public sealed class UnknownFlagBitsDisplayTests
         var (npc, type, named, namedBit, unknownBit) = NpcFlags();
         var leaf = ReadNpcFlags(npc, type, namedBit | unknownBit);
         Assert.True(leaf.HasValue);
-        Assert.Equal($"{named}, bit{Index(unknownBit)}", leaf.Display);
+        Assert.Equal($"{named} | bit{Index(unknownBit)}", leaf.Display);
         Assert.Equal(Enum.ToObject(type, namedBit | unknownBit).ToString(), leaf.Token);
         Assert.NotEqual(leaf.Display, leaf.Token);
     }
@@ -98,7 +98,7 @@ public sealed class UnknownFlagBitsDisplayTests
         Assert.False(Enum.IsDefined(type, unchecked((int)0x80000000)));
         var armo = _mod.Armors.AddNew();
         armo.MajorFlags = Armor.MajorFlag.NonPlayable | (Armor.MajorFlag)unchecked((int)0x80000000);
-        Assert.Equal("NonPlayable, bit31", Leaf(ReadEngine.ReadFields(armo, new[] { "MajorFlags" }), "MajorFlags").Display);
+        Assert.Equal("NonPlayable | bit31", Leaf(ReadEngine.ReadFields(armo, new[] { "MajorFlags" }), "MajorFlags").Display);
     }
 
     // Probe COMBO-ALONE: "combo-only bit → a bitN token". Probe COMBO-MIXED: "combo-only+unnamed → no decimal name".
@@ -124,6 +124,6 @@ public sealed class UnknownFlagBitsDisplayTests
         prop.SetValue(pack, Enum.ToObject(type, comboBit));
         Assert.Equal($"bit{Index(comboBit)}", Leaf(ReadEngine.ReadFields(pack, new[] { "Flags" }), "Flags").Display);
         prop.SetValue(pack, Enum.ToObject(type, comboBit | freeBit));
-        Assert.Equal($"bit{Math.Min(Index(comboBit), Index(freeBit))}, bit{Math.Max(Index(comboBit), Index(freeBit))}", Leaf(ReadEngine.ReadFields(pack, new[] { "Flags" }), "Flags").Display);
+        Assert.Equal($"bit{Math.Min(Index(comboBit), Index(freeBit))} | bit{Math.Max(Index(comboBit), Index(freeBit))}", Leaf(ReadEngine.ReadFields(pack, new[] { "Flags" }), "Flags").Display);
     }
 }

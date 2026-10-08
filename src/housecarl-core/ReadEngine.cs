@@ -936,12 +936,12 @@ public static class ReadEngine
         if (!leaf.HasValue || leaf.Flags is not { } fb) return null;
         var names = FlagNames(fb, out bool anyNamed);
         var slots = names is not null && !anyNamed ? null : FlagSlots(leaf);
-        var slotText = slots is null ? null : (slots.Count == 1 ? "slot " : "slots ") + string.Join(", ", slots);
-        return names is null ? slotText : slotText is null ? names : $"{names}; {slotText}";
+        var slotText = slots is null ? null : (slots.Count == 1 ? "slot " : "slots ") + string.Join(" ", slots);
+        return names is null ? slotText : slotText is null ? names : $"{names} | {slotText}";
     }
 
     /// <summary>The named bits plus one token per unnamed bit (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere),
-    /// or null when every set bit is named and the token already lists them.</summary>
+    /// joined by " | ", or null when every set bit is named and the token already lists them.</summary>
     static string? FlagNames(FlagBits fb, out bool anyNamed)
     {
         anyNamed = false;
@@ -957,11 +957,11 @@ public static class ReadEngine
         var parts = new List<string>();
         ulong nameable = fb.Bits & ~remainder;
         anyNamed = nameable != 0;
-        if (anyNamed) parts.Add(Enum.ToObject(fb.EnumType, nameable).ToString()!);
+        if (anyNamed) parts.Add(Enum.ToObject(fb.EnumType, nameable).ToString()!.Replace(", ", " | "));
         bool biped = IsBipedSlots(fb);
         for (int i = 0; i < 64; i++)
             if ((remainder & (1UL << i)) != 0) parts.Add(biped ? $"slot{30 + i}" : $"bit{i}");
-        return string.Join(", ", parts);
+        return string.Join(" | ", parts);
     }
 
     // -- primitive family (mirror TryPrimitive) --------------------------------
