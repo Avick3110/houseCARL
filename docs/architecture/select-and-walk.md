@@ -27,9 +27,10 @@ path walk, and containment comes off Mutagen's context walk.
   bit of the operand set, at least one set, none set — which `=` (exact value) and the range ops
   cannot express, and whose operand is a bit value or a flag name; `exists` and `missing` take no
   operand; `in` and `not in` take a list. A leading `not` negates a string operator only.
-- On an enum leaf the schema names, a `=`, `!=`, `in` or `not in` literal that is neither a number (compared to the
-  enum's underlying value) nor one of that enum's names (a comma list only on a `[Flags]` enum) refuses the call at
-  plan time with a "did you mean", before the scan runs.
+- On an enum leaf the schema names, a `=`, `!=`, `in` or `not in` literal that is neither a whole number (compared to
+  the enum's underlying value) nor one of that enum's names (a comma list only on a `[Flags]` enum) refuses the call at
+  plan time with a "did you mean", when every `types=` type carrying the field rejects it; an untyped scan and a `->`
+  term's right side are not checked.
 - `editorid` reads the record's EditorID off the early EDID subrecord, never a reflection walk, so it
   answers on a record whose deep body Mutagen cannot parse. `winner` is the PROVENANCE term — which
   plugin wins the record, not its content — evaluated through the scan's bound resolution, so naming
