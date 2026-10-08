@@ -52,7 +52,7 @@ public sealed class AssetResolver : IDisposable
         public readonly ConcurrentDictionary<string, LooseSubtree> LooseCache;
         public readonly ConcurrentDictionary<string, WatchedDir> DirWatch;   // watched dir → what must not change about it; the whole loose freshness check
         public int WarmListings;                                             // directory listings the warm took; a test seam, never the check's
-        public int Checks;                                                   // freshness checks this build has passed; a listing taken since the last one is current
+        public int Pass;                                                     // read passes begun on this build, one per capture or single-shot read; a listing serves only its own pass
         public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, FileStamp> stamps, List<string> failures)
         {
             Tables = tables; Stamps = stamps; Failures = failures;
@@ -82,8 +82,8 @@ public sealed class AssetResolver : IDisposable
         public readonly ConcurrentDictionary<string, byte> FileHeld = new(StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>One directory's listing: every name, the files among them, and the freshness check it was read after.</summary>
-    internal sealed record Listing(HashSet<string> Names, HashSet<string> Files, int Check);
+    /// <summary>One directory's listing: every name, the files among them, and the read pass it was taken in.</summary>
+    internal sealed record Listing(HashSet<string> Names, HashSet<string> Files, int Pass);
 
     /// <summary>One subtree directory's loose resolution: the filename sets of the roots that have it, in precedence
     /// order. Its freshness is not held here — warming puts one directory per root under the build's shared
@@ -114,7 +114,7 @@ public sealed class AssetResolver : IDisposable
     /// answers for a subtree, which is not the same as one per root per subtree.</summary>
     internal int WatchedDirectoryCount => _snap.DirWatch.Count;
 
-    /// <summary>How many directory listings this build's warms have taken, so a test can assert an absent subtree takes none.</summary>
+    /// <summary>How many directory listings this build's warms have taken, so a test can assert a read pass lists each directory once.</summary>
     internal int WarmListingCount => Volatile.Read(ref _snap.WarmListings);
 
     /// <summary>The unread loose roots as ONE short clause, for a per-item reason with no caveat block above it to
@@ -283,7 +283,7 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>Resolve one Data-relative asset path. Single-shot — a caller making many reads in one operation <see cref="Capture"/>s once instead.</summary>
-    public AssetHit Resolve(string relPath) => Resolve(relPath, _snap);
+    public AssetHit Resolve(string relPath) => Resolve(relPath, BeginPass());
 
     AssetHit Resolve(string relPath, Snapshot snap)
     {
@@ -327,7 +327,7 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>Resolve one Data-relative asset path to its concrete on-disk sources for placement: exactly one source is an unambiguous copy to re-assert.</summary>
-    public PlacementResolution ResolveForPlacement(string relPath) => ResolveForPlacement(relPath, _snap);
+    public PlacementResolution ResolveForPlacement(string relPath) => ResolveForPlacement(relPath, BeginPass());
 
     internal PlacementResolution ResolveForPlacement(string relPath, Snapshot snap)
     {
@@ -377,7 +377,7 @@ public sealed class AssetResolver : IDisposable
     /// <summary>Resolve many paths against ONE pinned build, so a refresh landing mid-scan cannot split the scan.</summary>
     public IReadOnlyList<AssetHit> ResolveMany(IEnumerable<string> relPaths)
     {
-        var snap = _snap;                                         // pin ONE build for the whole scan
+        var snap = BeginPass();                                   // pin ONE build for the whole scan
         return relPaths.Select(p => Resolve(p, snap)).ToList();
     }
 
@@ -444,7 +444,15 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>Capture the CURRENT build as a pinned read view, so a bulk scan and its read-failure list answer from one build.</summary>
-    public AssetView Capture() => new(this, _snap);
+    public AssetView Capture() => new(this, BeginPass());
+
+    /// <summary>The current build with a new read pass begun on it, so no listing an earlier call took answers this one.</summary>
+    Snapshot BeginPass()
+    {
+        var snap = _snap;
+        Interlocked.Increment(ref snap.Pass);
+        return snap;
+    }
 
     /// <summary>A read view pinned to ONE captured build (see <see cref="Capture"/>). No handles — safe to hold for a call.</summary>
     public readonly struct AssetView
@@ -500,7 +508,7 @@ public sealed class AssetResolver : IDisposable
         if (!stale)
             foreach (var kv in snap.DirWatch)                          // one listing per watched directory
                 if (WatchedDirStale(kv.Key, kv.Value)) { stale = true; break; }
-        if (!stale) { Interlocked.Increment(ref snap.Checks); return false; }   // every listing taken before now is out of date
+        if (!stale) return false;
         _snap = BuildTables();                                        // BSA tables re-read; loose cache starts empty, re-warms lazily
         return true;
     }
@@ -544,7 +552,7 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>One directory's names and the files among them off one enumeration, the same set <see cref="FreshNames"/> lists; null when it will not list.</summary>
-    static Listing? FreshListing(string dir, int check)
+    static Listing? FreshListing(string dir, int pass)
     {
         try
         {
@@ -555,7 +563,7 @@ public sealed class AssetResolver : IDisposable
                 names.Add(entry.Name);
                 if ((entry.Attributes & FileAttributes.Directory) == 0) files.Add(entry.Name);
             }
-            return new Listing(names, files, check);
+            return new Listing(names, files, pass);
         }
         catch { return null; }
     }
@@ -569,7 +577,7 @@ public sealed class AssetResolver : IDisposable
         var present = new List<(int, HashSet<string>)>();
         for (int i = 0; i < roots.Count; i++)
         {
-            // Most roots are answered off listings this check already took, top folder down, with no stat of their own.
+            // Most roots are answered off listings this read pass already took, top folder down, with no stat of their own.
             if (TryDescend(roots[i].Dir, segments, snap, out var listed))
             {
                 if (listed is { Count: > 0 }) present.Add((i, listed));
@@ -614,14 +622,14 @@ public sealed class AssetResolver : IDisposable
         return true;
     }
 
-    /// <summary>A directory's listing read since the build's last freshness check: the memo when it is that recent,
+    /// <summary>A directory's listing read in the current read pass: the memo when it was taken in this pass,
     /// else one fresh read, which replaces it. Null when it will not list; a memo is never replaced by a failure.</summary>
     static Listing? CurrentListing(string dir, Snapshot snap)
     {
-        var check = Volatile.Read(ref snap.Checks);
-        if (snap.Children.TryGetValue(dir, out var memo) && memo is not null && memo.Check == check) return memo;
+        var pass = Volatile.Read(ref snap.Pass);
+        if (snap.Children.TryGetValue(dir, out var memo) && memo is not null && memo.Pass == pass) return memo;
         Interlocked.Increment(ref snap.WarmListings);
-        if (FreshListing(dir, check) is not { } fresh) return null;
+        if (FreshListing(dir, pass) is not { } fresh) return null;
         snap.Children[dir] = fresh;
         return fresh;
     }
@@ -775,7 +783,7 @@ public sealed class AssetResolver : IDisposable
 
     /// <summary>One directory's child names, remembered for this build; null when it would not list.</summary>
     static HashSet<string>? ChildNames(string dir, Snapshot snap) =>
-        snap.Children.GetOrAdd(dir, d => { Interlocked.Increment(ref snap.WarmListings); return FreshListing(d, Volatile.Read(ref snap.Checks)); })?.Names;
+        snap.Children.GetOrAdd(dir, d => { Interlocked.Increment(ref snap.WarmListings); return FreshListing(d, Volatile.Read(ref snap.Pass)); })?.Names;
 
     static void RecordRootFailure(string rootName, string dir, string verb, Exception ex, Snapshot snap) =>
         snap.RootFailures[RootFailureKey(rootName, dir)] = RootFailureLine(rootName, dir, verb, ex);
