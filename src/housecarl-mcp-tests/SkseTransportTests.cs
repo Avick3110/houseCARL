@@ -774,7 +774,8 @@ public sealed class SkseTransportTests
     [Fact]
     public void AWindowThatRenderedNothingNamesTheOffsetThatStepsPastTheRowThatDidNotFit()
     {
-        var text = SkseConfigAuditWire.Render(ConfigAudit(3, refs: 400), "Mod", 2_000, new RowWindow(0, 5));
+        // A filtered file is cut per reference, so the cap is one too small for a file head and one reference line.
+        var text = SkseConfigAuditWire.Render(ConfigAudit(3, refs: 400), "Mod", 750, new RowWindow(0, 5));
 
         Assert.Contains("rendered=0", text);
         Assert.Contains("skip it with offset=1", text);
