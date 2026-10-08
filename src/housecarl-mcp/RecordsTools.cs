@@ -1931,7 +1931,6 @@ public static partial class RecordsTools
     static string? DenseRefusal(string form, RecordsProject? project, FoldPlan? fold, bool walk)
     {
         const string Head = "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and ";
-        var list = project?.fields is { Length: > 0 } pf ? pf[0] : "Conditions";
         if (walk)
             return Head + "a walk's outputs (chains; reached-set reads) have no fixed column set — use format='text' or 'json'.";
         // dense lays ONE row per element, and two different lists share no element to lay a row on.
@@ -1941,7 +1940,7 @@ public static partial class RecordsTools
         {
             "identity" => Head + "the 'identity' form is a labeling render with no field paths — use form='summary' for the dense identity columns, or format='text' or 'json'.",
             "everything" => Head + "the 'everything' form has no fixed column set — use format='text' or 'json', or name the paths via form='fields'.",
-            "rows" => Head + $"the 'rows' form folds a list's elements into one variable-length line each — use form='fields' with '{list}[*]' for one dense row per element, or format='text' or 'json'.",
+            "rows" => Head + $"the 'rows' form folds a list's elements into one variable-length line each — use form='fields' with '{ListPath(project!.fields![0])}[*]' for one dense row per element, or format='text' or 'json'.",
             "aggregate" => "error: format='dense' is the per-row columnar transport, and the 'aggregate' form is a count table — its json render IS the compact form; use format='json'.",
             "delta" or "tree" => Head + $"the '{form}' form's rows are variable-length delta lists with no fixed column set — use format='text' or 'json'.",
             "info_order" => Head + "the 'info_order' form is an ordered sequence render with no fixed column set — use format='text' or 'json'.",
@@ -1949,6 +1948,14 @@ public static partial class RecordsTools
                 $"error: format='dense' renders positional columnar cells 1:1 with the requested {LeverNames.Records.Fields} paths, and project.depth={d} emits extra sub-paths that have no column — quantify a list path ('Effects[*].Data.Magnitude') for one dense row per element, drop project.depth for the dense summary cells, or use format='text' or 'json'.",
             _ => null,
         };
+    }
+
+    /// <summary>The list a rows-form path names, with any trailing index or quantifier dropped: <c>Effects[0]</c> is <c>Effects</c>.</summary>
+    static string ListPath(string path)
+    {
+        var p = path.Trim();
+        while (p.EndsWith(']') && p.LastIndexOf('[') is var at && at > 0) p = p[..at].TrimEnd();
+        return p;
     }
 
     /// <summary>Recognize the one off-order-lane where-clause: <c>editorid contains &lt;text&gt;</c>.</summary>
