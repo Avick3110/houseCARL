@@ -376,6 +376,81 @@ public sealed class AssetLooseFreshnessTests : IDisposable
         Assert.Equal(opens ? Provider : null, Winner(r, query));
     }
 
+    /// <summary>Each view keeps its own pass: another call beginning one must not make this one list again, and the
+    /// newer pass lists for itself once, after which both read its listings.</summary>
+    [Fact]
+    public void TwoInterleavedPassesDoNotListForEachOther()
+    {
+        using var r = Build();
+        var first = r.Capture();
+        Assert.False(first.Resolve(@"meshes\hcgonefirst\x.nif").Exists);
+        Assert.Equal(3, r.WarmListingCount);                   // both mod folders, and the provider's `meshes`
+
+        var second = r.Capture();                              // another call begins its pass mid-way through the first
+        for (int i = 0; i < 10; i++) Assert.False(first.Resolve($@"meshes\hcgone{i}\x.nif").Exists);
+        Assert.Equal(3, r.WarmListingCount);                   // the first pass still reads its own listings
+
+        Assert.False(second.Resolve(@"meshes\hcgonesecond\x.nif").Exists);
+        Assert.Equal(6, r.WarmListingCount);                   // the newer pass lists for itself, once
+        for (int i = 10; i < 20; i++)
+        {
+            Assert.False(first.Resolve($@"meshes\hcgone{i}\x.nif").Exists);
+            Assert.False(second.Resolve($@"meshes\hcgone{i}b\x.nif").Exists);
+        }
+        Assert.Equal(6, r.WarmListingCount);                   // and neither thrashes the other's
+    }
+
+    /// <summary>A mod folder that will not list (here: enabled but gone) is tried once per pass, then goes straight to
+    /// the fallback, which still proves it absent.</summary>
+    [Fact]
+    public void AFolderThatWillNotListIsTriedOncePerPass()
+    {
+        using var r = AssetResolver.Build(overwriteDir: "", _mods, dataDir: "",
+            new[] { "GoneMod", Newcomer, Provider }, Array.Empty<ActiveArchive>());
+        var view = r.Capture();
+        Assert.Equal(Provider, view.Resolve(Provided).Winner?.Source);
+        var once = r.WarmListingCount;
+
+        for (int i = 0; i < 20; i++) Assert.False(view.Resolve($@"meshes\hcgone{i}\x.nif").Exists);
+
+        Assert.Equal(once, r.WarmListingCount);                // a retry per folder would be 20 more
+        Assert.Empty(r.RootFailures);                          // proved absent, not a failure
+    }
+
+    /// <summary>A folder only passed through keeps its names and not its files, so a FILE holding a name there is found
+    /// by the fallback: proved absent, watched, and seen when it turns into the folder.</summary>
+    [Fact]
+    public void AFileHoldingANameUnderAPassedThroughFolderIsStillWatched()
+    {
+        var held = Path.Combine(_mods, Newcomer, "textures");
+        File.WriteAllText(held, "a file, not a folder");
+
+        using var r = Build();
+        var view = r.Capture();
+        Assert.Equal(Provider, view.Resolve(Provided).Winner?.Source);   // passes through the newcomer's mod folder
+        Assert.False(view.Resolve(@"textures\hcheld\b.dds").Exists);
+        Assert.Empty(r.RootFailures);
+
+        File.Delete(held);
+        Directory.CreateDirectory(Path.Combine(_mods, Newcomer, "textures", "hcheld"));
+        File.WriteAllText(Path.Combine(_mods, Newcomer, "textures", "hcheld", "b.dds"), "x");
+
+        Assert.True(r.RefreshIfStale(), "the folder that replaced the file was not noticed");
+        Assert.Equal(Newcomer, Winner(r, @"textures\hcheld\b.dds"));
+    }
+
+    /// <summary>A last segment of only dots or spaces opens as no name, so the path is refused rather than read as its parent.</summary>
+    [Theory]
+    [InlineData(@"meshes\...")]
+    [InlineData(@"meshes\hcfresh\. .")]
+    [InlineData(@"textures\foo\ ")]
+    public void ASegmentWindowsOpensAsNoNameIsRefused(string query)
+    {
+        using var r = Build();
+        Assert.Contains(query, Assert.Throws<ArgumentException>(() => r.Resolve(query)).Message);
+        Assert.Throws<ArgumentException>(() => AssetResolver.ValidateRelPath(query));
+    }
+
     /// <summary>The one case two stats cannot settle: a mod folder that stats but will not list, so its subtree does
     /// not stat either and the absence cannot be proved. That root is named as a failure and nothing is watched for
     /// it; watching the missing name there anyway would find the folder unlistable on every check and rebuild the

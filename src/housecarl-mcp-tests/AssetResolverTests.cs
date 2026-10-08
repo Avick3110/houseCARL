@@ -229,6 +229,20 @@ public sealed class AssetResolverTests : IDisposable
         Assert.Equal("FixtureB.bsa", r.Resolve(RankRel).Winner?.Source, ignoreCase: true);
     }
 
+    // A trailing dot reaches the loose file a file open does, but an archive entry is matched as asked and the hit
+    // reports the caller's path.
+    [Fact]
+    public void ATrailingDotReachesTheLooseFileButNotTheArchiveEntry()
+    {
+        Loose(_high, FacegenRel, "loose");
+        using var r = Build(new ActiveArchive(Archive("FixtureA.bsa", A()), "PluginA.esp", 1));
+
+        var hit = r.Resolve(FacegenRel + ".");
+
+        Assert.Equal(FacegenRel + ".", hit.RelPath);
+        Assert.Equal(new[] { "HighMod" }, hit.Providers.Select(p => p.Source));
+    }
+
     // Probe: "a path-duplicate READABLE archive lists ONE provider, not ambiguous".
     [Fact]
     public void AReadableArchiveBoundTwiceIsOneProvider()
