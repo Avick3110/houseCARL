@@ -572,7 +572,7 @@ internal sealed partial class AssetLayers
 
     /// <summary>Scan the whole SkyPatcher layer: every loose INI as the DLL reads it, the same-field SET collisions,
     /// and the three ITM classes including the no-op writes the per-record replay finds. Report-only.</summary>
-    public SkyPatcherLayerData SkyPatcherLayer()
+    public SkyPatcherLayerData SkyPatcherLayer(Func<SkyPatcherDiscovery.FolderScan, SkyPatcherDiscovery.IniFile, bool>? lintFiles = null)
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
         // One hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself.
@@ -595,6 +595,15 @@ internal sealed partial class AssetLayers
             itms.AddRange(report.Itms);
             duplicates.AddRange(report.Duplicates);
         }
+
+        // The lint of each line in the files the caller expands, resolved once per line, not per record.
+        var lint = new Dictionary<(string File, int Line), IReadOnlyList<string>>();
+        if (lintFiles is not null)
+            foreach (var folder in scan.Folders)
+                foreach (var file in folder.Files.Where(x => lintFiles(folder, x)))
+                    for (int i = 0; i < file.Lines.Count; i++)
+                        if (replay.LineLint(folder, new SkyPatcherOverlay.OrderedLine(file.RelPath, i + 1, file.Lines[i])) is { Count: > 0 } l)
+                            lint[(file.RelPath, i + 1)] = l;
 
         // ---- the TRUE-ITM scan: replay every explicitly-targeted record through the same per-record core the post-state
         //      read uses, and flag SET ops whose before == after. Broad (type-wide) lines see only the explicit targets ----
@@ -648,7 +657,7 @@ internal sealed partial class AssetLayers
         }
 
         return new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
-            scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName);
+            scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint);
     }
 
     /// <summary>A form-scope string to getter Types, or null when it names neither a type nor a link-interface group; see <see cref="TypeLookup.ResolveScope"/>.</summary>

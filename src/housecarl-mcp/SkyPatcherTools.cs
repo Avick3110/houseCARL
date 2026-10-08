@@ -36,7 +36,8 @@ public static class SkyPatcherTools
             int max_chars = 0) => Guard.Tool(ToolNames.SkypatcherLayer, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        var data = svc.SkyPatcherLayer();
+        var expand = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
+        var data = svc.SkyPatcherLayer(expand is null ? null : (f, x) => SkyPatcherWire.Matches(expand, f, x));
         return SkyPatcherWire.RenderLayer(data, filter, max_chars > 0 ? max_chars : 80_000);
     });
 }
@@ -121,7 +122,9 @@ static class SkyPatcherWire
                     var l = file.Lines[i];
                     if (l.Kind != SkyPatcherLineKind.Patch) continue;
                     var line = "      :" + (i + 1) + "  " + l.Raw.Trim() + "\n"
-                               + (l.Note is null ? "" : "          [!] " + l.Note + "\n");
+                               + (l.Note is null ? "" : "          [!] " + l.Note + "\n")
+                               + string.Concat((d.Lint?.GetValueOrDefault((file.RelPath, i + 1)) ?? Array.Empty<string>())
+                                   .Select(n => "          [!] " + n + "\n"));
                     if (sb.Length + line.Length > listRoom) { sb.Append(LineCut); listCut = true; break; }
                     sb.Append(line);
                 }
@@ -247,7 +250,7 @@ static class SkyPatcherWire
     }
 
     /// <summary>The filter's match domain: the file's type folder, its providing mod, or its path/filename.</summary>
-    static bool Matches(string filter, SkyPatcherDiscovery.FolderScan folder, SkyPatcherDiscovery.IniFile file)
+    internal static bool Matches(string filter, SkyPatcherDiscovery.FolderScan folder, SkyPatcherDiscovery.IniFile file)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
         return In(folder.Subfolder) || In(file.WinningProvider) || In(file.RelPath);

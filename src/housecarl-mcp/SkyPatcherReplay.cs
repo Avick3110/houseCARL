@@ -67,6 +67,22 @@ internal sealed partial class AssetLayers
         /// <summary>An EditorID of one type to its winning FormKey; null on a miss.</summary>
         internal FormKey? ResolveEditorId(string editorId, string? mutagenType) => _formResolver.ResolveEditorId(editorId, mutagenType);
 
+        /// <summary>One line's lint against the load order, across every record type its folder holds; empty for an undocumented folder.</summary>
+        internal IReadOnlyList<string> LineLint(SkyPatcherDiscovery.FolderScan folder, SkyPatcherOverlay.OrderedLine line)
+        {
+            if (folder.Catalog is null) return Array.Empty<string>();
+            var maps = FieldMap.ForSubfolder(folder.Subfolder);
+            _formResolver.WatchLookups();
+            var lint = (maps.Count == 0 ? new RecordMap?[] { null } : maps.Select(m => (RecordMap?)m))
+                .SelectMany(m => SkyPatcherOverlay.LineLint(line, Catalog, folder.Catalog, m, _formResolver))
+                .Distinct(StringComparer.Ordinal).ToList();
+            // A miss read off a table a plugin is missing from is not proof the name does not exist, so it says so.
+            if (lint.Count > 0 && _formResolver.ConsumedIncompleteTable)
+                lint.Add("a name above was looked up in an EditorID table missing a plugin, so it may exist — "
+                         + string.Join(" ", _formResolver.Unreadable.Select(u => u.Message).Distinct()));
+            return lint;
+        }
+
         /// <summary>Plugins an EditorID sweep could not open during this call.</summary>
         internal IReadOnlyList<PluginUnreadableException> Unreadable => _formResolver.Unreadable;
 

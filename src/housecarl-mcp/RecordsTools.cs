@@ -82,6 +82,20 @@ public static partial class RecordsTools
     static string NotAWalkType(string field, string entry)
         => $"error: {field} '{entry}' is not a record type — pass a catalog name (e.g. 'Npc', 'LeveledItem') or a signature (e.g. 'NPC_', 'LVLI').";
 
+    /// <summary>How many INIs get their own pointer line before the rest are summed into one.</summary>
+    const int NotePointerFiles = 5;
+
+    /// <summary>One line per INI counting its notes on lines that reach no record read, and where they are listed.</summary>
+    static List<string> SkyPatcherNotePointers(IReadOnlyList<(string File, int Count)> byFile)
+    {
+        var lines = byFile.Take(NotePointerFiles)
+            .Select(f => $"{f.Count} note(s) on lines that do not reach these records — {ToolNames.SkypatcherLayer} filter={f.File} lists them")
+            .ToList();
+        if (byFile.Count > NotePointerFiles)
+            lines.Add($"{byFile.Skip(NotePointerFiles).Sum(f => f.Count)} more note(s) in {byFile.Count - NotePointerFiles} other INI(s) — {ToolNames.SkypatcherLayer} filter=<INI filename> lists each one's");
+        return lines;
+    }
+
     public sealed class RecordsWalkExclusion
     {
         [SchemaRequired, Description("The record type, by name or signature (e.g. 'Npc' or 'NPC_').")]
@@ -511,17 +525,19 @@ public static partial class RecordsTools
         // A census is a text render too, so it is held to the same ceiling and says so when max_chars is smaller
         // than the statements it carries whatever the budget.
         string Census(string body) => RenderCap.Settle(body, max_chars > 0 ? max_chars : Wire.DefaultMaxChars);
-        // Every warning the SkyPatcher replay produced, named beside the answer with its own file and line.
+        // The SkyPatcher warnings that bear on the records read, each with its own file and line, then one pointer per INI for the notes that do not.
         var overlayWarnings = new HousecarlCore.SkyPatcherOverlay.WarningSink();
         void StateOverlayWarnings()
         {
-            var shown = overlayWarnings.Kept;
-            if (shown.Count == 0) return;
+            var shown = overlayWarnings.Kept.ToList();
             int over = overlayWarnings.Overflow;
+            var pointers = SkyPatcherNotePointers(overlayWarnings.NotesByFile);
+            if (shown.Count == 0 && pointers.Count == 0) return;
             envelope.Add(new("skypatcher_warnings",
-                             string.Join(" | ", shown) + (over > 0 ? $" (+{over} more not listed)" : "")));
+                             string.Join(" | ", shown.Concat(pointers)) + (over > 0 ? $" (+{over} more not listed)" : "")));
             foreach (var w in shown) headerLine += "\n[!] skypatcher: " + w;
             if (over > 0) headerLine += $"\n[!] skypatcher: {over} further warning(s) not listed.";
+            foreach (var p in pointers) headerLine += "\n[!] skypatcher: " + p;
         }
         // The seam between a deriving step's capture and the read's; docs/architecture/records-tool-front.md.
         string? expectEpoch = null;
