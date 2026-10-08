@@ -33,6 +33,7 @@ static class ConditionLine
         if (arm is null) return Array.Empty<PropertyInfo>();
         return arm.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Where(p => p.GetIndexParameters().Length == 0 && !p.Name.Contains("Unused", StringComparison.Ordinal))
+            .OrderBy(p => p.MetadataToken)
             .ToArray();
     });
 
