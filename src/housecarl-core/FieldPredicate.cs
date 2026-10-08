@@ -913,7 +913,7 @@ public sealed class FieldPredicateSet
                 // The has-family tests a flags leaf's bits; on a list it is refused with the quantified rewrite.
                 if (p.Op is Op.Has or Op.HasAny or Op.HasNone && leaf.ContainerCount is not null)
                 {
-                    _fatal ??= HasOnListRefusal(p);
+                    _fatal ??= HasOnListRefusal(p, leaf.LinkElements);
                     return (false, EvalKind.Definite);
                 }
                 return (false, EvalKind.Container);
@@ -1164,19 +1164,23 @@ public sealed class FieldPredicateSet
         }, null);
     }
 
-    /// <summary>The refusal for a has-family op on a list path: the list members' own spelling, written on the caller's path.</summary>
-    static string HasOnListRefusal(Predicate p)
+    /// <summary>The refusal for a has-family op on a list path: the 'in' rewrite when form links meet form operands, else the scalar sub-path advice.</summary>
+    static string HasOnListRefusal(Predicate p, bool linkElements)
     {
         var path = p.LinkPathDisplay is null ? p.PathDisplay : p.LinkPathDisplay + "->" + p.PathDisplay;
-        var members = string.Join(", ", HasOperandMembers(p.Operand));
+        var list = HasOperandMembers(p.Operand).ToList();
+        var head = $"predicate '{p.Text}': '{path}' is a list here, not a scalar leaf, and '{OpStr(p.Op)}' tests a flags leaf's bits. ";
+        if (!linkElements || list.Count == 0 || !list.All(m => TryFormKey(m, out _) || RuntimeFormId.TryParse(m, out _)))
+            return head + $"Filter on a scalar sub-path instead (e.g. '{path}[*any].<field> {OpStr(p.Op)} {p.Operand}' or '{path}[0]'), " +
+                   "or use references= for list→FormID membership.";
+        var members = string.Join(", ", list);
         var rewrite = p.Op switch
         {
             Op.HasNone => $"'{path}[*none] in [{members}]'",
             Op.HasAny => $"'{path}[*any] in [{members}]'",
             _ => $"one '{path}[*any] = <form>' per member",
         };
-        return $"predicate '{p.Text}': '{path}' is a list here, not a scalar leaf, and '{OpStr(p.Op)}' tests a flags leaf's bits. " +
-               $"For list members write {rewrite} ([*any] / [*all] / [*none] fold the same way), or use references= for list→FormID membership.";
+        return head + $"For list members write {rewrite} ([*any] / [*all] / [*none] fold the same way), or use references= for list→FormID membership.";
     }
 
     /// <summary>Resolve a <c>has</c>/<c>=</c> operand against a [Flags] enum to its bit pattern: a numeric literal, else a flag name or comma-combo.</summary>
@@ -1193,8 +1197,16 @@ public sealed class FieldPredicateSet
         bool biped = ReadEngine.IsBipedSlots(enumType);
         var prefix = biped ? "slot" : "bit";
         int first = biped ? 30 : 0;
-        if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            || !int.TryParse(name.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var n)) return false;
+        if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!int.TryParse(name.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var n))
+        {
+            // The read's display spelling ('slot 32', 'slots 30 31'): refused, naming the operand spelling.
+            var rest = name[prefix.Length..];
+            var nums = (rest.StartsWith('s') || rest.StartsWith('S') ? rest[1..] : rest).Split(' ', '\t', StringSplitOptions.RemoveEmptyEntries);
+            if (nums.Length > 0 && nums.All(x => x.All(char.IsAsciiDigit)))
+                refusal = $"is the read's display spelling — write {string.Join(", ", nums.Select(x => prefix + x))}";
+            return false;
+        }
         int width = System.Runtime.InteropServices.Marshal.SizeOf(Enum.GetUnderlyingType(enumType)) * 8;
         if (n < first || n >= first + width)
         {

@@ -28,8 +28,9 @@ path walk, and containment comes off Mutagen's context walk.
   cannot express, and whose operand is a bit value or a flag name, or several split the way an `in`
   list splits with the flags decode's `|` as a separator too (`[Body, Hands]` = `Body, Hands` =
   `Body | Hands`), and the decode's `slotNN` (biped) or `bitN` token for an unnamed bit. On a list
-  path the has-family refuses the call with the list members' own spelling on that path
-  (`Keywords[*none] in [X]`); `exists` and `missing` take no
+  path the has-family refuses the call: a form-link list with form operands gets the list members' own
+  spelling on that path (`Keywords[*none] in [X]`), any other list the scalar sub-path advice
+  (`Factions[*any].<field> has 1`); the display's spaced `slot 32` is refused naming `slot32`; `exists` and `missing` take no
   operand; `in` and `not in` take a list. A leading `not` negates a string operator only.
 - On an enum leaf the schema names, a `=`, `!=`, `in` or `not in` literal that is neither a whole number (compared to
   the enum's underlying value) nor one of that enum's names (a comma list only on a `[Flags]` enum) refuses the call at
