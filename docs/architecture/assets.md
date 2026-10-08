@@ -141,8 +141,9 @@ with **no literal directory prefix** is refused, and the enumeration is **bounde
 the pattern filters inside the walk, which stops at the cap.
 
 `bsa_list` and `bsa_extract` `under=` use the same grammar through `AssetGlob.Matcher`, over one archive's own
-listing. Neither bound applies there: the listing is already finite and already read, so an unanchored `*.pex` is
-allowed. A plain path matches that file or everything beneath that folder.
+listing. Neither bound applies there: the listing is already finite and already read, so an unanchored selector is
+allowed. `*` still stays within one segment, so `**/*.pex` is the form that finds an archive's scripts. A plain path
+matches that file or everything beneath that folder, and each selector that matches nothing is named.
 
 `AssetLinkHarvest` is the other selector: every asset path a set of records declares, from a generic
 `IAssetLinkGetter` walk over each record's property graph. Generated coverage, not a per-record-type field list.
@@ -282,6 +283,9 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   selector with no literal directory prefix is refused; `AGlobNarrowsTheSweepToTheFilesItMatches` in the same class —
   `*` within a segment, `**` across separators; `AssetStatusSetTests.ANarrowGlobUnderAWideFolderIsNotRefusedForTheFoldersSize`
   — the enumeration is bounded by matches, not candidates.
+- *Selecting a set of paths*: `BsaFilterTests` — `bsa_list` and `bsa_extract` `under=` keep an exact path, a `**` glob,
+  a plain folder and everything beneath it but not a sibling prefix, and the union of several selectors; each selector
+  that matches nothing is named; an extract writes only the matches and refuses an empty match.
 - *Carrying assets across a renumber*: the four contracts are pinned by `CompactFacegenCarryTests` and
   `CompactVoiceCarryTests` — the two-phase carry (the overlapping-window arm), the old files left as
   orphans, a record with nothing to carry is not a failure, and voice found by scanning disk.
