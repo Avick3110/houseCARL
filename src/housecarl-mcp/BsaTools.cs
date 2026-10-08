@@ -29,7 +29,7 @@ public static class BsaTools
         try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
         catch (Exception ex) { return $"error: '{archive}' is not a usable path ({ex.Message})."; }
         if (!File.Exists(archive)) return $"error: no such file: '{archive}'.";
-        if (Keep(under, out var keep) is { } bad) return bad;
+        if (Keep(under, out var keep, out var selectors) is { } bad) return bad;
 
         var r = HousecarlCore.BsaArchive.List(archive);
         if (!r.Ran) return "error: " + r.RunError;
@@ -41,8 +41,9 @@ public static class BsaTools
         sb.Append(Path.GetFileName(archive)).Append("  [").Append(r.Format ?? "unknown format").Append("]  ")
           .Append(r.DeclaredCount).Append(" file(s)");
         if (keep is not null) sb.Append(", ").Append(files.Count).Append(" matching under=");
-        if (counts_only) return sb.ToString();
-        sb.Append('\n');
+        AssetWire.AppendSelectorNotes(sb, Dead(selectors, r.Files, archive), RenderCap.For(cap, 0));
+        if (counts_only) return sb.ToString().TrimEnd('\n');
+        if (sb[^1] != '\n') sb.Append('\n');
         int shown = 0;
         foreach (var f in files)
         {
@@ -58,20 +59,27 @@ public static class BsaTools
         "everything beneath that folder.";
 
     /// <summary>The under= selectors as one predicate over archive paths, null when none were given, or the refusal.</summary>
-    static string? Keep(string[]? under, out Func<string, bool>? keep)
+    static string? Keep(string[]? under, out Func<string, bool>? keep, out List<(string Sel, Func<string, bool> Test)> tests)
     {
         keep = null;
+        tests = new();
         var given = (under ?? Array.Empty<string>()).Select(u => (u ?? "").Trim()).Where(u => u.Length > 0).ToList();
         if (given.Count == 0) return under is { Length: > 0 } ? "error: under= holds only empty selectors. Pass an archive path or glob, e.g. 'scripts/**/*.pex'." : null;
-        var tests = new List<Func<string, bool>>();
         foreach (var sel in given)
         {
-            try { tests.Add(HousecarlCore.AssetGlob.Matcher(sel)); }
+            try { tests.Add((sel, HousecarlCore.AssetGlob.Matcher(sel))); }
             catch (ArgumentException ex) { return $"error: under '{sel}': {ex.Message}"; }
         }
-        keep = p => tests.Any(t => t(p));
+        var all = tests;
+        keep = p => all.Any(t => t.Test(p));
         return null;
     }
+
+    /// <summary>A note per selector that matched no file in the archive, in asset_status's shape, so a typo beside a live selector is not lost.</summary>
+    static List<string> Dead(List<(string Sel, Func<string, bool> Test)> tests, IReadOnlyList<string> files, string archive) =>
+        tests.Where(t => !files.Any(f => t.Test(f.Replace('/', '\\'))))
+             .Select(t => $"under '{t.Sel}' matched no file in '{Path.GetFileName(archive)}' — check the spelling.")
+             .ToList();
 
     [McpServerTool(Name = ToolNames.BsaExtract, Title = "Extract a .bsa archive to a folder"),
      Description(
@@ -92,9 +100,9 @@ public static class BsaTools
         try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
         catch (Exception ex) { return $"error: '{archive}' is not a usable path ({ex.Message})."; }
         if (!File.Exists(archive)) return $"error: no such file: '{archive}'.";
-        if (Keep(under, out var keep) is { } bad) return bad;
+        if (Keep(under, out var keep, out var selectors) is { } bad) return bad;
         // Matched before any folder is cut, so an empty match refuses with nothing written.
-        string matched = "";
+        var matched = new StringBuilder();
         if (keep is not null)
         {
             var listed = HousecarlCore.BsaArchive.List(archive);
@@ -103,7 +111,9 @@ public static class BsaTools
             int hits = listed.Files.Count(f => keep(f.Replace('/', '\\')));
             if (hits == 0)
                 return $"error: under= matched none of the {listed.Files.Count} file(s) in '{Path.GetFileName(archive)}', so nothing was extracted; check the pattern with {ToolNames.BsaList} under=.";
-            matched = $"{hits} of {listed.Files.Count} file(s) matched under=.\n";
+            matched.Append(hits).Append(" of ").Append(listed.Files.Count).Append(" file(s) matched under=.");
+            AssetWire.AppendSelectorNotes(matched, Dead(selectors, listed.Files, archive), RenderCap.For(80_000, 0));
+            if (matched[^1] != '\n') matched.Append('\n');
         }
 
         string target;

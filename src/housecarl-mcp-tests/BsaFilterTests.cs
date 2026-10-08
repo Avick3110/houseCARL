@@ -72,6 +72,28 @@ public sealed class BsaFilterTests : IDisposable
     }
 
     [Fact]
+    public void AListNamesTheSelectorThatMatchedNothingBesideALiveOne()
+    {
+        var r = BsaTools.BsaList(_archive, under: new[] { "scripts/main.pex", "scripts/mian.pex" }, counts_only: true);
+
+        Assert.Contains("1 matching", r);
+        Assert.Contains("under 'scripts/mian.pex' matched no file in 'filter.bsa'", r);
+        Assert.DoesNotContain("under 'scripts/main.pex' matched", r);
+    }
+
+    [Fact]
+    public void AnExtractNamesTheSelectorThatMatchedNothingBesideALiveOne()
+    {
+        var dest = Path.Combine(_work, "dead");
+
+        var r = BsaTools.BsaExtract(null!, _archive, out_path: dest, under: new[] { "scripts/main.pex", "scripts/mian.pex" });
+
+        Assert.Contains("1 of 3", r);
+        Assert.Contains("under 'scripts/mian.pex' matched no file in 'filter.bsa'", r);
+        Assert.Single(Directory.GetFiles(dest, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
     public void AFilterMatchingNothingRefusesAndExtractsNothing()
     {
         var dest = Path.Combine(_work, "none");
