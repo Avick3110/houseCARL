@@ -315,8 +315,9 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
     {
         var doc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, format: "json", project: Fields("Effects[*]")));
         var paths = doc.GetProperty("records")[0].GetProperty("fields").EnumerateArray()
-                       .Select(f => f.GetProperty("path").GetString()).ToArray();
-        Assert.Equal(new[] { "Effects[0]", "Effects[1]" }, paths);
+                       .Select(f => f.GetProperty("path").GetString()!).ToArray();
+        // Each element's own entry, its leaves listed flat after it.
+        Assert.Equal(new[] { "Effects[0]", "Effects[1]" }, paths.Where(p => !p.Contains('.')));
     }
 
     /// <summary>The one rendered line for a row, by its path.</summary>
@@ -344,11 +345,12 @@ public sealed class RecordsFieldFoldArtifactTests : ArtifactTestBase, IClassFixt
         var art = Art("fold-elements.jsonl");
         RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: art,
                              project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*]" } });
-        // The spilled row for the two-effect spell carries the ELEMENT rows and nothing else — not the list's
-        // summary line and not the per-sub-field lines the same depth-4 read would emit unfolded.
+        // The spilled row for the two-effect spell carries the ELEMENTS and their leaves, flat, and nothing else —
+        // not the list's summary line and not an absent optional the same depth-4 read would emit unfolded.
         var row = File.ReadAllLines(art).First(l => l.Contains("HcRecSpellA", StringComparison.Ordinal));
         var paths = Je(row).GetProperty("fields").EnumerateArray()
-                           .Select(f => f.GetProperty("path").GetString()).ToArray();
-        Assert.Equal(new[] { "Effects[0]", "Effects[1]" }, paths);
+                           .Select(f => f.GetProperty("path").GetString()!).ToArray();
+        Assert.Equal(new[] { "Effects[0]", "Effects[1]" }, paths.Where(p => !p.Contains('.')));
+        Assert.DoesNotContain(Je(row).GetProperty("fields").EnumerateArray(), f => f.TryGetProperty("note", out var n) && HousecarlCore.ReadEngine.IsAbsentNote(n.GetString()));
     }
 }
