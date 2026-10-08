@@ -57,6 +57,13 @@ public static class ReadEngine
     /// <summary>A modeled leaf that exists but holds no value.</summary>
     public const string AbsentNote = "(absent)";
 
+    /// <summary>The absent note, carrying the step's detail when it has one: <c>(absent: list has 3 element(s))</c>.</summary>
+    static string AbsentWith(ExpectedApplyRejectionException ex) => ex.AbsentDetail is { } d ? $"(absent: {d})" : AbsentNote;
+
+    /// <summary>True for <see cref="AbsentNote"/> and its detailed form.</summary>
+    internal static bool IsAbsentNote(string? note) =>
+        note == AbsentNote || note?.StartsWith("(absent: ", StringComparison.Ordinal) == true;
+
     /// <summary>A FormLink carrying no target: a NON-nullable link holding FormID zero, or a NULLABLE link whose
     /// subrecord is ABSENT. Not round-trippable, so a note the conflict diff reads as "no value here".</summary>
     internal const string NullLinkNote = "(null link)";
@@ -256,7 +263,7 @@ public static class ReadEngine
             }
             return EmitToken(leaf.GetValue(current), leaf.PropertyType, current);
         }
-        catch (ExpectedApplyRejectionException) { return LeafRead.None(AbsentNote); }   // an absent arm, collection, key or index: unset, not a fault
+        catch (ExpectedApplyRejectionException ex) { return LeafRead.None(AbsentWith(ex)); }   // an absent arm, collection, key or index: unset, not a fault
         catch (Exception ex) { return LeafRead.Unreadable(UnreadableNote(Reason(ex))); }
     }
 
@@ -710,7 +717,7 @@ public static class ReadEngine
             }
             return (true, leaf.GetValue(current), leaf.PropertyType, current, null, true);
         }
-        catch (ExpectedApplyRejectionException) { return (false, null, typeof(object), record, AbsentNote, true); }
+        catch (ExpectedApplyRejectionException ex) { return (false, null, typeof(object), record, AbsentWith(ex), true); }
         catch (Exception ex) { return (false, null, typeof(object), record, UnreadableNote(Reason(ex)), false); }
     }
 

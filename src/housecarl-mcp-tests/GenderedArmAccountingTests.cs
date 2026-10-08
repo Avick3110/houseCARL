@@ -18,6 +18,8 @@ public sealed class MaleOnlyAddonWorld : IDisposable
     public const string MaleNif = "hc\\maleonly.nif";
     public const string FemaleNif = "hc\\female.nif";
 
+    public FormKey MaleOnly0 { get; }
+
     public MaleOnlyAddonWorld()
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-male-only-arma-tests-" + Guid.NewGuid().ToString("N"));
@@ -36,6 +38,7 @@ public sealed class MaleOnlyAddonWorld : IDisposable
             var a = mod.ArmorAddons.AddNew();
             a.EditorID = $"HcMaleOnly{i}";
             a.WorldModel = new GenderedItem<Model?>(new Model { File = MaleNif }, null);
+            if (i == 0) MaleOnly0 = a.FormKey;
         }
         var both = mod.ArmorAddons.AddNew();
         both.EditorID = "HcBothArms";
@@ -103,6 +106,28 @@ public sealed class GenderedArmAccountingTests : IClassFixture<MaleOnlyAddonFixt
         Assert.DoesNotContain("(unreadable", r);
     }
 
+    [Theory]
+    [InlineData("WorldModel[1] missing", 2)]
+    [InlineData("WorldModel[1] exists", 1)]
+    public void PresenceOverTheGenderedArmCountsTheAddonsThatLackIt(string clause, int matches)
+    {
+        var r = Scan(clause, countsOnly: true);
+        Assert.Contains($"scan: {matches} match", r);
+        Assert.DoesNotContain("read fault", r);
+    }
+
+    [Fact]
+    public void CopyFromASourceWithoutTheArmSaysTheSourceHasNothingToCopy()
+    {
+        var o = _w.Svc.ApplyEdits(new[]
+        {
+            new BulkOp { Formid = ScratchMo2.Fid(_w.MaleOnly0), FieldPath = "WorldModel[1].File", Verb = "CopyFrom", FromPlugin = "HcMaleOnlyArma.esm" },
+        }, "HcCopyNoArm", null);
+        Assert.False(o.Success);
+        Assert.Contains("the source plugin's version has no value at 'WorldModel[1]'", o.Error);
+        Assert.DoesNotContain("engine error", o.Error);
+    }
+
     /// <summary>The genuine fault keeps its own bucket: a DATA subrecord cut short still reads as a read fault.</summary>
     [Fact]
     public void AFieldMutagenCannotParseIsStillAReadFault()
@@ -146,6 +171,21 @@ public sealed class AbsentStepAccountingTests
         var note = NoteOver($"Keywords[4] = {kw.FormKey.ID:X6}:{kw.FormKey.ModKey.FileName}", bodies);
         Assert.Contains("unset — null or absent (3)", note);
         Assert.DoesNotContain("read fault", note);
+    }
+
+    [Fact]
+    public void ADirectReadPastTheEndOfAListKeepsTheElementCount()
+    {
+        var mod = new SkyrimMod(new ModKey("HcPastEnd", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var kw = mod.Keywords.AddNew();
+        var w = mod.Weapons.AddNew();
+        w.Keywords = new() { kw.ToLink(), kw.ToLink(), kw.ToLink() };
+        foreach (var depth in new[] { 1, 2 })
+        {
+            var f = Assert.Single(ReadEngine.ReadFields(w, new[] { "Keywords[4]" }, depth).Fields);
+            Assert.Equal("(absent: list has 3 element(s))", f.Note);
+            Assert.True(f.Readable);
+        }
     }
 
     [Fact]

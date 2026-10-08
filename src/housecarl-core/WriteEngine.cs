@@ -1549,7 +1549,9 @@ public static class WriteEngine
             var (segName, segKey) = ParseSegment(path[i]);
             var p = ResolveProperty(srcCur.GetType(), segName)
                 ?? throw new InvalidOperationException($"CopyFrom: the source's version has no field '{segName}' on {srcCur.GetType().Name}.");
-            var next = segKey is null ? p.GetValue(srcCur) : StepIntoElement(srcCur, p, segName, segKey);
+            object? next;
+            try { next = segKey is null ? p.GetValue(srcCur) : StepIntoElement(srcCur, p, segName, segKey); }
+            catch (ExpectedApplyRejectionException) { next = null; }   // an absent arm, list, key or index on the source: nothing to copy
             if (next is null)
                 throw new ExpectedApplyRejectionException(
                     $"CopyFrom: the source plugin's version has no value at '{string.Join('.', path[..(i + 1)])}' — nothing to copy.");
@@ -2337,7 +2339,7 @@ public static class WriteEngine
                 if (j++ == idx)
                     return item ?? throw new MalformedTargetDataException(   // present-but-null element: a SOURCE-data anomaly (its own third category), not gate/apply drift
                         $"Element '{name}[{idx}]' is present but null — the target record's data is malformed here (a source-data anomaly, not an engine fault).");
-            throw new ExpectedApplyRejectionException($"Index {idx} out of bounds for list '{name}' (has {j} element(s)).");  // live-state: out of range
+            throw new ExpectedApplyRejectionException($"Index {idx} out of bounds for list '{name}' (has {j} element(s)).", $"list has {j} element(s)");  // live-state: out of range
         }
 
         throw new InvalidOperationException($"'{name}' is not a navigable collection (no [read-only] IList/IDictionary).");
@@ -3127,7 +3129,9 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
 /// the gate/apply-inconsistency wrapper. A bad-SHAPE index and a present-but-null element are the other two.</summary>
 public sealed class ExpectedApplyRejectionException : InvalidOperationException
 {
-    public ExpectedApplyRejectionException(string message) : base(message) { }
+    /// <summary>What a read shows beside "absent" when the step had something to say, e.g. a list's element count.</summary>
+    public string? AbsentDetail { get; }
+    public ExpectedApplyRejectionException(string message, string? absentDetail = null) : base(message) => AbsentDetail = absentDetail;
 }
 
 /// <summary>A refusal whose cause is the TARGET record's own malformed data — a present-but-null element or entry.

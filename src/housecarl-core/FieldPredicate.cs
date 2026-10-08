@@ -723,7 +723,7 @@ public sealed class FieldPredicateSet
         if (!ok)
         {
             // An absent mid-path substruct makes the collection absent, which reads as empty; every other miss keeps its class.
-            if (note == ReadEngine.AbsentNote) return (null, parent, null);
+            if (ReadEngine.IsAbsentNote(note)) return (null, parent, null);
             return (null, null, ClassifyMiss(note ?? ""));
         }
         if (NotListShape(declared, val) is { } what)

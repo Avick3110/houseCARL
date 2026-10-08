@@ -12,7 +12,7 @@ public static class FieldsDiff
 
     /// <summary>True when a value is a read-engine "no value here" sentinel; <see cref="ReadEngine.PresentNullLinkNote"/> is deliberately not one.</summary>
     static bool IsAbsentSentinel(string val) =>
-        val == ReadEngine.AbsentNote || val == ReadEngine.NullLinkNote || val == ReadEngine.UnresolvedStringNote;
+        ReadEngine.IsAbsentNote(val) || val == ReadEngine.NullLinkNote || val == ReadEngine.UnresolvedStringNote;
 
     /// <summary>Compare one plugin's deep-read fields against the winner's; both sides must be read by the same <see cref="ReadEngine.ReadFields"/> call shape.</summary>
     public static Result Compare(RecordFields theirs, RecordFields winner, string referenceLabel = "winner")
