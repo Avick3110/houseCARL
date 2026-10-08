@@ -226,10 +226,14 @@ public static partial class RecordsTools
                 return Wire.Refuse(json, $"error: project.depth={dv} — depth must be >= 1 (1 shows a container as a collapsed summary; higher opens it).");
             // depth=1 collapses the list to a count, so the rows form would answer with no rows at all.
             if (dv == 1 && form == "rows")
-                return Wire.Refuse(json, "error: project.depth=1 collapses a list to a count, and the 'rows' form renders its elements — pass depth >= 2 (2 shows each element's type, the default 4 reaches its sub-fields), or use form='fields' for the collapsed line.");
+                return Wire.Refuse(json, dense
+                    ? $"error: project.depth=1 collapses a list to a count, and the 'rows' form renders its elements — under format='dense', drop project.depth and use form='fields' with '{ListPath(project!.fields![0])}[*]' for one dense row per element."
+                    : "error: project.depth=1 collapses a list to a count, and the 'rows' form renders its elements — pass depth >= 2 (2 shows each element's type, the default 4 reaches its sub-fields), or use form='fields' for the collapsed line.");
             // The same reading at the same knob: a [*] path renders elements, which depth 1 collapses away.
             if (dv == 1 && foldPlan?.Folds.FirstOrDefault(f => f is { Fold: PathFold.Set }) is { } setAt)
-                return Wire.Refuse(json, $"error: project.depth=1 collapses a list to a count, and '{setAt.Requested}' renders its elements — pass depth >= 2 (2 shows each element's type, the default 4 reaches its sub-fields), or use '{setAt.Root}[*count]' for the number of them.");
+                return Wire.Refuse(json, dense
+                    ? $"error: project.depth=1 collapses a list to a count, and '{setAt.Requested}' renders its elements — under format='dense', drop project.depth (the quantifier sets its own depth), or use '{setAt.Root}[*count]' for the number of them."
+                    : $"error: project.depth=1 collapses a list to a count, and '{setAt.Requested}' renders its elements — pass depth >= 2 (2 shows each element's type, the default 4 reaches its sub-fields), or use '{setAt.Root}[*count]' for the number of them.");
         }
         if (project?.group_by is not null && form != "aggregate")
             return Wire.Refuse(json, $"error: project.group_by belongs to the 'aggregate' form only (got form='{form}'). Set project.form='aggregate', or drop group_by.");
@@ -754,7 +758,7 @@ public static partial class RecordsTools
                 return json ? JsonWire.RenderError(seamTear, epoch2) : "error: " + seamTear;
 
             if (form == "aggregate")
-                return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2, headerLine, envelope, listCost,
+                return RenderListAggregate(outcomes, project!.group_by!, json, epoch2, headerLine, envelope, listCost,
                                            max_chars, svc.Types.DisplayNames(types), TableRowLimit(limit));
 
             if (counts_only && dense)
@@ -1683,8 +1687,8 @@ public static partial class RecordsTools
             var qLevers = projFields is { Length: > 0 } ? LeverNames.Records : LeverNames.Records.WithNothingToDrop();
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
-                Wire.QueryFormat.Dense when groupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, readPaths, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, qLevers, foldPlan, ct),
-                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope, qLevers, ct, TableRowLimit(limit)),
+                Wire.QueryFormat.Dense => JsonWire.RenderCrossQueryDense(svc, outcome, readPaths, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, qLevers, foldPlan, ct),
+                Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope, qLevers, ct, TableRowLimit(limit)),
                 _ => Wire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, qLevers, ct, headerLine, TableRowLimit(limit)),
             };
             var rendered = Render(spill, out var truncated);
@@ -1913,8 +1917,8 @@ public static partial class RecordsTools
             var offQLevers = LeverNames.Records.WithNothingToDrop();
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
-                Wire.QueryFormat.Dense when offGroupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, null, max_chars, false, false, sp, out trunc, envelope, offQLevers, ct: ct),
-                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, envelope, offQLevers, rowLimit: TableRowLimit(limit)),
+                Wire.QueryFormat.Dense => JsonWire.RenderCrossQueryDense(svc, outcome, readPaths, max_chars, false, false, sp, out trunc, envelope, offQLevers, foldPlan, ct),
+                Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, envelope, offQLevers, rowLimit: TableRowLimit(limit)),
                 _ => Wire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, offQLevers, header: headerLine, rowLimit: TableRowLimit(limit)),
             };
             var rendered = Render(spill, out var truncated);
@@ -1928,8 +1932,7 @@ public static partial class RecordsTools
         }
     }, ct);
 
-    /// <summary>Can format='dense' carry this call's answer? Null when it can, on any lane; else the one refusal
-    /// sentence naming what to use instead. Dense cells are 1:1 with the requested field paths.</summary>
+    /// <summary>Null when format='dense' can carry this call's answer on any lane, else the refusal naming what to use instead.</summary>
     static string? DenseRefusal(string form, RecordsProject? project, FoldPlan? fold, bool walk)
     {
         const string Head = "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and ";
@@ -1946,6 +1949,8 @@ public static partial class RecordsTools
             "aggregate" => "error: format='dense' is the per-row columnar transport, and the 'aggregate' form is a count table — its json render IS the compact form; use format='json'.",
             "delta" or "tree" => Head + $"the '{form}' form's rows are variable-length delta lists with no fixed column set — use format='text' or 'json'.",
             "info_order" => Head + "the 'info_order' form is an ordered sequence render with no fixed column set — use format='text' or 'json'.",
+            _ when project?.depth is { } d && d > 1 && fold?.Folds.FirstOrDefault(f => f is { Fold: PathFold.Set }) is { } setAt =>
+                $"error: format='dense' renders positional columnar cells 1:1 with the requested {LeverNames.Records.Fields} paths, and project.depth={d} emits extra sub-paths that have no column — '{setAt.Requested}' already reads one dense row per element, so drop project.depth, or use format='text' or 'json' for depth expansion.",
             _ when project?.depth is { } d && d > 1 =>
                 $"error: format='dense' renders positional columnar cells 1:1 with the requested {LeverNames.Records.Fields} paths, and project.depth={d} emits extra sub-paths that have no column — quantify a list path ('Effects[*].Data.Magnitude') for one dense row per element, drop project.depth for the dense summary cells, or use format='text' or 'json'.",
             _ => null,

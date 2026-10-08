@@ -160,8 +160,8 @@ public sealed class RecordsDenseLaneTests : BulkRecordsTestBase
         Assert.Equal(DenseColumns(scan), DenseColumns(list));
         Assert.Equal(0, list.GetProperty("rows").GetArrayLength());
         Assert.Equal(0, scan.GetProperty("rows").GetArrayLength());
-        Assert.Equal(3, list.GetProperty("count").GetInt32());
-        Assert.Equal(2, list.GetProperty("resolved").GetInt32());
+        Assert.Equal(3, list.GetProperty("total").GetInt32());
+        Assert.Equal(1, list.GetProperty("errors").GetInt32());
         Assert.True(scan.GetProperty("total").GetInt32() > 0);
     }
 
@@ -174,4 +174,98 @@ public sealed class RecordsDenseLaneTests : BulkRecordsTestBase
     public void DenseOnAWalkRefusesNamingTextOrJson() =>
         Refused(RecordsTools.Records(Svc, formids: Ids, format: "dense", walk: new RecordsTools.RecordsWalk()),
                 "walk", "format='text' or 'json'");
+    // ---- the review's coverage: artifacts, the overlay pole, off-order folds, matches -------------------
+
+    [Fact]
+    public void ADenseFormidsReadToFileWritesTheArtifactAndNoInlineRows()
+    {
+        var art = W.Scratch("dense", "formids.jsonl");
+        var doc = Doc(RecordsTools.Records(Svc, formids: Ids, format: "dense", project: Fields(DamagePath), to_file: art));
+        Assert.Equal(0, doc.GetProperty("rows").GetArrayLength());
+        Assert.Equal("to_file", doc.GetProperty("spilled").GetProperty("reason").GetString());
+        Assert.Equal(3, doc.GetProperty("spilled").GetProperty("row_count").GetInt32());
+        Assert.True(File.Exists(art));
+    }
+
+    [Fact]
+    public void ADenseFormidsReadPastItsCeilingSpillsTheCompleteResult()
+    {
+        var dir = SpillFolders.Emptied(Svc);
+        var doc = Doc(RecordsTools.Records(Svc, formids: Ids, format: "dense", project: Fields(DamagePath), max_chars: 300));
+        Assert.True(doc.GetProperty("truncated").GetBoolean());
+        Assert.Equal("over_inline_ceiling", doc.GetProperty("spilled").GetProperty("reason").GetString());
+        Assert.Equal(3, doc.GetProperty("spilled").GetProperty("row_count").GetInt32());
+        Assert.Single(Directory.GetFiles(dir, "*.jsonl"));
+    }
+
+    /// <summary>No SkyPatcher INI in this world, so the post-overlay body is the winner's.</summary>
+    [Fact]
+    public void ADenseFormidsReadOffTheOverlayPoleRendersColumns()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, formids: new[] { Fid(W.W1) }, format: "dense", project: Fields(DamagePath),
+                                           source: Je("{\"overlay\": \"skypatcher\", \"state\": \"post\"}")));
+        Assert.Equal(new[] { "formid", "runtime_formid", "editorid", DamagePath }, DenseColumns(doc));
+        Assert.Equal("15", DenseRow(doc, Fid(W.W1))[3].GetString());
+    }
+
+    [Fact]
+    public void AnOffOrderDenseScanFoldsAQuantifiedPathToOneRowPerElement()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, source: Plugin(W.OffName), format: "dense", project: Fields("Keywords[*]")));
+        var cells = doc.GetProperty("rows").EnumerateArray().Where(r => r[0].GetString() == Fid(W.OffW2)).Select(r => r[3].GetString()).ToList();
+        Assert.Equal(new[] { Fid(W.KwA), Fid(W.KwB) }, cells);
+    }
+
+    /// <summary>W1 is in the replacer, W2 is not, so W2 is an error row, and both keep the target they matched.</summary>
+    [Fact]
+    public void AScopePlusPoleDenseScanKeepsMatchesOnRowsAndErrors()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, plugins: MasterScope, source: Plugin(W.ReplName), format: "dense",
+                                           project: Fields(DamagePath), references: new[] { Fid(W.KwA), Fid(W.KwB) }));
+        Assert.Equal("matches", DenseColumns(doc).Last());
+        Assert.Contains(Fid(W.KwA), DenseRow(doc, Fid(W.W1)).EnumerateArray().Last().GetString());
+        var err = doc.GetProperty("errors").EnumerateArray().Single(e => e.GetProperty("formid").GetString() == Fid(W.W2));
+        Assert.Contains(Fid(W.KwB), err.GetProperty("matches").GetString());
+    }
+
+    /// <summary>counts_only on an off-order file scan lays the same columns as the same call without it.</summary>
+    [Fact]
+    public void OffOrderDenseCountsOnlyKeepsTheFieldsColumns()
+    {
+        var full = Doc(RecordsTools.Records(Svc, types: Weap, source: Plugin(W.OffName), format: "dense", project: Fields(DamagePath)));
+        var counts = Doc(RecordsTools.Records(Svc, types: Weap, source: Plugin(W.OffName), format: "dense", project: Fields(DamagePath), counts_only: true));
+        Assert.Equal(DenseColumns(full), DenseColumns(counts));
+        Assert.Equal(0, counts.GetProperty("rows").GetArrayLength());
+        Assert.Equal(2, counts.GetProperty("total").GetInt32());
+    }
+
+    // ---- depth refusals under dense name a call dense serves -----------------------------------------
+
+    [Fact]
+    public void DenseAtDepthOneOnAQuantifiedPathNamesDroppingDepthAndThatServes()
+    {
+        var r = RecordsTools.Records(Svc, formids: Ids, format: "dense",
+                                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Keywords[*]" }, depth = 1 });
+        Refused(r, "drop project.depth", "'Keywords[*count]'");
+        Assert.DoesNotContain("depth >= 2", r);
+        Served(RecordsTools.Records(Svc, formids: Ids, format: "dense", project: Fields("Keywords[*]")));
+    }
+
+    [Fact]
+    public void DenseAtDepthOneOnTheRowsFormNamesTheQuantifiedFieldsPath()
+    {
+        var r = RecordsTools.Records(Svc, formids: Ids, format: "dense",
+                                     project: new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Keywords" }, depth = 1 });
+        Refused(r, "drop project.depth", "form='fields'", "'Keywords[*]'");
+        Assert.DoesNotContain("depth >= 2", r);
+    }
+
+    [Fact]
+    public void DenseDepthOnAnAlreadyQuantifiedPathNamesDroppingDepthOnly()
+    {
+        var r = RecordsTools.Records(Svc, formids: Ids, format: "dense",
+                                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Keywords[*]" }, depth = 3 });
+        Refused(r, "'Keywords[*]' already reads one dense row per element", "drop project.depth");
+        Assert.DoesNotContain("quantify a list path", r);
+    }
 }
