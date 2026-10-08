@@ -21,9 +21,9 @@ made the change.
   `bsa_extract under=["scripts/dlc2thirskdoorscript.pex"]` on `Skyrim - Misc.bsa`.
 - **`housecarl_records` now names every flag bit in every format, known bits by name and others as `slotNN` or
   `bitN`; json adds a numeric `slots` array on biped fields.** Read an ARMA with slot 60 set.
-- **A `where=` over a gendered arm or list element the record does not carry, such as `WorldModel[1].File` on a
-  male-only ARMA, now counts that record as unset instead of a Mutagen read fault, and `missing`/`exists` on it now
-  answer correctly.**
+- **A `where=` step into a gendered arm, list or index a record lacks (`WorldModel[1].File` on a male-only ARMA)
+  now counts as unset, not a read fault.** A read past a list's end prints `(absent: list has N element(s))`, and
+  `CopyFrom` names the source's missing value.
 
 ## 2.0.4 — 2026-10-05
 
