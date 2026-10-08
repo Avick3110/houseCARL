@@ -103,6 +103,30 @@ public sealed class RecordsOneLeafShapeTests : IClassFixture<OneLeafFixture>
         return outp;
     }
 
+    /// <summary>Every leaf under an element of <paramref name="list"/> follows that element's own entry and comes
+    /// before the next element's.</summary>
+    internal static void AssertGrouped(IReadOnlyList<string> paths, string list)
+    {
+        string? at = null;
+        foreach (var p in paths)
+        {
+            if (!p.StartsWith(list + "[", StringComparison.Ordinal)) continue;
+            var elem = p[..(p.IndexOf(']', list.Length) + 1)];
+            if (p == elem) { at = elem; continue; }
+            Assert.True(at == elem, $"'{p}' sits under '{at}', not its own element: " + string.Join(", ", paths));
+        }
+    }
+
+    /// <summary>The text lane's field-line paths, in order.</summary>
+    List<string> TextPaths(FormKey fk, RecordsTools.RecordsProject p) =>
+        RecordsTools.Records(_w.Svc, formids: new[] { FormIdToken.Of(fk) }, project: p).Split('\n')
+                    .Where(l => l.StartsWith("  ", StringComparison.Ordinal) && l.Contains(" = "))
+                    .Select(l => l[2..l.IndexOf(" = ", StringComparison.Ordinal)]).ToList();
+
+    JsonElement JsonRowCapped(FormKey fk, RecordsTools.RecordsProject p, int maxChars) =>
+        JsonDocument.Parse(RecordsTools.Records(_w.Svc, formids: new[] { FormIdToken.Of(fk) }, format: "json", project: p, max_chars: maxChars))
+                    .RootElement.GetProperty("records")[0].Clone();
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -123,7 +147,8 @@ public sealed class RecordsOneLeafShapeTests : IClassFixture<OneLeafFixture>
         var leaves = Leaves(toFile ? FileRow(_w.Spell, p) : JsonRow(_w.Spell, p));
         var paths = leaves.Select(l => l.Path).ToList();
         Assert.Equal(0, paths.IndexOf("Effects[0]"));
-        Assert.True(paths.IndexOf("Effects[1]") > paths.IndexOf("Effects[0].Data.Magnitude"));
+        Assert.Contains("Effects[1].Data.Magnitude", paths);
+        AssertGrouped(paths, "Effects");
         Assert.Equal("5", leaves.Single(l => l.Path == "Effects[0].Data.Magnitude").Value);
         Assert.Equal("4", leaves.Single(l => l.Path == "Effects[1].Data.Magnitude").Value);
         Assert.Equal(FormIdToken.Of(_w.Mgef), leaves.Single(l => l.Path == "Effects[1].BaseEffect").Value);
@@ -151,6 +176,59 @@ public sealed class RecordsOneLeafShapeTests : IClassFixture<OneLeafFixture>
         var leaves = Leaves(toFile ? FileRow(_w.Spell, p) : JsonRow(_w.Spell, p));   // Leaves asserts the paths are distinct
         Assert.Equal("5", leaves.Single(l => l.Path == "Effects[0].Data.Magnitude").Value);
         Assert.Equal("4", leaves.Single(l => l.Path == "Effects[1].Data.Magnitude").Value);
+        AssertGrouped(leaves.Select(l => l.Path).ToList(), "Effects");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AnElementsLeavesFollowItsOwnElementWhenAPlainColumnOverlaps(bool toFile)
+    {
+        // The plain column reaches absent optionals the row omits; they must not land after the last element.
+        var p = new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*]", "Effects" }, depth = 4 };
+        var paths = Leaves(toFile ? FileRow(_w.Spell, p) : JsonRow(_w.Spell, p)).Select(l => l.Path).ToList();
+        Assert.Contains("Effects[1].Data.Magnitude", paths);
+        AssertGrouped(paths, "Effects");
+    }
+
+    [Theory]
+    [InlineData("Effects[*]", "Effects")]
+    [InlineData("Effects", "Effects[*]")]
+    [InlineData("Effects[*]", "Effects[*].Data.Magnitude")]
+    [InlineData("Effects[*].Data.Magnitude", "Effects[*]")]
+    public void TheTextLaneListsEachPathOnceToo(string a, string b)
+    {
+        var paths = TextPaths(_w.Spell, new RecordsTools.RecordsProject { form = "fields", fields = new[] { a, b }, depth = 4 });
+        Assert.Contains("Effects[1]", paths);
+        Assert.Equal(paths.Count, paths.Distinct().Count());
+        AssertGrouped(paths, "Effects");
+    }
+
+    [Fact]
+    public void AMaxCharsCutWritesAnElementWholeOrNotAtAll()
+    {
+        var p = Fields("Effects[*]");
+        var whole = Leaves(JsonRow(_w.Spell, p)).Select(l => l.Path).ToHashSet();
+        var textCount = TextPaths(_w.Spell, p).Count;
+        bool cutBetween = false;
+        for (int cap = 200; cap <= 4000; cap += 25)
+        {
+            var row = JsonRowCapped(_w.Spell, p, cap);
+            var leaves = Leaves(row);
+            var shown = leaves.Select(l => l.Path).Where(x => x != "…").ToList();
+            foreach (var elem in shown.Where(x => x is "Effects[0]" or "Effects[1]"))
+            {
+                bool Of(string x) => x == elem || x.StartsWith(elem + ".", StringComparison.Ordinal);
+                Assert.Equal(whole.Where(Of).OrderBy(x => x), shown.Where(Of).OrderBy(x => x));
+            }
+            if (row.GetProperty("fields").EnumerateArray().LastOrDefault() is { } last && last.GetProperty("path").GetString() == "…")
+            {
+                // The count is in the text lane's unit: one field line per element row.
+                Assert.Contains($"of {textCount} field lines shown", last.GetProperty("note").GetString());
+                if (shown.Contains("Effects[0]") && !shown.Contains("Effects[1]")) cutBetween = true;
+            }
+        }
+        Assert.True(cutBetween, "no max_chars in the sweep cut between the two elements");
     }
 
     [Theory]
@@ -172,5 +250,25 @@ public sealed class RecordsOneLeafShapeTests : IClassFixture<OneLeafFixture>
         Assert.Contains(leaves, l => l.Path == "Effects[0]");
         Assert.Equal("5", leaves.Single(l => l.Path == "Effects[0].Data.Magnitude").Value);
         Assert.Equal("4", leaves.Single(l => l.Path == "Effects[1].Data.Magnitude").Value);
+    }
+}
+
+/// <summary>The read's own expansion cut and a max_chars cut share the one '…' entry, so neither overwrites the other.</summary>
+[Collection("records")]
+[Trait("tier", "integration")]
+public sealed class RecordsOneLeafCutTests : RecordsTestBase
+{
+    public RecordsOneLeafCutTests(RecordsFixture f) : base(f) { }
+
+    [Fact]
+    public void AnExpansionCutAndAMaxCharsCutAreOneEntry()
+    {
+        var doc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, format: "json",
+                                          project: Fields("Items[*]"), max_chars: 3000));
+        var cuts = doc.GetProperty("records")[0].GetProperty("fields").EnumerateArray()
+                      .Where(e => e.GetProperty("path").GetString() == "…").ToList();
+        var note = Assert.Single(cuts).GetProperty("note").GetString();
+        Assert.Contains("expansion truncated", note);
+        Assert.Contains("truncated at max_chars", note);
     }
 }

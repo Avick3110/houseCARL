@@ -262,29 +262,39 @@ static class JsonWire
                                  LeverNames? levers = null)
     {
         var lv = levers ?? LeverNames.Legacy;
-        // A folded element row is its leaves on this wire, the element's own line first; its joined text is display only.
-        // One entry per path: overlapping projections repeat a leaf with an equal value, and the first one stands.
-        var leaves = r.Fields.SelectMany(f => f.Cells ?? new[] { f }).DistinctBy(f => f.Path).ToList();
+        // The read's own expansion cut rides as the one '…' entry, last, where a max_chars cut joins it.
+        var expansion = r.Fields.FirstOrDefault(f => f.Path == "…");
+        string? cut = null;
         w.WriteStartArray("fields");
-        for (int i = 0; i < leaves.Count; i++)
+        for (int i = 0; i < r.Fields.Count; i++)
         {
+            var f = r.Fields[i];
+            if (ReferenceEquals(f, expansion)) continue;
             w.Flush();
             if (Chars(ms) >= cap)
             {
-                w.WriteStartObject();
-                w.WriteString("path", "…");   // …
+                // Counted in field lines, the text lane's unit; a folded element row is one line, written whole or not at all.
                 var narrow = lv.HasFieldSelector ? $"narrow with {lv.Fields}, " : "";   // the form may have no field selector to narrow with
-                w.WriteString("note", $"[truncated at max_chars: {i} of {leaves.Count} fields shown; {narrow}lower {lv.Depth}, or raise max_chars]");
-                w.WriteEndObject();
+                cut = $"[truncated at max_chars: {i} of {r.Fields.Count} field lines shown; {narrow}lower {lv.Depth}, or raise max_chars]";
                 break;
             }
-            var f = leaves[i];
+            // A folded element row is its leaves on this wire, the element's own line first; its joined text is display only.
+            foreach (var leaf in f.Cells ?? new[] { f })
+            {
+                w.WriteStartObject();
+                WriteLeaf(w, leaf);
+                if (annotated is not null && annotated.TryGetValue(leaf.Path, out var union) && union is not null) WriteChildUnion(w, union, ms, cap);
+                w.WriteEndObject();
+                // The TIER travels with the field: a clause is stated per tier.
+                if (annotated is not null && emitted is not null && annotated.TryGetValue(leaf.Path, out var tier)) emitted[leaf.Path] = tier is not null;
+            }
+        }
+        if (cut is not null || expansion is not null)
+        {
             w.WriteStartObject();
-            WriteLeaf(w, f);
-            if (annotated is not null && annotated.TryGetValue(f.Path, out var union) && union is not null) WriteChildUnion(w, union, ms, cap);
+            w.WriteString("path", "…");   // …
+            w.WriteString("note", string.Join(" ", new[] { expansion?.Note, cut }.Where(s => s is not null)));
             w.WriteEndObject();
-            // The TIER travels with the field: a clause is stated per tier.
-            if (annotated is not null && emitted is not null && annotated.TryGetValue(f.Path, out var tier)) emitted[f.Path] = tier is not null;
         }
         w.WriteEndArray();
     }
