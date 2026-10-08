@@ -14,7 +14,7 @@ public static class AssetTools
      Description(
          "Which copy of a file the game loads through MO2's virtual file system, for any tree (meshes, textures, " +
          "scripts, sound, interface, SKSE/Plugins, CalienteTools/BodySlide): the winner, every source that provides " +
-         "it (loose mods, overwrite, the game Data folder, active BSAs), whether one mod shadows another, and whether " +
+         "it (loose mods, overwrite, the game Data folder, active BSAs), whether more than one source contends, and whether " +
          "it is absent. Precedence: loose beats BSA; among loose files the higher-priority mod (then overwrite) wins; " +
          "among BSAs the later-loaded plugin's archive wins. The file-layer counterpart to a record's load-order " +
          "winner; answers 'why isn't my override applying'. Use this instead of searching mods/ on disk, which misses " +
