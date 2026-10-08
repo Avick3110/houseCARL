@@ -63,7 +63,7 @@ static class ConditionLine
     {
         IConditionFloatGetter f => Token(f.ComparisonValue, typeof(float), cond, ref firstRef),
         IConditionGlobalGetter g => Token(g.ComparisonValue, typeof(IFormLinkGetter<IGlobalGetter>), cond, ref firstRef),
-        _ => "?",
+        _ => throw new NotSupportedException($"no comparand reading for {cond.GetType().Name}"),
     };
 
     /// <summary>The run-on target; Reference carries its form and the alias and package-data kinds their index.</summary>
