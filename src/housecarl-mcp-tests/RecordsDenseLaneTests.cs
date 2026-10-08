@@ -137,6 +137,18 @@ public sealed class RecordsDenseLaneTests : BulkRecordsTestBase
     public void TheRowsRefusalsRemedyIsServedInDense() =>
         Served(RecordsTools.Records(Svc, formids: Ids, format: "dense", project: Fields("Keywords[*]")));
 
+    /// <summary>An element path names its list in the remedy, and that remedy serves cells, not unreadable ones.</summary>
+    [Fact]
+    public void DenseOnTheRowsFormOfAnElementPathNamesItsListAndThatRemedyServes()
+    {
+        Refused(RecordsTools.Records(Svc, formids: Ids, format: "dense",
+                                     project: new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Keywords[0]" } }),
+                "form='fields'", "'Keywords[*]'");
+        var doc = Doc(RecordsTools.Records(Svc, formids: new[] { Fid(W.W3) }, format: "dense", project: Fields("Keywords[*]")));
+        var cells = doc.GetProperty("rows").EnumerateArray().Select(r => r[3].GetString()).ToList();
+        Assert.Equal(new[] { Fid(W.KwA), Fid(W.KwB) }, cells);
+    }
+
     [Fact]
     public void DenseOnTheIdentityFormRefusesNamingTheSummaryForm() =>
         Refused(RecordsTools.Records(Svc, formids: Ids, format: "dense", project: Form("identity")),
