@@ -1,4 +1,3 @@
-using System.Globalization;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Aspects;
 using Mutagen.Bethesda.Plugins.Records;
@@ -548,8 +547,8 @@ internal sealed partial class RecordReads
         return null;
     }
 
-    /// <summary>A '=', '!=', 'in' or 'not in' literal that names no value of the leaf's enum on any scanned type, or null;
-    /// a numeric literal, and any type the schema cannot answer for or calls non-enum, never refuses.</summary>
+    /// <summary>A '=', '!=', 'in' or 'not in' literal that can equal no value of the leaf's enum on any scanned type, or
+    /// null; like the quantifier check, a type the schema cannot answer for, or calls non-enum, leaves the schema no say.</summary>
     string? EnumLiteralRefusal(IReadOnlyList<TypeSchema> schemas, FieldPredicateSet predicate)
     {
         foreach (var cmp in predicate.ValueComparisons)
@@ -559,27 +558,27 @@ internal sealed partial class RecordReads
             foreach (var ts in schemas)
             {
                 var (answered, enumType) = _host.Rulebook.LeafEnumType(ts, cmp.Path, cmp.Folds);
-                if (!answered) continue;
-                if (enumType is null) { open = true; break; }
+                if (!answered || enumType is null) { open = true; break; }
                 if (!enums.Contains(enumType)) enums.Add(enumType);
             }
             if (open || enums.Count == 0) continue;
             foreach (var literal in cmp.Literals)
             {
-                if (IsNumericLiteral(literal) || enums.Any(e => Enum.TryParse(e, literal, ignoreCase: true, out _))) continue;
-                var names = enums.SelectMany(Enum.GetNames).Distinct();
-                return $"predicate '{cmp.Text}': '{literal}' is not a value of the {string.Join(" or ", enums.Select(e => e.Name))} enum " +
-                       $"this field holds, so it can never match.{PluginNameSuggest.DidYouMean(literal, names)}";
+                if (enums.Any(e => FieldPredicateSet.EnumLiteralFits(literal, e))) continue;
+                var enumNames = string.Join(" or ", enums.Select(e => e.DeclaringType is { } d ? $"{d.Name}.{e.Name}" : e.Name));
+                var bare = literal.Trim('"', '\'');
+                string hint;
+                if (bare.Length < literal.Length && enums.Any(e => FieldPredicateSet.EnumLiteralFits(bare, e)))
+                    hint = $" The quotes are read as part of the value; write it bare: '{cmp.Text.Replace(literal, bare)}'.";
+                else if (literal.Contains(','))
+                    hint = $" {enumNames} is not a [Flags] enum, so a field holds one name and a comma list never matches; test several with 'in [a, b]'.";
+                else
+                    hint = PluginNameSuggest.DidYouMean(literal, enums.SelectMany(Enum.GetNames).Distinct());
+                return $"predicate '{cmp.Text}': '{literal}' is not a value of the {enumNames} enum this field holds, so it can never match.{hint}";
             }
         }
         return null;
     }
-
-    /// <summary>A decimal or 0x-hex number: the literal forms the comparison accepts on any enum leaf.</summary>
-    static bool IsNumericLiteral(string s) =>
-        double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
-        || (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
-            && ulong.TryParse(s.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _));
 
     /// <summary>The one sentence a scan owes for records it filtered only after reading around content Mutagen
     /// refused: they are answers, not skips, and the gap is named because it cannot prove a non-match.</summary>
