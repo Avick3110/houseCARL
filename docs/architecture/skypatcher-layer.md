@@ -121,9 +121,9 @@ acquires a mapping.
 
 A warning rides an overlay read when its line bears on a record read: the line's verdict is Match
 or Unresolved for some record, or its NoMatch rests on the warned value (today only the bare-list
-guard, where a token that resolves to nothing forces NoMatch while the resolved ones are present).
+guard, where a token that resolves to nothing forces NoMatch while the resolved ones are present and no other filter on the line misses).
 An unknown-key line always rides, and so does every warning from a draft INI, which no layer listing holds. Any other warning is a note, and the read prints one line per INI
-counting them, `N note(s) on lines that do not reach these records — housecarl_skypatcher_layer
+naming it, `note(s) on lines that do not reach these records — housecarl_skypatcher_layer
 filter=<INI> lists them`; in json the same lines join the `skypatcher_warnings` member. Each line's
 lint lives under that line in `housecarl_skypatcher_layer filter=`: unknown keys and the filter form
 tokens that resolve to nothing, resolved once per line, in the words a read uses.
