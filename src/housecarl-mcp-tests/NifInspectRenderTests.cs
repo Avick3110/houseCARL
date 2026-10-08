@@ -196,8 +196,18 @@ public sealed class NifInspectRenderTests
         var word = NifService.DecodeFlagWord("TEST", (GappedFlags)0x14);
         var leaf = ReadEngine.LeafRead.FlagsValue("Beta", new ReadEngine.FlagBits(0x14, typeof(GappedFlags)));
         var (display, _) = ReadEngine.FlagDecode(leaf);
-        Assert.Equal(new[] { "Beta", "bit4" }, word.Names);
+        Assert.Equal(new[] { "Beta", "bit4" }, word.Tokens());
         Assert.Equal("Beta | bit4", display);
+    }
+
+    // named and unnamed bits render together in bit order, and Names keeps only the enum members
+    [Fact]
+    public void NamedAndUnnamedBitsRenderTogetherInBitOrder()
+    {
+        var word = NifService.DecodeFlagWord("TEST", (GappedFlags)0x16);
+        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderAndPaths);
+        Assert.Contains("TEST 0x00000016: bit1, Beta, bit4\n", text);
+        Assert.Equal(new[] { "Beta" }, word.Names);
     }
 
     // a zero flag word, common on real meshes, reads as it did before bitN

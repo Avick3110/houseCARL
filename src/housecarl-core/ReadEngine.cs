@@ -1015,11 +1015,7 @@ public static class ReadEngine
     }
 
     /// <summary>The set bits no flag member names, peeled the way .NET's [Flags].ToString() greedily applies each fully contained member.</summary>
-    internal static ulong Unnamed(FlagBits fb)
-    {
-        var (_, remainder) = PeelFlagBits(fb.EnumType, fb.Bits);
-        return remainder;
-    }
+    internal static ulong Unnamed(FlagBits fb) => PeelFlagBits(fb.EnumType, fb.Bits);
 
     /// <summary>Each set bit's flag name, then one token per unnamed bit (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere).</summary>
     internal static List<string> FlagParts(FlagBits fb, ulong remainder)
@@ -1027,25 +1023,23 @@ public static class ReadEngine
         var parts = new List<string>();
         ulong nameable = fb.Bits & ~remainder;
         if (nameable != 0) parts.AddRange(Enum.ToObject(fb.EnumType, nameable).ToString()!.Split(", "));
-        parts.AddRange(UnnamedBitTokens(remainder, IsBipedSlots(fb)));
+        bool biped = IsBipedSlots(fb);
+        for (int i = 0; i < 64; i++)
+            if ((remainder & (1UL << i)) != 0) parts.Add(UnnamedBitToken(i, biped));
         return parts;
     }
 
-    /// <summary>The peel .NET's [Flags].ToString() does: each FULLY contained member, largest first, and the bits no member names.</summary>
-    internal static (List<ulong> Members, ulong Remainder) PeelFlagBits(Type enumType, ulong bits)
+    /// <summary>The peel .NET's [Flags].ToString() does: each FULLY contained member, largest first, added to
+    /// <paramref name="members"/> when given; returns the bits no member names.</summary>
+    internal static ulong PeelFlagBits(Type enumType, ulong bits, List<ulong>? members = null)
     {
-        var members = new List<ulong>();
         foreach (var mb in SortedMemberMasks(enumType))
-            if ((bits & mb) == mb) { members.Add(mb); bits &= ~mb; }
-        return (members, bits);
+            if ((bits & mb) == mb) { members?.Add(mb); bits &= ~mb; }
+        return bits;
     }
 
-    /// <summary>One token per unnamed bit, low to high: <c>slotNN</c> on a biped field, <c>bitN</c> elsewhere.</summary>
-    internal static IEnumerable<string> UnnamedBitTokens(ulong remainder, bool biped)
-    {
-        for (int i = 0; i < 64; i++)
-            if ((remainder & (1UL << i)) != 0) yield return biped ? $"slot{30 + i}" : $"bit{i}";
-    }
+    /// <summary>The token for one unnamed bit: <c>slotNN</c> on a biped field, <c>bitN</c> elsewhere.</summary>
+    internal static string UnnamedBitToken(int bit, bool biped) => biped ? $"slot{30 + bit}" : $"bit{bit}";
 
     // -- primitive family (mirror TryPrimitive) --------------------------------
     static bool TryEmitPrimitive(object val, out string token)
