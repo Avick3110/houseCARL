@@ -24,7 +24,7 @@ public static partial class RecordsTools
     /// <summary>The plugins= SELECT scope: which records are considered, as against source=, which decides whose version is read.</summary>
     public sealed class RecordsScope
     {
-        [Description("Plugin filenames to scope the scan to (records those plugins touch), e.g. [\"Requiem.esp\"]. Accepts [\"@<absolute path>\"], a file with one plugin filename per line, each line read as written; inline, a filename that itself starts with '@' is written '@@'.")]
+        [Description("Plugin filenames to scope the scan to, e.g. [\"Requiem.esp\"]; a record several touch is matched and shown from the highest-loading one. Accepts [\"@<absolute path>\"], a file with one plugin filename per line, each line read as written; inline, a filename that itself starts with '@' is written '@@'.")]
         public string[]? names { get; set; }
 
         [Description("When true, keep only records defined in the named plugins, dropping records they only override.")]
