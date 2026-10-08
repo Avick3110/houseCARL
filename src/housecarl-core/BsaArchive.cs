@@ -71,10 +71,7 @@ public static class BsaArchive
         finally { (reader as IDisposable)?.Dispose(); }
     }
 
-    /// <summary>Unpack the archive into <paramref name="destFolder"/> via Mutagen, writing each file's decompressed
-    /// bytes: every file, or with <paramref name="keep"/> only the paths it accepts. Path-traversal-guarded and
-    /// content-aware: a byte-identical file is skipped, which is why the managed flow's pre-seeded meta.ini marker is
-    /// left untouched.</summary>
+    /// <summary>Unpack every file, or only those <paramref name="keep"/> accepts, into <paramref name="destFolder"/>, traversal-guarded, skipping a byte-identical file.</summary>
     public static BsaResult Unpack(string archive, string destFolder, Func<string, bool>? keep = null)
     {
         Directory.CreateDirectory(destFolder);
@@ -89,7 +86,7 @@ public static class BsaArchive
         {
             foreach (var f in reader.Files)
             {
-                if (keep is not null && !keep(f.Path.Replace('/', '\\'))) { skipped++; continue; }
+                if (keep is not null && !keep(f.Path)) { skipped++; continue; }
                 if (f.Size > MaxEntryBytes)   // corrupt/hostile header — refuse loud rather than OOM the server
                     return new BsaResult(false,
                         $"archive entry '{f.Path}' declares {f.Size:N0} bytes, over the {MaxEntryBytes:N0}-byte safety ceiling — refusing to read it in-process (the archive header may be corrupt).", null);
@@ -117,6 +114,8 @@ public static class BsaArchive
             return new BsaResult(false,
                 $"read {total + skipped} file(s) from '{Path.GetFileName(archive)}' but its header declares {declared} — the archive may be corrupt or unsupported; refusing to report it as success.", null);
 
+        if (total == 0 && skipped > 0)
+            return new BsaResult(false, $"none of the {skipped} file(s) in '{Path.GetFileName(archive)}' matched the filter, so nothing was extracted.", null);
         string note = written > 0
             ? $"extracted {written} file(s)" + (already > 0 ? $" ({already} already present byte-identical)" : "") + "."
             : already > 0 ? $"all {already} file(s) were already present byte-identical — nothing to extract."
