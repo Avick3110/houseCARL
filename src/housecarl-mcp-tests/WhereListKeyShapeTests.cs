@@ -117,3 +117,125 @@ public sealed class WhereListKeyShapeFaultTests(TruncatedSubFieldFixture t) : IC
         Assert.Contains("a read FAULT", r);
     }
 }
+
+/// <summary>The fold of Aaron's review: a bad key vetoes no other type, the star hint is where='s alone, every
+/// key-shape throw is a wrong path, and a diff names a path with no field apart from a read fault.</summary>
+[Trait("tier", "unit")]
+public sealed class WhereListKeyShapeFoldTests
+{
+    readonly SkyrimMod _mod = new(new ModKey("KeyShapeFold", ModType.Master), SkyrimRelease.SkyrimSE);
+
+    IMagicEffectGetter Effect(CompareOperator op)
+    {
+        var e = _mod.MagicEffects.AddNew();
+        e.Conditions.Add(new ConditionFloat { CompareOperator = op, ComparisonValue = 1, Data = new GetLevelConditionData() });
+        return e;
+    }
+
+    static FieldPredicateSet Scan(string clause, IEnumerable<IMajorRecordGetter> records)
+    {
+        var (set, err) = FieldPredicateSet.Parse(new[] { clause });
+        Assert.Null(err);
+        foreach (var r in records) set!.Matches(r);
+        return set!;
+    }
+
+    [Fact]
+    public void ABadKeyOnOneTypeDoesNotRefuseTheScanOfAnother()
+    {
+        var armor = _mod.Armors.AddNew();
+        var set = Scan("Conditions[any].CompareOperator = EqualTo", new IMajorRecordGetter[] { Effect(CompareOperator.EqualTo), armor });
+        Assert.Null(set.FatalError);
+        Assert.Contains("List 'Conditions' must be indexed by a non-negative integer; got 'any'.", set.AccountingNote() ?? "");
+    }
+
+    [Fact]
+    public void TheStarHintIsTheWhereRefusalsAlone()
+    {
+        var e = Effect(CompareOperator.EqualTo);
+        var note = ReadEngine.ReadFields(e, new[] { "Conditions[any].CompareOperator" }).Fields.Single().Note;
+        Assert.True(ReadEngine.IsNoSuchFieldNote(note), note);
+        Assert.DoesNotContain("A quantifier takes a star", note);
+        Assert.Contains("A quantifier takes a star: 'Conditions[*any]'.", Scan("Conditions[any].CompareOperator = EqualTo", new[] { e }).FatalError);
+    }
+
+    [Fact]
+    public void TheDisplayReadCallsABadKeyAWrongPath()
+    {
+        var note = WriteEngine.ReadLeafDisplay(Effect(CompareOperator.EqualTo), new[] { "Conditions[any]", "CompareOperator" }, null);
+        Assert.True(ReadEngine.IsNoSuchFieldNote(note), note);
+    }
+
+    [Fact]
+    public void AGenderedIndexOutOfRangeRefusesInsteadOfFaulting()
+    {
+        var armor = _mod.Armors.AddNew();
+        armor.WorldModel = new GenderedItem<ArmorModel?>(new ArmorModel(), new ArmorModel());
+        var set = Scan("WorldModel[2] exists", new[] { armor });
+        Assert.Contains("indexed by [0] (male) or [1] (female); got '2'", set.FatalError);
+        Assert.DoesNotContain("read FAULT", set.AccountingNote() ?? "");
+    }
+
+    [Fact]
+    public void ADiffNamesAPathWithNoFieldApartFromAReadFault()
+    {
+        var e = Effect(CompareOperator.EqualTo);
+        var read = ReadEngine.ReadFields(e, new[] { "Conditionz" });
+        var d = FieldsDiff.Compare(read, read);
+        Assert.Equal(1, d.NoFieldCount);
+        Assert.Contains("names no field", d.Why);
+        Assert.DoesNotContain("could not be read", d.Why);
+
+        var row = new RecordReads.DeltaRow(FormIdToken.Of(e.FormKey),
+            new RecordReads.DiffPole("B.esp", "active", true, "MagicEffect", null),
+            new RecordReads.DiffPole("A.esm", "active", true, "MagicEffect", null), d, null, null, null);
+        var text = RecordsTools.RenderRecordsDelta(new[] { row }, 1, 0, 0, 1, 0, "records  form=delta", null, 40_000, null, out _, noField: 1);
+        Assert.Contains("1 with a path that names no field", text);
+        Assert.Contains("1 path with no field", text);
+        Assert.DoesNotContain("could not be read", text);
+        Assert.DoesNotContain("Narrow with", text);
+    }
+}
+
+/// <summary>A typed scan refuses a bad list key from the schema, before any data: no record need reach the step.</summary>
+[Trait("tier", "integration")]
+public sealed class WhereListKeyShapePlanTests : IDisposable
+{
+    readonly ScratchMo2 _mo2 = new("hc-key-shape-");
+
+    public WhereListKeyShapePlanTests()
+    {
+        var key = new ModKey("HcKeyShapeWorld", ModType.Master);
+        var m = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
+        m.Npcs.AddNew().EditorID = "HcNoVmad";
+        var e = m.MagicEffects.AddNew();
+        e.EditorID = "HcNoConditions";
+        m.BeginWrite.ToPath(Path.Combine(_mo2.DataDir, key.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        _mo2.Profile("HcKeyShapeWorld.esm\r\n", "*HcKeyShapeWorld.esm\r\n", "");
+    }
+
+    public void Dispose() => _mo2.Delete();
+
+    string Where(string type, string clause)
+    {
+        using var svc = _mo2.Open();
+        return RecordsTools.Records(svc, types: new[] { type }, where: new[] { clause }, counts_only: true);
+    }
+
+    [Fact]
+    public void AWordKeyBehindAnAbsentSubstructStillRefuses()
+    {
+        var r = Where("NPC_", "VirtualMachineAdapter.Scripts[any].ScriptName = Foo");
+        Assert.Contains("List 'Scripts' must be indexed by a non-negative integer; got 'any'.", r);
+        Assert.Contains("'Scripts[*any]'", r);
+        Assert.DoesNotContain("0 matches", r);
+    }
+
+    [Fact]
+    public void AWordKeyOnAnEmptyListRefusesFromTheSchema()
+    {
+        var r = Where("MGEF", "Conditions[abc].CompareOperator = EqualTo");
+        Assert.Contains("List 'Conditions' must be indexed by a non-negative integer; got 'abc'.", r);
+        Assert.DoesNotContain("A quantifier takes a star", r);
+    }
+}
