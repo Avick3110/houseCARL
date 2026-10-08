@@ -13,12 +13,13 @@ public static class AssetTools
     [McpServerTool(Name = ToolNames.AssetStatus, ReadOnly = true, Title = "Asset status — which mod/BSA wins for a Data-relative path"),
      Description(
          "Which copy of a file the game loads through MO2's virtual file system, for any tree (meshes, textures, " +
-         "scripts, sound, interface, SKSE/Plugins, CalienteTools/BodySlide): the winner, every source that provides " +
+         "scripts, sound, interface): the winner, every source that provides " +
          "it (loose mods, overwrite, the game Data folder, active BSAs), whether more than one source contends, and whether " +
          "it is absent. Precedence: loose beats BSA; among loose files the higher-priority mod (then overwrite) wins; " +
          "among BSAs the later-loaded plugin's archive wins. The file-layer counterpart to a record's load-order " +
          "winner; answers 'why isn't my override applying'. Use this instead of searching mods/ on disk, which misses " +
-         "BSAs and MO2's priority. Select with asset_paths=, under= (a folder, then a filename or glob: " +
+         "BSAs and MO2's priority; for SKSE plugins, which load only loose at the top level, use housecarl_skse. " +
+         "Select with asset_paths=, under= (a folder, or a glob under one: " +
          "'meshes/**/*fur*.nif') and formids= (NPC FaceGen pairs); they compose. An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
