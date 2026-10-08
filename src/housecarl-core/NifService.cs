@@ -305,25 +305,16 @@ public static class NifService
     static (float R, float G, float B) ReadRgb(object v, Type t)
         => ((float)t.GetField("R")!.GetValue(v)!, (float)t.GetField("G")!.GetValue(v)!, (float)t.GetField("B")!.GetValue(v)!);
 
-    /// <summary>Decode one shader flag word into its NAMED bits plus the unnamed remainder, off nifly's own enum;
-    /// contract in docs/architecture/nif.md.</summary>
+    /// <summary>Decode one shader flag word into its named bits, then a <c>bitN</c> token per unnamed bit, off nifly's
+    /// own enum through the records flag peel; contract in docs/architecture/nif.md.</summary>
     internal static NifShaderFlagWord DecodeFlagWord(string label, Enum value)
     {
         uint raw = Convert.ToUInt32(value);
-        var members = new List<(uint Bits, string Name)>();
-        foreach (Enum m in Enum.GetValues(value.GetType()))
-        {
-            uint mb = Convert.ToUInt32(m);
-            if (mb != 0) members.Add((mb, m.ToString()));
-        }
-        members.Sort((a, b) => b.Bits.CompareTo(a.Bits));        // descending — a combo before its constituent bits
-
-        uint remainder = raw;
-        var hit = new List<(uint Bits, string Name)>();
-        foreach (var m in members)
-            if ((remainder & m.Bits) == m.Bits) { hit.Add(m); remainder &= ~m.Bits; }
-        hit.Sort((a, b) => a.Bits.CompareTo(b.Bits));            // report in bit order — how the word reads on disk
-        return new NifShaderFlagWord(label, raw, hit.Select(h => h.Name).ToList(), remainder);
+        var (members, remainder) = ReadEngine.PeelFlagBits(value.GetType(), raw);
+        members.Sort();                                          // report in bit order — how the word reads on disk
+        var names = members.Select(mb => Enum.ToObject(value.GetType(), mb).ToString()!).ToList();
+        names.AddRange(ReadEngine.UnnamedBitTokens(remainder, biped: false));
+        return new NifShaderFlagWord(label, raw, names, (uint)remainder);
     }
 
     /// <summary>The SEMANTIC name of a BSShaderTextureSet slot, from the shader TYPE and FLAGS rather than the index,

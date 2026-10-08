@@ -555,13 +555,12 @@ static class NifWire
         return true;
     }
 
-    /// <summary>One decoded flag word; unnamed bits are stated as an explicit hex mask rather than dropped.</summary>
+    /// <summary>One decoded flag word; an unnamed bit is stated as its <c>bitN</c> token, as records does, never dropped.</summary>
     static void AppendFlagWord(StringBuilder sb, NifShaderFlagWord? w)
     {
         if (w is null) return;
         sb.Append("    ").Append(w.Label).Append(" 0x").Append(w.Raw.ToString("X8")).Append(": ")
-          .Append(w.Names.Count > 0 ? string.Join(", ", w.Names) : "(no named bit set)");
-        if (w.UnknownBits != 0) sb.Append("  (+unknown bits 0x").Append(w.UnknownBits.ToString("X")).Append(')');
+          .Append(w.Names.Count > 0 ? string.Join(", ", w.Names) : "(no bit set)");
         sb.Append('\n');
     }
 

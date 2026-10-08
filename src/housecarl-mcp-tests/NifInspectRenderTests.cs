@@ -175,7 +175,9 @@ public sealed class NifInspectRenderTests
     public void AnUnnamedBitResidualReachesTheRenderedFlagLine()
     {
         var word = NifService.DecodeFlagWord("TEST", (GappedFlags)0x1D);
-        Assert.Contains("(+unknown bits 0x10)", Render(FakeData(FakeShaderInspect(word), null), ShaderAndPaths));
+        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderAndPaths);
+        Assert.Contains("TEST 0x0000001D: Beta, Combo, bit4\n", text);
+        Assert.DoesNotContain("unknown bits", text);
     }
 
     // probe: "NiAVObject flags decode by deviation from the nif.xml default + the 0x80000 bit (no invented bit-names)"

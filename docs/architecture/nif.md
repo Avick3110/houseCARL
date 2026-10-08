@@ -48,8 +48,10 @@ The coverage cornerstone applies inside the format layer, and three pieces imple
   arity houseCARL enforces. Without this gate a write through the interface is a silent no-op: value discarded,
   success returned, mesh unchanged.
 - **`DecodeFlagWord`** — flag-bit names come from `Enum.GetValues` over nifly's own enum, so coverage is the library's.
-  Members are peeled largest-first, so a combo member wins over its constituent bits, and whatever no member covers is
-  reported as an explicit `UnknownBits` mask: an unnamed bit is something the mesh really carries.
+  The peel is the records one (`ReadEngine.PeelFlagBits`): members largest-first, so a combo member wins over its
+  constituent bits. Whatever no member covers is kept as the `UnknownBits` mask and named one `bitN` token per bit
+  (`ReadEngine.UnnamedBitTokens`), the same spelling `housecarl_records` uses: an unnamed bit is something the mesh
+  really carries.
 
 ### The Skyrim-layout gate
 
