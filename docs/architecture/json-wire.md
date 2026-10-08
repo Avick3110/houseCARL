@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-25
-covers: [src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/ToolFrontWire.cs]
+updated: 2026-10-08
+covers: [src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/ToolFrontWire.cs]
 ---
 # The json wire: the shape a machine-readable response is allowed to take
 
@@ -23,6 +23,18 @@ still a value a write can reuse verbatim.
 A json document is never a silently degraded mode. Truncation drops trailing ROWS and flags it (`truncated:true`
 alongside `rendered`); it is never a cut of the serialized string at a byte budget, which would emit malformed JSON.
 The accounting and the notes ride inside the document rather than beside it.
+
+### One leaf shape
+
+Every entry of a record's `fields` array, inline and in a `to_file` row, is `{path, value}` or `{path, note}`, with
+a concrete path (indices filled in), listed flat. No entry nests others. A quantified `X[*]` column and the `rows`
+form list each element's own summary leaf first, then its sub-leaves. What rides on a leaf (`display`, `slots`,
+`link`, `opaque_bytes`, `note_ref`, a child union) stays on that leaf.
+
+A folded element row still carries its leaves in `FieldValue.Cells`, because the text lane joins them on one display
+line. `WriteFieldsArray` writes those leaves in the row's place, so no `cells` member reaches the wire. A consumer
+reads `f[path] = value`; to group by element it cuts the path at the quantified step's index. Text and dense are
+untouched by this: dense already pivots one row per element.
 
 ### `ok` is a discriminant, and it is document-level only
 
@@ -179,6 +191,9 @@ own lane can survive.
 
 ## Pinned by
 
+- *One leaf shape*: `RecordsOneLeafShapeTests` — json and `to_file` rows for `Armature[*]`, `Effects[*]`,
+  `Effects[*].Data.Magnitude` and the `rows` form carry no `cells`, and each entry has exactly one of `value` or
+  `note`; `RecordsRowsFormTests.ARowsJsonEntryIsItsLeavesListedFlatNotANote` keeps a row's link object on its leaf.
 - *The epoch stamp and the degraded-order marker*: `DegradedOrderMarkerTests` — the marker rides on both transports on
   the read, scan and write lanes, and `TheCheckDocumentCarriesTheMarkerAtItsRootAndOnTheErrorsFamily` pins the root
   sentence against the per-family flag and count. The write lane is asserted on the text transport only
