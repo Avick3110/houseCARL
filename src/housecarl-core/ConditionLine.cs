@@ -77,7 +77,8 @@ static class ConditionLine
     /// <summary>The set flag names as the read decodes them, OR moved last.</summary>
     static string FlagWords(Condition.Flag flags)
     {
-        var words = ReadEngine.FlagParts(new ReadEngine.FlagBits((ulong)flags, typeof(Condition.Flag)), out _);
+        var fb = new ReadEngine.FlagBits((ulong)flags, typeof(Condition.Flag));
+        var words = ReadEngine.FlagParts(fb, ReadEngine.Unnamed(fb));
         if (words.Remove(nameof(Condition.Flag.OR))) words.Add(nameof(Condition.Flag.OR));
         return string.Join(" ", words);
     }
