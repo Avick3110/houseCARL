@@ -10,7 +10,7 @@ namespace HousecarlMcpTests;
 
 /// <summary>A condition element's summary line is one compact line: function, the arm's own used parameters,
 /// operator, comparand, run-on and flags. Read on the binary overlay the product reads plugins through.</summary>
-[Trait("tier", "integration")]
+[Trait("tier", "unit")]
 public sealed class ConditionSummaryLineTests : IDisposable
 {
     readonly string _dir = Path.Combine(Path.GetTempPath(), "hc-condition-line-" + Guid.NewGuid().ToString("N"));
