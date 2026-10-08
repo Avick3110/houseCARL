@@ -150,7 +150,7 @@ public static class SkyPatcherDiscovery
         {
             if (f.NotApplied is not null) continue;
             for (int i = 0; i < f.Lines.Count; i++)
-                lines.Add(new SkyPatcherOverlay.OrderedLine(f.RelPath, i + 1, f.Lines[i]));
+                lines.Add(new SkyPatcherOverlay.OrderedLine(f.RelPath, i + 1, f.Lines[i], Listed: f.WinningProvider != SkyPatcherDraft.DraftProvider));
         }
         return lines;
     }

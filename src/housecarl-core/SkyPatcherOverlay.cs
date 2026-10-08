@@ -70,8 +70,8 @@ public static class SkyPatcherOverlay
         string? EditorIdOf(FormKey record);
     }
 
-    /// <summary>One parsed line in its apply-order context: the Data-relative file, the physical line, and the parsed form.</summary>
-    public sealed record OrderedLine(string File, int LineNumber, SkyPatcherLine Parsed);
+    /// <summary>One parsed line in its apply-order context: the Data-relative file, the physical line, and the parsed form; <see cref="Listed"/> is false for a draft's line, which no layer listing holds.</summary>
+    public sealed record OrderedLine(string File, int LineNumber, SkyPatcherLine Parsed, bool Listed = true);
 
     /// <summary>One resolved field change: op as the line spells it, <see cref="OpName"/> the catalog's name (the lookup key), raw value, the Mutagen field it landed on, and the before/after leaf tokens (equal means a visible no-op).</summary>
     public sealed record SkyPatcherAppliedOp(string File, int LineNumber, string Op, string OpName, string RawValue,
@@ -289,13 +289,13 @@ public static class SkyPatcherOverlay
         /// <summary>Hold one warning for the line; <paramref name="decides"/> marks one that forces a NoMatch on its own.</summary>
         public void Add(string key, string text, bool decides = false) => _pending.Add((key, text, decides));
 
-        /// <summary>Settle the line's held warnings: all ride when the line reaches the record, otherwise only the deciding ones.</summary>
+        /// <summary>Settle the line's held warnings: all ride when the line reaches the record or no listing holds it, otherwise only the deciding ones.</summary>
         public void Flush(bool rides)
         {
             bool any = false;
             foreach (var (key, text, decides) in _pending)
             {
-                if (rides || decides)
+                if (rides || decides || !_line!.Listed)
                 {
                     any = true;
                     if (_seen.Add(_line!.File + "|" + key)) _out.Add($"{_where}: {text}");
