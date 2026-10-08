@@ -122,7 +122,7 @@ acquires a mapping.
 A warning rides an overlay read when its line bears on a record read: the line's verdict is Match
 or Unresolved for some record, or its NoMatch rests on the warned value (today only the bare-list
 guard, where a token that resolves to nothing forces NoMatch while the resolved ones are present).
-An unknown-key line always rides. Any other warning is a note, and the read prints one line per INI
+An unknown-key line always rides, and so does every warning from a draft INI, which no layer listing holds. Any other warning is a note, and the read prints one line per INI
 counting them, `N note(s) on lines that do not reach these records — housecarl_skypatcher_layer
 filter=<INI> lists them`; in json the same lines join the `skypatcher_warnings` member. Each line's
 lint lives under that line in `housecarl_skypatcher_layer filter=`: unknown keys and the filter form
@@ -176,7 +176,7 @@ hardened.
   — the filter kinds, the entry and list ops, and the op closures.
 - *Tiered honesty*, which warnings ride a read: `SkyPatcherWarningRelevanceTests` — a record no line reaches gets the
   pointer and no warning text, a matched Or line and a bare line stopped by a missing keyword ride, an unknown key
-  always rides, and `filter=` lists the lint under its line.
+  always rides, a draft's line rides whatever its verdict, and `filter=` lists the lint under its line.
 - *How the overlay replays onto a record*: `SkyPatcherFieldMapGuardTests.AMappedHardOpIsCaught` — CI rejects a
   HARD op that acquires a mapping.
 - *Reports and drafts*: `SkyPatcherConflictsTests` — SET collisions with the later
