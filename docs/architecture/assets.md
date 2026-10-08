@@ -68,12 +68,13 @@ resolver reads no profile.
   the mod set or profile changes. Granting permission moves no mtime, so it clears nothing on its own: the modder
   toggles something in MO2, or restarts the server, and the next call reads the folder again.
 - **A folder is warmed across roots top-down**, each root answered off listings of its mod folder and of each folder
-  below it that its parent lists as a directory; a listing serves only the **read pass** it was taken in (one
-  `Capture()` or one single-shot read), so a call warming many folders lists each directory on the way once, not once
-  per folder per root, and the next call lists again. The pass, not the freshness check, bounds the reuse, because the
-  service skips `RefreshIfStale` while a write is in flight. An absent subtree therefore costs each root the listings
-  down to its first missing name, once per call that warms one. A listing that will not read falls back to the
-  stat-and-prove path.
+  below it that its parent lists as a directory. Each view (one `Capture()` or one single-shot read) carries its own
+  **read pass**, and a listing serves every pass begun before it was taken, so a call warming many folders lists each
+  directory on the way once, not once per folder per root, and a concurrent call neither invalidates nor re-lists for
+  it. A listing taken before a call began never answers it, so the next call lists again for any subtree it has not
+  yet warmed. A subtree an earlier call warmed answers from `LooseCache` until `RefreshIfStale` runs, which the service
+  skips while a write is in flight (#1128). A folder only passed through keeps its names, not its files. A listing
+  that will not read is tried once per pass, then falls back to the stat-and-prove path.
 - **A freshness baseline is read at the warm, never off an older memo.** Every directory a warmed subtree puts under
   watch is baselined by what that warm reads — a listing taken in the warm's own read pass, which is also what
   the answer came from; on the fallback path, the whole listing for a root's own copy, or for a root that has nothing
@@ -83,9 +84,10 @@ resolver reads no profile.
   absence VERDICT and nothing else, because it can predate the warm by any number of calls, and a baseline older
   than the warm makes a file that goes and comes back invisible for the life of the build.
 - **A bad path fails loud.** `NormalizeQueryPath` refuses a drive-rooted or `..`-escaping path naming the input, and
-  collapses `.` and empty segments so the loose walk and the archive-table match answer for one set of files. Each
-  segment is then spelt as Windows opens it (the last loses trailing dots and spaces, any other one trailing dot), so a
-  listing lookup finds the file a file open would.
+  collapses `.` and empty segments so the loose walk and the archive-table match answer for one set of files. A last
+  segment of only dots or spaces, which Windows opens as no name, is refused. The loose lookup spells each segment as
+  Windows opens it (the last loses trailing dots and spaces, any other one trailing dot), so it finds the file a file
+  open would; the archive match and the reported path use the path as asked.
   `ValidateRelPath` exposes that one validator to the place lane, whose destination is `Path.Combine(modRoot, rel)`.
 
 ### One build per call
@@ -267,7 +269,12 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   `AFileAddedToASecondRootAfterAnotherFolderWarmedIsSeen`), and never off a listing an earlier call took, checked or
   not (`AFileDeletedWithNoCheckBetweenCallsReadsAbsent`); a read pass lists each directory once, the next call lists
   again, and the absence stays watched (`APassListsEachDirectoryOnceAndALaterCallListsItAgain`); a segment resolves as
-  a file open does (`ATrailingDotOrSpaceResolvesAsAFileOpenDoes`); on the fallback path an absence is watched only
+  a file open does (`ATrailingDotOrSpaceResolvesAsAFileOpenDoes`), an archive entry as asked
+  (`AssetResolverTests.ATrailingDotReachesTheLooseFileButNotTheArchiveEntry`), and one that opens as no name is refused
+  (`ASegmentWindowsOpensAsNoNameIsRefused`, `PlaceOffOrderLaneTests.ADestinationEndingInADotsOnlySegmentIsRefused`);
+  two interleaved passes do not list for each other (`TwoInterleavedPassesDoNotListForEachOther`); a folder that will
+  not list is tried once per pass (`AFolderThatWillNotListIsTriedOncePerPass`); a file holding a name under a folder
+  only passed through is still watched (`AFileHoldingANameUnderAPassedThroughFolderIsStillWatched`); on the fallback path an absence is watched only
   once it is proved (`AModFolderThatWillNotListDoesNotMakeEveryCallStale`,
   `AMemoThatWronglyProvesAnAbsenceCostsOneRebuildNotOnePerCall`); a memo never makes a failure
   (`AnAbsenceUnderAFolderGivenBackAfterItWouldNotListIsProvedAndWatched`).
