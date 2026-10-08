@@ -820,8 +820,16 @@ public sealed class AssetResolver : IDisposable
                 throw new ArgumentException($"expected a Data-relative asset path, got a parent-escaping ('..') path: '{relPath}'");
             if (seg.Length > 0 && seg != ".") kept.Add(seg);
         }
+        for (int i = 0; i < kept.Count; i++) kept[i] = AsWindowsOpens(kept[i], last: i == kept.Count - 1);
+        kept.RemoveAll(s => s.Length == 0);
         return string.Join('\\', kept);
     }
+
+    /// <summary>One path segment as Windows opens it: the last loses its trailing dots and spaces, any other one trailing
+    /// dot not after a dot, so a listing lookup and a file open name the same file.</summary>
+    static string AsWindowsOpens(string seg, bool last) =>
+        last ? seg.TrimEnd('.', ' ')
+             : seg.Length > 1 && seg[^1] == '.' && seg[^2] != '.' ? seg[..^1] : seg;
 
     static string Concise(Exception ex)
     {

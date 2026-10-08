@@ -83,7 +83,9 @@ resolver reads no profile.
   absence VERDICT and nothing else, because it can predate the warm by any number of calls, and a baseline older
   than the warm makes a file that goes and comes back invisible for the life of the build.
 - **A bad path fails loud.** `NormalizeQueryPath` refuses a drive-rooted or `..`-escaping path naming the input, and
-  collapses `.` and empty segments so the loose walk and the archive-table match answer for one set of files.
+  collapses `.` and empty segments so the loose walk and the archive-table match answer for one set of files. Each
+  segment is then spelt as Windows opens it (the last loses trailing dots and spaces, any other one trailing dot), so a
+  listing lookup finds the file a file open would.
   `ValidateRelPath` exposes that one validator to the place lane, whose destination is `Path.Combine(modRoot, rel)`.
 
 ### One build per call
@@ -264,7 +266,8 @@ a miss, stating that form is not provided either; the generic lane does not, bec
   off an older memo (`AFileDeletedAndPutBackBetweenCallsIsSeen`, `ASubtreeDeletedAfterASweepMemoizedItsParentIsSeenComingBack`,
   `AFileAddedToASecondRootAfterAnotherFolderWarmedIsSeen`), and never off a listing an earlier call took, checked or
   not (`AFileDeletedWithNoCheckBetweenCallsReadsAbsent`); a read pass lists each directory once, the next call lists
-  again, and the absence stays watched (`APassListsEachDirectoryOnceAndALaterCallListsItAgain`); on the fallback path an absence is watched only
+  again, and the absence stays watched (`APassListsEachDirectoryOnceAndALaterCallListsItAgain`); a segment resolves as
+  a file open does (`ATrailingDotOrSpaceResolvesAsAFileOpenDoes`); on the fallback path an absence is watched only
   once it is proved (`AModFolderThatWillNotListDoesNotMakeEveryCallStale`,
   `AMemoThatWronglyProvesAnAbsenceCostsOneRebuildNotOnePerCall`); a memo never makes a failure
   (`AnAbsenceUnderAFolderGivenBackAfterItWouldNotListIsProvedAndWatched`).
