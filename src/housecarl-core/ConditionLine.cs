@@ -55,12 +55,9 @@ static class ConditionLine
     {
         var leaf = ReadEngine.EmitToken(v, declared, parent);
         if (!leaf.HasValue) return leaf.Note ?? "";
-        if (firstRef is null && IsLink(v, declared)) firstRef = leaf.Token;
+        if (firstRef is null && FormKey.TryFactory(leaf.Token, out _)) firstRef = leaf.Token;
         return leaf.Token;
     }
-
-    static bool IsLink(object? v, Type declared) =>
-        v is IFormLinkGetter || WriteEngine.IsFormLinkOrIndex(Nullable.GetUnderlyingType(declared) ?? declared);
 
     static string Comparand(IConditionGetter cond, ref string? firstRef) => cond switch
     {

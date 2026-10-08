@@ -48,6 +48,11 @@ public sealed class ConditionSummaryLineTests : IDisposable
         holder.Conditions.Add(new ConditionFloat
             { CompareOperator = CompareOperator.NotEqualTo, ComparisonValue = 0f, Flags = Condition.Flag.SwapSubjectAndTarget | Condition.Flag.OR, Data = onRef });
 
+        var byAlias = new GetIsIDConditionData { RunOnType = Condition.RunOnType.Reference, UseAliases = true };
+        byAlias.Reference.SetTo(refKey);
+        byAlias.Object = new FormLinkOrIndex<IReferenceableObjectGetter>(byAlias, 3u);
+        holder.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = byAlias });
+
         var path = Path.Combine(_dir, _mod.ModKey.FileName);
         _mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
     }
@@ -88,6 +93,15 @@ public sealed class ConditionSummaryLineTests : IDisposable
     [Fact]
     public void TheLineCarriesTheFirstFormIdItSpellsForResolveNames() =>
         Assert.Equal(_perk, Read(2, "Conditions").Single(f => f.Path == "Conditions[0]").NoteRef);
+
+    [Fact]
+    public void AnAliasModeParameterIsItsIndexAndTheReferenceIsTheFormIdForResolveNames()
+    {
+        var fields = Read(2, "Conditions");
+        var element = fields.Single(f => f.Path == "Conditions[4]");
+        Assert.Equal($"[GetIsID(alias 3) == 1 [Reference {_ref}]]", Line(fields, "Conditions[4]"));
+        Assert.Equal(_ref, element.NoteRef);
+    }
 
     [Fact]
     public void DepthBelowTheElementStillPrintsEverySubField()
