@@ -19,8 +19,8 @@ made the change.
 - **`housecarl_bsa_list` and `housecarl_bsa_extract` take `under=` paths or globs, as `asset_status` does, and
   `bsa_list` takes `counts_only=`, so reading two scripts no longer unpacks the whole archive.** Try
   `bsa_extract under=["scripts/dlc2thirskdoorscript.pex"]` on `Skyrim - Misc.bsa`.
-- **`housecarl_records` now decodes a flags value with an unnamed bit in every format, naming the known bits and each
-  other one as `slotNN` or `bitN`, and json adds a numeric `slots` array on biped-slot fields.** Read an ARMA with slot 60 set.
+- **`housecarl_records` now names every flag bit in every format, known bits by name and others as `slotNN` or
+  `bitN`; json adds a numeric `slots` array on biped fields.** Read an ARMA with slot 60 set.
 
 ## 2.0.4 — 2026-10-05
 
