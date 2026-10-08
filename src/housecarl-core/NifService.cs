@@ -305,16 +305,18 @@ public static class NifService
     static (float R, float G, float B) ReadRgb(object v, Type t)
         => ((float)t.GetField("R")!.GetValue(v)!, (float)t.GetField("G")!.GetValue(v)!, (float)t.GetField("B")!.GetValue(v)!);
 
-    /// <summary>Decode one shader flag word into its named bits, then a <c>bitN</c> token per unnamed bit, off nifly's
-    /// own enum through the records flag peel; contract in docs/architecture/nif.md.</summary>
+    /// <summary>Decode one shader flag word into its named members plus the unnamed remainder, off nifly's own enum
+    /// through the records flag peel; contract in docs/architecture/nif.md.</summary>
     internal static NifShaderFlagWord DecodeFlagWord(string label, Enum value)
     {
-        uint raw = Convert.ToUInt32(value);
-        var (members, remainder) = ReadEngine.PeelFlagBits(value.GetType(), raw);
+        var type = value.GetType();
+        if (!ReadEngine.TryEnumBits(value, type, out ulong raw))
+            throw new InvalidOperationException($"shader flag word {label} has no integer value.");
+        var members = new List<ulong>();
+        ulong remainder = ReadEngine.PeelFlagBits(type, raw, members);
         members.Sort();                                          // report in bit order — how the word reads on disk
-        var names = members.Select(mb => Enum.ToObject(value.GetType(), mb).ToString()!).ToList();
-        names.AddRange(ReadEngine.UnnamedBitTokens(remainder, biped: false));
-        return new NifShaderFlagWord(label, raw, names, (uint)remainder);
+        return new NifShaderFlagWord(label, (uint)raw, members.Select(mb => Enum.ToObject(type, mb).ToString()!).ToList(),
+                                     members.Select(mb => (uint)mb).ToList(), (uint)remainder);
     }
 
     /// <summary>The SEMANTIC name of a BSShaderTextureSet slot, from the shader TYPE and FLAGS rather than the index,
@@ -993,8 +995,25 @@ public sealed record NifShader(
     NifColor? SpecularColor,
     float? Alpha);
 
-/// <summary>One decoded shader flag word: its label, raw value, named bits in bit order, and the mask of bits no enum member covers.</summary>
-public sealed record NifShaderFlagWord(string Label, uint Raw, IReadOnlyList<string> Names, uint UnknownBits);
+/// <summary>One decoded shader flag word: its label, raw value, the enum members it carries in bit order with each
+/// one's mask, and the mask of bits no enum member covers.</summary>
+public sealed record NifShaderFlagWord(string Label, uint Raw, IReadOnlyList<string> Names, IReadOnlyList<uint> NameMasks,
+                                       uint UnknownBits)
+{
+    /// <summary>The members and a <c>bitN</c> token per unnamed bit, together in bit order: the rendered flag list.</summary>
+    public IEnumerable<string> Tokens()
+    {
+        int n = 0;
+        for (int i = 0; i < 32; i++)
+        {
+            uint bit = 1u << i;
+            if ((UnknownBits & bit) == 0) continue;
+            for (; n < Names.Count && NameMasks[n] < bit; n++) yield return Names[n];
+            yield return ReadEngine.UnnamedBitToken(i, biped: false);
+        }
+        for (; n < Names.Count; n++) yield return Names[n];
+    }
+}
 
 /// <summary>A shader colour — RGB, which is what the format carries; opacity is <see cref="NifShader.Alpha"/>.</summary>
 public sealed record NifColor(float R, float G, float B);

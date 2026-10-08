@@ -144,6 +144,6 @@ public sealed class NifShaderDecodeTests
     {
         var w = NifService.DecodeFlagWord("TEST", (NifInspectFixtures.GappedFlags)0x1D);
         Assert.Equal((0x1Du, 0x10u), (w.Raw, w.UnknownBits));
-        Assert.Equal(new[] { "Beta", "Combo", "bit4" }, w.Names);
+        Assert.Equal(new[] { "Beta", "Combo" }, w.Names);
     }
 }
