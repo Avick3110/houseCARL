@@ -18,7 +18,7 @@ public static class AssetTools
          "it is absent. Precedence: loose beats BSA; among loose files the higher-priority mod (then overwrite) wins; " +
          "among BSAs the later-loaded plugin's archive wins. The file-layer counterpart to a record's load-order " +
          "winner; answers 'why isn't my override applying'. Use this instead of searching mods/ on disk, which misses " +
-         "BSAs and MO2's priority. Select with asset_paths=, under= (search a folder by filename or glob: " +
+         "BSAs and MO2's priority. Select with asset_paths=, under= (a folder, then a filename or glob: " +
          "'meshes/**/*fur*.nif') and formids= (NPC FaceGen pairs); they compose. An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
