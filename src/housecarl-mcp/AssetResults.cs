@@ -221,8 +221,8 @@ public sealed record SkyPatcherLayerData(
     bool ReadIncomplete,
     IReadOnlyList<string> AssetWarnings,
     string ProfileName,
-    /// <summary>Each expanded line's lint, keyed by the file's Data-relative path and its line number; a line without lint is absent.</summary>
-    IReadOnlyDictionary<(string File, int Line), IReadOnlyList<string>>? Lint = null);
+    /// <summary>One line's lint by folder, file and line index, valid only inside the call that handed this data over; null when not asked for.</summary>
+    Func<HousecarlCore.SkyPatcherDiscovery.FolderScan, HousecarlCore.SkyPatcherDiscovery.IniFile, int, IReadOnlyList<string>>? Lint = null);
 
 /// <summary>One no-op write, the true-ITM class: a SET-class op that applied in the full replay but wrote the value <see cref="Already"/> there.</summary>
 public sealed record SkyPatcherNoOpWrite(
