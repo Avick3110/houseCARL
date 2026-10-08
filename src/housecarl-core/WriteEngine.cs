@@ -2300,14 +2300,23 @@ public static class WriteEngine
         if (GenderedInterface(prop.PropertyType) is not null)
             return StepIntoGenderedArm(parent, prop, name, key, materialize);
 
+        // Recognise BOTH the mutable and read-only collection interfaces — a read navigates a getter overlay.
+        var dictIface = ClosedInterface(prop.PropertyType, typeof(IDictionary<,>))
+                     ?? ClosedInterface(prop.PropertyType, typeof(IReadOnlyDictionary<,>));
+        var listIface = dictIface is not null ? null
+                     : ClosedInterface(prop.PropertyType, typeof(IList<>)) ?? ClosedInterface(prop.PropertyType, typeof(IReadOnlyList<>));
+
+        // The key's shape is a fact of the property's type, so it is checked before the data is read.
+        int idx = 0;
+        if (listIface is not null && (!int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out idx) || idx < 0))
+            throw new PathKeyShapeException($"List '{name}' must be indexed by a non-negative integer; got '{key}'." +
+                (key.Length > 0 && PathFoldGrammar.Read($"{name}[*{key}]").Fold != PathFold.None ? $" A quantifier takes a star: '{name}[*{key}]'." : ""));
+
         var coll = prop.GetValue(parent)
             ?? throw new ExpectedApplyRejectionException(   // live-state: empty/absent collection — clean, not the inconsistency wrapper
                 $"Cannot navigate into '{name}[{key}]': the collection is absent (null). Add an element first " +
                 "(element composition — wave 1 half B), then navigate into it.");
 
-        // Recognise BOTH the mutable and read-only collection interfaces — a read navigates a getter overlay.
-        var dictIface = ClosedInterface(prop.PropertyType, typeof(IDictionary<,>))
-                     ?? ClosedInterface(prop.PropertyType, typeof(IReadOnlyDictionary<,>));
         if (dictIface is not null)
         {
             var kType = dictIface.GetGenericArguments()[0];
@@ -2324,13 +2333,8 @@ public static class WriteEngine
                     $"Entry '{name}[{key}]' is present but null — the target record's data is malformed here (a source-data anomaly, not an engine fault).");
         }
 
-        var listIface = ClosedInterface(prop.PropertyType, typeof(IList<>))
-                     ?? ClosedInterface(prop.PropertyType, typeof(IReadOnlyList<>));
         if (listIface is not null)
         {
-            if (!int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx) || idx < 0)
-                throw new PathKeyShapeException($"List '{name}' must be indexed by a non-negative integer; got '{key}'." +
-                    (key.Length > 0 && PathFoldGrammar.Read($"{name}[*{key}]").Fold != PathFold.None ? $" A quantifier takes a star: '{name}[*{key}]'." : ""));
             int j = 0;
             foreach (var item in (System.Collections.IEnumerable)coll)
                 if (j++ == idx)

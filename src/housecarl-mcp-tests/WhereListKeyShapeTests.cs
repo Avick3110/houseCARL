@@ -66,6 +66,37 @@ public sealed class WhereListKeyShapeTests
         var f = ReadEngine.ReadFields((IMajorRecordGetter)_mod.MagicEffects.First(), new[] { "Conditions[any].CompareOperator" }).Fields.Single();
         Assert.True(ReadEngine.IsNoSuchFieldNote(f.Note), f.Note);
     }
+
+    [Fact]
+    public void AWordKeyThatIsNoQuantifierGetsNoStarHint()
+    {
+        var (_, set) = Run("Conditions[abc].CompareOperator = EqualTo");
+        Assert.Contains("got 'abc'.", set.FatalError);
+        Assert.DoesNotContain("A quantifier takes a star", set.FatalError);
+    }
+
+    [Fact]
+    public void AWordKeyOnANullListStillRefuses()
+    {
+        Assert.All(_mod.MagicEffects, e => Assert.Null(e.Keywords));
+        var (hits, set) = Run("Keywords[any] exists");
+        Assert.Empty(hits);
+        Assert.Contains("'Keywords[*any]'", set.FatalError);
+        var f = ReadEngine.ReadFields((IMajorRecordGetter)_mod.MagicEffects.First(), new[] { "Keywords[abc]" }).Fields.Single();
+        Assert.True(ReadEngine.IsNoSuchFieldNote(f.Note), f.Note);
+    }
+
+    [Theory]
+    [InlineData("Conditions[any].CompareOperator")]
+    [InlineData("Conditionz")]
+    public void ADiffNeverCallsAPathWithNoFieldOnBothSidesIdentical(string path)
+    {
+        RecordFields Read(FormKey fk) => ReadEngine.ReadFields(_effects.Single(e => e.FormKey == fk), new[] { path });
+        var d = FieldsDiff.Compare(Read(_equal), Read(_equal));
+        Assert.False(d.Complete);
+        Assert.Equal(1, d.NoVerdictCount);
+        Assert.StartsWith($"{path}: NO FIELD on both sides — not compared (no field", Assert.Single(d.Deltas));
+    }
 }
 
 /// <summary>The genuine fault keeps its bucket next to the key-shape refusal: a cut-short DATA still reads as a read fault.</summary>
