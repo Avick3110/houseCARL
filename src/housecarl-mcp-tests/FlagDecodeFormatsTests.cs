@@ -15,14 +15,14 @@ namespace HousecarlMcpTests;
 [Trait("tier", "integration")]
 public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTests.World>
 {
-    const BipedObjectFlag AllNamed = BipedObjectFlag.Body | BipedObjectFlag.Forearms;   // slots 32, 34
+    const BipedObjectFlag AllNamed = BipedObjectFlag.Body | BipedObjectFlag.Forearms;   // slots 32 34
     const BipedObjectFlag WithSlot60 = (BipedObjectFlag)1073741828;                      // Body + slot 60
     const BipedObjectFlag LoneSlot60 = (BipedObjectFlag)1073741824;                      // slot 60 alone
     const Armor.MajorFlag WithBit8 = Armor.MajorFlag.NonPlayable | (Armor.MajorFlag)0x100;
 
-    const string AllNamedDecode = "Body, Forearms [slots 32, 34]";
-    const string Slot60Decode = "1073741828 [Body, slot60; slots 32, 60]";
-    const string Bit8Decode = "260 [NonPlayable, bit8]";
+    const string AllNamedDecode = "Body, Forearms [slots 32 34]";
+    const string Slot60Decode = "1073741828 [Body | slot60 | slots 32 60]";
+    const string Bit8Decode = "260 [NonPlayable | bit8]";
 
     public sealed class World : IDisposable
     {
@@ -100,11 +100,11 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
 
     [Fact]
     public void Text_AllNamedBipedShowsNamesAndSlots() =>
-        Assert.Contains("BodyTemplate.FirstPersonFlags = Body, Forearms   (slots 32, 34)", Read("ARMA", "hcFlagNamed", Slots));
+        Assert.Contains("BodyTemplate.FirstPersonFlags = Body, Forearms   (slots 32 34)", Read("ARMA", "hcFlagNamed", Slots));
 
     [Fact]
     public void Text_AnUnnamedSlotKeepsTheNamedOnesAndNamesItAsASlotToken() =>
-        Assert.Contains("BodyTemplate.FirstPersonFlags = 1073741828   (Body, slot60; slots 32, 60)", Read("ARMA", "hcFlagSlot60", Slots));
+        Assert.Contains("BodyTemplate.FirstPersonFlags = 1073741828   (Body | slot60 | slots 32 60)", Read("ARMA", "hcFlagSlot60", Slots));
 
     [Fact]
     public void Text_ALoneUnnamedSlotIsNotDecodedTwice() =>
@@ -112,7 +112,7 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
 
     [Fact]
     public void Text_MajorFlagsWithAnUnnamedBitNamesItAsABitToken() =>
-        Assert.Contains("MajorFlags = 260   (NonPlayable, bit8)", Read("ARMO", "hcFlagMajor", Major));
+        Assert.Contains("MajorFlags = 260   (NonPlayable | bit8)", Read("ARMO", "hcFlagMajor", Major));
 
     // ---- json ----
 
@@ -129,7 +129,7 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
     {
         var f = Field(Read("ARMA", "hcFlagSlot60", Slots, "json"));
         Assert.Equal("1073741828", f.GetProperty("value").GetString());
-        Assert.Equal("Body, slot60; slots 32, 60", f.GetProperty("display").GetString());
+        Assert.Equal("Body | slot60 | slots 32 60", f.GetProperty("display").GetString());
         Assert.Equal(new[] { 32, 60 }, SlotArray(f));
     }
 
@@ -146,7 +146,7 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
     {
         var f = Field(Read("ARMO", "hcFlagMajor", Major, "json"));
         Assert.Equal("260", f.GetProperty("value").GetString());
-        Assert.Equal("NonPlayable, bit8", f.GetProperty("display").GetString());
+        Assert.Equal("NonPlayable | bit8", f.GetProperty("display").GetString());
         Assert.False(f.TryGetProperty("slots", out _));
     }
 
@@ -157,11 +157,11 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
 
     [Fact]
     public void Dense_AllNamedBipedShowsSlots() =>
-        Assert.Equal("Body, Forearms   (slots 32, 34)", DenseCell(Read("ARMA", "hcFlagNamed", Slots, "dense")));
+        Assert.Equal("Body, Forearms   (slots 32 34)", DenseCell(Read("ARMA", "hcFlagNamed", Slots, "dense")));
 
     [Fact]
     public void Dense_AnUnnamedSlotDecodes() =>
-        Assert.Equal("1073741828   (Body, slot60; slots 32, 60)", DenseCell(Read("ARMA", "hcFlagSlot60", Slots, "dense")));
+        Assert.Equal("1073741828   (Body | slot60 | slots 32 60)", DenseCell(Read("ARMA", "hcFlagSlot60", Slots, "dense")));
 
     [Fact]
     public void Dense_ALoneUnnamedSlotDecodesOnce() =>
@@ -169,7 +169,7 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
 
     [Fact]
     public void Dense_MajorFlagsDecodes() =>
-        Assert.Equal("260   (NonPlayable, bit8)", DenseCell(Read("ARMO", "hcFlagMajor", Major, "dense")));
+        Assert.Equal("260   (NonPlayable | bit8)", DenseCell(Read("ARMO", "hcFlagMajor", Major, "dense")));
 
     // ---- to_file rows ----
 
@@ -189,7 +189,7 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
     public void ToFile_AnUnnamedSlotDecodes()
     {
         var f = FileField("ARMA", "hcFlagSlot60", Slots);
-        Assert.Equal("Body, slot60; slots 32, 60", f.GetProperty("display").GetString());
+        Assert.Equal("Body | slot60 | slots 32 60", f.GetProperty("display").GetString());
         Assert.Equal(new[] { 32, 60 }, SlotArray(f));
     }
 
@@ -203,7 +203,7 @@ public sealed class FlagDecodeFormatsTests : IClassFixture<FlagDecodeFormatsTest
 
     [Fact]
     public void ToFile_MajorFlagsDecodes() =>
-        Assert.Equal("NonPlayable, bit8", FileField("ARMO", "hcFlagMajor", Major).GetProperty("display").GetString());
+        Assert.Equal("NonPlayable | bit8", FileField("ARMO", "hcFlagMajor", Major).GetProperty("display").GetString());
 
     // ---- tree diff ----
 
