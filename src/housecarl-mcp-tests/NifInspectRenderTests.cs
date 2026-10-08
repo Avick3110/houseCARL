@@ -180,6 +180,26 @@ public sealed class NifInspectRenderTests
         Assert.DoesNotContain("unknown bits", text);
     }
 
+    // a word whose set bits are all unnamed lists its bitN tokens, never "(no named bit set)"
+    [Fact]
+    public void AWordOfOnlyUnnamedBitsListsThemByBit()
+    {
+        var word = NifService.DecodeFlagWord("TEST", (GappedFlags)0x10);
+        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderAndPaths);
+        Assert.Contains("TEST 0x00000010: bit4\n", text);
+    }
+
+    // records and nif_inspect spell the same unnamed bit with the same token
+    [Fact]
+    public void RecordsAndNifInspectSpellAnUnnamedBitAlike()
+    {
+        var word = NifService.DecodeFlagWord("TEST", (GappedFlags)0x14);
+        var leaf = ReadEngine.LeafRead.FlagsValue("Beta", new ReadEngine.FlagBits(0x14, typeof(GappedFlags)));
+        var (display, _) = ReadEngine.FlagDecode(leaf);
+        Assert.Equal(new[] { "Beta", "bit4" }, word.Names);
+        Assert.Equal("Beta | bit4", display);
+    }
+
     // a zero flag word, common on real meshes, reads as it did before bitN
     [Fact]
     public void AZeroFlagWordReadsNoNamedBitSet()
