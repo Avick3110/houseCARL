@@ -25,8 +25,8 @@ public sealed class PublishedDescriptionBoundTests
     readonly ITestOutputHelper _out;
     public PublishedDescriptionBoundTests(ServerFixture s, ITestOutputHelper output) { _s = s; _out = output; }
 
-    /// <summary>The client's cut.</summary>
-    const int Bound = 2048;
+    /// <summary>Claude Code's cut, on a tool description and on the server instructions alike.</summary>
+    internal const int Bound = 2048;
 
     public static IEnumerable<object[]> EveryPublishedTool() =>
         PublishedNameAnchorTests.Captured().Select(n => new object[] { n });

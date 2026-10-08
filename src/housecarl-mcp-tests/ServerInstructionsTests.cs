@@ -23,14 +23,10 @@ public sealed class ServerInstructionsTests
     readonly ITestOutputHelper _out;
     public ServerInstructionsTests(ServerFixture s, ITestOutputHelper output) { _s = s; _out = output; }
 
-    /// <summary>Claude Code's cut on server instructions, in characters of the string.</summary>
-    const int ClaudeCodeInstructionsCut = 2048;
-
     [Fact]
-    public void TheStandingInstructionsAreServedAndMeasured()
+    public void TheStandingInstructionsAreNotEmpty()
     {
         var text = _s.PublishedInstructions;
-        _out.WriteLine($"ServerInstructions: {text.Length} characters");
 
         Assert.False(string.IsNullOrWhiteSpace(text),
             "initialize published no instructions — the standing context is what a session gets before any skill " +
@@ -41,11 +37,11 @@ public sealed class ServerInstructionsTests
     public void TheInstructionsFitClaudeCodesCutOf2048Characters()
     {
         var length = _s.PublishedInstructions.Length;
-        _out.WriteLine($"ServerInstructions: {length} characters (Claude Code cut {ClaudeCodeInstructionsCut})");
+        _out.WriteLine($"ServerInstructions: {length} characters (Claude Code cut {PublishedDescriptionBoundTests.Bound})");
 
-        Assert.True(length <= ClaudeCodeInstructionsCut,
+        Assert.True(length <= PublishedDescriptionBoundTests.Bound,
             $"The published instructions are {length} characters; Claude Code delivers the first " +
-            $"{ClaudeCodeInstructionsCut} and drops the rest. Shorten them, or move a tool-specific line into that " +
+            $"{PublishedDescriptionBoundTests.Bound} and drops the rest. Shorten them, or move a tool-specific line into that " +
             "tool's description.");
     }
 
