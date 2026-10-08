@@ -802,7 +802,7 @@ internal sealed class OutputLocations
     }
 
     /// <summary>Judge the served half for one located file, against the first hit from an ENABLED layer — the rule the real order is built by, not merely the first hit, since the locate also walks folders the order never consults. Compared by full path, because a backup and the live copy share a filename.</summary>
-    static (ServedStanding Served, string? Detail) JudgeServed(
+    internal static (ServedStanding Served, string? Detail) JudgeServed(
         Mo2Composition comp, IReadOnlyList<PluginFileHit> located, string fullPath)
     {
         var served = located.FirstOrDefault(h => h.Enabled);

@@ -196,13 +196,14 @@ public sealed record PluginFacts(HousecarlCore.PluginHeaderFacts? Header, IReadO
 {
     public HousecarlCore.LocalizedFlagRead Localized => HousecarlCore.WriteEngine.LocalizedFlag(Header);
 
-    internal static PluginCopy Copy(string path, string where, bool enabled, bool serves)
+    internal static PluginCopy Copy(HousecarlCore.PluginFileHit hit, OutputLocations.ServedStanding served)
     {
         long? bytes;
-        try { bytes = new FileInfo(path).Length; } catch { bytes = null; }
-        return new PluginCopy(path, where, enabled, serves, bytes);
+        try { bytes = new FileInfo(hit.Path).Length; } catch { bytes = null; }
+        return new PluginCopy(hit.Path, hit.Where, served == OutputLocations.ServedStanding.Serves,
+                              served == OutputLocations.ServedStanding.Shadowed, bytes);
     }
 }
 
-/// <summary>One on-disk copy of a plugin filename: where it sits, whether that layer is enabled, whether it is the copy MO2 serves, and its size.</summary>
-public sealed record PluginCopy(string Path, string Where, bool Enabled, bool Serves, long? Bytes);
+/// <summary>One on-disk copy of a plugin filename: where it sits (the label carries the layer state), whether it is the copy MO2 serves or an enabled copy a higher one shadows, and its size.</summary>
+public sealed record PluginCopy(string Path, string Where, bool Serves, bool Shadowed, long? Bytes);

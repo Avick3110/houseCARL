@@ -40,15 +40,18 @@ drop, and the warning names only the places actually searched.
 ### The status verdict for one plugin
 
 `housecarl_load_order_status filter=<plugin>` prints every copy `LocatePlugin` finds, each with its
-layer label and size. The copy that serves the name is the resolver's file for an active plugin,
-otherwise the first enabled hit; an enabled copy that does not serve is marked shadowed. A dummy
+layer label and size. `OutputLocations.JudgeServed`, the one judgement every plugin locate uses,
+marks each copy: the first hit from an enabled layer serves (the rule `Build` resolves the order
+by), and an enabled copy below it is shadowed. The locate runs over the composition the verdict
+already read, so a profile read cannot fail between the two and leave the copies unsearched. A dummy
 copy serving the name while the real file sits in a disabled folder is then visible, not mistaken
 for a read bug (#1001).
 
 The header facts come from one read of the served copy, `PluginFile.ReadHeader`: the master, ESL
 and localized flags, the masters in order, and HEDR's record count. `WriteEngine.PluginIsLocalized`
 is that same reader, so the verdict and the in-place write refusal cannot disagree on the localized
-flag. A header that will not open prints the localized line as UNKNOWN and no other header line.
+flag. The master and ESL flags are the header bits; where the bit is clear but a `.esm` or `.esl`
+extension makes the plugin a master or light anyway, the line says so. A header that will not open prints the localized line as UNKNOWN and no other header line.
 With several copies and none serving, no header is read. Only `filter=<plugin>` reads these; a mod
 name and the whole-profile summary do not.
 
@@ -133,8 +136,9 @@ swallows the note turns a recoverable state into a silent loss.
   `AllPluginFileNames` walks all five layers. No test calls `LocatePlugin`, so that the two draw from the same places
   rests on their shared `CandidateFolders`, not on an assertion.
 - *The status verdict for one plugin*: `StatusPluginFactsTests` — a dummy copy in an enabled folder is named as
-  serving and the real copy in a disabled folder beside it, both with sizes; the ESL flag, masters and record count
-  match the fixture's raw TES4 header. `StatusLocalizedLookupTests` — the localized line from the same read.
+  serving and the real copy in a disabled folder beside it, both with sizes; of two enabled copies the lower is
+  shadowed; game Data serves when a disabled mod's copy is found first; the ESL flag, masters and record count
+  match the fixture's raw TES4 header, and a `.esl` with clear bits says it loads light by extension. `StatusLocalizedLookupTests` — the localized line from the same read.
 - *Deriving the roots from one path*: `Mo2InstanceResolveTests` — the roots and the active profile
   derived from the instance folder, the `base_directory` override, and a missing required piece named rather than
   half-derived.
