@@ -22,10 +22,10 @@ public static class StatusTools
     public static string LoadOrderStatus(
         LoadOrderService svc,
         ToolPathResolver tools,
-        [Description("Optional. A mod folder name (e.g. 'Requiem Lite 2') or plugin filename (e.g. 'Requiem.esp'): " +
-            "reports whether houseCARL sees that mod as enabled or disabled, or that plugin as active, inactive or " +
-            "implicit, and a plugin's localized header flag, which in-place writes are refused over. Always reads the " +
-            "active profile. Omit for the whole-profile summary.")]
+        [Description("Optional. A mod folder (e.g. 'Requiem Lite 2') or plugin filename (e.g. 'Requiem.esp'): is that " +
+            "mod enabled, is that plugin active, inactive or implicit, and the plugin's serving folder, other copies, " +
+            "header flags (localized refuses in-place writes), masters and record count. Always reads the active " +
+            "profile. Omit for the whole-profile summary.")]
             string? filter = null,
         [Description("Optional. A profile name to inspect without switching to it (e.g. 'Default', 'Modded'): reports " +
             "its enabled and disabled mods and active and inactive plugins, to compare load orders across profiles. Omit " +

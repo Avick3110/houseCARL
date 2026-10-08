@@ -29,6 +29,8 @@ made the change.
 - **`housecarl_records format='dense'` now works on a `formids=` read, an off-order `source=`, and a
   `plugins=` scope with a named `source=`, which used to refuse or answer in text; other forms refuse, naming what
   to use.**
+- **`housecarl_load_order_status filter=<plugin>` now names the folder serving the plugin, every other copy with
+  its size, and the header's ESL and master flags, masters and record count.** Try `filter="Requiem.esp"`.
 
 ## 2.0.4 — 2026-10-05
 
