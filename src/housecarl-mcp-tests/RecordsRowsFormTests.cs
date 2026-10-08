@@ -190,19 +190,17 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     }
 
     [Fact]
-    public void ARowsJsonEntryCarriesItsCellsStructurallyNotAsANote()
+    public void ARowsJsonEntryIsItsLeavesListedFlatNotANote()
     {
-        var row = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, format: "json",
-                         project: new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Effects" }, resolve_names = true }))
-                  .GetProperty("records")[0].GetProperty("fields")[1];
-        Assert.Equal("Effects[0]", row.GetProperty("path").GetString());
-        // The row's DATA is cells, never prose in a note: a value stays a value and resolve_names stays a link
+        var fields = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, format: "json",
+                            project: new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Effects" }, resolve_names = true }))
+                     .GetProperty("records")[0].GetProperty("fields").EnumerateArray().ToList();
+        System.Text.Json.JsonElement At(string path) => fields.Single(f => f.GetProperty("path").GetString() == path);
+        // The row's DATA is its leaves, never prose in a note: a value stays a value and resolve_names stays a link
         // object, exactly as they are on the fields form.
-        Assert.False(row.TryGetProperty("note", out _));
-        var cells = row.GetProperty("cells").EnumerateArray().ToList();
-        Assert.Equal("5", cells.Single(c => c.GetProperty("path").GetString() == "Effects[0].Data.Magnitude").GetProperty("value").GetString());
-        Assert.Equal("HcRecMgefFire", cells.Single(c => c.GetProperty("path").GetString() == "Effects[0].BaseEffect")
-                                           .GetProperty("link").GetProperty("editorid").GetString());
+        Assert.False(At("Effects[0]").TryGetProperty("cells", out _));
+        Assert.Equal("5", At("Effects[0].Data.Magnitude").GetProperty("value").GetString());
+        Assert.Equal("HcRecMgefFire", At("Effects[0].BaseEffect").GetProperty("link").GetProperty("editorid").GetString());
     }
 
     [Fact]
@@ -249,8 +247,8 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, project: Rows("Effects"), to_file: art);
         Assert.Contains(art, r);
         var body = File.ReadAllText(art);
-        Assert.Contains("Effects[1]", body);
-        Assert.Contains("cells", body);
+        Assert.Contains("\"Effects[1].Data.Magnitude\"", body);
+        Assert.DoesNotContain("cells", body);
     }
 
     [Fact]
@@ -297,12 +295,15 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     }
 
     [Fact]
-    public void TheJsonDocumentCarriesOneEntryPerElement()
+    public void TheJsonDocumentLeadsEachElementWithItsOwnEntryThenItsLeaves()
     {
         var doc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefB) }, format: "json", project: Rows("Conditions")));
         var paths = doc.GetProperty("records")[0].GetProperty("fields")
-                       .EnumerateArray().Select(f => f.GetProperty("path").GetString()).ToList();
-        Assert.Equal(new[] { "Conditions", "Conditions[0]", "Conditions[1]", "Conditions[2]" }, paths);
+                       .EnumerateArray().Select(f => f.GetProperty("path").GetString()!).ToList();
+        Assert.Equal(new[] { "Conditions", "Conditions[0]", "Conditions[1]", "Conditions[2]" }, paths.Where(p => !p.Contains('.')));
+        // Every leaf sits after its own element's entry and before the next element's.
+        for (int i = 1; i < paths.Count; i++)
+            Assert.StartsWith(paths.Take(i + 1).Last(p => !p.Contains('.')), paths[i]);
     }
 
     [Fact]

@@ -254,16 +254,18 @@ static class JsonWire
     }
 
     // ---- shared record + field writers --------------------------------------------------------------
-    /// <summary>Serialize the fields array: <c>{path, value}</c> for a round-trippable leaf, <c>{path, note}</c> for a
-    /// no-value one, with a sentinel field naming a field-count cut.</summary>
+    /// <summary>Serialize the fields array, one flat entry per leaf: <c>{path, value}</c> for a round-trippable leaf,
+    /// <c>{path, note}</c> for a no-value one, with a sentinel field naming a field-count cut.</summary>
     /// <param name="emitted">Collects the annotated paths this array ACTUALLY carried.</param>
     static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, CharCountedStream ms, int cap,
                                  IReadOnlyDictionary<string, ChildUnion?>? annotated = null, IDictionary<string, bool>? emitted = null,
                                  LeverNames? levers = null)
     {
         var lv = levers ?? LeverNames.Legacy;
+        // A folded element row is its leaves on this wire, the element's own line first; its joined text is display only.
+        var leaves = r.Fields.SelectMany(f => f.Cells ?? new[] { f }).ToList();
         w.WriteStartArray("fields");
-        for (int i = 0; i < r.Fields.Count; i++)
+        for (int i = 0; i < leaves.Count; i++)
         {
             w.Flush();
             if (Chars(ms) >= cap)
@@ -271,21 +273,14 @@ static class JsonWire
                 w.WriteStartObject();
                 w.WriteString("path", "…");   // …
                 var narrow = lv.HasFieldSelector ? $"narrow with {lv.Fields}, " : "";   // the form may have no field selector to narrow with
-                w.WriteString("note", $"[truncated at max_chars: {i} of {r.Fields.Count} fields shown; {narrow}lower {lv.Depth}, or raise max_chars]");
+                w.WriteString("note", $"[truncated at max_chars: {i} of {leaves.Count} fields shown; {narrow}lower {lv.Depth}, or raise max_chars]");
                 w.WriteEndObject();
                 break;
             }
-            var f = r.Fields[i];
+            var f = leaves[i];
             w.WriteStartObject();
             WriteLeaf(w, f);
             if (annotated is not null && annotated.TryGetValue(f.Path, out var union) && union is not null) WriteChildUnion(w, union, ms, cap);
-            if (f.Cells is { } cells)
-            {
-                // A folded row (the 'rows' form): the leaves it folded ride here with their tokens intact.
-                w.WriteStartArray("cells");
-                foreach (var c in cells) { w.WriteStartObject(); WriteLeaf(w, c); w.WriteEndObject(); }
-                w.WriteEndArray();
-            }
             w.WriteEndObject();
             // The TIER travels with the field: a clause is stated per tier.
             if (annotated is not null && emitted is not null && annotated.TryGetValue(f.Path, out var tier)) emitted[f.Path] = tier is not null;
@@ -298,9 +293,9 @@ static class JsonWire
     {
         w.WriteString("path", f.Path);
         if (f.HasValue) w.WriteString("value", f.Token);   // round-trip parity: identical token to the text render
-        else if (f.Cells is null) WriteNullable(w, "note", f.Note);
+        else WriteNullable(w, "note", f.Note);
         // The FormID a no-value summary note SPELLED, beside the prose that spells it.
-        if (f.NoteRef is { } noteRef && f.Cells is null) w.WriteString("note_ref", noteRef);
+        if (f.NoteRef is { } noteRef) w.WriteString("note_ref", noteRef);
         if (f.Display is not null) w.WriteString("display", f.Display);
         // A biped field's slot numbers as NUMBERS beside its raw value.
         if (f.Slots is { } slots) { w.WriteStartArray("slots"); foreach (var n in slots) w.WriteNumberValue(n); w.WriteEndArray(); }
