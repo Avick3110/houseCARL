@@ -12,14 +12,14 @@ public static class AssetTools
 {
     [McpServerTool(Name = ToolNames.AssetStatus, ReadOnly = true, Title = "Asset status — which mod/BSA wins for a Data-relative path"),
      Description(
-         "Resolve Data-relative asset paths through Mod Organizer 2's virtual file system and report, for each, which " +
-         "copy the game uses: the winner, every source that provides it (loose mods, the overwrite folder, the game " +
-         "Data folder, active BSAs), whether more than one contends, and whether the asset is absent. Precedence: loose " +
-         "beats BSA; among loose files the higher-priority mod (then overwrite) wins; among BSAs the later-loaded " +
-         "plugin's archive wins. The file-layer counterpart to a record's load-order winner: use it for 'which mod " +
-         "provides this file', 'is this texture loose or in a BSA', 'is this asset present', 'why isn't my override " +
-         "applying', for any mesh, texture, script, sound or interface path. Select with asset_paths=, under= (a " +
-         "directory or glob) and formids= (NPC FaceGen pairs); they compose. An archive that cannot be read, or a " +
+         "Which copy of a file the game loads through MO2's virtual file system, for any tree (meshes, textures, " +
+         "scripts, sound, interface, SKSE/Plugins, CalienteTools/BodySlide): the winner, every source that provides " +
+         "it (loose mods, overwrite, the game Data folder, active BSAs), whether one mod shadows another, and whether " +
+         "it is absent. Precedence: loose beats BSA; among loose files the higher-priority mod (then overwrite) wins; " +
+         "among BSAs the later-loaded plugin's archive wins. The file-layer counterpart to a record's load-order " +
+         "winner; answers 'why isn't my override applying'. Use this instead of searching mods/ on disk, which misses " +
+         "BSAs and MO2's priority. Select with asset_paths=, under= (search a folder by filename or glob: " +
+         "'meshes/**/*fur*.nif') and formids= (NPC FaceGen pairs); they compose. An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
          "counts only the window, except under to_file= and counts_only=, which resolve the whole selection. " +
