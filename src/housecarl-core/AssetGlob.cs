@@ -24,9 +24,7 @@ public static class AssetGlob
 
     public static bool IsMatch(string pattern, string path) => ToRegex(pattern).IsMatch(path);
 
-    /// <summary>One selector as a test over backslash paths, the same grammar as <see cref="Select(AssetResolver.AssetView, string)"/>
-    /// without the enumeration: a glob matches as a pattern, a plain path matches that file or anything beneath it.
-    /// Throws ArgumentException for an empty, drive-rooted or parent-escaping selector.</summary>
+    /// <summary>One selector as a test over paths with either slash, <see cref="Select(AssetResolver.AssetView, string)"/>'s grammar without the walk; throws ArgumentException for a bad selector.</summary>
     public static Func<string, bool> Matcher(string selector)
     {
         var norm = AssetResolver.ValidateRelPath(selector ?? "").TrimEnd('\\');
@@ -34,10 +32,14 @@ public static class AssetGlob
         if (HasWildcard(norm))
         {
             var rx = ToRegex(norm);
-            return p => rx.IsMatch(p);
+            return p => rx.IsMatch(p.Replace('/', '\\'));
         }
-        return p => p.Equals(norm, StringComparison.OrdinalIgnoreCase)
-                 || (p.Length > norm.Length && p[norm.Length] == '\\' && p.StartsWith(norm, StringComparison.OrdinalIgnoreCase));
+        return p =>
+        {
+            p = p.Replace('/', '\\');
+            return p.Equals(norm, StringComparison.OrdinalIgnoreCase)
+                || (p.Length > norm.Length && p[norm.Length] == '\\' && p.StartsWith(norm, StringComparison.OrdinalIgnoreCase));
+        };
     }
 
     /// <summary>Every Data-relative path the selector names, sorted. Throws ArgumentException for a drive-rooted, parent-escaping or unanchored selector.</summary>
