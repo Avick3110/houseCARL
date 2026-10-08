@@ -185,10 +185,11 @@ footer, each list's own cut notice, and the headings written whatever the rows c
 is measured against what it is about to write, not against what the buffer holds, and a row that crossed is taken back
 out whole. The filtered config audit is the exception to "whole": a file that fits is written whole, in the order it
 declares its references; the first file that does not is cut per reference line, its non-OK references (DANGLING,
-PLUGIN MISSING, UNPARSEABLE) first and then the OKs, and ends on `showing N of M references (all K non-OK shown)` or
-`(J of K non-OK shown)`. A cut file counts as rendered; the files after it are cut, and a file that cannot show even one
-reference line is taken back out whole. The one arm a bounded render can still exceed — a cap too small for what the response carries whatever the
-budget — is named by `RenderCap.Settle`.
+PLUGIN MISSING, UNPARSEABLE) first and then the OKs, and ends on `showing N of M references (all K non-OK shown)`,
+`(J of K non-OK shown)`, or `(all OK)`. The json twin cuts a row in the same order (`CutOrder`), so both show the same
+references. A partly shown file counts as cut, as do the files after it, so the next page starts on it again; a file
+that cannot show even one reference line is taken back out whole. The one arm a bounded render can still exceed — a
+cap too small for what the response carries whatever the budget — is named by `RenderCap.Settle`.
 
 The json twin states the same rows and the same accounting in named fields, and classifies with the SAME judge the text
 render uses, which is why each family's serializer lives beside its text render rather than in `SkseJsonDoc`. Rows are
@@ -240,7 +241,7 @@ number describes a wider set than the rows beside it.
   the same class).
 - *Transport*: `SkseTransportWireTests` — the json twin's rows and accounting in named fields, driven over the wire.
 - *Transport*: `SkseConfigFilteredCutTests` — the filtered audit's per-reference cut, non-OK first, its notice and its
-  file accounting, and a file that fits whole kept in file order.
+  file accounting, the json twin's same order, and a file that fits whole kept in file order.
 
 ## Where
 
