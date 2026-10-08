@@ -39,6 +39,8 @@ public sealed class FieldPredicateSet
     readonly string?[] _notListWhat;   // what that step actually read, for the sentence
     readonly long[] _noParent;    // per-predicate SUBSET of _noField: a '*parent' step found no containing record
     readonly string?[] _noParentWhat;  // the record type it found none for, for the sentence
+    readonly long[] _badKey;      // per-predicate SUBSET of _noField: a bracket key the type's list can never take
+    readonly string?[] _badKeyWhat;    // that key's sentence, for the refusal and the note
     long _scanned;
     string? _fatal;
 
@@ -112,10 +114,56 @@ public sealed class FieldPredicateSet
         _notListWhat = new string?[predicates.Count];
         _noParent = new long[predicates.Count];
         _noParentWhat = new string?[predicates.Count];
+        _badKey = new long[predicates.Count];
+        _badKeyWhat = new string?[predicates.Count];
     }
 
     /// <summary>Set once when a numeric operator meets a non-numeric field value; null while the predicate is well-typed.</summary>
-    public string? FatalError => _fatal;
+    public string? FatalError => _fatal ?? BadKeyRefusal();
+
+    /// <summary>The error that stops a scan part way; a bad key on every record is judged only once the scan is done.</summary>
+    public string? AbortError => _fatal;
+
+    /// <summary>The refusal when one predicate's bracket key was wrong on every scanned record; a type it fits keeps the call.</summary>
+    string? BadKeyRefusal()
+    {
+        for (int k = 0; k < _predicates.Count; k++)
+            if (_scanned > 0 && _badKey[k] == _scanned) return $"predicate '{_predicates[k].Text}': {_badKeyWhat[k]}";
+        return null;
+    }
+
+    /// <summary>The where= hint for a word key that names a quantifier: the starred step it meant.</summary>
+    public static string StarHint(string name, string key) =>
+        key.Length > 0 && key[0] != '*' && PathFoldGrammar.Read($"{name}[*{key}]").Fold != PathFold.None
+            ? $" A quantifier takes a star: '{name}[*{key}]'." : "";
+
+    /// <summary>One bracket key a list can never take, on one step of one predicate, with the bare path to that step.</summary>
+    public readonly record struct KeyedStep(IReadOnlyList<string> Path, int Index, string Name, string Key, string Text, bool OnScannedType);
+
+    /// <summary>Every list-shaped bracket key in the set that is not a non-negative integer, for the schema's plan-time check.</summary>
+    public IReadOnlyList<KeyedStep> BadListKeys
+    {
+        get
+        {
+            var steps = new List<KeyedStep>();
+            foreach (var p in _predicates)
+            {
+                Collect(p.LinkPath, p, p.LinkParentHops == 0);
+                Collect(p.PathSegments, p, p.LinkPath is null && p.ParentHops == 0);
+            }
+            return steps;
+
+            void Collect(string[]? segs, Predicate p, bool onScanned)
+            {
+                if (segs is null) return;
+                var bare = segs.Select(x => WriteEngine.ParseSegment(x).name).ToArray();
+                for (int i = 0; i < segs.Length; i++)
+                    if (WriteEngine.ParseSegment(segs[i]).key is { } key && key.Length > 0 && key[0] != '*'
+                        && WriteEngine.ListKeyShapeError(bare[i], key, out _) is not null)
+                        steps.Add(new KeyedStep(bare, i, bare[i], key, p.Text, onScanned));
+            }
+        }
+    }
 
     /// <summary>The epoch obligations this set carries, one per membership list that came from a result artifact.</summary>
     public IReadOnlyList<ArtifactDemand> ArtifactDemands =>
@@ -591,6 +639,7 @@ public sealed class FieldPredicateSet
                 case EvalKind.NotAList: _noField[k]++; _notList[k]++; _noValue[k]++; _notListWhat[k] ??= _lastNotList; all = false; break;
                 // A '*parent' step on a record nothing contains is likewise, naming the child-bearing properties.
                 case EvalKind.NoParent: _noField[k]++; _noParent[k]++; _noValue[k]++; _noParentWhat[k] ??= _lastNoParent; all = false; break;
+                case EvalKind.BadKey: _noField[k]++; _badKey[k]++; _noValue[k]++; _badKeyWhat[k] ??= _lastBadKey; all = false; break;
                 case EvalKind.Container: _container[k]++; _noValue[k]++; all = false; break;
                 case EvalKind.Unreadable: _unreadable[k]++; _noValue[k]++; all = false; break;
                 // The links are there; their targets are not in this order — its own counter, its own remedy.
@@ -602,7 +651,7 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>How one predicate's evaluation on one record resolved: a definite verdict, or one of the no-verdict classes the accounting keys on.</summary>
-    enum EvalKind { Definite, NoField, ListHop, NotAList, NoParent, Container, Unreadable, UnresolvedTarget, Unset }
+    enum EvalKind { Definite, NoField, ListHop, NotAList, NoParent, BadKey, Container, Unreadable, UnresolvedTarget, Unset }
 
     /// <summary>The type of the record the most recent <c>*parent</c> hop found no containing record for.</summary>
     string? _lastNoParent;
@@ -616,17 +665,25 @@ public sealed class FieldPredicateSet
     /// <summary>What a quantified step actually read where it was not a list, stashed for the rollup sentence.</summary>
     string? _lastNotList;
 
+    /// <summary>The sentence of the most recent bad-key note, with its where= hint, stashed for the rollup.</summary>
+    string? _lastBadKey;
+
+    /// <summary>The star hint for the predicate's first word key that names a quantifier, if any.</summary>
+    static string StarHintFor(Predicate p) =>
+        (p.LinkPath ?? Array.Empty<string>()).Concat(p.PathSegments).Select(WriteEngine.ParseSegment)
+            .Where(s => s.key is not null).Select(s => StarHint(s.name, s.key!)).FirstOrDefault(h => h.Length > 0) ?? "";
+
     /// <summary>Sentence-case a remedy fragment lifted from a leaf note.</summary>
     static string Capitalize(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
 
     /// <summary>Classify a leaf note beginning "(no field": the bracket-aware variant is a missing-bracket miss, not a mistyped name.</summary>
     EvalKind ClassifyNoField(string note)
     {
-        // A bracket key the list can never take is the same wrong path on every record, so the call is refused.
+        // A bracket key this record's list can never take: a wrong path here, refused once it is wrong on every record.
         if (note.StartsWith(ReadEngine.BadKeyPrefix, StringComparison.Ordinal))
         {
-            _fatal ??= $"predicate '{_predicates[_evalIndex].Text}': {note[ReadEngine.BadKeyPrefix.Length..^1]}";
-            return EvalKind.Definite;
+            _lastBadKey = note[ReadEngine.BadKeyPrefix.Length..^1] + StarHintFor(_predicates[_evalIndex]);
+            return EvalKind.BadKey;
         }
         // "(no field 'X': 'Owner' is a list/dict — <remedy>)" vs the plain "(no field X)".
         const string marker = "' is a list/dict";
@@ -1165,6 +1222,9 @@ public sealed class FieldPredicateSet
                              (_noParent[k] == _scanned ? "" : "; on the rest the path is not a field at all") +
                              $". Containment runs from these properties only: {ContainmentIndex.ChildBearingSurface()}.";
                 }
+                else if (_noField[k] == _scanned && _badKey[k] > 0)
+                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — {_badKeyWhat[k]} (on {_badKey[k]:N0} of them; " +
+                             "on the rest the path is not a field at all).";
                 else if (_noField[k] == _scanned && _notList[k] > 0)
                 {
                     // The quantifier is the thing to drop: the step exists, it is just not a list here.
@@ -1234,7 +1294,8 @@ public sealed class FieldPredicateSet
         long unset = UnsetCount(k);
         var parts = new List<string>();
         if (unset > 0) parts.Add($"unset — null or absent ({unset:N0})");
-        if (_noField[k] > 0) parts.Add($"not a field on the record read ({_noField[k]:N0})");
+        if (_noField[k] > _badKey[k]) parts.Add($"not a field on the record read ({_noField[k] - _badKey[k]:N0})");
+        if (_badKey[k] > 0) parts.Add($"a bracket key the list there cannot take ({_badKey[k]:N0})");
         if (_container[k] > 0) parts.Add($"a container/list, not a scalar ({_container[k]:N0})");
         if (_unreadable[k] > 0) parts.Add($"a read fault — Mutagen could not parse the field ({_unreadable[k]:N0})");
         if (_unresolved[k] > 0) parts.Add($"the link is set but its target is not in this load order ({_unresolved[k]:N0})");

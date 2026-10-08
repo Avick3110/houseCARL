@@ -259,7 +259,7 @@ internal sealed partial class RecordReads
                             if (!keep) continue;
                             if (predicate is not null && !predicate.Matches(body))
                             {
-                                if (predicate.FatalError is not null) { go = false; break; }
+                                if (predicate.AbortError is not null) { go = false; break; }
                                 continue;
                             }
                             total++;
@@ -409,7 +409,7 @@ internal sealed partial class RecordReads
                         NoteLenient(fk, lenientNote);
                         if (predicate is not null && !predicate.Matches(filterBody))    // value filter on the same in-hand body, no extra fetch
                         {
-                            if (predicate.FatalError is not null) return false;   // e.g. a numeric op against a non-numeric field — abort and surface it
+                            if (predicate.AbortError is not null) return false;   // e.g. a numeric op against a non-numeric field — abort and surface it
                             return true;
                         }
                         // De-dup, since a key can recur across scoped plugins.
@@ -522,6 +522,14 @@ internal sealed partial class RecordReads
             foreach (var ts in _host.Rulebook.RecordTypesNamed(token))
                 if (!schemas.Contains(ts)) schemas.Add(ts);
         if (schemas.Count == 0) return null;
+
+        // A bracket key a list can never take, on a step every scanned type's schema calls a list: refused before any data.
+        foreach (var step in predicate.BadListKeys)
+        {
+            if (!step.OnScannedType) continue;
+            if (schemas.All(ts => _host.Rulebook.StepCardinality(ts, step.Path, step.Index) == "list"))
+                return $"predicate '{step.Text}': {WriteEngine.ListKeyShapeError(step.Name, step.Key, out _)}{FieldPredicateSet.StarHint(step.Name, step.Key)}";
+        }
 
         foreach (var step in predicate.QuantifiedSteps)
         {
@@ -785,7 +793,7 @@ internal sealed partial class RecordReads
                     if (!keep) continue;
                     if (predicate is not null && !predicate.Matches(rec))
                     {
-                        if (predicate.FatalError is not null) break;
+                        if (predicate.AbortError is not null) break;
                         continue;
                     }
                     total++;
