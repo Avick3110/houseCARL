@@ -125,6 +125,9 @@ public sealed record LoadOrderStatusData(
     int MaxPlugins,
     bool ProfileChanged,
     string ProfileDir,
+    string ModsDir,             // the plugin roots, captured in the same gate hold as ProfileDir so a filter's locate searches the profile's own instance
+    string DataDir,
+    string OverwriteDir,
     string ProfileName,         // the ACTIVE profile (instance mode: MO2's selected_profile; explicit: the dir name) — captured under the gate, not re-derived at render
     string? InstanceDir,        // the resolved MO2 instance folder houseCARL is pointed at; null ⇒ explicit-paths / unconfigured mode
     IReadOnlyDictionary<string, string> ExcludedPlugins,
@@ -191,19 +194,11 @@ public sealed record SeqOutcome(
 public sealed record ClassParents(
     Dictionary<string, string> Edges, string? BaselineNote, string? TopUpMissing, string? SiblingPexMissing = null);
 
-/// <summary>One plugin's facts for the status verdict: its header read off the served copy (null when unreadable or no copy serves), and every same-named copy on disk.</summary>
-public sealed record PluginFacts(HousecarlCore.PluginHeaderFacts? Header, IReadOnlyList<PluginCopy> Copies)
+/// <summary>One plugin's facts for the status verdict: every same-named copy on disk, the copy whose header was read (the served one, else a lone unserved one; null when no read was tried), and that header (null when unreadable).</summary>
+internal sealed record PluginFacts(IReadOnlyList<PluginCopy> Copies, PluginCopy? HeaderFrom, HousecarlCore.PluginHeaderFacts? Header)
 {
     public HousecarlCore.LocalizedFlagRead Localized => HousecarlCore.WriteEngine.LocalizedFlag(Header);
-
-    internal static PluginCopy Copy(HousecarlCore.PluginFileHit hit, OutputLocations.ServedStanding served)
-    {
-        long? bytes;
-        try { bytes = new FileInfo(hit.Path).Length; } catch { bytes = null; }
-        return new PluginCopy(hit.Path, hit.Where, served == OutputLocations.ServedStanding.Serves,
-                              served == OutputLocations.ServedStanding.Shadowed, bytes);
-    }
 }
 
-/// <summary>One on-disk copy of a plugin filename: where it sits (the label carries the layer state), whether it is the copy MO2 serves or an enabled copy a higher one shadows, and its size.</summary>
-public sealed record PluginCopy(string Path, string Where, bool Serves, bool Shadowed, long? Bytes);
+/// <summary>One on-disk copy of a plugin filename: where it sits (the label carries the layer state), its served standing, and its size.</summary>
+internal sealed record PluginCopy(string Path, string Where, OutputLocations.ServedStanding Served, long? Bytes);

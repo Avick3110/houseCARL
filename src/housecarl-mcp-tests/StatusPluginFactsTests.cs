@@ -15,6 +15,8 @@ public sealed class StatusPluginFactsTests : IClassFixture<StatusPluginFactsWorl
 
     string Lookup(string name) => StatusTools.LoadOrderStatus(_w.Svc, _w.Tools, filter: name);
 
+    static string Records(string path) => BitConverter.ToInt32(File.ReadAllBytes(path), 34).ToString("N0", System.Globalization.CultureInfo.InvariantCulture);   // HEDR's count, from the raw header
+
     static string Bytes(string path) => new FileInfo(path).Length.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " bytes";
 
     /// <summary>A dummy copy in an enabled folder serves the name while the real one sits in a disabled folder: both are named, with sizes, and the enabled one is the served one.</summary>
@@ -83,6 +85,47 @@ public sealed class StatusPluginFactsTests : IClassFixture<StatusPluginFactsWorl
         Assert.DoesNotContain("UNKNOWN", text);
         Assert.DoesNotContain("also in:", text);
     }
+
+    /// <summary>Nothing serves the name and one copy exists: its header is read, and the line names that copy as not served.</summary>
+    [Fact]
+    public void ALoneUnservedCopysHeaderIsNamedAsFromThatCopy()
+    {
+        var text = Lookup(StatusPluginFactsWorld.Off);
+
+        Assert.Contains("served from: none — no enabled folder holds this file\n", text);
+        Assert.Contains("header:      from mod 'OffOnly' (DISABLED), not served · master flag no · ESL flag no · " + Records(_w.OffCopy) + " records (HEDR)\n", text);
+    }
+
+    /// <summary>Several copies and none serving: no copy is the plugin's, so no header is read and the localized line says so.</summary>
+    [Fact]
+    public void SeveralUnservedCopiesReadNoHeader()
+    {
+        var text = Lookup(StatusPluginFactsWorld.Many);
+
+        Assert.DoesNotContain("header:", text);
+        Assert.DoesNotContain("masters (", text);
+        Assert.Contains("localized:   UNKNOWN — several copies and none served, so no header was read.", text);
+    }
+
+    /// <summary>A listed name with no file anywhere: the localized line says no read was tried, not that a read failed.</summary>
+    [Fact]
+    public void ANameWithNoFileSaysNoHeaderWasRead()
+    {
+        var text = Lookup(StatusPluginFactsWorld.Gone);
+
+        Assert.Contains("served from: none — no folder holds a file of this name\n", text);
+        Assert.Contains("localized:   UNKNOWN — no file of this name, so no header was read.", text);
+    }
+
+    /// <summary>Ticked in plugins.txt but missing from loadorder.txt: the ACTIVE line and the facts agree it is a plugin.</summary>
+    [Fact]
+    public void ATickedPluginMissingFromLoadorderStillGetsItsFacts()
+    {
+        var text = Lookup(StatusPluginFactsWorld.Stale);
+
+        Assert.Contains("as a plugin: ACTIVE", text);
+        Assert.Contains("served from: mod 'StaleMod' (enabled) · " + Bytes(_w.StaleCopy) + "\n", text);
+    }
 }
 
 /// <summary>A synthetic MO2 instance: two master files, one ESL-flagged plugin overriding a record from each, and one
@@ -100,12 +143,18 @@ public sealed class StatusPluginFactsWorld : IDisposable
     public string BaseDataCopy { get; }
     public string BaseOffCopy { get; }
     public string LiteCopy { get; }
+    public string StaleCopy { get; }
+    public string OffCopy { get; }
 
     public const string Dup = "HcFactDup.esp";
     public const string Hdr = "HcFactHdr.esp";
     public const string Two = "HcFactTwo.esp";
     public const string Base = "HcFactBase.esp";
     public const string Lite = "HcFactLite.esl";
+    public const string Off = "HcFactOff.esp";
+    public const string Many = "HcFactMany.esp";
+    public const string Gone = "HcFactGone.esp";
+    public const string Stale = "HcFactStale.esp";
 
     public StatusPluginFactsWorld()
     {
@@ -148,11 +197,19 @@ public sealed class StatusPluginFactsWorld : IDisposable
             f.Position = 8; f.Write(BitConverter.GetBytes(v));
         }
 
+        OffCopy = Save(mods, "OffOnly", Filled(Off, 4));
+        Save(mods, "ManyA", Filled(Many, 1));
+        Save(mods, "ManyB", Filled(Many, 2));
+        StaleCopy = Save(mods, "StaleMod", Filled(Stale, 1));
+
         var order = new[] { "HcFactA.esm", "HcFactB.esm", Lite, Hdr, Dup, Two, Base };
-        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
-        File.WriteAllText(Path.Combine(profile, "plugins.txt"), string.Join("\r\n", order.Select(p => "*" + p)) + "\r\n");
+        var unticked = new[] { Off, Many, Gone };   // listed but unchecked: plugins with no copy, one disabled copy, two
+        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order.Concat(unticked)) + "\r\n");
+        File.WriteAllText(Path.Combine(profile, "plugins.txt"),
+            string.Join("\r\n", order.Append(Stale).Select(p => "*" + p).Concat(unticked)) + "\r\n");   // Stale is ticked but not in loadorder.txt
         File.WriteAllText(Path.Combine(profile, "modlist.txt"),
-            "# header\r\n+DummyMod\r\n-RealMod\r\n+HdrMod\r\n+BMod\r\n+AMod\r\n+TwoHigh\r\n+TwoLow\r\n-BaseOff\r\n+LiteMod\r\n");
+            "# header\r\n+DummyMod\r\n-RealMod\r\n+HdrMod\r\n+BMod\r\n+AMod\r\n+TwoHigh\r\n+TwoLow\r\n-BaseOff\r\n+LiteMod\r\n" +
+            "-OffOnly\r\n-ManyA\r\n-ManyB\r\n+StaleMod\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "houseCARL.user.json"));
         Svc = LoadOrderService.WithInstance(instance, 0, store);

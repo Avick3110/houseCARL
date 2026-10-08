@@ -14,7 +14,7 @@ public class ServerBuildLineTests
         new Mo2Composition(
             Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase), Array.Empty<string>(), Array.Empty<string>()),
-        Array.Empty<string>(), 0, 0, false, "profiles/Default", "Default", null,
+        Array.Empty<string>(), 0, 0, false, "profiles/Default", "mods", "Data", "overwrite", "Default", null,
         new Dictionary<string, string>(), null);
 
     static string Render(string? lookup = null) => StatusWire.Render(
