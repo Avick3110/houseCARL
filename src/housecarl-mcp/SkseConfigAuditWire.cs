@@ -213,9 +213,9 @@ static class SkseConfigAuditWire
         }
 
         int shownFiles = 0;
-        foreach (var f in hits)
+        for (int i = 0; i < hits.Count; i++)
         {
-            // The whole file block is written, MEASURED, and taken back out entire when it crossed.
+            var f = hits[i];
             int mark = sb.Length;
             sb.Append('\n').Append(f.RelPath).Append("  ← ").Append(f.WinningProvider ?? "(no active provider)").Append('\n');
             if (f.ProviderCount > 1)
@@ -223,18 +223,43 @@ static class SkseConfigAuditWire
                   .Append(string.Join(" › ", f.Providers.Select(p => $"{p.Name} ({p.Kind})"))).Append('\n');
             if (f.ReadError is not null) sb.Append("  [!] ").Append(f.ReadError).Append('\n');
             else if (f.Refs.Count == 0) sb.Append("  (no form-shaped references)\n");
-            else
-                foreach (var r in f.Refs)
-                    sb.Append("  ").Append(Tag(r.Verdict)).Append(' ')
-                      .Append(r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? $"folder gate '{r.Ref.Plugin}'" : $"'{r.Ref.Raw}'")
-                      .Append(r.Ref.Line > 0 ? $" (line {r.Ref.Line})" : "")
-                      .Append(r.Detail is null ? "" : " → " + r.Detail).Append('\n');
-            if (sb.Length > budget) { sb.Length = mark; sb.Append(FilesCut(shownFiles)); break; }
+            int head = sb.Length;
+            if (f.ReadError is null)
+                foreach (var r in f.Refs) sb.Append(RefLine(r));
+            if (sb.Length <= budget) { shownFiles++; tally.Mark(f.RelPath); continue; }
+            // A file that does not fit whole is cut per reference line, its non-OK references first.
+            sb.Length = head;
+            int nonOk = f.ReadError is null ? f.Refs.Count(r => r.Verdict != SkseRefVerdict.Ok) : 0;
+            int room = budget - RefsCut(f.Refs.Count, f.Refs.Count, $"{nonOk} of {nonOk} non-OK shown").Length;
+            if (f.ReadError is not null || f.Refs.Count == 0 || sb.Length > room) { sb.Length = mark; sb.Append(FilesCut(shownFiles)); break; }
+            int shown = 0, shownNonOk = 0;
+            foreach (var r in f.Refs.Where(r => r.Verdict != SkseRefVerdict.Ok).Concat(f.Refs.Where(r => r.Verdict == SkseRefVerdict.Ok)))
+            {
+                var line = RefLine(r);
+                if (sb.Length + line.Length > room) break;
+                sb.Append(line); shown++;
+                if (r.Verdict != SkseRefVerdict.Ok) shownNonOk++;
+            }
+            if (shown == 0) { sb.Length = mark; sb.Append(FilesCut(shownFiles)); break; }
+            sb.Append(RefsCut(shown, f.Refs.Count,
+                nonOk == 0 ? "all OK" : shownNonOk == nonOk ? $"all {nonOk} non-OK shown" : $"{shownNonOk} of {nonOk} non-OK shown"));
             shownFiles++; tally.Mark(f.RelPath);
+            if (i + 1 < hits.Count) sb.Append(FilesCut(shownFiles));
+            break;
         }
         sb.Append(tail);
         return sb.ToString().TrimEnd('\n') + Accounting();
     }
+
+    // One reference's line in a filtered file block.
+    static string RefLine(SkseAuditedRef r) =>
+        "  " + Tag(r.Verdict) + " " +
+        (r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? $"folder gate '{r.Ref.Plugin}'" : $"'{r.Ref.Raw}'") +
+        (r.Ref.Line > 0 ? $" (line {r.Ref.Line})" : "") +
+        (r.Detail is null ? "" : " → " + r.Detail) + "\n";
+
+    // The notice a file cut per reference ends on; the note says how many of its non-OK references made the cut.
+    static string RefsCut(int shown, int total, string note) => SkseRenderParts.Showing(shown, total, "references (" + note + ")");
 
     static string Tag(SkseRefVerdict v) => v switch
     {
