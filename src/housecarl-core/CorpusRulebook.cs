@@ -108,7 +108,10 @@ public sealed class CorpusRulebook
     /// <summary>The cardinality the schema gives one step of a read path, rooted at <paramref name="root"/> — "list",
     /// "dict", "substruct", "value", and so on. Null where the schema cannot say (a hop it cannot descend, a field it
     /// does not know, a polymorphic disagreement), which a caller must read as "no answer", never as a refusal.</summary>
-    public string? StepCardinality(TypeSchema root, IReadOnlyList<string> path, int index)
+    public string? StepCardinality(TypeSchema root, IReadOnlyList<string> path, int index) => StepField(root, path, index)?.Cardinality;
+
+    /// <summary>The schema's field at one step of a read path, on the same walk as <see cref="StepCardinality"/>; null where it cannot say.</summary>
+    public FieldSchema? StepField(TypeSchema root, IReadOnlyList<string> path, int index)
     {
         var current = root;
         for (int i = 0; i < index; i++)
@@ -120,7 +123,7 @@ public sealed class CorpusRulebook
             current = next;
         }
         var field = FindField(current, path[index], out _, out var err);
-        return err is null ? field?.Cardinality : null;
+        return err is null ? field : null;
     }
 
     /// <summary>A read path's leaf enum on <paramref name="root"/>: Lacks where a step names no field, Enum null where the schema cannot say or it is no enum.</summary>
