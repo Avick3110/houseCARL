@@ -61,7 +61,7 @@ public static class ReadEngine
     static string AbsentWith(ExpectedApplyRejectionException ex) => ex.AbsentDetail is { } d ? $"(absent: {d})" : AbsentNote;
 
     /// <summary>True for <see cref="AbsentNote"/> and its detailed form.</summary>
-    internal static bool IsAbsentNote(string? note) =>
+    public static bool IsAbsentNote(string? note) =>
         note == AbsentNote || note?.StartsWith("(absent: ", StringComparison.Ordinal) == true;
 
     /// <summary>A FormLink carrying no target: a NON-nullable link holding FormID zero, or a NULLABLE link whose

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Mutagen.Bethesda;
+using Noggog;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -19,6 +20,7 @@ public sealed class MaleOnlyAddonWorld : IDisposable
     public const string FemaleNif = "hc\\female.nif";
 
     public FormKey MaleOnly0 { get; }
+    public FormKey BothArms { get; }
 
     public MaleOnlyAddonWorld()
     {
@@ -42,7 +44,12 @@ public sealed class MaleOnlyAddonWorld : IDisposable
         }
         var both = mod.ArmorAddons.AddNew();
         both.EditorID = "HcBothArms";
-        both.WorldModel = new GenderedItem<Model?>(new Model { File = MaleNif }, new Model { File = FemaleNif });
+        BothArms = both.FormKey;
+        both.WorldModel = new GenderedItem<Model?>(new Model { File = MaleNif }, new Model
+        {
+            File = FemaleNif,
+            AlternateTextures = new ExtendedList<AlternateTexture> { new() { Name = "HcAlt", Index = 1 } },
+        });
         mod.BeginWrite.ToPath(Path.Combine(modDir, key.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + key.FileName + "\r\n");
@@ -116,6 +123,19 @@ public sealed class GenderedArmAccountingTests : IClassFixture<MaleOnlyAddonFixt
         Assert.DoesNotContain("read fault", r);
     }
 
+    [Theory]
+    [InlineData("WorldModel[1].AlternateTextures[*all].Index = 0")]
+    [InlineData("WorldModel[1].AlternateTextures[*none].Index = 1")]
+    [InlineData("WorldModel[1].AlternateTextures[*count] = 0")]
+    public void AQuantifiedStepBehindAMissingArmFoldsAnEmptyList(string clause)
+    {
+        var r = Scan(clause, countsOnly: false);
+        Assert.Contains("HcMaleOnly0", r);
+        Assert.Contains("HcMaleOnly1", r);
+        Assert.DoesNotContain("HcBothArms", r);
+        Assert.DoesNotContain("read fault", r);
+    }
+
     [Fact]
     public void CopyFromASourceWithoutTheArmSaysTheSourceHasNothingToCopy()
     {
@@ -126,6 +146,17 @@ public sealed class GenderedArmAccountingTests : IClassFixture<MaleOnlyAddonFixt
         Assert.False(o.Success);
         Assert.Contains("the source plugin's version has no value at 'WorldModel[1]'", o.Error);
         Assert.DoesNotContain("engine error", o.Error);
+    }
+
+    [Fact]
+    public void CopyFromPastTheEndOfASourceListKeepsTheElementCount()
+    {
+        var o = _w.Svc.ApplyEdits(new[]
+        {
+            new BulkOp { Formid = ScratchMo2.Fid(_w.BothArms), FieldPath = "WorldModel[1].AlternateTextures[3].Name", Verb = "CopyFrom", FromPlugin = "HcMaleOnlyArma.esm" },
+        }, "HcCopyPastEnd", null);
+        Assert.False(o.Success);
+        Assert.Contains("has no value at 'WorldModel[1].AlternateTextures[3]' (list has 1 element(s))", o.Error);
     }
 
     /// <summary>The genuine fault keeps its own bucket: a DATA subrecord cut short still reads as a read fault.</summary>
@@ -173,6 +204,25 @@ public sealed class AbsentStepAccountingTests
         Assert.DoesNotContain("read fault", note);
     }
 
+    [Theory]
+    [InlineData("Effects[2].Conditions[*all].CompareOperator = EqualTo")]
+    [InlineData("Effects[2].Conditions[*none].CompareOperator = GreaterThan")]
+    [InlineData("Effects[2].Conditions[*count] = 0")]
+    public void AQuantifiedStepBehindAnIndexPastTheEndFoldsAnEmptyList(string clause)
+    {
+        var mod = new SkyrimMod(new ModKey("HcPastEndFold", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var shortSpell = mod.Spells.AddNew();
+        shortSpell.Effects.Add(new Effect());
+        var longSpell = mod.Spells.AddNew();
+        for (int i = 0; i < 3; i++) longSpell.Effects.Add(new Effect());
+        longSpell.Effects[2].Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.GreaterThan, Data = new GetIsIDConditionData() });
+        var (set, err) = FieldPredicateSet.Parse(new[] { clause });
+        Assert.Null(err);
+        Assert.True(set!.Matches(shortSpell));
+        Assert.False(set.Matches(longSpell));
+        Assert.DoesNotContain("read fault", set.AccountingNote() ?? "");
+    }
+
     [Fact]
     public void ADirectReadPastTheEndOfAListKeepsTheElementCount()
     {
@@ -186,6 +236,17 @@ public sealed class AbsentStepAccountingTests
             Assert.Equal("(absent: list has 3 element(s))", f.Note);
             Assert.True(f.Readable);
         }
+    }
+
+    [Fact]
+    public void ARowDropsAnAbsentCellThatCarriesItsDetail()
+    {
+        var folded = RowProjection.Fold(new[]
+        {
+            new FieldValue("Effects[0]", false, null, "[Effect]", Present: true),
+            new FieldValue("Effects[0].Conditions[3]", false, null, "(absent: list has 1 element(s))", Present: false),
+        }, new[] { "Effects" }, RowProjection.DefaultDepth);
+        Assert.Equal("[Effect]", Assert.Single(folded).Note);
     }
 
     [Fact]

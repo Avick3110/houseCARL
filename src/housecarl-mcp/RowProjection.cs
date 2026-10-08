@@ -70,7 +70,7 @@ static class RowProjection
             // The element's own line always leads the row; a sub-field is dropped only when it is an ABSENT optional.
             bool isElement = f.Path.Length == key.Length;
             if (!seen[key].Add(f.Path)) continue;
-            if (isElement || f.Present || !f.Readable || f.Note != ReadEngine.AbsentNote) cells[key].Add(f);
+            if (isElement || f.Present || !f.Readable || !ReadEngine.IsAbsentNote(f.Note)) cells[key].Add(f);
         }
         foreach (var (key, slot) in slotOf) outp[slot] = Row(key, cells[key]);
         return outp;
