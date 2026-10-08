@@ -194,7 +194,7 @@ public static class WriteEngine
     }
 
     /// <summary>Best-effort read of a leaf for before/after display (xEdit is the authority on correctness).</summary>
-    static string ReadLeafDisplay(object rec, string[] path, string? key)
+    internal static string ReadLeafDisplay(object rec, string[] path, string? key)
     {
         try
         {
@@ -238,7 +238,7 @@ public static class WriteEngine
             }
             return Fmt(val);
         }
-        catch (Exception ex) { return $"(unreadable: {ex.Message})"; }
+        catch (Exception ex) { return ReadEngine.ThrowNote(ex); }
     }
 
     // `show` — read-to-plan: print a record's FormKey/EditorID, the requested --path values, and its Keywords as
@@ -2292,7 +2292,7 @@ public static class WriteEngine
     {
         // A '*' key is a quantifier token that reached a walk which indexes ONE concrete element — say that.
         if (key.Length > 0 && key[0] == '*')
-            throw new InvalidOperationException(
+            throw new PathKeyShapeException(
                 $"'{name}[{key}]' cannot be indexed here — [*any], [*all] and [*none] fold a list into a boolean in " +
                 $"where=, and [*] and [*count] are project/walk path steps; index a concrete element ('{name}[0]') instead.");
 
@@ -2308,9 +2308,7 @@ public static class WriteEngine
 
         // The key's shape is a fact of the property's type, so it is checked before the data is read.
         int idx = 0;
-        if (listIface is not null && (!int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out idx) || idx < 0))
-            throw new PathKeyShapeException($"List '{name}' must be indexed by a non-negative integer; got '{key}'." +
-                (key.Length > 0 && PathFoldGrammar.Read($"{name}[*{key}]").Fold != PathFold.None ? $" A quantifier takes a star: '{name}[*{key}]'." : ""));
+        if (listIface is not null && ListKeyShapeError(name, key, out idx) is { } shape) throw new PathKeyShapeException(shape);
 
         var coll = prop.GetValue(parent)
             ?? throw new ExpectedApplyRejectionException(   // live-state: empty/absent collection — clean, not the inconsistency wrapper
@@ -2346,12 +2344,17 @@ public static class WriteEngine
         throw new InvalidOperationException($"'{name}' is not a navigable collection (no [read-only] IList/IDictionary).");
     }
 
+    /// <summary>The sentence for a bracket key a list can never take (not a non-negative integer), else null with the index.</summary>
+    public static string? ListKeyShapeError(string name, string key, out int idx) =>
+        int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out idx) && idx >= 0
+            ? null : $"List '{name}' must be indexed by a non-negative integer; got '{key}'.";
+
     /// <summary>The gendered-arm twin of <see cref="StepIntoElement"/>'s branches: a WRITE materializes and writes back, a READ refuses an absent arm as live state.</summary>
     static object StepIntoGenderedArm(object parent, PropertyInfo prop, string name, string key, bool materialize)
     {
         int idx = key switch { "0" => 0, "1" => 1, _ => -1 };
         if (idx < 0)
-            throw new InvalidOperationException(
+            throw new PathKeyShapeException(
                 $"Gendered field '{name}' is indexed by [0] (male) or [1] (female); got '{key}'. " +
                 $"(Its halves are also reachable by name: '{name}.Male' / '{name}.Female'.)");
 

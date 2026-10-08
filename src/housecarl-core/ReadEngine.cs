@@ -238,7 +238,7 @@ public static class ReadEngine
     public const string BadKeyPrefix = "(no field — ";
 
     /// <summary>The note a walk's throw becomes: a bad bracket key is a wrong path, anything else a read fault.</summary>
-    static string ThrowNote(Exception ex) =>
+    internal static string ThrowNote(Exception ex) =>
         ex is PathKeyShapeException ? $"{BadKeyPrefix}{ex.Message})" : UnreadableNote(Reason(ex));
 
     /// <summary>Read one leaf path off a located record and return its token, or a sentinel — the write engine's
