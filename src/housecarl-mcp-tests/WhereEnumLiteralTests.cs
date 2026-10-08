@@ -68,6 +68,30 @@ public sealed class WhereEnumLiteralTests : IDisposable
     public void NotInWithRealNamesStillMatchesTheRest() =>
         Assert.Contains("1 match", Where("Archetype.ActorValue not in [HeavyArmorModifier, LightArmorModifier]"));
 
+    [Fact]
+    public void ACommaListOnAPlainEnumRefuses() =>
+        Assert.Contains("ActorValue is not a [Flags] enum", Where("Archetype.ActorValue = HeavyArmorModifier, Health"));
+
+    [Fact]
+    public void ACommaListOnAFlagsEnumIsNotRefused() =>
+        Assert.DoesNotContain("is not a value of", Where("Flags = Hostile, Recover"));
+
+    [Fact]
+    public void ANestedEnumIsNamedByItsDeclaringType() =>
+        Assert.Contains("the MagicEffectArchetype.TypeEnum enum", Where("Archetype.Type = ValueModifer"));
+
+    [Fact]
+    public void AQuotedNameRefusesAndSaysToWriteItBare() =>
+        Assert.Contains("write it bare: 'Archetype.ActorValue = HeavyArmorModifier'", Where("Archetype.ActorValue = \"HeavyArmorModifier\""));
+
+    [Fact]
+    public void ANumberEqualsTheEnumsUnderlyingValue() =>
+        Assert.Contains("2 match", Where($"Archetype.ActorValue = {(int)ActorValue.HeavyArmorModifier}"));
+
+    [Fact]
+    public void ANumberInAListMatchesBesideAName() =>
+        Assert.Contains("3 match", Where($"Archetype.ActorValue in [{(int)ActorValue.HeavyArmorModifier}, LightArmorModifier]"));
+
     [Theory]
     [InlineData("Archetype.ActorValue != 9999")]
     [InlineData("Archetype.ActorValue != 0x270F")]

@@ -853,7 +853,7 @@ public sealed class FieldPredicateSet
             else if (p.FormIds is not null && TryFormKey(leaf.Token, out var lfk))
                 member = p.FormIds.Contains(lfk);
             else
-                member = p.RawMembers!.Any(m => ValueEquals(leaf.Token, m));
+                member = p.RawMembers!.Any(m => LeafEquals(leaf, m));
             return (p.Op == Op.In ? member : !member, EvalKind.Definite);
         }
 
@@ -1044,7 +1044,7 @@ public sealed class FieldPredicateSet
                 else if (flags is { } feq && TryResolveBits(p.Operand, feq.EnumType, out var opBits))
                     eq = feq.Bits == opBits;
                 else
-                    eq = ValueEquals(token, p.Operand);
+                    eq = LeafEquals(leaf, p.Operand);
                 return (p.Op == Op.Eq ? eq : !eq, null);
         }
     }
@@ -1097,6 +1097,26 @@ public sealed class FieldPredicateSet
         if (TryNum(token, out var x) && TryNum(operand, out var y)) return x.Equals(y);
         return string.Equals(token, operand, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>One leaf against one operand: an enum leaf by its underlying value when the operand names one, else <see cref="ValueEquals"/>.</summary>
+    static bool LeafEquals(ReadEngine.LeafRead leaf, string operand)
+        => leaf.Enum is { } ev && EnumOperandValue(operand, ev.EnumType, out var v) ? ev.Number == v : ValueEquals(leaf.Token, operand);
+
+    /// <summary>The underlying value an operand names on an enum: a number (decimal or 0x hex), else one defined name.</summary>
+    static bool EnumOperandValue(string operand, Type enumType, out double v)
+    {
+        if (TryNum(operand, out v)) return true;
+        if (TryBits(operand, out var bits)) { v = bits; return true; }
+        var t = operand.Trim();
+        var name = Enum.GetNames(enumType).FirstOrDefault(n => n.Equals(t, StringComparison.OrdinalIgnoreCase));
+        return name is not null && ReadEngine.TryEnumNumber(Enum.Parse(enumType, name), enumType, out v);
+    }
+
+    /// <summary>Whether an '=', '!=', 'in' or 'not in' literal can ever equal a leaf of this enum, by the comparison's own
+    /// rules: a number, one defined name, or on a [Flags] enum a name combo.</summary>
+    public static bool EnumLiteralFits(string literal, Type enumType)
+        => EnumOperandValue(literal, enumType, out _)
+           || (enumType.IsDefined(typeof(FlagsAttribute), false) && TryResolveBits(literal, enumType, out _));
 
     static bool TryNum(string s, out double d)
         => double.TryParse(s, NumberStyles.Float | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out d);
