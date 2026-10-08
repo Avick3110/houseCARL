@@ -2329,7 +2329,8 @@ public static class WriteEngine
         if (listIface is not null)
         {
             if (!int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx) || idx < 0)
-                throw new InvalidOperationException($"List '{name}' must be indexed by a non-negative integer; got '{key}'.");
+                throw new PathKeyShapeException($"List '{name}' must be indexed by a non-negative integer; got '{key}'." +
+                    (key.Length > 0 && PathFoldGrammar.Read($"{name}[*{key}]").Fold != PathFold.None ? $" A quantifier takes a star: '{name}[*{key}]'." : ""));
             int j = 0;
             foreach (var item in (System.Collections.IEnumerable)coll)
                 if (j++ == idx)
@@ -3129,6 +3130,9 @@ public sealed class ExpectedApplyRejectionException : InvalidOperationException
     public string? AbsentDetail { get; }
     public ExpectedApplyRejectionException(string message, string? absentDetail = null) : base(message) => AbsentDetail = absentDetail;
 }
+
+/// <summary>A bracket key the collection's own type can never take: a wrong path, the same on every record, never a read fault.</summary>
+public sealed class PathKeyShapeException(string message) : InvalidOperationException(message);
 
 /// <summary>A refusal whose cause is the TARGET record's own malformed data — a present-but-null element or entry.
 /// The THIRD apply-rejection category: no input for the user to fix, and not an engine bug either, so it renders

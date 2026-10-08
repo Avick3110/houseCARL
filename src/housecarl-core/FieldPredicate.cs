@@ -622,6 +622,12 @@ public sealed class FieldPredicateSet
     /// <summary>Classify a leaf note beginning "(no field": the bracket-aware variant is a missing-bracket miss, not a mistyped name.</summary>
     EvalKind ClassifyNoField(string note)
     {
+        // A bracket key the list can never take is the same wrong path on every record, so the call is refused.
+        if (note.StartsWith(ReadEngine.BadKeyPrefix, StringComparison.Ordinal))
+        {
+            _fatal ??= $"predicate '{_predicates[_evalIndex].Text}': {note[ReadEngine.BadKeyPrefix.Length..^1]}";
+            return EvalKind.Definite;
+        }
         // "(no field 'X': 'Owner' is a list/dict — <remedy>)" vs the plain "(no field X)".
         const string marker = "' is a list/dict";
         int at = note.IndexOf(marker, StringComparison.Ordinal);
