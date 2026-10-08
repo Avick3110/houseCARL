@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-/// <summary>A condition element's one-line summary, e.g. <c>[HasPerk(058200:Skyrim.esm) == 1 [Subject] OR]</c>.</summary>
+/// <summary>A condition element's one-line summary, e.g. <c>[HasPerk(058200:Skyrim.esm) == 1 on Subject OR]</c>.</summary>
 static class ConditionLine
 {
     /// <summary>The line for a condition, else null; <paramref name="refToken"/> is its first FormID.</summary>
@@ -21,7 +21,7 @@ static class ConditionLine
             foreach (var p in OwnParameters(data.GetType()))
                 args.Add(Token(p.GetValue(data), p.PropertyType, data, ref firstRef));
 
-            var line = $"{data.Function}({string.Join(", ", args)}) {Operator(cond.CompareOperator)} {Comparand(cond, ref firstRef)} [{RunOn(data, ref firstRef)}]";
+            var line = $"{data.Function}({string.Join(", ", args)}) {Operator(cond.CompareOperator)} {Comparand(cond, ref firstRef)} on {RunOn(data, ref firstRef)}";
             var flags = FlagWords(cond.Flags);
             refToken = firstRef;
             return $"[{line}{(flags.Length == 0 ? "" : " " + flags)}]";

@@ -72,23 +72,23 @@ public sealed class ConditionSummaryLineTests : IDisposable
 
     [Fact]
     public void HasPerkReadsAsItsFunctionPerkComparisonRunOnAndOrLast() =>
-        Assert.Equal($"[HasPerk({_perk}) == 1 [Subject] OR]", Line(Read(2, "Conditions"), "Conditions[0]"));
+        Assert.Equal($"[HasPerk({_perk}) == 1 on Subject OR]", Line(Read(2, "Conditions"), "Conditions[0]"));
 
     [Fact]
     public void GetIsIdNamesItsObjectAndTheTargetRunOn() =>
-        Assert.Equal($"[GetIsID({_npc}) == 1 [Target]]", Line(Read(2, "Conditions"), "Conditions[1]"));
+        Assert.Equal($"[GetIsID({_npc}) == 1 on Target]", Line(Read(2, "Conditions"), "Conditions[1]"));
 
     [Fact]
     public void AGlobalComparandIsTheGlobalsFormId() =>
-        Assert.Equal($"[GetGlobalValue({_global}) >= {_threshold} [Subject]]", Line(Read(2, "Conditions"), "Conditions[2]"));
+        Assert.Equal($"[GetGlobalValue({_global}) >= {_threshold} on Subject]", Line(Read(2, "Conditions"), "Conditions[2]"));
 
     [Fact]
     public void AReferenceRunOnCarriesItsReferenceAndOtherFlagsComeBeforeOr() =>
-        Assert.Equal($"[GetIsID({_npc}) != 0 [Reference {_ref}] SwapSubjectAndTarget OR]", Line(Read(2, "Conditions"), "Conditions[3]"));
+        Assert.Equal($"[GetIsID({_npc}) != 0 on Reference {_ref} SwapSubjectAndTarget OR]", Line(Read(2, "Conditions"), "Conditions[3]"));
 
     [Fact]
     public void ADepthOneReadOfTheElementGivesTheSameLine() =>
-        Assert.StartsWith($"[HasPerk({_perk}) == 1 [Subject] OR]", Line(Read(1, "Conditions[0]"), "Conditions[0]"));
+        Assert.StartsWith($"[HasPerk({_perk}) == 1 on Subject OR]", Line(Read(1, "Conditions[0]"), "Conditions[0]"));
 
     [Fact]
     public void TheLineCarriesTheFirstFormIdItSpellsForResolveNames() =>
@@ -99,7 +99,7 @@ public sealed class ConditionSummaryLineTests : IDisposable
     {
         var fields = Read(2, "Conditions");
         var element = fields.Single(f => f.Path == "Conditions[4]");
-        Assert.Equal($"[GetIsID(alias 3) == 1 [Reference {_ref}]]", Line(fields, "Conditions[4]"));
+        Assert.Equal($"[GetIsID(alias 3) == 1 on Reference {_ref}]", Line(fields, "Conditions[4]"));
         Assert.Equal(_ref, element.NoteRef);
     }
 
