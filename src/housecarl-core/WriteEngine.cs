@@ -1549,12 +1549,12 @@ public static class WriteEngine
             var (segName, segKey) = ParseSegment(path[i]);
             var p = ResolveProperty(srcCur.GetType(), segName)
                 ?? throw new InvalidOperationException($"CopyFrom: the source's version has no field '{segName}' on {srcCur.GetType().Name}.");
-            object? next;
+            object? next; string? detail = null;
             try { next = segKey is null ? p.GetValue(srcCur) : StepIntoElement(srcCur, p, segName, segKey); }
-            catch (ExpectedApplyRejectionException) { next = null; }   // an absent arm, list, key or index on the source: nothing to copy
+            catch (ExpectedApplyRejectionException ex) { next = null; detail = ex.AbsentDetail; }   // an absent arm, list, key or index on the source: nothing to copy
             if (next is null)
                 throw new ExpectedApplyRejectionException(
-                    $"CopyFrom: the source plugin's version has no value at '{string.Join('.', path[..(i + 1)])}' — nothing to copy.");
+                    $"CopyFrom: the source plugin's version has no value at '{string.Join('.', path[..(i + 1)])}'{(detail is null ? "" : $" ({detail})")} — nothing to copy.");
             srcCur = next;
         }
         var (leafName, leafKey) = ParseSegment(path[^1]);

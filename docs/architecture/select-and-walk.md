@@ -65,7 +65,9 @@ path walk, and containment comes off Mutagen's context walk.
   mistyped path under `not contains` cannot match everything.
 - A quantified step (`[*any]`, `[*all]`, `[*none]`, `[*count]`) folds elements into a boolean or a
   number; the bare `[*]` set token is refused. An empty list is a definite verdict, and one element
-  that could not be judged sinks a fold the judged elements have not already decided.
+  that could not be judged sinks a fold the judged elements have not already decided. A quantified
+  step behind an unset step (an absent substruct, a missing gendered arm, an index past the end)
+  folds an empty list, so `[*all]` and `[*none]` match vacuously and `[*count] = 0` matches.
 - `*parent` is the containment step and leads a path by definition. Its grammar is
   `ContainmentIndex.SplitHops`, shared with the read walk, so both surfaces refuse the same mistake
   in the same words. Everything below the hop reads the containing record with no second rule.
