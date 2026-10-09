@@ -48,7 +48,7 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 - A refusal naming a plugin the order does not contain carries the INJECTED explanation of why when there is one, and the did-you-mean otherwise. The resolver is built from a bare ordered path list and knows nothing of MO2, so the explanation is injected by the service.
 - `OpenOverlay` is the single overlay-open choke point, and it redirects strings lookup to the real game-Data folder only when the plugin's OWN folder carries no strings source for that plugin.
 - Light and master-block are separate per-plugin facts read off the same open header: an esp-fe is light in the FormID space and a regular plugin in the order.
-- `RecordsIn` walks its plugins in load order, each once, and yields a FormKey several of them touch only from the highest-loading one, so its answer does not depend on the order the names were passed in.
+- `RecordsIn` walks its plugins in load order, each once, and yields a FormKey several of them touch only from the highest-loading one, so its answer does not depend on the order the names were passed in. An empty scope is the whole order minus excluded plugins; a name not in the order is refused by name, off the caller's captured snapshot; a scoped plugin that no longer opens throws `PluginUnreadableException`, ending the stream.
 - The first active plugin whose KIND could not be read is kept as a position, not a flag: a runtime FormID landing at or after it is refused, one landing before it answers normally.
 
 ## Pinned by
