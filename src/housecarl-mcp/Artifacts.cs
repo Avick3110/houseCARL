@@ -196,7 +196,7 @@ internal static class Artifacts
         else                                                                  // summary rows
         {
             identity = "formid";
-            schema = new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "matches?" };
+            schema = new[] { "formid", "runtime_formid", "type", "editorid", "name?", "winner", "override_depth", "matches?" };
             sort = "load-order scan order (deterministic within one epoch)";
             for (int i = 0; i < q.Keys.Count; i++)
             {
@@ -208,7 +208,7 @@ internal static class Artifacts
         }
 
         renderClock?.Stop();
-        // The manifest stamps which tool wrote the artifact; see WriteResolve.
+        // The manifest stamps which tool wrote the artifact; a re-entry refusal prints it back.
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, identity, schema, sort,
                                           q.Groups is not null ? q.Groups.Count : q.Total, q.Epoch ?? "",
                                           CrossQueryNotes(q, fields, winnerFields, annotated, levers));
@@ -273,24 +273,10 @@ internal static class Artifacts
         }
         // The batch's one build; a batch of pure parse failures carries "", which refuses re-entry against any build.
         var epoch = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "";
-        // The manifest's tool stamp; see WriteResolve.
+        // The manifest stamps which tool wrote the artifact; a re-entry refusal prints it back.
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" },
                                           "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
-        return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
-    }
-
-    /// <summary>Build and save the artifact for an identity result — one row per input, in input order, per-item errors included.</summary>
-    public static (SpillInfo? Spill, string? Error) WriteResolve(
-        IReadOnlyList<ResolvedRef> rows, string epoch, ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query)
-    {
-        using var writer = new ResultArtifact.Writer();
-        foreach (var r in rows)
-            writer.WriteRow((w, _) => JsonWire.WriteResolvedRow(w, r), r.Resolved ? r.Type : null);
-        // The manifest's tool stamp must name a tool the surface still has: a re-entry refusal prints it back.
-        var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "type", "editorid", "name", "winner" },
-                                          "input order", rows.Count, epoch);
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 

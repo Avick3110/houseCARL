@@ -294,8 +294,7 @@ internal sealed partial class RecordReads
         if (body is null)
             return new RecordSummary(fk, "?", null, w.Value.WinnerPlugin, w.Value.OverrideDepth,
                 $"winner '{w.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch");
-        return new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
-                                 w.Value.WinnerPlugin, w.Value.OverrideDepth, null)
+        return RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth)
                .WithRuntime(view.RuntimeAddressOf(fk));
     }
 
@@ -349,11 +348,6 @@ internal sealed partial class RecordReads
         return new ConflictTreeView(nodes, fill.ChildDeclarers);
     }
 
-    /// <summary>The best-effort display Name of a record body, reflection-generic via Mutagen's
-    /// <c>INamedGetter</c> aspect, so it inherits coverage from the model; null for a type with no Name.</summary>
-    static string? ReadDisplayName(IMajorRecordGetter body) =>
-        body is INamedGetter named && !string.IsNullOrEmpty(named.Name) ? named.Name : null;
-
     /// <summary>The name-resolution caches one lane carries: a target's identity per FormKey, and the absence clauses its rows share.</summary>
     public sealed class LinkMemo
     {
@@ -384,7 +378,7 @@ internal sealed partial class RecordReads
             result = body is null
                 ? new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Winner: w.Value.WinnerPlugin)   // winner named but the fetch didn't yield it
                 : new ResolvedRef(FormIdToken.Of(fk), Resolved: true, Type: RecordNaming.StripOverlay(body.GetType().Name),
-                                  EditorId: body.EditorID, Name: ReadDisplayName(body), Winner: w.Value.WinnerPlugin);
+                                  EditorId: body.EditorID, Name: ReadEngine.DisplayName(body), Winner: w.Value.WinnerPlugin);
         }
         memo.Refs[fk] = result;
         return result;
@@ -393,9 +387,6 @@ internal sealed partial class RecordReads
     /// <summary>Bulk name resolution: a list of FormIDs to their load-order identity in one call over one captured
     /// view, memoised across the batch.</summary>
     public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids) => ResolveRefs(formids, out _);
-
-    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, out OrderStamp epoch)
-        => ResolveRefs(formids, null, out epoch, out _);
 
     /// <summary>The artifact-epoch mismatch refusal — one wording for every consuming lane, naming both epochs and
     /// the two legitimate next moves.</summary>
@@ -410,18 +401,11 @@ internal sealed partial class RecordReads
 
     /// <summary>As above, also handing back the captured build's <paramref name="epoch"/> fingerprint — the batch is
     /// one capture.</summary>
-    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, ArtifactDemand? artifactDemand,
-                                                  out OrderStamp epoch, out string? artifactRefusal)
+    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, out OrderStamp epoch)
     {
-        artifactRefusal = null;
         var resolver = _host.Resolver;
         var view = resolver.Capture();                  // one build for the whole batch
         epoch = view.Stamp;
-        if (artifactDemand is not null && artifactDemand.Epoch != view.Epoch)
-        {
-            artifactRefusal = ArtifactEpochMismatch(artifactDemand, view.Epoch);
-            return Array.Empty<ResolvedRef>();
-        }
         using var session = resolver.OpenSession();
         var memo = new LinkMemo();
         var results = new List<ResolvedRef>(formids.Count);

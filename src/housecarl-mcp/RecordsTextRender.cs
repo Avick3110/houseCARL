@@ -574,8 +574,9 @@ static partial class RecordsTools
                 sb.Append(FormIdToken.Of(o.FormKey));
                 Wire.AppendRuntime(sb, o.RuntimeFormId, o.RuntimeFormIdNote);
                 sb.Append("  ").Append(o.Record!.Type)
-                  .Append("  ").Append(o.Record.EditorId ?? "<no editorid>")
-                  .Append("  source=").Append(o.SourcePlugin ?? "?");
+                  .Append("  ").Append(o.Record.EditorId ?? "<no editorid>");
+                if (o.Record.Name is not null) sb.Append("  name=\"").Append(o.Record.Name).Append('"');
+                sb.Append("  source=").Append(o.SourcePlugin ?? "?");
                 if (o.WinnerPlugin is not null) sb.Append("  winner=").Append(o.WinnerPlugin).Append("  override_depth=").Append(o.OverrideDepth);
                 sb.Append('\n');
             }

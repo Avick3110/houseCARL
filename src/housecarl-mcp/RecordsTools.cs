@@ -6,7 +6,7 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-/// <summary>housecarl_records — the read surface: SELECT, SOURCE, PROJECT and TRANSPORT compose in one call over ten form-scoped project forms; contracts in docs/architecture/records-tool-front.md.</summary>
+/// <summary>housecarl_records — the read surface: SELECT, SOURCE, PROJECT and TRANSPORT compose in one call over nine form-scoped project forms; contracts in docs/architecture/records-tool-front.md.</summary>
 [McpServerToolType]
 public static partial class RecordsTools
 {
@@ -34,7 +34,7 @@ public static partial class RecordsTools
     /// <summary>PROJECT — the shape of the answer: one form, with its sub-parameters inside it, so there is no flat spelling for an illegal pairing.</summary>
     public sealed class RecordsProject
     {
-        [Description("The form: 'identity' (FormID to type, editorid, name and winner; needs formids= alone) | 'summary' (identity plus winner and override-depth facts; the default) | 'fields' (named field values; takes fields= and depth=) | 'rows' (a list field folded to one line per element; takes fields= naming the list, or one element as 'Conditions[0]', and depth=, default 4. Each line is the element's own summary plus every sub-field the read found; absent optionals are omitted, and a declared but null link is kept. One call audits a whole condition stack (fields=[\"Conditions\"]). A named field that is not a list is refused) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only: source= is the subject, versus= the reference; takes fields= to narrow. Each line shows the subject's value with the reference's beside it, labelled by plugin; versus=\"previous_provider\" shows what a plugin changed against what sat beneath it) | 'tree' (the conflict view: every provider of each record in priority order, winner last, each showing only the fields that differ from versus=, default the winner; takes fields=. On a type that owns child records (a cell's placed references, a topic's INFO lines, a worldspace's cells) it also states, per such field, which providers declare children there, or how many do for a singular field such as Cell.Landscape, and says so when none do) | 'info_order' (DIAL topics only: the merged INFO sequence across every touching plugin, with moved lines marked; the 'why does the wrong line play' diagnostic. The game plays the first passing line from the top, and a plugin that re-lists a line without carrying its PNAM appends it to the bottom, so a reorder changes which line answers while no field differs, which a diff cannot show. Select a quest's topics with types=[\"DIAL\"] where=[\"Quest = <quest formid>\"]. source= can fold in one off-order plugin; see source=) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached; needs walk=, and carries the NPC template inheritance report and the reverse MGEF carrier rows. A cycle is a record the walk reached again from itself, found over the nodes it entered and reported once per closing link, so the count is a lower bound on distinct loops; the search stops at 200 loops per seed and says so. No cycles over a walk that finished means none; over one cut at walk.depth or walk.max_nodes it means none in what was read). delta and tree compare by content: a list reorder is flagged, and a truncated deep read is reported, never called identical.")]
+        [Description("The form: 'summary' (type, editorid, name, winner and override depth; the default) | 'fields' (named field values; takes fields= and depth=) | 'rows' (a list field folded to one line per element; takes fields= naming the list, or one element as 'Conditions[0]', and depth=, default 4. Each line is the element's own summary plus every sub-field the read found; absent optionals are omitted, and a declared but null link is kept. One call audits a whole condition stack (fields=[\"Conditions\"]). A named field that is not a list is refused) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only: source= is the subject, versus= the reference; takes fields= to narrow. Each line shows the subject's value with the reference's beside it, labelled by plugin; versus=\"previous_provider\" shows what a plugin changed against what sat beneath it) | 'tree' (the conflict view: every provider of each record in priority order, winner last, each showing only the fields that differ from versus=, default the winner; takes fields=. On a type that owns child records (a cell's placed references, a topic's INFO lines, a worldspace's cells) it also states, per such field, which providers declare children there, or how many do for a singular field such as Cell.Landscape, and says so when none do) | 'info_order' (DIAL topics only: the merged INFO sequence across every touching plugin, with moved lines marked; the 'why does the wrong line play' diagnostic. The game plays the first passing line from the top, and a plugin that re-lists a line without carrying its PNAM appends it to the bottom, so a reorder changes which line answers while no field differs, which a diff cannot show. Select a quest's topics with types=[\"DIAL\"] where=[\"Quest = <quest formid>\"]. source= can fold in one off-order plugin; see source=) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached; needs walk=, and carries the NPC template inheritance report and the reverse MGEF carrier rows. A cycle is a record the walk reached again from itself, found over the nodes it entered and reported once per closing link, so the count is a lower bound on distinct loops; the search stops at 200 loops per seed and says so. No cycles over a walk that finished means none; over one cut at walk.depth or walk.max_nodes it means none in what was read). delta and tree compare by content: a list reorder is flagged, and a truncated deep read is reported, never called identical.")]
         public string? form { get; set; }
 
         [Description("Dotted field paths: read on the fields form, folded on the rows form, narrowed to on delta and tree. E.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list or dict element with brackets ('Effects[0].Data.Magnitude'). A path may lead with '*parent', the record that contains this one, as in where=; it chains. On the rows form these name the list(s) to fold, one line per element. On the fields form a step may be quantified: 'Effects[*count]' is one number per record, 'Effects[*]' one row per element in the rows form's row shape, and 'Effects[*].Data.Magnitude' that leaf per element; under format='dense' the extra rows repeat the record's identity columns.")]
@@ -158,7 +158,7 @@ public static partial class RecordsTools
             RecordsWalk? walk = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (machine-readable, same accounting in-band) | 'dense' (positional columns 1:1 with the requested fields, for bulk enumeration and joins). On 'json' a record's fields are an ordered list of {path, value}, or {path, note} saying why no value was read, in the answer's own order, and a path repeats under a quantified step ('Effects[*].Data.Magnitude'). Every response carries the epoch stamp, the index build it was answered from: epoch=<hex> on 'text' and 'dense', an 'epoch' member on 'json'.")]
             string? format = null,
-        [Description("TRANSPORT: max rows to render (default 500). The true total is always reported; page a scan with offset=. A delta or tree row reads every provider of its record, so on a scan limit= and offset= bound that reading too; a census or to_file= on those forms covers the whole selection, so narrow the scan terms instead. chain, info_order and any walk consume every scan match, and limit= windows only the rendered rows, so on a big order the scan terms (types=/plugins=/where=) are the cost bound. A comparison that would pass ten minutes refuses, before reading when even the cheapest rate would, else mid-run naming the rate it measured. A render too big to finish refuses up front, naming shapes that fit; a scan's accounting reports render_ms. Per row, form='everything' costs far more than named fields. On a formids= read every id is read before limit= and offset= apply, so pass fewer ids rather than paging, and form='identity' costs more per row than form='summary', which answers the same identity question; the accounting counts bodies read, which a source= pole holding no version of an id, or a malformed id, leaves short of the list.")]
+        [Description("TRANSPORT: max rows to render (default 500). The true total is always reported; page a scan with offset=. A delta or tree row reads every provider of its record, so on a scan limit= and offset= bound that reading too; a census or to_file= on those forms covers the whole selection, so narrow the scan terms instead. chain, info_order and any walk consume every scan match, and limit= windows only the rendered rows, so on a big order the scan terms (types=/plugins=/where=) are the cost bound. A comparison that would pass ten minutes refuses, before reading when even the cheapest rate would, else mid-run naming the rate it measured. A render too big to finish refuses up front, naming shapes that fit; a scan's accounting reports render_ms. Per row, form='everything' costs far more than named fields. On a formids= read every id is read before limit= and offset= apply, so pass fewer ids rather than paging; the accounting counts bodies read, which a source= pole holding no version of an id, or a malformed id, leaves short of the list.")]
             int limit = DefaultLimit,
         [Description("TRANSPORT: skip the first N matches (offset=0/500/1000…). Windows tile only within one epoch: if two pages' epochs differ the load order changed, so re-run from offset=0 rather than stitching. Each window re-scans the selection from the start, so a deep window costs more; narrowing the scan terms beats paging far.")]
             int offset = 0,
@@ -196,11 +196,12 @@ public static partial class RecordsTools
 
         // ---- PROJECT: form + form-scoping ---------------------------------------------------------------
         var form = project?.form?.Trim().ToLowerInvariant() ?? "summary";
+        if (form == "identity") form = "summary";   // a spelling of summary, kept for callers that still send it
         switch (form)
         {
-            case "identity" or "summary" or "fields" or "rows" or "everything" or "aggregate" or "delta" or "tree" or "info_order" or "chain": break;
+            case "summary" or "fields" or "rows" or "everything" or "aggregate" or "delta" or "tree" or "info_order" or "chain": break;
             default:
-                return Wire.Refuse(json, $"error: project.form='{project?.form}' is not a form — use identity | summary | fields | rows | everything | aggregate | delta | tree | chain | info_order.");
+                return Wire.Refuse(json, $"error: project.form='{project?.form}' is not a form — use summary | fields | rows | everything | aggregate | delta | tree | chain | info_order.");
         }
         bool comparisonForm = form is "delta" or "tree";
         bool bodyFields = form is "fields" or "rows";   // the two forms that read the caller's own field paths
@@ -389,7 +390,7 @@ public static partial class RecordsTools
             }
             if (references is { Length: > 0 })
                 return Wire.Refuse(json, "error: walk= and references= are the same construct (references= IS the reverse walk at depth 1) — use one spelling per call.");
-            if (comparisonForm || form is "info_order" or "identity")
+            if (comparisonForm || form is "info_order")
                 return Wire.Refuse(json, $"error: walk= derives a selection (the reached set), and the '{form}' form does not consume one — use form='chain' for the walk's own paths, or summary/fields/rows/everything/aggregate over the reached set. To compare reached records, walk with to_file= and re-enter the artifact via formids=[\"@<file>\"] with form='{form}'.");
             if (where is { Length: > 0 })
                 return Wire.Refuse(json, "error: walk= composed with where= (filtering the reached set by predicate) — walk with to_file=, then re-enter the artifact on a bounded scan via where=[\"formid in @<file>\", …]; the reached set becomes the scan's identity list.");
@@ -650,53 +651,6 @@ public static partial class RecordsTools
                 };
                 if (ioFoldFacts is not null) FoldEcho(e);
                 return InfoOrderResponse(ioRows, ioEpoch, e);
-            }
-
-            // ---- identity form: the labeling lane. Winner frame by contract. ----
-            if (form == "identity")
-            {
-                if (srcName is not null || srcOverlay)
-                    return Wire.Refuse(json, "error: the identity form is the load-order labeling frame (type/editorid/name/WINNER per FormID) — " +
-                           "it does not take a source= pole. Use form='summary' or 'fields' for a named version's view.");
-                // This form reads a body by the dearest route on the tool, an untyped whole-plugin seek per id, so
-                // it has its own tier, checked before the read.
-                if (RenderBudget.RefuseIdentity(svc.Bounds, ids.Length, counts_only ? RenderBudget.ListCensusRemedy : RenderBudget.ListRemedy,
-                                                counts_only) is { } identityTooBig)
-                    return Wire.Refuse(json, identityTooBig);
-                var identityClock = System.Diagnostics.Stopwatch.StartNew();
-                var rows = svc.ResolveRefs(ids, demand, out var epoch, out var refusal);
-                identityClock.Stop();
-                // The count is the bodies READ, not the list's length; docs/architecture/records-tool-front.md.
-                var identityCost = (rows.Count(r => r.Resolved), identityClock.ElapsedMilliseconds);
-                if (refusal is not null)
-                    return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + Wire.EpochLine(epoch);
-                Arm("winner");
-                if (counts_only)
-                {
-                    // The census honors counts_only on every list form, this one included.
-                    int okI = rows.Count(r => r.Error is null);
-                    return json ? JsonWire.RenderCounts(envelope, rows.Count, okI, rows.Count - okI, epoch, max_chars)
-                                : Census($"{headerLine}\ncount={rows.Count} ok={okI} errors={rows.Count - okI}" + Wire.EpochLine(epoch));
-                }
-                var winRows = Windowed(rows);
-                SpillState? spill = null;
-                if (wantFile)
-                {
-                    var (s, aerr) = Artifacts.WriteResolve(rows, epoch.Epoch, ArtifactTarget.Named(toFile!), "to_file", Echo());
-                    if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
-                    spill = SpillState.Spilled(s!, manifestOnly: true);
-                }
-                string Render(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderResolve(winRows, max_chars, epoch, sp, out trunc, envelope, identityCost)
-                    : Wire.RenderResolve(winRows, max_chars, epoch, sp, out trunc, headerLine, identityCost);
-                var rendered = Render(spill, out var truncated);
-                if (spill is null && truncated)
-                {
-                    using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch.Epoch);
-                    var (s, aerr) = Artifacts.WriteResolve(rows, epoch.Epoch, reservation, "ceiling", Echo());
-                    rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
-                }
-                return rendered;
             }
 
             // ---- the render's own bound on this lane, over all five reading forms, checked before any body is
@@ -1314,9 +1268,6 @@ public static partial class RecordsTools
         // ================================================================================================
         string ScanLane()
         {
-            if (form == "identity")
-                return Wire.Refuse(json, "error: the identity form labels a formids= list; a scan's summary rows already carry each match's identity — use form='summary' (the default).");
-
             if (srcOverlay || versusSpec?.Kind == RecordReads.PoleKind.Overlay)
                 return Wire.Refuse(json, "error: an overlay pole on a SCAN would replay the SkyPatcher INI layer over every match — a per-record replay at scan scale " +
                        "(a scan comparison compares EVERY match, so it is not a bound). Name the records via formids= — the list lane reads and " +
@@ -1960,7 +1911,6 @@ public static partial class RecordsTools
             return $"error: format='dense' lays one row per element, and '{roots[0]}' and '{roots[1]}' are different lists — one row cannot be an element of both. Quantify one of them and read the other as an ordinary path, or make one call per list.";
         return form switch
         {
-            "identity" => Head + "the 'identity' form is a labeling render with no field paths — use form='summary' for the dense identity columns, or format='text' or 'json'.",
             "everything" => Head + "the 'everything' form has no fixed column set — use format='text' or 'json', or name the paths via form='fields'.",
             "rows" => Head + $"the 'rows' form folds a list's elements into one variable-length line each — use form='fields' with '{ListPath(project!.fields![0])}[*]' for one dense row per element, or format='text' or 'json'.",
             "aggregate" => "error: format='dense' is the per-row columnar transport, and the 'aggregate' form is a count table — its json render IS the compact form; use format='json'.",
