@@ -856,36 +856,19 @@ public sealed class RecordsRenderCostTests
         Assert.Contains($"read {RenderCostWorld.Weapons} record bodies in ", text);
     }
 
-    /// <summary>identity reads a body too, and by the dearest route the tool has: the resolver has no record type
-    /// to seek the winner by, so each id is an untyped whole-plugin scan — 12.5–14 ms a row on the ARR order
-    /// against 0.05–0.07 ms for the same ids read as named fields. So it is bounded, on its own tier (#607).</summary>
+    /// <summary>identity is a spelling of summary, so it takes summary's bound and summary's refusal; the
+    /// untyped-seek tier it once had is gone with the lane that needed it.</summary>
     [Fact]
-    public void AnIdentityReadOverItsOwnBoundRefuses()
+    public void AnIdentityReadIsBoundedAsSummaryIs()
     {
-        var response = Svc.WithBounds(b => b with { IdentityRows = 10 }, () =>
-            RecordsTools.Records(Svc, formids: AllWeaponIds,
-                                 project: new RecordsTools.RecordsProject { form = "identity" }));
+        var identity = Svc.WithBounds(b => b with { Rows = 10 }, () =>
+            RecordsTools.Records(Svc, formids: AllWeaponIds, project: new RecordsTools.RecordsProject { form = "identity" }));
+        var summary = Svc.WithBounds(b => b with { Rows = 10 }, () =>
+            RecordsTools.Records(Svc, formids: AllWeaponIds, project: new RecordsTools.RecordsProject { form = "summary" }));
 
-        Assert.StartsWith("error:", response);
-        Assert.Contains("UNTYPED", response);                        // what actually costs here
-        Assert.Contains("project.form='summary'", response);         // the shape that answers the same question cheaply
-        Assert.Contains("fewer formids=", response);                 // this lane's own lever
-        Assert.DoesNotContain("narrow the scan terms", response);    // it has no scan terms
-    }
-
-    /// <summary>Its bound is its own: a named-fields bound tighter than the list does not refuse it, and an
-    /// identity bound tighter than the list does not refuse a fields read.</summary>
-    [Fact]
-    public void TheIdentityBoundAndTheFieldsBoundAreSeparate()
-    {
-        var identity = new RecordsTools.RecordsProject { form = "identity" };
-        var doc = Doc(Svc.WithBounds(b => b with { Rows = 1 }, () =>
-            RecordsTools.Records(Svc, formids: AllWeaponIds, format: "json", project: identity)));
-        Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("count").GetInt32());
-
-        var fields = Doc(Svc.WithBounds(b => b with { IdentityRows = 1 }, () =>
-            RecordsTools.Records(Svc, formids: AllWeaponIds, format: "json", limit: 5, project: Fields())));
-        Assert.Equal(5, fields.GetProperty("rendered").GetInt32());
+        Assert.StartsWith("error:", identity);
+        Assert.Equal(summary, identity);
+        Assert.DoesNotContain("UNTYPED", identity);
     }
 
     /// <summary>And it reports what it cost, because a bound calibrated on one machine is only checkable where the

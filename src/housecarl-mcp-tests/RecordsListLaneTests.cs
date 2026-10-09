@@ -3,7 +3,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The formids= (list) lane: identity form, the one-pole source cases, the touchers-named refusals,
+/// <summary>The formids= (list) lane: the identity spelling of summary, the one-pole source cases, the touchers-named refusals,
 /// aggregate and census.</summary>
 [Collection("records")]
 [Trait("tier", "integration")]
@@ -14,17 +14,22 @@ public sealed class RecordsListLaneTests : RecordsTestBase
     string Identity(params string[] ids) => RecordsTools.Records(Svc, formids: ids, project: Form("identity"));
 
     [Fact]
-    public void IdentityForm_LabelsTheListStatesTheFormAndStampsTheEpoch()
+    public void IdentitySpelling_AnswersExactlyAsSummary_StatingTheSummaryForm()
     {
         var r = Identity(Fid(W.Weapons[0]), Fid(W.MgefA));
-        Served(r, "form=identity", "HcRecW0", $"epoch={W.Epoch0}");
+        Served(r, "form=summary", "HcRecW0", $"epoch={W.Epoch0}");
+        Assert.Equal(SummaryNameTests.Timeless(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]), Fid(W.MgefA) })), SummaryNameTests.Timeless(r));
     }
 
+    // The identity form refused a source= pole; as a spelling of summary it reads the pole as summary does.
     [Fact]
-    public void IdentityForm_PlusANamedSourceRefusesByContract_IdentityIsTheResolutionFrame() =>
-        Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) },
-                                     source: Plugin(W.OverrideName), project: Form("identity")),
-                "labeling frame");
+    public void IdentitySpelling_PlusANamedSourceReadsThePoleAsSummaryDoes()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, source: Plugin(W.OverrideName), project: Form("identity"));
+        Assert.DoesNotContain("labeling frame", r);
+        Assert.Equal(SummaryNameTests.Timeless(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, source: Plugin(W.OverrideName))), SummaryNameTests.Timeless(r));
+        Served(r, "active in the load order");
+    }
 
     string ActiveSummary() =>
         RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]), Fid(W.Weapons[1]) },

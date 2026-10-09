@@ -5,7 +5,7 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The list lane of <c>housecarl_records</c>: the identity form's rows, the per-item error shape, the
+/// The list lane of <c>housecarl_records</c>: the summary rows under the identity spelling, the per-item error shape, the
 /// named-plugin SOURCE pole, the record object's json contract, and link annotation.
 /// </summary>
 [Collection("bulk-records")]
@@ -22,21 +22,21 @@ public sealed class RecordsBulkSelectTests : BulkRecordsTestBase
     string IdentityJson() =>
         RecordsTools.Records(Svc, formids: new[] { Fid(W.W1), BadFormid }, project: Form("identity"), format: "json");
 
-    JsonElement IdentityRows() => Doc(IdentityJson()).GetProperty("resolved");
+    JsonElement IdentityRows() => Doc(IdentityJson()).GetProperty("records");
 
-    // ---- the identity form's rows -----------------------------------------------------------------
+    // ---- the identity spelling's rows: summary rows, which carry the name -------------------------
 
     [Fact]
-    public void TheIdentityFormsRowCarriesTypeEditoridNameAndWinner() =>
-        Served(IdentityText(), "type=Weapon", $"editorid={BulkRecordsWorld.W1WinnerEditorId}",
+    public void TheIdentitySpellingsRowCarriesTypeEditoridNameAndWinner() =>
+        Served(IdentityText(), "  Weapon  ", $"  {BulkRecordsWorld.W1WinnerEditorId}  ",
                $"name=\"{BulkRecordsWorld.W1Name}\"", $"winner={W.ReplName}");
 
     [Fact]
     public void AMalformedFormidIsAPerItemErrorRowWhileTheOtherRowsStillResolve()
     {
         var r = IdentityText();
-        Assert.Contains($"{BadFormid}  error=bad FormID", r);
-        Assert.Contains("editorid=HcBulkKwA", r);   // the row after the bad one still resolved
+        Assert.Contains($"error=bad FormID '{BadFormid}'", r);
+        Assert.Contains("  HcBulkKwA  ", r);   // the row after the bad one still resolved
     }
 
     // The parse IS the assertion: a json-mode caller that gets prose is exactly the failure this pins.
@@ -44,7 +44,7 @@ public sealed class RecordsBulkSelectTests : BulkRecordsTestBase
     public void TheIdentityFormsJsonRenderIsAValidDocument() => Doc(IdentityJson());
 
     [Fact]
-    public void TheIdentityJsonCarriesOneResolvedRowPerInput() => Assert.Equal(2, IdentityRows().GetArrayLength());
+    public void TheIdentityJsonCarriesOneRowPerInput() => Assert.Equal(2, IdentityRows().GetArrayLength());
 
     [Fact]
     public void TheIdentityJsonRowCarriesTheSameFourIdentityFactsTheTextRowPrints()

@@ -87,9 +87,14 @@ public sealed class RecordsScanLaneTests : RecordsTestBase
         Assert.DoesNotContain("HcRecW1", r);
     }
 
+    // The scan lane refused the identity form; as a spelling of summary it answers with the scan's summary rows.
     [Fact]
-    public void IdentityOnTheScanLaneRefuses_SummaryRowsAlreadyCarryIdentity() =>
-        Refused(RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("identity")), "summary");
+    public void IdentityOnTheScanLaneAnswersExactlyAsSummary()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("identity"));
+        Assert.DoesNotContain("error:", r);
+        Assert.Equal(SummaryNameTests.Timeless(RecordsTools.Records(Svc, types: new[] { "WEAP" })), SummaryNameTests.Timeless(r));
+    }
 
     [Fact]
     public void ScanPlusEverything_SelectionViaTheScanFullBodiesViaTheBatchLane() =>
