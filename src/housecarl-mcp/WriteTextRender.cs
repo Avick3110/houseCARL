@@ -151,8 +151,8 @@ static partial class WriteTools
                     return;
                 }
                 sb.Append("    ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
-                // The BLOB annotation only, gated on the bytes marker rather than on the Display a flags decode rides.
-                if (f.Bytes is not null && f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');
+                // The read's annotation: a flags decode or a blob's byte count, as a read renders it.
+                if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');
                 sb.Append('\n');
             }
         }
