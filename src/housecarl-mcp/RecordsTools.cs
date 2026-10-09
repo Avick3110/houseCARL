@@ -207,6 +207,10 @@ public static partial class RecordsTools
         bool bodyFields = form is "fields" or "rows";   // the two forms that read the caller's own field paths
         // Every reading form reads a body per row, so this is the set a derived selection's render bound is measured over.
         bool bodyForm = bodyFields || form is "summary" or "everything" or "aggregate";
+        // The reverse carrier walk's follow, one constant read by the validation, the lane and every remedy sentence.
+        const string CarrierFollow = "Effects[].BaseEffect";
+        if (form == "chain" && walk is null)
+            return Wire.Refuse(json, $"error: the 'chain' form renders a walk's paths — pass walk= (e.g. walk={{\"follow\": \"Template\"}} over NPC seeds; reverse MGEF carriers: walk={{\"direction\": \"reverse\", \"follow\": \"{CarrierFollow}\"}} with MGEF formids=).");
         // Form-scoping: a sub-parameter outside its form is refused by name; docs/architecture/records-tool-front.md.
         if (project?.fields is { Length: > 0 } && !bodyFields && !comparisonForm)
             return Wire.Refuse(json, form == "chain"
@@ -329,8 +333,6 @@ public static partial class RecordsTools
         string walkDirection = "forward";
         int walkDepth = 16, walkMaxNodes = 2000;
         bool walkDepthAsked = false;
-        // The reverse carrier walk's follow, one constant read by the validation, the lane and every remedy sentence.
-        const string CarrierFollow = "Effects[].BaseEffect";
         var walkExclusions = new List<(string Match, bool Refuse)>();
         HashSet<string>? walkThrough = null;
         if (walk is not null)
@@ -397,8 +399,6 @@ public static partial class RecordsTools
             if (where is { Length: > 0 })
                 return Wire.Refuse(json, "error: on a walk, types= selects the seeds, so where= cannot narrow the reached set — narrow it by type with walk.through or walk.exclusions, or write the reached set with to_file= and re-enter it as formids=[\"@<file>\"] with where=.");
         }
-        if (form == "chain" && walk is null)
-            return Wire.Refuse(json, $"error: the 'chain' form renders a walk's paths — pass walk= (e.g. walk={{\"follow\": \"Template\"}} over NPC seeds; reverse MGEF carriers: walk={{\"direction\": \"reverse\", \"follow\": \"{CarrierFollow}\"}} with MGEF formids=).");
 
         // The single-pole lanes below drive off these fields; richer specs dispatch before reaching them.
         string? srcName = srcSpec.Kind == RecordReads.PoleKind.Named ? srcSpec.Plugin : null;
