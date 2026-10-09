@@ -55,6 +55,9 @@ public sealed record ReadOutcome(
     /// <summary>Did this read annotate anything at all — the cheap question, for the budget reservation.</summary>
     public bool OwnedChildNoted => OwnedChildFields is { Count: > 0 };
 
+    /// <summary>An engine-implicit form's summary row: its known identity, no body read.</summary>
+    public bool FromEngine { get; init; }
+
     public static ReadOutcome Fail(FormKey fk, string error) => new(fk, null, null, null, 0, null, error);
 }
 

@@ -321,9 +321,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                                                    IReadOnlyList<int>? depths = null,
                                                    CancellationToken ct = default,
                                                    IReadOnlyList<Type>? getterTypes = null,
-                                                   IReadOnlyCollection<string>? countFields = null)
+                                                   IReadOnlyCollection<string>? countFields = null,
+                                                   bool summary = false)
         => _reads.ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, artifactDemand, out artifactRefusal, out refusalEpoch,
-                               containerHint, depths, ct, getterTypes, countFields);
+                               containerHint, depths, ct, getterTypes, countFields, summary);
     internal IReadOnlyList<ReadOutcome> ResolveBatchFromPole(
         IReadOnlyList<string> formids, string plugin, string? mod,
         IReadOnlyList<string>? fields, int depth, bool resolveNames,
@@ -333,9 +334,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         IReadOnlyList<int>? depths = null,
         CancellationToken ct = default,
         IReadOnlyList<Type>? getterTypes = null,
-        IReadOnlyCollection<string>? countFields = null)
+        IReadOnlyCollection<string>? countFields = null,
+        bool summary = false)
         => _reads.ResolveBatchFromPole(formids, plugin, mod, fields, depth, resolveNames, artifactDemand, out pole, out refusal, out refusalEpoch,
-                                       containerHint, depths, ct, getterTypes, countFields);
+                                       containerHint, depths, ct, getterTypes, countFields, summary);
     internal RecordReads.PoleInfo? ProbeSourceArm(string plugin, string? mod, out string? error) => _reads.ProbeSourceArm(plugin, mod, out error);
     internal IReadOnlyList<RecordReads.DeltaRow> DeltaBatch(
         IReadOnlyList<string> formids, RecordReads.PoleSpec subject, RecordReads.PoleSpec reference, IReadOnlyList<string>? fields,
@@ -351,9 +353,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         IReadOnlyList<int>? depths = null,
         CancellationToken ct = default,
         SkyPatcherDraft.Plan? draft = null,
-        SkyPatcherOverlay.WarningSink? overlayWarnings = null)
+        SkyPatcherOverlay.WarningSink? overlayWarnings = null,
+        bool summary = false)
         => _reads.OverlayPostBatch(formids, fields, depth, resolveNames, demand, out refusal, out refusalEpoch, out epoch,
-                                   containerHint, depths, ct, draft, overlayWarnings);
+                                   containerHint, depths, ct, draft, overlayWarnings, summary);
     internal IReadOnlyList<RecordReads.TreeRow> TreeBatch(
         IReadOnlyList<string> formids, RecordReads.PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,

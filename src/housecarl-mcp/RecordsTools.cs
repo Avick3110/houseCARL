@@ -682,7 +682,7 @@ public static partial class RecordsTools
                 // caller's own depth.
                 outcomes = svc.OverlayPostBatch(ids, readFields, depth, resolveNames, demand, out var ovRefusal, out var ovEpoch, out _,
                                                 containerHint, readFieldDepths, ct,
-                                                draft: srcSpec.Draft, overlayWarnings: overlayWarnings);
+                                                draft: srcSpec.Draft, overlayWarnings: overlayWarnings, summary: form == "summary");
                 if (ovRefusal is not null)
                     return json ? JsonWire.RenderError(ovRefusal, ovEpoch)
                                 : "error: " + ovRefusal + Wire.EpochLine(ovEpoch);
@@ -696,7 +696,7 @@ public static partial class RecordsTools
             else if (srcName is null)
             {
                 if (srcOverlay) Arm("skypatcher overlay (pre) = winner — the body the INI layer starts from");
-                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, containerHint, readFieldDepths, ct, countFields: readFieldCounts);
+                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, containerHint, readFieldDepths, ct, countFields: readFieldCounts, summary: form == "summary");
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + Wire.EpochLine(refusalEpoch);
@@ -706,7 +706,7 @@ public static partial class RecordsTools
             {
                 outcomes = svc.ResolveBatchFromPole(ids, srcName, srcMod, readFields, depth, resolveNames, demand,
                                                     out pole, out var refusal, out var refusalEpoch,
-                                                    containerHint, readFieldDepths, ct, countFields: readFieldCounts);
+                                                    containerHint, readFieldDepths, ct, countFields: readFieldCounts, summary: form == "summary");
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + Wire.EpochLine(refusalEpoch);
@@ -719,7 +719,7 @@ public static partial class RecordsTools
             }
             listClock.Stop();
             // One cost for every form this lane renders, counted over the bodies actually READ.
-            var listCost = (outcomes.Count(o => o.Record is not null && o.SourcePlugin != EngineImplicit.Winner), listClock.ElapsedMilliseconds);
+            var listCost = (outcomes.Count(o => o.Record is not null && !o.FromEngine), listClock.ElapsedMilliseconds);
             // dense folds a quantified path as it writes each row, as on the scan, so it renders the unfolded read.
             var unfolded = outcomes;
             outcomes = FoldRows(outcomes);
@@ -1324,10 +1324,9 @@ public static partial class RecordsTools
                     return OffOrderScan(probe);
                 if (hasScope)
                 {
-                    // Scope and pole compose; an identity-fact form has nothing for the pole to change, so it
-                    // refuses rather than accepting and ignoring it.
+                    // Scope and pole compose for the body-reading forms only; summary and aggregate refuse rather than answer off the winners.
                     if (form is "summary" or "aggregate")
-                        return Wire.Refuse(json, $"error: a plugins= scope with a named source= reads the POLE's version of each scoped match — and the '{form}' form's rows are identity facts the pole doesn't change. Drop source=, or use form='fields'/'everything' (the pole's bodies) or 'delta'/'tree' (comparisons).", probeEpoch);
+                        return Wire.Refuse(json, $"error: a plugins= scope with a named source= reads the POLE's version of each scoped match, and the '{form}' form does not read that composition. Drop source= for the winners' rows, or use form='fields'/'everything' (the pole's bodies) or 'delta'/'tree' (comparisons).", probeEpoch);
                     if (winnerFields)
                         return Wire.Refuse(json, "error: fields_source='winner' and a named source= under a plugins= scope are TWO display poles on one call — the pole's version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').", probeEpoch);
                     scopePlusPole = true;

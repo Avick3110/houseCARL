@@ -453,7 +453,8 @@ internal sealed partial class RecordReads
         IReadOnlyList<int>? depths,
         CancellationToken ct,
         SkyPatcherDraft.Plan? draft,
-        SkyPatcherOverlay.WarningSink? overlayWarnings)
+        SkyPatcherOverlay.WarningSink? overlayWarnings,
+        bool summary = false)
     {
         refusal = null; refusalEpoch = null;
         var (pin, _, assets) = CaptureOverlayPin();   // the replay runs over the asset build pinned with the winners
@@ -497,8 +498,7 @@ internal sealed partial class RecordReads
             var winner = view.ResolveWinner(fk);
             if (winner is null)
             {
-                var miss = ReadOutcome.Fail(fk, UnresolvedFormId(view, fk))
-                           with { Stamp = view.Stamp, Pin = pin };
+                var miss = UnresolvedRow(view, fk, summary) with { Stamp = view.Stamp, Pin = pin };
                 replayMemo[fk] = miss; outcomes.Add(miss);
                 continue;
             }
@@ -512,6 +512,7 @@ internal sealed partial class RecordReads
             }
             // For an unpatchable type the copy is the winner itself: post IS pre.
             var record = ReadEngine.ReadFields(r.Copy!, fields, depth, containerHint, ContainmentIndex.ReadHop(view, session), depths);
+            if (summary) record = record with { Name = ReadEngine.DisplayName(r.Copy!) };
             if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new LinkMemo());
             var ok = (new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
                                       winner.Value.OverrideDepth, null, null)
