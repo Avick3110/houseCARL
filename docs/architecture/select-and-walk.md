@@ -46,6 +46,12 @@ path walk, and containment comes off Mutagen's context walk.
   non-numeric field is a named `FatalError` on the first value-bearing candidate. A step into an
   element the record does not carry (a null gendered arm such as a male-only addon's `WorldModel[1]`,
   an absent list, dict key, or an index past the end) is unset, never a read fault (#1071).
+- A bracket key a list can never take (a word such as `Conditions[any]`, a negative index, a `*` key
+  on an indexing walk, a gendered index other than 0 or 1) is a wrong path, never a read fault
+  (`PathKeyShapeException`). A typed scan refuses it from the schema before any record is read when
+  every scanned type calls that step a list; otherwise it is counted per predicate and refuses only
+  when it was wrong on every scanned record, so a type where the key fits keeps the scan. Only the
+  `where=` refusal adds the star hint (`Conditions[*any]`); other read lanes print the plain note.
 - The value operators take scalar-leaf paths only. `exists`/`missing` are the exception that matches
   a carried substruct or non-empty list; `in`/`not in` on `formid` test identity and read no body.
 - `exists`/`missing` read a PRESENT subrecord carrying FormID zero as PRESENT rather than absent, so
