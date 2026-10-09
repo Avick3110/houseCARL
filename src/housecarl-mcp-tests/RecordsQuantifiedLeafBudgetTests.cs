@@ -150,6 +150,16 @@ public sealed class RecordsQuantifiedLeafBudgetTests : IClassFixture<QuantifiedL
         Assert.Equal(alone, beside);
     }
 
+    /// <summary>Beside a sub-path column, a whole-element row still leads with the element's own line.</summary>
+    [Fact]
+    public void AnElementRowLeadsWithTheElementBesideASubPathColumn()
+    {
+        var r = RecordsTools.Records(W.Svc, formids: new[] { RecordsWorld.Fid(W.LongSpell) }, max_chars: 1_000_000,
+            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*].BaseEffect.FormKey", "Effects[*]" } });
+        var row = r.Split('\n').First(l => l.TrimStart().StartsWith("Effects[0] = ", StringComparison.Ordinal));
+        Assert.StartsWith("Effects[0] = [Effect]", row.Trim());
+    }
+
     string Dense(FormKey fk, params string[] paths) =>
         RecordsTools.Records(W.Svc, formids: new[] { RecordsWorld.Fid(fk) }, format: "dense", max_chars: 1_000_000,
                              project: new RecordsTools.RecordsProject { form = "fields", fields = paths });

@@ -67,7 +67,9 @@ static class RowProjection
             // The element's own line always leads the row; a sub-field is dropped only when it is an ABSENT optional.
             bool isElement = f.Path.Length == key.Length;
             if (!seen[key].Add(f.Path)) continue;
-            if (isElement || f.Present || !f.Readable || !ReadEngine.IsAbsentNote(f.Note)) cells[key].Add(f);
+            // A sub-path read off the same list can emit a sub-field before the element's own line.
+            if (isElement) cells[key].Insert(0, f);
+            else if (f.Present || !f.Readable || !ReadEngine.IsAbsentNote(f.Note)) cells[key].Add(f);
         }
         foreach (var (key, slot) in slotOf) outp[slot] = Row(key, cells[key]);
         return outp;
