@@ -17,6 +17,7 @@ public sealed class SummaryNameTests : IClassFixture<SummaryNameTests.World>
 {
     const string MasterName = "hcSnMaster.esp", OverName = "hcSnOver.esp";
     const string MasterSword = "Iron Sword", WinnerSword = "Renamed Sword";
+    const string QuotedName = "The \"Edge\" of C:\\Blades";
 
     public sealed class World : IDisposable
     {
@@ -26,6 +27,7 @@ public sealed class SummaryNameTests : IClassFixture<SummaryNameTests.World>
         public FormKey Sword { get; }
         public FormKey Nameless { get; }
         public FormKey Kw { get; }
+        public FormKey Quoted { get; }
 
         public World()
         {
@@ -35,6 +37,7 @@ public sealed class SummaryNameTests : IClassFixture<SummaryNameTests.World>
             var sword = master.Weapons.AddNew(); sword.EditorID = "hcSnSword"; sword.Name = MasterSword; Sword = sword.FormKey;
             var nameless = master.Weapons.AddNew(); nameless.EditorID = "hcSnNameless"; Nameless = nameless.FormKey;
             var kw = master.Keywords.AddNew(); kw.EditorID = "hcSnKw"; Kw = kw.FormKey;
+            var quoted = master.Weapons.AddNew(); quoted.EditorID = "hcSnQuoted"; quoted.Name = QuotedName; Quoted = quoted.FormKey;
             master.BeginWrite.ToPath(Path.Combine(_dir, MasterName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
             var over = new SkyrimMod(ModKey.FromNameAndExtension(OverName), SkyrimRelease.SkyrimSE);
@@ -148,6 +151,65 @@ public sealed class SummaryNameTests : IClassFixture<SummaryNameTests.World>
     {
         Assert.Contains($"name=\"{MasterSword}\"", LineOf(Scan(source: Pole(MasterName)), "hcSnSword"));
         Assert.Equal(MasterSword, DenseName(Scan("dense", source: Pole(MasterName)), _w.Sword));
+    }
+
+    // ---- a quote or backslash inside a Name is escaped on text, so the token ends where it should --
+
+    [Fact]
+    public void ATextNameEscapesItsQuotesAndBackslashesOnBothLanes()
+    {
+        const string escaped = "name=\"The \\\"Edge\\\" of C:\\\\Blades\"";
+        Assert.Contains(escaped, LineOf(Scan(), "hcSnQuoted"));
+        Assert.Contains(escaped, LineOf(List(new[] { _w.Quoted }), "hcSnQuoted"));
+        Assert.Equal(QuotedName, JsonRow(List(new[] { _w.Quoted }, "json"), "records", _w.Quoted).GetProperty("name").GetString());
+    }
+
+    // ---- the summary artifact carries name on both lanes -------------------------------------------
+
+    /// <summary>The artifact a summary call writes with to_file=, read back as its row for <paramref name="fk"/> and its manifest text.</summary>
+    (JsonElement Row, string Text) SummaryArtifact(bool list, FormKey fk, string form = "summary")
+    {
+        var path = Path.Combine(Path.GetTempPath(), "hc-summary-name-art-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        try
+        {
+            var project = new RecordsTools.RecordsProject { form = form };
+            var r = list
+                ? RecordsTools.Records(_w.Svc, formids: new[] { Fid(fk), Fid(_w.Kw) }, project: project, to_file: path)
+                : RecordsTools.Records(_w.Svc, types: new[] { "WEAP" }, project: project, to_file: path);
+            Assert.True(File.Exists(path), r);
+            var text = File.ReadAllText(path);
+            var row = text.Split('\n').Where(l => l.TrimStart().StartsWith('{')).Select(l => Je(l))
+                          .Single(e => e.TryGetProperty("formid", out var f) && f.GetString() == Fid(fk));
+            return (row, text);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData(true, "summary")]
+    [InlineData(true, "identity")]
+    [InlineData(false, "summary")]
+    public void ASummaryArtifactRowCarriesTheNameAndItsSchemaSaysSo(bool list, string form)
+    {
+        var (row, text) = SummaryArtifact(list, _w.Sword, form);
+        Assert.Equal(WinnerSword, row.GetProperty("name").GetString());
+        Assert.Equal("hcSnSword", row.GetProperty("editorid").GetString());
+        Assert.Contains("\"name?\"", text);
+    }
+
+    [Fact]
+    public void AListSummaryArtifactUnderAPoleCarriesThePolesNameAndSource()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "hc-summary-name-art-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        try
+        {
+            RecordsTools.Records(_w.Svc, formids: new[] { Fid(_w.Sword) }, source: Pole(MasterName), to_file: path);
+            var row = File.ReadAllText(path).Split('\n').Where(l => l.TrimStart().StartsWith('{')).Select(l => Je(l))
+                          .Single(e => e.TryGetProperty("formid", out var f) && f.GetString() == Fid(_w.Sword));
+            Assert.Equal((MasterSword, MasterName, OverName),
+                         (row.GetProperty("name").GetString(), row.GetProperty("source").GetString(), row.GetProperty("winner").GetString()));
+        }
+        finally { File.Delete(path); }
     }
 
     // ---- identity is a spelling of summary ---------------------------------------------------------
