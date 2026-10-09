@@ -13,6 +13,8 @@ namespace HousecarlMcpTests;
 public sealed class SoloPnamWorld : IDisposable
 {
     public const string PluginName = "HcSoloPnam.esp";
+    /// <summary>An unticked draft, in a disabled mod, that alone defines a topic whose PNAM disagrees with its file order.</summary>
+    public const string DraftName = "HcSoloDraft.esp";
     public string Root { get; }
     public LoadOrderService Svc { get; }
     public FormKey Disagree { get; }
@@ -21,6 +23,7 @@ public sealed class SoloPnamWorld : IDisposable
     public FormKey A { get; }
     public FormKey B { get; }
     public FormKey C { get; }
+    public FormKey DraftTopic { get; }
 
     public SoloPnamWorld()
     {
@@ -45,8 +48,19 @@ public sealed class SoloPnamWorld : IDisposable
         agree.Responses.Add(x); agree.Responses.Add(y); agree.Responses.Add(z);
 
         SyntheticInstance.WriteMod(instance, "SoloPnam", mod);
+
+        var draft = new SkyrimMod(ModKey.FromNameAndExtension(DraftName), SkyrimRelease.SkyrimSE);
+        var draftTopic = draft.DialogTopics.AddNew(); draftTopic.EditorID = "HcSoloDraftTopic";
+        var p = new DialogResponses(draft.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcSoloDraftP" };
+        var q = new DialogResponses(draft.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcSoloDraftQ" };
+        var t = new DialogResponses(draft.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcSoloDraftT" };
+        t.PreviousDialog.SetTo(p.FormKey);
+        draftTopic.Responses.Add(p); draftTopic.Responses.Add(q); draftTopic.Responses.Add(t);
+        SyntheticInstance.WriteMod(instance, "SoloDraft", draft);
+        DraftTopic = draftTopic.FormKey;
+
         SyntheticInstance.WriteProfile(instance,
-            new[] { "# header", "+SoloPnam", "+VanillaStub" },
+            new[] { "# header", "-SoloDraft", "+SoloPnam", "+VanillaStub" },
             new[] { "# header", "Skyrim.esm", PluginName },
             new[] { "*" + PluginName });
 
@@ -72,9 +86,10 @@ public sealed class InfoOrderSoloPnamTests : IClassFixture<SoloPnamWorld>
 
     static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
-    string InfoOrder(FormKey topic, string? format = null) =>
+    string InfoOrder(FormKey topic, string? format = null, string? source = null) =>
         RecordsTools.Records(W.Svc, formids: new[] { Fid(topic) }, format: format,
-                             project: new RecordsTools.RecordsProject { form = "info_order" });
+                             project: new RecordsTools.RecordsProject { form = "info_order" },
+                             source: source is null ? null : JsonDocument.Parse($"\"{source}\"").RootElement.Clone());
 
     [Fact]
     public void APnamThatDisagreesWithFileOrderIsListedInPlaceOrderAndMarked()
@@ -85,6 +100,22 @@ public sealed class InfoOrderSoloPnamTests : IClassFixture<SoloPnamWorld>
         Assert.Contains($"#3  {Fid(W.B)}  MOVED from #2  placed by", r);
         Assert.Contains("untested", r);
         Assert.DoesNotContain("IS that plugin's own list", r);
+        // The lead says relative order changed, as Moved measures it, not that a line sits at another position.
+        Assert.Contains($"1 line changed order against {SoloPnamWorld.PluginName}'s own file order", r);
+        Assert.DoesNotContain("different position", r);
+    }
+
+    /// <summary>An unticked draft that alone defines the topic, folded with source=: the fold note no longer claims
+    /// the order is its own list when its PNAM moved a line; it says only that the lines are its own.</summary>
+    [Fact]
+    public void AFoldedSoloDraftWhosePnamMovesALineDoesNotCallTheOrderItsOwnList()
+    {
+        var r = InfoOrder(W.DraftTopic, source: SoloPnamWorld.DraftName);
+        Assert.DoesNotContain("error=", r);
+        Assert.Contains("MOVED from #2", r);
+        Assert.Contains($"1 line changed order against {SoloPnamWorld.DraftName}'s own file order", r);
+        Assert.Contains("the only plugin listing lines here, so every line shown is its own", r);
+        Assert.DoesNotContain("its own list", r);
     }
 
     [Fact]
