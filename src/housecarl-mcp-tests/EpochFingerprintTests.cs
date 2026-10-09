@@ -195,16 +195,17 @@ public sealed class EpochFingerprintTests : IDisposable
         Assert.Single(Regex.Matches(JsonWire.RenderBatch(batch, 0), Regex.Escape($"\"epoch\": \"{current}\"")));
     }
 
-    // Probe arm 3: "read_record outcome stamps its capture", "resolve hands back the batch's epoch".
+    // Probe arm 3: "read_record outcome stamps its capture", "resolve hands back the batch's epoch" (now the list
+    // lane's summary rows, which replaced resolve).
     [Fact]
     public void ASingleReadAndResolve_StampTheirCapture()
     {
         using var svc = Service();
         var current = svc.Stats().epoch;
         Assert.Equal(current, svc.ReadArea.ResolveRead(_weapons[0], null, null, false).Epoch);
-        var rows = svc.ReadArea.ResolveRefs(new[] { Fid(_weapons[0]), Fid(_mgef) }, out var stamp);
-        Assert.Equal(current, stamp.Epoch);
-        Assert.Equal(2, rows.Count);
+        var json = RecordsTools.Records(svc, formids: new[] { Fid(_weapons[0]), Fid(_mgef) }, format: "json");
+        Assert.Single(Regex.Matches(json, Regex.Escape($"\"epoch\": \"{current}\"")));
+        Assert.Contains("\"count\": 2", json);
     }
 
     // Probe arm 3: "effect_chain stamps + renders it", "its not-in-order refusal is stamped … and rendered", and

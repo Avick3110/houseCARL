@@ -4,10 +4,13 @@ namespace HousecarlCore;
 
 /// <summary>Engine-implicit forms — hardcoded engine references the load-order index cannot resolve. A PRECISE set, never a range.
 /// <para>ANY tool that flags "target not in the active load order" must exempt them or it false-warns on the standard player-state pattern; today that is the dialogue condition lints, the integrity sweep, the SKSE config audit, and
-/// the identity resolver behind <c>housecarl_resolve</c> / <c>resolve_names</c>, which is why this is public rather than internal to this assembly.</para></summary>
+/// the identity readers behind <c>housecarl_records</c>' summary rows and <c>resolve_names</c>, which is why this is public rather than internal to this assembly.</para></summary>
 public static class EngineImplicit
 {
     static readonly ModKey SkyrimBaseMaster = new("Skyrim", ModType.Master);
+
+    /// <summary>The winner an engine-implicit form reports: the engine, since no plugin defines it.</summary>
+    public const string Winner = "<engine>";
 
     /// <summary>The precise engine-implicit reference set, each with its known engine identity. Add a form here — never widen to a range.</summary>
     static readonly Dictionary<FormKey, (string Type, string EditorId)> Forms = new()

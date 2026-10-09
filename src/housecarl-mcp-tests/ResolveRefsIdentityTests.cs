@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HousecarlCore;
 using HousecarlMcp;
 using Mutagen.Bethesda;
@@ -50,56 +51,109 @@ public sealed class ResolveRefsIdentityTests : IDisposable
         try { Directory.Delete(_dir, true); } catch { /* temp cleanup best-effort */ }
     }
 
+    /// <summary>The list lane's summary rows for <paramref name="formids"/>, in the format asked.</summary>
+    string Summary(string[] formids, string? format = "json", string form = "summary") =>
+        RecordsTools.Records(_svc, formids: formids, format: format, project: new RecordsTools.RecordsProject { form = form });
+
+    static JsonElement[] Rows(string json) =>
+        JsonDocument.Parse(json).RootElement.GetProperty("records").EnumerateArray().ToArray();
+
     // Probe: "resolve returns one row per input, in order"; "W1 → Weapon/hcw2Sword1/name 'Iron Sword'/winner hcw2Repl.esp
     // (winner is the OVERRIDE, not the master)"; "keyword KA → Keyword/hcw2KwA with name=null"; "W3 → Weapon/hcw2Sword3/
-    // name 'Ebony Sword'".
+    // name 'Ebony Sword'". Now asked of the summary rows, which carry the same identity.
     [Fact]
     public void EachFormIdResolvesToItsTypeEditorIdNameAndWinnerInInputOrder()
     {
-        var refs = _svc.ReadArea.ResolveRefs(new[] { _w1.FormKey.ToString(), _ka.ToString(), _w3.ToString() });
+        var rows = Rows(Summary(new[] { _w1.FormKey.ToString(), _ka.ToString(), _w3.ToString() }));
 
-        Assert.Equal(3, refs.Count);
-        Assert.True(refs[0] is { Resolved: true, Type: "Weapon", EditorId: "hcw2Sword1", Name: "Iron Sword", Winner: ReplName });
-        Assert.True(refs[1] is { Resolved: true, Type: "Keyword", EditorId: "hcw2KwA", Name: null });
-        Assert.True(refs[2] is { Resolved: true, Type: "Weapon", EditorId: "hcw2Sword3", Name: "Ebony Sword" });
+        Assert.Equal(3, rows.Length);
+        Assert.Equal(("Weapon", "hcw2Sword1", "Iron Sword", ReplName),
+                     (rows[0].GetProperty("type").GetString(), rows[0].GetProperty("editorid").GetString(),
+                      rows[0].GetProperty("name").GetString(), rows[0].GetProperty("winner").GetString()));
+        Assert.Equal(("Keyword", "hcw2KwA"), (rows[1].GetProperty("type").GetString(), rows[1].GetProperty("editorid").GetString()));
+        Assert.False(rows[1].TryGetProperty("name", out _));
+        Assert.Equal(("Weapon", "hcw2Sword3", "Ebony Sword"),
+                     (rows[2].GetProperty("type").GetString(), rows[2].GetProperty("editorid").GetString(), rows[2].GetProperty("name").GetString()));
     }
 
     // Probe: "a valid-but-absent FormID → Resolved=false, carrying the three-cause reason, not the malformed-input one";
-    // "a malformed FormID → per-item error, the batch still returns the other 4 rows".
+    // "a malformed FormID → per-item error, the batch still returns the other rows".
     [Fact]
     public void AnAbsentAndAMalformedFormIdEachGetTheirOwnErrorRowAndTheGoodRowSurvives()
     {
-        var refs = _svc.ReadArea.ResolveRefs(new[] { "000800:Nonexist.esp", "not-a-formid", _ka.ToString() });
+        var rows = Rows(Summary(new[] { "000800:Nonexist.esp", "not-a-formid", _ka.ToString() }));
 
-        Assert.Equal(3, refs.Count);
-        Assert.False(refs[0].Resolved);
-        Assert.Equal("000800:Nonexist.esp", refs[0].Token);
-        Assert.NotNull(refs[0].Error);
-        Assert.DoesNotContain("bad FormID", refs[0].Error!, StringComparison.OrdinalIgnoreCase);
-        Assert.False(refs[1].Resolved);
-        Assert.Contains("bad FormID", refs[1].Error!, StringComparison.OrdinalIgnoreCase);
-        Assert.True(refs[2].Resolved);
+        Assert.Equal(3, rows.Length);
+        Assert.Equal("000800:Nonexist.esp", rows[0].GetProperty("formid").GetString());
+        Assert.DoesNotContain("bad FormID", rows[0].GetProperty("error").GetString()!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("bad FormID", rows[1].GetProperty("error").GetString()!, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("hcw2KwA", rows[2].GetProperty("editorid").GetString());
     }
 
-    // Probe: "a target repeated in one batch resolves identically (memoised)". Pins the identical answer; whether it
-    // came from the memo is not observable from here.
+    // Probe: "a target repeated in one batch resolves identically".
     [Fact]
     public void ATargetRepeatedInOneBatchResolvesIdentically()
     {
-        var dup = _svc.ReadArea.ResolveRefs(new[] { _ka.ToString(), _ka.ToString() });
-        Assert.Equal(new[] { "hcw2KwA", "hcw2KwA" }, dup.Select(r => r.EditorId));
+        var rows = Rows(Summary(new[] { _ka.ToString(), _ka.ToString() }));
+        Assert.Equal(new[] { "hcw2KwA", "hcw2KwA" }, rows.Select(r => r.GetProperty("editorid").GetString()));
     }
 
-    // Probe: "PlayerRef (000014:Skyrim.esm) → Resolved, PlacedNpc/PlayerRef, winner <engine>"; "Player (000007:Skyrim.esm)
-    // → Resolved, Npc/Player, winner <engine>"; "a NON-implicit sub-0x800 form (000015:Skyrim.esm) is STILL unresolved".
-    [Fact]
-    public void TheTwoEngineImplicitFormsResolveAndTheNextReservedFormStillDangles()
-    {
-        var ei = _svc.ReadArea.ResolveRefs(new[] { "000014:Skyrim.esm", "000007:Skyrim.esm", "000015:Skyrim.esm" });
+    // Probe: "PlayerRef (000014:Skyrim.esm) → PlacedNpc/PlayerRef, winner <engine>"; "Player (000007:Skyrim.esm) →
+    // Npc/Player, winner <engine>"; "a NON-implicit sub-0x800 form (000015:Skyrim.esm) is STILL unresolved". Skyrim.esm
+    // is not in this order, so only the exemption answers; asked of summary and its identity spelling, in three formats.
+    static readonly string[] EngineIds = { "000014:Skyrim.esm", "000007:Skyrim.esm", "000015:Skyrim.esm" };
 
-        Assert.True(ei[0] is { Resolved: true, Type: "PlacedNpc", EditorId: "PlayerRef", Winner: "<engine>" });
-        Assert.True(ei[1] is { Resolved: true, Type: "Npc", EditorId: "Player", Winner: "<engine>" });
-        Assert.False(ei[2].Resolved);
+    [Theory]
+    [InlineData("summary")]
+    [InlineData("identity")]
+    public void TheTwoEngineImplicitFormsResolveAndTheNextReservedFormStillDangles_Json(string form)
+    {
+        var rows = Rows(Summary(EngineIds, form: form));
+
+        Assert.Equal(("PlacedNpc", "PlayerRef", "<engine>"),
+                     (rows[0].GetProperty("type").GetString(), rows[0].GetProperty("editorid").GetString(), rows[0].GetProperty("winner").GetString()));
+        Assert.Equal(("Npc", "Player", "<engine>"),
+                     (rows[1].GetProperty("type").GetString(), rows[1].GetProperty("editorid").GetString(), rows[1].GetProperty("winner").GetString()));
+        Assert.True(rows[2].TryGetProperty("error", out _));
+    }
+
+    [Theory]
+    [InlineData("summary")]
+    [InlineData("identity")]
+    public void TheTwoEngineImplicitFormsResolveAndTheNextReservedFormStillDangles_Text(string form)
+    {
+        var lines = Summary(EngineIds, format: null, form: form).Split('\n');
+
+        Assert.Contains(lines, l => l.StartsWith("000014:Skyrim.esm", StringComparison.Ordinal)
+                                    && l.Contains("  PlacedNpc  PlayerRef  ", StringComparison.Ordinal) && l.Contains("winner=<engine>", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.StartsWith("000007:Skyrim.esm", StringComparison.Ordinal)
+                                    && l.Contains("  Npc  Player  ", StringComparison.Ordinal) && l.Contains("winner=<engine>", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.StartsWith("000015:Skyrim.esm  error=", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("summary")]
+    [InlineData("identity")]
+    public void TheTwoEngineImplicitFormsResolveAndTheNextReservedFormStillDangles_Dense(string form)
+    {
+        var doc = JsonDocument.Parse(Summary(EngineIds, format: "dense", form: form)).RootElement;
+        var cols = doc.GetProperty("columns").EnumerateArray().Select(c => c.GetString()).ToList();
+        var rows = doc.GetProperty("rows").EnumerateArray().ToArray();
+        string? Cell(int row, string col) => rows[row][cols.IndexOf(col)].GetString();
+
+        Assert.Equal(2, rows.Length);
+        Assert.Equal(("PlayerRef", "PlacedNpc", "<engine>"), (Cell(0, "editorid"), Cell(0, "type"), Cell(0, "winner")));
+        Assert.Equal(("Player", "Npc", "<engine>"), (Cell(1, "editorid"), Cell(1, "type"), Cell(1, "winner")));
+        Assert.Equal("000015:Skyrim.esm", doc.GetProperty("errors").EnumerateArray().Single().GetProperty("formid").GetString());
+    }
+
+    // A fields read of an engine-implicit form has no body to read, so it stays the per-item error.
+    [Fact]
+    public void AFieldsReadOfAnEngineImplicitFormIsStillAnError()
+    {
+        var json = RecordsTools.Records(_svc, formids: new[] { "000014:Skyrim.esm" }, format: "json",
+                                        project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "EditorID" } });
+        Assert.True(Rows(json).Single().TryGetProperty("error", out _));
     }
 
     // Probe: "resolve_names read surfaced the 2 keyword elements"; "the KA element's ROUND-TRIP TOKEN is unchanged"; "its

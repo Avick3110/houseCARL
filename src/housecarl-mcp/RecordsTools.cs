@@ -666,7 +666,7 @@ public static partial class RecordsTools
             IReadOnlyList<string>? readFields = form switch
             {
                 "fields" or "rows" => readPaths,
-                "summary" or "aggregate" => new[] { "EditorID" },   // cheapest leaf — headers carry the summary facts
+                "summary" or "aggregate" => RecordReads.HeaderRead,   // cheapest leaf — headers carry the summary facts
                 _ => null,                                          // everything — the full dump
             };
             // The per-path depths belong to the paths they were computed for; every other form reads at one depth.
@@ -745,7 +745,7 @@ public static partial class RecordsTools
             SpillState? spill2 = null;
             if (wantFile)
             {
-                var (s, aerr) = Artifacts.WriteBatch(outcomes, ArtifactTarget.Named(toFile!), "to_file", Echo(), formLevers);
+                var (s, aerr) = Artifacts.WriteBatch(outcomes, ArtifactTarget.Named(toFile!), "to_file", Echo(), formLevers, summary: form == "summary");
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch2) : "error: " + aerr;
                 spill2 = SpillState.Spilled(s!, manifestOnly: true);
             }
@@ -759,7 +759,7 @@ public static partial class RecordsTools
             if (spill2 is null && truncated2)
             {
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch2?.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteBatch(outcomes, reservation, "ceiling", Echo(), formLevers);
+                var (s, aerr) = Artifacts.WriteBatch(outcomes, reservation, "ceiling", Echo(), formLevers, summary: form == "summary");
                 rendered2 = Render2(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
             return rendered2;

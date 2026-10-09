@@ -84,7 +84,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 `src/housecarl-core/`: `ReadEngine.cs` (leaf read, emit, deep walk), `BodyGather.cs` /
 `WinnerBodies.cs` (bulk bodies), `RecordLinks.cs`, `RecordArms.cs`, `RecordNaming.cs`,
 `PathFold.cs`, `PluginFile.cs`, `FieldsDiff.cs` (the deep comparison behind `project={"form":"tree"}`).
-`src/housecarl-mcp/`: `RecordReads.cs` (resolve, the pinned per-match fills `ResolveReadOn`, `ResolveRefs` and
+`src/housecarl-mcp/`: `RecordReads.cs` (resolve, the pinned per-match fill `ResolveReadOn`, `ResolveRefOne`,
 `ArtifactEpochMismatch`, the pairwise record diff `DiffPole`, batch, the one-pole batch, info order, the dialogue
 fold), `RecordPoles.cs` (comparison poles, the delta/tree batches), `RecordWalk.cs` (walk), `RecordQuery.cs`
 (cross-plugin query, off-order scan, effect chain), `ScopeSplit.cs` (the scan's `plugins=` split),
@@ -106,12 +106,12 @@ Tool: `housecarl_records`.
 
 The five service files are one class, `RecordReads`, which the head builds over itself as `_reads` and reaches
 through one-line delegators with the old names and defaults, one per overload the product calls:
-`ResolveReadOn`, `ResolveSummaryOn`, `ResolveRefs`, `ResolveBatch`, `ResolveBatchFromPole`, `ProbeSourceArm`,
+`ResolveReadOn`, `ResolveSummaryOn`, `ResolveBatch`, `ResolveBatchFromPole`, `ProbeSourceArm`,
 `DeltaBatch`, `TreeBatch`, `OverlayPostBatch`, `WalkForwardBatch`, `InfoOrderBatch`, `CrossQuery`, `OffOrderQuery`,
 `ResolveEffectChain`. Seven of them (`ResolveBatchFromPole`, `ProbeSourceArm`, `OffOrderQuery`, `DeltaBatch`,
 `TreeBatch`, `WalkForwardBatch`, `InfoOrderBatch`) and the checks delegator `CheckDialogue` are `internal`, not
 `public`, because their signatures carry a type nested in the internal `RecordReads`. `ReadArea` hands tests and probes the instance, for the members only they call
-(`ResolveRead`, `ResolveTreePinned`, the two short `ResolveRefs` overloads, the single-type `CrossQuery`) and to set
+(`ResolveRead`, `ResolveTreePinned`, the single-type `CrossQuery`) and to set
 the pole and overlay source lanes' seam `AfterReadPinForGuard`. The
 statics and nested types (`PoleInfo`, `PoleSpec`, `DeltaRow`, `TreeRow`, `WalkSeedResult`, `InfoOrderRow`,
 `LinkMemo`, `ArtifactEpochMismatch`, `UnresolvedFormId`, `OpenDialogueFold`, `FoldLabel` and the rest) are

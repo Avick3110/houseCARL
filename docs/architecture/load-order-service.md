@@ -74,7 +74,7 @@ its constructor: `AssetStatus`, `SkseInventory`, `SkseConfigAudit`, `NativePairi
 `NifInspect`, `NifSet`, `PlaceAssets`. `AssetArea` hands tests the instance, to set its seams. The read area reaches the SkyPatcher replay through
 `IReadHost.OpenSkyPatcherReplay`, the overload over a caller's `AssetCapture`, relayed to `_assetLayers` in the head's relay block.
 The reads-facing surface is the same shape over `_reads`, the `RecordReads` it builds after `_assetLayers`:
-`ResolveReadOn`, `ResolveSummaryOn`, `ResolveRefs`, `ResolveBatch`, `ResolveBatchFromPole`, `ProbeSourceArm`,
+`ResolveReadOn`, `ResolveSummaryOn`, `ResolveBatch`, `ResolveBatchFromPole`, `ProbeSourceArm`,
 `DeltaBatch`, `TreeBatch`, `OverlayPostBatch`, `WalkForwardBatch`, `InfoOrderBatch`, `CrossQuery`, `OffOrderQuery`,
 `ResolveEffectChain`, one per overload the product calls, with `ReadArea` for tests and probes; `IReadHost` is at
 the top of `src/housecarl-mcp/RecordReads.cs`.
