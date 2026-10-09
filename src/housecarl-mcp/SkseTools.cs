@@ -178,7 +178,7 @@ public static class SkseTools
             "PLUGIN MISSING (plugin not in the order), DANGLING (plugin present, no such record) or UNPARSEABLE " +
             "(shape-matched but cannot be normalized), summed as BROKEN (dangling or unparseable, actionable) versus " +
             "INERT (plugin missing, usually optional support for a mod you aren't running). It checks that a " +
-            "reference resolves, never what it is for. A token in a comment or " +
+            "reference resolves, never what it is for. A string token in a comment or " +
             "a disabled block still surfaces; 'no references found' is the commonest per-file result, not a " +
             "warning. Bare EditorID and name strings are not validated.")]
             // JsonElement, not string: the array shape must BIND so the refusal above answers it.

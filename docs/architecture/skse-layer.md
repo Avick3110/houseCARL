@@ -143,8 +143,8 @@ or `~` in either order, normalized through the one shared home `FormIdRange.Loca
 directory component that is itself a plugin filename, gating the whole file on that plugin's presence; a form object
 is a JSON object holding a number `id` and a string `plugin`, the shape IED writes every form in.
 
-Token extraction is a heuristic over SHAPES, line-local, with no object model — so a token in a comment or a disabled
-block still surfaces, and the framing is "references this file declares", never "references the DLL will use". Bare
+Token extraction is a heuristic over SHAPES, line-local, with no object model — so a string token in a comment or a
+disabled block still surfaces (a form object in a comment does not: the JSON walk skips comments), and the framing is "references this file declares", never "references the DLL will use". Bare
 EditorID and name strings are out of scope: a JSON string is not unambiguously an EditorID, and validating every string
 would drown the signal. An over-wide or unparseable hex is CAPTURED and named, never guessed.
 
@@ -177,17 +177,21 @@ A form object is read only in a `.json` file, by a reader that skips comments an
 files carry both. The object is `{"id": <decimal local FormID>, "plugin": "<file>"}`; extra members are allowed, and
 `id` 0 is the empty form IED writes as `{"id":0}`, skipped with or without a plugin. An `id` that is not a decimal
 32-bit number (a string, a fraction, a negative, null, a boolean, an object) is UNPARSEABLE, never read as hex, and
-its raw keeps the `id` text the file holds. Each form object carries the JSON path of the object
+its raw keeps the `id` text the file holds, escapes included. Each form object carries the JSON path of the object
 (`$.data.custom.data.npc.data[1].form`, a name that is not a plain identifier bracketed and quoted) as its locator,
 shown beside its line. The text render shows the path alone for a one-line file, as IED writes its whole config, where
 line 1 locates nothing; the json twin keeps the real line beside `path`, with `shape` `form_object`. A file that stops parsing
 keeps the forms read before the break and adds one UNPARSEABLE reference at the breaking line, but only when a
-`"plugin"` key follows the break; a JSON fragment with no form object after the break adds nothing, so the string-token
-scan of a non-JSON `.json` is unchanged. IED's 901 KB user config is about 2,500 form objects and one pass.
+`"plugin"` object key (outside comments and string values) follows the break; a string that will not decode, such as
+an escaped lone surrogate `"\uD800"`, is a break like any other, so one bad file never fails the call; a JSON fragment with no form object after the break adds nothing, so the string-token
+scan of a non-JSON `.json` is unchanged. A file's references come back sorted by line, both shapes together, and every
+line number and the one-line test use one rule: `\n`, a lone `\r` and `\r\n` each end a line. The walk reads the
+config's own UTF-8 bytes (re-encoding the decoded text only under a UTF-16 BOM). IED's 901 KB user config is about
+2,500 form objects and one pass.
 
-The verdict is the service's, over the active order: OK, PLUGIN MISSING, DANGLING, UNPARSEABLE. An engine-implicit form
-(`EngineImplicit`: PlayerRef 000014, Player 000007 in Skyrim.esm) is OK, because the engine holds it and no plugin
-does; IED configs name PlayerRef in actor filters. The headline keeps two
+The verdict is the service's, over the active order: OK, PLUGIN MISSING, DANGLING, UNPARSEABLE. A form the index does not
+hold but `EngineImplicit` names (PlayerRef 000014, Player 000007 in Skyrim.esm) is OK, because the engine holds it; the
+index is asked first, so a real record at that id resolves as any other; IED configs name PlayerRef in actor filters. The headline keeps two
 signals apart. BROKEN (dangling + unparseable) should resolve and does not, and is actionable. INERT (plugin missing) is
 optional support for a mod you do not have; counting it as dead would make a healthy order read as thousands of dead
 references.
