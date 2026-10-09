@@ -47,6 +47,10 @@ internal static class CheckArtifact
                     total++;
                     writer.WriteRow((w, _) => Row(w, "errors", "scan_error", plugin: p.Plugin, detail: se));
                 }
+                // Each record Mutagen could not parse is counted; the core keeps a few samples, so those are the rows.
+                total += p.UnscannableRecords;
+                foreach (var sample in p.UnscannableSamples)
+                    writer.WriteRow((w, _) => Row(w, "errors", "scan_error", plugin: p.Plugin, detail: sample));
             }
 
         if (s.Scripts is { Error: null } sc)
@@ -85,8 +89,8 @@ internal static class CheckArtifact
 
         if (s.Dialogue is { Error: null } d2)
         {
-            // total is the family's own count, so a kind the rows miss shows as total above row_count.
-            total += d2.ProblemsFound;
+            // total is the family's own count plus the seeds limit= never tried, whose findings no row can carry.
+            total += d2.ProblemsFound + SeedsNotReached(d2);
             foreach (var seed in d2.Resolved)
                 foreach (var f in DialogueSweep.Findings(seed.Report!))
                     writer.WriteRow((w, _) => Row(w, "dialogue", f.Class, plugin: f.Plugin, formid: f.FormId,
@@ -116,7 +120,8 @@ internal static class CheckArtifact
         if (s.Errors is { Error: null } et)
             total += Math.Max(0, et.TotalDangling - et.Reports.Sum(p => p.Dangling.Count));
         if (s.Scripts is { Error: null } st)
-            total += Math.Max(0, st.TotalUnbound + st.TotalNullObject - st.Reports.Sum(x => x.Unbound.Count + x.NullObjects.Count));
+            total += Math.Max(0, st.TotalUnbound + st.TotalNullObject + st.TotalUnverifiable
+                                 - st.Reports.Sum(x => x.Unbound.Count + x.NullObjects.Count + x.Unverifiable.Count));
 
         var (manifest, err) = writer.Save(ArtifactTarget.Named(path), ToolNames.Check, query, identity: "formid", RowSchema,
                                           sort: "family, then the order each family reported",
@@ -138,8 +143,25 @@ internal static class CheckArtifact
         };
         if (s.Dialogue?.Folded is { } folded) notes.Add("PROJECTION — " + folded.Trim());
         if (s.FaceGen is { Error: null } fg && FaceGenSweepRender.UntestedNote(fg, namesRoots: false) is { } untested) notes.Add("facegen: " + untested);
+        foreach (var f in new[] { SweepFamily.Scripts, SweepFamily.Dialogue })
+            if (Cut(s, f) is { } cut) notes.Add(SweepFamilySelection.Token(f) + ": " + cut);
         return notes;
     }
+
+    /// <summary>The cut riding a family's boundary in the manifest-only response, which renders no other note.</summary>
+    static string CutSuffix(CheckSweep s, SweepFamily f) => Cut(s, f) is { } cut ? " " + cut : "";
+
+    static int SeedsNotReached(DialogueCheckResult d) => Math.Max(0, d.SeedsNamed - d.Seeds.Count);
+
+    /// <summary>What a family counted into <c>total</c> that has no row, in one sentence; null when nothing.</summary>
+    static string? Cut(CheckSweep s, SweepFamily f) => f switch
+    {
+        SweepFamily.Dialogue when s.Dialogue is { Error: null } d && SeedsNotReached(d) > 0 =>
+            string.Format(CheckSentences.SweepDialogueSeedsCut, d.Seeds.Count, d.SeedsNamed, SeedsNotReached(d), d.Limit).Trim(),
+        SweepFamily.Scripts when s.Scripts is { Error: null, UnverifiableCollapsed: > 0 } sc =>
+            string.Format(CheckSentences.ArtifactUnverifiableCollapsed, sc.UnverifiableCollapsed),
+        _ => null,
+    };
 
     /// <summary>The response a <c>to_file=</c> call renders: the scope sentence, each family's refusal or boundary,
     /// and the manifest — no rows, because the rows ARE the file. A family that refused states its ground beside its
@@ -164,7 +186,7 @@ internal static class CheckArtifact
                     w.WriteString("facegen_untested", untestedJson);
                 w.WriteStartObject("boundaries");
                 foreach (var a in o.Sections.Zip(o.Accountings(0)))
-                    w.WriteString(SweepFamilySelection.Token(a.First), a.Second.Boundary);
+                    w.WriteString(SweepFamilySelection.Token(a.First), a.Second.Boundary + CutSuffix(s, a.First));
                 w.WriteEndObject();
                 if (o.Sections.Any(f => o.Refusal(f) is not null))
                 {
@@ -196,7 +218,7 @@ internal static class CheckArtifact
                   .Append('\n').Append(refusal).Append('\n');
             sb.Append(string.Format(CheckSentences.SweepBoundaryLabelFor,
                                     SweepFamilySelection.Token(o.Sections[i])))
-              .Append(accts[i].Boundary).Append('\n');
+              .Append(accts[i].Boundary).Append(CutSuffix(s, o.Sections[i])).Append('\n');
         }
         Artifacts.AppendSpillText(sb, spill);
         return sb.ToString();
