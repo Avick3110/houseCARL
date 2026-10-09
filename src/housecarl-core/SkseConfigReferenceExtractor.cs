@@ -1,8 +1,10 @@
 using System.Globalization;
+using System.Text;
+using System.Text.Json;
 
 namespace HousecarlCore;
 
-/// <summary>The catalog-FREE extractor for the SKSE config audit, pure and line-local; contract in docs/architecture/skse-layer.md.</summary>
+/// <summary>The catalog-FREE extractor for the SKSE config audit, pure; contract in docs/architecture/skse-layer.md.</summary>
 public static class SkseConfigReferenceExtractor
 {
     // Characters a plugin name never holds; the name rule is in docs/architecture/skse-layer.md.
@@ -33,8 +35,86 @@ public static class SkseConfigReferenceExtractor
                 foreach (var t in ScanLine(raw))
                     refs.Add(BuildTokenRef(raw[t.Start..t.End], raw[t.NameStart..t.NameEnd].Trim().Trim('\''), raw[t.HexStart..t.HexEnd], line));
             }
+            // 3) A JSON file's {"id": <number>, "plugin": "<name>"} form objects, each with its JSON path.
+            if ((relPath ?? "").EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                ExtractFormObjects(text, refs);
         }
         return refs;
+    }
+
+    /// <summary>Walk a JSON document for form objects, in document order; a break with a "plugin" key after it is one named UNPARSEABLE reference.</summary>
+    static void ExtractFormObjects(string text, List<SkseConfigRef> refs)
+    {
+        var bytes = Encoding.UTF8.GetBytes(text);
+        var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true, MaxDepth = 512 });
+        var open = new List<Frame>();   // the containers enclosing the reader, outermost first
+        string? name = null;            // the property name the next value belongs to
+        int line = 1; long counted = 0;
+        try
+        {
+            while (reader.Read())
+            {
+                var tok = reader.TokenType;
+                if (tok == JsonTokenType.PropertyName) { name = reader.GetString(); continue; }
+                if (tok is JsonTokenType.EndObject or JsonTokenType.EndArray)
+                {
+                    var done = open[^1];
+                    if (tok == JsonTokenType.EndObject && FormObjectRef(done, open) is { } r) refs.Add(r);
+                    open.RemoveAt(open.Count - 1);
+                    continue;
+                }
+                var parent = open.Count > 0 ? open[^1] : null;
+                int index = parent is { IsArray: true } ? parent.Next++ : -1;
+                if (parent is { IsArray: false } && name == "id")
+                    parent.Id = tok == JsonTokenType.Number ? Encoding.UTF8.GetString(reader.ValueSpan) : tok == JsonTokenType.String ? "\"" + reader.GetString() + "\"" : "?";
+                else if (parent is { IsArray: false } && name == "plugin" && tok == JsonTokenType.String)
+                    parent.Plugin = reader.GetString();
+                if (tok is JsonTokenType.StartObject or JsonTokenType.StartArray)
+                {
+                    for (; counted < reader.TokenStartIndex; counted++) if (bytes[counted] == (byte)'\n') line++;
+                    open.Add(new Frame { IsArray = tok == JsonTokenType.StartArray, Name = parent is { IsArray: true } ? null : name, Index = index, Line = line });
+                }
+                name = null;
+            }
+        }
+        catch (JsonException e)
+        {
+            if (bytes.AsSpan((int)reader.BytesConsumed).IndexOf("\"plugin\""u8) >= 0)   // named only when a form object can lie past the break
+                refs.Add(new SkseConfigRef("(json)", SkseRefShape.FormObject, "", null, null, (int)(e.LineNumber ?? 0) + 1,
+                    "not valid JSON — form objects past this line are not read"));
+        }
+    }
+
+    /// <summary>One open JSON container: where it sits in its parent, and the "id"/"plugin" members it has held so far.</summary>
+    sealed class Frame
+    {
+        public bool IsArray; public string? Name; public int Index; public int Next; public int Line;
+        public string? Id; public string? Plugin;
+    }
+
+    /// <summary>The reference a closing object declares, or null when it is not a form object or is the empty <c>{"id":0}</c>.</summary>
+    static SkseConfigRef? FormObjectRef(Frame o, List<Frame> open)
+    {
+        if (o.IsArray || o.Id is null || o.Plugin is null || o.Id == "0") return null;
+        string raw = $"{{\"id\":{o.Id},\"plugin\":\"{o.Plugin}\"}}";
+        string at = Locate(open);
+        if (!uint.TryParse(o.Id, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+            return new SkseConfigRef(raw, SkseRefShape.FormObject, o.Plugin, null, o.Id, o.Line,
+                $"id {o.Id} is not a 32-bit decimal FormID — cannot normalize", at);
+        return new SkseConfigRef(raw, SkseRefShape.FormObject, o.Plugin, FormIdRange.LocalObjectId(id), o.Id, o.Line, null, at);
+    }
+
+    /// <summary>The JSON path of the innermost open container: <c>.name</c>, <c>["odd name"]</c> or <c>[index]</c> per step.</summary>
+    static string Locate(List<Frame> open)
+    {
+        var sb = new StringBuilder("$");
+        foreach (var f in open.Skip(1))
+        {
+            if (f.Index >= 0) sb.Append('[').Append(f.Index).Append(']');
+            else if (f.Name is { Length: > 0 } n && !char.IsAsciiDigit(n[0]) && n.All(c => IsAlnum(c) || c == '_')) sb.Append('.').Append(n);
+            else sb.Append("[\"").Append((f.Name ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"")).Append("\"]");
+        }
+        return sb.ToString();
     }
 
     readonly record struct Token(int Start, int End, int NameStart, int NameEnd, int HexStart, int HexEnd);
@@ -188,9 +268,11 @@ public enum SkseRefShape
     FormToken,
     /// <summary>A directory component that is a plugin filename — gates the whole file on that plugin's presence.</summary>
     PathSegmentGate,
+    /// <summary>A JSON object <c>{"id": &lt;decimal&gt;, "plugin": "Plugin.esp"}</c>, the form shape IED writes; located by its JSON path.</summary>
+    FormObject,
 }
 
-/// <summary>One reference a config file declares, pre-verdict; <see cref="Unparseable"/> carries the reason a matched token could not be normalized.</summary>
+/// <summary>One reference a config file declares, pre-verdict; <see cref="Unparseable"/> carries the reason a matched token could not be normalized; <see cref="Locator"/> is a form object's JSON path.</summary>
 public sealed record SkseConfigRef(
     string Raw,
     SkseRefShape Shape,
@@ -198,4 +280,5 @@ public sealed record SkseConfigRef(
     uint? LocalId,
     string? RawHex,
     int Line,
-    string? Unparseable);
+    string? Unparseable,
+    string? Locator = null);

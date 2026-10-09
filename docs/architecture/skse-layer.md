@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-08
+updated: 2026-10-09
 covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs, src/housecarl-core/SkseConfigReferenceExtractor.cs, src/housecarl-core/NativePairing.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkseInventoryWire.cs, src/housecarl-mcp/SkseConfigAuditWire.cs, src/housecarl-mcp/NativePairingWire.cs, src/housecarl-mcp/SkseRenderParts.cs, src/housecarl-mcp/SkseJsonDoc.cs]
 ---
 # The SKSE layer: what a DLL declares, and the static-load rule
@@ -137,12 +137,13 @@ residual edges, all of them false-flag or missed-flag modes of the audit:
 
 ### Config references
 
-`SkseConfigReferenceExtractor` is catalog-free and framework-agnostic: it finds the two things checkable against the
+`SkseConfigReferenceExtractor` is catalog-free and framework-agnostic: it finds the three things checkable against the
 load order without knowing what any framework MEANS. A form token is a hex FormID paired with a plugin filename by `|`
 or `~` in either order, normalized through the one shared home `FormIdRange.LocalObjectId`; a path-segment gate is a
-directory component that is itself a plugin filename, gating the whole file on that plugin's presence.
+directory component that is itself a plugin filename, gating the whole file on that plugin's presence; a form object
+is a JSON object holding a number `id` and a string `plugin`, the shape IED writes every form in.
 
-Extraction is a heuristic over token SHAPES, line-local, with no object model — so a token in a comment or a disabled
+Token extraction is a heuristic over SHAPES, line-local, with no object model — so a token in a comment or a disabled
 block still surfaces, and the framing is "references this file declares", never "references the DLL will use". Bare
 EditorID and name strings are out of scope: a JSON string is not unambiguously an EditorID, and validating every string
 would drown the signal. An over-wide or unparseable hex is CAPTURED and named, never guessed.
@@ -172,7 +173,19 @@ header and a token on one line (`[Section] Skyrim.esm|0x5`), a comment whose tex
 name and surfaces as PLUGIN MISSING (INERT), never DANGLING — the same exposure a prose prefix with no bracket always
 had, since spaces are part of names.
 
-The verdict is the service's, over the active order: OK, PLUGIN MISSING, DANGLING, UNPARSEABLE. The headline keeps two
+A form object is read only in a `.json` file, by a reader that skips comments and allows trailing commas, as IED's own
+files carry both. The object is `{"id": <decimal local FormID>, "plugin": "<file>"}`; extra members are allowed, and
+`id` 0 is the empty form IED writes as `{"id":0}`, skipped with or without a plugin. An `id` that is not a decimal
+32-bit number (a string, a fraction, a negative) is UNPARSEABLE, never read as hex. Each form object carries the JSON
+path of the object (`$.data.custom.data.npc.data[1].form`, a name that is not a plain identifier bracketed and quoted)
+as its locator, shown in place of the line, because IED writes its whole config on one line. A file that stops parsing
+keeps the forms read before the break and adds one UNPARSEABLE reference at the breaking line, but only when a
+`"plugin"` key follows the break; a JSON fragment with no form object after the break adds nothing, so the string-token
+scan of a non-JSON `.json` is unchanged. IED's 901 KB user config is about 2,500 form objects and one pass.
+
+The verdict is the service's, over the active order: OK, PLUGIN MISSING, DANGLING, UNPARSEABLE. An engine-implicit form
+(`EngineImplicit`: PlayerRef 000014, Player 000007 in Skyrim.esm) is OK, because the engine holds it and no plugin
+does; IED configs name PlayerRef in actor filters. The headline keeps two
 signals apart. BROKEN (dangling + unparseable) should resolve and does not, and is actionable. INERT (plugin missing) is
 optional support for a mod you do not have; counting it as dead would make a healthy order read as thousands of dead
 references.
