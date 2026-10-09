@@ -395,8 +395,6 @@ public static partial class RecordsTools
                 return Wire.Refuse(json, "error: walk= and references= are the same construct (references= IS the reverse walk at depth 1) — use one spelling per call.");
             if (comparisonForm || form is "info_order")
                 return Wire.Refuse(json, $"error: walk= derives a selection (the reached set), and the '{form}' form does not consume one — use form='chain' for the walk's own paths, or summary/fields/rows/everything/aggregate over the reached set. To compare reached records, walk with to_file= and re-enter the artifact via formids=[\"@<file>\"] with form='{form}'.");
-            if (where is { Length: > 0 })
-                return Wire.Refuse(json, "error: on a walk, types= selects the seeds, so where= cannot narrow the reached set — narrow it by type with walk.through or walk.exclusions, or write the reached set with to_file= and re-enter it as formids=[\"@<file>\"] with where=.");
         }
 
         // The single-pole lanes below drive off these fields; richer specs dispatch before reaching them.
@@ -448,6 +446,9 @@ public static partial class RecordsTools
             return Wire.Refuse(json, reverseCarrier
                 ? "error: the reverse walk needs its seeds — pass formids= (the MGEF(s) whose carriers to trace)."
                 : "error: the reverse walk needs its seeds — pass formids= (the record(s) whose referrers to trace).");
+        // Below the reverse-walk refusals, so this sentence only ever answers a forward walk.
+        if (walk is not null && where is { Length: > 0 })
+            return Wire.Refuse(json, "error: where= does not compose with walk= — to pick the seeds by where=, scan with where= and to_file= and walk formids=[\"@<file>\"]; to narrow the reached set, use walk.through or walk.exclusions, or walk with to_file= and re-enter it as formids=[\"@<file>\"] with where=.");
         if (form == "chain" && project?.fields is { Length: > 0 })
             return Wire.Refuse(json, "error: the 'chain' form draws a walk's paths and reads no fields — form='fields' with the same walk= reads those fields over the reached set.");
         // The lane, decided once and read by the dispatch below and by every remedy sentence that depends on it.

@@ -37,9 +37,40 @@ public sealed class RecordsRefusalRouteTests : RecordsTestBase
     // ---- walk + where -----------------------------------------------------------------------------
 
     [Fact]
-    public void WalkPlusWhere_SaysTypesSelectsTheSeedsAndNamesBothRoutes() =>
+    public void WalkPlusWhere_NamesTheSeedRouteAndTheNarrowingRoutes() =>
         Refused(RecordsTools.Records(Svc, types: Spel, where: new[] { "editorid = HcRecSpellA" }, walk: new RecordsTools.RecordsWalk()),
-                "types= selects the seeds", "walk.through", "walk.exclusions", "to_file=", "formids=[\"@<file>\"]");
+                "to pick the seeds by where=", "walk.through", "walk.exclusions", "to_file=", "formids=[\"@<file>\"]");
+
+    /// <summary>formids= seeds with where=: the seed route (scan with where= and to_file=, walk the file) runs.</summary>
+    [Fact]
+    public void WalkPlusWhereOnFormidsSeeds_TheSeedRouteRuns()
+    {
+        var seeds = new[] { Fid(W.SpellA), Fid(W.SpellB) };
+        var pick = new[] { "editorid = HcRecSpellB" };
+        var r = RecordsTools.Records(Svc, formids: seeds, where: pick, walk: new RecordsTools.RecordsWalk());
+        Refused(r, "scan with where= and to_file= and walk formids=[\"@<file>\"]");
+        Assert.DoesNotContain("types=", r);
+        var path = W.Scratch("results", "walk-seeds.jsonl");
+        Served(RecordsTools.Records(Svc, formids: seeds, where: pick, to_file: path));
+        var walked = RecordsTools.Records(Svc, formids: new[] { "@" + path }, walk: new RecordsTools.RecordsWalk());
+        Served(walked, "OtherMgef");
+        Assert.DoesNotContain("HcRecMgefFire", walked);
+    }
+
+    /// <summary>A reverse carrier walk with where= gets the reverse walk's references= route, which runs.</summary>
+    [Fact]
+    public void ReverseCarrierWalkPlusWhere_NamesReferencesAndThatRouteRuns()
+    {
+        var mgef = new[] { Fid(W.MgefA) };
+        var pick = new[] { "editorid = HcRecSpellC" };
+        var r = RecordsTools.Records(Svc, formids: mgef, where: pick,
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" });
+        Refused(r, "references=");
+        Assert.DoesNotContain("walk.through", r);
+        var refs = RecordsTools.Records(Svc, types: Spel, references: mgef, where: pick);
+        Served(refs, "HcRecSpellC");
+        Assert.DoesNotContain("HcRecSpellA", refs);
+    }
 
     /// <summary>walk.through narrows the reached set by type: the spells' magic effect is left out.</summary>
     [Fact]
