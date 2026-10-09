@@ -104,7 +104,7 @@ static partial class WriteTools
             }
             var op = o.Ops[i];
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(FormIdToken.Of(op.Target)).Append("  ").Append(op.Label)
-              .Append(op.After is not null ? "  -> would become " + op.After : "  -> would apply").Append(ApplyNote(op)).Append('\n');
+              .Append(op.After is not null ? "  -> would become " + op.After + Annotate(op.Display) : "  -> would apply").Append(ApplyNote(op)).Append('\n');
         }
         if (fullDump && o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: true);
         if (o.Warning is { } warn) sb.Append("warning: ").Append(warn).Append('\n');
@@ -223,7 +223,9 @@ static partial class WriteTools
         : "  -> not-checked [no file check ran for this op]";
 
     /// <summary>The read's flags decode of the file's value, annotated as a read's field line annotates it.</summary>
-    static string DisplayClause(WritePatchBuilder.OpResult op) => op.DisplayOnDisk is { } d ? "   (" + d + ")" : "";
+    static string DisplayClause(WritePatchBuilder.OpResult op) => Annotate(op.DisplayOnDisk);
+
+    static string Annotate(string? display) => display is { } d ? "   (" + d + ")" : "";
 
     /// <summary>Where a per-op "what landed" clause came from when it is not the plain file answer; silence means the
     /// file was re-read for this op and agreed.</summary>
