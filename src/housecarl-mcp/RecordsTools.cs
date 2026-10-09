@@ -1268,13 +1268,6 @@ public static partial class RecordsTools
             headerLine += "\n(a pole reads content OUTSIDE the epoch fingerprint — an off-order file or the INI layer; an edit there changes answers without changing the epoch)";
         }
 
-        // What the pole did not decide on this call, on header and envelope alike.
-        void SourceNote(string note)
-        {
-            envelope.Add(new("source_note", note));
-            headerLine += "\n" + note;
-        }
-
         // ================================================================================================
         //  SCAN lane — types/plugins/where/references/conflicts_only drive; SOURCE picks the universe.
         // ================================================================================================
@@ -1284,6 +1277,10 @@ public static partial class RecordsTools
                 return Wire.Refuse(json, OverlayScanRefusal($"a '{form}' over a scan compares every match"));
             if (srcOverlay && wantFile)
                 return Wire.Refuse(json, OverlayScanRefusal("to_file= holds every match"));
+            if (srcOverlay && walk is not null)
+                return Wire.Refuse(json, OverlayScanRefusal("a walk reads every record it reaches"));
+            // What the pole did not decide on this call, carried on the scan's own note.
+            string? poleNote = null;
             bool hasBodyFilter = where is { Length: > 0 } || references is { Length: > 0 };
             bool hasTypes = types is { Length: > 0 };
             bool hasScope = plugins?.names is { Length: > 0 };
@@ -1348,7 +1345,7 @@ public static partial class RecordsTools
                     {
                         // A census counts the scope's matches, which the pole does not change.
                         Arm($"{probe.Plugin} — active in the load order (the plugins= scope selects)");
-                        SourceNote("source= does not change these counts");
+                        poleNote = "source= does not change these counts";
                     }
                     else if (!pipelineArms) Arm($"{probe.Plugin} — active in the load order (the plugins= scope selects; this pole's version is read)");
                 }
@@ -1359,15 +1356,17 @@ public static partial class RecordsTools
             else if (srcSpec.ReplaysOverlay && census)
             {
                 Arm("winner");
-                SourceNote("the overlay is not replayed for a count: these counts are of the plugin records, before the SkyPatcher layer");
+                poleNote = "the overlay is not replayed for a count: these counts are of the plugin records, before the SkyPatcher layer";
             }
-            else if (srcSpec.ReplaysOverlay && walk is null)
+            else if (srcSpec.ReplaysOverlay)
             {
                 // The limit= window's rows are replayed in the body lane below; the scan itself reads the plugin records.
                 Arm("skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
                     + (srcSpec.Draft is null ? "" : $", with {srcSpec.Draft.Arm}"));
-                if (where is { Length: > 0 })
-                    SourceNote("where= judged each record before the SkyPatcher layer replays; the rows show it after");
+                // The selection filters that read record content match the plugin records, not the replayed ones.
+                var judged = new[] { where is { Length: > 0 } ? "where=" : null, references is { Length: > 0 } ? "references=" : null }.OfType<string>().ToList();
+                if (judged.Count > 0)
+                    poleNote = $"{string.Join(" and ", judged)} judged each record before the SkyPatcher layer replays; the rows show it after";
             }
             else if (srcOverlay && !pipelineArms) Arm("skypatcher overlay (pre) = winner — the body the INI layer starts from");
             else if (!pipelineArms) Arm("winner");   // delta/info_order/walk pipelines state their own source
@@ -1431,6 +1430,8 @@ public static partial class RecordsTools
                 // Rendered in the caller's format, like every other refusal on these paths.
                 return fmt is Wire.QueryFormat.Text ? "error: " + tear : JsonWire.RenderError(tear, outcome.Stamp);
             }
+            if (poleNote is not null && outcome.Error is null)
+                outcome = outcome with { ScanNote = outcome.ScanNote is null ? poleNote : poleNote + " " + outcome.ScanNote };
 
             List<KeyValuePair<string, string>> Echo()
             {

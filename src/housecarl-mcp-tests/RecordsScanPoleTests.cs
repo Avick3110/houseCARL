@@ -85,10 +85,17 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Assert.Equal(Counts(PoleScan(format, counts: true, poled: false)), Counts(poled));
     }
 
-    /// <summary>The response with its source statement and note lines removed: what the counts say.</summary>
+    /// <summary>The response with its source statement and notes removed: what the counts say.</summary>
     static string Counts(string response)
     {
-        var counts = string.Join("\n", response.Split('\n').Where(l => !l.Contains("source")));
+        string counts;
+        if (response.TrimStart().StartsWith('{'))
+        {
+            var doc = System.Text.Json.Nodes.JsonNode.Parse(response)!.AsObject();
+            foreach (var k in doc.Select(p => p.Key).Where(k => k.Contains("source") || k == "notes").ToList()) doc.Remove(k);
+            counts = doc.ToJsonString();
+        }
+        else counts = string.Join("\n", response.Split('\n').Where(l => !l.Contains("source")));
         Assert.Contains("2", counts);   // the scope's two armors
         return counts;
     }
@@ -134,10 +141,42 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Assert.DoesNotContain("123", r);
     }
 
+    /// <summary>The note rides the scan's existing note channel, not a key of its own.</summary>
+    [Theory]
+    [InlineData("json")]
+    [InlineData("dense")]
+    public void OverlayScanWhere_TheNoteRidesTheScanNote(string format)
+    {
+        var r = RecordsTools.Records(Svc, types: Weap, source: Overlay("post"), where: new[] { "BasicStats.Damage >= 1" }, format: format);
+        Served(r, "\"scan_note\"", WhereNote);
+        Assert.DoesNotContain("source_note", r);
+    }
+
+    /// <summary>references= is matched on the plugin records too, so the same note names it.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("json")]
+    [InlineData("dense")]
+    public void OverlayScanReferences_SaysReferencesJudgedThePreSkyPatcherRecord(string? format) =>
+        Served(RecordsTools.Records(Svc, types: Weap, source: Overlay("post"), references: new[] { "!" + Fid(W.MgefA) }, format: format),
+               "references= judged each record before the SkyPatcher layer replays", "HcRecW1");
+
     [Fact]
-    public void OverlayScanWhere_TheNoteRidesJsonToo() =>
-        Served(RecordsTools.Records(Svc, types: Weap, source: Overlay("post"), where: new[] { "BasicStats.Damage >= 1" }, format: "json"),
-               "\"source_note\"", WhereNote);
+    public void OverlayScanWhereAndReferences_OneNoteNamesBoth() =>
+        Served(RecordsTools.Records(Svc, types: Weap, source: Overlay("post"), where: new[] { "BasicStats.Damage >= 1" },
+                                    references: new[] { "!" + Fid(W.MgefA) }),
+               "where= and references= judged each record before the SkyPatcher layer replays");
+
+    /// <summary>A walk reads every record it reaches, so the overlay on a scan-seeded walk refuses as main did.</summary>
+    [Theory]
+    [InlineData("post")]
+    [InlineData("pre")]
+    public void OverlayScanWalk_IsRefused(string state)
+    {
+        var opens = ReplayOpens(() => RecordsTools.Records(Svc, types: Weap, source: Overlay(state), walk: new RecordsTools.RecordsWalk()), out var r);
+        Refused(r, "a walk reads every record it reaches", "formids=");
+        Assert.Equal(0, opens);
+    }
 
     [Theory]
     [InlineData(null)]
