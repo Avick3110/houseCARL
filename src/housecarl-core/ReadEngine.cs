@@ -488,11 +488,47 @@ public static class ReadEngine
         try
         {
             var seg = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var tail = ElementTail.Of(ref seg, ref shown);
             var nav = NavigateValue(record, seg);
             if (!nav.ok) { Emit(sink, ref budget, new FieldValue(shown, false, null, nav.note, Present: false, Readable: nav.readable)); return; }
-            Expand(nav.val, nav.type, nav.parent, shown, depth, sink, ref budget);
+            Expand(nav.val, nav.type, nav.parent, shown, depth, sink, ref budget, tail);
         }
         catch (Exception ex) { Emit(sink, ref budget, Fault(shown, ex)); }
+    }
+
+    /// <summary>The sub-path a <c>List[*].Sub</c> read takes from each element, so the budget counts those
+    /// lines alone; the list's own line is read as ever.</summary>
+    sealed record ElementTail(string[] Segs, string Text, int Levels)
+    {
+        /// <summary>Split a read path at its <c>[*]</c> step, leaving the list path in <paramref name="seg"/> and
+        /// <paramref name="shown"/>; null when the path has no such step or nothing follows it.</summary>
+        internal static ElementTail? Of(ref string[] seg, ref string shown)
+        {
+            int q = Array.FindIndex(seg, s => s.EndsWith("[*]", StringComparison.Ordinal));
+            if (q < 0 || q == seg.Length - 1) return null;
+            var rest = seg[(q + 1)..];
+            seg = seg[..q].Append(seg[q][..^3]).ToArray();
+            shown = shown[..shown.IndexOf("[*]", StringComparison.Ordinal)];
+            return new ElementTail(rest, string.Join(".", rest), rest.Sum(s => 1 + s.Count(c => c == '[')));
+        }
+    }
+
+    /// <summary>One list element: the whole element, or under a <see cref="ElementTail"/> just its sub-path,
+    /// expanded at the depth the whole element's walk would have reached it.</summary>
+    static void ExpandElement(object? item, Type declaredType, object parent, string elemPath, int depth, ElementTail? tail,
+                              List<FieldValue> sink, ref int budget)
+    {
+        if (tail is null) { ExpandChild(item, declaredType, parent, elemPath, depth, sink, ref budget); return; }
+        // An element without the sub-path carries no line, as the whole-element walk gave none.
+        if (item is null) return;
+        var shown = $"{elemPath}.{tail.Text}";
+        var nav = NavigateValue(item, tail.Segs);
+        if (!nav.ok)
+        {
+            if (!nav.readable && !IsNoSuchFieldNote(nav.note)) Emit(sink, ref budget, new FieldValue(shown, false, null, nav.note, Present: false, Readable: false));
+            return;
+        }
+        ExpandChild(nav.val, nav.type, nav.parent, shown, depth - tail.Levels, sink, ref budget);
     }
 
     /// <summary>The ONE unreadable line the deep walk emits — the sentence and flags the depth-1 read carries.</summary>
@@ -519,7 +555,8 @@ public static class ReadEngine
 
     /// <summary>Recursively emit <paramref name="val"/>: a value leaf to its token, a link to its note, a
     /// container to a summary and one child line per element. A child that cannot be read is never skipped.</summary>
-    static void Expand(object? val, Type declaredType, object parent, string path, int depth, List<FieldValue> sink, ref int budget)
+    static void Expand(object? val, Type declaredType, object parent, string path, int depth, List<FieldValue> sink, ref int budget,
+                       ElementTail? tail = null)
     {
         if (budget < 0) return;
         var leaf = EmitToken(val, declaredType, parent);
@@ -563,9 +600,10 @@ public static class ReadEngine
                 var et = entry.GetType();
                 var key = et.GetProperty("Key", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry);
                 var ev = et.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry);
-                ExpandChild(ev, ev?.GetType() ?? typeof(object), val, $"{path}[{key}]", childDepth, sink, ref budget);
+                ExpandElement(ev, ev?.GetType() ?? typeof(object), val, $"{path}[{key}]", childDepth, tail, sink, ref budget);
             }
         }
+        else if (tail is not null && val is not System.Collections.IEnumerable) return;   // not a list: the fold refuses it off the head line
         else if (WriteEngine.GenderedInterface(val.GetType()) is not null)
         {
             // Gendered pair ([0]=male, [1]=female), via the SAME index-to-arm mapping navigation uses.
@@ -601,10 +639,10 @@ public static class ReadEngine
                     catch (Exception ex)
                     {
                         Emit(sink, ref budget, ElementFault(parent, path, i, ex));
-                        ExpandRestByIndex(val, parent, path, i + 1, childDepth, sink, ref budget);
+                        ExpandRestByIndex(val, parent, path, i + 1, childDepth, sink, ref budget, tail);
                         return;
                     }
-                    ExpandChild(item, item?.GetType() ?? typeof(object), val, $"{path}[{i}]", childDepth, sink, ref budget);
+                    ExpandElement(item, item?.GetType() ?? typeof(object), val, $"{path}[{i}]", childDepth, tail, sink, ref budget);
                     i++;
                 }
             }
@@ -636,7 +674,7 @@ public static class ReadEngine
     /// <summary>Emit the elements from <paramref name="from"/> onward one at a time, each isolated — taken only
     /// after an enumeration already threw.</summary>
     static void ExpandRestByIndex(object val, object parent, string listPath, int from, int childDepth,
-                                  List<FieldValue> sink, ref int budget)
+                                  List<FieldValue> sink, ref int budget, ElementTail? tail = null)
     {
         if (IndexedElements(val) is not { } indexed)
         {
@@ -652,7 +690,7 @@ public static class ReadEngine
             object? item;
             try { item = indexed.At(i); }
             catch (Exception ex) { Emit(sink, ref budget, ElementFault(parent, listPath, i, ex)); continue; }
-            ExpandChild(item, item?.GetType() ?? typeof(object), val, $"{listPath}[{i}]", childDepth, sink, ref budget);
+            ExpandElement(item, item?.GetType() ?? typeof(object), val, $"{listPath}[{i}]", childDepth, tail, sink, ref budget);
         }
     }
 
