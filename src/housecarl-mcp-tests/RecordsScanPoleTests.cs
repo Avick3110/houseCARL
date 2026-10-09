@@ -92,18 +92,18 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         if (response.TrimStart().StartsWith('{'))
         {
             var doc = System.Text.Json.Nodes.JsonNode.Parse(response)!.AsObject();
+            Assert.Equal(2, doc["total"]!.GetValue<int>());   // the scope's two armors
             foreach (var k in doc.Select(p => p.Key).Where(k => k.Contains("source") || k == "notes").ToList()) doc.Remove(k);
             counts = doc.ToJsonString();
         }
-        else counts = string.Join("\n", response.Split('\n').Where(l => !l.Contains("source")));
-        Assert.Contains("2", counts);   // the scope's two armors
+        else
+        {
+            counts = string.Join("\n", response.Split('\n').Where(l => !l.Contains("source")));
+            Assert.Contains(" 2 matches ", counts);   // the scan line's count: the scope's two armors
+        }
         return counts;
     }
 
-    // ---- the overlay pole on a scan -----------------------------------------------------------------
-
-    [Theory]
-    [InlineData(null, "BasicStats.Damage = 123")]
     /// <summary>A delta's counts depend on the pole, so its own source statement stays, not the census one.</summary>
     [Theory]
     [InlineData(null)]
@@ -117,13 +117,35 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Assert.DoesNotContain(CountsNote, r);
     }
 
-    [InlineData("json", "123")]
-    [InlineData("dense", "123")]
-    public void OverlayScanFields_ReadsThePostState(string? format, string post)
+    // ---- the overlay pole on a scan -----------------------------------------------------------------
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("json")]
+    [InlineData("dense")]
+    public void OverlayScanFields_ReadsThePostState(string? format)
     {
         var r = RecordsTools.Records(Svc, types: Weap, source: DraftPost("scan-fields-" + (format ?? "text")), format: format,
                                      project: Fields("BasicStats.Damage"));
-        Served(r, post, "skypatcher overlay (post)");
+        Served(r, "skypatcher overlay (post)");
+        Assert.Equal("123", DamageOfW0(r, format));
+    }
+
+    /// <summary>HcRecW0's BasicStats.Damage as the response renders it, read off its own row.</summary>
+    string? DamageOfW0(string r, string? format)
+    {
+        var fid = Fid(W.Weapons[0]);
+        if (format is null)
+        {
+            var block = r.Split("\n\n").Single(b => b.Contains($"formid={fid}"));
+            return block.Split('\n').SingleOrDefault(l => l.StartsWith("  BasicStats.Damage = "))?["  BasicStats.Damage = ".Length..];
+        }
+        var root = JsonDocument.Parse(r).RootElement;
+        if (format == "dense")
+            return root.GetProperty("rows").EnumerateArray().Single(row => row[0].GetString() == fid)[3].GetString();
+        return root.GetProperty("records").EnumerateArray().Single(m => m.GetProperty("formid").GetString() == fid)
+                   .GetProperty("fields").EnumerateArray().Single(f => f.GetProperty("path").GetString() == "BasicStats.Damage")
+                   .GetProperty("value").GetString();
     }
 
     [Theory]
