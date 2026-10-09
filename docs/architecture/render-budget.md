@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-29
+updated: 2026-10-09
 covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/housecarl-mcp/RenderBounds.cs, src/housecarl-mcp/ComparisonMeter.cs, src/housecarl-mcp/SweepEmission.cs, src/housecarl-mcp/SweepDemand.cs, src/housecarl-mcp/BodyAllocation.cs, src/housecarl-mcp/BatchRender.cs, src/housecarl-mcp/TransportAccounting.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-core/CharCountedStream.cs, src/housecarl-core/JsonTextEncoder.cs]
 ---
 # The render budget: what `max_chars` counts, and who gets to spend it
@@ -11,6 +11,11 @@ Two budgets share the word, and are not the same thing: **`max_chars`**, how WID
 file is the home of both, cited from the code under ADR 0001.
 
 ## Contracts
+
+### One default, decided once
+
+`max_chars=0` means `Wire.DefaultMaxChars`, 40,000 characters (#1093: a 74k answer fit the old 80k default and
+the client rejected it). Every tool resolves it through `Wire.Cap`; none keeps its own copy of the number.
 
 ### The unit is CHARACTERS, not bytes
 
