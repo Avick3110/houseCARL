@@ -4,7 +4,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-// The server default answer size (#1093): max_chars=0 cuts or spills at 40k, on a render lane and a spill lane.
+// The server default answer size (#1093): max_chars=0 cuts or spills at 40k, on a render lane, a spill lane and a write lane.
 
 [Trait("tier", "integration")]
 public sealed class DefaultMaxCharsSpillTests : ArtifactTestBase, IClassFixture<ArtifactFixture>
@@ -19,7 +19,6 @@ public sealed class DefaultMaxCharsSpillTests : ArtifactTestBase, IClassFixture<
     [Fact]
     public void ARecordsAnswerBetween40kAnd80kSpillsAtTheDefault()
     {
-        SpillFolders.Emptied(Svc);
         var wide = IdentityOf600(80_000);
         Assert.DoesNotContain("spilled:", wide);
         Assert.InRange(wide.Length, 40_001, 80_000);
@@ -53,5 +52,24 @@ public sealed class DefaultMaxCharsRenderTests : IClassFixture<AssetSelectWorld>
         var r = AssetTools.AssetStatus(_w.Svc, under: many, format: "json");
         Assert.True(Omitted(r) > 0, "nothing was cut at the default");
         Assert.True(r.Length <= 40_000, $"default answer is {r.Length} chars");
+    }
+}
+
+public sealed class DefaultMaxCharsWriteTests
+{
+    static readonly SeqOutcome Seq = new(true, null, "C:/mods/HcSeq/SEQ/HcSeq.seq", "HcSeq",
+        Enumerable.Range(0, 1800).Select(i => new HousecarlCore.SeqFile.SeqQuest(default, $"HcSeqQuest{i:D4}", 0x01000800u + (uint)i)).ToArray(),
+        "HcSeq.esp", false);
+
+    [Fact]
+    public void AWriteReplyBetween40kAnd80kIsCutAtTheDefault()
+    {
+        var wide = SeqTools.Render(Seq, maxChars: 80_000);
+        Assert.DoesNotContain("[truncated:", wide);
+        Assert.InRange(wide.Length, 40_001, 80_000);
+
+        var r = SeqTools.Render(Seq);
+        Assert.Contains("[truncated:", r);
+        Assert.Contains("listed at max_chars=40000;", r);
     }
 }
