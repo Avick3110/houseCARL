@@ -85,16 +85,13 @@ internal static class CheckArtifact
 
         if (s.Dialogue is { Error: null } d2)
         {
+            // total is the family's own count, so a kind the rows miss shows as total above row_count.
+            total += d2.ProblemsFound;
             foreach (var seed in d2.Resolved)
-                foreach (var t in seed.Report!.Topics)
-                    foreach (var issue in t.Issues)
-                    {
-                        total++;
-                        writer.WriteRow((w, _) => Row(w, "dialogue", issue.Severity.ToString().ToLowerInvariant(),
-                                                      plugin: t.WinnerPlugin, formid: t.Topic.ToString(),
-                                                      editorid: t.TopicEditorId, recordType: "DIAL",
-                                                      detail: issue.Message));
-                    }
+                foreach (var f in DialogueSweep.Findings(seed.Report!))
+                    writer.WriteRow((w, _) => Row(w, "dialogue", f.Class, plugin: f.Plugin, formid: f.FormId,
+                                                  editorid: f.EditorId, recordType: f.RecordType, target: f.Target,
+                                                  script: f.Script, detail: f.Detail));
             foreach (var seed in d2.Unresolved)
             {
                 total++;
@@ -113,9 +110,13 @@ internal static class CheckArtifact
                                               owningMod: f.OwningMod, detail: f.Detail, fix: f.Fix));
             }
 
-        // The facegen family counts findings its listing budget cut, so total says so rather than row_count.
+        // Each family counts findings its listing budget cut, so total says so rather than row_count.
         if (s.FaceGen is { Error: null } fgt)
             total += Math.Max(0, fgt.TotalFound - fgt.Findings.Count - (fgt.Withheld?.Count ?? 0));
+        if (s.Errors is { Error: null } et)
+            total += Math.Max(0, et.TotalDangling - et.Reports.Sum(p => p.Dangling.Count));
+        if (s.Scripts is { Error: null } st)
+            total += Math.Max(0, st.TotalUnbound + st.TotalNullObject - st.Reports.Sum(x => x.Unbound.Count + x.NullObjects.Count));
 
         var (manifest, err) = writer.Save(ArtifactTarget.Named(path), ToolNames.Check, query, identity: "formid", RowSchema,
                                           sort: "family, then the order each family reported",

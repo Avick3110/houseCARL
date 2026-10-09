@@ -91,19 +91,45 @@ internal static class DialogueSweep
     }
 
     /// <summary>Every finding one report carries, counted off the report rather than off what rendered.</summary>
-    static int Problems(DialogueValidationReport r)
+    static int Problems(DialogueValidationReport r) => Findings(r).Count();
+
+    /// <summary>One dialogue finding in the artifact's row shape; <see cref="Findings"/> is the only list of them.</summary>
+    internal readonly record struct Finding(string Class, string? Plugin, string? FormId, string? EditorId,
+                                            string? RecordType, string? Target, string? Script, string Detail);
+
+    /// <summary>Every finding one report carries, in report order: the count and the <c>to_file=</c> rows both read this.</summary>
+    internal static IEnumerable<Finding> Findings(DialogueValidationReport r)
     {
+        string input = r.Input.ToString();
+        foreach (var i in r.InputIssues)
+            yield return new(Severity(i), r.InputWinnerPlugin, input, r.InputEditorId, InputSignature(r.InputKind), null, null, i.Message);
         // The coverage gaps count too: "0 findings" over a report that lost a plugin reads as a clean pass.
-        int n = r.InputIssues.Count + r.ScanGaps.Count;
-        if (r.SeqLint is { QuestIsSge: true } s && !(s.SeqExists && s.SeqContainsQuest == true && s.SeqNewerThanPlugin == true))
-            n++;
+        foreach (var gap in r.ScanGaps)
+            yield return new("scan_gap", r.InputWinnerPlugin, input, r.InputEditorId, InputSignature(r.InputKind), null, null, gap);
+        if (DialogueWire.SeqIsFinding(r.SeqLint))
+            yield return new("seq", r.SeqLint!.DefiningPlugin, input, r.InputEditorId, "QUST",
+                             r.SeqLint.DefiningPlugin + ".seq", null, DialogueWire.SeqVerdict(r.SeqLint));
         foreach (var t in r.Topics)
         {
-            n += t.Issues.Count;
-            n += t.VoiceLines.Count(l => !l.FuzPresent);
-            n += t.ScriptFindings.Count(f => f.Status is ScriptBindingStatus.ScriptNotCompiled
-                                                      or ScriptBindingStatus.BindingIncomplete);
+            string topic = t.Topic.ToString();
+            foreach (var i in t.Issues)
+                yield return new(Severity(i), t.WinnerPlugin, topic, t.TopicEditorId, "DIAL", null, null, i.Message);
+            foreach (var l in t.VoiceLines.Where(l => !l.FuzPresent))
+                yield return new("silent_line", t.WinnerPlugin, l.Info.ToString(), t.TopicEditorId, "INFO", l.FuzPath, null,
+                                 $"response {l.ResponseNumber} has no .fuz at {l.FuzPath}" + (l.LipPresent ? "" : "; .lip also absent"));
+            foreach (var f in t.ScriptFindings.Where(f => f.Status is ScriptBindingStatus.ScriptNotCompiled
+                                                                   or ScriptBindingStatus.BindingIncomplete))
+                yield return new(f.Status == ScriptBindingStatus.ScriptNotCompiled ? "script_not_compiled" : "binding_incomplete",
+                                 t.WinnerPlugin, f.Info.ToString(), t.TopicEditorId, "INFO",
+                                 f.MissingPex.Count > 0 ? string.Join(", ", f.MissingPex) : null,
+                                 f.Scripts.Count > 0 ? string.Join(", ", f.Scripts) : null, f.Detail);
         }
-        return n;
     }
+
+    static string Severity(DialogueIssue i) => i.Severity.ToString().ToLowerInvariant();
+
+    static string? InputSignature(string kind) => kind switch
+    {
+        "quest" => "QUST", "topic" => "DIAL", "view" => "DLVW", "branch" => "DLBR", _ => null,
+    };
 }
