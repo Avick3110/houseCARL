@@ -212,10 +212,9 @@ public static partial class RecordsTools
         if (form == "chain" && walk is null)
             return Wire.Refuse(json, $"error: the 'chain' form renders a walk's paths — pass walk= (e.g. walk={{\"follow\": \"Template\"}} over NPC seeds; reverse MGEF carriers: walk={{\"direction\": \"reverse\", \"follow\": \"{CarrierFollow}\"}} with MGEF formids=).");
         // Form-scoping: a sub-parameter outside its form is refused by name; docs/architecture/records-tool-front.md.
-        if (project?.fields is { Length: > 0 } && !bodyFields && !comparisonForm)
-            return Wire.Refuse(json, form == "chain"
-                ? "error: the 'chain' form draws a walk's paths and reads no fields — form='fields' with the same walk= reads those fields over the reached set."
-                : $"error: project.fields belongs to the 'fields'/'rows'/'delta'/'tree' forms (got form='{form}'). Set project.form, or drop fields.");
+        // chain + fields answers after walk= is validated (below), so its route never names a walk that is refused.
+        if (project?.fields is { Length: > 0 } && !bodyFields && !comparisonForm && form != "chain")
+            return Wire.Refuse(json, $"error: project.fields belongs to the 'fields'/'rows'/'delta'/'tree' forms (got form='{form}'). Set project.form, or drop fields.");
         if (form == "fields" && project?.fields is not { Length: > 0 })
             return Wire.Refuse(json, "error: the 'fields' form names its field paths — pass project.fields=[\"<path>\", …] (or use form='everything' for the full body).");
         if (form == "rows" && project?.fields is not { Length: > 0 })
@@ -225,7 +224,7 @@ public static partial class RecordsTools
             return Wire.Refuse(json, $"error: project.fields[{badAt}] is empty — the 'rows' form folds the list each entry names, so every entry must be a field path (e.g. [\"Conditions\"]).");
         // The quantified step's PROJECT half, parsed before any read so a bad token refuses the call, not each record.
         FoldPlan? foldPlan = null;
-        if (project?.fields is { Length: > 0 } pf)
+        if (project?.fields is { Length: > 0 } pf && form != "chain")
         {
             var (plan, foldErr) = FieldFolds.Parse(pf);
             if (foldErr is not null) return Wire.Refuse(json, "error: " + foldErr);
@@ -449,6 +448,8 @@ public static partial class RecordsTools
             return Wire.Refuse(json, reverseCarrier
                 ? "error: the reverse walk needs its seeds — pass formids= (the MGEF(s) whose carriers to trace)."
                 : "error: the reverse walk needs its seeds — pass formids= (the record(s) whose referrers to trace).");
+        if (form == "chain" && project?.fields is { Length: > 0 })
+            return Wire.Refuse(json, "error: the 'chain' form draws a walk's paths and reads no fields — form='fields' with the same walk= reads those fields over the reached set.");
         // The lane, decided once and read by the dispatch below and by every remedy sentence that depends on it.
         bool scanLane = hasScan && !reverseWalk;
         // Whether dense can carry this answer is decided here, once, for every lane; each lane then renders it.
