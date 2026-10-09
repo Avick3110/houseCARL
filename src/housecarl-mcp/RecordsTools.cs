@@ -694,13 +694,12 @@ public static partial class RecordsTools
                 if (ovRefusal is not null)
                     return json ? JsonWire.RenderError(ovRefusal, ovEpoch)
                                 : "error: " + ovRefusal + Wire.EpochLine(ovEpoch);
-                Arm("skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
-                    + (srcSpec.Draft is null ? "" : $", with {srcSpec.Draft.Arm}"));
+                Arm(srcSpec.OverlayStatement!);
                 OverlayPostNotes();
             }
             else if (srcName is null)
             {
-                if (srcOverlay) Arm("skypatcher overlay (pre) = winner — the body the INI layer starts from");
+                if (srcOverlay) Arm(srcSpec.OverlayStatement!);
                 outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, containerHint, readFieldDepths, ct, countFields: readFieldCounts, summary: form == "summary");
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
@@ -1363,14 +1362,13 @@ public static partial class RecordsTools
             else if (srcSpec.ReplaysOverlay)
             {
                 // The limit= window's rows are replayed in the body lane below; the scan itself reads the plugin records.
-                Arm("skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
-                    + (srcSpec.Draft is null ? "" : $", with {srcSpec.Draft.Arm}"));
+                Arm(srcSpec.OverlayStatement!);
                 // The selection filters that read record content match the plugin records, not the replayed ones.
                 var judged = new[] { where is { Length: > 0 } ? "where=" : null, references is { Length: > 0 } ? "references=" : null }.OfType<string>().ToList();
                 if (judged.Count > 0)
                     poleNote = $"{string.Join(" and ", judged)} judged each record before the SkyPatcher layer replays; the rows show it after";
             }
-            else if (srcOverlay && !pipelineArms) Arm("skypatcher overlay (pre) = winner — the body the INI layer starts from");
+            else if (srcOverlay && !pipelineArms) Arm(srcSpec.OverlayStatement!);
             else if (!pipelineArms) Arm("winner");   // delta/info_order/walk pipelines state their own source
 
             // references= @file expansion and FormKey parse.

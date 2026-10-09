@@ -21,6 +21,13 @@ internal sealed partial class RecordReads
         public bool ReplaysOverlay => State == "post";
         /// <summary>The overlay state trimmed and lower-cased, post by default; null on any other pole.</summary>
         public string? State => Kind == PoleKind.Overlay ? (OverlayState ?? "post").Trim().ToLowerInvariant() : null;
+        /// <summary>The overlay's arm statement, one wording for every lane; null on any other pole.</summary>
+        public string? OverlayStatement => State switch
+        {
+            "post" => "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays" + (Draft is null ? "" : $", with {Draft.Arm}"),
+            "pre" => "skypatcher overlay (pre) = winner — the body the INI layer starts from",
+            _ => null,
+        };
         /// <summary>The arm statement a render leads with when the pole is uniform across the batch.</summary>
         public string Label => Kind switch
         {
@@ -319,7 +326,7 @@ internal sealed partial class RecordReads
         if (!spec.ReplaysOverlay)
         {
             covers = true;
-            armStatement = "skypatcher overlay (pre) — the plain load-order winner, before the INI layer";
+            armStatement = spec.OverlayStatement;
             if (gather is not null) gather.PluginOf = (fk, _) => view.ResolveWinner(fk)?.WinnerPlugin;
             return (fk, _) =>
             {
@@ -335,8 +342,7 @@ internal sealed partial class RecordReads
         }
 
         covers = false;   // the INI layer's files are outside the index fingerprint (a draft INI likewise)
-        armStatement = "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
-                     + (spec.Draft is null ? "" : $", with {spec.Draft.Arm}");
+        armStatement = spec.OverlayStatement;
         // The replay context is built lazily once for the whole batch.
         AssetLayers.SkyPatcherReplay? replay = null;
         // Per-key memo: the scratch mod is shared across the reader's lifetime, so a repeated key's second replay
