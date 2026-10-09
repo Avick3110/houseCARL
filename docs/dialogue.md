@@ -61,6 +61,16 @@ requires and must load after. Decide whether you want it before you write the li
 from a plugin you already master and accept the position it gives you. (A PNAM that truly resolves to nothing — a
 target no active plugin defines — places the line at the HEAD, not the bottom.)
 
+## A topic only one plugin touches: PNAM against file order
+
+Nothing merges on a topic one plugin touches, but that plugin's own PNAM links still place its lines, and a line
+whose PNAM names a line other than the one above it in the file lands somewhere else. When every line stays where
+the file puts it, `info_order` says so in one line: the effective order is that plugin's own list. When one does
+not, it lists the order with PNAM applied, marks each line that changed relative order `MOVED from #N` with its
+file position, and says that which order the game follows within one plugin is **untested**: houseCARL applies
+PNAM there because the merge applies it everywhere else and xEdit's INFO order does the same, not because it was
+measured in game. If such a line matters, check it in game before relying on either order.
+
 ## The bookkeeping create fills, and the flags they do not decide
 
 `housecarl_create` fills the Creation Kit's bookkeeping on dialogue records and reports each fill, so nothing
