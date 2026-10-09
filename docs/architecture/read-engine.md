@@ -64,7 +64,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 ## Pinned by
 - `RecordsScopeCopyOrderTests` — a two-plugin scope answers the same rows under either name order, and a filter only the lower copy passes matches nothing.
 - `WriteProof` step 6, the read-proof oracle (`src/housecarl-generator`, the manual `read-proof` mode) — the round-trip no-op, over every coercible value leaf the write surface drives.
-- `RecordsBulkSelectTests.AMalformedFormidIsAPerItemErrorRowWhileTheOtherRowsStillResolve` and `TheIdentityJsonCarriesOneResolvedRowPerInput` — a bad formid is a per-item error, and the batch renders one row per input.
+- `RecordsBulkSelectTests.AMalformedFormidIsAPerItemErrorRowWhileTheOtherRowsStillResolve` and `TheIdentityJsonCarriesOneRowPerInput` — a bad formid is a per-item error, and the batch renders one row per input.
 - `RuntimeFormIdTests.AMissingRecordInAnEslFlaggedPluginIsToldAboutCompaction` and `RecordsRemedyRepairTests.AndDoesNotBlameEslCompactionOnAPluginThatIsNotEslFlagged` — the ESL clause is stated on a light-flagged plugin and NOT on a plain full master.
 - `RecordsRenderCostTests.ATreeGathersItsProviderBodiesPerPluginNotPerRow` — the tree fold's one walk per provider plugin per chunk.
 - `ComparisonBatchReadTests` and `ComparisonBatchOffOrderReadTests` — a delta walks no pole plugin for a row that pole holds nothing of (a named subject or reference, a post-state subject whose replay is unavailable, an off-order subject), and still gathers the reference for a post-state or off-order subject that holds its rows.
