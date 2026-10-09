@@ -573,7 +573,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void TheIdentityLaneAutoSpillsUnderTheSameContract()
     {
         var d = OwnResults();
-        var r = RecordsTools.Records(Svc, formids: Ids, project: Identity, max_chars: TinyList);
+        var r = RecordsTools.Records(Svc, formids: Ids, project: SummaryForm, max_chars: TinyList);
         Assert.Contains("spilled:", r);
         Assert.Equal(Ids.Length, ManifestOf(TheSpill(d)).RowCount);
     }
@@ -620,7 +620,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void APlainAtFileListStillEntersWithNoManifestAndNoEpochClaim()
     {
         var plain = PlainList("plain.txt", 2);
-        var d = Je(RecordsTools.Records(Svc, formids: new[] { "@" + plain }, project: Identity,
+        var d = Je(RecordsTools.Records(Svc, formids: new[] { "@" + plain }, project: SummaryForm,
                                         format: "json", counts_only: true));
         Assert.Equal(2, d.GetProperty("count").GetInt32());
     }
@@ -701,10 +701,10 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void AWhitespaceOnlyFormidsElementStaysAPerItemErrorAndTheBatchSurvives()
     {
         var ids = new[] { Ids[0], "  " };
-        var d = Je(RecordsTools.Records(Svc, formids: ids, project: Identity, format: "json", counts_only: true));
+        var d = Je(RecordsTools.Records(Svc, formids: ids, project: SummaryForm, format: "json", counts_only: true));
         Assert.Equal(2, d.GetProperty("count").GetInt32());
         Assert.Equal(1, d.GetProperty("errors").GetInt32());
-        Assert.DoesNotContain("failed unexpectedly", RecordsTools.Records(Svc, formids: ids, project: Identity));
+        Assert.DoesNotContain("failed unexpectedly", RecordsTools.Records(Svc, formids: ids, project: SummaryForm));
     }
 
     [Fact]
@@ -718,7 +718,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void AnArtifactKeepsItsErrorRowWhileIdentityExtractionYieldsOnlyTheResolvedFormids()
     {
         var art = Art("mixed.jsonl");
-        RecordsTools.Records(Svc, formids: new[] { "garbage", Ids[0], Ids[1] }, project: Identity, to_file: art);
+        RecordsTools.Records(Svc, formids: new[] { "garbage", Ids[0], Ids[1] }, project: SummaryForm, to_file: art);
         Assert.Equal(3, ManifestOf(art).RowCount);
         Assert.Equal(2, TokensOf(art).Count);
     }
@@ -727,18 +727,18 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void AMixedArtifactReEntersOnItsResolvedRowsWithNoWasItEditedMisdiagnosis()
     {
         var art = Art("mixed-reenter.jsonl");
-        RecordsTools.Records(Svc, formids: new[] { "garbage", Ids[0], Ids[1] }, project: Identity, to_file: art);
-        var d = Je(RecordsTools.Records(Svc, formids: new[] { "@" + art }, project: Identity,
+        RecordsTools.Records(Svc, formids: new[] { "garbage", Ids[0], Ids[1] }, project: SummaryForm, to_file: art);
+        var d = Je(RecordsTools.Records(Svc, formids: new[] { "@" + art }, project: SummaryForm,
                                         format: "json", counts_only: true));
         Assert.Equal(2, d.GetProperty("count").GetInt32());
-        Assert.DoesNotContain("was it edited", RecordsTools.Records(Svc, formids: new[] { "@" + art }, project: Identity));
+        Assert.DoesNotContain("was it edited", RecordsTools.Records(Svc, formids: new[] { "@" + art }, project: SummaryForm));
     }
 
     [Fact]
     public void TheWhereGrammarMembershipTestAgreesWithAMixedArtifactsResolvedRows()
     {
         var art = Art("mixed-where.jsonl");
-        RecordsTools.Records(Svc, formids: new[] { "garbage", Ids[0], Ids[1] }, project: Identity, to_file: art);
+        RecordsTools.Records(Svc, formids: new[] { "garbage", Ids[0], Ids[1] }, project: SummaryForm, to_file: art);
         var d = Je(RecordsTools.Records(Svc, types: new[] { "WEAP" }, where: new[] { $"formid in @{art}" }, format: "json"));
         Assert.Equal(2, d.GetProperty("total").GetInt32());
     }
@@ -756,8 +756,8 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     public void AnAllErrorArtifactIsRefusedByItsRealCauseNeverByAccusingTheFile()
     {
         var art = Art("allerr.jsonl");
-        RecordsTools.Records(Svc, formids: new[] { "garbage1", "garbage2" }, project: Identity, to_file: art);
-        var r = RecordsTools.Records(Svc, formids: new[] { "@" + art }, project: Identity);
+        RecordsTools.Records(Svc, formids: new[] { "garbage1", "garbage2" }, project: SummaryForm, to_file: art);
+        var r = RecordsTools.Records(Svc, formids: new[] { "@" + art }, project: SummaryForm);
         Refused(r, "ERROR rows");
         Assert.DoesNotContain("was it edited", r);
     }
@@ -768,7 +768,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     string IdentityArtifact(string name)
     {
         var art = Art(name);
-        var r = RecordsTools.Records(Svc, formids: Ids, project: Identity, to_file: art);
+        var r = RecordsTools.Records(Svc, formids: Ids, project: SummaryForm, to_file: art);
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
         return art;
     }
@@ -836,7 +836,7 @@ public sealed class RecordsArtifactEpochTests : IDisposable
     public void Dispose() => _w.Dispose();
 
     string[] Ids => _w.Weapons.Select(RecordsWorld.Fid).ToArray();
-    static RecordsTools.RecordsProject Identity => new() { form = "identity" };
+    static RecordsTools.RecordsProject SummaryForm => new() { form = "summary" };
     static RecordsTools.RecordsProject Everything => new() { form = "everything" };
 
     string ArtifactPath(string name)
@@ -849,7 +849,7 @@ public sealed class RecordsArtifactEpochTests : IDisposable
     string WriteArtifact(string name)
     {
         var p = ArtifactPath(name);
-        var r = RecordsTools.Records(_w.Svc, formids: Ids, project: Identity, to_file: p);
+        var r = RecordsTools.Records(_w.Svc, formids: Ids, project: SummaryForm, to_file: p);
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
         return p;
     }
@@ -961,7 +961,7 @@ public sealed class RecordsArtifactEpochTests : IDisposable
         var plain = ArtifactPath("plain.txt");
         File.WriteAllText(plain, string.Join("\r\n", Ids.Take(2)));
         File.SetLastWriteTimeUtc(_w.OverrideFile, DateTime.UtcNow.AddHours(1));
-        var d = JsonDocument.Parse(RecordsTools.Records(_w.Svc, formids: new[] { "@" + plain }, project: Identity,
+        var d = JsonDocument.Parse(RecordsTools.Records(_w.Svc, formids: new[] { "@" + plain }, project: SummaryForm,
                                                         format: "json", counts_only: true)).RootElement;
         Assert.Equal(2, d.GetProperty("count").GetInt32());
     }
@@ -972,7 +972,7 @@ public sealed class RecordsArtifactEpochTests : IDisposable
         var art = Stale("rematerialize.jsonl");
         var stale = ReadEpoch(art);
         var now = Now;
-        RecordsTools.Records(_w.Svc, formids: Ids, project: Identity, to_file: art);
+        RecordsTools.Records(_w.Svc, formids: Ids, project: SummaryForm, to_file: art);
         Assert.Equal(now, ReadEpoch(art));
         Assert.NotEqual(stale, ReadEpoch(art));
     }
@@ -981,8 +981,8 @@ public sealed class RecordsArtifactEpochTests : IDisposable
     public void ReEntryIsCleanAgainstTheReMaterializedArtifact()
     {
         var art = Stale("clean-again.jsonl");
-        RecordsTools.Records(_w.Svc, formids: Ids, project: Identity, to_file: art);
-        var d = JsonDocument.Parse(RecordsTools.Records(_w.Svc, formids: new[] { "@" + art }, project: Identity,
+        RecordsTools.Records(_w.Svc, formids: Ids, project: SummaryForm, to_file: art);
+        var d = JsonDocument.Parse(RecordsTools.Records(_w.Svc, formids: new[] { "@" + art }, project: SummaryForm,
                                                         format: "json", counts_only: true)).RootElement;
         Assert.Equal(Ids.Length, d.GetProperty("count").GetInt32());
     }

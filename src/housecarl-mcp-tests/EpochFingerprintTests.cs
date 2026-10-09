@@ -195,8 +195,7 @@ public sealed class EpochFingerprintTests : IDisposable
         Assert.Single(Regex.Matches(JsonWire.RenderBatch(batch, 0), Regex.Escape($"\"epoch\": \"{current}\"")));
     }
 
-    // Probe arm 3: "read_record outcome stamps its capture", "resolve hands back the batch's epoch" (now the list
-    // lane's summary rows, which replaced resolve).
+    // Probe arm 3: "read_record outcome stamps its capture" and "the list lane's summary rows carry the batch's epoch".
     [Fact]
     public void ASingleReadAndResolve_StampTheirCapture()
     {

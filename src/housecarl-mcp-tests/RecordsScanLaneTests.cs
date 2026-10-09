@@ -87,7 +87,7 @@ public sealed class RecordsScanLaneTests : RecordsTestBase
         Assert.DoesNotContain("HcRecW1", r);
     }
 
-    // The scan lane refused the identity form; as a spelling of summary it answers with the scan's summary rows.
+    // The identity spelling answers the scan with exactly summary's rows.
     [Fact]
     public void IdentityOnTheScanLaneAnswersExactlyAsSummary()
     {
