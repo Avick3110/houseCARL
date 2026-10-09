@@ -34,7 +34,7 @@ public sealed class SkseConfigFormObjectTests(SkseConfigVerdictOrder order) : IC
             (SkseRefVerdict.Dangling, "$.data.custom.data.default_player.data[\"Carcass - Chicken\"].f.bflt.r.deny[0]"),
             (SkseRefVerdict.PluginMissing, "$.data.custom.data.default_player.data[\"Carcass - Chicken\"].f.bflt.r.deny[1]"),
         }, refs.Select(r => (r.Verdict, r.Ref.Locator)).ToArray());
-        Assert.All(refs, r => Assert.Equal(SkseRefShape.FormObject, r.Ref.Shape));
+        Assert.All(refs, r => Assert.Equal((SkseRefShape.FormObject, 0), (r.Ref.Shape, r.Ref.Line)));   // one-line file: the path locates, the line does not
         Assert.Equal(("hcAudit.esp", (uint?)0xABCDEF), (refs[1].Ref.Plugin, refs[1].Ref.LocalId));
         Assert.Equal("{\"id\":2059,\"plugin\":\"NotInstalled.esp\"}", refs[2].Ref.Raw);
     }
@@ -95,7 +95,44 @@ public sealed class SkseConfigFormObjectTests(SkseConfigVerdictOrder order) : IC
         Assert.Contains("NotInstalled.esp: 1 ref(s)", overview);
         Assert.Contains(IedPath + " $.data.custom.data.default_player.data[\"Carcass - Chicken\"].f.bflt.r.deny[0]", overview);
 
-        Assert.Contains("\"path\":", SkseConfigAuditWire.RenderJson(data, "IED", 40_000));
+        var json = SkseConfigAuditWire.RenderJson(data, "IED", 40_000);
+        var row = System.Text.Json.JsonDocument.Parse(json).RootElement.EnumerateObject().SelectMany(p => Rows(p.Value))
+            .Single(e => e.TryGetProperty("local_id", out var id) && id.GetString() == "0xABCDEF");
+        Assert.Equal(("form_token", 0, "$.data.custom.data.default_player.data[\"Carcass - Chicken\"].f.bflt.r.deny[0]"),
+            (row.GetProperty("shape").GetString(), row.GetProperty("line").GetInt32(), row.GetProperty("path").GetString()));
+        Assert.DoesNotContain("form_object", json);
+    }
+
+    // Every object in the document that carries a "verdict", at any depth.
+    static IEnumerable<System.Text.Json.JsonElement> Rows(System.Text.Json.JsonElement e) => e.ValueKind switch
+    {
+        System.Text.Json.JsonValueKind.Object => (e.TryGetProperty("verdict", out _) ? new[] { e } : Array.Empty<System.Text.Json.JsonElement>())
+            .Concat(e.EnumerateObject().SelectMany(p => Rows(p.Value))),
+        System.Text.Json.JsonValueKind.Array => e.EnumerateArray().SelectMany(Rows),
+        _ => Array.Empty<System.Text.Json.JsonElement>(),
+    };
+
+    [Fact]
+    public void AFormObjectInAMultiLineFileShowsItsLineBesideItsPath()
+    {
+        const string rel = @"SKSE\Plugins\IED\x.json";
+        var text = "{\n  \"slot\": [\n    {\"id\": 11259375, \"plugin\": \"hcAudit.esp\"}\n  ]\n}";
+        var file = new SkseConfigFileAudit(rel, "x.json", "IED", "IEDMod", 1, new[] { new SkseProvider("IEDMod", "loose") },
+            Audit(rel, text), ReadError: null);
+        var data = new SkseConfigAuditData(new[] { file }, 1, Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>(), "Default");
+
+        Assert.Contains("(line 3, at $.slot[0])", SkseConfigAuditWire.Render(data, "IED", 40_000));
+        Assert.Contains(rel + ":3 $.slot[0]", SkseConfigAuditWire.Render(data, null, 40_000));
+    }
+
+    [Fact]
+    public void AnIdThatIsNotANumberOrStringKeepsItsRawTextAndIsUnparseable()
+    {
+        var refs = SkseConfigReferenceExtractor.Extract(@"SKSE\Plugins\IED\x.json",
+            "{\"a\": {\"id\": null, \"plugin\": \"Skyrim.esm\"}, \"b\": {\"id\": true, \"plugin\": \"Skyrim.esm\"}, \"c\": {\"id\": [1, 2], \"plugin\": \"Skyrim.esm\"}}");
+        Assert.Equal(new[] { "{\"id\":null,\"plugin\":\"Skyrim.esm\"}", "{\"id\":true,\"plugin\":\"Skyrim.esm\"}", "{\"id\":[1, 2],\"plugin\":\"Skyrim.esm\"}" },
+            refs.Select(r => r.Raw).ToArray());
+        Assert.All(refs, r => Assert.NotNull(r.Unparseable));
     }
 }
 

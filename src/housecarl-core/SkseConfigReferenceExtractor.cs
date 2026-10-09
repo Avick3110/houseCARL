@@ -50,6 +50,7 @@ public static class SkseConfigReferenceExtractor
         var open = new List<Frame>();   // the containers enclosing the reader, outermost first
         string? name = null;            // the property name the next value belongs to
         int line = 1; long counted = 0;
+        bool oneLine = text.AsSpan().Trim().IndexOfAny('\n', '\r') < 0;   // a one-line file's line says nothing; its path does
         try
         {
             while (reader.Read())
@@ -60,19 +61,22 @@ public static class SkseConfigReferenceExtractor
                 {
                     var done = open[^1];
                     if (tok == JsonTokenType.EndObject && FormObjectRef(done, open) is { } r) refs.Add(r);
+                    if (done.IdOf is { } owner) owner.Id = Encoding.UTF8.GetString(bytes, (int)done.Start, (int)(reader.BytesConsumed - done.Start));
                     open.RemoveAt(open.Count - 1);
                     continue;
                 }
                 var parent = open.Count > 0 ? open[^1] : null;
                 int index = parent is { IsArray: true } ? parent.Next++ : -1;
-                if (parent is { IsArray: false } && name == "id")
-                    parent.Id = tok == JsonTokenType.Number ? Encoding.UTF8.GetString(reader.ValueSpan) : tok == JsonTokenType.String ? "\"" + reader.GetString() + "\"" : "?";
+                bool isId = parent is { IsArray: false } && name == "id";
+                if (isId && tok is not (JsonTokenType.StartObject or JsonTokenType.StartArray))
+                    parent!.Id = tok == JsonTokenType.String ? "\"" + reader.GetString() + "\"" : Encoding.UTF8.GetString(reader.ValueSpan);
                 else if (parent is { IsArray: false } && name == "plugin" && tok == JsonTokenType.String)
                     parent.Plugin = reader.GetString();
                 if (tok is JsonTokenType.StartObject or JsonTokenType.StartArray)
                 {
                     for (; counted < reader.TokenStartIndex; counted++) if (bytes[counted] == (byte)'\n') line++;
-                    open.Add(new Frame { IsArray = tok == JsonTokenType.StartArray, Name = parent is { IsArray: true } ? null : name, Index = index, Line = line });
+                    open.Add(new Frame { IsArray = tok == JsonTokenType.StartArray, Name = parent is { IsArray: true } ? null : name, Index = index,
+                        Line = oneLine ? 0 : line, Start = reader.TokenStartIndex, IdOf = isId ? parent : null });
                 }
                 name = null;
             }
@@ -88,8 +92,8 @@ public static class SkseConfigReferenceExtractor
     /// <summary>One open JSON container: where it sits in its parent, and the "id"/"plugin" members it has held so far.</summary>
     sealed class Frame
     {
-        public bool IsArray; public string? Name; public int Index; public int Next; public int Line;
-        public string? Id; public string? Plugin;
+        public bool IsArray; public string? Name; public int Index; public int Next; public int Line; public long Start;
+        public string? Id; public string? Plugin; public Frame? IdOf;   // IdOf: the object whose "id" this container is
     }
 
     /// <summary>The reference a closing object declares, or null when it is not a form object or is the empty <c>{"id":0}</c>.</summary>

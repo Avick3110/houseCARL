@@ -176,9 +176,10 @@ had, since spaces are part of names.
 A form object is read only in a `.json` file, by a reader that skips comments and allows trailing commas, as IED's own
 files carry both. The object is `{"id": <decimal local FormID>, "plugin": "<file>"}`; extra members are allowed, and
 `id` 0 is the empty form IED writes as `{"id":0}`, skipped with or without a plugin. An `id` that is not a decimal
-32-bit number (a string, a fraction, a negative) is UNPARSEABLE, never read as hex. Each form object carries the JSON
-path of the object (`$.data.custom.data.npc.data[1].form`, a name that is not a plain identifier bracketed and quoted)
-as its locator, shown in place of the line, because IED writes its whole config on one line. A file that stops parsing
+32-bit number (a string, a fraction, a negative, null, a boolean, an object) is UNPARSEABLE, never read as hex, and
+its raw keeps the `id` text the file holds. Each form object carries the JSON path of the object
+(`$.data.custom.data.npc.data[1].form`, a name that is not a plain identifier bracketed and quoted) as its locator,
+shown beside its line; in a one-line file, as IED writes its whole config, the line is 0 and the path alone locates. A file that stops parsing
 keeps the forms read before the break and adds one UNPARSEABLE reference at the breaking line, but only when a
 `"plugin"` key follows the break; a JSON fragment with no form object after the break adds nothing, so the string-token
 scan of a non-JSON `.json` is unchanged. IED's 901 KB user config is about 2,500 form objects and one pass.
@@ -245,7 +246,9 @@ number describes a wider set than the rows beside it.
   `ACommentLeaderIsNotPartOfAPluginName`, `AHashInsideAPluginNameIsKept`); the rest
   of that class pins the extractor against every reference shape the evidence sample established, because a false
   DANGLING is this family's worst failure mode; `SkseConfigVerdictTests` pins each verdict against a synthetic order,
-  and `SkseConfigRenderFramingTests` pins the BROKEN / INERT headline.
+  and `SkseConfigRenderFramingTests` pins the BROKEN / INERT headline. `SkseConfigFormObjectTests` pins the form
+  object: its verdicts and paths, the id-0 skip, the raw of a non-number id, the line beside the path, and the break;
+  `SkseConfigEngineImplicitTests` pins PlayerRef as OK while another absent Skyrim.esm form stays DANGLING.
 - *Transport*: `SkseTransportTests.EachFamilysTextRenderFilledPastItsCapAnswersInsideIt` and
   `TheJsonTailIsPaidForInsideMaxCharsRatherThanAppendedPastIt` — the tail is charged before a row is laid, and a row
   that crossed is taken back out; `ACapTooSmallForTheFixedPartSaysSoInsteadOfOverrunningSilently` — the one arm that
