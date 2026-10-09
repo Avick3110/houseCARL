@@ -507,7 +507,8 @@ internal sealed partial class RecordReads
                                      whereWinner, whereSourceNote)
                { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view), GetterTypes = types,
                  ReverseIndexNote = reverseNote,
-                 UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList() };
+                 UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList(),
+                 Unmatched = predicate?.Unmatched ?? Array.Empty<string>() };
     }
 
     /// <summary>The schema's plan-time refusal: a quantifier on a step that is not a list, or an enum literal the field's enum lacks.</summary>
@@ -848,7 +849,8 @@ internal sealed partial class RecordReads
         return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
                                      predicate?.AccountingNote(), sources, scanNote, matched, groupRows, groupBy,
                                      definedIn ? pole.Plugin : null, offset, false, null)
-               { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view) };
+               { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view),
+                 Unmatched = predicate?.Unmatched ?? Array.Empty<string>() };
     }
 
     /// <summary>Seat every type the scan NAMED in a group_by=type census at zero, so a requested type with no records reads as a 0 row rather than being absent from the table. No-op for the other count keys.</summary>
