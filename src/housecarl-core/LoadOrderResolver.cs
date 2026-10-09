@@ -932,8 +932,7 @@ public sealed class LoadOrderResolver : IDisposable
         }
     }
 
-    /// <summary>Stream every record contained in the given plugins (optionally only of the given type(s)), each with that PLUGIN'S body in hand, in load order whatever order the names
-    /// came in; a FormKey several scoped plugins touch is yielded once, from the highest-loading of them. Throws <see cref="PluginUnreadableException"/> on a scoped plugin that cannot be opened now, ending the stream.</summary>
+    /// <summary>Stream each record in the given plugins once, with its highest-loading scoped copy's body; contract in docs/architecture/load-order-resolver.md.</summary>
     public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
         IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
         => RecordsIn(plugins, getterTypes, _snap, null);                   // ONE build for the whole scan (captured here, at the call)
@@ -964,7 +963,7 @@ public sealed class LoadOrderResolver : IDisposable
         }
     }
 
-    /// <summary>Whether a scoped plugin loading after overlay <paramref name="i"/> also touches the key; <paramref name="touching"/> is the key's ascending touching list.</summary>
+    /// <summary>Whether a scoped plugin loading after overlay <paramref name="i"/> also touches the key (ascending <paramref name="touching"/>).</summary>
     static bool HigherScopedCopy(int[] touching, int i, bool[] inScope)
     {
         for (int k = touching.Length - 1; k >= 0 && touching[k] > i; k--)
@@ -972,7 +971,7 @@ public sealed class LoadOrderResolver : IDisposable
         return false;
     }
 
-    /// <summary>Resolve a scope (plugin filenames) to overlay indices in load order, each once; null or empty = the whole order. Throws on a name not in the order, naming it, off the caller's captured snapshot.</summary>
+    /// <summary>Resolve a scope (plugin filenames) to overlay indices in load order, each once; contract in docs/architecture/load-order-resolver.md.</summary>
     IReadOnlyList<int> ScopeIndices(IReadOnlyList<string>? scopePlugins, IndexSnapshot s, AbsenceCache? absences)
     {
         if (scopePlugins is null || scopePlugins.Count == 0)
