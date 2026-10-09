@@ -328,7 +328,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   caller never named is unreachable from it. A target inside the bound universe is refused, and a target in a NESTED
   group is a typed refusal naming the shape rather than a throw rendered as an internal fault.
 - An unset or empty source seed CLEARS the target's value rather than leaving it, and the clear is reported as a
-  clear rather than as a no-op or a zero count. A seed's shape is classified once, by the walk's own classifier, so
+  clear rather than as a no-op or a zero count. A single link that is PRESENT with FormID zero is not unset: it is
+  copied as a present zero, nullable or required, and reported as one (#1144). A seed's shape is classified once, by the walk's own classifier, so
   the attach and clone lanes cannot disagree about a field.
 - The off-order link check is per lane: the attach lane asks UP FRONT, nothing stripping there, while the clone lane
   asks the ARTIFACT after the strip, and the refusal splits by cause so the remedy names something the caller did —
@@ -444,7 +445,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   one when pre-flight is bypassed.
 - `NullableLinkRemoveTests` — on a written file, a `Remove`d nullable link has no subrecord and a `Set "0"` one has
   a zero subrecord, the apply echo reads each back, `info_order` places them last and first, and a copy keeps the
-  source's shape.
+  source's shape, through `CopyFrom` and through the `copy target=` seed lane.
 - `SubclassRemoveTests` — `RemovalTypeFor` routes the typed remove through the flat group's `T`, so a record whose
   concrete class is a subclass of it is really removed rather than silently skipped.
 - `UpsertCreateTests` (RERUN / OVERRIDE / CROSS-TYPE / DUP) — the replace at a stable FormKey, every replace surfaced
