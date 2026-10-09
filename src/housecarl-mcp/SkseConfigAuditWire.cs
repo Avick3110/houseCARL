@@ -256,7 +256,7 @@ static class SkseConfigAuditWire
     static string RefLine(SkseAuditedRef r) =>
         "  " + Tag(r.Verdict) + " " +
         (r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? $"folder gate '{r.Ref.Plugin}'" : $"'{r.Ref.Raw}'") +
-        (r.Ref.Locator is { } at ? $" (at {at})" : r.Ref.Line > 0 ? $" (line {r.Ref.Line})" : "") +
+        (r.Ref.Line > 0 && r.Ref.Locator is { } at ? $" (line {r.Ref.Line}, at {at})" : r.Ref.Locator is { } at1 ? $" (at {at1})" : r.Ref.Line > 0 ? $" (line {r.Ref.Line})" : "") +
         (r.Detail is null ? "" : " → " + r.Detail) + "\n";
 
     // The order a cut file shows its references in, in both twins: non-OK first, then OK, each in file order.
@@ -275,7 +275,7 @@ static class SkseConfigAuditWire
         _ => "[?]",
     };
 
-    static string Loc(Hit h) => h.Ref.Locator is { } at ? $"{h.File.RelPath} {at}" : h.Ref.Line > 0 ? $"{h.File.RelPath}:{h.Ref.Line}" : h.File.RelPath;
+    static string Loc(Hit h) => (h.Ref.Line > 0 ? $"{h.File.RelPath}:{h.Ref.Line}" : h.File.RelPath) + (h.Ref.Locator is { } at ? " " + at : "");
     static string Prov(SkseConfigFileAudit f) => f.WinningProvider is null ? "" : $"  [← {f.WinningProvider}]";
 
     static bool AppendHits(StringBuilder sb, string label, IReadOnlyList<Hit> items, int cap, Func<Hit, string> line,
@@ -425,7 +425,7 @@ static class SkseConfigAuditWire
     {
         w.WriteStartObject();
         w.WriteString("raw", r.Ref.Raw);
-        w.WriteString("shape", r.Ref.Shape switch { HousecarlCore.SkseRefShape.PathSegmentGate => "path_segment_gate", HousecarlCore.SkseRefShape.FormObject => "form_object", _ => "form_token" });
+        w.WriteString("shape", r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? "path_segment_gate" : "form_token");
         w.WriteString("plugin", r.Ref.Plugin);
         SkseJsonDoc.Nullable(w, "local_id", r.Ref.LocalId is { } id ? $"0x{id:X6}" : null);
         w.WriteNumber("line", r.Ref.Line);
