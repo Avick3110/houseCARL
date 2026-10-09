@@ -79,6 +79,16 @@ public sealed class RecordsRefusalRouteTests : RecordsTestBase
                                      project: new RecordsTools.RecordsProject { form = "chain", fields = new[] { "Configuration.Level" } }),
                 "reads no fields", "form='fields' with the same walk=");
 
+    /// <summary>With no walk= the missing walk answers first, so the sentence never names a walk the call lacks.</summary>
+    [Fact]
+    public void ChainPlusFieldsWithoutWalk_AsksForTheWalk()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.NpcChild) },
+                                     project: new RecordsTools.RecordsProject { form = "chain", fields = new[] { "Configuration.Level" } });
+        Refused(r, "pass walk=");
+        Assert.DoesNotContain("the same walk=", r);
+    }
+
     [Fact]
     public void ChainRoute_TheFieldsFormWithTheSameWalkReadsTheReachedSet() =>
         Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.NpcChild) }, walk: Template, project: Fields("Configuration.Level")),
