@@ -538,12 +538,17 @@ static partial class Wire
         else if (note is not null) sb.Append("  runtime=(").Append(note).Append(')');
     }
 
-    /// <summary>The quoted Name token a text summary row prints, with a quote or backslash inside it escaped so the token ends where it should; nothing for a record with no Name.</summary>
+    /// <summary>The quoted Name token a text summary row prints, with a quote, backslash or line break inside it escaped so the token ends where it should and the row stays one line; nothing for a record with no Name.</summary>
     internal static void AppendName(StringBuilder sb, string? name)
     {
         if (name is null) return;
         sb.Append("  name=\"");
-        foreach (var c in name) { if (c is '"' or '\\') sb.Append('\\'); sb.Append(c); }
+        foreach (var c in name)
+        {
+            if (c == '\n') sb.Append("\\n");
+            else if (c == '\r') sb.Append("\\r");
+            else { if (c is '"' or '\\') sb.Append('\\'); sb.Append(c); }
+        }
         sb.Append('"');
     }
 
