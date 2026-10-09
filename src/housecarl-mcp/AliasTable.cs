@@ -14,7 +14,7 @@ internal static class AliasTable
         ("housecarl_batch_record_detail",
          "absorbed into " + ToolNames.Records + ": the same formids= list with a project= form (summary | fields | everything); plugin= is source=; to_file=/@file re-entry unchanged."),
         ("housecarl_resolve",
-         "absorbed into " + ToolNames.Records + ": formids=[…] with project={\"form\": \"identity\"} — the labeling form."),
+         "absorbed into " + ToolNames.Records + ": formids=[…] with project={\"form\": \"summary\"} (the default) — type, editorid, name and winner per FormID."),
         ("housecarl_cross_plugin_query",
          "absorbed into " + ToolNames.Records + ": the same scan terms, set-valued — type= is types=, editorid_contains= is where=[\"editorid contains …\"], group_by= is project={\"form\": \"aggregate\", \"group_by\": …}, fields= lives inside project={\"form\": \"fields\"}."),
         ("housecarl_read_plugin_file",
