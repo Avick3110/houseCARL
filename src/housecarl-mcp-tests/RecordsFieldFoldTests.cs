@@ -283,17 +283,18 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
 
     // ---- what the read is actually asked for --------------------------------------------------------
 
-    /// <summary>Two columns quantifying ONE list are one read of it: ReadEngine.ReadFields does not de-duplicate
-    /// its targets and spends a single expansion budget across them, so a repeated path walks the list twice on
-    /// that one budget. The unquantified column rides along at the caller's own depth.</summary>
+    /// <summary>Two whole columns quantifying ONE list are one read of it: ReadEngine.ReadFields does not
+    /// de-duplicate its targets and spends a single expansion budget across them. A sub-path column is its own read
+    /// of that sub-path off each element. The unquantified column rides along at the caller's own depth.</summary>
     [Fact]
     public void OneListQuantifiedTwiceIsReadOnceAndSiblingsAtTheCallersDepth()
     {
-        var (plan, err) = FieldFolds.Parse(new[] { "Effects[*]", "Effects[*].Data.Magnitude", "EditorID" });
+        var (plan, err) = FieldFolds.Parse(new[] { "Effects[*]", "Effects[*count]", "Effects[*].Data.Magnitude", "EditorID" });
         Assert.Null(err);
         var (paths, depths) = (plan! with { Depth = 4 }).Read();
-        Assert.Equal(new[] { "Effects", "EditorID" }, paths);
-        Assert.Equal(new[] { 4, 1 }, depths);
+        Assert.Equal(new[] { "Effects", "Effects", "EditorID" }, paths);
+        Assert.Equal(new[] { 4, 4, 1 }, depths.Select(d => d.Depth));
+        Assert.Equal(new[] { "", "Data.Magnitude", "" }, depths.Select(d => string.Join(".", d.Tail ?? Array.Empty<string>())));
     }
 
     /// <summary>An unquantified column beside a quantified one renders at the caller's own depth, so it is READ at

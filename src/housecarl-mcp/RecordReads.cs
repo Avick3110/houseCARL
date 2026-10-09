@@ -41,7 +41,7 @@ internal sealed partial class RecordReads
     public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                    bool resolveNames = false, LinkMemo? linkMemo = null,
                                    string? containerHint = ReadEngine.DepthExpandHint,
-                                   IReadOnlyList<int>? depths = null,
+                                   IReadOnlyList<(int Depth, string[]? Tail)>? depths = null,
                                    IReadOnlyCollection<string>? countFields = null)
     {
         var resolver = _host.Resolver;
@@ -60,7 +60,7 @@ internal sealed partial class RecordReads
                             string? containerHint = ReadEngine.DepthExpandHint,
                             ChildUnionMemo? unionMemo = null,
                             LoadOrderResolver.OverlaySession? batchSession = null,
-                            IReadOnlyList<int>? depths = null,
+                            IReadOnlyList<(int Depth, string[]? Tail)>? depths = null,
                             IMajorRecordGetter? prefetched = null,
                             IReadOnlyCollection<string>? countFields = null,
                             bool summary = false)
@@ -321,7 +321,7 @@ internal sealed partial class RecordReads
                                        bool conflictTree, int depth, bool resolveNames,
                                        LinkMemo? linkMemo,
                                        string? containerHint,
-                                       IReadOnlyList<int>? depths,
+                                       IReadOnlyList<(int Depth, string[]? Tail)>? depths,
                                        LoadOrderResolver.OverlaySession? session,
                                        IMajorRecordGetter? prefetched,
                                        IReadOnlyCollection<string>? countFields)
@@ -433,7 +433,7 @@ internal sealed partial class RecordReads
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                                                    bool resolveNames, string? plugin,
                                                    string? containerHint,
-                                                   IReadOnlyList<int>? depths,
+                                                   IReadOnlyList<(int Depth, string[]? Tail)>? depths,
                                                    CancellationToken ct,
                                                    IReadOnlyList<Type>? getterTypes,
                                                    IReadOnlyCollection<string>? countFields)
@@ -447,7 +447,7 @@ internal sealed partial class RecordReads
                                                    bool resolveNames, string? plugin, ArtifactDemand? artifactDemand,
                                                    out string? artifactRefusal, out OrderStamp? refusalEpoch,
                                                    string? containerHint,
-                                                   IReadOnlyList<int>? depths,
+                                                   IReadOnlyList<(int Depth, string[]? Tail)>? depths,
                                                    CancellationToken ct,
                                                    IReadOnlyList<Type>? getterTypes,
                                                    IReadOnlyCollection<string>? countFields,
@@ -582,7 +582,7 @@ internal sealed partial class RecordReads
         ArtifactDemand? artifactDemand,
         out PoleInfo? pole, out string? refusal, out OrderStamp? refusalEpoch,
         string? containerHint,
-        IReadOnlyList<int>? depths,
+        IReadOnlyList<(int Depth, string[]? Tail)>? depths,
         CancellationToken ct,
         IReadOnlyList<Type>? getterTypes,
         IReadOnlyCollection<string>? countFields,

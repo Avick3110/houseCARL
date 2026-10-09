@@ -24,6 +24,10 @@ public static class PathFoldGrammar
         return (seg[..open], fold, key);
     }
 
+    /// <summary>How many expansion levels a sub-path adds below one element: a dotted step is one, and a bracketed
+    /// index inside a step another.</summary>
+    public static int Levels(IReadOnlyList<string> segs) => segs.Sum(s => 1 + s.Count(c => c == '['));
+
     /// <summary>The token a fold is spelled with, for a message.</summary>
     public static string Token(PathFold f) => f switch
     {

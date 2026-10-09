@@ -22,6 +22,9 @@ public sealed class QuantifiedLeafWorld : IDisposable
     /// <summary>More effects than the budget has lines, so even one leaf each is cut.</summary>
     public FormKey HugeSpell { get; }
 
+    /// <summary>The long spell as built, for a read that does not go through the tool.</summary>
+    public ISpellGetter LongSpellRecord { get; }
+
     public QuantifiedLeafWorld()
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-quantleaf-tests-" + Guid.NewGuid().ToString("N"));
@@ -37,6 +40,7 @@ public sealed class QuantifiedLeafWorld : IDisposable
             for (int c = 0; c < 3; c++) e.Conditions.Add(new ConditionFloat { ComparisonValue = c, Data = new GetLevelConditionData() });
             spell.Effects.Add(e);
         }
+        LongSpellRecord = spell;
         var huge = master.Spells.AddNew(); huge.EditorID = "HcLeafHuge"; HugeSpell = huge.FormKey;
         for (int i = 0; i <= ReadEngine.MaxExpandNodes; i++)
         {
@@ -121,12 +125,40 @@ public sealed class RecordsQuantifiedLeafBudgetTests : IClassFixture<QuantifiedL
         Assert.Equal(QuantifiedLeafWorld.LongCount, dense.GetProperty("rows").GetArrayLength());
     }
 
+    /// <summary>A list leaf is opened at the depth the whole element's walk reaches it, not a level deeper, which
+    /// here would open every condition and overrun the budget.</summary>
     [Fact]
-    public void TheReadNamesTheLeafOnlyWhenNothingReadsTheListWhole()
+    public void ALeafIsOpenedNoDeeperThanTheWholeElementWalkOpensIt()
     {
-        var (alone, _) = FieldFolds.Parse(new[] { "Effects[*].BaseEffect", "Effects[*count]" });
-        Assert.Equal(new[] { "Effects[*].BaseEffect", "Effects" }, alone!.Read().Paths);
-        var (whole, _) = FieldFolds.Parse(new[] { "Effects[*].BaseEffect", "Effects" });
-        Assert.Equal(new[] { "Effects" }, whole!.Read().Paths);
+        var r = Read(W.LongSpell, "Effects[*].Conditions");
+        Assert.Equal(QuantifiedLeafWorld.LongCount, CountOf(r, "].Conditions = "));
+        Assert.DoesNotContain("expansion truncated", r);
+    }
+
+    /// <summary>The sub-path column reads its own leaves whatever else the call reads off the same list.</summary>
+    [Theory]
+    [InlineData("Effects")]
+    [InlineData("Effects[*]")]
+    [InlineData("Effects[0]")]
+    public void ASubPathColumnIsTheSameBesideTheWholeList(string sibling)
+    {
+        static List<string> Column(string dense) => JsonDocument.Parse(dense).RootElement.GetProperty("rows").EnumerateArray()
+            .Select(r => r[3].ValueKind == JsonValueKind.Null ? "" : r[3].ToString()).ToList();
+        var alone = Column(Dense(W.LongSpell, "Effects[*].BaseEffect.FormKey"));
+        var beside = Column(Dense(W.LongSpell, "Effects[*].BaseEffect.FormKey", sibling));
+        Assert.Equal(QuantifiedLeafWorld.LongCount, alone.Count(c => c.Contains("HcLeafMaster")));
+        Assert.Equal(alone, beside);
+    }
+
+    string Dense(FormKey fk, params string[] paths) =>
+        RecordsTools.Records(W.Svc, formids: new[] { RecordsWorld.Fid(fk) }, format: "dense", max_chars: 1_000_000,
+                             project: new RecordsTools.RecordsProject { form = "fields", fields = paths });
+
+    /// <summary>The engine's own path reader is unchanged: only the fold reads a sub-path off each element.</summary>
+    [Fact]
+    public void TheEngineStillRefusesAQuantifierInAReadPath()
+    {
+        var read = ReadEngine.ReadFields(W.LongSpellRecord, new[] { "Effects[*].BaseEffect" }, depth: 3);
+        Assert.DoesNotContain(read.Fields, f => f.Path.StartsWith("Effects[0]", StringComparison.Ordinal));
     }
 }
