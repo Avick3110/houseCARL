@@ -76,10 +76,7 @@ internal static class DialogueWire
         foreach (var l in silent)
         {
             if (sb.Length >= cap) { sb.Append(pad).Append("    ... [truncated at max_chars]\n"); return; }
-            sb.Append(pad).Append("    [!] WILL BE SILENT  ").Append(FormIdToken.Of(l.Info)).Append(" resp ").Append(l.ResponseNumber)
-              .Append(" — no .fuz at ").Append(l.FuzPath).Append("  (place the audio here)");
-            if (!l.LipPresent) sb.Append("; .lip also absent");
-            sb.Append('\n');
+            sb.Append(pad).Append("    ").Append(SilentVerdict(l)).Append('\n');
         }
         foreach (var grp in t.VoiceUndetermined.GroupBy(u => u.Reason))
         {
@@ -88,6 +85,11 @@ internal static class DialogueWire
             sb.Append(pad).Append("    [?] ").Append(n).Append(n == 1 ? " line: " : " lines: ").Append(grp.Key).Append('\n');
         }
     }
+
+    /// <summary>The one-line verdict for a voice line with no .fuz; the inline block and the artifact row read this.</summary>
+    internal static string SilentVerdict(VoiceLine l) =>
+        "[!] WILL BE SILENT  " + FormIdToken.Of(l.Info) + " resp " + l.ResponseNumber + " — no .fuz at " + l.FuzPath
+        + "  (place the audio here)" + (l.LipPresent ? "" : "; .lip also absent");
 
     /// <summary>Result scripts: WILL NOT FIRE lines named with any missing .pex, bound ones a count.</summary>
     static void AppendScripts(StringBuilder sb, TopicValidation t, string pad, int cap)

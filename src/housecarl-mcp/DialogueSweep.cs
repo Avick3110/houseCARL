@@ -105,9 +105,9 @@ internal static class DialogueSweep
             yield return new(Severity(i), r.InputWinnerPlugin, input, r.InputEditorId, InputSignature(r.InputKind), null, null, i.Message);
         // The coverage gaps count too: "0 findings" over a report that lost a plugin reads as a clean pass.
         foreach (var gap in r.ScanGaps)
-            yield return new("scan_gap", r.InputWinnerPlugin, input, r.InputEditorId, InputSignature(r.InputKind), null, null, gap);
+            yield return new("scan_error", r.InputWinnerPlugin, input, r.InputEditorId, InputSignature(r.InputKind), null, null, gap);
         if (DialogueWire.SeqIsFinding(r.SeqLint))
-            yield return new("seq", r.SeqLint!.DefiningPlugin, input, r.InputEditorId, "QUST",
+            yield return new("seq_unconfirmed", r.SeqLint!.DefiningPlugin, input, r.InputEditorId, "QUST",
                              r.SeqLint.DefiningPlugin + ".seq", null, DialogueWire.SeqVerdict(r.SeqLint));
         foreach (var t in r.Topics)
         {
@@ -115,12 +115,12 @@ internal static class DialogueSweep
             foreach (var i in t.Issues)
                 yield return new(Severity(i), t.WinnerPlugin, topic, t.TopicEditorId, "DIAL", null, null, i.Message);
             foreach (var l in t.VoiceLines.Where(l => !l.FuzPresent))
-                yield return new("silent_line", t.WinnerPlugin, l.Info.ToString(), t.TopicEditorId, "INFO", l.FuzPath, null,
-                                 $"response {l.ResponseNumber} has no .fuz at {l.FuzPath}" + (l.LipPresent ? "" : "; .lip also absent"));
+                yield return new("silent_line", t.WinnerPlugin, l.Info.ToString(), null, "INFO", l.FuzPath, null,
+                                 DialogueWire.SilentVerdict(l));
             foreach (var f in t.ScriptFindings.Where(f => f.Status is ScriptBindingStatus.ScriptNotCompiled
                                                                    or ScriptBindingStatus.BindingIncomplete))
                 yield return new(f.Status == ScriptBindingStatus.ScriptNotCompiled ? "script_not_compiled" : "binding_incomplete",
-                                 t.WinnerPlugin, f.Info.ToString(), t.TopicEditorId, "INFO",
+                                 t.WinnerPlugin, f.Info.ToString(), null, "INFO",
                                  f.MissingPex.Count > 0 ? string.Join(", ", f.MissingPex) : null,
                                  f.Scripts.Count > 0 ? string.Join(", ", f.Scripts) : null, f.Detail);
         }
