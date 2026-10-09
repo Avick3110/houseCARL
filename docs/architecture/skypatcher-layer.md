@@ -129,11 +129,13 @@ lint lives under that line in `housecarl_skypatcher_layer filter=`: unknown keys
 tokens that resolve to nothing, resolved once per line, in the words a read uses.
 
 **On a records scan.** `housecarl_records` with the post-state overlay over a scan replays only the rows its
-`limit=` window keeps. The scan selects off the plugin records, so `types=`, `plugins=` and `where=` judge each
-record before the layer replays; when `where=` is present the header and the json `source_note` say so. The
+`limit=` window keeps. The scan selects off the plugin records, so `types=`, `plugins=`, `where=` and `references=`
+judge each record before the layer replays; when `where=` or `references=` is present the scan's note says so, naming
+them (`scan_note` on json and dense, a header line on text). The
 window's keys go through `OverlayPostBatch`, the list lane's batch, which opens one replay context for the call.
-`aggregate` and `counts_only` are not replayed: they count the plugin records, and `source_note` says that. A
-comparison form or `to_file=` with an overlay pole on a scan is refused, because each covers every match. The
+`aggregate` and `counts_only` are not replayed: they count the plugin records, and the scan's note says that. A
+comparison form, a walk or `to_file=` with an overlay pole on a scan is refused, because each covers every match or
+every record reached (a walk would replay its whole reached set, not the window). The
 pre state on a scan is the winner scan, said in its source statement.
 
 ### Reports and drafts
@@ -189,8 +191,8 @@ hardened.
   HARD op that acquires a mapping.
 - *How the overlay replays onto a record*, on a records scan: `RecordsScanPoleTests` — a draft's post state read
   over a scan in text, json and dense; `limit=1` opens one replay context and reads one body; `where=` drops a record
-  its winner fails though the draft would pass it, and says so; a count opens no replay and carries the note;
-  `to_file=` is refused.
+  its winner fails though the draft would pass it, and says so, as `references=` does; a count opens no replay and
+  carries the note; a walk and `to_file=` are refused.
 - *Reports and drafts*: `SkyPatcherConflictsTests` — SET collisions with the later
   file winning, accumulating ops not conflicts, and the ITM classes.
 - *Reports and drafts*: `RecordsSkyPatcherDraftTests.ADraftThatSetsALeafIsReadInThePostState` — a draft is folded into
