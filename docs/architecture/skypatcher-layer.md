@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-24
+updated: 2026-10-09
 covers: [src/housecarl-core/SkyPatcherParse.cs, src/housecarl-core/SkyPatcherCatalog.cs, src/housecarl-core/SkyPatcherFieldMap.cs, src/housecarl-core/SkyPatcherDiscovery.cs, src/housecarl-core/SkyPatcherOverlay.cs, src/housecarl-core/SkyPatcherConflicts.cs, src/housecarl-core/SkyPatcherDraft.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/SkyPatcherReplay.cs]
 ---
 # The SkyPatcher layer
@@ -128,6 +128,14 @@ filter=<INI> lists them`; in json the same lines join the `skypatcher_warnings` 
 lint lives under that line in `housecarl_skypatcher_layer filter=`: unknown keys and the filter form
 tokens that resolve to nothing, resolved once per line, in the words a read uses.
 
+**On a records scan.** `housecarl_records` with the post-state overlay over a scan replays only the rows its
+`limit=` window keeps. The scan selects off the plugin records, so `types=`, `plugins=` and `where=` judge each
+record before the layer replays; when `where=` is present the header and the json `source_note` say so. The
+window's keys go through `OverlayPostBatch`, the list lane's batch, which opens one replay context for the call.
+`aggregate` and `counts_only` are not replayed: they count the plugin records, and `source_note` says that. A
+comparison form or `to_file=` with an overlay pole on a scan is refused, because each covers every match. The
+pre state on a scan is the winner scan, said in its source statement.
+
 ### Reports and drafts
 
 `SkyPatcherConflicts` is report-only: it names same-field, same-target SET collisions across files
@@ -179,6 +187,10 @@ hardened.
   always rides, a draft's line rides whatever its verdict, and `filter=` lists the lint under its line.
 - *How the overlay replays onto a record*: `SkyPatcherFieldMapGuardTests.AMappedHardOpIsCaught` — CI rejects a
   HARD op that acquires a mapping.
+- *How the overlay replays onto a record*, on a records scan: `RecordsScanPoleTests` — a draft's post state read
+  over a scan in text, json and dense; `limit=1` opens one replay context and reads one body; `where=` drops a record
+  its winner fails though the draft would pass it, and says so; a count opens no replay and carries the note;
+  `to_file=` is refused.
 - *Reports and drafts*: `SkyPatcherConflictsTests` — SET collisions with the later
   file winning, accumulating ops not conflicts, and the ITM classes.
 - *Reports and drafts*: `RecordsSkyPatcherDraftTests.ADraftThatSetsALeafIsReadInThePostState` — a draft is folded into
