@@ -173,7 +173,7 @@ public static class SkseTools
             "'config': whether the form references in SKSE configs resolve. It reads the winning copy of every " +
             ".ini/.toml/.json/.yaml/.yml at any depth under Data\\SKSE\\Plugins and extracts every form-shaped " +
             "reference: a hex FormID beside a plugin filename in either order (0xFORM|Plugin.esp as DSD, CDF and " +
-            "po3 write it, Plugin.esp|0xFORM as SkyPatcher writes it, the ~ tilde form), IED's JSON {\"id\",\"plugin\"} " +
+            "po3 write it, Plugin.esp|0xFORM as SkyPatcher writes it, the ~ form), IED's {\"id\",\"plugin\"} " +
             "objects and plugin-named folder gates (DynamicStringDistributor\\Plugin.esp\\...). Each resolves against the active order as OK, " +
             "PLUGIN MISSING (plugin not in the order), DANGLING (plugin present, no such record) or UNPARSEABLE " +
             "(shape-matched but cannot be normalized), summed as BROKEN (dangling or unparseable, actionable) versus " +
