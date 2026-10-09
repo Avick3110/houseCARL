@@ -1280,6 +1280,8 @@ public static partial class RecordsTools
             if (srcOverlay && walk is not null)
                 return Wire.Refuse(json, OverlayScanRefusal("a walk reads every record it reaches"));
             // What the pole did not decide on this call, carried on the scan's own note.
+            if (srcSpec.ReplaysOverlay && winnerFields)
+                return Wire.Refuse(json, "error: fields_source='winner' and an overlay source= on a scan are TWO display poles on one call — the post-SkyPatcher version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').");
             string? poleNote = null;
             bool hasBodyFilter = where is { Length: > 0 } || references is { Length: > 0 };
             bool hasTypes = types is { Length: > 0 };
@@ -1482,7 +1484,7 @@ public static partial class RecordsTools
 
             // ---- the render's own bound, checked before any body is read and BELOW the walk lane, which measures
             // its own reached count instead; the named-fields and 'everything' lanes are measured separately. ----
-            if ((bodyFields || form == "everything") && !counts_only
+            if ((bodyFields || form == "everything" || (bodyLaneForm && form == "summary")) && !counts_only
                 && outcome.Error is null && outcome.Groups is null
                 && RenderBudget.Refuse(svc.Bounds, outcome.Keys.Count, form == "everything") is { } tooBig)
                 return Wire.Refuse(json, tooBig, outcome.Stamp);
@@ -1574,7 +1576,9 @@ public static partial class RecordsTools
                 var bodyClock = System.Diagnostics.Stopwatch.StartNew();
                 bool summaryRows = form == "summary";
                 var bodyRead = summaryRows ? RecordReads.HeaderRead : bodyFields ? readPaths : null;
-                if (srcSpec.ReplaysOverlay)
+                if (keys.Count == 0)
+                    bodies = Array.Empty<ReadOutcome>();   // an empty window reads nothing, so it opens no replay
+                else if (srcSpec.ReplaysOverlay)
                 {
                     // Only the window is replayed, through one replay context for the call.
                     bodies = svc.OverlayPostBatch(keys, bodyRead, depth, resolveNames, null, out var oref, out var orefEpoch, out _,

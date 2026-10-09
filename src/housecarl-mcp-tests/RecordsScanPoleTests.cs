@@ -173,7 +173,41 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         var r = RecordsTools.Records(Svc, types: Weap, source: DraftPost("scan-where"), where: new[] { "BasicStats.Damage >= 100" },
                                      project: Fields("BasicStats.Damage"));
         Served(r, WhereNote);
-        Assert.DoesNotContain("123", r);
+        Assert.DoesNotContain($"formid={Fid(W.Weapons[0])}", r);
+        Assert.DoesNotContain("BasicStats.Damage = 123", r);
+    }
+
+    /// <summary>A window with no rows reads nothing, so it opens no replay context.</summary>
+    [Fact]
+    public void OverlayScanEmptyWindow_OpensNoReplay()
+    {
+        var opens = ReplayOpens(() => RecordsTools.Records(Svc, types: Weap, source: Overlay("post"), where: new[] { "BasicStats.Damage >= 1000" },
+                                                           project: Fields("BasicStats.Damage")), out var r);
+        Served(r, "0 match(es)");
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
+    public void OverlayScanWinnerFields_IsRefusedAsTwoDisplayPoles()
+    {
+        var opens = ReplayOpens(() => RecordsTools.Records(Svc, types: Weap, source: Overlay("post"), fields_source: "winner",
+                                                           project: Fields("BasicStats.Damage")), out var r);
+        Refused(r, "TWO display poles", "fields_source=");
+        Assert.Equal(0, opens);
+    }
+
+    /// <summary>A summary on the body lane reads a replay per row, so it is bounded as the fields form is.</summary>
+    [Fact]
+    public void OverlayScanSummary_PastTheRenderBound_IsRefusedBeforeAnyReplay()
+    {
+        long opens = 0; string r = "";
+        Svc.WithBounds(b => b with { Rows = 1 }, () =>
+        {
+            opens = ReplayOpens(() => RecordsTools.Records(Svc, types: Weap, source: Overlay("post"), limit: 100000), out r);
+            return r;
+        });
+        Refused(r, "row bound");
+        Assert.Equal(0, opens);
     }
 
     /// <summary>The note rides the scan's existing note channel, not a key of its own.</summary>
