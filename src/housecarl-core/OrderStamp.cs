@@ -43,6 +43,6 @@ public static class OrderDegraded
         (pointToStatus ? " — reason in housecarl_load_order_status" : "");
 
     /// <summary>The first <paramref name="cap"/> names of a roster, then <paramref name="more"/> of how many are left.</summary>
-    internal static string Shown(IReadOnlyList<string> sorted, int cap, Func<int, string> more) =>
-        string.Join(", ", sorted.Take(cap)) + (sorted.Count > cap ? more(sorted.Count - cap) : "");
+    internal static string Shown(IReadOnlyList<string> names, int cap, Func<int, string> more) =>
+        string.Join(", ", names.Take(cap)) + (names.Count > cap ? more(names.Count - cap) : "");
 }

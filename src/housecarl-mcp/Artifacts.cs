@@ -232,7 +232,7 @@ internal static class Artifacts
             notes.Add(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, levers));
         if (OwnedChildNotes(annotatedFields) is { } child) notes.AddRange(child);
         // The whole unmatched list: the response names only what fits.
-        if (q.Unmatched.Count > 0) notes.Add(FieldPredicateSet.UnmatchedSentence(q.Unmatched, q.Unmatched.Count));
+        if (q.Unmatched.Count > 0) notes.Add(FieldPredicateSet.UnmatchedSentence(q.Unmatched, q.Unmatched.Count, q.UnmatchedGap, inManifest: true));
         return notes.Count > 0 ? notes : null;
     }
 

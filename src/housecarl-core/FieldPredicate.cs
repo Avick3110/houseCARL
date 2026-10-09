@@ -20,7 +20,8 @@ public sealed class FieldPredicateSet
                             Fold[]? PathFolds = null, Fold[]? LinkFolds = null,
                             int ParentHops = 0, int LinkParentHops = 0,
                             FormKey? RuntimeKey = null, HashSet<FormKey>? RuntimeKeys = null,
-                            bool Negate = false, IReadOnlyList<FormKey>? FormIdOrder = null)
+                            bool Negate = false, IReadOnlyList<(FormKey Key, string Raw)>? FormIdOrder = null,
+                            IReadOnlyDictionary<string, int>? EidIndex = null)
     {
         /// <summary>The path as the caller wrote it, with its '->' link side when it has one.</summary>
         public string FullPath => LinkPathDisplay is null ? PathDisplay : LinkPathDisplay + "->" + PathDisplay;
@@ -45,7 +46,7 @@ public sealed class FieldPredicateSet
     readonly string?[] _noParentWhat;  // the record type it found none for, for the sentence
     readonly long[] _badKey;      // per-predicate SUBSET of _noField: a bracket key the type's list can never take
     readonly string?[] _badKeyWhat;    // that key's sentence, for the refusal and the note
-    readonly HashSet<string>?[] _eidHits;   // per-predicate: the EditorIDs an 'editorid in' list matched
+    readonly bool[]?[] _eidHits;   // per-predicate: which 'editorid in' members (by EidIndex position) matched
     readonly HashSet<FormKey>?[] _fkHits;   // per-predicate: the FormIDs a 'formid in' list matched
     long _scanned;
     string? _fatal;
@@ -122,12 +123,12 @@ public sealed class FieldPredicateSet
         _noParentWhat = new string?[predicates.Count];
         _badKey = new long[predicates.Count];
         _badKeyWhat = new string?[predicates.Count];
-        _eidHits = new HashSet<string>?[predicates.Count];
+        _eidHits = new bool[]?[predicates.Count];
         _fkHits = new HashSet<FormKey>?[predicates.Count];
         for (int k = 0; k < predicates.Count; k++)
             if (TracksMembers(predicates[k]))
             {
-                if (predicates[k].Pseudo == PseudoPath.EditorId) _eidHits[k] = new(StringComparer.OrdinalIgnoreCase);
+                if (predicates[k].Pseudo == PseudoPath.EditorId) _eidHits[k] = new bool[predicates[k].RawMembers!.Count];
                 else _fkHits[k] = new();
             }
     }
@@ -139,30 +140,43 @@ public sealed class FieldPredicateSet
     /// <summary>How many unmatched members the response names before it counts the rest.</summary>
     public const int UnmatchedShown = 20;
 
-    /// <summary>The members of the identity 'in' lists that matched no record this set judged, in list order, each once.</summary>
-    public IReadOnlyList<string> Unmatched
+    IReadOnlyList<string>? _unmatched;
+
+    /// <summary>The members of the identity 'in' lists that matched no record this set judged, in list order, each once as typed; built on the first read, after the scan.</summary>
+    public IReadOnlyList<string> Unmatched => _unmatched ??= BuildUnmatched();
+
+    List<string> BuildUnmatched()
     {
-        get
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var misses = new List<string>();
+        for (int k = 0; k < _predicates.Count; k++)
         {
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var misses = new List<string>();
-            for (int k = 0; k < _predicates.Count; k++)
-            {
-                if (_eidHits[k] is { } eh)
-                    foreach (var m in _predicates[k].RawMembers!)
-                        if (!eh.Contains(m) && seen.Add(m)) misses.Add(m);
-                if (_fkHits[k] is { } fh)
-                    foreach (var fk in _predicates[k].FormIdOrder!)
-                        if (!fh.Contains(fk) && seen.Add(FormIdToken.Of(fk))) misses.Add(FormIdToken.Of(fk));
-            }
-            return misses;
+            var p = _predicates[k];
+            if (_eidHits[k] is { } eh)
+                foreach (var m in p.RawMembers!)
+                    if (!eh[p.EidIndex![m]] && seen.Add(m)) misses.Add(m);
+            if (_fkHits[k] is { } fh)
+                foreach (var (key, raw) in p.FormIdOrder!)
+                    if (!fh.Contains(key) && seen.Add(raw)) misses.Add(raw);
+        }
+        return misses;
+    }
+
+    /// <summary>Record which identity 'in' members a record carries without judging it: for a record only another where= term would drop before <see cref="Matches"/>.</summary>
+    public void NoteMembers(IMajorRecordGetter body)
+    {
+        for (int k = 0; k < _predicates.Count; k++)
+        {
+            if (_eidHits[k] is { } eh && body.EditorID is { } eid && _predicates[k].EidIndex!.TryGetValue(eid, out var at)) eh[at] = true;
+            if (_fkHits[k] is { } fh && _predicates[k].FormIds!.Contains(body.FormKey)) fh.Add(body.FormKey);
         }
     }
 
-    /// <summary>The sentence naming the unmatched members, the first <paramref name="cap"/> by name and the rest by count.</summary>
-    public static string UnmatchedSentence(IReadOnlyList<string> unmatched, int cap) =>
-        $"note: {unmatched.Count:N0} 'in' list member(s) have no record in this selection: " +
-        OrderDegraded.Shown(unmatched, cap, n => $", and {n:N0} more (to_file= keeps the whole list)") + ".";
+    /// <summary>The sentence naming the unmatched members, the first <paramref name="cap"/> by name and the rest by count; <paramref name="gap"/> names why some records went unjudged.</summary>
+    public static string UnmatchedSentence(IReadOnlyList<string> unmatched, int cap, string? gap, bool inManifest) =>
+        $"note: {unmatched.Count:N0} 'in' list member(s) " +
+        (gap is null ? "have no record in this selection: " : $"matched no record in this selection, but {gap}, so a record may exist for them: ") +
+        OrderDegraded.Shown(unmatched, cap, n => $", and {n:N0} more ({(inManifest ? "the manifest's notes name them all" : "to_file= keeps the whole list")})") + ".";
 
     /// <summary>Set once when a numeric operator meets a non-numeric field value; null while the predicate is well-typed.</summary>
     public string? FatalError => _fatal ?? BadKeyRefusal();
@@ -445,7 +459,14 @@ public sealed class FieldPredicateSet
             }
             var (members, mset, martifact, mruntime, merr) = ParseValueList(text, operand, parseFormId, resolveRuntime: pseudo == PseudoPath.None);
             if (merr is not null) return (null, merr);
-            return (new Predicate(text, segs, path, op, operand, 0, mset, martifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, RawMembers: members, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops, RuntimeKeys: mruntime), null);
+            // An EditorID list's one case-blind lookup: member to its first position, for the test and the hit record.
+            Dictionary<string, int>? eidIndex = null;
+            if (pseudo == PseudoPath.EditorId)
+            {
+                eidIndex = new(StringComparer.OrdinalIgnoreCase);
+                for (int m = 0; m < members!.Count; m++) eidIndex.TryAdd(members[m], m);
+            }
+            return (new Predicate(text, segs, path, op, operand, 0, mset, martifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, RawMembers: members, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops, RuntimeKeys: mruntime, EidIndex: eidIndex), null);
         }
         if (pseudo == PseudoPath.FormId)
             return (null, $"predicate '{raw}': 'formid' takes the membership ops only — \"formid in <list>\" / \"formid not in <list>\" (a single record is \"formid in [XXXXXX:Plugin.esp]\").");
@@ -575,7 +596,7 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>Parse an <c>in</c>/<c>not in</c> operand into its FormKey set: <c>@&lt;absolute path&gt;</c> or the inline list; separators and the artifact form in docs/architecture/select-and-walk.md.</summary>
-    static (HashSet<FormKey>?, List<FormKey>?, ArtifactDemand?, string?) ParseFormIdList(string raw, string operand, Func<string?, FormKey>? parseFormId)
+    static (HashSet<FormKey>?, List<(FormKey Key, string Raw)>?, ArtifactDemand?, string?) ParseFormIdList(string raw, string operand, Func<string?, FormKey>? parseFormId)
     {
         var toKey = parseFormId ?? (t => FormKey.Factory((t ?? "").Trim()));
         string content;
@@ -598,11 +619,11 @@ public sealed class FieldPredicateSet
                     return (null, null, null, $"predicate '{raw}': artifact '{path}' (from {manifest.Tool}) carries '{manifest.Identity}' " +
                                         $"identities, not FormIDs — there is no formid list in it to test membership against.");
                 var aset = new HashSet<FormKey>();
-                var aorder = new List<FormKey>();
+                var aorder = new List<(FormKey Key, string Raw)>();
                 foreach (var tok in tokens!)
                 {
                     // ReadIdentity already excludes error rows, so a non-FormID here is a genuine mismatch.
-                    try { var ak = toKey(tok); if (aset.Add(ak)) aorder.Add(ak); }
+                    try { var ak = toKey(tok); if (aset.Add(ak)) aorder.Add((ak, tok)); }
                     catch (Exception ex)
                     {
                         return (null, null, null, $"predicate '{raw}': artifact '{path}' identity value '{tok}' is not a FormID ({ex.Message}) — " +
@@ -615,12 +636,12 @@ public sealed class FieldPredicateSet
         else content = operand;
 
         var set = new HashSet<FormKey>();
-        var order = new List<FormKey>();   // the caller's order, for naming the unmatched members
+        var order = new List<(FormKey Key, string Raw)>();   // the caller's order and spelling, for naming the unmatched members
         foreach (var tok in ListMembers(content))
         {
             // Named before the door runs, so the sentence is the same with or without a load order in hand.
             if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, null, hybrid);
-            try { var key = toKey(tok); if (set.Add(key)) order.Add(key); }
+            try { var key = toKey(tok); if (set.Add(key)) order.Add((key, tok)); }
             catch (Exception ex)
             {
                 // A plugin filename can legally contain a comma, which this grammar cannot represent; name that cause on that shape.
@@ -786,19 +807,20 @@ public sealed class FieldPredicateSet
                 return (p.Op == Op.Exists ? present : !present, EvalKind.Definite);
             }
             // A null EditorID is a definite verdict either way, but the polarity must be right per op.
+            int at = 0;
             bool ok = p.Op switch
             {
                 Op.Eq => eid is not null && string.Equals(eid, p.Operand, StringComparison.OrdinalIgnoreCase),
                 Op.Ne => eid is null || !string.Equals(eid, p.Operand, StringComparison.OrdinalIgnoreCase),
                 Op.Contains => eid is not null && eid.Contains(p.Operand, StringComparison.OrdinalIgnoreCase),
                 Op.StartsWith => eid is not null && eid.StartsWith(p.Operand, StringComparison.OrdinalIgnoreCase),
-                Op.In => eid is not null && p.RawMembers!.Any(m => string.Equals(eid, m, StringComparison.OrdinalIgnoreCase)),
-                Op.NotIn => eid is null || !p.RawMembers!.Any(m => string.Equals(eid, m, StringComparison.OrdinalIgnoreCase)),
+                Op.In => eid is not null && p.EidIndex!.TryGetValue(eid, out at),
+                Op.NotIn => eid is null || !p.EidIndex!.ContainsKey(eid),
                 _ => false,
             };
             // A leading 'not' flips the string op's verdict, putting a record with no EditorID on the matching side.
             if (p.Negate) ok = !ok;
-            if (ok && _eidHits[_evalIndex] is { } eidHits) eidHits.Add(eid!);
+            if (ok && _eidHits[_evalIndex] is { } eidHits) eidHits[at] = true;
             return (ok, EvalKind.Definite);
         }
 
@@ -1363,9 +1385,7 @@ public sealed class FieldPredicateSet
     /// <summary>The line(s) appended to the result header so a wrong path can never read as a confirmed true negative; the thresholds are in docs/architecture/select-and-walk.md.</summary>
     public string? AccountingNote()
     {
-        var unmatched = Unmatched;
-        var unmatchedNote = unmatched.Count > 0 ? UnmatchedSentence(unmatched, UnmatchedShown) : null;
-        if (_scanned == 0) return unmatchedNote;   // nothing reached the predicate (e.g. an empty type group) — no health signal to give
+        if (_scanned == 0) return null;   // nothing reached the predicate (e.g. an empty type group) — no health signal to give
         List<string>? notes = null;
         for (int k = 0; k < _predicates.Count; k++)
         {
@@ -1448,7 +1468,6 @@ public sealed class FieldPredicateSet
                     NoValueBreakdown(k) + tail);
             }
         }
-        if (unmatchedNote is not null) (notes ??= new()).Add(unmatchedNote);
         return notes is null ? null : string.Join("\n", notes);
     }
 

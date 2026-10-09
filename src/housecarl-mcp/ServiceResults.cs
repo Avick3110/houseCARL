@@ -81,6 +81,13 @@ public sealed record CrossQueryOutcome(
     /// <summary>The members of the where= identity 'in' lists that matched no record the scan judged, in list order.</summary>
     public IReadOnlyList<string> Unmatched { get; init; } = Array.Empty<string>();
 
+    /// <summary>Why some records went unjudged (unreadable plugins, unscannable records), so the unmatched note cannot claim absence; null when none.</summary>
+    public string? UnmatchedGap { get; init; }
+
+    /// <summary>The unmatched note as a response states it: the first <see cref="FieldPredicateSet.UnmatchedShown"/> names, the rest counted toward the manifest when one was written.</summary>
+    public string? UnmatchedNote(bool inManifest) => Unmatched.Count == 0 ? null
+        : FieldPredicateSet.UnmatchedSentence(Unmatched, FieldPredicateSet.UnmatchedShown, UnmatchedGap, inManifest);
+
     /// <summary>The getter types the scan's types= resolved to, so the bulk body gather can seek their GRUPs instead of walking the plugin. Never serialized.</summary>
     internal IReadOnlyList<Type>? GetterTypes { get; init; }
 

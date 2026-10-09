@@ -1116,7 +1116,7 @@ static class JsonWire
                 w.WriteNumber("total", q.Total);
                 WriteEpoch(w, q.Stamp);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
-                WriteNotes(w, q);
+                WriteNotes(w, q, spill: spill);
                 // A zero group is one the scan ASKED for that matched nothing, listed ahead of the counted rows.
                 var gEmpty = q.Groups.Where(g => g.Count == 0).Select(g => g.Key).ToList();
                 var gCounted = gEmpty.Count == 0 ? q.Groups : q.Groups.Where(g => g.Count > 0).ToList();
@@ -1156,7 +1156,7 @@ static class JsonWire
                 WriteEpoch(w, q.Stamp);                         // offset= windows tile ONLY within one epoch
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);        // the window's start, in-band
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
-                WriteNotes(w, q, p5);
+                WriteNotes(w, q, p5, spill);
                 // One session, one link cache and one chunked body prefetch for every rendered match.
                 using var reader = detail
                     ? new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields, (levers ?? LeverNames.Legacy).ContainerHint, null, ct)
@@ -1256,7 +1256,7 @@ static class JsonWire
                 WriteEpoch(w, q.Stamp);                           // offset= windows tile ONLY within one epoch
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
-                WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null);
+                WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null, spill);
 
                 var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
                 // One session, one link cache and one chunked body prefetch for every rendered match.
@@ -1501,11 +1501,13 @@ static class JsonWire
     }
 
     /// <summary>Accounting notes carried IN the JSON document, so json is never a degraded mode; omitted when none.</summary>
-    static void WriteNotes(Utf8JsonWriter w, CrossQueryOutcome q, string? extra = null)
+    static void WriteNotes(Utf8JsonWriter w, CrossQueryOutcome q, string? extra = null, SpillState? spill = null)
     {
-        if (q.PredicateNote is null && q.ScanNote is null && q.WhereSourceNote is null && q.ReverseIndexNote is null && extra is null) return;
+        var unmatched = q.UnmatchedNote(spill?.Spill is not null);
+        if (q.PredicateNote is null && unmatched is null && q.ScanNote is null && q.WhereSourceNote is null && q.ReverseIndexNote is null && extra is null) return;
         w.WriteStartArray("notes");
         if (q.PredicateNote is not null) w.WriteStringValue(q.PredicateNote);
+        if (unmatched is not null) w.WriteStringValue(unmatched);
         if (q.ScanNote is not null) w.WriteStringValue(q.ScanNote);
         if (q.WhereSourceNote is not null) w.WriteStringValue(q.WhereSourceNote);   // where_source=winner redundancy under a type=-only scope
         if (q.ReverseIndexNote is not null) w.WriteStringValue(q.ReverseIndexNote);   // the reverse-reference index's build cost + per-plugin freshness key

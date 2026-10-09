@@ -268,6 +268,7 @@ static partial class Wire
         if (q.Stamp is not null) sb.Append(Wire.EpochInline(q.Stamp));   // offset= windows tile ONLY within one epoch
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');   // where= accounting: wrong path / no value
+        if (q.UnmatchedNote(spill?.Spill is not null) is { } unmatched) sb.Append(unmatched).Append('\n');
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');             // records Mutagen could not parse
         if (q.WhereSourceNote is not null) sb.Append(q.WhereSourceNote).Append('\n');   // where_source=winner is redundant under a type=-only scope
         if (q.ReverseIndexNote is not null) sb.Append(q.ReverseIndexNote).Append('\n');   // the reverse-reference index's build cost and per-plugin freshness key
@@ -356,6 +357,7 @@ static partial class Wire
         if (q.Stamp is not null) sb.Append(Wire.EpochInline(q.Stamp));
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');
+        if (q.UnmatchedNote(spill?.Spill is not null) is { } unmatched) sb.Append(unmatched).Append('\n');
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');
         if (q.ReverseIndexNote is not null) sb.Append(q.ReverseIndexNote).Append('\n');
         string Notice(int r) => "... [truncated: rendered " + r + " of " + groups.Count +
