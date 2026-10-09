@@ -231,6 +231,8 @@ internal static class Artifacts
         if (JsonWire.AnyScopedFieldRow(q, fields))
             notes.Add(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, levers));
         if (OwnedChildNotes(annotatedFields) is { } child) notes.AddRange(child);
+        // The whole unmatched list: the response names only what fits.
+        if (q.Unmatched.Count > 0) notes.Add(FieldPredicateSet.UnmatchedSentence(q.Unmatched, q.Unmatched.Count));
         return notes.Count > 0 ? notes : null;
     }
 

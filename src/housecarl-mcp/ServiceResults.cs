@@ -78,6 +78,9 @@ public sealed record CrossQueryOutcome(
     /// <summary>Plugins the winner scan could not open: a zero-match answer carrying one is bounded by the lock, not by the filter.</summary>
     public IReadOnlyList<string> UnreadPlugins { get; init; } = Array.Empty<string>();
 
+    /// <summary>The members of the where= identity 'in' lists that matched no record the scan judged, in list order.</summary>
+    public IReadOnlyList<string> Unmatched { get; init; } = Array.Empty<string>();
+
     /// <summary>The getter types the scan's types= resolved to, so the bulk body gather can seek their GRUPs instead of walking the plugin. Never serialized.</summary>
     internal IReadOnlyList<Type>? GetterTypes { get; init; }
 

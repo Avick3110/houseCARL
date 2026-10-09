@@ -1,0 +1,1 @@
+- **A `housecarl_records` scan with `where=["editorid in [...]"]` or `formid in [...]` now names the list members that matched no record in the selection.** Check: list a GMST name no plugin defines; the note and json `unmatched` name it.

@@ -42,7 +42,7 @@ public static class OrderDegraded
         $" · {sorted.Count} plugin(s) excluded (load failure): {Shown(sorted, ClauseNamesShown, n => $" +{n} more")}" +
         (pointToStatus ? " — reason in housecarl_load_order_status" : "");
 
-    /// <summary>The first <paramref name="cap"/> names of a sorted roster, then <paramref name="more"/> of how many are left.</summary>
-    static string Shown(IReadOnlyList<string> sorted, int cap, Func<int, string> more) =>
+    /// <summary>The first <paramref name="cap"/> names of a roster, then <paramref name="more"/> of how many are left.</summary>
+    internal static string Shown(IReadOnlyList<string> sorted, int cap, Func<int, string> more) =>
         string.Join(", ", sorted.Take(cap)) + (sorted.Count > cap ? more(sorted.Count - cap) : "");
 }
