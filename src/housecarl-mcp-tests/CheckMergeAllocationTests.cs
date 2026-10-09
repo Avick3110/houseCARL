@@ -73,11 +73,11 @@ public class CheckMergeAllocationTests
     [Fact]
     public void AMergedCallThatFitsRendersEverythingAndClaimsNoCut()
     {
-        const int Default = 80000, TextSlack = 1500, JsonSlack = 1500;
+        const int Fit = 80000, Wide = 1_000_000, TextSlack = 1500, JsonSlack = 1500;
         var s = Both();
-        string uncapped = Text(s, 0);
-        string capped = CheckTextRender.RenderCheck(s, Default, 1000, out var body);
-        Assert.True(uncapped.Length < Default, "the fixture no longer fits the default");
+        string uncapped = Text(s, Wide);
+        string capped = CheckTextRender.RenderCheck(s, Fit, 1000, out var body);
+        Assert.True(uncapped.Length < Fit, "the fixture no longer fits the cap");
         foreach (var unit in new[] { "[ERROR] ", "[UNBOUND] ", "   [target not defined by any active plugin]" })
             Assert.Equal(Count(uncapped, unit), Count(capped, unit));
         foreach (var claim in new[] { "did not fit this response", "were rendered.", "Raise max_chars=" })
@@ -86,15 +86,15 @@ public class CheckMergeAllocationTests
         foreach (var subject in Planned(s))
             Assert.Equal(body!.AllocationOf(subject), body.SpentOn(subject));
 
-        var jsonWhole = Root(Json(s, 0));
-        var jsonCapped = Root(Json(s, Default));
+        var jsonWhole = Root(Json(s, Wide));
+        var jsonCapped = Root(Json(s, Fit));
         foreach (var (family, array) in new[] { ("errors", "plugins"), ("scripts", "records"), ("dialogue", "seeds") })
             Assert.Equal(ArrayLength(jsonWhole, family, array), ArrayLength(jsonCapped, family, array));
         foreach (var family in new[] { "errors", "scripts", "dialogue" })
             Assert.NotEqual(true, Bool(Obj(Obj(Obj(jsonCapped, "families"), family), "accounting"), "truncated"));
 
         int textTight = SmallestWholeCap(c => TextUnits(Text(s, c)), TextUnits(uncapped), uncapped.Length);
-        string jsonUncapped = Json(s, 0);
+        string jsonUncapped = Json(s, Wide);
         int jsonTight = SmallestWholeCap(c => JsonUnits(Json(s, c)), JsonUnits(jsonUncapped), jsonUncapped.Length);
         Assert.InRange(textTight - uncapped.Length, int.MinValue, TextSlack);
         Assert.True(textTight >= 0);
