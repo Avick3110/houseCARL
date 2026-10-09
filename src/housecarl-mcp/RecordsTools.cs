@@ -719,7 +719,7 @@ public static partial class RecordsTools
             }
             listClock.Stop();
             // One cost for every form this lane renders, counted over the bodies actually READ.
-            var listCost = (outcomes.Count(o => o.Record is not null), listClock.ElapsedMilliseconds);
+            var listCost = (outcomes.Count(o => o.Record is not null && o.SourcePlugin != EngineImplicit.Winner), listClock.ElapsedMilliseconds);
             // dense folds a quantified path as it writes each row, as on the scan, so it renders the unfolded read.
             var unfolded = outcomes;
             outcomes = FoldRows(outcomes);

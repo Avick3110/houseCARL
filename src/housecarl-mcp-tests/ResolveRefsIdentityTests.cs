@@ -108,7 +108,9 @@ public sealed class ResolveRefsIdentityTests : IDisposable
     [InlineData("identity")]
     public void TheTwoEngineImplicitFormsResolveAndTheNextReservedFormStillDangles_Json(string form)
     {
-        var rows = Rows(Summary(EngineIds, form: form));
+        var json = Summary(EngineIds, form: form);
+        var rows = Rows(json);
+        Assert.Equal(0, JsonDocument.Parse(json).RootElement.GetProperty("rows_read").GetInt32());   // no plugin body was read
 
         Assert.Equal(("PlacedNpc", "PlayerRef", "<engine>"),
                      (rows[0].GetProperty("type").GetString(), rows[0].GetProperty("editorid").GetString(), rows[0].GetProperty("winner").GetString()));
