@@ -608,10 +608,7 @@ static partial class Wire
         {
             int mark = sb.Length;                                          // depth= can produce many lines — cap them
             var f = r.Fields[i];
-            sb.Append("  ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
-            if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');   // display-only annotation (e.g. decoded biped slots) — never the round-trip token
-            if (f.Link is not null) sb.Append("   (").Append(LinkText(f.Link)).Append(')');   // resolve_names target identity, DISPLAY-ONLY — never the round-trip token
-            sb.Append('\n');
+            AppendFieldLine(sb, "  ", f);
             if (sb.Length > room) { sb.Length = mark; sb.Append(Cut(i)); break; }
             // The clause is earned HERE, by a line that reached the caller.
             if (notes is not null && o.OwnedChildFields is { } ann && ann.TryGetValue(f.Path, out var u))
@@ -619,7 +616,16 @@ static partial class Wire
         }
     }
 
-    /// <summary>The resolve_names parenthetical: a FormLink token's target identity, or a named "unresolved" note for a dangling target; display only, appended after the round-trip token and never in place of it.</summary>
+    /// <summary>One field line as a read renders it, shared by the write read-back: the round-trip token, then its display-only annotations.</summary>
+    internal static void AppendFieldLine(StringBuilder sb, string indent, FieldValue f)
+    {
+        sb.Append(indent).Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
+        if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');   // display-only annotation (e.g. decoded biped slots) — never the round-trip token
+        if (f.Link is not null) sb.Append("   (").Append(LinkText(f.Link)).Append(')');   // resolve_names target identity, DISPLAY-ONLY — never the round-trip token
+        sb.Append('\n');
+    }
+
+    /// <summary>The resolve_names parenthetical:a FormLink token's target identity, or a named "unresolved" note for a dangling target; display only, appended after the round-trip token and never in place of it.</summary>
     internal static string LinkText(ResolvedRef r) =>
         // Unresolved has two causes and the ref itself says which.
         !r.Resolved ? (r.Winner is { } w
