@@ -221,8 +221,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   the read's own leaf render, so a flags value carries the same decode (named bits, `slotNN`/`bitN`, a biped field's
   slot numbers) and a blob the same byte-count annotation (#1109).
   The json read-back therefore carries the read's leaf keys (`display`, `slots`, `note_ref`). In text, an edit line's
-  file value and the compact verify's `landed` clause append the same decode, taken from the re-read leaf; the json op
-  rows keep `after_on_disk` and `landed_on_disk` as bare tokens.
+  file value and the compact verify's `landed` clause append the same decode, taken from the re-read leaf, and a dry
+  run's `would become` value the decode of its in-memory reading. The json op row carries that same decode as the
+  read's key `display`, beside `after_on_disk` (a dry run's: beside `after`), which stays a bare token. The decode is
+  taken only from the leaf's own read line, never from another field's.
 - An external OVERRIDER is warned about by name rather than routed through the referencer path, an override being an
   identity and not a link; a merge's swap is PLUGIN-level, not mod-level, because the merged records still reference
   the donors' files by path; and the light, master, localized and header-text notes are keyed on what the DONORS
