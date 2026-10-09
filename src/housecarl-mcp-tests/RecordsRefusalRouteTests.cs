@@ -51,12 +51,19 @@ public sealed class RecordsRefusalRouteTests : RecordsTestBase
         Assert.DoesNotContain("HcRecMgefFire", r);
     }
 
+    /// <summary>A stop exclusion keeps the stopped Spell and leaves out the magic effect reached only past it.</summary>
     [Fact]
-    public void WalkRoute_ExclusionsStopAtAType() =>
-        Served(RecordsTools.Records(Svc, types: Spel, walk: new RecordsTools.RecordsWalk
+    public void WalkRoute_ExclusionsStopAtAType()
+    {
+        var seed = new[] { Fid(W.ListHop) };
+        Served(RecordsTools.Records(Svc, formids: seed, walk: new RecordsTools.RecordsWalk()), "HcRecSpellHop", "HcRecMgefHop");
+        var r = RecordsTools.Records(Svc, formids: seed, walk: new RecordsTools.RecordsWalk
         {
-            exclusions = new[] { new RecordsTools.RecordsWalkExclusion { match = "MagicEffect", severity = "stop" } },
-        }), "HcRecMgefFire");
+            exclusions = new[] { new RecordsTools.RecordsWalkExclusion { match = "Spell", severity = "stop" } },
+        });
+        Served(r, "HcRecSpellHop");
+        Assert.DoesNotContain("HcRecMgefHop", r);
+    }
 
     /// <summary>The reached set written with to_file= and re-entered as formids= is narrowed by where=.</summary>
     [Fact]
