@@ -13,6 +13,9 @@ static partial class Wire
     /// <summary>Server default char budget for one tool response (~10k tokens). A caller raises it per-call via max_chars.</summary>
     public const int DefaultMaxChars = 40_000;
 
+    /// <summary>The one resolver of max_chars for every tool: the caller's value, or 0 means <see cref="DefaultMaxChars"/>.</summary>
+    internal static int Cap(int maxChars) => maxChars > 0 ? maxChars : DefaultMaxChars;
+
     /// <summary>Default char budget for any write-tool read-back dump, held below <see cref="DefaultMaxChars"/> by the host's per-result ceiling; pinned by <c>InPlaceReadbackRenderTests</c>' default-spill guard.</summary>
     public const int ReadbackMaxChars = 24_000;
 

@@ -23,10 +23,7 @@ internal sealed class NoClaimsAttribute : Attribute
 internal static class WriteSentences
 {
     // ---- budgets -------------------------------------------------------------------------------------
-    /// <summary>The char budget a WRITE render works to: the caller's max_chars, or the server default; the read surface keeps its own.</summary>
-    internal static int Cap(int maxChars) => maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
-
-    /// <summary>The same for a READ-BACK dump, bounded well below Cap so the truncation note itself reaches the caller.</summary>
+    /// <summary>The char budget for a READ-BACK dump: the caller's max_chars, or a default well below Wire.Cap's so the truncation note itself reaches the caller.</summary>
     internal static int ReadbackCap(int maxChars) => maxChars > 0 ? maxChars : Wire.ReadbackMaxChars;
 
     // ---- the epoch stamp -----------------------------------------------------------------------------
