@@ -283,7 +283,7 @@ public static partial class RecordsTools
         var projFields = bodyFields || comparisonForm ? project?.fields : null;
         // The read runs the LIST path a quantifier binds to and the fold puts the caller's spelling back; each path
         // is read once, at the depth that path's column needs.
-        string[]? foldReadPaths = null; int[]? readDepths = null;
+        string[]? foldReadPaths = null; (int Depth, string[]? Tail)[]? readDepths = null;
         if (foldPlan is not null) (foldReadPaths, readDepths) = foldPlan.Read();
         // Paths whose every column is a [*count] carry no list line, so they take the child union's index-only tier.
         var countFields = foldPlan?.CountOnlyPaths;

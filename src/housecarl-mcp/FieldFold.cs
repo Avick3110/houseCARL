@@ -8,7 +8,7 @@ sealed record FieldFold(string Requested, string Root, string[] Tail, PathFold F
 {
     /// <summary>How many expansion levels the sub-path adds below one element: a dotted step is one, and a
     /// bracketed index inside a step another.</summary>
-    internal int TailLevels => Tail.Sum(s => 1 + s.Count(c => c == '['));
+    internal int TailLevels => PathFoldGrammar.Levels(Tail);
 }
 
 /// <summary>The PROJECT half of the quantified path step: <c>[*count]</c> yields ONE number per record, <c>[*]</c>
@@ -17,31 +17,23 @@ sealed record FieldFold(string Requested, string Root, string[] Tail, PathFold F
 sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFold?[] Folds, int Depth, int CallerDepth = 1)
 {
     /// <summary>What the READ is asked for: each distinct path once, with the depth that path's own column
-    /// needs.</summary>
-    internal (string[] Paths, int[] Depths) Read()
+    /// needs and, for a <c>[*]</c> column that names a sub-path, that sub-path to read off each element.</summary>
+    internal (string[] Paths, (int Depth, string[]? Tail)[] Depths) Read()
     {
-        var at = new Dictionary<string, int>(StringComparer.Ordinal);
+        var at = new Dictionary<(string, string?), int>();
         var paths = new List<string>(Paths.Length);
-        var depths = new List<int>(Paths.Length);
+        var depths = new List<(int Depth, string[]? Tail)>(Paths.Length);
         for (int i = 0; i < Paths.Length; i++)
         {
             // A [*count] column renders the list's own count line and nothing under it, so it reads at depth 1.
             int d = Folds[i] switch { { Fold: PathFold.Set } => Depth, { Fold: PathFold.Count } => 1, _ => CallerDepth };
-            // A sub-path column whose list nothing else reads whole reads just that sub-path off each element.
-            var p = ReadsTailOnly(i) ? $"{Paths[i]}[*].{string.Join(".", Folds[i]!.Tail)}" : Paths[i];
-            if (at.TryGetValue(p, out int j)) { depths[j] = Math.Max(depths[j], d); continue; }
-            at[p] = paths.Count; paths.Add(p); depths.Add(d);
+            // A sub-path column always reads just that sub-path off each element, whatever else reads the list.
+            var tail = Folds[i] is { Fold: PathFold.Set, Tail.Length: > 0 } f ? f.Tail : null;
+            var key = (Paths[i], tail is null ? null : string.Join(".", tail));
+            if (at.TryGetValue(key, out int j)) { depths[j] = (Math.Max(depths[j].Depth, d), tail); continue; }
+            at[key] = paths.Count; paths.Add(Paths[i]); depths.Add((d, tail));
         }
         return (paths.ToArray(), depths.ToArray());
-    }
-
-    /// <summary>Is column <paramref name="i"/> a <c>[*]</c> sub-path whose list no other column reads whole?</summary>
-    bool ReadsTailOnly(int i)
-    {
-        if (Folds[i] is not { Fold: PathFold.Set, Tail.Length: > 0 }) return false;
-        for (int j = 0; j < Paths.Length; j++)
-            if (Paths[j] == Paths[i] && Folds[j] is null or { Fold: PathFold.Set, Tail.Length: 0 }) return false;
-        return true;
     }
 
     internal bool RendersElements => Folds.Any(f => f is { Fold: PathFold.Set });
@@ -70,15 +62,17 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
     /// <summary>One record's lines, grouped per REQUESTED path and in the caller's own order.</summary>
     internal (IReadOnlyList<FieldValue>[]? Columns, IReadOnlyList<FieldValue> Carried, string? Error) Columns(RecordFields rec)
     {
+        // A sub-path column reads its list beside any whole read of it, so a line both reads emit is kept once.
+        var fields = Folds.Any(f => f is { Fold: PathFold.Set, Tail.Length: > 0 }) ? rec.Fields.DistinctBy(f => f.Path).ToList() : rec.Fields;
         var setRoots = SetRoots.OrderByDescending(r => r.Length).ToList();
         // The element rows come from the 'rows' fold itself, run over the same lines.
-        var rows = setRoots.Count > 0 ? RowProjection.Fold(rec.Fields, setRoots, Depth) : rec.Fields;
+        var rows = setRoots.Count > 0 ? RowProjection.Fold(fields, setRoots, Depth) : fields;
 
         var cols = new IReadOnlyList<FieldValue>[Paths.Length];
         for (int i = 0; i < Paths.Length; i++)
         {
-            if (Folds[i] is not { } fold) { cols[i] = Lines(rec.Fields, Paths[i], CallerDepth); continue; }
-            var head = rec.Fields.FirstOrDefault(f => f.Path == fold.Root);
+            if (Folds[i] is not { } fold) { cols[i] = Lines(fields, Paths[i], CallerDepth); continue; }
+            var head = fields.FirstOrDefault(f => f.Path == fold.Root);
             // An absent or unreadable list is the READ's answer, not a misuse of the token.
             if (head is null || !head.Present || !head.Readable)
             {
@@ -93,7 +87,7 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
                 cols[i] = new[] { new FieldValue(fold.Requested, true, head.Count.Value.ToString(), null) with { Display = head.Display } };
                 continue;
             }
-            var elems = Elements(rows, rec.Fields, fold).ToList();
+            var elems = Elements(rows, fields, fold).ToList();
             // No element row is still an ANSWER and never an empty column.
             cols[i] = elems.Count > 0 ? elems
                     : head.Count.Value == 0 ? new[] { head with { Path = fold.Requested } }
@@ -102,7 +96,7 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         var claimed = new HashSet<string>(cols.SelectMany(c => c).Select(f => f.Path), StringComparer.Ordinal);
         // What no column claims and no requested path covers — the read's own truncation note — rides out beside
         // the columns rather than being dropped with them.
-        var carried = (setRoots.Count > 0 ? rows : rec.Fields)
+        var carried = (setRoots.Count > 0 ? rows : fields)
             .Where(f => !claimed.Contains(f.Path) && !Paths.Any(p => f.Path == p || RowProjection.IsUnder(f.Path, p)))
             .ToList();
         return (cols, carried, null);

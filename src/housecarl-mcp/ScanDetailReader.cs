@@ -15,7 +15,7 @@ internal sealed class ScanDetailReader : IDisposable
     readonly int _depth;
     readonly bool _resolveNames, _winnerFields;
     readonly string? _containerHint;
-    readonly IReadOnlyList<int>? _depths;
+    readonly IReadOnlyList<(int Depth, string[]? Tail)>? _depths;
     readonly CancellationToken _ct;
     readonly RecordReads.LinkMemo? _linkMemo;
     readonly LoadOrderResolver.IndexView? _view;
@@ -26,7 +26,7 @@ internal sealed class ScanDetailReader : IDisposable
 
     internal ScanDetailReader(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int depth,
                               bool resolveNames, bool winnerFields, string? containerHint,
-                              IReadOnlyList<int>? depths, CancellationToken ct)
+                              IReadOnlyList<(int Depth, string[]? Tail)>? depths, CancellationToken ct)
     {
         _svc = svc; _q = q; _fields = fields; _depth = depth;
         _resolveNames = resolveNames; _winnerFields = winnerFields;

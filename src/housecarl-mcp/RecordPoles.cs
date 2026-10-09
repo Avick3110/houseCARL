@@ -456,7 +456,7 @@ internal sealed partial class RecordReads
         IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? refusalEpoch, out OrderStamp? epoch,
         string? containerHint,
-        IReadOnlyList<int>? depths,
+        IReadOnlyList<(int Depth, string[]? Tail)>? depths,
         CancellationToken ct,
         SkyPatcherDraft.Plan? draft,
         SkyPatcherOverlay.WarningSink? overlayWarnings,

@@ -126,12 +126,13 @@ public static class ReadEngine
 
     /// <summary>Read a located record's fields as round-trippable tokens — the structured entry the MCP server
     /// consumes, per-leaf fault isolated.</summary>
-    /// <param name="depths">One depth per entry of <paramref name="paths"/> when they must differ; every path
-    /// spends the same expansion budget.</param>
+    /// <param name="depths">One depth per entry of <paramref name="paths"/> when they must differ, with the sub-path
+    /// read off each element when that entry is a list read for one field only; every path spends the same
+    /// expansion budget.</param>
     public static RecordFields ReadFields(IMajorRecordGetter record, IReadOnlyList<string>? paths = null, int depth = 1,
                                           string? containerHint = DepthExpandHint,
                                           Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf = null,
-                                          IReadOnlyList<int>? depths = null)
+                                          IReadOnlyList<(int Depth, string[]? Tail)>? depths = null)
     {
         var typeName = RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(record.GetType())?.Name ?? "I?Getter");
         var targets = paths is { Count: > 0 } ? (IEnumerable<string>)paths : ModeledFieldNames(typeName, record.GetType());
@@ -166,13 +167,14 @@ public static class ReadEngine
             int at = 0;
             foreach (var p in targets)
             {
-                int d = perPath is not null ? perPath[at] : depth;
+                var (d, elementTail) = perPath is not null ? perPath[at] : (depth, null);
                 at++;
                 var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var (on, tail, hopNote) = HopToParent(record, seg, parentOf);
                 if (hopNote is not null) { fields.Add(new FieldValue(p, false, null, hopNote, null, Present: false, Count: null, Readable: false)); continue; }
                 int from = fields.Count;
-                EmitWithDepth(on, string.Join(".", tail), d, fields, ref budget, p);
+                EmitWithDepth(on, string.Join(".", tail), d, fields, ref budget, p,
+                              elementTail is { Length: > 0 } ? new ElementTail(elementTail) : null);
                 // Same rule as the depth-1 branch, over the lines THIS path emitted, on the record the walk ran on.
                 AnnotateOpaqueBytes(fields, from, on.FormVersion);
             }
@@ -482,13 +484,13 @@ public static class ReadEngine
 
     /// <summary>Emit one target path, expanding contents up to <paramref name="depth"/> levels under the same
     /// per-field fault isolation depth-1 gives. <paramref name="display"/> is how the rows spell the path.</summary>
-    static void EmitWithDepth(object record, string path, int depth, List<FieldValue> sink, ref int budget, string? display = null)
+    static void EmitWithDepth(object record, string path, int depth, List<FieldValue> sink, ref int budget, string? display = null,
+                              ElementTail? tail = null)
     {
         var shown = display ?? path;
         try
         {
             var seg = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var tail = ElementTail.Of(ref seg, ref shown);
             var nav = NavigateValue(record, seg);
             if (!nav.ok) { Emit(sink, ref budget, new FieldValue(shown, false, null, nav.note, Present: false, Readable: nav.readable)); return; }
             Expand(nav.val, nav.type, nav.parent, shown, depth, sink, ref budget, tail);
@@ -498,19 +500,10 @@ public static class ReadEngine
 
     /// <summary>The sub-path a <c>List[*].Sub</c> read takes from each element, so the budget counts those
     /// lines alone; the list's own line is read as ever.</summary>
-    sealed record ElementTail(string[] Segs, string Text, int Levels)
+    sealed record ElementTail(string[] Segs)
     {
-        /// <summary>Split a read path at its <c>[*]</c> step, leaving the list path in <paramref name="seg"/> and
-        /// <paramref name="shown"/>; null when the path has no such step or nothing follows it.</summary>
-        internal static ElementTail? Of(ref string[] seg, ref string shown)
-        {
-            int q = Array.FindIndex(seg, s => s.EndsWith("[*]", StringComparison.Ordinal));
-            if (q < 0 || q == seg.Length - 1) return null;
-            var rest = seg[(q + 1)..];
-            seg = seg[..q].Append(seg[q][..^3]).ToArray();
-            shown = shown[..shown.IndexOf("[*]", StringComparison.Ordinal)];
-            return new ElementTail(rest, string.Join(".", rest), rest.Sum(s => 1 + s.Count(c => c == '[')));
-        }
+        internal string Text { get; } = string.Join(".", Segs);
+        internal int Levels { get; } = PathFoldGrammar.Levels(Segs);
     }
 
     /// <summary>One list element: the whole element, or under a <see cref="ElementTail"/> just its sub-path,
