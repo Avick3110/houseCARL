@@ -276,3 +276,63 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Refused(RecordsTools.Records(Svc, types: Weap, source: Overlay("post"), to_file: W.Scratch("results", "overlay-scan.jsonl")),
                 "to_file=", "formids=");
 }
+
+/// <summary>A multi-target references= summary on the body lane keeps the scan's per-row matches= un-merge and its
+/// limit= lever, under scope plus pole and under the overlay. W3 carries both keywords, W2 only KwB.</summary>
+[Collection("bulk-records")]
+[Trait("tier", "integration")]
+public sealed class RecordsScanPoleMatchesTests : BulkRecordsTestBase
+{
+    public RecordsScanPoleMatchesTests(BulkRecordsFixture f) : base(f) { }
+
+    static readonly string[] Weap = { "WEAP" };
+    static JsonElement PostOverlay => Je("{\"overlay\": \"skypatcher\", \"state\": \"post\"}");
+    string[] BothKeywords => new[] { Fid(W.KwA), Fid(W.KwB) };
+
+    string ScopePlusPole(string? format = null, int maxChars = 0) =>
+        RecordsTools.Records(Svc, types: Weap, plugins: new() { names = new[] { W.ReplName } }, source: Plugin(W.MasterName),
+                             references: BothKeywords, format: format, max_chars: maxChars);
+
+    string OverlayScan(string? format = null, int maxChars = 0) =>
+        RecordsTools.Records(Svc, types: Weap, source: PostOverlay, references: BothKeywords, format: format, max_chars: maxChars);
+
+    [Fact]
+    public void ScopePlusPoleSummary_EachRowSaysWhichTargetsItHit() =>
+        Assert.Contains($"{Fid(W.W3)}  error=", Line(ScopePlusPole(), Fid(W.W3), $"matches={Fid(W.KwA)}, {Fid(W.KwB)}"));
+
+    [Fact]
+    public void OverlaySummary_EachRowSaysWhichTargetsItHit()
+    {
+        var r = OverlayScan();
+        Line(r, Fid(W.W3), $"matches={Fid(W.KwA)}, {Fid(W.KwB)}");
+        Line(r, Fid(W.W2), $"matches={Fid(W.KwB)}");
+    }
+
+    [Fact]
+    public void ScopePlusPoleSummary_JsonRowsCarryMatches() =>
+        Assert.Equal($"{Fid(W.KwA)}, {Fid(W.KwB)}", JsonRow(ScopePlusPole("json"), W.W3).GetProperty("matches").GetString());
+
+    [Fact]
+    public void OverlaySummary_JsonRowsCarryMatches() =>
+        Assert.Equal(Fid(W.KwB), JsonRow(OverlayScan("json"), W.W2).GetProperty("matches").GetString());
+
+    /// <summary>Selected by a scan, so the truncation notice names limit=.</summary>
+    [Fact]
+    public void OverlaySummary_TheTruncationNoticeNamesLimit()
+    {
+        var full = OverlayScan();
+        var cut = OverlayScan(maxChars: full.Length - 40);
+        Assert.Contains("; lower limit= or raise max_chars]", cut);
+    }
+
+    static string Line(string response, string formid, string mustHave)
+    {
+        Served(response);
+        var line = response.Split('\n').Single(l => l.StartsWith(formid));
+        Assert.Contains(mustHave, line);
+        return line;
+    }
+
+    static JsonElement JsonRow(string response, Mutagen.Bethesda.Plugins.FormKey fk) =>
+        Doc(response).GetProperty("records").EnumerateArray().Single(m => m.GetProperty("formid").GetString() == Fid(fk));
+}

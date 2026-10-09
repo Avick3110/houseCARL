@@ -438,7 +438,8 @@ static class JsonWire
     /// <summary>records form=summary on the list lane: one identity+winner row per outcome, or its per-item error.</summary>
     public static string RenderRecordsSummary(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
                                               IReadOnlyList<KeyValuePair<string, string>> envelope,
-                                              SpillState? spill, (int RowsRead, long Millis) bodyCost, out bool truncated)
+                                              SpillState? spill, (int RowsRead, long Millis) bodyCost, out bool truncated,
+                                              IReadOnlyList<string?>? matches = null)
     {
         truncated = false;
         int cap = Wire.Cap(maxChars);
@@ -452,12 +453,12 @@ static class JsonWire
             WriteEpoch(w, outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp);
             w.WriteStartArray("records");
             int rendered = 0; bool rowsTruncated = false;   // summary rows carry no fields, so no owned-child annotation
-            foreach (var o in outcomes)
+            for (int i = 0; i < outcomes.Count; i++)
             {
                 if (manifestOnly) break;
                 w.Flush();
                 if (Chars(ms) >= cap) { rowsTruncated = true; break; }
-                WriteSummaryRow(w, RecordSummary.Of(o), null);
+                WriteSummaryRow(w, RecordSummary.Of(outcomes[i]), matches is { } mt && i < mt.Count ? mt[i] : null);
                 rendered++;
             }
             w.WriteEndArray();

@@ -544,13 +544,14 @@ static partial class RecordsTools
     /// <summary>The list-lane summary render: one identity-and-winner line per outcome or its per-item error, the batch shape of the scan lane's summary rows, with the spill marker in-band on both transports.</summary>
     static string RenderRecordsSummary(IReadOnlyList<ReadOutcome> outcomes, bool json, string headerLine,
                                        List<KeyValuePair<string, string>> envelope, int maxChars, SpillState? spill,
-                                       (int RowsRead, long Millis) bodyCost, out bool truncated)
+                                       (int RowsRead, long Millis) bodyCost, out bool truncated,
+                                       LeverNames? levers = null, IReadOnlyList<string?>? matches = null)
     {
         truncated = false;
         int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var epoch = outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
-        if (json) return JsonWire.RenderRecordsSummary(outcomes, cap, envelope, spill, bodyCost, out truncated);
+        if (json) return JsonWire.RenderRecordsSummary(outcomes, cap, envelope, spill, bodyCost, out truncated, matches);
 
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -559,16 +560,18 @@ static partial class RecordsTools
         sb.Append('\n');
         int rendered = 0;
         string Notice(int r) =>
-            "... [rendered " + r + " of " + outcomes.Count + " at max_chars=" + cap + "]\n";
+            "... [rendered " + r + " of " + outcomes.Count + " at max_chars=" + cap
+            + (levers is null ? "" : "; " + levers.BatchSelection + " or raise max_chars") + "]\n";
         var spillText = Wire.SpillText(spill);
         // The notice, the spill block and the accounting line close this response, so all three are charged before
         // the first row; docs/architecture/render-budget.md.
         int budget = cap - spillText.Length - Notice(outcomes.Count).Length - RenderBudget.AccountingReserve;
-        foreach (var o in outcomes)
+        for (int i = 0; i < outcomes.Count; i++)
         {
             if (manifestOnly) break;
+            var o = outcomes[i];
             int mark = sb.Length;
-            if (o.Error is not null) sb.Append(FormIdToken.Of(o.FormKey)).Append("  error=").Append(o.Error).Append('\n');
+            if (o.Error is not null) sb.Append(FormIdToken.Of(o.FormKey)).Append("  error=").Append(o.Error);
             else
             {
                 sb.Append(FormIdToken.Of(o.FormKey));
@@ -578,8 +581,10 @@ static partial class RecordsTools
                 Wire.AppendName(sb, o.Record.Name);
                 sb.Append("  source=").Append(o.SourcePlugin ?? "?");
                 if (o.WinnerPlugin is not null) sb.Append("  winner=").Append(o.WinnerPlugin).Append("  override_depth=").Append(o.OverrideDepth);
-                sb.Append('\n');
             }
+            // The scan summary's multi-target references= un-merge, on the same row.
+            if (matches is { } mt && i < mt.Count && mt[i] is { } hit) sb.Append("  matches=").Append(hit);
+            sb.Append('\n');
             if (sb.Length > budget)
             {
                 sb.Length = mark;
