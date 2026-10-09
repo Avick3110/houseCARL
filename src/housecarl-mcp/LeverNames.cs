@@ -1,3 +1,5 @@
+using HousecarlCore;
+
 namespace HousecarlMcp;
 
 /// <summary>The lever names a remedy sentence may name: the parameters the calling tool actually has, carried in
@@ -47,9 +49,9 @@ public sealed class LeverNames
     /// <summary>This vocabulary on a scan-derived body lane, where the lever is limit=.</summary>
     public LeverNames OnScanSelection() => new(Fields, Depth, WinnerFields, SlimScan, "lower limit=", HasFieldSelector);
 
-    /// <summary>The hint appended to a collapsed container cell, naming the knob that expands it.</summary>
-    public string ContainerHint => $" — pass {Depth}2 to expand";
+    /// <summary>The levers a collapsed container cell names: its <c>[*]</c> path and the depth that opens it.</summary>
+    public ExpandHint ContainerHint => new(Depth);
 
     /// <summary>The dense render's container hint, naming the format hop alongside the knob because dense refuses depth&gt;1.</summary>
-    public string DenseContainerHint => $" — pass {Depth}2 with format=text/json to expand (dense cells are positional)";
+    public ExpandHint DenseContainerHint => new(Depth, " with format=text/json");
 }

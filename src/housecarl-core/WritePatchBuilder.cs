@@ -3003,7 +3003,7 @@ public static class WritePatchBuilder
         try
         {
             var leaf = string.Join('.', req.Path);
-            var read = ReadEngine.ReadFields(ov, new[] { leaf }, containerHint: null);   // a write confirmation has no depth= knob — the count IS the read-back
+            var read = ReadEngine.ReadFields(ov, new[] { leaf }, containerHint: ExpandHint.None);   // a write confirmation has no depth= knob — the count IS the read-back
             var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
             return f is null ? null : (f.HasValue ? f.Token : f.Note);
         }
@@ -3131,7 +3131,7 @@ public static class WritePatchBuilder
         try
         {
             var leaf = string.Join('.', req.Path);
-            var read = ReadEngine.ReadFields(ov, new[] { leaf }, containerHint: null);   // same: no depth= on the write surface, don't hint it
+            var read = ReadEngine.ReadFields(ov, new[] { leaf }, containerHint: ExpandHint.None);   // same: no depth= on the write surface, don't hint it
             var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
             if (f is null) return (null, null, false, null);
             var after = f.HasValue ? f.Token : f.Note;

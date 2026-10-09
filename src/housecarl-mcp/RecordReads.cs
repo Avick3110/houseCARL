@@ -30,7 +30,7 @@ internal sealed partial class RecordReads
     /// recoverable NAMED error, never a silent empty result; contracts in docs/architecture/read-engine.md.</summary>
     public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                    bool resolveNames = false, LinkMemo? linkMemo = null,
-                                   string? containerHint = ReadEngine.DepthExpandHint,
+                                   ExpandHint? containerHint = null,
                                    IReadOnlyList<int>? depths = null,
                                    IReadOnlyCollection<string>? countFields = null)
     {
@@ -47,7 +47,7 @@ internal sealed partial class RecordReads
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                             bool resolveNames = false, LinkMemo? linkMemo = null,
-                            string? containerHint = ReadEngine.DepthExpandHint,
+                            ExpandHint? containerHint = null,
                             ChildUnionMemo? unionMemo = null,
                             LoadOrderResolver.OverlaySession? batchSession = null,
                             IReadOnlyList<int>? depths = null,
@@ -308,7 +308,7 @@ internal sealed partial class RecordReads
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
                                        bool conflictTree, int depth, bool resolveNames,
                                        LinkMemo? linkMemo,
-                                       string? containerHint,
+                                       ExpandHint? containerHint,
                                        IReadOnlyList<int>? depths,
                                        LoadOrderResolver.OverlaySession? session,
                                        IMajorRecordGetter? prefetched,
@@ -460,7 +460,7 @@ internal sealed partial class RecordReads
     /// <summary>Resolve and read many records in one call.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                                                    bool resolveNames, string? plugin,
-                                                   string? containerHint,
+                                                   ExpandHint? containerHint,
                                                    IReadOnlyList<int>? depths,
                                                    CancellationToken ct,
                                                    IReadOnlyList<Type>? getterTypes,
@@ -474,7 +474,7 @@ internal sealed partial class RecordReads
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                                                    bool resolveNames, string? plugin, ArtifactDemand? artifactDemand,
                                                    out string? artifactRefusal, out OrderStamp? refusalEpoch,
-                                                   string? containerHint,
+                                                   ExpandHint? containerHint,
                                                    IReadOnlyList<int>? depths,
                                                    CancellationToken ct,
                                                    IReadOnlyList<Type>? getterTypes,
@@ -608,7 +608,7 @@ internal sealed partial class RecordReads
         IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? artifactDemand,
         out PoleInfo? pole, out string? refusal, out OrderStamp? refusalEpoch,
-        string? containerHint,
+        ExpandHint? containerHint,
         IReadOnlyList<int>? depths,
         CancellationToken ct,
         IReadOnlyList<Type>? getterTypes,

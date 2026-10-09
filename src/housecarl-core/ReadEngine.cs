@@ -115,22 +115,19 @@ public static class ReadEngine
         return 0;
     }
 
-    /// <summary>The depth-1 container hint. It names <c>depth=2</c>, so a surface WITHOUT a depth= parameter
-    /// passes its own redirect as <c>containerHint</c>, or null to suppress it.</summary>
-    public const string DepthExpandHint = " — pass depth=2 to expand";
-
     /// <summary>Read a located record's fields as round-trippable tokens — the structured entry the MCP server
     /// consumes, per-leaf fault isolated.</summary>
     /// <param name="depths">One depth per entry of <paramref name="paths"/> when they must differ; every path
     /// spends the same expansion budget.</param>
     public static RecordFields ReadFields(IMajorRecordGetter record, IReadOnlyList<string>? paths = null, int depth = 1,
-                                          string? containerHint = DepthExpandHint,
+                                          ExpandHint? containerHint = null,
                                           Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf = null,
                                           IReadOnlyList<int>? depths = null)
     {
         var typeName = RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(record.GetType())?.Name ?? "I?Getter");
         var targets = paths is { Count: > 0 } ? (IEnumerable<string>)paths : ModeledFieldNames(typeName, record.GetType());
         var fields = new List<FieldValue>();
+        var hint = containerHint ?? ExpandHint.Legacy;
         if (depth <= 1)
         {
             // depth 1 (default) — the one-level read the round-trip oracle drives. Expansion is a separate branch.
@@ -140,11 +137,11 @@ public static class ReadEngine
                 var (on, tail, hopNote) = HopToParent(record, seg, parentOf);
                 if (hopNote is not null) { fields.Add(new FieldValue(p, false, null, hopNote, null, Present: false, Count: null, Readable: false)); continue; }
                 var r = ReadLeaf(on, tail);
-                if (r.Condition is { } cond) { fields.Add(ConditionHead(p, cond, containerHint)); continue; }
+                if (r.Condition is { } cond) { fields.Add(ConditionHead(p, cond, MeasuredHint(hint, on, tail, p))); continue; }
                 string? note = r.HasValue ? null : r.Note;
                 // An UNEXPANDED container leaf self-documents the lever that opens it; the leading-'[' test targets
                 // exactly the container/substruct summaries, since no-value NOTES are parenthesized.
-                if (note is { Length: > 0 } && note[0] == '[' && !string.IsNullOrEmpty(containerHint)) note += containerHint;
+                if (note is { Length: > 0 } && note[0] == '[') note += MeasuredHint(hint, on, tail, p);
                 var (flagDisplay, slots) = FlagDecode(r);
                 fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, flagDisplay,
                                           Present: r.Present, Count: r.ContainerCount, Readable: r.Readable,
@@ -484,6 +481,50 @@ public static class ReadEngine
             Expand(nav.val, nav.type, nav.parent, shown, depth, sink, ref budget);
         }
         catch (Exception ex) { Emit(sink, ref budget, Fault(shown, ex)); }
+    }
+
+    /// <summary>The collapsed container's hint, with the least depth whose walk under it emits every line the
+    /// uncapped walk does; the cap is said instead when that walk passes <see cref="MaxExpandNodes"/>.</summary>
+    static string MeasuredHint(ExpandHint hint, object record, string[] path, string shown)
+    {
+        if (ReferenceEquals(hint, ExpandHint.None)) return "";
+        try
+        {
+            var nav = NavigateValue(record, path);
+            if (!nav.ok || nav.val is null) return "";
+            var t = nav.val.GetType();
+            bool elements = nav.val is System.Collections.IEnumerable and not string || WriteEngine.GenderedInterface(t) is not null;
+            var full = WalkUnder(nav, MaxExpandNodes + 1, out bool cut);
+            if (cut) return hint.For(shown, elements, null, MaxExpandNodes);
+            int n = full.Max(f => LevelOf(f.Path));
+            if (n <= 1) return "";                                   // nothing under it to reach
+            while (n > 2 && WalkUnder(nav, n - 1, out _).Count == full.Count) n--;
+            return hint.For(shown, elements, n, MaxExpandNodes);
+        }
+        catch { return ""; }
+    }
+
+    static List<FieldValue> WalkUnder((bool ok, object? val, Type type, object parent, string? note, bool readable) nav,
+                                      int depth, out bool cut)
+    {
+        var sink = new List<FieldValue>();
+        int budget = MaxExpandNodes;
+        Expand(nav.val, nav.type, nav.parent, "", depth, sink, ref budget);
+        cut = budget < 0;
+        return sink;
+    }
+
+    /// <summary>The level of a line under a walk rooted at "": one plus its '.' and '[' steps outside brackets.</summary>
+    static int LevelOf(string relPath)
+    {
+        int level = 1, open = 0;
+        foreach (var c in relPath)
+        {
+            if (c == '[') { if (open++ == 0) level++; }
+            else if (c == ']') open--;
+            else if (c == '.' && open == 0) level++;
+        }
+        return level;
     }
 
     /// <summary>The ONE unreadable line the deep walk emits — the sentence and flags the depth-1 read carries.</summary>

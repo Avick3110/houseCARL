@@ -449,7 +449,7 @@ internal sealed partial class RecordReads
     public IReadOnlyList<ReadOutcome> OverlayPostBatch(
         IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? refusalEpoch, out OrderStamp? epoch,
-        string? containerHint,
+        ExpandHint? containerHint,
         IReadOnlyList<int>? depths,
         CancellationToken ct,
         SkyPatcherDraft.Plan? draft,

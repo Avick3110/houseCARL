@@ -1,0 +1,1 @@
+- **A collapsed list or substruct now names the exact `project.depth` that reaches every leaf under it, and a list its `X[*]` path for one row per element.** Check: `fields=["WorldModel"]` on an ARMA hints depth 3, which reaches `File`.

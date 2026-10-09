@@ -14,7 +14,7 @@ internal sealed class ScanDetailReader : IDisposable
     readonly IReadOnlyList<string>? _fields;
     readonly int _depth;
     readonly bool _resolveNames, _winnerFields;
-    readonly string? _containerHint;
+    readonly ExpandHint? _containerHint;
     readonly IReadOnlyList<int>? _depths;
     readonly CancellationToken _ct;
     readonly RecordReads.LinkMemo? _linkMemo;
@@ -25,7 +25,7 @@ internal sealed class ScanDetailReader : IDisposable
     int _chunkStart = -1;
 
     internal ScanDetailReader(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int depth,
-                              bool resolveNames, bool winnerFields, string? containerHint,
+                              bool resolveNames, bool winnerFields, ExpandHint? containerHint,
                               IReadOnlyList<int>? depths, CancellationToken ct)
     {
         _svc = svc; _q = q; _fields = fields; _depth = depth;

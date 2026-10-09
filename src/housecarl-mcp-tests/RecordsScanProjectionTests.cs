@@ -393,13 +393,13 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
     [Fact]
     public void ACollapsedContainerCellHintsTheExpansionKnobThisToolActuallySpells() =>
         Served(RecordsTools.Records(Svc, types: Weap, project: Keywords()),
-               "[list: 2 item(s)] — pass project.depth=2 to expand");
+               "[list: 2 item(s)] — name 'Keywords[*]' for one row per element, or pass project.depth=2 to reach every leaf under it");
 
     [Fact]
     public void TheContainerHintRidesTheJsonRenderAsTheFieldsNote()
     {
         var m = Match(Doc(RecordsTools.Records(Svc, types: Weap, format: "json", project: Keywords())), Fid(W.W1));
-        Assert.Contains("pass project.depth=2 to expand", Field(m, "Keywords").GetProperty("note").GetString());
+        Assert.Contains("pass project.depth=2 to reach every leaf", Field(m, "Keywords").GetProperty("note").GetString());
     }
 
     [Fact]
@@ -441,7 +441,7 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
 
     [Fact]
     public void ADenseContainerCellHintsTheFormatHopRatherThanABlindKnob() =>
-        Assert.Contains("pass project.depth=2 with format=text/json to expand",
+        Assert.Contains("pass project.depth=2 with format=text/json to reach every leaf",
                         DenseRow(Doc(RecordsTools.Records(Svc, types: Weap, format: "dense", project: Keywords())),
                                  Fid(W.W1))[3].GetString());
 }
