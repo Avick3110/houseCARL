@@ -227,7 +227,7 @@ internal sealed partial class AssetLayers
             if (w is null) return null;
             var rec = _view.GetRecord(_session, w.Value.WinnerPlugin, donor);
             if (rec is null) return null;
-            var leaf = ReadEngine.ReadFields(rec, new[] { path }).Fields.FirstOrDefault();
+            var leaf = ReadEngine.ReadFields(rec, new[] { path }, containerHint: ExpandHint.None).Fields.FirstOrDefault();
             return leaf is { HasValue: true } ? leaf.Token : null;
         }
 

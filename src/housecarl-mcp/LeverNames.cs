@@ -49,9 +49,15 @@ public sealed class LeverNames
     /// <summary>This vocabulary on a scan-derived body lane, where the lever is limit=.</summary>
     public LeverNames OnScanSelection() => new(Fields, Depth, WinnerFields, SlimScan, "lower limit=", HasFieldSelector);
 
-    /// <summary>The levers a collapsed container cell names: its <c>[*]</c> path and the depth that opens it.</summary>
-    public ExpandHint ContainerHint => new(Depth);
+    /// <summary>The hint appended to a collapsed container cell of a scan, naming the knob that expands it.</summary>
+    public ExpandHint ContainerHint => ExpandHint.Fixed($" — pass {Depth}2 to expand");
 
     /// <summary>The dense render's container hint, naming the format hop alongside the knob because dense refuses depth&gt;1.</summary>
-    public ExpandHint DenseContainerHint => new(Depth, " with format=text/json");
+    public ExpandHint DenseContainerHint => ExpandHint.Fixed($" — pass {Depth}2 with format=text/json to expand (dense cells are positional)");
+
+    /// <summary>On a read of named records: the cell's <c>[*]</c> path and the measured depth that reaches every leaf.</summary>
+    public ExpandHint NamedContainerHint => ExpandHint.Measured(Depth, ContainerHint.Constant);
+
+    /// <summary>The dense form of <see cref="NamedContainerHint"/>.</summary>
+    public ExpandHint NamedDenseContainerHint => ExpandHint.Measured(Depth, DenseContainerHint.Constant, " with format=text/json");
 }

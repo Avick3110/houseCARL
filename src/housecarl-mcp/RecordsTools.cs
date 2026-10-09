@@ -606,6 +606,8 @@ public static partial class RecordsTools
         // A walk hands its reached set to the list lane as formids=, already bounded by walk.max_nodes, so the list
         // lane's own render bound is over a list the CALLER passed.
         bool walkDerived = false;
+        // Records the caller named get the measured hint; a scan's or walk's rows keep the constant, since it is per cell.
+        ExpandHint NamedHint() => walkDerived ? containerHint : dense ? LeverNames.Records.NamedDenseContainerHint : LeverNames.Records.NamedContainerHint;
 
         return scanLane
             ? ScanLane()          // including formids plus scan: the identity set rides the scan as an intersection
@@ -727,7 +729,7 @@ public static partial class RecordsTools
                 // The overlay post source: every winner replayed through the SkyPatcher INI layer, read at the
                 // caller's own depth.
                 outcomes = svc.OverlayPostBatch(ids, readFields, depth, resolveNames, demand, out var ovRefusal, out var ovEpoch, out _,
-                                                containerHint, readFieldDepths, ct,
+                                                NamedHint(), readFieldDepths, ct,
                                                 draft: srcSpec.Draft, overlayWarnings: overlayWarnings);
                 if (ovRefusal is not null)
                     return json ? JsonWire.RenderError(ovRefusal, ovEpoch)
@@ -742,7 +744,7 @@ public static partial class RecordsTools
             else if (srcName is null)
             {
                 if (srcOverlay) Arm("skypatcher overlay (pre) = winner — the body the INI layer starts from");
-                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, containerHint, readFieldDepths, ct, countFields: readFieldCounts);
+                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, NamedHint(), readFieldDepths, ct, countFields: readFieldCounts);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + Wire.EpochLine(refusalEpoch);
@@ -752,7 +754,7 @@ public static partial class RecordsTools
             {
                 outcomes = svc.ResolveBatchFromPole(ids, srcName, srcMod, readFields, depth, resolveNames, demand,
                                                     out pole, out var refusal, out var refusalEpoch,
-                                                    containerHint, readFieldDepths, ct, countFields: readFieldCounts);
+                                                    NamedHint(), readFieldDepths, ct, countFields: readFieldCounts);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + Wire.EpochLine(refusalEpoch);

@@ -136,7 +136,7 @@ public sealed class ResolveRefsIdentityTests : IDisposable
     {
         var read = _svc.ReadArea.ResolveRead(_w1.FormKey, null, new[] { "Keywords" }, false)
             .Record?.Fields.FirstOrDefault(f => f.Path == "Keywords")?.Note;
-        Assert.Contains("pass depth=2 to reach every leaf", read);
+        Assert.Contains("pass depth=2 to expand", read);
 
         var bare = ReadEngine.ReadFields(_w1, new[] { "Keywords" }, containerHint: ExpandHint.None).Fields.FirstOrDefault()?.Note;
         Assert.StartsWith("[list:", bare);

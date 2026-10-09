@@ -483,25 +483,23 @@ public static class ReadEngine
         catch (Exception ex) { Emit(sink, ref budget, Fault(shown, ex)); }
     }
 
-    /// <summary>The collapsed container's hint, with the least depth whose walk under it emits every line the
-    /// uncapped walk does; the cap is said instead when that walk passes <see cref="MaxExpandNodes"/>.</summary>
-    static string MeasuredHint(ExpandHint hint, object record, string[] path, string shown)
+    /// <summary>The collapsed container's hint; only a measured hint walks under it.</summary>
+    static string MeasuredHint(ExpandHint hint, object record, string[] path, string shown) =>
+        hint.For(shown, () => MeasureUnder(record, path), MaxExpandNodes);
+
+    /// <summary>The least depth whose walk under the container emits every line the uncapped walk does; null when
+    /// that walk passes <see cref="MaxExpandNodes"/>.</summary>
+    static (bool Elements, int? Depth) MeasureUnder(object record, string[] path)
     {
-        if (ReferenceEquals(hint, ExpandHint.None)) return "";
-        try
-        {
-            var nav = NavigateValue(record, path);
-            if (!nav.ok || nav.val is null) return "";
-            var t = nav.val.GetType();
-            bool elements = nav.val is System.Collections.IEnumerable and not string || WriteEngine.GenderedInterface(t) is not null;
-            var full = WalkUnder(nav, MaxExpandNodes + 1, out bool cut);
-            if (cut) return hint.For(shown, elements, null, MaxExpandNodes);
-            int n = full.Max(f => LevelOf(f.Path));
-            if (n <= 1) return "";                                   // nothing under it to reach
-            while (n > 2 && WalkUnder(nav, n - 1, out _).Count == full.Count) n--;
-            return hint.For(shown, elements, n, MaxExpandNodes);
-        }
-        catch { return ""; }
+        var nav = NavigateValue(record, path);
+        if (!nav.ok || nav.val is null) throw new InvalidOperationException("no value under the collapsed container");
+        var t = nav.val.GetType();
+        bool elements = nav.val is System.Collections.IEnumerable and not string || WriteEngine.GenderedInterface(t) is not null;
+        var full = WalkUnder(nav, MaxExpandNodes + 1, out bool cut);
+        if (cut) return (elements, null);
+        int n = full.Count == 0 ? 1 : full.Max(f => LevelOf(f.Path));
+        while (n > 2 && WalkUnder(nav, n - 1, out _).Count == full.Count) n--;
+        return (elements, n);
     }
 
     static List<FieldValue> WalkUnder((bool ok, object? val, Type type, object parent, string? note, bool readable) nav,
