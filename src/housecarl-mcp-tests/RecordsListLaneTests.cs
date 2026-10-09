@@ -21,7 +21,7 @@ public sealed class RecordsListLaneTests : RecordsTestBase
         Assert.Equal(SummaryNameTests.Timeless(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]), Fid(W.MgefA) })), SummaryNameTests.Timeless(r));
     }
 
-    // The identity form refused a source= pole; as a spelling of summary it reads the pole as summary does.
+    // The identity spelling reads a source= pole exactly as summary does.
     [Fact]
     public void IdentitySpelling_PlusANamedSourceReadsThePoleAsSummaryDoes()
     {

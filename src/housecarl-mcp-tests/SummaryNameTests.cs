@@ -18,6 +18,7 @@ public sealed class SummaryNameTests : IClassFixture<SummaryNameTests.World>
     const string MasterName = "hcSnMaster.esp", OverName = "hcSnOver.esp";
     const string MasterSword = "Iron Sword", WinnerSword = "Renamed Sword";
     const string QuotedName = "The \"Edge\" of C:\\Blades";
+    const string LinedName = "Line one\nLine two\r";
 
     public sealed class World : IDisposable
     {
@@ -28,6 +29,7 @@ public sealed class SummaryNameTests : IClassFixture<SummaryNameTests.World>
         public FormKey Nameless { get; }
         public FormKey Kw { get; }
         public FormKey Quoted { get; }
+        public FormKey Lined { get; }
 
         public World()
         {
@@ -38,6 +40,7 @@ public sealed class SummaryNameTests : IClassFixture<SummaryNameTests.World>
             var nameless = master.Weapons.AddNew(); nameless.EditorID = "hcSnNameless"; Nameless = nameless.FormKey;
             var kw = master.Keywords.AddNew(); kw.EditorID = "hcSnKw"; Kw = kw.FormKey;
             var quoted = master.Weapons.AddNew(); quoted.EditorID = "hcSnQuoted"; quoted.Name = QuotedName; Quoted = quoted.FormKey;
+            var lined = master.Weapons.AddNew(); lined.EditorID = "hcSnLined"; lined.Name = LinedName; Lined = lined.FormKey;
             master.BeginWrite.ToPath(Path.Combine(_dir, MasterName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
             var over = new SkyrimMod(ModKey.FromNameAndExtension(OverName), SkyrimRelease.SkyrimSE);
@@ -164,6 +167,38 @@ public sealed class SummaryNameTests : IClassFixture<SummaryNameTests.World>
         Assert.Equal(QuotedName, JsonRow(List(new[] { _w.Quoted }, "json"), "records", _w.Quoted).GetProperty("name").GetString());
     }
 
+    [Fact]
+    public void ATextNameEscapesItsLineBreaksSoTheRowStaysOneLineOnBothLanes()
+    {
+        const string escaped = "name=\"Line one\\nLine two\\r\"";
+        Assert.Contains(escaped, LineOf(Scan(), "hcSnLined"));
+        Assert.Contains(escaped, LineOf(List(new[] { _w.Lined }), "hcSnLined"));
+    }
+
+    // ---- Name is read on the summary path only -------------------------------------------------------
+
+    [Fact]
+    public void AFieldsReadCarriesNoNameAndASummaryReadDoes()
+    {
+        var ids = new[] { Fid(_w.Sword) };
+        Assert.Null(_w.Svc.ResolveBatch(ids, new[] { "EditorID" }, false).Single().Record!.Name);
+        Assert.Equal(WinnerSword, _w.Svc.ResolveBatch(ids, new[] { "EditorID" }, false, 1, false, null, null, out _, out _, summary: true)
+                                      .Single().Record!.Name);
+    }
+
+    // ---- a row with no winner in the order omits the member, as its schema says ----------------------
+
+    [Fact]
+    public void ASummaryRowWithNoWinnerOmitsTheWinnerMember()
+    {
+        var row = new RecordSummary(_w.Sword, "Weapon", "hcSnSword", null!, 0, null) { Source = "off.esp" };
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms)) JsonWire.WriteSummaryRow(w, row, null);
+        var doc = Je(System.Text.Encoding.UTF8.GetString(ms.ToArray()));
+        Assert.False(doc.TryGetProperty("winner", out _));
+        Assert.Equal("off.esp", doc.GetProperty("source").GetString());
+    }
+
     // ---- the summary artifact carries name on both lanes -------------------------------------------
 
     /// <summary>The artifact a summary call writes with to_file=, read back as its row for <paramref name="fk"/> and its manifest text.</summary>
@@ -195,6 +230,7 @@ public sealed class SummaryNameTests : IClassFixture<SummaryNameTests.World>
         Assert.Equal(WinnerSword, row.GetProperty("name").GetString());
         Assert.Equal("hcSnSword", row.GetProperty("editorid").GetString());
         Assert.Contains("\"name?\"", text);
+        Assert.Contains(list ? "\"winner?\"" : "\"winner\"", text);
     }
 
     [Fact]
@@ -224,5 +260,28 @@ public sealed class SummaryNameTests : IClassFixture<SummaryNameTests.World>
         Assert.Equal(Timeless(List(ids, format, "summary")), Timeless(List(ids, format, "identity")));
         Assert.Equal(Timeless(Scan(format, "summary")), Timeless(Scan(format, "identity")));
         Assert.Equal(Timeless(List(ids, format, "summary", Pole(MasterName))), Timeless(List(ids, format, "identity", Pole(MasterName))));
+    }
+}
+
+/// <summary>The engine-implicit forms answer summary rows on the SkyPatcher overlay source, pre and post alike.</summary>
+[Collection("records")]
+[Trait("tier", "integration")]
+public sealed class SummaryEngineOverlayTests : RecordsTestBase
+{
+    public SummaryEngineOverlayTests(RecordsFixture f) : base(f) { }
+
+    [Theory]
+    [InlineData("pre")]
+    [InlineData("post")]
+    public void PlayerRefAndPlayerAnswerOnEitherOverlayState(string state)
+    {
+        var doc = Je(RecordsTools.Records(Svc, formids: new[] { "000014:Skyrim.esm", "000007:Skyrim.esm" }, format: "json",
+                                          source: Overlay(state)));
+        var rows = doc.GetProperty("records").EnumerateArray().ToArray();
+        Assert.Equal(("PlacedNpc", "PlayerRef", "<engine>"),
+                     (rows[0].GetProperty("type").GetString(), rows[0].GetProperty("editorid").GetString(), rows[0].GetProperty("winner").GetString()));
+        Assert.Equal(("Npc", "Player", "<engine>"),
+                     (rows[1].GetProperty("type").GetString(), rows[1].GetProperty("editorid").GetString(), rows[1].GetProperty("winner").GetString()));
+        Assert.Equal(0, doc.GetProperty("rows_read").GetInt32());
     }
 }

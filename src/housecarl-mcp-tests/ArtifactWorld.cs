@@ -34,7 +34,7 @@ public abstract class ArtifactTestBase
 
     protected static RecordsTools.RecordsProject Form(string form) => new() { form = form };
 
-    protected static readonly RecordsTools.RecordsProject Identity = new() { form = "identity" };
+    protected static readonly RecordsTools.RecordsProject SummaryForm = new() { form = "summary" };
     protected static readonly RecordsTools.RecordsProject Everything = new() { form = "everything" };
 
     /// <summary>A refusal: the text lane's own discriminant plus what the caller claims it names.</summary>

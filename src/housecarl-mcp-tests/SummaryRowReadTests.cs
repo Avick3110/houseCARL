@@ -13,17 +13,17 @@ namespace HousecarlMcpTests;
 /// container depth hint present on a read and absent on a write read-back. A master defines keyword KA, a dangling
 /// keyword link, and two named weapons; a replacer overrides W1 and defines W3.</summary>
 [Trait("tier", "integration")]
-public sealed class ResolveRefsIdentityTests : IDisposable
+public sealed class SummaryRowReadTests : IDisposable
 {
     const string MasterName = "hcw2Master.esp", ReplName = "hcw2Repl.esp";
 
-    readonly string _dir = Path.Combine(Path.GetTempPath(), "hc-resolve-refs-identity-" + Guid.NewGuid().ToString("N"));
+    readonly string _dir = Path.Combine(Path.GetTempPath(), "hc-summary-row-read-" + Guid.NewGuid().ToString("N"));
     readonly LoadOrderResolver _resolver;
     readonly LoadOrderService _svc;
     readonly Weapon _w1;
     readonly FormKey _ka, _ghost, _w3;
 
-    public ResolveRefsIdentityTests()
+    public SummaryRowReadTests()
     {
         _ = TestCorpus.Path;
         Directory.CreateDirectory(_dir);
@@ -147,6 +147,16 @@ public sealed class ResolveRefsIdentityTests : IDisposable
         Assert.Equal(("PlayerRef", "PlacedNpc", "<engine>"), (Cell(0, "editorid"), Cell(0, "type"), Cell(0, "winner")));
         Assert.Equal(("Player", "Npc", "<engine>"), (Cell(1, "editorid"), Cell(1, "type"), Cell(1, "winner")));
         Assert.Equal("000015:Skyrim.esm", doc.GetProperty("errors").EnumerateArray().Single().GetProperty("formid").GetString());
+    }
+
+    // The summary flag, not the fields list's identity, decides the engine-implicit answer.
+    [Fact]
+    public void AnEqualFieldsListAnswersPlayerRefOnlyWhenTheReadIsASummary()
+    {
+        var ids = new[] { "000014:Skyrim.esm" };
+        var asSummary = _svc.ResolveBatch(ids, new[] { "EditorID" }, false, 1, false, null, null, out _, out _, summary: true).Single();
+        Assert.Equal(("PlayerRef", "<engine>", true), (asSummary.Record?.EditorId, asSummary.WinnerPlugin, asSummary.FromEngine));
+        Assert.NotNull(_svc.ResolveBatch(ids, new[] { "EditorID" }, false).Single().Error);
     }
 
     // A fields read of an engine-implicit form has no body to read, so it stays the per-item error.

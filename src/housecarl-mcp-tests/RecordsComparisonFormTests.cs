@@ -230,7 +230,7 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
 
     [Fact]
     public void ScopeVsPolePlusSummaryRefusesByName_ThePoleChangesNothingThere() =>
-        Refused(RecordsTools.Records(Svc, plugins: Scope(W.MasterName), source: Plugin(W.OverrideName)), "identity facts");
+        Refused(RecordsTools.Records(Svc, plugins: Scope(W.MasterName), source: Plugin(W.OverrideName)), "does not read that composition");
 
     // ---- selection, walk and artifact compositions ----------------------------------------------------
 

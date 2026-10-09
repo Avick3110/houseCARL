@@ -903,14 +903,14 @@ public sealed class RecordsRenderCostTests
         Assert.Contains($"read {RenderCostWorld.AmmoPerPlugin} record bodies in ", text);
     }
 
-    /// <summary>The same on the identity lane, whose skip is a malformed token: ResolveRefs never reaches a read
-    /// for one, so it is not a body the accounting may claim.</summary>
+    /// <summary>The same on the summary lane, whose skip is a malformed token or an absent plugin: neither reaches a
+    /// body, so neither is a body the accounting may claim.</summary>
     [Fact]
-    public void AnIdentityReadCountsOnlyTheIdsThatResolved()
+    public void ASummaryReadCountsOnlyTheIdsThatResolved()
     {
         var ids = new[] { "not-a-formid", "also bad", "123456:NoSuchPlugin.esp" }.Concat(AllWeaponIds).ToArray();
         var doc = Doc(RecordsTools.Records(Svc, formids: ids, format: "json",
-                                           project: new RecordsTools.RecordsProject { form = "identity" }));
+                                           project: new RecordsTools.RecordsProject { form = "summary" }));
         Assert.Equal(ids.Length, doc.GetProperty("count").GetInt32());
         Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rows_read").GetInt32());
     }
