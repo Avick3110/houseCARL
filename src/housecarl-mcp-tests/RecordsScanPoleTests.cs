@@ -236,15 +236,44 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
                                     references: new[] { "!" + Fid(W.MgefA) }),
                "where= and references= judged each record before the SkyPatcher layer replays");
 
-    /// <summary>A walk reads every record it reaches, so the overlay on a scan-seeded walk refuses as main did.</summary>
-    [Theory]
-    [InlineData("post")]
-    [InlineData("pre")]
-    public void OverlayScanWalk_IsRefused(string state)
+    /// <summary>A walk reads every record it reaches, so the post overlay on a scan-seeded walk refuses as main did.</summary>
+    [Fact]
+    public void OverlayScanWalk_IsRefused()
     {
-        var opens = ReplayOpens(() => RecordsTools.Records(Svc, types: Weap, source: Overlay(state), walk: new RecordsTools.RecordsWalk()), out var r);
+        var opens = ReplayOpens(() => RecordsTools.Records(Svc, types: Weap, source: Overlay("post"), walk: new RecordsTools.RecordsWalk()), out var r);
         Refused(r, "a walk reads every record it reaches", "formids=");
         Assert.Equal(0, opens);
+    }
+
+    /// <summary>The pre state replays nothing, so a scan-seeded walk under it is the winner walk, stated as pre.</summary>
+    [Fact]
+    public void OverlayPreScanWalk_IsTheWinnerWalk()
+    {
+        var opens = ReplayOpens(() => RecordsTools.Records(Svc, types: Weap, source: Overlay("pre"), walk: new RecordsTools.RecordsWalk()), out var r);
+        Served(r, "selected by the scan as walk seeds", "skypatcher overlay (pre) = winner", "HcRecW0");
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
+    public void OverlayPreScanToFile_IsServed()
+    {
+        var path = W.Scratch("results", "overlay-pre-scan.jsonl");
+        var r = RecordsTools.Records(Svc, types: Weap, source: Overlay("pre"), to_file: path);
+        Served(r, "skypatcher overlay (pre) = winner");
+        Assert.Contains("HcRecW0", File.ReadAllText(path));
+    }
+
+    /// <summary>A comparison over a scan takes no overlay pole; the pre state's refusal says what pre is, not that it replays.</summary>
+    [Theory]
+    [InlineData("post", "compares every match")]
+    [InlineData("pre", "plain load-order winner")]
+    public void OverlayScanDelta_IsRefusedInWordsTrueForTheState(string state, string says)
+    {
+        var asSource = RecordsTools.Records(Svc, types: Weap, source: Overlay(state), versus: Je("\"winner\""), project: Form("delta"));
+        var asVersus = RecordsTools.Records(Svc, types: Weap, versus: Overlay(state), project: Form("delta"));
+        Refused(asSource, says);
+        Refused(asVersus, says);
+        if (state == "pre") Assert.DoesNotContain("replays", asSource + asVersus);
     }
 
     [Theory]
