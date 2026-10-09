@@ -161,7 +161,7 @@ public sealed class FieldPredicateSet
 
     /// <summary>The sentence naming the unmatched members, the first <paramref name="cap"/> by name and the rest by count.</summary>
     public static string UnmatchedSentence(IReadOnlyList<string> unmatched, int cap) =>
-        $"note: {unmatched.Count:N0} 'in' list member(s) matched no record in this selection: " +
+        $"note: {unmatched.Count:N0} 'in' list member(s) have no record in this selection: " +
         OrderDegraded.Shown(unmatched, cap, n => $", and {n:N0} more (to_file= keeps the whole list)") + ".";
 
     /// <summary>Set once when a numeric operator meets a non-numeric field value; null while the predicate is well-typed.</summary>

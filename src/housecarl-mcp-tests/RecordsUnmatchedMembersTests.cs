@@ -12,7 +12,7 @@ public sealed class RecordsUnmatchedMembersTests : RecordsTestBase
 {
     public RecordsUnmatchedMembersTests(RecordsFixture f) : base(f) { }
 
-    const string Lead = "matched no record in this selection";
+    const string Lead = "have no record in this selection";
 
     static string NoteLine(string text) => text.Split('\n').Single(l => l.Contains(Lead));
 
@@ -38,7 +38,6 @@ public sealed class RecordsUnmatchedMembersTests : RecordsTestBase
                                           where: new[] { "editorid in [HcRecW0, NoSuchA, hcrecw1, NoSuchB]" }));
 
         Assert.Equal(new[] { "NoSuchA", "NoSuchB" }, Unmatched(doc));
-        Assert.Equal(2, doc.GetProperty("unmatched_total").GetInt32());
         Assert.Contains(doc.GetProperty("notes").EnumerateArray(), n => n.GetString()!.Contains(Lead));
     }
 
@@ -82,7 +81,8 @@ public sealed class RecordsUnmatchedMembersTests : RecordsTestBase
         Assert.DoesNotContain(names[FieldPredicateSet.UnmatchedShown], note);
         Assert.Contains("and 5 more", note);
         Assert.Equal(names.Take(FieldPredicateSet.UnmatchedShown), Unmatched(doc));
-        Assert.Equal(names.Length, doc.GetProperty("unmatched_total").GetInt32());
+        Assert.False(doc.TryGetProperty("unmatched_total", out _));
+        Assert.Contains(doc.GetProperty("notes").EnumerateArray(), n => n.GetString()!.Contains("and 5 more"));
     }
 
     [Fact]
@@ -99,6 +99,32 @@ public sealed class RecordsUnmatchedMembersTests : RecordsTestBase
         var note = Assert.Single(manifest!.Notes!, n => n.Contains(Lead));
         Assert.All(names, n => Assert.Contains(n, note));
         Assert.DoesNotContain("more", note);
+    }
+
+    [Fact]
+    public void AnEditoridAtFileNamesItsMisses()
+    {
+        var list = W.Scratch("unmatched", Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(list, "NoSuchB\nHcRecW0\nNoSuchA\n");
+
+        var doc = Je(RecordsTools.Records(Svc, types: new[] { "WEAP" }, format: "json", where: new[] { $"editorid in @{list}" }));
+
+        Assert.Equal(new[] { "NoSuchB", "NoSuchA" }, Unmatched(doc));
+    }
+
+    [Fact]
+    public void AFormidArtifactNamesItsMissesInTheArtifactsOrder()
+    {
+        var art = W.Scratch("unmatched", Guid.NewGuid().ToString("N") + ".jsonl");
+        RecordsTools.Records(Svc, types: new[] { "WEAP" }, to_file: art);
+        var (_, tokens, err) = ResultArtifact.ReadIdentity(art, File.ReadAllText(art));
+        Assert.Null(err);
+        Assert.True(tokens!.Count >= 2);
+
+        // An ARMO scan judges no weapon, so every artifact member is unmatched, named in the file's order.
+        var doc = Je(RecordsTools.Records(Svc, types: new[] { "ARMO" }, format: "json", where: new[] { $"formid in @{art}" }));
+
+        Assert.Equal(tokens.Take(FieldPredicateSet.UnmatchedShown), Unmatched(doc));
     }
 
     [Fact]
