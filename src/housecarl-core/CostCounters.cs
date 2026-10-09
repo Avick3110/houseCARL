@@ -19,7 +19,7 @@ public sealed class CostCounters
     /// <summary>Record bodies the chunk gather was asked for.</summary>
     public long KeysWanted;
 
-    /// <summary>SkyPatcher layers a comparison pole opened for replay.</summary>
+    /// <summary>SkyPatcher layers an overlay read opened for replay.</summary>
     public long ReplayOpens;
 
     /// <summary>Off-order files a comparison pole swept.</summary>

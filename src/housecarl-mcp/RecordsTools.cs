@@ -146,7 +146,7 @@ public static partial class RecordsTools
             string? where_source = null,
         [Description("SELECT: records that reference these FormIDs (one step back; OR over the list, each match names the target(s) it hit). Needs no bounding scope: unbounded, it reads the reverse-reference index, built on first use by one whole-order link walk, and the response reports that cost and the index's freshness; with types= or plugins= it is cheaper. A '!' before an entry negates it: references=[\"!XXXXXX:A.esm\"] keeps records that do not reference that target, plain and negated entries combine by AND, and references=[\"!@C:/work/targets.jsonl\"] negates every target the file names. A negated entry alone with no types=/plugins= is the orphan sweep: every record nothing in the order references, minus any that link the named target; bound the call for the narrower question. Accepts [\"@<path>\"] like formids=.")]
             string[]? references = null,
-        [Description("SOURCE: whose version is read; the subject of the call. Omit or \"winner\" for the load-order winner (the default). A plugin filename (e.g. \"OldPatch.esp\") reads that plugin's version whether it is active or on disk unticked, and the response states which; use {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename. {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} reads before or after the SkyPatcher INI layer replays (not on a scan: name the records with formids= alone); add \"ini\": \"<absolute path to a draft .ini>\" (with \"subfolder\": the SkyPatcher type folder it would go in, or omit it when the draft's parent directory already is that folder) to read the post state with a draft not yet placed. Content from outside the load order (an off-order file, the SkyPatcher layer) is outside the epoch fingerprint, and the response says so. On project.form='info_order' the one value taken is an off-order plugin (any file not in the active order, including a plugin unticked inside an enabled mod), folded into the merge where MO2 would load it: the end of the order for a regular plugin, after the last master for an ESM-flagged one or a .esm/.esl, or the plugin's own slot when the order already carries that filename (a shadowed copy named by {\"file\", \"mod\"}). The response names the placement, the neighbour it landed beside and the flag behind it.")]
+        [Description("SOURCE: whose version is read; the subject of the call. Omit or \"winner\" for the load-order winner (the default). A plugin filename (e.g. \"OldPatch.esp\") reads that plugin's version whether it is active or on disk unticked, and the response states which; use {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename. {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} reads before or after the SkyPatcher INI layer replays; add \"ini\": \"<absolute path to a draft .ini>\" (with \"subfolder\": the SkyPatcher type folder it would go in, or omit it when the draft's parent directory already is that folder) to read the post state with a draft not yet placed. Content from outside the load order (an off-order file, the SkyPatcher layer) is outside the epoch fingerprint, and the response says so. On project.form='info_order' the one value taken is an off-order plugin (any file not in the active order, including a plugin unticked inside an enabled mod), folded into the merge where MO2 would load it: the end of the order for a regular plugin, after the last master for an ESM-flagged one or a .esm/.esl, or the plugin's own slot when the order already carries that filename (a shadowed copy named by {\"file\", \"mod\"}). The response names the placement, the neighbour it landed beside and the flag behind it.")]
             JsonElement? source = null,
         [Description("SOURCE (delta and tree): the reference pole compared against. Same values as source=, plus \"previous_provider\" (delta only): the plugin just below the subject (whatever source= names) in the record's stack, measured from the subject, not the winner; with it, plugins above the subject are reported as plain fact, and a subject that defines the record, or does not touch it, is refused, never an empty diff. Required on delta; defaults to \"winner\" on tree; refused on other forms.")]
             JsonElement? versus = null,
@@ -540,6 +540,14 @@ public static partial class RecordsTools
             if (over > 0) headerLine += $"\n[!] skypatcher: {over} further warning(s) not listed.";
             foreach (var p in pointers) headerLine += "\n[!] skypatcher: " + p;
         }
+        // What every post-state overlay read states: the layer is outside the epoch, and its warnings that bear on the rows.
+        void OverlayPostNotes()
+        {
+            envelope.Add(new("epoch_covers_source", "false"));
+            headerLine += "\n(the SkyPatcher INI layer's files are OUTSIDE the epoch fingerprint — an INI edit changes answers " +
+                          "without changing the epoch; a record whose type SkyPatcher cannot patch reads as its plain winner)";
+            StateOverlayWarnings();
+        }
         // The seam between a deriving step's capture and the read's; docs/architecture/records-tool-front.md.
         string? expectEpoch = null;
         string? SeamTear(OrderStamp? epoch) =>
@@ -688,10 +696,7 @@ public static partial class RecordsTools
                                 : "error: " + ovRefusal + Wire.EpochLine(ovEpoch);
                 Arm("skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
                     + (srcSpec.Draft is null ? "" : $", with {srcSpec.Draft.Arm}"));
-                envelope.Add(new("epoch_covers_source", "false"));
-                headerLine += "\n(the SkyPatcher INI layer's files are OUTSIDE the epoch fingerprint — an INI edit changes answers " +
-                              "without changing the epoch; a record whose type SkyPatcher cannot patch reads as its plain winner)";
-                StateOverlayWarnings();
+                OverlayPostNotes();
             }
             else if (srcName is null)
             {
@@ -1263,19 +1268,28 @@ public static partial class RecordsTools
             headerLine += "\n(a pole reads content OUTSIDE the epoch fingerprint — an off-order file or the INI layer; an edit there changes answers without changing the epoch)";
         }
 
+        // What the pole did not decide on this call, on header and envelope alike.
+        void SourceNote(string note)
+        {
+            envelope.Add(new("source_note", note));
+            headerLine += "\n" + note;
+        }
+
         // ================================================================================================
         //  SCAN lane — types/plugins/where/references/conflicts_only drive; SOURCE picks the universe.
         // ================================================================================================
         string ScanLane()
         {
-            if (srcOverlay || versusSpec?.Kind == RecordReads.PoleKind.Overlay)
-                return Wire.Refuse(json, "error: an overlay pole on a SCAN would replay the SkyPatcher INI layer over every match — a per-record replay at scan scale " +
-                       "(a scan comparison compares EVERY match, so it is not a bound). Name the records via formids= — the list lane reads and " +
-                       "compares their post-state bodies — or read the whole layer via " + ToolNames.SkypatcherLayer + ".");
+            if (versusSpec?.Kind == RecordReads.PoleKind.Overlay || (srcOverlay && comparisonForm))
+                return Wire.Refuse(json, OverlayScanRefusal($"a '{form}' over a scan compares every match"));
+            if (srcOverlay && wantFile)
+                return Wire.Refuse(json, OverlayScanRefusal("to_file= holds every match"));
             bool hasBodyFilter = where is { Length: > 0 } || references is { Length: > 0 };
             bool hasTypes = types is { Length: > 0 };
             bool hasScope = plugins?.names is { Length: > 0 };
             bool scopePlusPole = false;
+            // The count forms count the scan's own matches and read no pole body.
+            bool census = walk is null && (form == "aggregate" || counts_only);
             // The derived-selection forms consume EVERY match; known up front, used by the scan cap below.
             bool derivedSelection = comparisonForm || form == "info_order" || walk is not null;
             // The scan states the source itself except for forms whose own pipeline states one; the tree has no
@@ -1324,21 +1338,38 @@ public static partial class RecordsTools
                     return OffOrderScan(probe);
                 if (hasScope)
                 {
-                    // Scope and pole compose for the body-reading forms only; summary and aggregate refuse rather than answer off the winners.
-                    if (form is "summary" or "aggregate")
-                        return Wire.Refuse(json, $"error: a plugins= scope with a named source= reads the POLE's version of each scoped match, and the '{form}' form does not read that composition. Drop source= for the winners' rows, or use form='fields'/'everything' (the pole's bodies) or 'delta'/'tree' (comparisons).", probeEpoch);
                     if (winnerFields)
                         return Wire.Refuse(json, "error: fields_source='winner' and a named source= under a plugins= scope are TWO display poles on one call — the pole's version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').", probeEpoch);
                     scopePlusPole = true;
                     // The scope statement is only truthful for forms that READ the pole's bodies; a scoped tree
                     // reads every provider, so it states the selection without the pole clause.
                     if (form == "tree") Arm($"{probe.Plugin} — scope-selected ({pluginsEcho ?? string.Join(", ", plugins!.names!)}); the tree reads every provider");
+                    else if (census)
+                    {
+                        // A census counts the scope's matches, which the pole does not change.
+                        Arm($"{probe.Plugin} — active in the load order (the plugins= scope selects)");
+                        SourceNote("source= does not change these counts");
+                    }
                     else if (!pipelineArms) Arm($"{probe.Plugin} — active in the load order (the plugins= scope selects; this pole's version is read)");
                 }
                 else if (!pipelineArms)
                     // The pole's records are the scan universe: stream the plugin and say so.
                     Arm($"{probe.Plugin} — active in the load order");
             }
+            else if (srcSpec.ReplaysOverlay && census)
+            {
+                Arm("winner");
+                SourceNote("the overlay is not replayed for a count: these counts are of the plugin records, before the SkyPatcher layer");
+            }
+            else if (srcSpec.ReplaysOverlay && walk is null)
+            {
+                // The limit= window's rows are replayed in the body lane below; the scan itself reads the plugin records.
+                Arm("skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
+                    + (srcSpec.Draft is null ? "" : $", with {srcSpec.Draft.Arm}"));
+                if (where is { Length: > 0 })
+                    SourceNote("where= judged each record before the SkyPatcher layer replays; the rows show it after");
+            }
+            else if (srcOverlay && !pipelineArms) Arm("skypatcher overlay (pre) = winner — the body the INI layer starts from");
             else if (!pipelineArms) Arm("winner");   // delta/info_order/walk pipelines state their own source
 
             // references= @file expansion and FormKey parse.
@@ -1428,7 +1459,8 @@ public static partial class RecordsTools
             // CrossQuery renderers read it off the outcome, and every form below carries it on header and envelope
             // from here. bodyLaneForm is read by both this gate and the lane below, so the two cannot drift.
             bool bodyLaneForm = form == "everything" || form == "rows"
-                             || (form == "fields" && (scopePlusPole || (foldPlan is not null && !dense)));
+                             || (form == "fields" && foldPlan is not null && !dense)
+                             || (form is "fields" or "summary" && (scopePlusPole || srcSpec.ReplaysOverlay));
             if (outcome.ReverseIndexNote is not null && outcome.Error is null && outcome.Groups is null
                 && (walk is not null || comparisonForm || form == "info_order" || (bodyLaneForm && !counts_only)))
             {
@@ -1539,11 +1571,23 @@ public static partial class RecordsTools
                 IReadOnlyList<ReadOutcome> bodies;
                 // Clocked like the scan render, since the bound is one number over both lanes.
                 var bodyClock = System.Diagnostics.Stopwatch.StartNew();
-                if (srcName is not null)
+                bool summaryRows = form == "summary";
+                var bodyRead = summaryRows ? RecordReads.HeaderRead : bodyFields ? readPaths : null;
+                if (srcSpec.ReplaysOverlay)
                 {
-                    bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, bodyFields ? readPaths : null, depth, resolveNames, null,
+                    // Only the window is replayed, through one replay context for the call.
+                    bodies = svc.OverlayPostBatch(keys, bodyRead, depth, resolveNames, null, out var oref, out var orefEpoch, out _,
+                                                  containerHint, readDepths, ct,
+                                                  draft: srcSpec.Draft, overlayWarnings: overlayWarnings, summary: summaryRows);
+                    if (oref is not null)
+                        return json ? JsonWire.RenderError(oref, orefEpoch) : "error: " + oref + Wire.EpochLine(orefEpoch);
+                    OverlayPostNotes();
+                }
+                else if (srcName is not null)
+                {
+                    bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, bodyRead, depth, resolveNames, null,
                                                       out _, out var bref, out var brefEpoch, containerHint, readDepths,
-                                                      ct, outcome.GetterTypes, countFields);
+                                                      ct, outcome.GetterTypes, countFields, summary: summaryRows);
                     // A refusal is judged on the named cause, never on row count: a zero-match scan is honest.
                     if (bref is not null)
                         return json ? JsonWire.RenderError(bref, brefEpoch)
@@ -1556,7 +1600,7 @@ public static partial class RecordsTools
                     // fields_source="winner" retargeting display to the winner.
                     var srcs = outcome.Sources;
                     if (winnerFields || srcs is null || srcs.Take(keys.Count).All(s => s is null))
-                        bodies = svc.ResolveBatch(keys, bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
+                        bodies = svc.ResolveBatch(keys, bodyRead, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
                     else
                     {
                         var byIndex = new ReadOutcome[keys.Count];
@@ -1571,12 +1615,12 @@ public static partial class RecordsTools
                         }
                         if (winnerIdx.Count > 0)
                         {
-                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
+                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyRead, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
                             for (int i = 0; i < winnerIdx.Count; i++) byIndex[winnerIdx[i]] = res[i];
                         }
                         foreach (var kv in bySource)
                         {
-                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, kv.Key, containerHint, readDepths, ct, outcome.GetterTypes, countFields);
+                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyRead, false, depth, resolveNames, kv.Key, containerHint, readDepths, ct, outcome.GetterTypes, countFields);
                             for (int i = 0; i < kv.Value.Count; i++) byIndex[kv.Value[i]] = res[i];
                         }
                         bodies = byIndex;
@@ -1621,13 +1665,15 @@ public static partial class RecordsTools
                 var evMatches = outcome.MatchedTargets;
                 string RenderEv(SpillState? sp, out bool trunc) => dense
                     ? JsonWire.RenderBatchDense(unfoldedBodies, readPaths, foldPlan, max_chars, sp, out trunc, envelope, (bodies.Count, bodyClock.ElapsedMilliseconds), evMatches)
+                    : summaryRows
+                    ? RenderRecordsSummary(bodies, json, headerLine, envelope, max_chars, sp, (bodies.Count, bodyClock.ElapsedMilliseconds), out trunc)
                     : json
                     ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds), evMatches)
                     : Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds), headerLine, evMatches);
                 SpillState? evSpill = null;
                 if (wantFile)
                 {
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), evLevers, matches: evMatches);
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), evLevers, matches: evMatches, summary: summaryRows);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, bodyEpoch) : "error: " + aerr;
                     evSpill = SpillState.Spilled(s!, manifestOnly: true);
                 }
@@ -1635,7 +1681,7 @@ public static partial class RecordsTools
                 if (evSpill is null && evTrunc)
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, bodyEpoch?.Epoch ?? "none");
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), evLevers, matches: evMatches);
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), evLevers, matches: evMatches, summary: summaryRows);
                     evRendered = RenderEv(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return evRendered;
@@ -1687,9 +1733,7 @@ public static partial class RecordsTools
             if (walk is not null)
                 return Wire.Refuse(json, "error: the walk expands the ACTIVE order's winner link graph — an out-of-load-order file's records are not in that graph. Enumerate the file with form='summary', then walk specific records via formids= (dropping source=).", pole.Stamp);
             if (versusSpec?.Kind == RecordReads.PoleKind.Overlay)
-                return Wire.Refuse(json, "error: an overlay pole on a SCAN would replay the SkyPatcher INI layer over every match — a per-record replay at scan scale " +
-                       "(a scan comparison compares EVERY match, so it is not a bound). Name the records via formids= — the list lane reads and " +
-                       "compares their post-state bodies — or read the whole layer via " + ToolNames.SkypatcherLayer + ".", pole.Stamp);
+                return Wire.Refuse(json, OverlayScanRefusal($"a '{form}' over a scan compares every match"), pole.Stamp);
             if (where_source is not null)
             {
                 // Full-vocabulary validation, mirroring the in-order engine, so an unknown spelling refuses by name.
@@ -1898,6 +1942,12 @@ public static partial class RecordsTools
             return rendered;
         }
     }, ct);
+
+    /// <summary>The one refusal left for an overlay pole on a scan: what replays only the limit= window cannot serve.</summary>
+    static string OverlayScanRefusal(string what) =>
+        $"error: an overlay pole on a scan replays the SkyPatcher layer over the limit= window of a reading form, and {what}. " +
+        "Name the records via formids= (the list lane reads and compares their post-state bodies), or read the whole layer via " +
+        ToolNames.SkypatcherLayer + ".";
 
     /// <summary>Null when format='dense' can carry this call's answer on any lane, else the refusal naming what to use instead.</summary>
     static string? DenseRefusal(string form, RecordsProject? project, FoldPlan? fold, bool walk)
