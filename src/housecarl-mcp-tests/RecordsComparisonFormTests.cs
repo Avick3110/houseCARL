@@ -229,8 +229,9 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
                                     project: Fields("BasicStats.Damage")), "99", "not_touched");
 
     [Fact]
-    public void ScopeVsPolePlusSummaryRefusesByName_ThePoleChangesNothingThere() =>
-        Refused(RecordsTools.Records(Svc, plugins: Scope(W.MasterName), source: Plugin(W.OverrideName)), "does not read that composition");
+    public void ScopeVsPolePlusSummary_ReadsThePolesRowsAndCountsTheUntouched() =>
+        Served(RecordsTools.Records(Svc, plugins: Scope(W.MasterName), source: Plugin(W.OverrideName)),
+               "this pole's version is read", "not_touched", RecordsWorld.RenamedArmorNewEid);
 
     // ---- selection, walk and artifact compositions ----------------------------------------------------
 
