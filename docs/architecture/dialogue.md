@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-25
+updated: 2026-10-09
 covers: [src/housecarl-core/DialogueInfoOrder.cs, src/housecarl-core/DialogueFold.cs, src/housecarl-core/DialogueSubtype.cs, src/housecarl-mcp/DialogueTools.cs]
 ---
 # Dialogue: the merged INFO order, the fold, and the SNAM marker
@@ -49,6 +49,12 @@ Consequences the render depends on:
 A view's negative claims are gated: `Complete` (every touching plugin's list read) gates "nothing merges here",
 `BaselineTrusted` gates every origin-derived claim including "added by a later plugin", and `MovesComputed` gates
 reading an empty `Moved` as "nothing moved".
+
+The one-plugin case is not special-cased in the merge: the definer's own lines go through `Place`, so its PNAM
+links apply within it and `Moved` is measured against its file order. The text render's one-line answer ("IS that
+plugin's own list") is therefore gated on `Complete`, `MovesComputed` and an empty `Moved`; otherwise it lists the
+order like any merge, with a lead saying the shift is that plugin's own PNAM and that whether the engine follows
+PNAM or file order within one plugin is untested (#1148). The json row always carried the order and the marks.
 
 ### The fold
 
@@ -106,6 +112,8 @@ off the countless vanilla topics whose number is legitimately noisy.
 ## Pinned by
 - `InfoOrderMergeTests`, `InfoOrderDegradeTests` and `InfoOrderRenderTests` — the merged INFO order, by the arms
   named beside its sentences above.
+- `InfoOrderSoloPnamTests` — a one-plugin topic whose PNAM disagrees with its file order is listed in `Place`'s
+  order with the moved line marked, and one whose PNAM chain agrees keeps the one-line answer.
 - `DialogueFamilyTests.FactD1_TheShippedRenderStatesTheMergeModel` — the `info_order` render states the merge
   model and never says a line is dropped; `FactD3_UnreadWired` — a touching plugin that could not be read makes
   the view INCOMPLETE and is named.

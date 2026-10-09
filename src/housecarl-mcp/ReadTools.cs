@@ -421,13 +421,14 @@ static partial class Wire
         if (view is not { } io || (io.Order.Count == 0 && io.Complete)) return true;
 
         // "Nothing merges here" holds only if every touching plugin's list was read — hence the gate on Complete,
-        // which is also what keeps this arm's ContributingPlugins[0] off a view built from nothing.
-        if (!io.Contested && io.Complete)
+        // which is also what keeps this arm's ContributingPlugins[0] off a view built from nothing. "IS its own
+        // list" holds only when its PNAM links put no line elsewhere; otherwise the listing below shows where.
+        if (!io.Contested && io.Complete && io.MovesComputed && io.Moved.Count == 0)
         {
             sb.Append("  INFO order: ").Append(io.Order.Count)
               .Append(io.Order.Count == 1 ? " line, from a single plugin (" : " lines, from a single plugin (")
               .Append(io.ContributingPlugins[0])
-              .Append(") — nothing merges here, so the effective order IS that plugin's own list.\n");
+              .Append(") — nothing merges here and its PNAM links keep its file order, so the effective order IS that plugin's own list.\n");
             AppendFoldNote(sb, io);
             AppendOrderNote(sb, io);          // a degraded merge is degraded whether or not anything contests it
             return true;
@@ -493,7 +494,18 @@ static partial class Wire
     static void AppendMovedLead(StringBuilder sb, InfoOrderView io)
     {
         var moved = io.Moved;
-        if (moved.Count > 0)
+        if (moved.Count > 0 && !io.Contested && io.Complete)
+        {
+            // One plugin: nothing re-listed anything, so the shift is that plugin's own PNAM against its file order.
+            var w = moved[0];
+            sb.Append("  [!] ").Append(moved.Count)
+              .Append(moved.Count == 1 ? " line sits" : " lines sit")
+              .Append(" at a different position than in ").Append(io.ContributingPlugins[0])
+              .Append("'s own file order, put there by that plugin's PNAM links — the biggest shift is ")
+              .Append(FormIdToken.Of(w.Info)).Append(" #").Append(w.OriginIndex!.Value + 1).Append(" -> #").Append(w.Index + 1)
+              .Append(". The order above applies PNAM within that plugin, as every merge here does; whether the game follows PNAM or file order within one plugin is untested, so check the line in game before relying on either.\n");
+        }
+        else if (moved.Count > 0)
         {
             var w = moved[0];
             // Qualified rather than gated on an incomplete read: a positive lead says how far the evidence reaches.
