@@ -214,7 +214,6 @@ public sealed class NullableLinkRemoveApplyTests : IDisposable
                                          project: new RecordsTools.RecordsProject { form = "info_order" },
                                          source: JsonDocument.Parse("\"NlrPatch.esp\"").RootElement.Clone());
 
-       
         Assert.Contains($"#1  {Fid(_line[2])}", order);
         Assert.Contains($"#3  {Fid(_line[1])}", order);
     }
