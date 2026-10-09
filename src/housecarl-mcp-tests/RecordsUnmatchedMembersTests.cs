@@ -299,6 +299,29 @@ public sealed class UnmatchedMembersUnreadableTests : IClassFixture<WinnerSource
     }
 }
 
+/// <summary>A plugin the build could not load leaves its records unjudged, so the note does not call them absent.</summary>
+[Trait("tier", "integration")]
+public sealed class UnmatchedMembersDegradedOrderTests
+{
+    [Fact]
+    public void APluginTheBuildCouldNotLoadQualifiesTheNote()
+    {
+        using var w = new DegradedOrderWorld();
+        JsonElement doc;
+        using (new FileStream(w.PluginFile, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            w.ForceRebuild();
+            doc = JsonDocument.Parse(RecordsTools.Records(w.Svc, types: new[] { "WEAP" }, format: "json",
+                where: new[] { "editorid in [HcLockedOneWeapon, HcLockedTwoWeapon]" })).RootElement.Clone();
+        }
+
+        Assert.True(doc.GetProperty("order_degraded").GetBoolean());
+        Assert.Equal(new[] { "HcLockedTwoWeapon" }, doc.GetProperty("unmatched").EnumerateArray().Select(e => e.GetString()!));
+        var note = doc.GetProperty("notes").EnumerateArray().Select(n => n.GetString()!).Single(n => n.Contains("'in' list member(s)"));
+        Assert.Contains("but 1 plugin(s) could not be read, so a record may exist for them", note);
+    }
+}
+
 /// <summary>An inactive plugin's scan, the off-order lane, names its misses too.</summary>
 [Collection("render-cost")]
 [Trait("tier", "integration")]
