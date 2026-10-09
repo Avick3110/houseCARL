@@ -254,14 +254,16 @@ internal static class Artifacts
     /// <summary>Build and save the artifact for a batch read — one row per input, in input order, per-item errors included. <paramref name="matches"/> is parallel to <paramref name="outcomes"/> and carries the references= un-merge (#576).</summary>
     public static (SpillInfo? Spill, string? Error) WriteBatch(
         IReadOnlyList<ReadOutcome> outcomes, ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
-        LeverNames? levers = null, int rowCap = int.MaxValue, IReadOnlyList<string?>? matches = null)
+        LeverNames? levers = null, int rowCap = int.MaxValue, IReadOnlyList<string?>? matches = null, bool summary = false)
     {
         using var writer = new ResultArtifact.Writer();
         for (int i = 0; i < outcomes.Count; i++)
         {
             var o = outcomes[i];
             string? hit = matches is { } mt && i < mt.Count ? mt[i] : null;
-            if (o.Error is not null)
+            if (summary)   // the summary form's row, written by the one writer its inline render and the scan's rows use
+                writer.WriteRow((w, _) => JsonWire.WriteSummaryRow(w, RecordSummary.Of(o), hit), o.Error is null ? o.Record!.Type : null);
+            else if (o.Error is not null)
                 writer.WriteRow((w, _) =>
                 {
                     w.WriteStartObject(); w.WriteString("formid", FormIdToken.Of(o.FormKey)); w.WriteString("error", o.Error);
@@ -275,7 +277,9 @@ internal static class Artifacts
         var epoch = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "";
         // The manifest stamps which tool wrote the artifact; a re-entry refusal prints it back.
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" },
+                                          summary
+                                              ? new[] { "formid", "runtime_formid", "type", "editorid", "name?", "source", "winner", "override_depth", "matches?" }
+                                              : new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" },
                                           "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
