@@ -1,0 +1,1 @@
+- **The default answer size is now about 40k characters (was 80k), so a large read spills to a results file or cuts with a notice before a client can reject it.** Raise `max_chars` for more inline.
