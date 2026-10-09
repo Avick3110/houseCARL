@@ -96,6 +96,16 @@ public sealed class RecordsRefusalRouteTests : RecordsTestBase
         Assert.DoesNotContain("the same walk=", r);
     }
 
+    /// <summary>A walk that is itself refused answers first, so the chain sentence never names it.</summary>
+    [Fact]
+    public void ChainPlusFieldsWithABadWalk_TheWalkRefusalAnswers()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.NpcChild) }, walk: new RecordsTools.RecordsWalk { direction = "sideways" },
+                                     project: new RecordsTools.RecordsProject { form = "chain", fields = new[] { "Configuration.Level" } });
+        Refused(r, "walk.direction='sideways'");
+        Assert.DoesNotContain("the same walk=", r);
+    }
+
     [Fact]
     public void ChainRoute_TheFieldsFormWithTheSameWalkReadsTheReachedSet() =>
         Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.NpcChild) }, walk: Template, project: Fields("Configuration.Level")),
