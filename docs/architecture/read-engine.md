@@ -51,7 +51,8 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 - A path with no field on BOTH sides is a wrong path, not two equal values: it is a NO FIELD line,
   not compared, and leaves the comparison incomplete. It is counted apart from an unreadable leaf
   (`NoFieldCount`, json `no_field_count`), and its incomplete note says to fix the path rather than
-  narrow `fields=`, which is the remedy for a read fault or the cap.
+  narrow `fields=`, which is the remedy for a read fault or the cap. A no-field note on one side only
+  stays a line and is a shape difference.
 - The agreed count counts only exact-path VALUE leaves read on BOTH sides — never a container
   summary, never a side's absent or null-link sentinel, because an absent field is not an agreement.
   Per-field presence is reliable only for nullable fields, whose absence the read engine spells, so a
