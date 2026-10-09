@@ -8,25 +8,31 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The PNAM subrecord of one INFO in a written plugin, read off the raw bytes: null when absent, else its 4-byte payload.</summary>
-static class InfoPnamBytes
+/// <summary>One link subrecord of one record in a written plugin, read off the raw bytes: null when absent, else its 4-byte payload.</summary>
+static class LinkSubrecordBytes
 {
-    public static uint? Of(string path, uint infoId)
+    public static uint? Of(string path, string recordType, uint id, string subrecord)
     {
         var b = File.ReadAllBytes(path);
+        bool Sig(int at, string s) => b[at] == s[0] && b[at + 1] == s[1] && b[at + 2] == s[2] && b[at + 3] == s[3];
         for (int i = 0; i + 24 <= b.Length; i++)
         {
-            if (b[i] != 'I' || b[i + 1] != 'N' || b[i + 2] != 'F' || b[i + 3] != 'O') continue;
-            if ((BitConverter.ToUInt32(b, i + 12) & 0x00FFFFFF) != (infoId & 0x00FFFFFF)) continue;
+            if (!Sig(i, recordType)) continue;
+            if ((BitConverter.ToUInt32(b, i + 12) & 0x00FFFFFF) != (id & 0x00FFFFFF)) continue;
             Assert.Equal(0u, BitConverter.ToUInt32(b, i + 8) & 0x00040000);   // not compressed, so the subrecords are readable
             int end = i + 24 + (int)BitConverter.ToUInt32(b, i + 4);
             for (int p = i + 24; p + 6 <= end; p += 6 + BitConverter.ToUInt16(b, p + 4))
-                if (b[p] == 'P' && b[p + 1] == 'N' && b[p + 2] == 'A' && b[p + 3] == 'M')
-                    return BitConverter.ToUInt32(b, p + 6);
+                if (Sig(p, subrecord)) return BitConverter.ToUInt32(b, p + 6);
             return null;
         }
-        throw new InvalidOperationException($"INFO {infoId:X6} not found in {path}");
+        throw new InvalidOperationException($"{recordType} {id:X6} not found in {path}");
     }
+}
+
+/// <summary>The PNAM subrecord of one INFO in a written plugin: null when absent, else its 4-byte payload.</summary>
+static class InfoPnamBytes
+{
+    public static uint? Of(string path, uint infoId) => LinkSubrecordBytes.Of(path, "INFO", infoId, "PNAM");
 }
 
 /// <summary>#1144: what Mutagen writes for a nullable link, measured on a written file — the ground truth the fix rests on.</summary>
@@ -125,6 +131,70 @@ public sealed class NullableLinkCopyTests : IDisposable
 
     [Fact]
     public void APresentZeroSourceLinkCopiesAsAPresentZero() => Assert.Equal(0u, CopiedPnam(sourceZero: true));
+}
+
+/// <summary>#1144, the <c>copy target=</c> seed lane: an absent source link clears the target's, and a present zero,
+/// nullable (WNAM) or required (RNAM), copies as a present zero rather than being cleared or refused.</summary>
+[Trait("tier", "unit")]
+public sealed class NullableLinkSeedCopyTests : IDisposable
+{
+    readonly string _dir = Path.Combine(Path.GetTempPath(), "hc-nullable-link-seed-" + Guid.NewGuid().ToString("N"));
+    public NullableLinkSeedCopyTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() { try { Directory.Delete(_dir, true); } catch { /* temp cleanup best-effort */ } }
+
+    (StripResult R, string Target, uint TargetId) Attach(string seed, Action<Npc> shapeSource, string sub, uint? sourceBytes)
+    {
+        var src = new SkyrimMod(ModKey.FromNameAndExtension("HcSeedSrc.esp"), SkyrimRelease.SkyrimSE);
+        var srcNpc = new Npc(src.GetNextFormKey(), SkyrimRelease.SkyrimSE);
+        srcNpc.Race.SetTo(new FormKey(src.ModKey, 0x900));
+        shapeSource(srcNpc);
+        src.Npcs.Add(srcNpc);
+        var srcPath = Path.Combine(_dir, "HcSeedSrc.esp");
+        src.BeginWrite.ToPath(srcPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        Assert.Equal(sourceBytes, LinkSubrecordBytes.Of(srcPath, "NPC_", srcNpc.FormKey.ID, sub));
+
+        using var overlay = SkyrimMod.CreateFromBinaryOverlay(srcPath, SkyrimRelease.SkyrimSE);
+        var mod = new SkyrimMod(ModKey.FromNameAndExtension("HcSeedTgt.esp"), SkyrimRelease.SkyrimSE);
+        var target = new Npc(mod.GetNextFormKey(), SkyrimRelease.SkyrimSE);
+        target.Race.SetTo(new FormKey(mod.ModKey, 0x900));
+        target.WornArmor.SetTo(new FormKey(mod.ModKey, 0x901));
+        mod.Npcs.Add(target);
+        var r = ClosureCopy.AttachSeedFields(target, overlay.Npcs.First(), new[] { seed },
+                                             new Dictionary<FormKey, FormKey>(), _ => false);
+        var path = Path.Combine(_dir, "HcSeedTgt.esp");
+        WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path);
+        return (r, path, target.FormKey.ID);
+    }
+
+    [Fact]
+    public void AnAbsentSourceLinkClearsTheTargetsSubrecord()
+    {
+        var (r, path, id) = Attach("WornArmor", _ => { }, "WNAM", null);
+        Assert.True(r.Success, r.Refusal?.Detail);
+        Assert.True(Assert.Single(r.Stripped).Cleared);
+        Assert.Null(LinkSubrecordBytes.Of(path, "NPC_", id, "WNAM"));
+    }
+
+    [Fact]
+    public void APresentZeroSourceLinkCopiesAsAPresentZero()
+    {
+        var (r, path, id) = Attach("WornArmor",
+            n => n.WornArmor.SetTo(new FormLinkNullable<IArmorGetter>(FormKey.Null)), "WNAM", 0u);
+        Assert.True(r.Success, r.Refusal?.Detail);
+        var e = Assert.Single(r.Stripped);
+        Assert.False(e.Cleared);
+        Assert.Equal("null link, subrecord present", e.Removed);
+        Assert.Equal(0u, LinkSubrecordBytes.Of(path, "NPC_", id, "WNAM"));
+    }
+
+    [Fact]
+    public void APresentZeroRequiredSourceLinkCopiesRatherThanRefusing()
+    {
+        var (r, path, id) = Attach("Race", n => n.Race.SetTo(FormKey.Null), "RNAM", 0u);
+        Assert.True(r.Success, r.Refusal?.Detail);
+        Assert.False(Assert.Single(r.Stripped).Cleared);
+        Assert.Equal(0u, LinkSubrecordBytes.Of(path, "NPC_", id, "RNAM"));
+    }
 }
 
 /// <summary>#1144 end to end: one patch Removes one line's PNAM and Sets another's to "0"; the echo reads each shape back

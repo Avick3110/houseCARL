@@ -277,8 +277,8 @@ public static class ClosureCopy
                     return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnwritableTarget,
                         $"'{path}' is a record link on the source but the target's is not writable", path));
                 var key = (sv as IFormLinkGetter)?.FormKeyNullable;
-                // An UNSET source link CLEARS the target's; null is a state of this shape, not a refusal.
-                if (key is null || key.Value.IsNull)
+                // An ABSENT source link clears the target's; a present zero copies as a present zero (#1144).
+                if (key is null)
                 {
                     if (!TryClearLink(tv))
                         return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnwritableTarget,
@@ -290,7 +290,9 @@ public static class ClosureCopy
                 if (!TrySetLink(tv, Mapped(key.Value)))
                     return StripResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant,
                         $"'{path}' could not be set on the target", path));
-                set.Add(new StripEntry(path, Mapped(key.Value).ToString()));
+                set.Add(new StripEntry(path, key.Value.IsNull
+                    ? (IsNullableLink(tv) ? ReadEngine.PresentNullLinkNote : ReadEngine.NullLinkNote).Trim('(', ')')
+                    : Mapped(key.Value).ToString()));
                 continue;
             }
 
