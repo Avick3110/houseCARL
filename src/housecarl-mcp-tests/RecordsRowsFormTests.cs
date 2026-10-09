@@ -208,7 +208,7 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     {
         // The engine's own remedy ("a lower depth") points at depths this form refuses or renders bare, so the
         // fold restates it. The cut itself is the engine's and is unchanged.
-        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, project: Rows("Items"));
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, project: Rows("Items"), max_chars: 80_000);
         Assert.Contains("expansion truncated at", r);
         Assert.Contains("the fold runs AFTER the read", r);
         Assert.Contains("lower depth to 3", r);
@@ -220,7 +220,7 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
         // At depth 2 "lower depth to 3" is an increase and at depth 3 it is a no-op: naming one element is the
         // only remedy left, so the depth clause is dropped rather than printed untrue.
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) },
-                    project: new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Items" }, depth = 2 });
+                    project: new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Items" }, depth = 2 }, max_chars: 80_000);
         Assert.Contains("expansion truncated at", r);
         Assert.Contains("name one element to fold it alone", r);
         Assert.DoesNotContain("lower depth", r);

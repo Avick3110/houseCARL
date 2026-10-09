@@ -99,7 +99,7 @@ public sealed class AssetStatusJsonLaneTests : IClassFixture<AssetSelectWorld>
         var many = Enumerable.Range(0, 400).Select(i => $"meshes/hcnothing{i}/**/*.nif").ToArray();
 
         var capped = AssetTools.AssetStatus(_w.Svc, under: many, format: "json", max_chars: 2_000);
-        var whole = AssetTools.AssetStatus(_w.Svc, under: many, format: "json");
+        var whole = AssetTools.AssetStatus(_w.Svc, under: many, format: "json", max_chars: 80_000);
 
         var root = Parse(capped);
         var notes = root.GetProperty("selector_notes");

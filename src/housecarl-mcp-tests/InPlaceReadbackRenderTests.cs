@@ -87,12 +87,12 @@ public sealed class InPlaceReadbackRenderTests : IDisposable
         Assert.Contains(_kw.ToString(), compact);
     }
 
-    // COMPACT: the whole response stays small even with N non-trivial records (no 80k spill)
+    // COMPACT: the whole response stays small even with N non-trivial records (no default-size spill)
     [Fact]
     public void TheCompactRenderStaysSmall()
         => Assert.True(WriteTools.Render(_outcome, maxChars: 0, fullDump: false).Length < 6_000);
 
-    // CAP: the read-back default cap is well under the host token ceiling (the 80k-spill regression guard)
+    // CAP: the read-back default cap is well under the host token ceiling (the default-spill regression guard)
     [Fact]
     public void TheReadbackCapIsUnderTheHostCeiling()
     {
