@@ -126,7 +126,8 @@ public sealed record SkseConfigFileAudit(
     int ProviderCount,
     IReadOnlyList<SkseProvider> Providers,
     IReadOnlyList<SkseAuditedRef> Refs,
-    string? ReadError);
+    string? ReadError,
+    bool MultiLine = true);
 
 /// <summary>The data behind housecarl_skse findings='config': every SKSE-plugin config with each reference it declares resolved to a verdict, plus the build-level caveats.</summary>
 public sealed record SkseConfigAuditData(

@@ -50,7 +50,6 @@ public static class SkseConfigReferenceExtractor
         var open = new List<Frame>();   // the containers enclosing the reader, outermost first
         string? name = null;            // the property name the next value belongs to
         int line = 1; long counted = 0;
-        bool oneLine = text.AsSpan().Trim().IndexOfAny('\n', '\r') < 0;   // a one-line file's line says nothing; its path does
         try
         {
             while (reader.Read())
@@ -76,7 +75,7 @@ public static class SkseConfigReferenceExtractor
                 {
                     for (; counted < reader.TokenStartIndex; counted++) if (bytes[counted] == (byte)'\n') line++;
                     open.Add(new Frame { IsArray = tok == JsonTokenType.StartArray, Name = parent is { IsArray: true } ? null : name, Index = index,
-                        Line = oneLine ? 0 : line, Start = reader.TokenStartIndex, IdOf = isId ? parent : null });
+                        Line = line, Start = reader.TokenStartIndex, IdOf = isId ? parent : null });
                 }
                 name = null;
             }
