@@ -11,20 +11,20 @@ public sealed class DefaultMaxCharsSpillTests : ArtifactTestBase, IClassFixture<
 {
     public DefaultMaxCharsSpillTests(ArtifactFixture f) : base(f) { }
 
-    string IdentityOf600(int maxChars) =>
+    string SummaryOf600(int maxChars) =>
         RecordsTools.Records(Svc, formids: Enumerable.Repeat(Fid(W.BigList), 600).ToArray(),
-                             project: Identity,
+                             project: SummaryForm,
                              max_chars: maxChars);
 
     [Fact]
     public void ARecordsAnswerBetween40kAnd80kSpillsAtTheDefault()
     {
-        var wide = IdentityOf600(80_000);
+        var wide = SummaryOf600(80_000);
         Assert.DoesNotContain("spilled:", wide);
         Assert.InRange(wide.Length, 40_001, 80_000);
 
         var dir = SpillFolders.Emptied(Svc);
-        var r = IdentityOf600(0);
+        var r = SummaryOf600(0);
         Assert.Contains("spilled:", r);
         Assert.True(r.Length <= 40_000, $"default answer is {r.Length} chars");
         Assert.Single(Directory.GetFiles(dir, "*.jsonl"));
