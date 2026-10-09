@@ -48,10 +48,9 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.Equal(ToolNames.Records, ManifestOf(art).Tool);
     }
 
-    /// <summary>The identity writer is a second stamp site on a different code path, so it gets its own
-    /// test.</summary>
+    /// <summary>The identity spelling writes through the list lane's summary writer, a second stamp site.</summary>
     [Fact]
-    public void ToFile_TheManifestStampsTheToolThatActuallyWroteIt_Identity()
+    public void ToFile_TheManifestStampsTheToolThatActuallyWroteIt_IdentitySpelling()
     {
         var art = Art("provenance-identity.jsonl");
         RecordsTools.Records(Svc, formids: W.SpellBodies.Select(b => RecordsWorld.Fid(b.FormKey)).ToArray(),
@@ -69,7 +68,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         var src = File.ReadAllText(Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp", "Artifacts.cs"));
         var sites = Regex.Matches(src, @"writer\.Save\(target,\s*([^,]+),");
 
-        Assert.True(sites.Count >= 8, $"only {sites.Count} writer.Save sites found — the scan went vacuous");
+        Assert.True(sites.Count >= 7, $"only {sites.Count} writer.Save sites found — the scan went vacuous");
         foreach (Match m in sites)
             Assert.Equal("ToolNames.Records", m.Groups[1].Value.Trim());
     }

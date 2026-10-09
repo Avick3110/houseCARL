@@ -36,7 +36,7 @@ public sealed class RecordsDenseLaneTests : BulkRecordsTestBase
         var list = Doc(RecordsTools.Records(Svc, formids: Ids, format: "dense"));
         var scan = Doc(RecordsTools.Records(Svc, types: Weap, format: "dense"));
         Assert.Equal(DenseColumns(scan), DenseColumns(list));
-        Assert.Equal(W.ReplName, DenseRow(list, Fid(W.W1))[4].GetString());
+        Assert.Equal(W.ReplName, DenseRow(list, Fid(W.W1))[5].GetString());
     }
 
     [Fact]
@@ -166,9 +166,12 @@ public sealed class RecordsDenseLaneTests : BulkRecordsTestBase
     }
 
     [Fact]
-    public void DenseOnTheIdentityFormRefusesNamingTheSummaryForm() =>
-        Refused(RecordsTools.Records(Svc, formids: Ids, format: "dense", project: Form("identity")),
-                "'identity'", "form='summary'");
+    public void DenseOnTheIdentitySpellingAnswersExactlyAsDenseSummary()
+    {
+        var r = RecordsTools.Records(Svc, formids: Ids, format: "dense", project: Form("identity"));
+        Assert.DoesNotContain("error:", r);
+        Assert.Equal(SummaryNameTests.Timeless(RecordsTools.Records(Svc, formids: Ids, format: "dense")), SummaryNameTests.Timeless(r));
+    }
 
     [Fact]
     public void DenseOnAWalkRefusesNamingTextOrJson() =>

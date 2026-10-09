@@ -212,8 +212,8 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
     JsonElement DenseScoped() => Doc(RecordsTools.Records(Svc, plugins: BothScope, format: "dense", project: Fields(DamagePath)));
 
     [Fact]
-    public void TheDenseSummarysColumnsAreTheSixIdentityColumnsInOrder() =>
-        Assert.Equal(new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth" }, DenseColumns(DenseSummary()));
+    public void TheDenseSummarysColumnsAreTheSevenIdentityColumnsInOrder() =>
+        Assert.Equal(new[] { "formid", "runtime_formid", "type", "editorid", "name", "winner", "override_depth" }, DenseColumns(DenseSummary()));
 
     [Fact]
     public void EveryDenseSummaryRowIsAPositionalArrayOfExactlyOneCellPerColumn()
@@ -231,7 +231,7 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
     {
         var row = DenseRow(DenseSummary(), Fid(W.W1));
         Assert.Equal("Weapon", row[2].GetString());
-        Assert.Equal(W.ReplName, row[4].GetString());
+        Assert.Equal(W.ReplName, row[5].GetString());
     }
 
     [Fact]
