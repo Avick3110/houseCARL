@@ -64,5 +64,5 @@ internal static class LaneSentences
 
     /// <summary>max_chars=: the cut and the default.</summary>
     internal const string MaxCharsCut =
-        "Rows past it are dropped with a notice; the write is unaffected. 0 (default) keeps the reply under the host's limit";
+        "Rows past it are dropped with a notice; the write is unaffected. 0 = the server default (~40k)";
 }
