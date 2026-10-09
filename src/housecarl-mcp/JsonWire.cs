@@ -1416,7 +1416,7 @@ static class JsonWire
             WriteNullable(w, "editorid", m.EditorId);
             if (m.Name is not null) w.WriteString("name", m.Name);
             if (m.Source is not null) w.WriteString("source", m.Source);
-            WriteNullable(w, "winner", m.Winner);
+            if (m.Winner is not null) w.WriteString("winner", m.Winner);   // an off-order pole's row has no winner in the order
             w.WriteNumber("override_depth", m.OverrideDepth);
         }
         if (matches is not null) w.WriteString("matches", matches);

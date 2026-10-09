@@ -278,7 +278,7 @@ internal static class Artifacts
         // The manifest stamps which tool wrote the artifact; a re-entry refusal prints it back.
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           summary
-                                              ? new[] { "formid", "runtime_formid", "type", "editorid", "name?", "source", "winner", "override_depth", "matches?" }
+                                              ? new[] { "formid", "runtime_formid", "type", "editorid", "name?", "source", "winner?", "override_depth", "matches?" }
                                               : new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" },
                                           "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
