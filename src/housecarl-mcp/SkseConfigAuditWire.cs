@@ -256,7 +256,7 @@ static class SkseConfigAuditWire
     static string RefLine(SkseAuditedRef r, bool multiLine) =>
         "  " + Tag(r.Verdict) + " " +
         (r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? $"folder gate '{r.Ref.Plugin}'" : $"'{r.Ref.Raw}'") +
-        (ShowsLine(r.Ref, multiLine) ? $" (line {r.Ref.Line}{(r.Ref.Locator is { } at ? ", at " + at : "")})" : r.Ref.Locator is { } at1 ? $" (at {at1})" : "") +
+        RefWhere(LocParts(r.Ref, multiLine)) +
         (r.Detail is null ? "" : " → " + r.Detail) + "\n";
 
     // The order a cut file shows its references in, in both twins: non-OK first, then OK, each in file order.
@@ -275,10 +275,18 @@ static class SkseConfigAuditWire
         _ => "[?]",
     };
 
-    static string Loc(Hit h) => (ShowsLine(h.Ref, h.File.MultiLine) ? $"{h.File.RelPath}:{h.Ref.Line}" : h.File.RelPath) + (h.Ref.Locator is { } at ? " " + at : "");
+    static string RefWhere((int? Line, string? At) p) =>
+        p.Line is { } n ? $" (line {n}{(p.At is { } at ? ", at " + at : "")})" : p.At is { } a ? $" (at {a})" : "";
 
-    // A JSON path alone locates a reference in a one-line file, where the line says nothing.
-    static bool ShowsLine(HousecarlCore.SkseConfigRef r, bool multiLine) => r.Line > 0 && (multiLine || r.Locator is null);
+    static string Loc(Hit h)
+    {
+        var (n, at) = LocParts(h.Ref, h.File.MultiLine);
+        return h.File.RelPath + (n is null ? "" : ":" + n) + (at is null ? "" : " " + at);
+    }
+
+    // Where a reference sits, for both renders: its line, unless a JSON path alone locates it in a one-line file; and that path.
+    static (int? Line, string? At) LocParts(HousecarlCore.SkseConfigRef r, bool multiLine) =>
+        (r.Line > 0 && (multiLine || r.Locator is null) ? r.Line : null, r.Locator);
     static string Prov(SkseConfigFileAudit f) => f.WinningProvider is null ? "" : $"  [← {f.WinningProvider}]";
 
     static bool AppendHits(StringBuilder sb, string label, IReadOnlyList<Hit> items, int cap, Func<Hit, string> line,
@@ -428,7 +436,13 @@ static class SkseConfigAuditWire
     {
         w.WriteStartObject();
         w.WriteString("raw", r.Ref.Raw);
-        w.WriteString("shape", r.Ref.Shape switch { HousecarlCore.SkseRefShape.PathSegmentGate => "path_segment_gate", HousecarlCore.SkseRefShape.FormObject => "form_object", _ => "form_token" });
+        w.WriteString("shape", r.Ref.Shape switch
+        {
+            HousecarlCore.SkseRefShape.FormToken => "form_token",
+            HousecarlCore.SkseRefShape.PathSegmentGate => "path_segment_gate",
+            HousecarlCore.SkseRefShape.FormObject => "form_object",
+            var other => throw new InvalidOperationException($"no json name for reference shape {other}"),
+        });
         w.WriteString("plugin", r.Ref.Plugin);
         SkseJsonDoc.Nullable(w, "local_id", r.Ref.LocalId is { } id ? $"0x{id:X6}" : null);
         w.WriteNumber("line", r.Ref.Line);

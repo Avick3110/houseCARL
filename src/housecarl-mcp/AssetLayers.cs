@@ -286,6 +286,7 @@ internal sealed partial class AssetLayers
 
             string? readError = null;
             string text = "";
+            ReadOnlyMemory<byte> utf8 = default;
             if (winner is null)
                 readError = "no active mod provides this config";   // shouldn't happen for an enumerated file — named, not assumed
             else if (winner.Kind == AssetKind.Loose && winner.LooseFilePath is { } lp && File.Exists(lp) && new FileInfo(lp).Length > SkseConfigSizeCap)
@@ -295,16 +296,16 @@ internal sealed partial class AssetLayers
                 var (bytes, err) = AssetResolver.ReadPlacementSource(winner);
                 if (err is not null) readError = err;
                 else if (bytes!.Length > SkseConfigSizeCap) readError = OverCapNote(bytes.Length);
-                else text = DecodeConfigText(bytes);
+                else { text = DecodeConfigText(bytes); utf8 = Utf8Body(bytes); }
             }
 
             // Path-segment gates come from the relPath, so they surface even when the file could not be read.
-            var extracted = SkseConfigReferenceExtractor.Extract(rel, readError is null ? text : "");
+            var extracted = SkseConfigReferenceExtractor.Extract(rel, readError is null ? text : "", readError is null ? utf8 : default, out var multiLine);
             var audited = new List<SkseAuditedRef>(extracted.Count);
             foreach (var r in extracted) audited.Add(Adjudicate(r, index));
 
             files.Add(new SkseConfigFileAudit(rel, Path.GetFileName(rel), group,
-                winner?.ProviderName, providers.Count, providers, audited, readError, text.AsSpan().Trim().IndexOfAny('\n', '\r') >= 0));
+                winner?.ProviderName, providers.Count, providers, audited, readError, multiLine));
         }
         return new SkseConfigAuditData(files, files.Count, view.BsaFailures, view.RootFailures, view.ReadIncomplete, warnings, profileName);
     }
@@ -324,12 +325,16 @@ internal sealed partial class AssetLayers
         if (!ModKey.TryFromNameAndExtension(r.Plugin, out var mk))
             return new SkseAuditedRef(r, SkseRefVerdict.Unparseable, $"'{r.Plugin}' is not a valid plugin name");
         var fk = new FormKey(mk, r.LocalId!.Value);
-        if (EngineImplicit.TryDescribe(fk, out _, out var engineEid))   // hardcoded by the engine, so the index cannot hold it
-            return new SkseAuditedRef(r, SkseRefVerdict.Ok, $"{FormIdToken.Of(fk)} ({engineEid}, engine-implicit)");
-        return index.ResolveWinner(fk) is not null
-            ? new SkseAuditedRef(r, SkseRefVerdict.Ok, FormIdToken.Of(fk))
+        if (index.ResolveWinner(fk) is not null)
+            return new SkseAuditedRef(r, SkseRefVerdict.Ok, FormIdToken.Of(fk));
+        return EngineImplicit.TryDescribe(fk, out _, out var engineEid)   // hardcoded by the engine, so the index may not hold it
+            ? new SkseAuditedRef(r, SkseRefVerdict.Ok, $"{FormIdToken.Of(fk)} ({engineEid}, engine-implicit)")
             : new SkseAuditedRef(r, SkseRefVerdict.Dangling, $"{FormIdToken.Of(fk)} resolves to no record in '{r.Plugin}'");
     }
+
+    /// <summary>A config's UTF-8 bytes past a UTF-8 BOM, or empty under a UTF-16/32 BOM, where the JSON walk reads the decoded text instead.</summary>
+    static ReadOnlyMemory<byte> Utf8Body(byte[] b) =>
+        b is [0xEF, 0xBB, 0xBF, ..] ? b.AsMemory(3) : b is [0xFE, 0xFF, ..] or [0xFF, 0xFE, ..] or [0, 0, 0xFE, 0xFF, ..] ? default : b;
 
     /// <summary>Decode a config's bytes, honoring a BOM when present and defaulting to UTF-8, which the config formats are in practice.</summary>
     static string DecodeConfigText(byte[] bytes)

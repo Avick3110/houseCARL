@@ -133,6 +133,78 @@ public sealed class SkseConfigFormObjectTests(SkseConfigVerdictOrder order) : IC
             refs.Select(r => r.Raw).ToArray());
         Assert.All(refs, r => Assert.NotNull(r.Unparseable));
     }
+
+    [Fact]
+    public void AStringIdKeepsTheFilesEscapedTextInItsRaw()
+    {
+        var refs = SkseConfigReferenceExtractor.Extract(@"SKSE\Plugins\IED\x.json",
+            "{\"a\": {\"id\": \"a\\\"b\", \"plugin\": \"Skyrim.esm\"}, \"b\": {\"id\": \"\\u0030x800\", \"plugin\": \"Skyrim.esm\"}}");
+        Assert.Equal(new[] { "{\"id\":\"a\\\"b\",\"plugin\":\"Skyrim.esm\"}", "{\"id\":\"\\u0030x800\",\"plugin\":\"Skyrim.esm\"}" },
+            refs.Select(r => r.Raw).ToArray());
+    }
+
+    [Fact]
+    public void AStringThatWillNotDecodeIsOneBreakNotAFailedCall()
+    {
+        var refs = SkseConfigReferenceExtractor.Extract(@"SKSE\Plugins\IED\x.json",
+            "{\"a\": {\"id\": 5, \"plugin\": \"Skyrim.esm\"},\n\"b\": {\"id\": 6, \"plugin\": \"\\uD800\"},\n\"c\": {\"id\": 7, \"plugin\": \"Skyrim.esm\"}}");
+        Assert.Equal(new[] { ((uint?)5, (string?)null, 1), (null, "not valid JSON — form objects past this line are not read", 2) },
+            refs.Select(r => (r.LocalId, r.Unparseable, r.Line)).ToArray());
+    }
+
+    [Fact]
+    public void ACarriageReturnOnlyFileNumbersTokensFormObjectsAndTheBreakAlike()
+    {
+        var refs = SkseConfigReferenceExtractor.Extract(@"SKSE\Plugins\IED\x.json",
+            "{\r  \"a\": \"0x5|Skyrim.esm\",\r  \"b\": {\"id\": 6, \"plugin\": \"Skyrim.esm\"},\r  \"c\": oops,\r  \"d\": {\"id\": 7, \"plugin\": \"Skyrim.esm\"}}",
+            default, out var multiLine);
+        Assert.Equal(new[] { (SkseRefShape.FormToken, 2), (SkseRefShape.FormObject, 3), (SkseRefShape.FormObject, 4) },
+            refs.Select(r => (r.Shape, r.Line)).ToArray());
+        Assert.True(multiLine);
+    }
+
+    [Fact]
+    public void MultiLineIsTrueOnlyWhenContentSpansLines()
+    {
+        bool M(string text) { SkseConfigReferenceExtractor.Extract(@"SKSE\Plugins\IED\x.json", text, default, out var m); return m; }
+        Assert.Equal(new[] { false, false, true, true }, new[] { M("{\"a\": 1}\n"), M("\r\n  {\"a\": 1}  \r\n"), M("{\n}"), M("{\r}") });
+    }
+
+    [Fact]
+    public void ABreakWithNoPluginKeyAfterItAddsNothing()
+    {
+        Assert.Single(SkseConfigReferenceExtractor.Extract(@"SKSE\Plugins\IED\x.json",
+            "{\"a\": {\"id\": 5, \"plugin\": \"Skyrim.esm\"},\n\"b\": oops}"));
+        Assert.Empty(SkseConfigReferenceExtractor.Extract(@"SKSE\Plugins\Foo\x.json",
+            "{\"b\": oops, \"type\": \"plugin\", /* \"plugin\": 1 */ \"n\": \"say \\\"plugin\\\": no\" // \"plugin\": x\n}"));
+    }
+
+    [Fact]
+    public void AFileHoldingBothShapesListsItsReferencesInFileOrder()
+    {
+        var refs = SkseConfigReferenceExtractor.Extract(@"SKSE\Plugins\Foo\x.json",
+            "{\n  \"b\": {\"id\": 5, \"plugin\": \"Skyrim.esm\"},\n  \"a\": \"0x6|Skyrim.esm\"\n}");
+        Assert.Equal(new[] { (SkseRefShape.FormObject, 2), (SkseRefShape.FormToken, 3) }, refs.Select(r => (r.Shape, r.Line)).ToArray());
+    }
+
+    [Fact]
+    public void TheWalkOverTheFilesBytesMatchesTheWalkOverItsText()
+    {
+        const string rel = @"SKSE\Plugins\IED\x.json";
+        var text = IedConfig();
+        Assert.Equal(SkseConfigReferenceExtractor.Extract(rel, text),
+            SkseConfigReferenceExtractor.Extract(rel, text, System.Text.Encoding.UTF8.GetBytes(text), out _));
+    }
+
+    [Fact]
+    public void AReferenceShapeWithNoJsonNameThrowsRatherThanPassingAsAFormToken()
+    {
+        var r = new SkseConfigRef("x", (SkseRefShape)99, "Skyrim.esm", 5, "5", 1, null);
+        var file = new SkseConfigFileAudit(IedPath, "x.json", "IED", "IEDMod", 1, new[] { new SkseProvider("IEDMod", "loose") },
+            new[] { new SkseAuditedRef(r, SkseRefVerdict.Ok, null) }, ReadError: null);
+        var data = new SkseConfigAuditData(new[] { file }, 1, Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>(), "Default");
+        Assert.Throws<InvalidOperationException>(() => SkseConfigAuditWire.RenderJson(data, "IED", 40_000));
+    }
 }
 
 /// <summary>The engine's hardcoded PlayerRef (000014:Skyrim.esm) is no record in Skyrim.esm, and the config audit reads it OK, not DANGLING.</summary>
@@ -148,7 +220,8 @@ public sealed class SkseConfigEngineImplicitTests : IDisposable
         var path = Path.Combine(_dir, "Skyrim.esm");
         var mod = new SkyrimMod(ModKey.FromNameAndExtension("Skyrim.esm"), SkyrimRelease.SkyrimSE);
         mod.Factions.AddNew().EditorID = "hcImplicitFac";
-        mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        mod.Npcs.Add(new Npc(new FormKey(mod.ModKey, 0x7), SkyrimRelease.SkyrimSE) { EditorID = "Player" });   // the real Player, as Skyrim.esm holds it
+        mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).NoCheckIfLowerRangeDisallowed().Write();
         _resolver = LoadOrderResolver.Build(new[] { path });
     }
 
@@ -165,5 +238,12 @@ public sealed class SkseConfigEngineImplicitTests : IDisposable
                 "{\"a\": {\"id\": 20, \"plugin\": \"Skyrim.esm\"}, \"b\": {\"id\": 21, \"plugin\": \"Skyrim.esm\"}}")
             .Select(r => AssetLayers.Adjudicate(r, _resolver.Capture()).Verdict).ToArray();
         Assert.Equal(new[] { SkseRefVerdict.Ok, SkseRefVerdict.Dangling }, verdicts);
+    }
+
+    [Fact]
+    public void PlayerHeldByTheIndexResolvesAsAnyRecordRatherThanAsEngineImplicit()
+    {
+        var r = Assert.Single(SkseConfigReferenceExtractor.Extract(@"SKSE\Plugins\Foo\x.ini", "a = 0x7|Skyrim.esm"));
+        Assert.Equal((SkseRefVerdict.Ok, "000007:Skyrim.esm"), (AssetLayers.Adjudicate(r, _resolver.Capture()) is var a ? (a.Verdict, a.Detail) : default));
     }
 }
