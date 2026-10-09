@@ -117,8 +117,12 @@ family does not use are null, which is what a jsonl consumer greps on anyway.
 
 **Rows are the SWEEP's own findings, not the render's.** The artifact is written from the results, so a row is never
 missing because the inline body ran out of characters. What `limit=` already cut before the results were built is
-cut here too, and the manifest says so by carrying `total` above `row_count`. The facegen family's own listing
-budget is added back into `total` for the same reason.
+cut here too, and the manifest says so by carrying `total` above `row_count`. Each family's listing cut (dangling
+refs, unbound and null-object script properties, facegen findings) is added back into `total` for that reason.
+The dialogue family's rows come from `DialogueSweep.Findings`, the same list its finding count is taken from, so
+every kind it counts — topic and seed-level issues, scan gaps, the `.seq` lint, silent lines, result scripts that
+will not fire — has a row (the file or path it names rides `target`), and its `total` is that count plus the
+unreachable seeds.
 
 The benign facegen class the RESPONSE withholds IS written to the file — "the complete findings" means every class
 the sweep found, and the `class` column tells the two apart.
