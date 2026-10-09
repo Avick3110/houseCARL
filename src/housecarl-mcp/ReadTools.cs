@@ -499,9 +499,9 @@ static partial class Wire
             // One plugin: nothing re-listed anything, so the shift is that plugin's own PNAM against its file order.
             var w = moved[0];
             sb.Append("  [!] ").Append(moved.Count)
-              .Append(moved.Count == 1 ? " line sits" : " lines sit")
-              .Append(" at a different position than in ").Append(io.ContributingPlugins[0])
-              .Append("'s own file order, put there by that plugin's PNAM links — the biggest shift is ")
+              .Append(moved.Count == 1 ? " line changed" : " lines changed")
+              .Append(" order against ").Append(io.ContributingPlugins[0])
+              .Append("'s own file order, by that plugin's PNAM links — the biggest shift is ")
               .Append(FormIdToken.Of(w.Info)).Append(" #").Append(w.OriginIndex!.Value + 1).Append(" -> #").Append(w.Index + 1)
               .Append(". The order above applies PNAM within that plugin, as every merge here does; whether the game follows PNAM or file order within one plugin is untested, so check the line in game before relying on either.\n");
         }
@@ -529,7 +529,7 @@ static partial class Wire
             ? " — but it lists no line in this topic, so the order here is the live one.\n"
             : io.Contested || !io.Complete
                 ? " — the lines it places are marked below.\n"
-                : " — and it is the only plugin listing lines here, so the whole order shown is its own list.\n");
+                : " — and it is the only plugin listing lines here, so every line shown is its own.\n");
     }
 
     /// <summary>The per-topic degradation note — a malformed PNAM, a cycle, a truncated chain, an unread contributor,
