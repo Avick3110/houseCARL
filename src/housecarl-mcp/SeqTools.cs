@@ -87,7 +87,7 @@ public static class SeqTools
                   : "")
           .Append('\n');
         // Only the quest rows are budgeted: a truncated list still has to say where the file landed.
-        int cap = WriteSentences.Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         for (int i = 0; i < o.Quests.Count; i++)
         {
             if (sb.Length >= cap)

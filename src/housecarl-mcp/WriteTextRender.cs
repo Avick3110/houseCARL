@@ -36,7 +36,7 @@ static partial class WriteTools
               .Append('\n');
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit:\n" : " edits:\n");
         // Budgeted like every sibling render, the json one budgeting the same array.
-        int opCap = WriteSentences.Cap(maxChars);
+        int opCap = Wire.Cap(maxChars);
         for (int i = 0; i < o.Ops.Count; i++)
         {
             if (sb.Length >= opCap)
@@ -91,7 +91,7 @@ static partial class WriteTools
         sb.Append(WriteSentences.DryRunMasters(o.Masters));
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit would apply:\n" : " edits would apply:\n");
         // Budgeted as the real render's loop is, the cut notice taking the dry run's own wording.
-        int dryCap = WriteSentences.Cap(maxChars);
+        int dryCap = Wire.Cap(maxChars);
         for (int i = 0; i < o.Ops.Count; i++)
         {
             if (sb.Length >= dryCap)
@@ -258,7 +258,7 @@ static partial class WriteTools
             sb.Append("mod folder: ").Append(modFolder).Append('\n');
         }
         // Budgeted, with the masters line and the closing guidance OUTSIDE the budget as the accounting still needed.
-        int cap = WriteSentences.Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         for (int i = 0; i < o.Removed.Count; i++)
         {
             if (sb.Length >= cap)
@@ -326,7 +326,7 @@ static partial class WriteTools
         sb.Append(o.DryRun ? "would forward " : "forwarded ").Append(o.Forwarded.Count)
           .Append(o.Forwarded.Count == 1 ? " record:\n" : " records:\n");
         // Budgeted for the same reason as the created-records block, the json render truncating the identical array.
-        int fwdCap = WriteSentences.Cap(maxChars);
+        int fwdCap = Wire.Cap(maxChars);
         for (int fi = 0; fi < o.Forwarded.Count; fi++)
         {
             if (sb.Length >= fwdCap)
@@ -816,7 +816,7 @@ static partial class WriteTools
               .Append(" — same FormID kept, prior contents discarded)");
         sb.Append(":\n");
         // Budgeted: the render's LARGEST block, and the json render budgets the same array.
-        int createCap = WriteSentences.Cap(maxChars);
+        int createCap = Wire.Cap(maxChars);
         // Which version of a contested parent this artifact carries is hoisted out of the budget below, one line per
         // distinct host, selected on the FLAG, and bounded on Wire so the json render shares the bound.
         var contested = o.Created.Where(c => c.ParentContested && c.ParentHost is not null)
@@ -865,7 +865,7 @@ static partial class WriteTools
         }
         // Both coverage checks read ONE asset build, so the folders it could not read are the RESPONSE's: named once
         // under the reports that hedge on them, out of room held back from both rather than spent after them.
-        var roots = BatchRender.RootFailureLines(CreateRootFailures(o), WriteSentences.Cap(maxChars), indent: "  ");
+        var roots = BatchRender.RootFailureLines(CreateRootFailures(o), Wire.Cap(maxChars), indent: "  ");
         AppendVoiceReport(sb, o.Voice, maxChars, roots.Length);
         AppendScriptBindingReport(sb, o.ScriptBinding, maxChars, roots.Length);
         sb.Append(roots);
@@ -937,7 +937,7 @@ static partial class WriteTools
         // Budget-bounded like the full read-back, stopping with an explicit notice rather than a silent cut. The tail
         // is composed BEFORE the rows and its room held back, and the loops BREAK rather than return, so a report the
         // cap cut still carries its hedge and the roots under it — the cut case is the one that needs them.
-        int ceiling = WriteSentences.Cap(maxChars);
+        int ceiling = Wire.Cap(maxChars);
         bool anyReadIncomplete = report.Lines.Any(l => l.ReadIncomplete);
         var tail = (anyReadIncomplete ? WriteSentences.ScanIncomplete("an \"absent\"") : "")
                  + (report.CheckError is null
@@ -995,7 +995,7 @@ static partial class WriteTools
         if (report is null || report.IsEmpty) return;
         // Budgeted like its two siblings, the inner MustProvide loop included, one cell's work list being able to blow
         // the budget by itself.
-        int cap = WriteSentences.Cap(maxChars);
+        int cap = Wire.Cap(maxChars);
         int total = report.Cells.Count, rendered = 0;
         bool cut = false;
         sb.Append("cell shell — ").Append(WriteSentences.Twins.CellStake).Append(" (provide these in the Creation Kit):\n");
@@ -1030,7 +1030,7 @@ static partial class WriteTools
         if (report is null || report.IsEmpty) return;
         // Its sibling's rule, for its sibling's reason: the tail is charged before the rows and the loop breaks, so a
         // cut report still says a folder went unread and which.
-        int ceiling = WriteSentences.Cap(maxChars);
+        int ceiling = Wire.Cap(maxChars);
         bool anyReadIncomplete = report.Findings.Any(f => f.ReadIncomplete);
         var tail = (anyReadIncomplete ? WriteSentences.ScanIncomplete("a \"missing .pex\"") : "")
                  + (report.CheckError is null

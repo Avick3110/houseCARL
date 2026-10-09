@@ -2328,7 +2328,7 @@ static class JsonWire
     /// <param name="lane">the lane the call named, passed in rather than derived off the outcome's defaulted flags.</param>
     public static string RenderPatchOutcome(WritePatchBuilder.PatchOutcome o, int maxChars, bool readback, string lane)
     {
-        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
+        int cap = Wire.Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -2432,7 +2432,7 @@ static class JsonWire
     /// <see cref="RenderPatchOutcome"/>'s contract; the three post-write reports ride as data, not prose.</summary>
     public static string RenderCreateOutcome(WritePatchBuilder.CreateOutcome o, int maxChars, bool readback, string lane)
     {
-        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
+        int cap = Wire.Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -2575,7 +2575,7 @@ static class JsonWire
     /// with its reason, and the unchanged destination, all typed. <c>written</c> means THIS call wrote the file.</summary>
     public static string RenderSeqOutcome(SeqOutcome o, int maxChars, string? outputNote = null)
     {
-        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
+        int cap = Wire.Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -2653,7 +2653,7 @@ static class JsonWire
     /// <see cref="RenderPatchOutcome"/>'s contract; <c>remaining_records:0</c> is the inert-shell fact.</summary>
     public static string RenderRemovalOutcome(WritePatchBuilder.RemovalOutcome o, int maxChars, string lane)
     {
-        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
+        int cap = Wire.Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -2711,7 +2711,7 @@ static class JsonWire
     /// <see cref="RenderPatchOutcome"/>'s contract; the bracketed per-record facts are flags here.</summary>
     public static string RenderForwardOutcome(WritePatchBuilder.ForwardOutcome o, int maxChars, bool readback, string lane)
     {
-        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
+        int cap = Wire.Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -3050,7 +3050,7 @@ static class JsonWire
     /// the "this does not win until you enable the mod" instruction in-band as <c>next_step</c>.</summary>
     public static string RenderPlaceOutcome(PlaceOutcome o, int maxChars, IReadOnlySet<string>? poleWithheld = null)
     {
-        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
+        int cap = Wire.Cap(maxChars);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {

@@ -9,8 +9,6 @@ namespace HousecarlMcp;
 /// <summary>The record reads' text render: compact `key = value` output, the winner-relative conflict diff, and an always-explicit cut.</summary>
 static partial class Wire
 {
-    internal static int Cap(int maxChars) => maxChars > 0 ? maxChars : DefaultMaxChars;
-
     /// <summary>The records tool's format vocabulary — the one tool with a third format, the columnar <c>dense</c> render.</summary>
     internal enum QueryFormat { Text, Json, Dense }
 
