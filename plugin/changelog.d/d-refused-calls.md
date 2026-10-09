@@ -1,0 +1,1 @@
+- **`housecarl_records` scans now take the SkyPatcher overlay pole, replaying the `limit=` window, and a `plugins=` scope with a named `source=` now answers summary, aggregate and `counts_only`.** Check: `types=["ARMO"]` with `source={"overlay": "skypatcher", "state": "post"}`.
