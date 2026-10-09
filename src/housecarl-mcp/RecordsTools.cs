@@ -1286,7 +1286,7 @@ public static partial class RecordsTools
             bool hasScope = plugins?.names is { Length: > 0 };
             bool scopePlusPole = false;
             // The count forms count the scan's own matches and read no pole body.
-            bool census = walk is null && (form == "aggregate" || counts_only);
+            bool census = walk is null && !comparisonForm && (form == "aggregate" || counts_only);
             // The derived-selection forms consume EVERY match; known up front, used by the scan cap below.
             bool derivedSelection = comparisonForm || form == "info_order" || walk is not null;
             // The scan states the source itself except for forms whose own pipeline states one; the tree has no

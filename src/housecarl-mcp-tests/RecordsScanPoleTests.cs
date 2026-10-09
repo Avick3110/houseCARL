@@ -104,6 +104,19 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
 
     [Theory]
     [InlineData(null, "BasicStats.Damage = 123")]
+    /// <summary>A delta's counts depend on the pole, so its own source statement stays, not the census one.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("json")]
+    public void ScopePlusPoleDeltaCountsOnly_KeepsTheDeltasSourceStatement(string? format)
+    {
+        var r = RecordsTools.Records(Svc, types: Armo, plugins: Scope(W.OverrideName), source: Plugin(W.MasterName),
+                                     versus: Je("\"winner\""), format: format, project: Form("delta"), counts_only: true);
+        Served(r, "differing", $"{W.MasterName} — active in the load order");
+        Assert.DoesNotContain("the plugins= scope selects", r);
+        Assert.DoesNotContain(CountsNote, r);
+    }
+
     [InlineData("json", "123")]
     [InlineData("dense", "123")]
     public void OverlayScanFields_ReadsThePostState(string? format, string post)
