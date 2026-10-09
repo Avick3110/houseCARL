@@ -305,8 +305,7 @@ public static class NifService
     static (float R, float G, float B) ReadRgb(object v, Type t)
         => ((float)t.GetField("R")!.GetValue(v)!, (float)t.GetField("G")!.GetValue(v)!, (float)t.GetField("B")!.GetValue(v)!);
 
-    /// <summary>Decode one shader flag word into its named members plus the unnamed remainder, off nifly's own enum
-    /// through the records flag peel; contract in docs/architecture/nif.md.</summary>
+    /// <summary>Decode one shader flag word into its named members and unnamed remainder; contract in docs/architecture/nif.md.</summary>
     internal static NifShaderFlagWord DecodeFlagWord(string label, Enum value)
     {
         var type = value.GetType();
@@ -995,8 +994,7 @@ public sealed record NifShader(
     NifColor? SpecularColor,
     float? Alpha);
 
-/// <summary>One decoded shader flag word: its label, raw value, the enum members it carries in bit order with each
-/// one's mask, and the mask of bits no enum member covers.</summary>
+/// <summary>One decoded shader flag word: label, raw value, its enum members with their masks, and the unnamed-bit mask.</summary>
 public sealed record NifShaderFlagWord(string Label, uint Raw, IReadOnlyList<string> Names, IReadOnlyList<uint> NameMasks,
                                        uint UnknownBits)
 {

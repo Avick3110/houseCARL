@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-25
+updated: 2026-10-09
 covers: [src/housecarl-core/NifService.cs, src/housecarl-mcp/NifTools.cs]
 ---
 # The NIF layer: reading mesh values, and the two write gates
@@ -49,10 +49,11 @@ The coverage cornerstone applies inside the format layer, and three pieces imple
   success returned, mesh unchanged.
 - **`DecodeFlagWord`** — flag-bit names come from `Enum.GetValues` over nifly's own enum, so coverage is the library's.
   The peel is the records one (`ReadEngine.PeelFlagBits`): members largest-first, so a combo member wins over its
-  constituent bits. `Names` holds only enum members; whatever no member covers is kept as the `UnknownBits` mask, and
-  `Tokens()` renders it one `bitN` token per bit, merged with the members in bit order. Only that token matches
-  `housecarl_records` (`ReadEngine.UnnamedBitToken`); the two join their lists differently. An unnamed bit is something
-  the mesh really carries.
+  constituent bits. `Names` holds only enum members, in bit order, each with its mask in `NameMasks`; whatever no member
+  covers is kept as the `UnknownBits` mask, and `Tokens()` renders it one `bitN` token per bit, merged with the members
+  in bit order. Only that token matches `housecarl_records` (`ReadEngine.UnnamedBitToken`); the two join their lists
+  differently. An unnamed bit is something the mesh really carries. The nifly version houseCARL ships names every Skyrim
+  shader flag bit, so real meshes read as before.
 
 ### The Skyrim-layout gate
 

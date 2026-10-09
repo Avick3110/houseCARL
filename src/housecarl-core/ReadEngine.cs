@@ -1029,8 +1029,7 @@ public static class ReadEngine
         return parts;
     }
 
-    /// <summary>The peel .NET's [Flags].ToString() does: each FULLY contained member, largest first, added to
-    /// <paramref name="members"/> when given; returns the bits no member names.</summary>
+    /// <summary>The [Flags].ToString() peel: fully contained members largest first, into members when given; returns the unnamed bits.</summary>
     internal static ulong PeelFlagBits(Type enumType, ulong bits, List<ulong>? members = null)
     {
         foreach (var mb in SortedMemberMasks(enumType))
