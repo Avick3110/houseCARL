@@ -4,10 +4,10 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
-**Writing an entry.** One bold sentence saying what the tool now does or refuses, and at most one more
-sentence saying how the reader can check it. Keep the whole entry under about forty words. No bounds, no
-evidence, no measurements, no comparisons to other tools, no reasoning — all of that stays on the PR that
-made the change.
+**Writing an entry.** Entries go in `plugin/changelog.d/`, one file per change (its README says how), never
+under `## Unreleased` here. One bold sentence saying what the tool now does or refuses, and at most one more
+sentence saying how the reader can check it. Keep the whole entry under about forty words. It carries only
+what a user notices and how to check it; how it works goes in the matching `docs/architecture/` note.
 
 ## Unreleased
 
