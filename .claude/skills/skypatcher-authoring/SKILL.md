@@ -106,8 +106,8 @@ Prove the target set, every address, and the draft file itself before anything i
 
 - The set: `housecarl_records` with `types=`, `plugins=` and `where=` for the set the filter means to
   hit, plus `counts_only=true` for the cheap census. Record the count and the epoch stamp beside it.
-- Each address: `housecarl_records` with `formids=["012EB7:Skyrim.esm"]` and
-  `project={"form": "identity"}` — a FormID that resolves to nothing here resolves to nothing in
+- Each address: `housecarl_records` with `formids=["012EB7:Skyrim.esm"]` and the default summary
+  rows — a FormID that resolves to nothing here resolves to nothing in
   game, silently.
 - The draft: `housecarl_records` with `formids=` a target and `source={"overlay": "skypatcher",
   "state": "post", "ini": "<absolute path to the draft .ini>", "subfolder": "weapon"}` reads the

@@ -179,7 +179,7 @@ length is excluded, because it disappears the moment the response fits.
 `RenderBudget` states up front what a scan's RENDER will cost and refuses past it, because the scan terms
 bound the scan and nothing bounded the render (#582). Each lane carries its own measured per-row cost and its
 own row bound, because the lanes are orders of magnitude apart: named fields, whole-record
-(`form='everything'`), identity, and asset-path resolution; the comparison forms are metered instead (below). Every bound is
+(`form='everything'`) and asset-path resolution; the comparison forms are metered instead (below). Every bound is
 ten minutes at that lane's per-row cost — a third of the 30-minute idle timeout a Claude Code client gives a
 call. What a call spent comes back as `render_ms`, which is how the estimates are checked against a real order. The bounds are
 per-service settings (`Bounds` on the service, `MaxAssetPaths` on the assets area) so a test lowers only its

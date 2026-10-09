@@ -89,13 +89,12 @@ Every step below names the section it needs, so one section can be read on its o
 4. **Resolve the forms a condition names.** A perk, keyword, race, faction or magic effect needs
    `{ "pluginName": …, "formID": … }` or `{ "editorID": … }`, where `formID` is the record's
    **local** id in its defining plugin. Read it with `housecarl_records`:
-   `formids=["XXXXXX:Plugin.esp"]` with `project={"form":"identity"}` when you have the FormID (the
+   `formids=["XXXXXX:Plugin.esp"]` with `project=` left off when you have the FormID (the
    runtime spelling a console, Papyrus or crash log prints is accepted too, and the response names
    the plugin it resolved to); `types=["PERK"]` (or `KYWD`, `RACE`, `FACT`, `MGEF`) with
    `where=["editorid startswith REQ_"]` when you only know the EditorID — that is a scan, so leave
-   `project=` off and read the default summary rows, which already carry each match's identity; the
-   identity form labels a `formids=` list and is refused on a scan, and a body scan must be bounded
-   by `types=` or `plugins=`. Without the server, read the form from the mod's own plugin or its
+   `project=` off too. The default summary rows carry each record's type, editorid, name and
+   winner, and a body scan must be bounded by `types=` or `plugins=`. Without the server, read the form from the mod's own plugin or its
    Nexus page, and say you did. FormID form and the embedded-null gotcha:
    `references/oar-config-reference.md` §12.
 

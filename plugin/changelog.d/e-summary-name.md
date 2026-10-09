@@ -1,0 +1,1 @@
+- **`housecarl_records` summary rows now carry each record's `Name` on text, json and dense, from the pole's copy under a named `source=`; `form='identity'` is now a spelling of `summary`.** Check: a default scan over `types=["ARMO"]` prints `name="…"` per row.

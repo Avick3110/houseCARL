@@ -82,9 +82,8 @@ Read what your task needs, not everything.
    that produced it rather than as a claim. The census is `housecarl_records` with `types=["WEAP"]`,
    `where=["Data.AnimationType = OneHandDagger"]` and `counts_only=true`. To let the user eyeball
    the set, drop `counts_only` and pass a `limit` — the default `summary` rows carry each match's
-   identity, and `project={"form": "fields", "fields": ["Name"]}` puts the name beside it — field
-   paths live inside the form, never flat (form `identity` labels a `formids=` list, and a scan
-   refuses it). For a set too large to render inline, pass `to_file` an absolute `.jsonl` path and
+   type, editorid, name and winner, and other field paths live inside `project={"form": "fields",
+   "fields": [...]}`, never flat. For a set too large to render inline, pass `to_file` an absolute `.jsonl` path and
    re-enter it later as
    `formids=["@<that absolute path>"]`; a long plugin scope takes the same spelling,
    `plugins={"names": ["@<absolute path of a file, one plugin filename per line>"]}`, as do
