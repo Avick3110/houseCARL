@@ -113,42 +113,54 @@ internal static class DialogueWire
         }
     }
 
+    /// <summary>A Start-Game-Enabled quest whose .seq coverage is not confirmed; the count and the artifact read this.</summary>
+    internal static bool SeqIsFinding(SeqLintFinding? s) =>
+        s is { QuestIsSge: true } && !(s.SeqExists && s.SeqContainsQuest == true && s.SeqNewerThanPlugin == true);
+
     /// <summary>The SEQ staleness and coverage block for a Start-Game-Enabled quest; skipped where SeqLint is null.</summary>
     internal static void AppendSeq(StringBuilder sb, SeqLintFinding? s)
     {
         if (s is null || !s.QuestIsSge) return;
+        sb.Append("  SEQ: ").Append(SeqVerdict(s)).Append('\n');
+        sb.Append("  SEQ note: a .seq is needed only when WHICH quests are start-game-enabled changes (a new SGE quest, or a quest " +
+                  "alias/topic that depends on one) — NOT for a dialogue-only or condition-only edit; those never need a regen.\n");
+    }
+
+    /// <summary>The one-line SEQ verdict for a Start-Game-Enabled quest, without the block's label.</summary>
+    internal static string SeqVerdict(SeqLintFinding s)
+    {
+        var v = new StringBuilder();
         string fid = $"0x{s.OnDiskFormId:X8}";
         bool overrideInPlay = !string.Equals(s.WinnerPlugin, s.DefiningPlugin, StringComparison.OrdinalIgnoreCase);
         bool covered = s.SeqExists && s.SeqContainsQuest == true && s.SeqNewerThanPlugin == true;
 
         if (!s.SeqExists && s.Note is not null)
-            sb.Append("  SEQ: [?] this quest is Start-Game-Enabled but the .seq check could not run — ").Append(s.Note).Append('\n');
+            v.Append("[?] this quest is Start-Game-Enabled but the .seq check could not run — ").Append(s.Note);
         else if (s.SeqExists && (s.SeqContainsQuest is null || s.SeqNewerThanPlugin is null))
-            sb.Append("  SEQ: [?] a .seq for ").Append(s.DefiningPlugin).Append(" exists but couldn't be fully checked — ")
-              .Append(s.Note ?? "its contents/mtime were undeterminable").Append('\n');
+            v.Append("[?] a .seq for ").Append(s.DefiningPlugin).Append(" exists but couldn't be fully checked — ")
+              .Append(s.Note ?? "its contents/mtime were undeterminable");
         else if (covered)
-            sb.Append("  SEQ: OK — ").Append(s.DefiningPlugin).Append(".seq lists this start-game-enabled quest (").Append(fid)
-              .Append(") and is newer than the plugin.\n");
+            v.Append("OK — ").Append(s.DefiningPlugin).Append(".seq lists this start-game-enabled quest (").Append(fid)
+              .Append(") and is newer than the plugin.");
         else if (overrideInPlay)
             // Not covered, but the winner is an override that may itself set SGE — so the definer is not blamed.
-            sb.Append("  SEQ: [?] this start-game-enabled quest's .seq coverage couldn't be confirmed — its defining plugin ")
+            v.Append("[?] this start-game-enabled quest's .seq coverage couldn't be confirmed — its defining plugin ")
               .Append(s.DefiningPlugin).Append(" has no listing/fresh .seq, but the WINNING override ").Append(s.WinnerPlugin)
               .Append(" is the record the game reads and may itself be what sets Start-Game-Enabled (which would need ITS own .seq). ")
-              .Append("Run " + ToolNames.WriteSeq + " against whichever plugin sets the flag.\n");
+              .Append("Run " + ToolNames.WriteSeq + " against whichever plugin sets the flag.");
         else if (!s.SeqExists)
-            sb.Append("  SEQ: [!] this quest is Start-Game-Enabled but NO .seq for ").Append(s.DefiningPlugin)
+            v.Append("[!] this quest is Start-Game-Enabled but NO .seq for ").Append(s.DefiningPlugin)
               .Append(" lists it — on a fresh save the quest stays DORMANT and its dialogue never shows. Run " + ToolNames.WriteSeq + " source=")
-              .Append(s.DefiningPlugin).Append(".\n");
+              .Append(s.DefiningPlugin).Append(".");
         else if (s.SeqContainsQuest == false)
-            sb.Append("  SEQ: [!] ").Append(s.DefiningPlugin).Append(".seq exists but does NOT list this quest (").Append(fid)
-              .Append(") — it stays dormant on a fresh save. Regenerate with " + ToolNames.WriteSeq + ".\n");
+            v.Append("[!] ").Append(s.DefiningPlugin).Append(".seq exists but does NOT list this quest (").Append(fid)
+              .Append(") — it stays dormant on a fresh save. Regenerate with " + ToolNames.WriteSeq + ".");
         else // s.SeqNewerThanPlugin == false — the .seq does list the quest, it is just older by mtime
             // mtime alone cannot tell why the plugin changed, so this is advisory rather than a "regenerate".
-            sb.Append("  SEQ: [?] ").Append(s.DefiningPlugin).Append(".seq lists this quest (").Append(fid)
+            v.Append("[?] ").Append(s.DefiningPlugin).Append(".seq lists this quest (").Append(fid)
               .Append(") but is OLDER than ").Append(s.DefiningPlugin)
-              .Append(" — if your last change altered which quests are start-game-enabled or the master list (a master added/removed, an ESL compaction), regenerate with " + ToolNames.WriteSeq + "; if it was a dialogue- or condition-only edit, the .seq is still correct (an older mtime alone does not mean stale).\n");
-        sb.Append("  SEQ note: a .seq is needed only when WHICH quests are start-game-enabled changes (a new SGE quest, or a quest " +
-                  "alias/topic that depends on one) — NOT for a dialogue-only or condition-only edit; those never need a regen.\n");
+              .Append(" — if your last change altered which quests are start-game-enabled or the master list (a master added/removed, an ESL compaction), regenerate with " + ToolNames.WriteSeq + "; if it was a dialogue- or condition-only edit, the .seq is still correct (an older mtime alone does not mean stale).");
+        return v.ToString();
     }
 
     static string Edid(string? e) => string.IsNullOrEmpty(e) ? "<none>" : e;
