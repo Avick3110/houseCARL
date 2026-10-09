@@ -111,6 +111,16 @@ public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorI
         new(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, winner, overrideDepth, null)
         { Name = HousecarlCore.ReadEngine.DisplayName(body) };
 
+    /// <summary>The list lane's body whose fields were read off <see cref="ReadOutcome.SourcePlugin"/>; null on the scan, whose rows are the winner's.</summary>
+    public string? Source { get; init; }
+
+    /// <summary>The list lane's row for one read outcome, its per-item error included.</summary>
+    public static RecordSummary Of(ReadOutcome o) => o is { Error: null, Record: { } r }
+        ? new RecordSummary(o.FormKey, r.Type, r.EditorId, o.WinnerPlugin!, o.OverrideDepth, null)
+          { Name = r.Name, Source = o.SourcePlugin, RuntimeFormId = o.RuntimeFormId, RuntimeFormIdNote = o.RuntimeFormIdNote }
+        : new RecordSummary(o.FormKey, "", null, "", 0, o.Error ?? "no record was read")
+          { RuntimeFormId = o.RuntimeFormId, RuntimeFormIdNote = o.RuntimeFormIdNote };
+
     /// <summary>The runtime FormID of this row's record in the build that answered — the same identity the detail lanes print.</summary>
     public string? RuntimeFormId { get; init; }
 

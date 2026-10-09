@@ -457,20 +457,7 @@ static class JsonWire
                 if (manifestOnly) break;
                 w.Flush();
                 if (Chars(ms) >= cap) { rowsTruncated = true; break; }
-                w.WriteStartObject();
-                w.WriteString("formid", FormIdToken.Of(o.FormKey));
-                WriteRuntime(w, o.RuntimeFormId, o.RuntimeFormIdNote);
-                if (o.Error is not null) w.WriteString("error", o.Error);
-                else
-                {
-                    w.WriteString("type", o.Record!.Type);
-                    WriteNullable(w, "editorid", o.Record.EditorId);
-                    if (o.Record.Name is not null) w.WriteString("name", o.Record.Name);
-                    WriteNullable(w, "source", o.SourcePlugin);
-                    WriteNullable(w, "winner", o.WinnerPlugin);
-                    w.WriteNumber("override_depth", o.OverrideDepth);
-                }
-                w.WriteEndObject();
+                WriteSummaryRow(w, RecordSummary.Of(o), null);
                 rendered++;
             }
             w.WriteEndArray();
@@ -1241,10 +1228,7 @@ static class JsonWire
             var rowKeys = countsOnly ? new List<FormKey>() : outcomes.Select(o => o.FormKey).ToList();
             truncated = WriteDenseTable(w, ms, cap, manifestOnly, rowKeys, fields, fold, false, matches,
                 i => outcomes[i],
-                i => outcomes[i] is { Error: null, Record: { } r } o
-                    ? new RecordSummary(o.FormKey, r.Type, r.EditorId, o.WinnerPlugin!, o.OverrideDepth, null)
-                      { Name = r.Name, RuntimeFormId = o.RuntimeFormId, RuntimeFormIdNote = o.RuntimeFormIdNote }
-                    : new RecordSummary(outcomes[i].FormKey, "", null, "", 0, outcomes[i].Error ?? "no record was read"),
+                i => RecordSummary.Of(outcomes[i]),
                 _ => { w.WriteNumber("rows_read", bodyCost.RowsRead); w.WriteNumber("render_ms", bodyCost.Millis); });
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             WriteCapOverrun(w, ms, cap);
@@ -1431,7 +1415,8 @@ static class JsonWire
             w.WriteString("type", m.Type);
             WriteNullable(w, "editorid", m.EditorId);
             if (m.Name is not null) w.WriteString("name", m.Name);
-            w.WriteString("winner", m.Winner);
+            if (m.Source is not null) w.WriteString("source", m.Source);
+            WriteNullable(w, "winner", m.Winner);
             w.WriteNumber("override_depth", m.OverrideDepth);
         }
         if (matches is not null) w.WriteString("matches", matches);
