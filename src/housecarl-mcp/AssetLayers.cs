@@ -324,6 +324,8 @@ internal sealed partial class AssetLayers
         if (!ModKey.TryFromNameAndExtension(r.Plugin, out var mk))
             return new SkseAuditedRef(r, SkseRefVerdict.Unparseable, $"'{r.Plugin}' is not a valid plugin name");
         var fk = new FormKey(mk, r.LocalId!.Value);
+        if (EngineImplicit.TryDescribe(fk, out _, out var engineEid))   // hardcoded by the engine, so the index cannot hold it
+            return new SkseAuditedRef(r, SkseRefVerdict.Ok, $"{FormIdToken.Of(fk)} ({engineEid}, engine-implicit)");
         return index.ResolveWinner(fk) is not null
             ? new SkseAuditedRef(r, SkseRefVerdict.Ok, FormIdToken.Of(fk))
             : new SkseAuditedRef(r, SkseRefVerdict.Dangling, $"{FormIdToken.Of(fk)} resolves to no record in '{r.Plugin}'");
