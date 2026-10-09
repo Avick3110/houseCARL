@@ -254,8 +254,7 @@ static class JsonWire
     }
 
     // ---- shared record + field writers --------------------------------------------------------------
-    /// <summary>Serialize the fields array, one flat entry per leaf: <c>{path, value}</c> for a round-trippable leaf,
-    /// <c>{path, note}</c> for a no-value one, with a sentinel field naming a field-count cut.</summary>
+    /// <summary>Write the fields array: one flat <c>{path, value}</c> or <c>{path, note}</c> per leaf, then any cut sentinel.</summary>
     /// <param name="emitted">Collects the annotated paths this array ACTUALLY carried.</param>
     static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, CharCountedStream ms, int cap,
                                  IReadOnlyDictionary<string, ChildUnion?>? annotated = null, IDictionary<string, bool>? emitted = null,

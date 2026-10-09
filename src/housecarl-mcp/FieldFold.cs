@@ -107,9 +107,7 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
                              : o with { Record = null, Error = error };
     }
 
-    /// <summary>The columns as one list with each path once, every line beside its own element: a path an earlier
-    /// column listed, or one inside an element row already listed, is dropped, and an earlier column's lines under a
-    /// later line move to follow it (into the row, when that line is an element row holding them).</summary>
+    /// <summary>The columns as one list, each path once and every line beside its own element.</summary>
     IEnumerable<FieldValue> Merge(IReadOnlyList<FieldValue>[] cols)
     {
         bool overlap = false;

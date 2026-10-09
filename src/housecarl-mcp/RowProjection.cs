@@ -2,10 +2,7 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>The 'rows' project form: fold a depth-expanded read of a LIST field into ONE line per element —
-/// the element's own summary followed by every sub-field the read FOUND, with only an ABSENT optional omitted.
-/// A row carries its leaves beside the text (<see cref="FieldValue.Cells"/>), so the json render lists them flat,
-/// one <c>{path, value|note}</c> entry each, rather than a sentence a consumer would have to parse.</summary>
+/// <summary>The 'rows' project form: one line per LIST element, its summary then every sub-field found; only an absent optional is omitted.</summary>
 static class RowProjection
 {
     /// <summary>The depth a 'rows' read runs at when the caller names none: the element plus two levels of its
