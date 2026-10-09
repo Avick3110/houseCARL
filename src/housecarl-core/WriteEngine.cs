@@ -1589,6 +1589,19 @@ public static class WriteEngine
         if (pt.IsArray)
             throw new ExpectedApplyRejectionException(
                 $"CopyFrom does not transplant the array-backed collection '{prop.Name}' ({Pretty(pt)}) — a fixed-size game structure; a tracked gap, mirroring the write verbs.");
+        // An ABSENT nullable link copies as absent; rebuilt from its FormKey it would write a present zero (#1144).
+        if (srcVal is IFormLinkGetter { FormKeyNullable: null } && IsNullableFormLink(pt))
+        {
+            if (prop.CanWrite) prop.SetValue(parent, EmptyFormLinkOf(pt));
+            else
+            {
+                var live = prop.GetValue(parent)
+                    ?? throw new InvalidOperationException($"CopyFrom: get-only formlink '{prop.Name}' is null on the target.");
+                (live.GetType().GetMethod("SetToNull", Type.EmptyTypes)
+                    ?? throw new InvalidOperationException($"CopyFrom: no SetToNull() on formlink {Pretty(live.GetType())}.")).Invoke(live, null);
+            }
+            return;
+        }
         if (prop.CanWrite)
         {
             // a value/enum/struct-value (int, float, enum, Color, Percent, FormKey…) — copied by value on assign
@@ -1733,8 +1746,8 @@ public static class WriteEngine
                 prop.SetValue(parent, Coerce(req.Value!, prop.PropertyType));
                 break;
             case "Remove": // clear a nullable scalar / substruct / formlink / polymorphic
-                // A FormLink setter REJECTS a null reference, so the clear routes through EmptyFormLinkOf — which
-                // would also blank a REQUIRED link, hence the loud refusal here for a pre-flight-bypassing caller.
+                // A FormLink setter REJECTS a null reference, so the clear routes through EmptyFormLinkOf (an unset
+                // link, no subrecord); a REQUIRED link cannot be absent, hence the loud refusal for a pre-flight bypass.
                 if (IsRequiredFormLink(prop.PropertyType))
                     throw new InvalidOperationException(
                         $"Remove is not valid on the required (non-nullable) FormLink '{prop.Name}' — a required link " +
@@ -1971,8 +1984,20 @@ public static class WriteEngine
 
     static object? DefaultOf(Type t) => t.IsValueType ? System.Activator.CreateInstance(t) : null;
 
-    /// <summary>A NON-NULL EMPTY link for a FormLink-family type, else null; materializes a GenderedItem half a null would NRE the writer on.</summary>
-    static object? EmptyFormLinkOf(Type t) => TryFormLink("0", t, out var link) ? link : null;
+    /// <summary>A NON-NULL EMPTY link for a FormLink-family type, else null: a nullable one unset (no subrecord written), a required one FormKey.Null.</summary>
+    static object? EmptyFormLinkOf(Type t) =>
+        IsNullableFormLink(t)
+            ? typeof(FormLinkNullable<>).MakeGenericType(t.GetGenericArguments()[0])
+                  .GetConstructor(new[] { typeof(FormKey?) })!.Invoke(new object?[] { null })
+            : TryFormLink("0", t, out var link) ? link : null;
+
+    /// <summary>True iff <paramref name="t"/> is a NULLABLE FormLink-family type, by generic definition as <see cref="TryFormLink"/> keys off.</summary>
+    static bool IsNullableFormLink(Type t)
+    {
+        if (!t.IsGenericType) return false;
+        var def = t.GetGenericTypeDefinition();
+        return def == typeof(FormLinkNullable<>) || def == typeof(IFormLinkNullable<>) || def == typeof(IFormLinkNullableGetter<>);
+    }
 
     /// <summary>True iff <paramref name="t"/> is a REQUIRED (non-nullable) FormLink-family type — the branch <see cref="TryFormLink"/> keys off too.</summary>
     static bool IsRequiredFormLink(Type t)
@@ -2533,15 +2558,14 @@ public static class WriteEngine
     {
         result = null;
         if (!u.IsGenericType) return false;
-        var def = u.GetGenericTypeDefinition();
         var targetGetter = u.GetGenericArguments()[0];
-        if (def == typeof(IFormLinkNullable<>) || def == typeof(IFormLinkNullableGetter<>) || def == typeof(FormLinkNullable<>))
+        if (IsNullableFormLink(u))
         {
             if (text != null)
                 result = System.Activator.CreateInstance(typeof(FormLinkNullable<>).MakeGenericType(targetGetter), ToFormKey(text));
             return true;
         }
-        if (def == typeof(FormLink<>) || def == typeof(IFormLink<>) || def == typeof(IFormLinkGetter<>))
+        if (IsRequiredFormLink(u))
         {
             if (text != null)
                 result = System.Activator.CreateInstance(typeof(FormLink<>).MakeGenericType(targetGetter), ToFormKey(text));
