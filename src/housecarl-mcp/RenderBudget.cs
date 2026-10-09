@@ -12,9 +12,6 @@ internal static class RenderBudget
 
     internal const double MillisPerWholeRecordRow = 40.0;
 
-    /// <summary>The declared cost of one <c>form='identity'</c> row: an UNTYPED whole-plugin seek per FormID.</summary>
-    internal const double MillisPerIdentityRow = 15.0;
-
     /// <summary>The floor of a whole-record comparison row, in microseconds: under the cheapest measured (35 ms, #932).</summary>
     internal const int FloorMicrosPerWholeComparisonRow = 30_000;
 
@@ -24,8 +21,6 @@ internal static class RenderBudget
     internal const int DefaultMaxRenderRows = 300_000;
 
     internal const int DefaultMaxWholeRecordRows = 15_000;
-
-    internal const int DefaultMaxIdentityRows = 40_000;
 
     /// <summary>The declared cost of resolving ONE asset path through the VFS.</summary>
     internal const double MillisPerAssetPath = 0.5;
@@ -201,16 +196,5 @@ internal static class RenderBudget
                      "'meshes/**'), or fewer asset_paths=/formids= entries — and ask for it in one call."
                    : "Narrow the selection with a tighter under= selector, pass fewer asset_paths=/formids= entries, " +
                      "or take it in windows with limit= and offset=.");
-    }
-
-    /// <summary>The refusal for an <c>form='identity'</c> render over its own bound, or null when it fits.</summary>
-    internal static string? RefuseIdentity(RenderBounds bounds, int rows, string remedy, bool census = false)
-    {
-        if (rows <= bounds.IdentityRows) return null;
-        return $"error: this call resolves {rows:N0} FormIDs and each one reads its winner's body by an UNTYPED " +
-               $"whole-plugin seek — {ProjectedAt(rows, MillisPerIdentityRow)}{(census ? " of reading" : " of render")}, past the {bounds.IdentityRows:N0}-row " +
-               $"bound form='identity' is given (a client stops waiting at 30 minutes). project.form='summary' reads the " +
-               $"same type, editorid and winner off a read gathered per plugin, at a fraction of the cost and bounded at " +
-               $"{bounds.Rows:N0} rows — project.form='fields' with fields=[\"Name\"] if you need the display name too. Or " + remedy;
     }
 }

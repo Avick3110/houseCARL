@@ -103,6 +103,14 @@ public sealed record GroupCount(string Key, int Count);
 /// <summary>A compact, header-only record summary — the per-match line a scan emits by default. <see cref="Error"/> non-null ⇒ the winner could not be summarised.</summary>
 public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorId, string Winner, int OverrideDepth, string? Error)
 {
+    /// <summary>The display Name of the body this row was read from; null for a type with no Name.</summary>
+    public string? Name { get; init; }
+
+    /// <summary>The row for one in-hand body: its type, EditorID and Name, beside the winner facts.</summary>
+    public static RecordSummary Of(FormKey fk, IMajorRecordGetter body, string winner, int overrideDepth) =>
+        new(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, winner, overrideDepth, null)
+        { Name = HousecarlCore.ReadEngine.DisplayName(body) };
+
     /// <summary>The runtime FormID of this row's record in the build that answered — the same identity the detail lanes print.</summary>
     public string? RuntimeFormId { get; init; }
 

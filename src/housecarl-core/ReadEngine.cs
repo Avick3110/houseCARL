@@ -22,7 +22,7 @@ public sealed record ResolvedRef(
     string? Name = null, string? Winner = null, string? Error = null);
 
 /// <summary>A located record read out as structured fields: identity plus the requested (or all modeled) reads.</summary>
-public sealed record RecordFields(string Type, string FormKey, string? EditorId, IReadOnlyList<FieldValue> Fields);
+public sealed record RecordFields(string Type, string FormKey, string? EditorId, IReadOnlyList<FieldValue> Fields, string? Name = null);
 
 /// <summary>The reflection-driven READ surface, symmetric partner to <see cref="WriteEngine"/>: a record's modeled
 /// field OUT to a token that is the faithful inverse of Coerce, per PLUGIN. Navigation is the write engine's own
@@ -172,8 +172,12 @@ public static class ReadEngine
                 AnnotateOpaqueBytes(fields, from, on.FormVersion);
             }
         }
-        return new RecordFields(typeName, FormIdToken.Of(record.FormKey), record.EditorID, fields);
+        return new RecordFields(typeName, FormIdToken.Of(record.FormKey), record.EditorID, fields, DisplayName(record));
     }
+
+    /// <summary>A record body's display Name through Mutagen's <c>INamedGetter</c> aspect; null for a type with no Name, or an empty one.</summary>
+    public static string? DisplayName(IMajorRecordGetter body) =>
+        body is Mutagen.Bethesda.Plugins.Aspects.INamedGetter named && !string.IsNullOrEmpty(named.Name) ? named.Name : null;
 
     /// <summary>Hang the opaque-blob annotation on every byte-slice leaf from <paramref name="from"/> onward,
     /// per PATH with that path's own owning record, because '*parent' rebinds it.</summary>

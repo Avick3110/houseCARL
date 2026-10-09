@@ -65,71 +65,12 @@ static class JsonWire
         WriteNullable(w, "error", error);
     }
 
-    // ---- housecarl_resolve ---------------------------------------------------------------------------
-    /// <summary>Render the bulk name-resolution result as JSON: one identity row per input, <c>{formid,error}</c> for a bad one.</summary>
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch)
-        => RenderResolve(rows, maxChars, epoch, null, out _);
-
     /// <summary>Optional response-envelope pairs written as top-level string fields at the START of a document;
     /// their keys must stay disjoint from every renderer's own — docs/architecture/json-wire.md.</summary>
     static void WriteEnvelope(Utf8JsonWriter w, IReadOnlyList<KeyValuePair<string, string>>? envelope)
     {
         if (envelope is null) return;
         foreach (var kv in envelope) w.WriteString(kv.Key, kv.Value);
-    }
-
-    /// <param name="bodyCost">What resolving these FormIDs cost, when measured; the count is the ids that RESOLVED (#607).</param>
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated,
-                                       IReadOnlyList<KeyValuePair<string, string>>? envelope = null,
-                                       (int RowsRead, long Millis)? bodyCost = null)
-    {
-        truncated = false;
-        int cap = Wire.Cap(maxChars);
-        bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new CharCountedStream();
-        using (var w = new Utf8JsonWriter(ms, Opts))
-        {
-            w.WriteStartObject();
-            WriteEnvelope(w, envelope);
-            w.WriteNumber("count", rows.Count);
-            WriteEpoch(w, epoch);   // the ONE captured build the whole batch resolved against
-            w.WriteStartArray("resolved");
-            int rendered = 0; bool rowsTruncated = false;
-            foreach (var r in rows)
-            {
-                if (manifestOnly) break;   // to_file: the rows are the FILE
-                w.Flush();
-                if (Chars(ms) >= cap) { rowsTruncated = true; break; }
-                WriteResolvedRow(w, r);
-                rendered++;
-            }
-            w.WriteEndArray();
-            w.WriteNumber("rendered", rendered);
-            // The count is the bodies READ, not this window's rows.
-            if (bodyCost is { } bc) { w.WriteNumber("rows_read", bc.RowsRead); w.WriteNumber("render_ms", bc.Millis); }
-            w.WriteBoolean("truncated", rowsTruncated);
-            truncated = rowsTruncated;
-            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
-            WriteCapOverrun(w, ms, cap);
-            w.WriteEndObject();
-        }
-        return Finish(ms);
-    }
-
-    /// <summary>One housecarl_resolve row: the identity fields when it resolved, else a single <c>error</c>.</summary>
-    internal static void WriteResolvedRow(Utf8JsonWriter w, ResolvedRef r)
-    {
-        w.WriteStartObject();
-        w.WriteString("formid", r.Token);
-        if (r.Resolved)
-        {
-            WriteNullable(w, "type", r.Type);
-            WriteNullable(w, "editorid", r.EditorId);
-            WriteNullable(w, "name", r.Name);
-            WriteNullable(w, "winner", r.Winner);
-        }
-        else w.WriteString("error", r.Error ?? "not present in the active order");
-        w.WriteEndObject();
     }
 
     // ---- housecarl_diff_record ----------------------------------------------------------------------
@@ -524,6 +465,7 @@ static class JsonWire
                 {
                     w.WriteString("type", o.Record!.Type);
                     WriteNullable(w, "editorid", o.Record.EditorId);
+                    if (o.Record.Name is not null) w.WriteString("name", o.Record.Name);
                     WriteNullable(w, "source", o.SourcePlugin);
                     WriteNullable(w, "winner", o.WinnerPlugin);
                     w.WriteNumber("override_depth", o.OverrideDepth);
@@ -1301,7 +1243,7 @@ static class JsonWire
                 i => outcomes[i],
                 i => outcomes[i] is { Error: null, Record: { } r } o
                     ? new RecordSummary(o.FormKey, r.Type, r.EditorId, o.WinnerPlugin!, o.OverrideDepth, null)
-                      { RuntimeFormId = o.RuntimeFormId, RuntimeFormIdNote = o.RuntimeFormIdNote }
+                      { Name = r.Name, RuntimeFormId = o.RuntimeFormId, RuntimeFormIdNote = o.RuntimeFormIdNote }
                     : new RecordSummary(outcomes[i].FormKey, "", null, "", 0, outcomes[i].Error ?? "no record was read"),
                 _ => { w.WriteNumber("rows_read", bodyCost.RowsRead); w.WriteNumber("render_ms", bodyCost.Millis); });
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
@@ -1327,7 +1269,7 @@ static class JsonWire
             if (anyScoped) w.WriteStringValue("source");
         }
         else
-            foreach (var c in new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth" }) w.WriteStringValue(c);
+            foreach (var c in new[] { "formid", "runtime_formid", "type", "editorid", "name", "winner", "override_depth" }) w.WriteStringValue(c);
         if (hasMatches) w.WriteStringValue("matches");
         w.WriteEndArray();
 
@@ -1429,6 +1371,7 @@ static class JsonWire
                 WriteCell(w, RuntimeCell(m.RuntimeFormId, m.RuntimeFormIdNote));
                 w.WriteStringValue(m.Type);
                 WriteCell(w, m.EditorId);
+                WriteCell(w, m.Name);
                 w.WriteStringValue(m.Winner);
                 w.WriteNumberValue(m.OverrideDepth);
                 if (hasMatches) WriteCell(w, matches);
@@ -1487,6 +1430,7 @@ static class JsonWire
         {
             w.WriteString("type", m.Type);
             WriteNullable(w, "editorid", m.EditorId);
+            if (m.Name is not null) w.WriteString("name", m.Name);
             w.WriteString("winner", m.Winner);
             w.WriteNumber("override_depth", m.OverrideDepth);
         }

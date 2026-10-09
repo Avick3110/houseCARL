@@ -24,53 +24,6 @@ static partial class Wire
         return QueryFormat.Text;
     }
 
-    // ---- the identity form ----
-    /// <summary>Render the bulk name-resolution result: one identity line per input FormID, or a per-item <c>error=</c> for a bad or absent one.</summary>
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch)
-        => RenderResolve(rows, maxChars, epoch, null, out _);
-
-    /// <param name="header">The caller's own header line, written INSIDE the budget.</param>
-    /// <param name="bodyCost">What resolving these FormIDs cost, over the ids that RESOLVED; contract in docs/architecture/records-tool-front.md.</param>
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated,
-                                       string? header = null, (int RowsRead, long Millis)? bodyCost = null)
-    {
-        truncated = false;
-        int cap = Cap(maxChars);
-        var sb = new StringBuilder();
-        if (header is not null) sb.Append(header).Append('\n');
-        sb.Append("resolve: ").Append(rows.Count).Append(rows.Count == 1 ? " formid" : " formids")
-          .Append(Wire.EpochInline(epoch)).Append('\n');
-        string Notice(int r) => "... [truncated: rendered " + r + " of " + rows.Count +
-                                " at max_chars=" + cap + "; request fewer formids or raise max_chars]\n";
-        var spillText = SpillText(spill);
-        int budget = cap - spillText.Length - Notice(rows.Count).Length - (bodyCost is null ? 0 : RenderBudget.AccountingReserve);
-        for (int i = 0; i < rows.Count && !(spill?.ManifestOnly ?? false); i++)
-        {
-            int mark = sb.Length;
-            var r = rows[i];
-            sb.Append("  ").Append(r.Token);
-            if (r.Resolved)
-            {
-                sb.Append("  type=").Append(r.Type).Append("  editorid=").Append(r.EditorId ?? "<none>");
-                if (!string.IsNullOrEmpty(r.Name)) sb.Append("  name=\"").Append(r.Name).Append('"');
-                sb.Append("  winner=").Append(r.Winner);
-            }
-            else sb.Append("  error=").Append(r.Error ?? "not present in the active order");
-            sb.Append('\n');
-            if (sb.Length > budget)
-            {
-                sb.Length = mark;
-                truncated = true;
-                sb.Append(Notice(i));
-                break;
-            }
-        }
-        // What resolving these FormIDs cost — the count is the LIST's, not this window's.
-        if (bodyCost is { } bc) sb.Append(RenderBudget.BodiesLine(bc.RowsRead, bc.Millis));
-        sb.Append(spillText);
-        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
-    }
-
     /// <summary>The spill block as a string, so its room can be charged before the rows are laid; empty when this call spills nothing.</summary>
     internal static string SpillText(SpillState? spill)
     {
@@ -310,8 +263,9 @@ static partial class Wire
                 else
                 {
                     AppendRuntime(sb, m.RuntimeFormId, m.RuntimeFormIdNote);
-                    sb.Append("  type=").Append(m.Type).Append("  editorid=").Append(m.EditorId ?? "<none>")
-                      .Append("  winner=").Append(m.Winner).Append("  override_depth=").Append(m.OverrideDepth);
+                    sb.Append("  type=").Append(m.Type).Append("  editorid=").Append(m.EditorId ?? "<none>");
+                    if (m.Name is not null) sb.Append("  name=\"").Append(m.Name).Append('"');
+                    sb.Append("  winner=").Append(m.Winner).Append("  override_depth=").Append(m.OverrideDepth);
                     if (matches is not null) sb.Append("  matches=").Append(matches);
                     sb.Append('\n');
                 }

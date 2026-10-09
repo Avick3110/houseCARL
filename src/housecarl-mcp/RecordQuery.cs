@@ -277,8 +277,7 @@ internal sealed partial class RecordReads
                                 keys.Add(fk);
                                 sources.Add(null);                            // the winner body is what matched and displays
                                 matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
-                                prefilled?.Add(new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
-                                                                 w.Value.WinnerPlugin, w.Value.OverrideDepth, null)
+                                prefilled?.Add(RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth)
                                                .WithRuntime(view.RuntimeAddressOf(fk)));
                             }
                         }
@@ -427,10 +426,9 @@ internal sealed partial class RecordReads
                             keys.Add(fk);
                             sources.Add(source);                                  // the scoped plugin's display body; null means the winner. where_source=winner keeps the scoped source so "match on winner, show origin" works.
                             matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);   // parallel to keys, multi-target only
-                            // The winner comes off the SAME view the scan runs on; type and editorid come from
-                            // the body that MATCHED.
-                            prefilled!.Add(new RecordSummary(fk, RecordNaming.StripOverlay(filterBody.GetType().Name), filterBody.EditorID,
-                                                             view.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth, null)
+                            // The winner comes off the SAME view the scan runs on; type, editorid and name come
+                            // from the body that MATCHED.
+                            prefilled!.Add(RecordSummary.Of(fk, filterBody, view.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth)
                                            .WithRuntime(view.RuntimeAddressOf(fk)));
                         }
                     }
@@ -830,8 +828,7 @@ internal sealed partial class RecordReads
                         keys.Add(fk);
                         sources.Add(pole.Plugin);
                         matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
-                        prefilled.Add(new RecordSummary(fk, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID,
-                                                        w?.WinnerPlugin ?? "(not in the active order)", w?.OverrideDepth ?? 0, null)
+                        prefilled.Add(RecordSummary.Of(fk, rec, w?.WinnerPlugin ?? "(not in the active order)", w?.OverrideDepth ?? 0)
                                       .WithRuntime(view.RuntimeAddressOf(fk)));
                     }
                 }
