@@ -9,8 +9,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>#1106: a list step keyed by a word ('Conditions[any]') is a wrong path, refused with the starred
-/// quantifier it meant, never a Mutagen read fault; the starred step reads the operator.</summary>
+/// <summary>#1106: a word-keyed list step ('Conditions[any]') refuses, naming '[*any]', never a read fault.</summary>
 [Trait("tier", "unit")]
 public sealed class WhereListKeyShapeTests
 {
@@ -118,8 +117,7 @@ public sealed class WhereListKeyShapeFaultTests(TruncatedSubFieldFixture t) : IC
     }
 }
 
-/// <summary>The fold of Aaron's review: a bad key vetoes no other type, the star hint is where='s alone, every
-/// key-shape throw is a wrong path, and a diff names a path with no field apart from a read fault.</summary>
+/// <summary>Bad list keys across types, the star hint, every key-shape throw, and the diff's NO FIELD count.</summary>
 [Trait("tier", "unit")]
 public sealed class WhereListKeyShapeFoldTests
 {

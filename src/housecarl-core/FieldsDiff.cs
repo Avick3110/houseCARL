@@ -167,7 +167,7 @@ public static class FieldsDiff
         return null;
     }
 
-    /// <summary>The read's lines minus the expansion-cap sentinel and the UNREADABLE ones; keyed on <c>Readable</c>; a no-such-field note stays a line, a shape difference when only one side has it.</summary>
+    /// <summary>The read's lines minus the expansion-cap sentinel and the UNREADABLE ones, keyed on <c>Readable</c>.</summary>
     static (List<(string path, string val)> lines, bool capped) CleanLines(RecordFields rf,
         HashSet<string> valueLeaves, Dictionary<string, string> unreadable)
     {
