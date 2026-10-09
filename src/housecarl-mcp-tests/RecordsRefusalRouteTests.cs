@@ -28,6 +28,48 @@ public sealed class RecordsRefusalRouteTests : RecordsTestBase
         Refused(RecordsTools.Records(Svc, types: Armo, plugins: Scope(W.OverrideName), fields_source: "master"),
                 "is not a value it takes", "'winner'", "source=\"<plugin>\"");
 
+    /// <summary>No plugins= on the call: the sentence names no scope it lacks, and its source= route runs.</summary>
+    [Fact]
+    public void FieldsSourceWithoutPlugins_NamesNoPluginsScope()
+    {
+        var r = RecordsTools.Records(Svc, types: Armo, fields_source: W.MasterName);
+        Refused(r, "is not a value it takes", $"source=\"{W.MasterName}\"");
+        Assert.DoesNotContain("plugins=", r);
+        Served(RecordsTools.Records(Svc, types: Armo, source: Plugin(W.MasterName)), RecordsWorld.RenamedArmorOldEid);
+    }
+
+    /// <summary>On a formids= read the list lane answers: source= names the version, and that read runs.</summary>
+    [Fact]
+    public void FieldsSourceOnFormids_TheListLaneAnswersWithSource()
+    {
+        var spell = new[] { Fid(W.SpellA) };
+        var r = RecordsTools.Records(Svc, formids: spell, fields_source: W.MasterName);
+        Refused(r, "on a formids= read", "source=");
+        Assert.DoesNotContain("plugins=", r);
+        Served(RecordsTools.Records(Svc, formids: spell, source: Plugin(W.MasterName)), "HcRecSpellA");
+    }
+
+    /// <summary>On a walk the walk's sentence answers, never offering 'winner', and source= on the walk runs.</summary>
+    [Fact]
+    public void FieldsSourceOnAWalk_NamesSourceAndNotWinner()
+    {
+        var spell = new[] { Fid(W.SpellA) };
+        var r = RecordsTools.Records(Svc, formids: spell, walk: new RecordsTools.RecordsWalk(), fields_source: W.MasterName);
+        Refused(r, "a walk's reading forms", "source=");
+        Assert.DoesNotContain("'winner'", r);
+        Served(RecordsTools.Records(Svc, formids: spell, walk: new RecordsTools.RecordsWalk(), source: Plugin(W.MasterName)),
+               "HcRecMgefFire");
+    }
+
+    /// <summary>On info_order source= means an off-order fold, so the sentence says drop it and offers no source=.</summary>
+    [Fact]
+    public void FieldsSourceOnInfoOrder_SaysDropItWithoutSource()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, fields_source: W.MasterName, project: Form("info_order"));
+        Refused(r, "drop it");
+        Assert.DoesNotContain("source=", r.Replace("fields_source=", ""));
+    }
+
     /// <summary>The route the sentence names: the same scope with source= reads the master's copy.</summary>
     [Fact]
     public void FieldsSourceRoute_SourceUnderTheSameScopeReadsThatPluginsVersion() =>

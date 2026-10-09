@@ -403,21 +403,20 @@ public static partial class RecordsTools
         bool srcOverlay = srcSpec.Kind == RecordReads.PoleKind.Overlay;
 
         // ---- fields_source (display pole) ----
-        // The value first, then the lane rules: 'scoped'/'scanned' are no-op defaults accepted everywhere, only
-        // 'winner' is refused on lanes that cannot honor it, and an unknown value is refused by value.
-        bool winnerFields = false;
+        // 'scoped'/'scanned' are no-op defaults accepted everywhere; 'winner' or an unknown value meets the lane
+        // refusals first, so the unknown value's own sentence (after the lane decision) answers only a scan lane.
+        bool winnerFields = false, otherFields = false;
         if (!string.IsNullOrWhiteSpace(fields_source))
         {
             var fs = fields_source.Trim().ToLowerInvariant();
             if (fs == "winner") winnerFields = true;
-            else if (fs is not ("scoped" or "scanned"))
-                return Wire.Refuse(json, $"error: fields_source='{fields_source}' is not a value it takes — 'winner' (the live winner's values), or omit it for the matched body. For one plugin's version pass source=\"{(HousecarlCore.SweepExclusion.IsPluginName(fs) ? fields_source.Trim() : "<plugin>")}\"; plugins= still selects.");
-            if (winnerFields && comparisonForm)
-                return Wire.Refuse(json, $"error: fields_source='winner' retargets what a matched row DISPLAYS, and the '{form}' form's display IS its two poles (source=/versus=) — name the version you want as a pole instead.");
-            if (winnerFields && form is "chain" or "info_order")
-                return Wire.Refuse(json, $"error: fields_source='winner' retargets FIELD display, and the '{form}' form renders no field values — drop it.");
-            if (winnerFields && walk is not null)
-                return Wire.Refuse(json, "error: fields_source='winner' — a walk's reading forms display the source= pole's version of the reached set: name the version via source= instead.");
+            else if (fs is not ("scoped" or "scanned")) otherFields = true;
+            if ((winnerFields || otherFields) && comparisonForm)
+                return Wire.Refuse(json, $"error: fields_source='{fields_source}' retargets what a matched row DISPLAYS, and the '{form}' form's display IS its two poles (source=/versus=) — name the version you want as a pole instead.");
+            if ((winnerFields || otherFields) && form is "chain" or "info_order")
+                return Wire.Refuse(json, $"error: fields_source='{fields_source}' retargets FIELD display, and the '{form}' form renders no field values — drop it.");
+            if ((winnerFields || otherFields) && walk is not null)
+                return Wire.Refuse(json, $"error: fields_source='{fields_source}' — a walk's reading forms display the source= pole's version of the reached set: name the version via source= instead.");
         }
 
         // ---- lane decision ------------------------------------------------------------------------------
@@ -461,8 +460,10 @@ public static partial class RecordsTools
         if (form == "info_order" && srcSpec.Kind is RecordReads.PoleKind.Overlay or RecordReads.PoleKind.PreviousProvider)
             return Wire.Refuse(json, "error: the info_order form merges EVERY plugin touching each topic — that merge is the answer, so a runtime-overlay or previous_provider pole has no seat here (each line already names the plugin that placed it). The one source= this form takes is an OFF-ORDER plugin filename, folded into the merge where MO2 would load it.");
         // fields_source= is the scan lane's display pole; the list lane's read IS its display, so it refuses by name.
-        if (winnerFields && formids is { Length: > 0 } && !hasScan)
+        if ((winnerFields || otherFields) && formids is { Length: > 0 } && !hasScan)
             return Wire.Refuse(json, "error: fields_source= is the scan lane's display pole — on a formids= read the version you want IS the source: name it via source= (source=\"winner\" is the default).");
+        if (otherFields)
+            return Wire.Refuse(json, $"error: fields_source='{fields_source}' is not a value it takes — 'winner' (the live winner's values), or omit it for the matched body; for one plugin's version pass source=\"{(HousecarlCore.SweepExclusion.IsPluginName(fields_source.Trim()) ? fields_source.Trim() : "<plugin>")}\"{(plugins?.names is { Length: > 0 } ? " (plugins= still selects)" : "")}.");
 
         if (offset < 0) return Wire.Refuse(json, $"error: offset={offset} — offset must be >= 0.");
         if (offset > 0 && form == "aggregate")
