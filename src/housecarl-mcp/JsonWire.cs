@@ -195,15 +195,9 @@ static class JsonWire
                 {
                     if (Over(w, ms, cap)) { truncated = true; break; }
                     w.WriteStartObject();
-                    w.WriteString("path", f.Path);
-                    if (f.HasValue) w.WriteString("value", f.Token); else w.WriteString("note", f.Note);
-                    // An opaque blob's annotation rides here too, gated on the bytes marker.
-                    if (f.Bytes is { } n)
-                    {
-                        if (f.Display is not null) w.WriteString("display", f.Display);
-                        w.WriteNumber("opaque_bytes", n);
-                        if (f.BytesFormVersion is { } bfv) w.WriteNumber("opaque_form_version", bfv);
-                    }
+                    // The read's own leaf writer, so a flags decode and a blob's annotation render as a read does.
+                    WriteLeaf(w, f);
+                    if (f.BytesFormVersion is { } bfv) w.WriteNumber("opaque_form_version", bfv);
                     w.WriteEndObject();
                 }
                 w.WriteEndArray();
