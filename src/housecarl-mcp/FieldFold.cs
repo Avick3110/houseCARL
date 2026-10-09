@@ -27,10 +27,21 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         {
             // A [*count] column renders the list's own count line and nothing under it, so it reads at depth 1.
             int d = Folds[i] switch { { Fold: PathFold.Set } => Depth, { Fold: PathFold.Count } => 1, _ => CallerDepth };
-            if (at.TryGetValue(Paths[i], out int j)) { depths[j] = Math.Max(depths[j], d); continue; }
-            at[Paths[i]] = paths.Count; paths.Add(Paths[i]); depths.Add(d);
+            // A sub-path column whose list nothing else reads whole reads just that sub-path off each element.
+            var p = ReadsTailOnly(i) ? $"{Paths[i]}[*].{string.Join(".", Folds[i]!.Tail)}" : Paths[i];
+            if (at.TryGetValue(p, out int j)) { depths[j] = Math.Max(depths[j], d); continue; }
+            at[p] = paths.Count; paths.Add(p); depths.Add(d);
         }
         return (paths.ToArray(), depths.ToArray());
+    }
+
+    /// <summary>Is column <paramref name="i"/> a <c>[*]</c> sub-path whose list no other column reads whole?</summary>
+    bool ReadsTailOnly(int i)
+    {
+        if (Folds[i] is not { Fold: PathFold.Set, Tail.Length: > 0 }) return false;
+        for (int j = 0; j < Paths.Length; j++)
+            if (Paths[j] == Paths[i] && Folds[j] is null or { Fold: PathFold.Set, Tail.Length: 0 }) return false;
+        return true;
     }
 
     internal bool RendersElements => Folds.Any(f => f is { Fold: PathFold.Set });
