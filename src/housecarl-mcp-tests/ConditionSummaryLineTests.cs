@@ -8,8 +8,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>A condition element's summary line is one compact line: function, the arm's own used parameters,
-/// operator, comparand, run-on and flags. Read on the binary overlay the product reads plugins through.</summary>
+/// <summary>A condition element's summary is one line: function, used parameters, operator, comparand, run-on, flags.</summary>
 [Trait("tier", "unit")]
 public sealed class ConditionSummaryLineTests : IDisposable
 {
