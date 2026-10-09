@@ -25,6 +25,9 @@ internal sealed partial class RecordReads
     /// <summary>Test seam: invoked in the pole lanes and the overlay source after the pin and before the roots or the asset build; null in the product.</summary>
     internal Action? AfterReadPinForGuard;
 
+    /// <summary>The one header leaf the summary and aggregate forms read; under it an engine-implicit form answers with its known identity.</summary>
+    internal static readonly IReadOnlyList<string> HeaderRead = new[] { "EditorID" };
+
     /// <summary>Resolve + read one record: the WINNER's body by default, or a named <paramref name="plugin"/>'s
     /// override; with <paramref name="conflictTree"/> also the ordered touching-plugin list. Every failure is a
     /// recoverable NAMED error, never a silent empty result; contracts in docs/architecture/read-engine.md.</summary>
@@ -82,7 +85,11 @@ internal sealed partial class RecordReads
         }
 
         var winner = view.ResolveWinner(fk);
-        if (winner is null) return ReadOutcome.Fail(fk, UnresolvedFormId(view, fk));
+        if (winner is null)
+            return plugin is null && ReferenceEquals(fields, HeaderRead) && EngineImplicit.TryDescribe(fk, out var eiType, out var eiEditorId)
+                ? new ReadOutcome(fk, new RecordFields(eiType, FormIdToken.Of(fk), eiEditorId, Array.Empty<FieldValue>()),
+                                  EngineImplicit.Winner, EngineImplicit.Winner, 0, null, null).WithRuntime(view.RuntimeAddressOf(fk))   // hardcoded, real, defined by no plugin
+                : ReadOutcome.Fail(fk, UnresolvedFormId(view, fk));
 
         var source = plugin ?? winner.Value.WinnerPlugin;
         // A session is an overlay CACHE, and the union opens a body per touching plugin, so a batch that gave one
@@ -368,7 +375,7 @@ internal sealed partial class RecordReads
         var w = view.ResolveWinner(fk);
         if (w is null)
             result = EngineImplicit.TryDescribe(fk, out var eiType, out var eiEditorId)
-                ? new ResolvedRef(FormIdToken.Of(fk), Resolved: true, Type: eiType, EditorId: eiEditorId, Winner: "<engine>")   // engine-implicit: hardcoded, real, defined by no plugin
+                ? new ResolvedRef(FormIdToken.Of(fk), Resolved: true, Type: eiType, EditorId: eiEditorId, Winner: EngineImplicit.Winner)   // engine-implicit: hardcoded, real, defined by no plugin
                 // Valid FormKey, no active plugin defines it; the reason is the three-cause sentence every other
                 // lane states.
                 : new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Error: UnresolvedFormId(view, fk));
@@ -384,10 +391,6 @@ internal sealed partial class RecordReads
         return result;
     }
 
-    /// <summary>Bulk name resolution: a list of FormIDs to their load-order identity in one call over one captured
-    /// view, memoised across the batch.</summary>
-    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids) => ResolveRefs(formids, out _);
-
     /// <summary>The artifact-epoch mismatch refusal — one wording for every consuming lane, naming both epochs and
     /// the two legitimate next moves.</summary>
     internal static string ArtifactEpochMismatch(ArtifactDemand d, string current) =>
@@ -398,27 +401,6 @@ internal sealed partial class RecordReads
               "cannot be compared: your load order may be untouched, and this build still cannot tell. ") +
         "Re-run the producing query (with to_file= to re-materialize) against the current build; the old file stays " +
         "readable with your own tools as an honest snapshot of ITS build. There is deliberately no stale-override switch.";
-
-    /// <summary>As above, also handing back the captured build's <paramref name="epoch"/> fingerprint — the batch is
-    /// one capture.</summary>
-    public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, out OrderStamp epoch)
-    {
-        var resolver = _host.Resolver;
-        var view = resolver.Capture();                  // one build for the whole batch
-        epoch = view.Stamp;
-        using var session = resolver.OpenSession();
-        var memo = new LinkMemo();
-        var results = new List<ResolvedRef>(formids.Count);
-        foreach (var raw in formids)
-        {
-            var t = raw?.Trim() ?? "";
-            FormKey fk;
-            try { fk = view.ParseFormId(t); }
-            catch (Exception ex) { results.Add(new ResolvedRef(t, Resolved: false, Error: $"bad FormID: {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); continue; }
-            results.Add(ResolveRefOne(view, session, fk, memo));
-        }
-        return results;
-    }
 
     // ---- pairwise record diff --------------------------------------------------------------------------
 

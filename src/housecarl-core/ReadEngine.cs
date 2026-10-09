@@ -15,8 +15,7 @@ public sealed record FieldValue(string Path, bool HasValue, string? Token, strin
                                 IReadOnlyList<FieldValue>? Cells = null, string? NoteRef = null, int? Bytes = null,
                                 ushort? BytesFormVersion = null, IReadOnlyList<int>? Slots = null);
 
-/// <summary>The resolved identity of a form reference, behind housecarl_resolve and the resolve_names
-/// annotation.</summary>
+/// <summary>The resolved identity of a form reference, behind the resolve_names annotation.</summary>
 public sealed record ResolvedRef(
     string Token, bool Resolved, string? Type = null, string? EditorId = null,
     string? Name = null, string? Winner = null, string? Error = null);

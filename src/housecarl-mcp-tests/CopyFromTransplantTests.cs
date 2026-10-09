@@ -43,7 +43,8 @@ public sealed class CopyFromTransplantTests : IClassFixture<CopyFromWorld>
     // probe: fixture: the replacer WINS W
     [Fact]
     public void TheReplacerWinsTheSubject()
-        => Assert.Equal(_w.ReplacerName, _w.Svc.ReadArea.ResolveRefs(new[] { _w.WFid })[0].Winner);
+        => Assert.Equal(_w.ReplacerName, System.Text.Json.JsonDocument.Parse(RecordsTools.Records(_w.Svc, formids: new[] { _w.WFid }, format: "json"))
+                                             .RootElement.GetProperty("records")[0].GetProperty("winner").GetString());
 
     // probe: CopyFrom scalar BasicStats.Damage: winner 99 → source 10
     [Fact]
