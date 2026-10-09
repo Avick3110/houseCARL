@@ -1671,7 +1671,7 @@ public static partial class RecordsTools
                 string RenderEv(SpillState? sp, out bool trunc) => dense
                     ? JsonWire.RenderBatchDense(unfoldedBodies, readPaths, foldPlan, max_chars, sp, out trunc, envelope, (bodies.Count, bodyClock.ElapsedMilliseconds), evMatches)
                     : summaryRows
-                    ? RenderRecordsSummary(bodies, json, headerLine, envelope, max_chars, sp, (bodies.Count, bodyClock.ElapsedMilliseconds), out trunc)
+                    ? RenderRecordsSummary(bodies, json, headerLine, envelope, max_chars, sp, (bodies.Count, bodyClock.ElapsedMilliseconds), out trunc, evLevers, evMatches)
                     : json
                     ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds), evMatches)
                     : Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds), headerLine, evMatches);
