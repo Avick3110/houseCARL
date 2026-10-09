@@ -167,8 +167,11 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   list held before the write apart from a repeat within the batch.
 - A flags-enum `Add` / `Remove` is a bit operation on the leaf's current value, so one flag flips without the caller
   re-listing the others; a VALUELESS `Remove` is the whole-field clear instead.
-- `Remove` on a required FormLink fails loud rather than writing an empty link; on a nullable one it clears to the
-  empty link, identically to a null-synonym `Set`.
+- `Remove` on a required FormLink fails loud rather than writing an empty link. On a nullable one it leaves the link
+  unset, so the subrecord is not written; a null-synonym `Set` (`"0"`) is the other shape, the subrecord present
+  with FormID zero. The two differ in game (an INFO's PNAM: absent puts the line last, present zero pins it first),
+  so they are never conflated (#1144). The same unset link fills a nullable gendered half a compose leaves out, and
+  `CopyFrom` copies an absent nullable link as absent rather than rebuilding it from its zero FormKey.
 - A condition `FormLinkOrIndex` is set through the parent-aware branch, which infers form-versus-index from the
   value and sets the owning arm's discriminator to match.
 - The gendered `[0]` / `[1]` alias maps to the pair's named arms through the same materialize-and-write-back the
@@ -439,6 +442,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   unlisted one, gate and apply keyed off the same test.
 - `FormLinkRemoveTests` — `Remove` clears a nullable FormLink instead of throwing, and fails loud on a required
   one when pre-flight is bypassed.
+- `NullableLinkRemoveTests` — on a written file, a `Remove`d nullable link has no subrecord and a `Set "0"` one has
+  a zero subrecord, the apply echo reads each back, `info_order` places them last and first, and a copy keeps the
+  source's shape.
 - `SubclassRemoveTests` — `RemovalTypeFor` routes the typed remove through the flat group's `T`, so a record whose
   concrete class is a subclass of it is really removed rather than silently skipped.
 - `UpsertCreateTests` (RERUN / OVERRIDE / CROSS-TYPE / DUP) — the replace at a stable FormKey, every replace surfaced

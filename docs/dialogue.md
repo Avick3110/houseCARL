@@ -45,11 +45,14 @@ Adding a **new** line re-lists nothing and needs no PNAM for the lines around it
 
 Two cases the recipe does not cover. If the target is already at position 1 there is no line above it to name —
 and writing no PNAM does not leave it there. Absent is the tail arm: the re-listed line goes to the **bottom**,
-and every line that was beneath it now answers first. The only shape that holds a line at the head is the
-present-zero PNAM above, and houseCARL cannot write one — Mutagen's writer emits no subrecord for a null link, so
-a `PreviousDialog` you set to null reaches disk absent. Either leave the position-1 line alone, or re-list the
-run beneath it in the same call, each of those lines carrying the FormID of the line above it: the merge places
-them back in front of the line that fell to the bottom and the original sequence is restored. And because
+and every line that was beneath it now answers first. The shape that holds a line at the head is the present-zero
+PNAM above, and the two shapes are two different writes: `Set` `PreviousDialog` to `"0"` writes the present zero
+(pinned first), and `Remove` on `PreviousDialog` leaves the subrecord out (the bottom). Each reads back as above,
+in the apply echo and in a record read (#1144; through 2.0.4 `Remove` also wrote the present zero, so a patch that
+used it to send lines to the bottom pinned them first instead and should be re-run). Either `Set` the position-1
+line's PNAM to `"0"`, or re-list the run beneath it in the same call, each of those lines carrying the FormID of
+the line above it: the merge places them back in front of the line that fell to the bottom and the original
+sequence is restored. And because
 `info_order` merges every plugin touching the topic, the line at position minus one can be one defined by a plugin
 your patch does not master. That does not dangle: the patch lane is handed the whole load order and Mutagen
 derives the master list from the records' own FormLinks, so writing that FormID **adds that plugin as a master**
