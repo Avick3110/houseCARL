@@ -304,7 +304,7 @@ internal sealed partial class AssetLayers
             foreach (var r in extracted) audited.Add(Adjudicate(r, index));
 
             files.Add(new SkseConfigFileAudit(rel, Path.GetFileName(rel), group,
-                winner?.ProviderName, providers.Count, providers, audited, readError));
+                winner?.ProviderName, providers.Count, providers, audited, readError, text.AsSpan().Trim().IndexOfAny('\n', '\r') >= 0));
         }
         return new SkseConfigAuditData(files, files.Count, view.BsaFailures, view.RootFailures, view.ReadIncomplete, warnings, profileName);
     }

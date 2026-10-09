@@ -179,7 +179,8 @@ files carry both. The object is `{"id": <decimal local FormID>, "plugin": "<file
 32-bit number (a string, a fraction, a negative, null, a boolean, an object) is UNPARSEABLE, never read as hex, and
 its raw keeps the `id` text the file holds. Each form object carries the JSON path of the object
 (`$.data.custom.data.npc.data[1].form`, a name that is not a plain identifier bracketed and quoted) as its locator,
-shown beside its line; in a one-line file, as IED writes its whole config, the line is 0 and the path alone locates. A file that stops parsing
+shown beside its line. The text render shows the path alone for a one-line file, as IED writes its whole config, where
+line 1 locates nothing; the json twin keeps the real line beside `path`, with `shape` `form_object`. A file that stops parsing
 keeps the forms read before the break and adds one UNPARSEABLE reference at the breaking line, but only when a
 `"plugin"` key follows the break; a JSON fragment with no form object after the break adds nothing, so the string-token
 scan of a non-JSON `.json` is unchanged. IED's 901 KB user config is about 2,500 form objects and one pass.

@@ -34,7 +34,7 @@ public sealed class SkseConfigFormObjectTests(SkseConfigVerdictOrder order) : IC
             (SkseRefVerdict.Dangling, "$.data.custom.data.default_player.data[\"Carcass - Chicken\"].f.bflt.r.deny[0]"),
             (SkseRefVerdict.PluginMissing, "$.data.custom.data.default_player.data[\"Carcass - Chicken\"].f.bflt.r.deny[1]"),
         }, refs.Select(r => (r.Verdict, r.Ref.Locator)).ToArray());
-        Assert.All(refs, r => Assert.Equal((SkseRefShape.FormObject, 0), (r.Ref.Shape, r.Ref.Line)));   // one-line file: the path locates, the line does not
+        Assert.All(refs, r => Assert.Equal((SkseRefShape.FormObject, 1), (r.Ref.Shape, r.Ref.Line)));   // the real line, even in a one-line file
         Assert.Equal(("hcAudit.esp", (uint?)0xABCDEF), (refs[1].Ref.Plugin, refs[1].Ref.LocalId));
         Assert.Equal("{\"id\":2059,\"plugin\":\"NotInstalled.esp\"}", refs[2].Ref.Raw);
     }
@@ -85,7 +85,7 @@ public sealed class SkseConfigFormObjectTests(SkseConfigVerdictOrder order) : IC
     public void TheFilteredAuditShowsEachFormObjectAtItsPathAndTheOverviewCountsAMissingOne()
     {
         var file = new SkseConfigFileAudit(IedPath, "DefaultConfigUser.json", "IED", "IEDMod", 1, new[] { new SkseProvider("IEDMod", "loose") },
-            Audit(IedPath, IedConfig()), ReadError: null);
+            Audit(IedPath, IedConfig()), ReadError: null, MultiLine: false);
         var data = new SkseConfigAuditData(new[] { file }, 1, Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>(), "Default");
 
         var filtered = SkseConfigAuditWire.Render(data, "IED", 40_000);
@@ -98,9 +98,8 @@ public sealed class SkseConfigFormObjectTests(SkseConfigVerdictOrder order) : IC
         var json = SkseConfigAuditWire.RenderJson(data, "IED", 40_000);
         var row = System.Text.Json.JsonDocument.Parse(json).RootElement.EnumerateObject().SelectMany(p => Rows(p.Value))
             .Single(e => e.TryGetProperty("local_id", out var id) && id.GetString() == "0xABCDEF");
-        Assert.Equal(("form_token", 0, "$.data.custom.data.default_player.data[\"Carcass - Chicken\"].f.bflt.r.deny[0]"),
+        Assert.Equal(("form_object", 1, "$.data.custom.data.default_player.data[\"Carcass - Chicken\"].f.bflt.r.deny[0]"),
             (row.GetProperty("shape").GetString(), row.GetProperty("line").GetInt32(), row.GetProperty("path").GetString()));
-        Assert.DoesNotContain("form_object", json);
     }
 
     // Every object in the document that carries a "verdict", at any depth.
