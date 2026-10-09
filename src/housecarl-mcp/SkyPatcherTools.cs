@@ -23,9 +23,8 @@ public static class SkyPatcherTools
          "flagged), cross-INI duplicates (two files set the same field and target to the same value), and no-op writes " +
          "(the replay shows the set writes the value the record already has). An entry whose applicability also " +
          "depends on other filters is flagged conditional, not guessed. filter= narrows to the type folders holding a " +
-         "match. For one record's computed post-SkyPatcher state use " + ToolNames.Records + " formids=[\"<FormID>\"] " +
-         "source={\"overlay\": \"skypatcher\", \"state\": \"post\"}; source= is a version pole, not a selection, so " +
-         "the read needs formids= (or a scan scope). Read-only.")]
+         "match. For records' computed post-SkyPatcher state use " + ToolNames.Records + " with " +
+         "source={\"overlay\": \"skypatcher\", \"state\": \"post\"} over formids= or a scan. Read-only.")]
     public static string SkyPatcherLayer(
         LoadOrderService svc,
         [Description("Optional. A type-folder (e.g. 'weapon'), providing-mod, or INI filename substring (case-insensitive). " +
