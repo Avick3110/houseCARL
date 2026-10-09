@@ -1180,8 +1180,7 @@ public sealed class FieldPredicateSet
     /// <summary>The plan-time twin of the runtime container refusal, for a predicate the schema calls a list or dict.</summary>
     public string HasOnContainerRefusal(int predicate, bool dict, bool links) => HasOnContainerRefusal(_predicates[predicate], dict, links);
 
-    /// <summary>The refusal for a has-family op on a list or dict path: the 'in' rewrite when form links meet form
-    /// operands, a '->' step on other links, an entry on a dict, else the scalar sub-path advice.</summary>
+    /// <summary>The refusal for a has-family op on a list or dict path, with the rewrite that fits the path.</summary>
     static string HasOnContainerRefusal(Predicate p, bool dict, bool linkElements)
     {
         var path = p.FullPath;
@@ -1206,8 +1205,7 @@ public sealed class FieldPredicateSet
         return head + $"For list members write {rewrite} ([*any] / [*all] / [*none] fold the same way), or use references= for list→FormID membership.";
     }
 
-    /// <summary>Resolve a <c>has</c>/<c>=</c> operand against a [Flags] enum to its bit pattern: members split on
-    /// ',' and '|', each a bit value, a flag name, or the decode's slot/bit token.</summary>
+    /// <summary>Resolve a <c>has</c>/<c>=</c> operand against a [Flags] enum to its bit pattern.</summary>
     static bool TryResolveBits(string operand, Type enumType, out ulong bits)
     {
         var r = ResolveBits(operand, enumType);
