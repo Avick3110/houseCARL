@@ -71,13 +71,12 @@ path walk, and containment comes off Mutagen's context walk.
   a read FAULT on any candidate is said whatever the ratio, because those records could not be judged
   at all and passing them off as non-matches is the silently degraded answer.
 - An `editorid in` or `formid in` term on the candidate itself (no `->` side, no `*parent` hop)
-  names the members that matched no record the scan judged, in list order (#1092). A member is hit
-  when any judged record satisfies that term, even one another term then excludes; a record the scan
-  never judged (outside `types=`/`plugins=`, a lower scoped copy, a deleted record under a body term,
-  an `editorid_contains=` or `references=` miss) cannot hit it. So the note says "in this selection":
-  an absent record and one the selection left out read the same. The text note and json `unmatched`
-  name the first `UnmatchedShown` and count the rest (`unmatched_total`); a `to_file` manifest's
-  `notes` carries the whole list.
+  names the members that have no record in the selection, in list order (#1092): it answers "which
+  names have no record", so a member whose record exists but fails another `where` term is not named.
+  A record the scan never judged (outside `types=`/`plugins=`, a lower scoped copy, a deleted record
+  under a body term, an `editorid_contains=` or `references=` miss) cannot match a member, hence "in
+  this selection". The text note and json `unmatched` name the first `UnmatchedShown`; the note
+  counts the rest ("and N more"). A `to_file` manifest's `notes` carries the whole list.
 - A predicate set whose every term is header-only — `editorid`, `winner`, `formid` membership, or a
   side led by a `*parent` hop — must still see DELETED records. A deleted record has no live body for
   a content filter, but its EditorID, its winner resolution and its containing record are real facts,
@@ -121,7 +120,7 @@ path walk, and containment comes off Mutagen's context walk.
 - `WhereContainmentCostTests` — `ParentBodiesHeld` / `ParentBodyHighWater` / `ParentBodyFetches`, the
   #720 invariant that no containing record outlives the candidate that read it.
 - `WhereAccountingCauseTests` — the per-cause accounting sentences.
-- `RecordsUnmatchedMembersTests` — the unmatched-members bullet: text, json, the cap, the manifest,
+- `RecordsUnmatchedMembersTests` — the unmatched-members bullet: text, json, `@file`, the cap, the manifest,
   and a member only a lower scoped copy carries.
 - `WhereNearMissTests.ASecondPredicateGetsNoSentence_TheZeroHasAnotherCandidateCause` and
   `AContainsTermGetsNoSentence_TheHintIsForTheExactSpellingOnly` — the near-miss hint's sole-term

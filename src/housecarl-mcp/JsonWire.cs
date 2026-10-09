@@ -1511,12 +1511,9 @@ static class JsonWire
         if (q.ReverseIndexNote is not null) w.WriteStringValue(q.ReverseIndexNote);   // the reverse-reference index's build cost + per-plugin freshness key
         if (extra is not null) w.WriteStringValue(extra);   // the scoped-vs-winner fields note
         w.WriteEndArray();
-        // The note's names as data: bounded like the note, with the count beside it so a cut is always visible.
+        // The note's names as data, bounded like the note; the note's "and N more" counts any cut.
         if (q.Unmatched.Count > 0)
-        {
             WriteStringArray(w, "unmatched", q.Unmatched.Take(FieldPredicateSet.UnmatchedShown).ToList());
-            w.WriteNumber("unmatched_total", q.Unmatched.Count);
-        }
     }
 
     // ---- housecarl_check_errors ---------------------------------------------------------------------
