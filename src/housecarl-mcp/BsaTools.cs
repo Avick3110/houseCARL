@@ -22,7 +22,7 @@ public static class BsaTools
             string[]? under = null,
         [Description("Optional. Return only the file count, of the under= matches when given.")]
             bool counts_only = false,
-        [Description("Optional. Max characters before the file list is cut with an explicit notice. 0 = the server default (~80k).")]
+        [Description("Optional. Max characters before the file list is cut with an explicit notice. 0 = the server default (~40k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.BsaList, () =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
@@ -37,7 +37,7 @@ public static class BsaTools
 
         var files = r.Files;
         if (selectors is not null) { (files, var dead) = Tally(selectors, r.Files, archive); notes.AddRange(dead); }
-        int cap = max_chars > 0 ? max_chars : DefaultMaxChars;
+        int cap = Wire.Cap(max_chars);
         var sb = new StringBuilder();
         sb.Append(Path.GetFileName(archive)).Append("  [").Append(r.Format ?? "unknown format").Append("]  ")
           .Append(r.DeclaredCount).Append(" file(s)");
@@ -58,9 +58,6 @@ public static class BsaTools
         "Optional. Archive path(s) or glob(s) to keep, as asset_status under=: forward or back slashes, any case; " +
         "'*' within one segment, '?' one character, '**' across separators; a plain path keeps that file or " +
         "everything beneath that folder.";
-
-    /// <summary>The list's default character budget, which the extract's selector notes share.</summary>
-    const int DefaultMaxChars = 80_000;
 
     const string SelectorFix = "pass an archive-relative path or glob such as 'scripts/**/*.pex'";
 
@@ -133,12 +130,12 @@ public static class BsaTools
             if (kept.Count == 0)
             {
                 var refusal = new StringBuilder($"error: under= matched none of the {listed.Files.Count} file(s) in '{Path.GetFileName(archive)}', so nothing was extracted; check the pattern with {ToolNames.BsaList} under=.");
-                AssetWire.AppendSelectorNotes(refusal, notes, RenderCap.For(DefaultMaxChars, 0));
+                AssetWire.AppendSelectorNotes(refusal, notes, RenderCap.For(Wire.DefaultMaxChars, 0));
                 return refusal.ToString();
             }
             notes.AddRange(dead);
             matched.Append(kept.Count).Append(" of ").Append(listed.Files.Count).Append(" file(s) matched under=.");
-            AssetWire.AppendSelectorNotes(matched, notes, RenderCap.For(DefaultMaxChars, 0));
+            AssetWire.AppendSelectorNotes(matched, notes, RenderCap.For(Wire.DefaultMaxChars, 0));
             if (matched[^1] != '\n') matched.Append('\n');
             keep = kept.ToHashSet(StringComparer.Ordinal).Contains;
         }

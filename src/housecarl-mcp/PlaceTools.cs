@@ -52,7 +52,7 @@ public static class PlaceTools
             string? into = null,
         [Description("Optional. 'text' (default) | 'json' (the same data, machine-readable, with the accounting and the enable-and-sort instruction in the document).")]
             string? format = null,
-        [Description("Optional. Character ceiling on the whole response; the row that would cross it is not written, and a notice says how many were held back. The write is unaffected. The accounting line and the enable-and-sort instruction are always inside the ceiling. 0 = the server default (about 80k).")]
+        [Description("Optional. Character ceiling on the whole response; the row that would cross it is not written, and a notice says how many were held back. The write is unaffected. The accounting line and the enable-and-sort instruction are always inside the ceiling. 0 = the server default (~40k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.Place, () =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
@@ -124,7 +124,7 @@ public static class PlaceTools
             return Refuse(json, $"refused — {problems.Count} malformed destination(s); nothing placed:\n  - " + string.Join("\n  - ", problems));
 
         var outcome = svc.PlaceAssets(all, patch, into);
-        int cap = max_chars > 0 ? max_chars : 80_000;
+        int cap = Wire.Cap(max_chars);
         return json ? JsonWire.RenderPlaceOutcome(outcome, cap, poleWithheld)
                     : PlaceWire.Render(outcome, cap, poleWithheld);
     }

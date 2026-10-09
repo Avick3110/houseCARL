@@ -73,7 +73,7 @@ public static class NifTools
                      "own miss, listing the providers that do; the rest of the batch still reads. Applies to every " +
                      "mesh. Empty = the winner.")]
             string source_provider = "",
-        [Description("Optional. Character ceiling on the whole batch's response, not per mesh: the mesh whose block would cross it is not written, and the notice says how many were held back; one mesh wider than the whole budget is named with the max_chars that clears it. Detail sections cut against what the batch has left, and a requested section with no room to start is counted. 0 = the server default (about 80k).")]
+        [Description("Optional. Character ceiling on the whole batch's response, not per mesh: the mesh whose block would cross it is not written, and the notice says how many were held back; one mesh wider than the whole budget is named with the max_chars that clears it. Detail sections cut against what the batch has left, and a requested section with no room to start is counted. 0 = the server default (~40k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -111,7 +111,7 @@ public static class NifTools
         if (SectionsError(want, unknownTokens) is { } sectionsErr) return sectionsErr;
 
         var data = svc.NifInspect(selected, string.IsNullOrWhiteSpace(source_provider) ? null : source_provider);
-        return NifWire.Render(data, want, unknownTokens, max_chars > 0 ? max_chars : 80_000);
+        return NifWire.Render(data, want, unknownTokens, Wire.Cap(max_chars));
     });
 
     /// <summary>Parse <c>sections=</c> into the recognized set plus the unrecognized tokens, which are surfaced rather

@@ -77,7 +77,7 @@ public static class AssetTools
             bool counts_only = false,
         [Description("Optional. 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
-        [Description("Optional. Character ceiling on the whole response; the path whose block would cross it is not written. What it holds back is not lost: the resolved result (under limit=, the window) is written whole to a file in the server's results directory, and the response names it. counts_only= spills nothing: a cut census says how many layer rows it held back; raise max_chars or page the table with limit=. On a path-only sweep the first spill also builds the record index, which takes time on a large order. The alarms and the accounting line are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (about 80k).")]
+        [Description("Optional. Character ceiling on the whole response; the path whose block would cross it is not written. What it holds back is not lost: the resolved result (under limit=, the window) is written whole to a file in the server's results directory, and the response names it. counts_only= spills nothing: a cut census says how many layer rows it held back; raise max_chars or page the table with limit=. On a path-only sweep the first spill also builds the record index, which takes time on a large order. The alarms and the accounting line are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (~40k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.AssetStatus, () =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
@@ -96,7 +96,7 @@ public static class AssetTools
                           "FormID(s) in formids (e.g. '01A51A:Dawnguard.esm') for their FaceGen pairs.");
         // The window's own refusal, from the window: this tool and housecarl_skse answer the same input class.
         if (new RowWindow(offset, limit).Error is { } bad) return Wire.Refuse(json, bad);
-        int cap = max_chars > 0 ? max_chars : 80_000;
+        int cap = Wire.Cap(max_chars);
 
         var toFile = to_file?.Trim();
         bool wantFile = toFile is { Length: > 0 };

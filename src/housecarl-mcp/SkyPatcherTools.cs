@@ -32,11 +32,11 @@ public static class SkyPatcherTools
             "Lists only the type folders holding a match, each in full apply order so the files sorting around a match " +
             "stay visible, with the matching files expanded to their individual patch lines. Omit for the whole-layer overview.")]
             string? filter = null,
-        [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
+        [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~40k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.SkypatcherLayer, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        return svc.SkyPatcherLayer(data => SkyPatcherWire.RenderLayer(data, filter, max_chars > 0 ? max_chars : 80_000));
+        return svc.SkyPatcherLayer(data => SkyPatcherWire.RenderLayer(data, filter, Wire.Cap(max_chars)));
     });
 }
 

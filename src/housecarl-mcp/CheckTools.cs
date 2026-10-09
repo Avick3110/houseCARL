@@ -161,7 +161,7 @@ public static class CheckTools
              "nothing; what limit= cut is cut here too, and the manifest shows total above row_count. Refused with " +
              "counts_only=true, but only after the sweep has run, so do not pair them.")]
             string? to_file = null,
-        [Description("Optional. Max characters before the response stops with a notice. 0 = the server default (80,000). The budget is divided among the families that ran and their parts, not spent in series. Raise it for a quest that owns many topics.")]
+        [Description("Optional. Max characters before the response stops with a notice. 0 = the server default (~40k). The budget is divided among the families that ran and their parts, not spent in series. Raise it for a quest that owns many topics.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Check, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
