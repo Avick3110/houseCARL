@@ -414,7 +414,7 @@ public static partial class RecordsTools
             var fs = fields_source.Trim().ToLowerInvariant();
             if (fs == "winner") winnerFields = true;
             else if (fs is not ("scoped" or "scanned"))
-                return Wire.Refuse(json, $"error: fields_source='{fields_source}' — fields_source takes only 'winner' (the live winner's values), or omit it for the matched body. For one plugin's version pass source=\"{(Path.GetExtension(fs) is ".esp" or ".esm" or ".esl" ? fields_source.Trim() : "<plugin>")}\"; plugins= still selects.");
+                return Wire.Refuse(json, $"error: fields_source='{fields_source}' is not a value it takes — 'winner' (the live winner's values), or omit it for the matched body. For one plugin's version pass source=\"{(HousecarlCore.SweepExclusion.IsPluginName(fs) ? fields_source.Trim() : "<plugin>")}\"; plugins= still selects.");
             if (winnerFields && comparisonForm)
                 return Wire.Refuse(json, $"error: fields_source='winner' retargets what a matched row DISPLAYS, and the '{form}' form's display IS its two poles (source=/versus=) — name the version you want as a pole instead.");
             if (winnerFields && form is "chain" or "info_order")

@@ -19,14 +19,14 @@ public sealed class RecordsRefusalRouteTests : RecordsTestBase
     public void FieldsSourceAPlugin_NamesSourceWithThatPlugin()
     {
         var r = RecordsTools.Records(Svc, types: Armo, plugins: Scope(W.OverrideName), fields_source: W.MasterName);
-        Refused(r, "fields_source takes only 'winner'", $"source=\"{W.MasterName}\"", "plugins= still selects");
+        Refused(r, "is not a value it takes", "'winner'", $"source=\"{W.MasterName}\"", "plugins= still selects");
         Assert.DoesNotContain("origin", r);
     }
 
     [Fact]
     public void FieldsSourceNotAPlugin_NamesSourceWithAPlaceholder() =>
         Refused(RecordsTools.Records(Svc, types: Armo, plugins: Scope(W.OverrideName), fields_source: "master"),
-                "fields_source takes only 'winner'", "source=\"<plugin>\"");
+                "is not a value it takes", "'winner'", "source=\"<plugin>\"");
 
     /// <summary>The route the sentence names: the same scope with source= reads the master's copy.</summary>
     [Fact]
