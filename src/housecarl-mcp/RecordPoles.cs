@@ -473,6 +473,7 @@ internal sealed partial class RecordReads
         string? draftRefusal;
         try
         {
+            Interlocked.Increment(ref session.Counters.ReplayOpens);
             replay = _host.OpenSkyPatcherReplay(assets(), view, session, out draftRefusal, draft, overlayWarnings);
         }
         catch (Exception ex)
