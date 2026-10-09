@@ -150,10 +150,7 @@ static partial class WriteTools
                       .Append(hint).Append("]\n");
                     return;
                 }
-                sb.Append("    ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
-                // The read's annotation: a flags decode or a blob's byte count, as a read renders it.
-                if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');
-                sb.Append('\n');
+                Wire.AppendFieldLine(sb, "    ", f);
             }
         }
     }
@@ -187,7 +184,8 @@ static partial class WriteTools
             var landed = ops.Where(op => op.Target == r.Target && (op.LandedOnDisk ?? op.Landed) is not null)
                              // No ApplyNote here: the op line above already carried it, and readback is FORCED on the
                              // in-place lane, so appending it would print the same sentence twice for the same op.
-                             .Select(op => $"{op.Label}: {op.LandedOnDisk ?? op.Landed}" + LandedProvenance(op))
+                             .Select(op => $"{op.Label}: {op.LandedOnDisk ?? op.Landed}"
+                                           + (op.LandedOnDisk is not null ? DisplayClause(op) : "") + LandedProvenance(op))
                              .ToList();
             if (landed.Count > 0) sb.Append("; ").Append(string.Join("; ", landed));
             sb.Append('\n');
@@ -218,11 +216,14 @@ static partial class WriteTools
         // The REMEDY differs by lane and the reading does not, so the create render passes its own clause.
         : op.RecordAbsentFromFile ? "  -> DID NOT LAND — " + (absentClause ?? WriteSentences.RecordAbsentFromWrittenFile)
         : op.AfterOnDisk is { } disk
-            ? "  -> " + disk + (op.SupersededInCall ? "  [the leaf as the file now holds it; a later op in this call wrote it too]" : "")
+            ? "  -> " + disk + DisplayClause(op) + (op.SupersededInCall ? "  [the leaf as the file now holds it; a later op in this call wrote it too]" : "")
               // The file ANSWERED and nothing parsed the answer, so the value is printed only with that said (#529).
               + (op.AfterOnDiskBytes is { } n ? WriteSentences.OpaqueLeafCaveat(n) : "")
         : op.VerifyAttempted ? "  -> not-checked [the re-opened file did not answer for this op]"
         : "  -> not-checked [no file check ran for this op]";
+
+    /// <summary>The read's flags decode of the file's value, annotated as a read's field line annotates it.</summary>
+    static string DisplayClause(WritePatchBuilder.OpResult op) => op.DisplayOnDisk is { } d ? "   (" + d + ")" : "";
 
     /// <summary>Where a per-op "what landed" clause came from when it is not the plain file answer; silence means the
     /// file was re-read for this op and agreed.</summary>

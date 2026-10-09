@@ -44,6 +44,9 @@ public static class WritePatchBuilder
         /// <summary>Byte LENGTH when <see cref="AfterOnDisk"/> is an opaque blob whose structure was never looked at.</summary>
         public int? AfterOnDiskBytes { get; init; }
 
+        /// <summary>The read's flags decode of <see cref="AfterOnDisk"/>; display only, never the round-trip token.</summary>
+        public string? DisplayOnDisk { get; init; }
+
         /// <summary>The completed walk of the written file did not contain this op's target record; false when the walk failed.</summary>
         public bool RecordAbsentFromFile { get; init; }
 
@@ -428,7 +431,7 @@ public static class WritePatchBuilder
                     WriteEngine.CopyField(srcBody!, ov, req.Path);
                 else
                     applyNote = WriteEngine.ApplyVerb(ov, req);
-                var (after, landed, _, _) = DescribeApplied(ov, req);
+                var (after, landed, _, _, _) = DescribeApplied(ov, req);
                 ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { ApplyNote = applyNote });
             }
             catch (ExpectedApplyRejectionException ex)
@@ -826,7 +829,7 @@ public static class WritePatchBuilder
                         ov, req.Path);
                 else
                     applyNote = WriteEngine.ApplyVerb(ov, req);
-                var (after, landed, _, _) = DescribeApplied(ov, req);
+                var (after, landed, _, _, _) = DescribeApplied(ov, req);
                 ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { ApplyNote = applyNote });
             }
             catch (ExpectedApplyRejectionException ex)
@@ -3061,16 +3064,17 @@ public static class WritePatchBuilder
             // SUPERSEDED ops are not comparable, so only the LAST op touching a leaf is answerable by the file.
             if (LaterOpTouchesSameLeaf(perOp, i))
             {
-                var (finalAfter, _, finalReadable, finalBytes) = DescribeApplied(rec, askedReq);
+                var (finalAfter, _, finalReadable, finalBytes, finalDisplay) = DescribeApplied(rec, askedReq);
                 verified.Add(op with
                 {
                     SupersededInCall = true, VerifyAttempted = true,
                     AfterOnDisk = finalReadable ? finalAfter : null,
                     AfterOnDiskBytes = finalReadable ? finalBytes : null,
+                    DisplayOnDisk = finalReadable ? finalDisplay : null,
                 });
                 continue;
             }
-            var (afterDisk, landedDisk, diskReadable, diskBytes) = DescribeApplied(rec, askedReq);
+            var (afterDisk, landedDisk, diskReadable, diskBytes, diskDisplay) = DescribeApplied(rec, askedReq);
             // ONE comparison, on the leaf: a second pass over Landed would be inert, and making it live compares element TEXT.
             verified.Add(op with
             {
@@ -3079,6 +3083,7 @@ public static class WritePatchBuilder
                 // The leaf reading travels with it: a null there is what makes the per-edit line say not-checked.
                 AfterOnDisk = diskReadable ? afterDisk : null,
                 AfterOnDiskBytes = diskReadable ? diskBytes : null,
+                DisplayOnDisk = diskReadable ? diskDisplay : null,
                 VerifyAttempted = true,
             });
         }
@@ -3126,21 +3131,22 @@ public static class WritePatchBuilder
         }
     }
 
-    static (string? After, string? Landed, bool Readable, int? Bytes) DescribeApplied(IMajorRecordGetter ov, WriteRequest req)
+    static (string? After, string? Landed, bool Readable, int? Bytes, string? Display) DescribeApplied(IMajorRecordGetter ov, WriteRequest req)
     {
         try
         {
             var leaf = string.Join('.', req.Path);
             var read = ReadEngine.ReadFields(ov, new[] { leaf }, containerHint: null);   // same: no depth= on the write surface, don't hint it
             var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
-            if (f is null) return (null, null, false, null);
+            if (f is null) return (null, null, false, null, null);
             var after = f.HasValue ? f.Token : f.Note;
             // Scalar: Landed reuses the token read. List/dict: the touched element plus the new count, an Add naming how many.
             int added = req.Verb == "Add" ? (req.Structs?.Count ?? 1) : 1;
             var landed = f.HasValue ? f.Token : (ReadEngine.TouchedElement(ov, req.Path, req.Verb, req.Key, added) ?? f.Note);
             // The presence PAIR rides along as the structural fact the tokens hide, and the blob's byte length with its caveat.
-            return (after, landed, f.Readable, f.Bytes);
+            // A scalar's flags decode, the read's own; a blob's annotation stays with its byte caveat.
+            return (after, landed, f.Readable, f.Bytes, f.HasValue && f.Bytes is null ? f.Display : null);
         }
-        catch { return (null, null, false, null); }
+        catch { return (null, null, false, null, null); }
     }
 }
