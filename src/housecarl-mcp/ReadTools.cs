@@ -264,7 +264,7 @@ static partial class Wire
                 {
                     AppendRuntime(sb, m.RuntimeFormId, m.RuntimeFormIdNote);
                     sb.Append("  type=").Append(m.Type).Append("  editorid=").Append(m.EditorId ?? "<none>");
-                    if (m.Name is not null) sb.Append("  name=\"").Append(m.Name).Append('"');
+                    AppendName(sb, m.Name);
                     sb.Append("  winner=").Append(m.Winner).Append("  override_depth=").Append(m.OverrideDepth);
                     if (matches is not null) sb.Append("  matches=").Append(matches);
                     sb.Append('\n');
@@ -536,6 +536,15 @@ static partial class Wire
     {
         if (runtime is not null) sb.Append("  runtime=").Append(runtime);
         else if (note is not null) sb.Append("  runtime=(").Append(note).Append(')');
+    }
+
+    /// <summary>The quoted Name token a text summary row prints, with a quote or backslash inside it escaped so the token ends where it should; nothing for a record with no Name.</summary>
+    internal static void AppendName(StringBuilder sb, string? name)
+    {
+        if (name is null) return;
+        sb.Append("  name=\"");
+        foreach (var c in name) { if (c is '"' or '\\') sb.Append('\\'); sb.Append(c); }
+        sb.Append('"');
     }
 
     /// <summary><paramref name="notes"/> registers the owned-child clause as each annotated field line is written, or null on the lanes that render a record outside an annotated response.</summary>
