@@ -52,7 +52,9 @@ path walk, and containment comes off Mutagen's context walk.
   container, read fault, unresolved link target, genuinely unset), and a numeric operator on a
   non-numeric field is a named `FatalError` on the first value-bearing candidate. A step into an
   element the record does not carry (a null gendered arm such as a male-only addon's `WorldModel[1]`,
-  an absent list, dict key, or an index past the end) is unset, never a read fault (#1071).
+  an absent list, dict key, or an index past the end) is unset, never a read fault (#1071). A read
+  past a list's end prints `(absent: list has N element(s))`, and `CopyFrom` names the source's
+  missing value.
 - A bracket key a list can never take (a word such as `Conditions[any]`, a negative index, a `*` key
   on an indexing walk, a gendered index other than 0 or 1) is a wrong path, never a read fault
   (`PathKeyShapeException`). A typed scan refuses it from the schema before any record is read when
