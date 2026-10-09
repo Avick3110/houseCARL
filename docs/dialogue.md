@@ -49,7 +49,8 @@ and every line that was beneath it now answers first. The shape that holds a lin
 PNAM above, and the two shapes are two different writes: `Set` `PreviousDialog` to `"0"` writes the present zero
 (pinned first), and `Remove` on `PreviousDialog` leaves the subrecord out (the bottom). Each reads back as above,
 in the apply echo and in a record read (#1144; through 2.0.4 `Remove` also wrote the present zero, so a patch that
-used it to send lines to the bottom pinned them first instead and should be re-run). Either `Set` the position-1
+used it to send lines to the bottom pinned them first instead: re-run the call with `into=` that patch, which
+fixes it in place, where a plain re-run writes a new `<name>_001.esp` beside the bad one). Either `Set` the position-1
 line's PNAM to `"0"`, or re-list the run beneath it in the same call, each of those lines carrying the FormID of
 the line above it: the merge places them back in front of the line that fell to the bottom and the original
 sequence is restored. And because
