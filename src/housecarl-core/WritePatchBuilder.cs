@@ -47,6 +47,9 @@ public static class WritePatchBuilder
         /// <summary>The read's flags decode of <see cref="AfterOnDisk"/>; display only, never the round-trip token.</summary>
         public string? DisplayOnDisk { get; init; }
 
+        /// <summary>The read's flags decode of <see cref="After"/>, the in-memory reading a dry run shows.</summary>
+        public string? Display { get; init; }
+
         /// <summary>The completed walk of the written file did not contain this op's target record; false when the walk failed.</summary>
         public bool RecordAbsentFromFile { get; init; }
 
@@ -431,8 +434,8 @@ public static class WritePatchBuilder
                     WriteEngine.CopyField(srcBody!, ov, req.Path);
                 else
                     applyNote = WriteEngine.ApplyVerb(ov, req);
-                var (after, landed, _, _, _) = DescribeApplied(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { ApplyNote = applyNote });
+                var (after, landed, _, _, display) = DescribeApplied(ov, req);
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { ApplyNote = applyNote, Display = display });
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -829,8 +832,8 @@ public static class WritePatchBuilder
                         ov, req.Path);
                 else
                     applyNote = WriteEngine.ApplyVerb(ov, req);
-                var (after, landed, _, _, _) = DescribeApplied(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { ApplyNote = applyNote });
+                var (after, landed, _, _, display) = DescribeApplied(ov, req);
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { ApplyNote = applyNote, Display = display });
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -3137,15 +3140,16 @@ public static class WritePatchBuilder
         {
             var leaf = string.Join('.', req.Path);
             var read = ReadEngine.ReadFields(ov, new[] { leaf }, containerHint: null);   // same: no depth= on the write surface, don't hint it
-            var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
+            var exact = read.Fields.FirstOrDefault(x => x.Path == leaf);
+            var f = exact ?? read.Fields.FirstOrDefault();
             if (f is null) return (null, null, false, null, null);
             var after = f.HasValue ? f.Token : f.Note;
             // Scalar: Landed reuses the token read. List/dict: the touched element plus the new count, an Add naming how many.
             int added = req.Verb == "Add" ? (req.Structs?.Count ?? 1) : 1;
             var landed = f.HasValue ? f.Token : (ReadEngine.TouchedElement(ov, req.Path, req.Verb, req.Key, added) ?? f.Note);
             // The presence PAIR rides along as the structural fact the tokens hide, and the blob's byte length with its caveat.
-            // A scalar's flags decode, the read's own; a blob's annotation stays with its byte caveat.
-            return (after, landed, f.Readable, f.Bytes, f.HasValue && f.Bytes is null ? f.Display : null);
+            // A scalar's flags decode, the read's own, and only off the leaf itself; a blob's annotation stays with its byte caveat.
+            return (after, landed, f.Readable, f.Bytes, exact is { HasValue: true, Bytes: null } ? exact.Display : null);
         }
         catch { return (null, null, false, null, null); }
     }

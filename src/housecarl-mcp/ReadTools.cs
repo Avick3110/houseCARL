@@ -625,7 +625,7 @@ static partial class Wire
         sb.Append('\n');
     }
 
-    /// <summary>The resolve_names parenthetical:a FormLink token's target identity, or a named "unresolved" note for a dangling target; display only, appended after the round-trip token and never in place of it.</summary>
+    /// <summary>The resolve_names parenthetical: a FormLink token's target identity, or a named "unresolved" note for a dangling target; display only, appended after the round-trip token and never in place of it.</summary>
     internal static string LinkText(ResolvedRef r) =>
         // Unresolved has two causes and the ref itself says which.
         !r.Resolved ? (r.Winner is { } w

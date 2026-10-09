@@ -2391,6 +2391,8 @@ static class JsonWire
                     w.WriteBoolean("after_on_disk_is_final_leaf", true);
                 // The value came off the file and NOTHING parsed it: an opaque blob, with its length (#529).
                 if (op.AfterOnDiskBytes is { } ob) w.WriteNumber("after_on_disk_opaque_bytes", ob);
+                // The read's flags decode of the value the text edit line shows: the file's, or a dry run's `after`.
+                if ((o.DryRun ? op.Display : op.DisplayOnDisk) is { } disp) w.WriteString("display", disp);
                 WriteNullable(w, "landed", op.Landed);
                 // What the write DID that the file cannot say afterwards — today only the duplicate Add.
                 WriteNullable(w, "apply_note", op.ApplyNote);
@@ -2529,6 +2531,7 @@ static class JsonWire
                         w.WriteBoolean("after_on_disk_is_final_leaf", true);
                     // The value came off the file and NOTHING parsed it: an opaque blob, with its length (#529).
                     if (op.AfterOnDiskBytes is { } ob) w.WriteNumber("after_on_disk_opaque_bytes", ob);
+                    if (op.DisplayOnDisk is { } disp) w.WriteString("display", disp);
                     WriteNullable(w, "landed_on_disk", op.LandedOnDisk);
                     w.WriteString("landed_source",
                         op.RecordAbsentFromFile ? "record_absent"
