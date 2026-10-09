@@ -513,10 +513,10 @@ internal sealed partial class RecordReads
                  ReverseIndexNote = reverseNote,
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList(),
                  Unmatched = predicate?.Unmatched ?? Array.Empty<string>(),
-                 UnmatchedGap = UnjudgedClause(unreadablePlugins.Count, unscannable) };
+                 UnmatchedGap = UnjudgedClause((view.Stamp?.ExcludedPlugins.Count ?? 0) + unreadablePlugins.Count, unscannable) };
     }
 
-    /// <summary>Why the scan left records unjudged, as one clause for the unmatched note; null when it judged everything.</summary>
+    /// <summary>Why the scan left records unjudged (a plugin the build or the scan could not read, a record it could not scan), as one clause for the unmatched note; null when it judged everything.</summary>
     static string? UnjudgedClause(int unreadablePlugins, int unscannable)
     {
         var parts = new List<string>(2);

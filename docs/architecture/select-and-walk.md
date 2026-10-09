@@ -76,11 +76,11 @@ path walk, and containment comes off Mutagen's context walk.
   scoped scan, the highest-loading copy only), `formids=`, `editorid_contains=`, `references=` /
   `references_none=`, `conflicts_only=`, `defined_in=`, or the `source=` file of an off-order scan.
   Other `where` terms never exclude a member: a record they drop, a deleted one under a body term
-  included, still counts as matched. When the scan could not judge everything (a plugin it could not
-  read, a record it could not scan), the note says that cause and that a record may exist, instead of
-  "have no record". The text note and json `unmatched` name the first `UnmatchedShown`; the note counts
-  the rest ("and N more"), pointing at `to_file=`, or at the manifest when one was written. A manifest's
-  `notes` carries the whole list.
+  included, still counts as matched. When the scan could not judge everything (a plugin the build could
+  not load or the scan could not read, a record it could not scan), the note says that cause and that a
+  record may exist, instead of "have no record". The text note and json `unmatched` name the first
+  `UnmatchedShown`; the note counts the rest ("and N more"), pointing at `to_file=`, or at the manifest
+  when one was written. A manifest's `notes` carries the whole list.
 - A predicate set whose every term is header-only — `editorid`, `winner`, `formid` membership, or a
   side led by a `*parent` hop — must still see DELETED records. A deleted record has no live body for
   a content filter, but its EditorID, its winner resolution and its containing record are real facts,
@@ -126,8 +126,8 @@ path walk, and containment comes off Mutagen's context walk.
 - `WhereAccountingCauseTests` — the per-cause accounting sentences.
 - `RecordsUnmatchedMembersTests` — the unmatched-members bullet: text, json, `@file`, the cap, the manifest,
   a member only a lower scoped copy carries, a FormID named as typed; `UnmatchedMembersJudgementTests`,
-  `UnmatchedMembersUnreadableTests` and `UnmatchedMembersOffOrderTests` the deleted, unscannable,
-  unreadable, `where_source=winner` and off-order cases.
+  `UnmatchedMembersUnreadableTests`, `UnmatchedMembersDegradedOrderTests` and `UnmatchedMembersOffOrderTests`
+  the deleted, unscannable, unreadable, load-failure, `where_source=winner` and off-order cases.
 - `WhereNearMissTests.ASecondPredicateGetsNoSentence_TheZeroHasAnotherCandidateCause` and
   `AContainsTermGetsNoSentence_TheHintIsForTheExactSpellingOnly` — the near-miss hint's sole-term
   rule. They assert the rendered sentence, so they pin that bullet and not `ExactEditorId` itself,
