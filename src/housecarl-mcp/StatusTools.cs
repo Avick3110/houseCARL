@@ -32,7 +32,7 @@ public static class StatusTools
             "for the active profile, whose report lists the available profile names. MO2-instance mode only. Given with " +
             "filter=, both render.")]
             string? profile = null,
-        [Description("Optional. Max characters before name lists are cut with an explicit notice. 0 = the server default (~80k).")]
+        [Description("Optional. Max characters before name lists are cut with an explicit notice. 0 = the server default (~40k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.LoadOrderStatus, () =>
     {
         // The server line goes ahead of the config prompt: an unconfigured server is exactly the stale staged install this line exists to catch.
@@ -42,7 +42,7 @@ public static class StatusTools
         var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inactive-profile inspection: text parse only, no index build, no switch
         // Read only for a filter: the facts are a per-plugin locate and header read, and the whole-profile summary asks about none.
         var facts = filter is { Length: > 0 } ? svc.PluginFactsFor(filter.Trim(), data) : null;
-        return StatusWire.Render(data, logs, profiles, filter, facts, max_chars > 0 ? max_chars : 80_000);
+        return StatusWire.Render(data, logs, profiles, filter, facts, Wire.Cap(max_chars));
     });
 }
 

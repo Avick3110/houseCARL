@@ -162,7 +162,7 @@ public static partial class RecordsTools
             int limit = DefaultLimit,
         [Description("TRANSPORT: skip the first N matches (offset=0/500/1000…). Windows tile only within one epoch: if two pages' epochs differ the load order changed, so re-run from offset=0 rather than stitching. Each window re-scans the selection from the start, so a deep window costs more; narrowing the scan terms beats paging far.")]
             int offset = 0,
-        [Description("TRANSPORT: character ceiling on every text render this tool makes, census included (0 = the server default, about 80k). The block that would cross it is not written; an answer that fits comes back complete. A max_chars too small for the header, notices and spilled: block says so and names the number that clears it. The result is never truncated: an over-ceiling result spills in full to a server-side JSONL artifact (line 1 = manifest with the query echo, row schema and epoch), and the response names the file.")]
+        [Description("TRANSPORT: character ceiling on every text render this tool makes, census included (0 = the server default, ~40k). The block that would cross it is not written; an answer that fits comes back complete. A max_chars too small for the header, notices and spilled: block says so and names the number that clears it. The result is never truncated: an over-ceiling result spills in full to a server-side JSONL artifact (line 1 = manifest with the query echo, row schema and epoch), and the response names the file.")]
             int max_chars = 0,
         [Description("TRANSPORT: return the accounting block and counts only, no rows: a census of the whole selection.")]
             bool counts_only = false,
@@ -524,7 +524,7 @@ public static partial class RecordsTools
         }
         // A census is a text render too, so it is held to the same ceiling and says so when max_chars is smaller
         // than the statements it carries whatever the budget.
-        string Census(string body) => RenderCap.Settle(body, max_chars > 0 ? max_chars : Wire.DefaultMaxChars);
+        string Census(string body) => RenderCap.Settle(body, Wire.Cap(max_chars));
         // The SkyPatcher warnings that bear on the records read, each with its own file and line, then one pointer per INI for the notes that do not.
         var overlayWarnings = new HousecarlCore.SkyPatcherOverlay.WarningSink();
         void StateOverlayWarnings()

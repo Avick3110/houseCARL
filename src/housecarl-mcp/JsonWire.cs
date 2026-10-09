@@ -460,7 +460,7 @@ static class JsonWire
     /// <c>resolved</c>, never <c>ok</c> — that key is the refusal grammar's discriminant.</summary>
     /// <param name="maxChars">the caller's max_chars: this document has no rows to cut, so the cap can only be
     /// missed outright, and it says so with the member every other capped document closes on (#809). REQUIRED, with
-    /// no default, so a call site that forgets it does not compile into a silent 80k ceiling.</param>
+    /// no default, so a call site that forgets it does not compile into a silent server-default ceiling.</param>
     public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, OrderStamp? epoch,
                                       int maxChars)
     {
@@ -562,7 +562,7 @@ static class JsonWire
 
     /// <summary>records form=aggregate on the list lane: the count table over resolved rows, per-item errors apart.</summary>
     /// <param name="maxChars">the caller's max_chars. REQUIRED, with no default, for the reason every other capped
-    /// renderer's is: a call site that omitted it would compile and answer against the 80k default, and the document
+    /// renderer's is: a call site that omitted it would compile and answer against the server default, and the document
     /// would ship over the caller's ceiling with no <c>max_chars_overrun</c> to say so (#809).</param>
     public static string RenderListAggregate(string groupBy, IReadOnlyList<KeyValuePair<string, int>> rows,
                                              int count, int errors, OrderStamp? epoch,

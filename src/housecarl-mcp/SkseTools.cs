@@ -114,7 +114,7 @@ public static class SkseTools
     {
         // The json document states the family and the two that did not run in-band, so no text footer.
         var footer = json ? "" : FamilyFooter(family);
-        int cap = max_chars > 0 ? max_chars : 80_000;
+        int cap = Wire.Cap(max_chars);
         var call = new FamilyCall(filter, peek, cap, window, json, footer.Length);
         var body = family switch
         {
@@ -206,7 +206,7 @@ public static class SkseTools
             int limit = 0,
         [Description("Optional. Skip the first N rows of the family's row list, for paging. 0 = the beginning.")]
             int offset = 0,
-        [Description("Optional. Character ceiling on the whole response; the row that would cross it is not written, and every list says what it held back. The scope note, the caveats, the filter hint and the family footer are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (about 80k).")]
+        [Description("Optional. Character ceiling on the whole response; the row that would cross it is not written, and every list says what it held back. The scope note, the caveats, the filter hint and the family footer are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (~40k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.Skse, () =>
     {
         // The argument checks run BEFORE the config prompt, and format= first of all, because every refusal

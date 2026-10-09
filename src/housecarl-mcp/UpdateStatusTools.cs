@@ -25,7 +25,7 @@ public static class UpdateStatusTools
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var data = svc.UpdateCache();
-        return UpdateStatusWire.Render(data, max_chars > 0 ? max_chars : 40_000);
+        return UpdateStatusWire.Render(data, Wire.Cap(max_chars));
     });
 }
 

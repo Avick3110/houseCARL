@@ -14,7 +14,7 @@ static partial class RecordsTools
                                      bool unreserved = false, int noField = 0)
     {
         truncated = false;
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = Wire.Cap(maxChars);
         if (!unreserved)
         {
             var whole = RenderRecordsDelta(rows, total, differing, identical, noVerdict, errors, headerLine, epoch,
@@ -155,7 +155,7 @@ static partial class RecordsTools
                                     SpillState? spill, out bool truncated, bool unreserved = false)
     {
         truncated = false;
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = Wire.Cap(maxChars);
         if (!unreserved)
         {
             var whole = RenderRecordsTree(rows, total, contested, errors, fieldsNarrow, headerLine, epoch, maxChars,
@@ -326,7 +326,7 @@ static partial class RecordsTools
                                      SpillState? spill, out bool truncated, bool unreserved = false)
     {
         truncated = false;
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = Wire.Cap(maxChars);
         if (!unreserved)
         {
             var whole = RenderRecordsChain(rows, total, reached, errors, headerLine, epoch, maxChars, spill, out _,
@@ -442,7 +442,7 @@ static partial class RecordsTools
                                             bool unreserved = false)
     {
         truncated = false;
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = Wire.Cap(maxChars);
         if (!unreserved)
         {
             var whole = RenderRecordsEffectChains(results, totalSeeds, carrierRows, carrierTotal, errors, headerLine,
@@ -490,7 +490,7 @@ static partial class RecordsTools
                                          SpillState? spill, out bool truncated, bool unreserved = false)
     {
         truncated = false;
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = Wire.Cap(maxChars);
         if (!unreserved)
         {
             var whole = RenderRecordsInfoOrder(rows, total, contested, errors, headerLine, epoch, maxChars, spill,
@@ -547,7 +547,7 @@ static partial class RecordsTools
                                        (int RowsRead, long Millis) bodyCost, out bool truncated)
     {
         truncated = false;
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var epoch = outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
         if (json) return JsonWire.RenderRecordsSummary(outcomes, cap, envelope, spill, bodyCost, out truncated);
@@ -606,7 +606,7 @@ static partial class RecordsTools
         var gb = groupBy.Trim().ToLowerInvariant();
         if (gb is not ("winner" or "type" or "defined_in"))
             return Wire.Refuse(json, $"error: project.group_by='{groupBy}' is not a count key — use 'winner', 'type', or 'defined_in'.");
-        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        int cap = Wire.Cap(maxChars);
         var groups = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         // A type the call asked for is in the census whether or not it has records.
         if (gb == "type" && requestedTypes is { Count: > 0 })

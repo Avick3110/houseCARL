@@ -10,10 +10,10 @@ static partial class Wire
     /// <summary>The same stamp inline in a head line, after the counts.</summary>
     internal static string EpochInline(OrderStamp? stamp) => stamp is null ? "" : $"  epoch={stamp.Epoch}{stamp.Clause}";
 
-    /// <summary>Server default char budget for one tool response (~20k tokens). A caller raises it per-call via max_chars.</summary>
-    public const int DefaultMaxChars = 80_000;
+    /// <summary>Server default char budget for one tool response (~16k tokens). A caller raises it per-call via max_chars.</summary>
+    public const int DefaultMaxChars = 40_000;
 
-    /// <summary>Default char budget for any write-tool read-back dump, held below <see cref="DefaultMaxChars"/> by the host's per-result ceiling; pinned by <c>InPlaceReadbackRenderTests</c>' 80k-spill guard.</summary>
+    /// <summary>Default char budget for any write-tool read-back dump, held below <see cref="DefaultMaxChars"/> by the host's per-result ceiling; pinned by <c>InPlaceReadbackRenderTests</c>' default-spill guard.</summary>
     public const int ReadbackMaxChars = 24_000;
 
     /// <summary>How many distinct contested parent hosts a create render names before it says "and N further"; shared with the json twin, which publishes the full count beside the capped list.</summary>
