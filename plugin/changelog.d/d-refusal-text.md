@@ -1,0 +1,1 @@
+- **`housecarl_records` refusals for `fields_source=` a plugin, `walk=` with `where=`, and `project.fields` on the chain form now name the call that works.** Check: `fields_source="Skyrim.esm"` on a scoped scan answers with `source="Skyrim.esm"`.
