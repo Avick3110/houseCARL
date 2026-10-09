@@ -171,7 +171,7 @@ public static class ReadEngine
                 AnnotateOpaqueBytes(fields, from, on.FormVersion);
             }
         }
-        return new RecordFields(typeName, FormIdToken.Of(record.FormKey), record.EditorID, fields, DisplayName(record));
+        return new RecordFields(typeName, FormIdToken.Of(record.FormKey), record.EditorID, fields);
     }
 
     /// <summary>A record body's display Name through Mutagen's <c>INamedGetter</c> aspect; null for a type with no Name, or an empty one.</summary>

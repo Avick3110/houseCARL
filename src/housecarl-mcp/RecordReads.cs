@@ -25,8 +25,15 @@ internal sealed partial class RecordReads
     /// <summary>Test seam: invoked in the pole lanes and the overlay source after the pin and before the roots or the asset build; null in the product.</summary>
     internal Action? AfterReadPinForGuard;
 
-    /// <summary>The one header leaf the summary and aggregate forms read; under it an engine-implicit form answers with its known identity.</summary>
+    /// <summary>The one header leaf the summary and aggregate forms read.</summary>
     internal static readonly IReadOnlyList<string> HeaderRead = new[] { "EditorID" };
+
+    /// <summary>The row for a FormID no plugin defines: on a summary read an engine-implicit form's known identity, else the unresolved refusal.</summary>
+    static ReadOutcome UnresolvedRow(LoadOrderResolver.IndexView view, FormKey fk, bool summary) =>
+        summary && EngineImplicit.TryDescribe(fk, out var eiType, out var eiEditorId)
+            ? new ReadOutcome(fk, new RecordFields(eiType, FormIdToken.Of(fk), eiEditorId, Array.Empty<FieldValue>()),
+                              EngineImplicit.Winner, EngineImplicit.Winner, 0, null, null) { FromEngine = true }.WithRuntime(view.RuntimeAddressOf(fk))
+            : ReadOutcome.Fail(fk, UnresolvedFormId(view, fk));
 
     /// <summary>Resolve + read one record: the WINNER's body by default, or a named <paramref name="plugin"/>'s
     /// override; with <paramref name="conflictTree"/> also the ordered touching-plugin list. Every failure is a
@@ -55,7 +62,8 @@ internal sealed partial class RecordReads
                             LoadOrderResolver.OverlaySession? batchSession = null,
                             IReadOnlyList<int>? depths = null,
                             IMajorRecordGetter? prefetched = null,
-                            IReadOnlyCollection<string>? countFields = null)
+                            IReadOnlyCollection<string>? countFields = null,
+                            bool summary = false)
     {
         // An explicitly-requested plugin excluded this session is said so, rather than falling through to a
         // misleading "does not define this record".
@@ -86,10 +94,7 @@ internal sealed partial class RecordReads
 
         var winner = view.ResolveWinner(fk);
         if (winner is null)
-            return plugin is null && ReferenceEquals(fields, HeaderRead) && EngineImplicit.TryDescribe(fk, out var eiType, out var eiEditorId)
-                ? new ReadOutcome(fk, new RecordFields(eiType, FormIdToken.Of(fk), eiEditorId, Array.Empty<FieldValue>()),
-                                  EngineImplicit.Winner, EngineImplicit.Winner, 0, null, null).WithRuntime(view.RuntimeAddressOf(fk))   // hardcoded, real, defined by no plugin
-                : ReadOutcome.Fail(fk, UnresolvedFormId(view, fk));
+            return UnresolvedRow(view, fk, summary && plugin is null);
 
         var source = plugin ?? winner.Value.WinnerPlugin;
         // A session is an overlay CACHE, and the union opens a body per touching plugin, so a batch that gave one
@@ -115,6 +120,7 @@ internal sealed partial class RecordReads
         // fetches the containing record's winner body through the same session
         var hop = ContainmentIndex.ReadHop(view, session);
         var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, hop, depths);
+        if (summary) record = record with { Name = ReadEngine.DisplayName(rec) };
         record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, unionMemo, out var childFields, hop, countFields);   // the additive union (or the index-only note), display-only
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // identity of every FormLink token, display-only, on the same open session
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
@@ -444,7 +450,8 @@ internal sealed partial class RecordReads
                                                    IReadOnlyList<int>? depths,
                                                    CancellationToken ct,
                                                    IReadOnlyList<Type>? getterTypes,
-                                                   IReadOnlyCollection<string>? countFields)
+                                                   IReadOnlyCollection<string>? countFields,
+                                                   bool summary = false)
     {
         artifactRefusal = null; refusalEpoch = null;
         var resolver = _host.Resolver;           // build/refresh once for the batch
@@ -486,7 +493,7 @@ internal sealed partial class RecordReads
             }
             var fk = keys[i];
             var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
-            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields)
+            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields, summary)
                          with { Stamp = view.Stamp, Pin = pin });   // the batch's one build, stamped and pinned per item
         }
         return outcomes;
@@ -578,7 +585,8 @@ internal sealed partial class RecordReads
         IReadOnlyList<int>? depths,
         CancellationToken ct,
         IReadOnlyList<Type>? getterTypes,
-        IReadOnlyCollection<string>? countFields)
+        IReadOnlyCollection<string>? countFields,
+        bool summary = false)
     {
         pole = null; refusal = null; refusalEpoch = null;
         var (pin, roots) = _host.CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for the pole test and every read
@@ -631,7 +639,7 @@ internal sealed partial class RecordReads
                 }
                 var fk = keys[i];
                 var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
-                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields)
+                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields, summary)
                              with { Stamp = view.Stamp, Pin = pin });
             }
             return outcomes;
@@ -703,6 +711,7 @@ internal sealed partial class RecordReads
                     continue;
                 }
                 var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, depths: depths);   // materialise while the overlay is open
+                if (summary) record = record with { Name = ReadEngine.DisplayName(rec) };
                 if (resolveNames) record = AnnotateLinks(record, view, session!, linkMemo!);
                 var winner = view.ResolveWinner(fk);                             // winner CONTEXT where the record also lives in the order
                 results[index] = new ReadOutcome(fk, record, plugin, winner?.WinnerPlugin,
