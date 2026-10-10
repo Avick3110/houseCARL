@@ -49,8 +49,12 @@ internal static class CheckArtifact
                 }
                 // Each record Mutagen could not parse is counted; the core keeps a few samples, so those are the rows.
                 total += p.UnscannableRecords;
-                foreach (var sample in p.UnscannableSamples)
-                    writer.WriteRow((w, _) => Row(w, "errors", "scan_error", plugin: p.Plugin, detail: sample));
+                for (int i = 0; i < p.UnscannableSamples.Count; i++)
+                {
+                    string sample = p.UnscannableSamples[i];
+                    string? formid = i < p.UnscannableSampleKeys.Count ? p.UnscannableSampleKeys[i].ToString() : null;
+                    writer.WriteRow((w, _) => Row(w, "errors", "scan_error", plugin: p.Plugin, formid: formid, detail: sample));
+                }
             }
 
         if (s.Scripts is { Error: null } sc)
