@@ -76,11 +76,13 @@ public class InfoOrderDegradeTests
     }
 
     // DEGRADE-CEILINGS (move analysis): past 400 lines the order stays whole and the note says move analysis did not run.
+    // A merge, since a one-plugin topic says it in its one-line answer instead (#1148).
     [Fact]
     public void PastTheLineCeilingTheOrderIsWholeAndMoveAnalysisIsSkipped()
     {
+        var lines = Numbered(401, "big.esp");
         var big = DialogueInfoOrder.Compute(
-            new List<(string, IReadOnlyList<InfoLine>)> { ("big.esp", Numbered(401, "big.esp")) }, _ => null);
+            new List<(string, IReadOnlyList<InfoLine>)> { ("big.esp", lines), ("patch.esp", lines) }, _ => null);
         Assert.Equal(401, big.Order.Count);
         Assert.False(big.MovesComputed);
         Assert.Contains("move analysis", big.Note ?? "");
