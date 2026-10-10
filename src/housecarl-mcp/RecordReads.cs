@@ -64,7 +64,7 @@ internal sealed partial class RecordReads
                             IMajorRecordGetter? prefetched = null,
                             IReadOnlyCollection<string>? countFields = null,
                             bool summary = false,
-                            Func<FormKey, IMajorRecordGetter?>? heldParent = null)
+                            Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>? heldParent = null)
     {
         // An explicitly-requested plugin excluded this session is said so, rather than falling through to a
         // misleading "does not define this record".
@@ -326,7 +326,7 @@ internal sealed partial class RecordReads
                                        LoadOrderResolver.OverlaySession? session,
                                        IMajorRecordGetter? prefetched,
                                        IReadOnlyCollection<string>? countFields,
-                                       Func<FormKey, IMajorRecordGetter?>? heldParent = null)
+                                       Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>? heldParent = null)
         => q.Pin is { } p
             ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
                           batchSession: session, depths: depths, prefetched: prefetched, countFields: countFields,

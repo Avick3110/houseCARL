@@ -265,4 +265,50 @@ public sealed class RecordsContainmentBatchTests : IClassFixture<OwnedChildFixtu
         Assert.Contains(OwnedChildWorld.Fid(_w.Worldspace), r);
         Assert.Equal(1, Since(before)[1]);                          // the one hop, to the cell
     }
+
+    /// <summary>A projection's first hop gathers the rows' containers without walking every row's source plugin
+    /// first: reading one Base row's parent walks Base alone for bodies. Fails when the gather reads each row's
+    /// body to learn its type (Base, Mid and Top walked).</summary>
+    [Fact]
+    public void AProjectionHopWalksOnlyTheSourcePluginsItsRowsRead()
+    {
+        var pin = _w.Svc.CapturePin();
+        using var session = pin.Resolver.OpenSession();
+        var keys = AllPlaced(pin.View);
+        var chunk = BodyPrefetch.Gather(pin.View, session, _w.Svc.Counters, keys, 0, keys.Count, _ => null, null, default);
+        var row = keys.First(k => pin.View.ResolveWinner(k)!.Value.WinnerPlugin == _w.BaseName);
+
+        var before = Costs();
+        var body = chunk.Body(row)!;
+        Assert.NotNull(chunk.Parent(body, pin.View.ParentOf(row)!.Value));
+        var d = Since(before);
+        Assert.Equal(1, d[2] - d[3]);                               // one untyped body walk, Base's
+    }
+
+    /// <summary>A projection row whose containing record's winner would not open answers with the gather's fault
+    /// and does not open that plugin again. Fails when the fault is dropped and each row re-seeks its parent.</summary>
+    [Fact]
+    public void AProjectionHopAnswersTheGathersFaultWithoutReopening()
+    {
+        var pin = _w.Svc.CapturePin();
+        using var session = pin.Resolver.OpenSession();
+        // Base's references in CellG and CellH, whose cells Mid wins.
+        var keys = AllPlaced(pin.View).Where(k => pin.View.ResolveWinner(k)!.Value.WinnerPlugin == _w.BaseName
+                                                  && pin.View.ParentOf(k) is { } p && (p == _w.CellG || p == _w.CellH)).ToList();
+        Assert.True(keys.Count >= 2);
+        var chunk = BodyPrefetch.Gather(pin.View, session, _w.Svc.Counters, keys, 0, keys.Count, _ => null, null, default);
+        var bodies = keys.Take(2).Select(k => chunk.Body(k)!).ToList();
+
+        using (new FileStream(_w.PluginPaths[1], FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.Throws<PluginUnreadableException>(() => chunk.Parent(bodies[0], pin.View.ParentOf(keys[0])!.Value));
+            var opens = _w.Svc.Counters.SessionOverlayOpens;
+            var fault = Assert.Throws<PluginUnreadableException>(() => chunk.Parent(bodies[1], pin.View.ParentOf(keys[1])!.Value));
+            Assert.Equal(_w.MidName, fault.PluginName);
+            Assert.Equal(opens, _w.Svc.Counters.SessionOverlayOpens);   // no second open of Mid
+        }
+    }
+
+    static List<FormKey> AllPlaced(LoadOrderResolver.IndexView view) =>
+        view.WinnerRecordsOfType(new[] { typeof(IPlacedObjectGetter) }).Select(x => x.fk).ToList();
 }
