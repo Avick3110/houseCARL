@@ -22,6 +22,7 @@ internal static class CheckArtifact
                                                             IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();
+        var o = CheckOutcome.For(s);
         int total = 0;
 
         if (s.Errors is { Error: null } e)
@@ -93,8 +94,7 @@ internal static class CheckArtifact
 
         if (s.Dialogue is { Error: null } d2)
         {
-            // total is the family's own count plus the seeds limit= never tried, whose findings no row can carry.
-            total += d2.ProblemsFound + SeedsNotReached(d2);
+            total += d2.ProblemsFound;
             foreach (var seed in d2.Resolved)
                 foreach (var f in DialogueSweep.Findings(seed.Report!))
                     writer.WriteRow((w, _) => Row(w, "dialogue", f.Class, plugin: f.Plugin, formid: f.Record.ToString(),
@@ -130,13 +130,15 @@ internal static class CheckArtifact
         var (manifest, err) = writer.Save(ArtifactTarget.Named(path), ToolNames.Check, query, identity: "formid", RowSchema,
                                           sort: "family, then the order each family reported",
                                           total: total, epoch: s.Epoch ?? "",
-                                          notes: Notes(s));
-        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, "to_file"), null);
+                                          notes: Notes(s, o));
+        // A seed limit= never tried may hold any number of findings, so the file is short by an unknown count.
+        return err is not null ? (null, err)
+                               : (new SpillInfo(path, manifest!, "to_file") { Partial = o.Dialogue?.SeedsNotReached > 0 }, null);
     }
 
     /// <summary>The manifest's own notes — what a reader needs in order to read a row. A FOLDED dialogue call adds
     /// its frame here, because those rows carry verdicts read against a plugin the order does not load.</summary>
-    static IReadOnlyList<string> Notes(CheckSweep s)
+    static IReadOnlyList<string> Notes(CheckSweep s, CheckOutcome o)
     {
         var notes = new List<string>
         {
@@ -148,20 +150,18 @@ internal static class CheckArtifact
         if (s.Dialogue?.Folded is { } folded) notes.Add("PROJECTION — " + folded.Trim());
         if (s.FaceGen is { Error: null } fg && FaceGenSweepRender.UntestedNote(fg, namesRoots: false) is { } untested) notes.Add("facegen: " + untested);
         foreach (var f in new[] { SweepFamily.Scripts, SweepFamily.Dialogue })
-            if (Cut(s, f) is { } cut) notes.Add(SweepFamilySelection.Token(f) + ": " + cut);
+            if (Cut(s, o, f) is { } cut) notes.Add(SweepFamilySelection.Token(f) + ": " + cut);
         return notes;
     }
 
     /// <summary>The cut riding a family's boundary in the manifest-only response, which renders no other note.</summary>
-    static string CutSuffix(CheckSweep s, SweepFamily f) => Cut(s, f) is { } cut ? " " + cut : "";
+    static string CutSuffix(CheckSweep s, CheckOutcome o, SweepFamily f) => Cut(s, o, f) is { } cut ? " " + cut : "";
 
-    static int SeedsNotReached(DialogueCheckResult d) => Math.Max(0, d.SeedsNamed - d.Seeds.Count);
-
-    /// <summary>What a family counted into <c>total</c> that has no row, in one sentence; null when nothing.</summary>
-    static string? Cut(CheckSweep s, SweepFamily f) => f switch
+    /// <summary>What a family's rows leave out, in one sentence; null when nothing.</summary>
+    static string? Cut(CheckSweep s, CheckOutcome o, SweepFamily f) => f switch
     {
-        SweepFamily.Dialogue when s.Dialogue is { Error: null } d && SeedsNotReached(d) > 0 =>
-            string.Format(CheckSentences.SweepDialogueSeedsCut, d.Seeds.Count, d.SeedsNamed, SeedsNotReached(d), d.Limit).Trim(),
+        SweepFamily.Dialogue when o.Dialogue is { SeedsNotReached: > 0 } d =>
+            string.Format(CheckSentences.ArtifactDialogueSeedsCut, d.SeedsNotReached, d.SeedsNamed, d.Limit),
         SweepFamily.Scripts when s.Scripts is { Error: null, UnverifiableCollapsed: > 0 } sc =>
             string.Format(CheckSentences.ArtifactUnverifiableCollapsed, sc.UnverifiableCollapsed),
         _ => null,
@@ -190,7 +190,7 @@ internal static class CheckArtifact
                     w.WriteString("facegen_untested", untestedJson);
                 w.WriteStartObject("boundaries");
                 foreach (var a in o.Sections.Zip(o.Accountings(0)))
-                    w.WriteString(SweepFamilySelection.Token(a.First), a.Second.Boundary + CutSuffix(s, a.First));
+                    w.WriteString(SweepFamilySelection.Token(a.First), a.Second.Boundary + CutSuffix(s, o, a.First));
                 w.WriteEndObject();
                 if (o.Sections.Any(f => o.Refusal(f) is not null))
                 {
@@ -222,7 +222,7 @@ internal static class CheckArtifact
                   .Append('\n').Append(refusal).Append('\n');
             sb.Append(string.Format(CheckSentences.SweepBoundaryLabelFor,
                                     SweepFamilySelection.Token(o.Sections[i])))
-              .Append(accts[i].Boundary).Append(CutSuffix(s, o.Sections[i])).Append('\n');
+              .Append(accts[i].Boundary).Append(CutSuffix(s, o, o.Sections[i])).Append('\n');
         }
         Artifacts.AppendSpillText(sb, spill);
         return sb.ToString();
