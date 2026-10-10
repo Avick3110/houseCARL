@@ -276,7 +276,7 @@ public static class ClosureCopy
                     return StripResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant,
                         $"'{path}' could not be set on the target", path));
                 set.Add(new StripEntry(path, key.Value.IsNull
-                    ? (FormLinkShape.IsNullable(tv.GetType()) ? ReadEngine.PresentNullLinkNote : ReadEngine.NullLinkNote).Trim('(', ')')
+                    ? (FormLinkShape.IsNullable(tv.GetType()) ? ReadEngine.PresentNullLinkText : ReadEngine.NullLinkText)
                     : Mapped(key.Value).ToString()));
                 continue;
             }
