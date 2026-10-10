@@ -122,12 +122,16 @@ refs, unbound and null-object script properties, facegen findings) is added back
 The dialogue family's rows come from `DialogueSweep.Findings`, the same list its finding count is taken from, so
 every kind it counts — topic and seed-level issues, scan gaps (`scan_error`), the `.seq` lint (`seq_unconfirmed`,
 both its `[!]` and `[?]` grades), silent lines, result scripts that will not fire — has a row (the file or path it
-names rides `target`; an INFO row's `editorid` is null, since the report carries only its topic's). Its `total` is
-that count plus the unreachable seeds plus the seeds `limit=` never tried, whose findings no row can carry.
-Errors writes one `scan_error` row per unscannable-record sample the core keeps (three per plugin) and counts every
-unscannable record into `total`. Scripts counts the unverifiable notes the core collapses as repeats into `total`
-without a row. The two cuts with no row of their own (untried seeds, collapsed notes) are named in the manifest's
-`notes` and appended to that family's boundary in the manifest-only response, which renders no other note.
+names rides `target`, one file per row: a result script missing two `.pex` files is two rows; the `.seq` row's
+`target` is `SEQ/<plugin>.seq` for the plugin its verdict names, the winning override when it defers to one; an INFO
+row's `plugin` and `editorid` are null, since the report carries only its topic's). Its `total` is that count plus
+the unreachable seeds. `total` counts only findings found, so `total - row_count` is the rows missing: a seed
+`limit=` never tried may hold any number of findings, so it adds nothing to `total` and instead sets the response's
+`complete` to false, with its own sentence in the manifest's `notes`.
+Errors writes one `scan_error` row per unscannable-record sample the core keeps (three per plugin, each with its
+`formid`) and counts every unscannable record into `total`. Scripts counts the unverifiable notes the core collapses
+as repeats into `total` without a row. The untried seeds and the collapsed notes are named in the manifest's `notes`
+and appended to that family's boundary in the manifest-only response, which renders no other note.
 
 The benign facegen class the RESPONSE withholds IS written to the file — "the complete findings" means every class
 the sweep found, and the `class` column tells the two apart.
