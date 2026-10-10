@@ -816,8 +816,11 @@ public sealed class LoadOrderResolver : IDisposable
     {
         System.Threading.Interlocked.Increment(ref Counters.BodySeeks);
         if (getterType is not null)
+        {
+            System.Threading.Interlocked.Increment(ref Counters.TypedSeeks);
             foreach (var rec in ov.EnumerateMajorRecords(getterType, throwIfUnknown: false))
                 if (rec.FormKey == fk) return rec;
+        }
         foreach (var rec in ov.EnumerateMajorRecords())
             if (rec.FormKey == fk) return rec;
         return null;
@@ -864,6 +867,7 @@ public sealed class LoadOrderResolver : IDisposable
         System.Threading.Interlocked.Increment(ref Counters.CollectPasses);         // past here the plugin is actually walked
         if (getterTypes is { Count: > 0 })
         {
+            System.Threading.Interlocked.Increment(ref Counters.TypedCollectPasses);
             foreach (var t in getterTypes)
                 foreach (var rec in ov.EnumerateMajorRecords(t, throwIfUnknown: false))
                     if (want.Contains(rec.FormKey) && !sink.ContainsKey(rec.FormKey))
