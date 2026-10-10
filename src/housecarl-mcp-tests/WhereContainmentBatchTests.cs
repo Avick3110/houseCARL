@@ -266,6 +266,64 @@ public sealed class RecordsContainmentBatchTests : IClassFixture<OwnedChildFixtu
         Assert.Equal(1, Since(before)[1]);                          // the one hop, to the cell
     }
 
+    /// <summary>The type lane's chunk spans all three plugins, so it drains after the stream has closed the
+    /// overlay of the plugin that yielded HcOcTemp1; the row's own EditorID is still read off its held body.</summary>
+    [Fact]
+    public void AChunkThatCrossesAPluginBoundaryReadsTheEarlierPluginsBodies()
+    {
+        var r = RecordsTools.Records(_w.Svc, types: new[] { "PlacedObject" },
+                                     where: new[] { "EditorID = HcOcTemp1", "*parent.EditorID = HcOcCellA" },
+                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" },
+                                     counts_only: true);
+        Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
+        Assert.Contains(_w.BaseName, r);
+        Assert.DoesNotContain("could not be scanned", r);
+        Assert.DoesNotContain("could not be read", r);
+    }
+
+    /// <summary>What that rests on: a record body taken off an overlay reads after the overlay is disposed, in a
+    /// cell's children and in a top group alike, while the disposed overlay itself no longer enumerates.</summary>
+    [Fact]
+    public void ABodyReadsAfterItsOverlayIsDisposed()
+    {
+        var ov = LoadOrderResolver.OpenOverlay(_w.PluginPaths[0], null);
+        var placed = ov.EnumerateMajorRecords<IPlacedObjectGetter>().First(p => p.FormKey.ID == 0xC11);
+        var info = ov.EnumerateMajorRecords<IDialogResponsesGetter>().First(i => i.FormKey.ID == 0xD11);
+        var weapon = ov.EnumerateMajorRecords<IWeaponGetter>().Single();
+        ((IDisposable)ov).Dispose();
+
+        Assert.ThrowsAny<Exception>(() => ov.EnumerateMajorRecords<IWeaponGetter>().ToList());
+        Assert.Equal("HcOcTemp1", placed.EditorID);
+        Assert.Equal("base line 1", info.Responses.Single().Text.String);
+        Assert.Equal(5, weapon.BasicStats!.Damage);
+    }
+
+    /// <summary>Rows editorid_contains drops before where= gather no containing record: only HcOcTemp1's cell, won
+    /// by Top, is walked. Fails when the gather takes every row of the chunk (one walk per winner plugin, three).</summary>
+    [Fact]
+    public void AParentScanGathersOnlyTheRowsThatReachWhere()
+    {
+        var before = Costs();
+        var q = _w.Svc.CrossQuery(new[] { "PlacedObject" }, null, "HcOcTemp1", false, null,
+                                  new[] { "*parent.EditorID = HcOcCellA" }, 100);
+        Assert.Null(q.Error);
+        Assert.Equal(1, q.Total);
+        Assert.Equal(1, Since(before)[3]);                          // one typed container walk, Top's
+    }
+
+    /// <summary>The same on the formid-set lane.</summary>
+    [Fact]
+    public void AFormidSetParentScanGathersOnlyTheRowsThatReachWhere()
+    {
+        var set = _w.Svc.CrossQuery(new[] { "PlacedObject" }, null, null, false, null, null, 1000).Keys;
+        var before = Costs();
+        var q = _w.Svc.CrossQuery(null, null, "HcOcTemp1", false, null, new[] { "*parent.EditorID = HcOcCellA" }, 100,
+                                  formidSet: set);
+        Assert.Null(q.Error);
+        Assert.Equal(1, q.Total);
+        Assert.Equal(1, Since(before)[3]);
+    }
+
     /// <summary>A projection's first hop gathers the rows' containers without walking every row's source plugin
     /// first: reading one Base row's parent walks Base alone for bodies. Fails when the gather reads each row's
     /// body to learn its type (Base, Mid and Top walked).</summary>
