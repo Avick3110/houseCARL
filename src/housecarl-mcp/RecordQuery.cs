@@ -210,7 +210,6 @@ internal sealed partial class RecordReads
                 // the whole-overlay seek per record.
                 const int SetGatherChunk = 10_000;
                 var setPending = new List<FormKey>(SetGatherChunk);
-                var faultedSetWinners = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 bool setStopped = false;
                 foreach (var fk in formidSet!)
                 {
@@ -227,71 +226,73 @@ internal sealed partial class RecordReads
                 {
                     var bodies = WinnerBodies.For(view, sess, setPending, null, out var faults, ct);
                     // A winner plugin that would not open is a whole-plugin coverage gap, named once.
-                    foreach (var (plugin, fault) in faults)
-                        if (faultedSetWinners.Add(plugin)) unreadablePlugins.Add(fault);
+                    unreadablePlugins.AddRange(faults.Values);
                     predicate?.HoldParents(bodies.Values);   // the chunk's containing records, one walk per winner plugin
                     bool go = true;
-                    foreach (var fk in setPending)
+                    try
                     {
-                        ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
-                        var w = view.ResolveWinner(fk);
-                        if (w is null) continue;
-                        try
+                        foreach (var fk in setPending)
                         {
-                            if (!bodies.TryGetValue(fk, out var body))
+                            ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
+                            var w = view.ResolveWinner(fk);
+                            if (w is null) continue;
+                            try
+                            {
+                                if (!bodies.TryGetValue(fk, out var body))
+                                {
+                                    unscannable++;
+                                    if (unscannableSamples.Count < 3)
+                                        unscannableSamples.Add(faults.TryGetValue(w.Value.WinnerPlugin, out var f)
+                                            ? $"{FormIdToken.Of(fk)} — {f.GetType().Name}: {f.Message}"
+                                            : $"{FormIdToken.Of(fk)} — winner '{w.Value.WinnerPlugin}' did not yield the record on fetch");
+                                    continue;
+                                }
+                                if (conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1) continue;
+                                if (!string.IsNullOrEmpty(editoridContains)
+                                    && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
+                                    continue;
+                                // A deleted record only another where= term drops still counts toward the 'in' list members.
+                                if (DeletedRecordRule.HasNoLiveBody(body)
+                                    && (refSet is not null || predicate is { NeedsLiveBody: true }))
+                                { if (refSet is null) predicate!.NoteMembers(body); continue; }
+                                // The same one-read verdict the scoped lane makes, so the formids-as-universe lane —
+                                // where an unbounded references= also lands — answers identically.
+                                bool keep = ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null,
+                                                             out var hitTargets, out var lenientNote);
+                                NoteLenient(fk, lenientNote);
+                                if (!keep) continue;
+                                if (predicate is not null && !predicate.Matches(body))
+                                {
+                                    if (predicate.AbortError is not null) { go = false; break; }
+                                    continue;
+                                }
+                                total++;
+                                if (groups is not null)
+                                {
+                                    var gk = groupBy == "type" ? RecordNaming.StripOverlay(body.GetType().Name)
+                                           : groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String)
+                                           : w.Value.WinnerPlugin;
+                                    groups[gk] = groups.GetValueOrDefault(gk) + 1;
+                                }
+                                else if (total > offset && keys.Count < limit)
+                                {
+                                    keys.Add(fk);
+                                    sources.Add(null);                            // the winner body is what matched and displays
+                                    matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
+                                    prefilled?.Add(RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth)
+                                                   .WithRuntime(view.RuntimeAddressOf(fk)));
+                                }
+                            }
+                            catch (Exception ex)
                             {
                                 unscannable++;
                                 if (unscannableSamples.Count < 3)
-                                    unscannableSamples.Add(faults.TryGetValue(w.Value.WinnerPlugin, out var f)
-                                        ? $"{FormIdToken.Of(fk)} — {f.GetType().Name}: {f.Message}"
-                                        : $"{FormIdToken.Of(fk)} — winner '{w.Value.WinnerPlugin}' did not yield the record on fetch");
-                                continue;
+                                    unscannableSamples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
                             }
-                            if (conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1) continue;
-                            if (!string.IsNullOrEmpty(editoridContains)
-                                && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
-                                continue;
-                            // A deleted record only another where= term drops still counts toward the 'in' list members.
-                            if (DeletedRecordRule.HasNoLiveBody(body)
-                                && (refSet is not null || predicate is { NeedsLiveBody: true }))
-                            { if (refSet is null) predicate!.NoteMembers(body); continue; }
-                            // The same one-read verdict the scoped lane makes, so the formids-as-universe lane —
-                            // where an unbounded references= also lands — answers identically.
-                            bool keep = ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null,
-                                                         out var hitTargets, out var lenientNote);
-                            NoteLenient(fk, lenientNote);
-                            if (!keep) continue;
-                            if (predicate is not null && !predicate.Matches(body))
-                            {
-                                if (predicate.AbortError is not null) { go = false; break; }
-                                continue;
-                            }
-                            total++;
-                            if (groups is not null)
-                            {
-                                var gk = groupBy == "type" ? RecordNaming.StripOverlay(body.GetType().Name)
-                                       : groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String)
-                                       : w.Value.WinnerPlugin;
-                                groups[gk] = groups.GetValueOrDefault(gk) + 1;
-                            }
-                            else if (total > offset && keys.Count < limit)
-                            {
-                                keys.Add(fk);
-                                sources.Add(null);                            // the winner body is what matched and displays
-                                matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
-                                prefilled?.Add(RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth)
-                                               .WithRuntime(view.RuntimeAddressOf(fk)));
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            unscannable++;
-                            if (unscannableSamples.Count < 3)
-                                unscannableSamples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
                         }
                     }
+                    finally { predicate?.ReleaseParents(); }
                     setPending.Clear();
-                    predicate?.ReleaseParents();
                     return go;
                 }
             }
@@ -329,7 +330,6 @@ internal sealed partial class RecordReads
             var pending = chunked
                 ? new List<(FormKey fk, int depth, IMajorRecordGetter body, string? source, string? winner)>(WinnerGatherChunk)
                 : null;
-            var faultedWinners = chunked ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : null;
             try
             {
                 // Carry the source plugin per record so the render shows the body the scan filtered: plugins= gives
@@ -375,8 +375,7 @@ internal sealed partial class RecordReads
                     var bodies = WinnerBodies.For(view, winnerSession!, needed, types, out var faults, ct);
                     // A winner plugin that would not open is a whole-plugin coverage gap, named once in the
                     // response rather than only sampled three rows deep.
-                    foreach (var (plugin, fault) in faults)
-                        if (faultedWinners!.Add(plugin)) unreadablePlugins.Add(fault);
+                    unreadablePlugins.AddRange(faults.Values);
                     // The body each row's filters decide on; null for a row whose winner did not yield it.
                     var filterBodies = new IMajorRecordGetter?[pending.Count];
                     for (int i = 0; i < pending.Count; i++)
@@ -504,7 +503,8 @@ internal sealed partial class RecordReads
             scanNote = scanNote is null ? LenientNote(lenientKeys.Count, lenientSamples)
                                         : scanNote + " " + LenientNote(lenientKeys.Count, lenientSamples);
         // Whole-plugin coverage gap: the scan carried on past a plugin it could not open, so the answer covers
-        // the rest of the order but not that plugin's winners.
+        // the rest of the order but not that plugin's winners. Named once, whichever lane or gather met it.
+        unreadablePlugins = unreadablePlugins.DistinctBy(u => u.PluginName, StringComparer.OrdinalIgnoreCase).ToList();
         if (unreadablePlugins.Count > 0)
         {
             string gap = $"coverage gap: {unreadablePlugins.Count} plugin(s) could not be read, so any record they win is missing from this answer: "
@@ -928,15 +928,13 @@ internal sealed partial class RecordReads
         return EffectChain.Resolve(_host.Resolver, mgef, scope, limit);
     }
 
-    /// <summary>A scan's '*parent' bulk fetch: the containing records one walk per winner plugin, in the groups their
-    /// children's types sit under (#1147); a winner that would not open is named once in <paramref name="unreadable"/>.</summary>
+    /// <summary>A scan's '*parent' bulk fetch of a chunk's containing records; a winner that would not open goes to <paramref name="unreadable"/>.</summary>
     static Func<IReadOnlyCollection<(FormKey Parent, Type ChildType, int Hops)>, IReadOnlyDictionary<FormKey, IMajorRecordGetter>> ParentGather(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
         List<PluginUnreadableException> unreadable, CancellationToken ct) => wanted =>
     {
         var bodies = ContainmentIndex.GatherContainers(view, session, wanted, out var faults, ct);
-        foreach (var (plugin, fault) in faults)
-            if (!unreadable.Any(u => string.Equals(u.PluginName, plugin, StringComparison.OrdinalIgnoreCase))) unreadable.Add(fault);
+        unreadable.AddRange(faults.Values);
         return bodies;
     };
 }
