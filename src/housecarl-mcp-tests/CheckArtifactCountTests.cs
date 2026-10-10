@@ -6,11 +6,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>
-/// <c>check to_file=</c> writes one row per finding the family counts, and its manifest's total is that count (#1145).
-/// The dialogue report here carries one finding of every kind the count reads, so a kind the rows miss shows as
-/// total above row_count instead of a file that says complete.
-/// </summary>
+/// <summary><c>check to_file=</c> writes one row per finding the family counts, and total is that count (#1145).</summary>
 [Trait("tier", "unit")]
 public sealed class CheckArtifactCountTests : IDisposable
 {
@@ -38,7 +34,8 @@ public sealed class CheckArtifactCountTests : IDisposable
             ScriptFindings: new[]
             {
                 new ScriptBindingFinding(F(0x804), "HcDaTopic", ScriptBindingStatus.ScriptNotCompiled,
-                                         new[] { "HcDaScript" }, new[] { "Scripts/HcDaScript.pex" }, false, "no compiled .pex"),
+                                         new[] { "HcDaScript", "HcDa:Ns" }, new[] { @"Scripts\HcDaScript.pex", @"Scripts\HcDa\Ns.pex" },
+                                         false, "no compiled .pex"),
                 new ScriptBindingFinding(F(0x805), "HcDaTopic", ScriptBindingStatus.BindingIncomplete,
                                          Array.Empty<string>(), Array.Empty<string>(), false, "binds nothing"),
                 new ScriptBindingFinding(F(0x806), "HcDaTopic", ScriptBindingStatus.BoundAndCompiled,
@@ -50,12 +47,13 @@ public sealed class CheckArtifactCountTests : IDisposable
         {
             InputIssues = new[] { new DialogueIssue(DialogueIssueSeverity.Warning, "a quest-level warning") },
             ScanGaps = new[] { "HcDaGone.esp could not be read." },
-            SeqLint = new SeqLintFinding(true, "HcDaTest.esp", "HcDaTest.esp", 0x800, false, null, null, null),
+            SeqLint = new SeqLintFinding(true, "HcDaTest.esp", "HcDaPatch.esp", 0x800, false, null, null, null),
         };
     }
 
     static readonly string[] Kinds =
-        { "warning", "scan_error", "seq_unconfirmed", "problem", "silent_line", "script_not_compiled", "binding_incomplete" };
+        { "warning", "scan_error", "seq_unconfirmed", "problem", "silent_line", "script_not_compiled", "script_not_compiled",
+          "binding_incomplete" };
 
     static DialogueCheckResult Sweep(bool countsOnly = false) =>
         DialogueSweep.Run(() => new DialogueSweep.Binding(
@@ -109,15 +107,17 @@ public sealed class CheckArtifactCountTests : IDisposable
 
         Assert.Equal(F(0x802).ToString(), Of("silent_line").GetProperty("formid").GetString());
         Assert.Equal("sound/voice/hcdatest.esp/x/a.fuz", Of("silent_line").GetProperty("target").GetString());
-        Assert.Equal("Scripts/HcDaScript.pex", Of("script_not_compiled").GetProperty("target").GetString());
-        Assert.Equal("HcDaScript", Of("script_not_compiled").GetProperty("script").GetString());
+        var pex = rows.Where(r => r.GetProperty("class").GetString() == "script_not_compiled").ToArray();
+        Assert.Equal(new[] { @"Scripts\HcDaScript.pex", @"Scripts\HcDa\Ns.pex" }, pex.Select(r => r.GetProperty("target").GetString()));
+        Assert.Equal(new[] { "HcDaScript", "HcDa:Ns" }, pex.Select(r => r.GetProperty("script").GetString()));
+        Assert.Equal("SEQ/HcDaPatch.esp.seq", Of("seq_unconfirmed").GetProperty("target").GetString());
+        Assert.Equal("HcDaPatch.esp", Of("seq_unconfirmed").GetProperty("plugin").GetString());
         Assert.Equal("QUST", Of("warning").GetProperty("record_type").GetString());
-        Assert.Contains("NO .seq", Of("seq_unconfirmed").GetProperty("detail").GetString());
+        Assert.Contains("WINNING override", Of("seq_unconfirmed").GetProperty("detail").GetString());
         Assert.Equal("HcDaGone.esp could not be read.", Of("scan_error").GetProperty("detail").GetString());
     }
 
-    /// <summary>An INFO row names the INFO, so it carries no EditorID rather than its topic's; the silent-line
-    /// detail is the inline line's own sentence.</summary>
+    /// <summary>An INFO row carries no topic plugin or EditorID, and the inline silent-line sentence.</summary>
     [Fact]
     public void AnInfoRowCarriesNoTopicEditorIdAndTheInlineSilentSentence()
     {
@@ -126,15 +126,18 @@ public sealed class CheckArtifactCountTests : IDisposable
         var text = CheckTextRender.RenderCheck(new CheckSweep(CheckErrorsFixtures.Sel("dialogue"), Dialogue: result), 40000);
 
         foreach (var r in rows.Where(r => r.GetProperty("record_type").GetString() == "INFO"))
+        {
             Assert.Equal(JsonValueKind.Null, r.GetProperty("editorid").ValueKind);
+            Assert.Equal(JsonValueKind.Null, r.GetProperty("plugin").ValueKind);
+        }
         var silent = rows.Single(r => r.GetProperty("class").GetString() == "silent_line").GetProperty("detail").GetString()!;
         Assert.StartsWith("[!] WILL BE SILENT", silent);
         Assert.Contains(silent, text);
     }
 
-    /// <summary>Seeds limit= never tried count into total, and the manifest-only response says how many.</summary>
+    /// <summary>Seeds limit= never tried leave total at the findings found and the file incomplete.</summary>
     [Fact]
-    public void SeedsCutByLimitCountIntoTotalAndTheResponseSaysSo()
+    public void SeedsCutByLimitLeaveTotalAloneAndTheFileIncomplete()
     {
         var result = DialogueSweep.Run(() => new DialogueSweep.Binding(_ => EveryKind(), _ => F(0x800), CheckErrorsFixtures.Epoch),
                                        new[] { Seed, "000801:HcDaTest.esp", "000802:HcDaTest.esp" }, 1);
@@ -145,28 +148,33 @@ public sealed class CheckArtifactCountTests : IDisposable
         var manifest = JsonDocument.Parse(File.ReadLines(path).First()).RootElement;
 
         Assert.Equal(Kinds.Length, manifest.GetProperty("row_count").GetInt32());
-        Assert.Equal(Kinds.Length + 2, manifest.GetProperty("total").GetInt32());
+        Assert.Equal(Kinds.Length, manifest.GetProperty("total").GetInt32());
+        Assert.Contains(manifest.GetProperty("notes").EnumerateArray(),
+                        n => n.GetString()!.Contains("2 of the 3 seed(s) named were never tried"));
         var response = JsonDocument.Parse(CheckArtifact.RenderManifestOnly(sweep, spill!, json: true, 40000)).RootElement;
         Assert.False(response.GetProperty("spilled").GetProperty("complete").GetBoolean());
-        Assert.Contains("2 were NOT reached", response.GetProperty("boundaries").GetProperty("dialogue").GetString());
-        Assert.Contains("2 were NOT reached", CheckArtifact.RenderManifestOnly(sweep, spill!, json: false, 40000));
+        Assert.Contains("the file is incomplete", response.GetProperty("boundaries").GetProperty("dialogue").GetString());
+        Assert.Contains("the file is incomplete", CheckArtifact.RenderManifestOnly(sweep, spill!, json: false, 40000));
     }
 
-    /// <summary>Errors writes a scan_error row per unscannable sample and counts every unscannable record.</summary>
+    /// <summary>Errors writes a scan_error row per unscannable sample, with its FormID, and counts every unscannable record.</summary>
     [Fact]
     public void UnscannableRecordsAreRowsAndCountIntoTotal()
     {
-        var samples = new[] { "000901:HcDaTest.esp — Boom: one", "000902:HcDaTest.esp — Boom: two" };
+        var keys = new[] { F(0x901), F(0x902), F(0x903) };
+        var samples = keys.Select(k => FormIdToken.Of(k) + " — Boom").ToArray();
         var r = CheckErrorsFixtures.Result(
-            reports: new[] { new PluginErrors("HcDaTest.esp", Array.Empty<DanglingRef>(), Array.Empty<string>(), 2, samples, null) },
-            totalUnscannable: 2);
+            reports: new[] { new PluginErrors("HcDaTest.esp", Array.Empty<DanglingRef>(), Array.Empty<string>(), 5, samples, null)
+                             { UnscannableSampleKeys = keys } },
+            totalUnscannable: 5);
 
         var (manifest, rows) = WriteFile(new CheckSweep(CheckErrorsFixtures.Sel("errors"), Errors: r));
 
-        Assert.Equal(samples, rows.Where(x => x.GetProperty("class").GetString() == "scan_error")
-                                  .Select(x => x.GetProperty("detail").GetString()));
-        Assert.Equal(2, manifest.GetProperty("total").GetInt32());
-        Assert.Equal(2, manifest.GetProperty("row_count").GetInt32());
+        var scan = rows.Where(x => x.GetProperty("class").GetString() == "scan_error").ToArray();
+        Assert.Equal(samples, scan.Select(x => x.GetProperty("detail").GetString()));
+        Assert.Equal(keys.Select(k => k.ToString()), scan.Select(x => x.GetProperty("formid").GetString()));
+        Assert.Equal(5, manifest.GetProperty("total").GetInt32());
+        Assert.Equal(3, manifest.GetProperty("row_count").GetInt32());
     }
 
     /// <summary>Scripts counts the unverifiable notes the core collapsed into total, and the response says so.</summary>
