@@ -136,4 +136,21 @@ public class InfoOrderRenderTests
         Assert.Contains("names no reachable line", brokenRow);
         Assert.DoesNotContain("deliberate, not a fault", brokenRow);
     }
+
+    // #1148: a one-plugin topic past the move-analysis ceiling keeps the one-line answer, says its PNAM order was not
+    // compared, and never calls an unlisted order exact.
+    [Fact]
+    public void ASoloTopicPastTheAnalysisCeilingSaysItsPnamOrderWasNotCompared()
+    {
+        var lines = Enumerable.Range(1, DialogueInfoOrder.MaxMoveAnalysisLines + 1)
+                              .Select(i => Plain(FormKey.Factory($"{i:X6}:solo.esp"))).ToList();
+        var io = Compute(null, true, ("solo.esp", lines));
+        Assert.True(io.Solo);
+        Assert.False(io.MovesComputed);
+        var r = Render(io);
+        Assert.Contains($"INFO order: {lines.Count} lines, from a single plugin (solo.esp) — nothing merges here, but its PNAM order was not compared with its file order because the topic is over the {DialogueInfoOrder.MaxMoveAnalysisLines}-line analysis limit.", r);
+        Assert.DoesNotContain("IS that plugin's own list", r);
+        Assert.DoesNotContain("the order above is exact", r);
+        Assert.DoesNotContain("    #1  ", r);
+    }
 }

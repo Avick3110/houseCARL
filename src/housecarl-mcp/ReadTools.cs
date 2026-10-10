@@ -420,15 +420,17 @@ static partial class Wire
         // An empty order says nothing, unless it is empty because nothing could be read — never render that as silence.
         if (view is not { } io || (io.Order.Count == 0 && io.Complete)) return true;
 
-        // "Nothing merges here" holds only if every touching plugin's list was read — hence the gate on Complete,
-        // which is also what keeps this arm's ContributingPlugins[0] off a view built from nothing. "IS its own
-        // list" holds only when its PNAM links put no line elsewhere; otherwise the listing below shows where.
-        if (!io.Contested && io.Complete && io.MovesComputed && io.Moved.Count == 0)
+        // Solo carries Complete, so "nothing merges here" never stands on an unread list. An empty Moved means its PNAM
+        // keeps its file order only when MovesComputed; otherwise the sentence says the comparison was not run.
+        if (io.Solo && io.Moved.Count == 0)
         {
             sb.Append("  INFO order: ").Append(io.Order.Count)
               .Append(io.Order.Count == 1 ? " line, from a single plugin (" : " lines, from a single plugin (")
               .Append(io.ContributingPlugins[0])
-              .Append(") — nothing merges here and its PNAM links keep its file order, so the effective order IS that plugin's own list.\n");
+              .Append(io.MovesComputed
+                  ? ") — nothing merges here and its PNAM links keep its file order, so the effective order IS that plugin's own list.\n"
+                  : ") — nothing merges here, but its PNAM order was not compared with its file order because the topic is over the "
+                    + DialogueInfoOrder.MaxMoveAnalysisLines + "-line analysis limit.\n");
             AppendFoldNote(sb, io);
             AppendOrderNote(sb, io);          // a degraded merge is degraded whether or not anything contests it
             return true;
@@ -447,12 +449,17 @@ static partial class Wire
             if (io.Order.Count == 0) { AppendOrderNote(sb, io); return true; }
         }
 
-        // Plugins that TOUCH the topic, not the ones read; the folded file is not in the order, so it is named apart.
-        int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count - (io.FoldContributed ? 1 : 0);
-        sb.Append("  effective INFO order — merged across ").Append(touching)
-          .Append(touching == 1 ? " plugin that touches" : " plugins that touch")
-          .Append(" this topic");
-        if (io.FoldContributed) sb.Append(", plus the folded file below");
+        if (io.Solo)
+            sb.Append("  effective INFO order — from a single plugin (").Append(io.ContributingPlugins[0]).Append(')');
+        else
+        {
+            // Plugins that TOUCH the topic, not the ones read; the folded file is not in the order, so it is named apart.
+            int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count - (io.FoldContributed ? 1 : 0);
+            sb.Append("  effective INFO order — merged across ").Append(touching)
+              .Append(touching == 1 ? " plugin that touches" : " plugins that touch")
+              .Append(" this topic");
+            if (io.FoldContributed) sb.Append(", plus the folded file below");
+        }
         sb.Append("; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
         AppendFoldNote(sb, io);
 
@@ -490,32 +497,25 @@ static partial class Wire
         return true;
     }
 
-    /// <summary>The lead naming the biggest shift, when any line sits at a different position than the definer laid it down.</summary>
+    /// <summary>The lead naming the biggest relative-order shift: on one plugin, its PNAM against its own file
+    /// order; on a merge, the order against the list the defining plugin laid down.</summary>
     static void AppendMovedLead(StringBuilder sb, InfoOrderView io)
     {
-        var moved = io.Moved;
-        if (moved.Count > 0 && !io.Contested && io.Complete)
-        {
-            // One plugin: nothing re-listed anything, so the shift is that plugin's own PNAM against its file order.
-            var w = moved[0];
-            sb.Append("  [!] ").Append(moved.Count)
-              .Append(moved.Count == 1 ? " line changed" : " lines changed")
-              .Append(" order against ").Append(io.ContributingPlugins[0])
-              .Append("'s own file order, by that plugin's PNAM links — the biggest shift is ")
-              .Append(FormIdToken.Of(w.Info)).Append(" #").Append(w.OriginIndex!.Value + 1).Append(" -> #").Append(w.Index + 1)
-              .Append(". The order above applies PNAM within that plugin, as every merge here does; whether the game follows PNAM or file order within one plugin is untested, so check the line in game before relying on either.\n");
-        }
-        else if (moved.Count > 0)
-        {
-            var w = moved[0];
-            // Qualified rather than gated on an incomplete read: a positive lead says how far the evidence reaches.
-            sb.Append("  [!] ").Append(io.Complete ? "" : "as far as could be read, ").Append(moved.Count)
-              .Append(moved.Count == 1 ? " line sits" : " lines sit")
-              .Append(" at a different position than this topic's defining plugin laid down — the biggest shift is ")
-              .Append(FormIdToken.Of(w.Info)).Append(" #").Append(w.OriginIndex!.Value + 1).Append(" -> #").Append(w.Index + 1)
-              .Append(", moved there by ").Append(w.PlacedBy)
-              .Append(". Re-listing a line appends it to the BOTTOM unless the plugin also carries that line's PNAM. Nothing is dropped — but a line the game now reaches later can be pre-empted by any earlier line whose conditions also pass, so the wrong line answers.\n");
-        }
+        if (io.Moved is not { Count: > 0 } moved) return;
+        var w = moved[0];
+        int n = moved.Count;
+        sb.Append("  [!] ");
+        if (io.Solo)
+            sb.Append(n).Append(n == 1 ? " line changed" : " lines changed").Append(" order against ")
+              .Append(io.ContributingPlugins[0]).Append("'s own file order, by that plugin's PNAM links");
+        else    // qualified rather than gated on an incomplete read: a positive lead says how far the evidence reaches
+            sb.Append(io.Complete ? "" : "as far as could be read, ").Append(n).Append(n == 1 ? " line sits" : " lines sit")
+              .Append(" at a different position than this topic's defining plugin laid down");
+        sb.Append(" — the biggest shift is ")
+          .Append(FormIdToken.Of(w.Info)).Append(" #").Append(w.OriginIndex!.Value + 1).Append(" -> #").Append(w.Index + 1)
+          .Append(io.Solo
+              ? ". The order above applies PNAM within that plugin, as every merge here does; whether the game follows PNAM or file order within one plugin is untested, so check the line in game before relying on either.\n"
+              : ", moved there by " + w.PlacedBy + ". Re-listing a line appends it to the BOTTOM unless the plugin also carries that line's PNAM. Nothing is dropped — but a line the game now reaches later can be pre-empted by any earlier line whose conditions also pass, so the wrong line answers.\n");
     }
 
     /// <summary>Which off-order file was folded into THIS topic's merge, and whether it placed anything here.</summary>
@@ -527,7 +527,7 @@ static partial class Wire
         // "The only plugin listing lines here" is a claim about every contributor, so it needs every one READ.
         sb.Append(!io.FoldContributed
             ? " — but it lists no line in this topic, so the order here is the live one.\n"
-            : io.Contested || !io.Complete
+            : !io.Solo
                 ? " — the lines it places are marked below.\n"
                 : " — and it is the only plugin listing lines here, so every line shown is its own.\n");
     }
