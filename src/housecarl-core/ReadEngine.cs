@@ -494,15 +494,20 @@ public static class ReadEngine
             var nav = NavigateValue(record, seg);
             if (!nav.ok) { Emit(sink, ref budget, new FieldValue(shown, false, null, nav.note, Present: false, Readable: nav.readable)); return; }
             Expand(nav.val, nav.type, nav.parent, shown, depth, sink, ref budget, tail);
+            // A sub-path no element has is a wrong path, not an absence: its note is said once, on the first element.
+            if (tail is { Resolved: false, Miss: { } miss }) Emit(sink, ref budget, miss);
         }
         catch (Exception ex) { Emit(sink, ref budget, Fault(shown, ex)); }
     }
 
     /// <summary>The sub-path a <c>List[*].Sub</c> read takes from each element, so the budget counts those
     /// lines alone; the list's own line is read as ever.</summary>
-    sealed record ElementTail(string[] Segs)
+    sealed class ElementTail(string[] segs)
     {
-        internal string Text { get; } = string.Join(".", Segs);
+        internal string[] Segs { get; } = segs;
+        internal string Text { get; } = string.Join(".", segs);
+        internal bool Resolved;
+        internal FieldValue? Miss;
     }
 
     /// <summary>One list element: the whole element, or under a <see cref="ElementTail"/> just its sub-path, read
@@ -517,9 +522,11 @@ public static class ReadEngine
         var nav = NavigateValue(item, tail.Segs);
         if (!nav.ok)
         {
-            if (!nav.readable && !IsNoSuchFieldNote(nav.note)) Emit(sink, ref budget, new FieldValue(shown, false, null, nav.note, Present: false, Readable: false));
+            if (nav.noField) tail.Miss ??= new FieldValue(shown, false, null, nav.note, Present: false, Readable: false);
+            else if (!nav.readable) Emit(sink, ref budget, new FieldValue(shown, false, null, nav.note, Present: false, Readable: false));
             return;
         }
+        tail.Resolved = true;
         ExpandChild(nav.val, nav.type, nav.parent, shown, 1, sink, ref budget);
     }
 
@@ -747,7 +754,7 @@ public static class ReadEngine
 
     /// <summary>Navigate a path READ-ONLY to its target, yielding the live value object (+ declared type + owning
     /// parent) or a miss note; the same walk as <see cref="ReadLeaf"/>, fault-isolated.</summary>
-    static (bool ok, object? val, Type type, object parent, string? note, bool readable) NavigateValue(object record, string[] path)
+    static (bool ok, object? val, Type type, object parent, string? note, bool readable, bool noField) NavigateValue(object record, string[] path)
     {
         try
         {
@@ -757,24 +764,24 @@ public static class ReadEngine
                 var (segName, segKey) = WriteEngine.ParseSegment(path[i]);
                 var p = WriteEngine.ResolveProperty(current.GetType(), segName);
                 if (p is null) return (false, null, typeof(object), current,
-                    NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null, path[(i + 1)..]), false);
+                    NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null, path[(i + 1)..]), false, true);
                 var next = segKey is null ? p.GetValue(current) : WriteEngine.StepIntoElement(current, p, segName, segKey);
-                if (next is null) return (false, null, typeof(object), record, AbsentNote, true);
+                if (next is null) return (false, null, typeof(object), record, AbsentNote, true, false);
                 current = next;
             }
             var (leafName, leafKey) = WriteEngine.ParseSegment(path[^1]);
             var leaf = WriteEngine.ResolveProperty(current.GetType(), leafName);
             if (leaf is null) return (false, null, typeof(object), current,
-                NoFieldNote(current, leafName, path.Length >= 2 ? WriteEngine.ParseSegment(path[^2]).name : null), false);
+                NoFieldNote(current, leafName, path.Length >= 2 ? WriteEngine.ParseSegment(path[^2]).name : null), false, true);
             if (leafKey is not null)
             {
                 var elem = WriteEngine.StepIntoElement(current, leaf, leafName, leafKey);
-                return (true, elem, elem.GetType(), current, null, true);
+                return (true, elem, elem.GetType(), current, null, true, false);
             }
-            return (true, leaf.GetValue(current), leaf.PropertyType, current, null, true);
+            return (true, leaf.GetValue(current), leaf.PropertyType, current, null, true, false);
         }
-        catch (ExpectedApplyRejectionException ex) { return (false, null, typeof(object), record, AbsentWith(ex), true); }
-        catch (Exception ex) { return (false, null, typeof(object), record, ThrowNote(ex), false); }
+        catch (ExpectedApplyRejectionException ex) { return (false, null, typeof(object), record, AbsentWith(ex), true, false); }
+        catch (Exception ex) { return (false, null, typeof(object), record, ThrowNote(ex), false, ex is PathKeyShapeException); }
     }
 
     /// <summary>Best-effort COMPACT identity of the element a list/dict verb just acted on. NEVER throws.</summary>

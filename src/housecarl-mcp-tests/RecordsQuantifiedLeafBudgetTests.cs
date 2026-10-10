@@ -176,6 +176,17 @@ public sealed class RecordsQuantifiedLeafBudgetTests : IClassFixture<QuantifiedL
         Assert.Equal(QuantifiedLeafWorld.LongCount, Column(dense, tail).Count(c => c.Contains("HcLeafMaster")));
     }
 
+    /// <summary>A sub-path no element has is a wrong path: the walk's own note is said once, not "no element carries".</summary>
+    [Theory]
+    [InlineData("Effects[*].BaseEfect", "(no field BaseEfect")]
+    [InlineData("Effects[*].Conditions[abc]", "(no field — ")]
+    public void AMistypedSubPathSaysTheWalksNoteOnce(string path, string note)
+    {
+        var r = Read(W.LongSpell, path);
+        Assert.Equal(1, CountOf(r, note));
+        Assert.DoesNotContain("no element of", r);
+    }
+
     /// <summary>One column's dense cells, by the column's own spelling.</summary>
     static List<string> Column(string dense, string column)
     {
