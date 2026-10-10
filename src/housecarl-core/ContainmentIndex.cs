@@ -100,10 +100,10 @@ public sealed class ContainmentIndex
     /// <summary>One containing record's body, sought only in the groups a record of <paramref name="childType"/> can sit under (#1147).</summary>
     static IMajorRecordGetter? FetchContainer(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                               string plugin, FormKey parent, Type childType)
-    {
-        var types = ContainerGetters(childType, 1);
-        return view.GetRecord(session, plugin, parent, types.Count == 1 ? types[0] : null);
-    }
+        => view.GetRecord(session, plugin, parent, ContainerGetter(childType));
+
+    /// <summary>The one getter type a <paramref name="childType"/> record's containing record can have; null when it can be more than one, or none.</summary>
+    public static Type? ContainerGetter(Type childType) => ContainerGetters(childType, 1) is { Count: 1 } t ? t[0] : null;
 
     /// <summary>The winner bodies of the containing records <paramref name="parents"/> names, each paired with the
     /// type of the child it was climbed from and how many hops up: one walk per winner plugin, in the container

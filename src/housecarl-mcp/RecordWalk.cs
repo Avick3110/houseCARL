@@ -169,10 +169,10 @@ internal sealed partial class RecordReads
         bool templateFollow = followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase);
 
         var bodyCache = new Dictionary<FormKey, IMajorRecordGetter?>();
-        IMajorRecordGetter? Fetch(FormKey k)
+        IMajorRecordGetter? Fetch(FormKey k, Type? getterType = null)
         {
             if (bodyCache.TryGetValue(k, out var c)) return c;
-            IMajorRecordGetter? g = view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
+            IMajorRecordGetter? g = view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k, getterType) : null;
             bodyCache[k] = g;
             return g;
         }
@@ -257,7 +257,7 @@ internal sealed partial class RecordReads
                 if (i == hops - 1 && hops == segs.Length) return new List<FormKey> { pk.Value };
                 IMajorRecordGetter? up;
                 // A fault reading the CONTAINING record is that record's, and the note names it — never this node's.
-                try { up = Fetch(pk.Value); }
+                try { up = Fetch(pk.Value, ContainmentIndex.ContainerGetter(body.GetType())); }   // typed by the child, so the seek reads only the container's groups (#1147)
                 catch (Exception ex) when (IsWalkRecordFault(ex))
                 { note = $"(the containing record {FormIdToken.Of(pk.Value)} {WalkUnscannableNote(WalkFaultOf(ex))})"; return new List<FormKey>(); }
                 if (up is null) { note = $"(the containing record {FormIdToken.Of(pk.Value)} would not fetch)"; return new List<FormKey>(); }
