@@ -10,6 +10,12 @@ internal sealed record SpillInfo(string Path, ResultArtifact.Manifest Manifest, 
 {
     public bool ToFile => Reason == "to_file";
 
+    /// <summary>Rows exist that <see cref="ResultArtifact.Manifest.Total"/> cannot count (a seed the call never tried); the manifest's notes say which.</summary>
+    public bool Partial { get; init; }
+
+    /// <summary>The file holds every row there is.</summary>
+    public bool Complete => !Partial && Manifest.Total == Manifest.RowCount;
+
     /// <summary>What writing this artifact's DETAIL rows cost, in milliseconds; null when its rows read no body, so a render states a cost only where one was incurred (#582).</summary>
     public long? RenderMs { get; init; }
 
@@ -45,11 +51,11 @@ internal static class Artifacts
         var m = s.Manifest;
         // "complete result" is claimed only when the file holds every match; the sentence names the WINDOW, since
         // offset= alone makes one too and there the missing matches are the ones before it.
-        bool whole = m.Total == m.RowCount;
+        bool whole = s.Complete, counted = m.Total == m.RowCount;
         sb.Append('\n')
           .Append(whole ? "spilled: complete result (" : "spilled: the returned WINDOW (")
           .Append(m.RowCount).Append(m.RowCount == 1 ? " row" : " rows")
-          .Append(whole ? "" : $" of {m.Total} total matches")
+          .Append(counted ? "" : $" of {m.Total} total matches")
           .Append(") -> ").Append(s.Path).Append('\n')
           .Append(s.ToFile
               ? "  written at your request (to_file=): only this manifest is rendered inline.\n"
@@ -57,7 +63,7 @@ internal static class Artifacts
                   ? "  the inline render hit max_chars, so the COMPLETE result was auto-spilled (nothing is lost; the rows above are a prefix).\n"
                   : $"  the inline render hit max_chars; the spilled WINDOW is complete in the file, but the {m.Total - m.RowCount} matches outside the returned window are in NO file — widen the window with limit= and offset=, or use to_file= for the full result.\n")
           .Append("  manifest: rows=").Append(m.RowCount)
-          .Append(whole ? "" : $" of total={m.Total}")
+          .Append(counted ? "" : $" of total={m.Total}")
           .Append("  identity=").Append(m.Identity ?? "<none>")
           .Append("  epoch=").Append(m.Epoch.Length > 0 ? m.Epoch : "<none>").Append('\n');
         // The stamp's caveats beside it, not only inside the file: this block is all a to_file= caller sees (§2.1.1).
@@ -100,7 +106,7 @@ internal static class Artifacts
         w.WriteNumber("row_count", m.RowCount);
         w.WriteNumber("total", m.Total);
         // Stated, not left derivable: false means the file is a window and the matches beyond it are in no file.
-        w.WriteBoolean("complete", m.Total == m.RowCount);
+        w.WriteBoolean("complete", s.Complete);
         if (m.Identity is null) w.WriteNull("identity"); else w.WriteString("identity", m.Identity);
         w.WriteStartArray("row_schema");
         foreach (var c in m.RowSchema) w.WriteStringValue(c);
