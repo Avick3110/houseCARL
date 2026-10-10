@@ -11,8 +11,13 @@ namespace HousecarlMcpTests;
 /// <summary>One link subrecord of one record in a written plugin, read off the raw bytes: null when absent, else its 4-byte payload.</summary>
 static class LinkSubrecordBytes
 {
-    public static uint? Of(string path, string recordType, uint id, string subrecord)
+    public static uint? Of(string path, string recordType, uint id, string subrecord) =>
+        All(path, recordType, id, subrecord) is [var first, ..] ? first : null;
+
+    /// <summary>Every payload of that subrecord in that record, in file order.</summary>
+    public static List<uint> All(string path, string recordType, uint id, string subrecord)
     {
+        var found = new List<uint>();
         var b = File.ReadAllBytes(path);
         bool Sig(int at, string s) => b[at] == s[0] && b[at + 1] == s[1] && b[at + 2] == s[2] && b[at + 3] == s[3];
         for (int i = 0; i + 24 <= b.Length; i++)
@@ -22,8 +27,8 @@ static class LinkSubrecordBytes
             Assert.Equal(0u, BitConverter.ToUInt32(b, i + 8) & 0x00040000);   // not compressed, so the subrecords are readable
             int end = i + 24 + (int)BitConverter.ToUInt32(b, i + 4);
             for (int p = i + 24; p + 6 <= end; p += 6 + BitConverter.ToUInt16(b, p + 4))
-                if (Sig(p, subrecord)) return BitConverter.ToUInt32(b, p + 6);
-            return null;
+                if (Sig(p, subrecord)) found.Add(BitConverter.ToUInt32(b, p + 6));
+            return found;
         }
         throw new InvalidOperationException($"{recordType} {id:X6} not found in {path}");
     }
@@ -142,7 +147,8 @@ public sealed class NullableLinkSeedCopyTests : IDisposable
     public NullableLinkSeedCopyTests() => Directory.CreateDirectory(_dir);
     public void Dispose() { try { Directory.Delete(_dir, true); } catch { /* temp cleanup best-effort */ } }
 
-    (StripResult R, string Target, uint TargetId) Attach(string seed, Action<Npc> shapeSource, string sub, uint? sourceBytes)
+    (StripResult R, string Target, uint TargetId) Attach(string seed, Action<Npc> shapeSource, string sub, uint? sourceBytes,
+                                                         IReadOnlyDictionary<FormKey, FormKey>? map = null)
     {
         var src = new SkyrimMod(ModKey.FromNameAndExtension("HcSeedSrc.esp"), SkyrimRelease.SkyrimSE);
         var srcNpc = new Npc(src.GetNextFormKey(), SkyrimRelease.SkyrimSE);
@@ -160,7 +166,7 @@ public sealed class NullableLinkSeedCopyTests : IDisposable
         target.WornArmor.SetTo(new FormKey(mod.ModKey, 0x901));
         mod.Npcs.Add(target);
         var r = ClosureCopy.AttachSeedFields(target, overlay.Npcs.First(), new[] { seed },
-                                             new Dictionary<FormKey, FormKey>(), _ => false);
+                                             map ?? new Dictionary<FormKey, FormKey>(), _ => false);
         var path = Path.Combine(_dir, "HcSeedTgt.esp");
         WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path);
         return (r, path, target.FormKey.ID);
@@ -194,6 +200,20 @@ public sealed class NullableLinkSeedCopyTests : IDisposable
         Assert.True(r.Success, r.Refusal?.Detail);
         Assert.False(Assert.Single(r.Stripped).Cleared);
         Assert.Equal(0u, LinkSubrecordBytes.Of(path, "NPC_", id, "RNAM"));
+    }
+
+    [Fact]
+    public void AZeroEntryInALinkListKeepsItsIndex()
+    {
+        var src = ModKey.FromNameAndExtension("HcSeedSrc.esp");
+        var tgt = ModKey.FromNameAndExtension("HcSeedTgt.esp");
+        var map = new Dictionary<FormKey, FormKey> { [new(src, 0x902)] = new(tgt, 0x902), [new(src, 0x903)] = new(tgt, 0x903) };
+        var (r, path, id) = Attach("Packages", n => n.Packages.AddRange(new[] { new FormKey(src, 0x902), FormKey.Null, new FormKey(src, 0x903) }
+                                       .Select(k => (IFormLinkGetter<IPackageGetter>)new FormLink<IPackageGetter>(k))),
+                                   "PKID", 0x902u, map);
+        Assert.True(r.Success, r.Refusal?.Detail);
+        Assert.Equal("3 link(s)", Assert.Single(r.Stripped).Removed);
+        Assert.Equal(new uint[] { 0x902, 0, 0x903 }, LinkSubrecordBytes.All(path, "NPC_", id, "PKID").Select(v => v & 0x00FFFFFF));
     }
 }
 
