@@ -90,7 +90,6 @@ public sealed class WhereContainmentBatchTests
         Assert.Equal(new[] { 4 }, _gatherSizes);                      // one gather, the four distinct parents
         Assert.Equal(cells.Select(c => c.FormKey).OrderBy(k => k.ID), _gathered.OrderBy(k => k.ID));
         Assert.Equal(0, _singleFetches);
-        Assert.Equal(1, set.ParentFetchCalls);
         Assert.Equal(0, set.ParentBodiesHeld);
     }
 
@@ -147,6 +146,20 @@ public sealed class WhereContainmentBatchTests
         Assert.Equal(0, _singleFetches);
         Assert.Equal(new[] { 10 }, _gatherSizes);
         Assert.Contains("Cell", set.AccountingNote());
+    }
+
+    /// <summary>A parent outside any held chunk is fetched alone through the one-at-a-time fetch, as before the
+    /// gather, so its fault surfaces as the row's own. Fails when a lone miss goes through the bulk gather.</summary>
+    [Fact]
+    public void ALoneMissIsFetchedOneAtATime()
+    {
+        var cell = NewCell("PbAlone");
+        var placed = NewPlaced("PbAloneRef", cell);
+
+        var set = Bind("*parent.EditorID = PbAlone", batched: true);
+        Assert.True(set.Matches(placed));
+        Assert.Equal(1, _singleFetches);
+        Assert.Empty(_gatherSizes);
     }
 }
 

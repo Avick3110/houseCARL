@@ -86,9 +86,6 @@ public sealed class FieldPredicateSet
     /// <summary>Bodies the hop has read, on the match path and the miss path alike.</summary>
     internal int ParentBodyFetches { get; private set; }
 
-    /// <summary>Calls made to the bound containing-record fetch, a chunk's gather or a lone miss alike.</summary>
-    internal int ParentFetchCalls { get; private set; }
-
     /// <summary>Whether any predicate needs the scan's resolution context.</summary>
     public bool NeedsResolution => _predicates.Any(p => p.Pseudo == PseudoPath.Winner || p.LinkPath is not null || Hops(p) > 0);
 
@@ -106,7 +103,7 @@ public sealed class FieldPredicateSet
         : p.ParentHops == 0 && p.Pseudo == PseudoPath.None);           // the own path's leaf walk is read on the candidate
 
     /// <summary>Bind the scan's resolution context, from the same captured view the scan answers from.</summary>
-    /// <param name="fetchParents">The containing records' bulk fetch; without it a parent is read through <paramref name="fetchWinnerBody"/>.</param>
+    /// <param name="fetchParents">The bulk fetch of a chunk's containing records; any other parent is read through <paramref name="fetchWinnerBody"/>.</param>
     public void BindResolution(Func<FormKey, string?> winnerOf, Func<FormKey, IMajorRecordGetter?>? fetchWinnerBody = null,
                                Func<FormKey, FormKey?>? parentOf = null,
                                Func<IReadOnlyCollection<(FormKey Parent, Type ChildType, int Hops)>, IReadOnlyDictionary<FormKey, IMajorRecordGetter>>? fetchParents = null)
@@ -117,8 +114,7 @@ public sealed class FieldPredicateSet
         _fetchParents = fetchParents;
     }
 
-    /// <summary>Gather, in one bulk fetch, the containing record of every candidate in <paramref name="chunk"/> whose
-    /// verdict is not yet memoized; held until <see cref="ReleaseParents"/>, so only verdicts outlive the chunk.</summary>
+    /// <summary>Gather in one bulk fetch the containing records of <paramref name="chunk"/> with no memoized verdict, held until <see cref="ReleaseParents"/>.</summary>
     public void HoldParents(IEnumerable<IMajorRecordGetter> chunk)
     {
         ReleaseParents();
@@ -141,7 +137,6 @@ public sealed class FieldPredicateSet
                 want[at] = (at, child.GetType(), climbed);
             }
         if (want.Count == 0) return;
-        ParentFetchCalls++;
         ParentBodyFetches += want.Count;
         _heldAsked = new HashSet<FormKey>(want.Keys);
         _heldParents = _fetchParents(want.Values);
@@ -1080,7 +1075,7 @@ public sealed class FieldPredicateSet
         if (miss is { } m) return (false, m);
         if (_parentVerdicts.TryGetValue((_evalIndex, linkSide, key!.Value), out var memo)) return memo;
 
-        var parent = FetchParentBody(key.Value, child.GetType(), hops);
+        var parent = FetchParentBody(key.Value);
         (bool Satisfied, EvalKind Kind) verdict;
         if (parent is null)
             verdict = (false, EvalKind.Unreadable);              // the parent is indexed but its body would not fetch
@@ -1098,7 +1093,7 @@ public sealed class FieldPredicateSet
     /// <summary>Climb <paramref name="hops"/> containment steps and hand back the key of the record it lands on; a record with no containing record is a named no-verdict.</summary>
     (FormKey? Key, EvalKind? Miss) ClimbToParentKey(IMajorRecordGetter body, int hops)
     {
-        if (_parentOf is null || (_fetchWinnerBody is null && _fetchParents is null))
+        if (_parentOf is null || _fetchWinnerBody is null)
         {
             _fatal = $"internal: a '{ContainmentIndex.ParentToken}' containment predicate was evaluated without a bound resolution context — this scan surface does not support it.";
             return (null, EvalKind.Definite);
@@ -1109,7 +1104,7 @@ public sealed class FieldPredicateSet
             var pk = _parentOf(at);
             if (pk is null)
             {
-                _lastNoParent = i == 0 ? RecordNaming.StripOverlay(body.GetType().Name) : NoParentTypeOf(at, body.GetType(), i);
+                _lastNoParent = i == 0 ? RecordNaming.StripOverlay(body.GetType().Name) : NoParentTypeOf(at);
                 return (null, EvalKind.NoParent);
             }
             at = pk.Value;
@@ -1118,21 +1113,19 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>The type name the rollup wants for an intermediate record a chain dead-ends on, read once per such record per call.</summary>
-    string? NoParentTypeOf(FormKey at, Type childType, int hops)
+    string? NoParentTypeOf(FormKey at)
     {
         if (_noParentTypes.TryGetValue(at, out var name)) return name;
-        var body = FetchParentBody(at, childType, hops);
+        var body = FetchParentBody(at);
         return _noParentTypes[at] = body is null ? null : RecordNaming.StripOverlay(body.GetType().Name);
     }
 
     /// <summary>The hop's one body read, counted where it happens so every path pays into the same counter.</summary>
-    IMajorRecordGetter? FetchParentBody(FormKey key, Type childType, int hops)
+    IMajorRecordGetter? FetchParentBody(FormKey key)
     {
         if (_heldAsked is not null && _heldAsked.Contains(key)) return _heldParents!.GetValueOrDefault(key);
         ParentBodyFetches++;
-        if (_fetchParents is null) return _fetchWinnerBody!(key);
-        ParentFetchCalls++;
-        return _fetchParents(new[] { (key, childType, hops) }).GetValueOrDefault(key);
+        return _fetchWinnerBody!(key);
     }
 
     /// <summary>The link step's left path from segment <paramref name="from"/> down.</summary>
