@@ -503,11 +503,10 @@ public static class ReadEngine
     sealed record ElementTail(string[] Segs)
     {
         internal string Text { get; } = string.Join(".", Segs);
-        internal int Levels { get; } = PathFoldGrammar.Levels(Segs);
     }
 
-    /// <summary>One list element: the whole element, or under a <see cref="ElementTail"/> just its sub-path,
-    /// expanded at the depth the whole element's walk would have reached it.</summary>
+    /// <summary>One list element: the whole element, or under a <see cref="ElementTail"/> just its sub-path, read
+    /// at depth 1 because the column renders that one line.</summary>
     static void ExpandElement(object? item, Type declaredType, object parent, string elemPath, int depth, ElementTail? tail,
                               List<FieldValue> sink, ref int budget)
     {
@@ -521,7 +520,7 @@ public static class ReadEngine
             if (!nav.readable && !IsNoSuchFieldNote(nav.note)) Emit(sink, ref budget, new FieldValue(shown, false, null, nav.note, Present: false, Readable: false));
             return;
         }
-        ExpandChild(nav.val, nav.type, nav.parent, shown, depth - tail.Levels, sink, ref budget);
+        ExpandChild(nav.val, nav.type, nav.parent, shown, 1, sink, ref budget);
     }
 
     /// <summary>The ONE unreadable line the deep walk emits — the sentence and flags the depth-1 read carries.</summary>
