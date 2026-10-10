@@ -112,7 +112,8 @@ path walk, and containment comes off Mutagen's context walk.
   REFR/ACHR to CELL, INFO to DIAL, CELL to WRLD). The bodies are dropped when the chunk drains, so the
   chunk is the memory bound and only verdicts outlive it. A parent the chunk did not gather (a hop on a
   `->` target) is fetched alone, still typed. A projection's `*parent` read gathers its render chunk's
-  first-hop parents the same way, on the first row that reads one.
+  first-hop parents the same way, on the first row that reads one. A walk's `*parent` hop is not
+  batched, but its one fetch is typed the same way (`ContainmentIndex.ContainerGetter`).
 - Containment is captured at index build from Mutagen's context walk, merged per plugin in priority
   order with the last declaration standing, and a plugin that throws part-way merges nothing.
 
@@ -133,8 +134,9 @@ path walk, and containment comes off Mutagen's context walk.
 - `WhereContainmentCostTests` — `ParentBodiesHeld` / `ParentBodyHighWater` / `ParentBodyFetches`, the
   #720 invariant that no containing record outlives the candidate that read it.
 - `WhereContainmentBatchTests` / `RecordsContainmentBatchTests` — the #1147 chunk gather: one gather
-  per chunk, each parent once, typed by the child, the same answer across a chunk boundary, and no
-  per-record seek on a real scan.
+  per chunk, each parent once, typed by the child, the same answer across a chunk boundary, and on
+  the real scan, set lane, projection and walk no lone seek and only typed walks (`CostCounters.TypedSeeks`,
+  `TypedCollectPasses`).
 - `WhereAccountingCauseTests` — the per-cause accounting sentences.
 - `RecordsUnmatchedMembersTests` — the unmatched-members bullet: text, json, `@file`, the cap, the manifest,
   a member only a lower scoped copy carries, a FormID named as typed; `UnmatchedMembersJudgementTests`,
