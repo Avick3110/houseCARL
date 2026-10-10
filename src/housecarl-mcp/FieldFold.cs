@@ -38,19 +38,6 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         return (paths.ToArray(), depths.ToArray());
     }
 
-    /// <summary>Whether a sub-path column's list is also read by another column, so the two reads can emit one line twice.</summary>
-    readonly bool _readsAListTwice = ReadsAListTwice(Paths, Folds);
-
-    static bool ReadsAListTwice(string[] paths, FieldFold?[] folds)
-    {
-        for (int i = 0; i < paths.Length; i++)
-            if (folds[i] is { Fold: PathFold.Set, Tail.Length: > 0 } f)
-                for (int j = 0; j < paths.Length; j++)
-                    if (j != i && (paths[j] == f.Root || RowProjection.IsUnder(paths[j], f.Root) || RowProjection.IsUnder(f.Root, paths[j])))
-                        return true;
-        return false;
-    }
-
     internal bool RendersElements => Folds.Any(f => f is { Fold: PathFold.Set });
 
     /// <summary>The read paths whose every column is a <c>[*count]</c>, which take the child union's INDEX-ONLY
@@ -77,8 +64,7 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
     /// <summary>One record's lines, grouped per REQUESTED path and in the caller's own order.</summary>
     internal (IReadOnlyList<FieldValue>[]? Columns, IReadOnlyList<FieldValue> Carried, string? Error) Columns(RecordFields rec)
     {
-        // A sub-path column reads its list beside any whole read of it, so a line both reads emit is kept once.
-        var fields = _readsAListTwice ? rec.Fields.DistinctBy(f => f.Path).ToList() : rec.Fields;
+        var fields = rec.Fields;
         var setRoots = SetRoots.OrderByDescending(r => r.Length).ToList();
         // The element rows come from the 'rows' fold itself, run over the same lines.
         var rows = setRoots.Count > 0 ? RowProjection.Fold(fields, setRoots, Depth) : fields;
