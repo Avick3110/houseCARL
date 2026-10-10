@@ -158,6 +158,7 @@ public static class ErrorCheck
             var dangling = new List<DanglingRef>();
             int unscannable = 0;
             var unscannableSamples = new List<string>();
+            var unscannableKeys = new List<FormKey>();
 
             // findings= excluded 'dangling' ⇒ the per-record link walk is skipped wholesale, and the render must then
             // print the dangling and unscannable lines as "not checked" rather than 0.
@@ -198,7 +199,11 @@ public static class ErrorCheck
                     catch (Exception ex)
                     {
                         unscannable++;
-                        if (unscannableSamples.Count < 3) unscannableSamples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
+                        if (unscannableSamples.Count < 3)
+                        {
+                            unscannableSamples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
+                            unscannableKeys.Add(fk);
+                        }
                     }
                 }
             }
@@ -217,10 +222,10 @@ public static class ErrorCheck
             {
                 if (unscannable > 0 || scanError is not null)
                     reports.Add(new PluginErrors(plugin, Array.Empty<DanglingRef>(), Array.Empty<string>(),
-                                                 unscannable, unscannableSamples, scanError));
+                                                 unscannable, unscannableSamples, scanError) { UnscannableSampleKeys = unscannableKeys });
             }
             else if (dangling.Count > 0 || missingMasters.Count > 0 || unscannable > 0 || scanError is not null)
-                reports.Add(new PluginErrors(plugin, dangling, missingMasters, unscannable, unscannableSamples, scanError));
+                reports.Add(new PluginErrors(plugin, dangling, missingMasters, unscannable, unscannableSamples, scanError) { UnscannableSampleKeys = unscannableKeys });
         }
 
         // Phase 1 — every plugin that is NOT a base-game master, in load order.
@@ -240,6 +245,7 @@ public static class ErrorCheck
                 var dangling = new List<DanglingRef>();
                 int unscannable = 0;
                 var unscannableSamples = new List<string>();
+                var unscannableKeys = new List<FormKey>();
 
                 ISkyrimModGetter? ov = null;
                 try
@@ -296,7 +302,11 @@ public static class ErrorCheck
                             catch (Exception ex)
                             {
                                 unscannable++;
-                                if (unscannableSamples.Count < 3) unscannableSamples.Add($"{FormIdToken.Of(rec.FormKey)} — {ex.GetType().Name}: {ex.Message}");
+                                if (unscannableSamples.Count < 3)
+                                {
+                                    unscannableSamples.Add($"{FormIdToken.Of(rec.FormKey)} — {ex.GetType().Name}: {ex.Message}");
+                                    unscannableKeys.Add(rec.FormKey);
+                                }
                             }
                         }
                     }
@@ -319,10 +329,10 @@ public static class ErrorCheck
                 {
                     if (unscannable > 0 || scanError is not null)
                         reports.Add(new PluginErrors(name, Array.Empty<DanglingRef>(), Array.Empty<string>(),
-                                                     unscannable, unscannableSamples, scanError));
+                                                     unscannable, unscannableSamples, scanError) { UnscannableSampleKeys = unscannableKeys });
                 }
                 else if (dangling.Count > 0 || missingMasters.Count > 0 || unscannable > 0 || scanError is not null)
-                    reports.Add(new PluginErrors(name, dangling, missingMasters, unscannable, unscannableSamples, scanError));
+                    reports.Add(new PluginErrors(name, dangling, missingMasters, unscannable, unscannableSamples, scanError) { UnscannableSampleKeys = unscannableKeys });
             }
         }
 
@@ -414,7 +424,11 @@ public sealed record PluginErrors(
     int UnscannableRecords,
     IReadOnlyList<string> UnscannableSamples,
     string? ScanError,
-    IReadOnlyList<string>? InstalledButInactiveMasters = null);
+    IReadOnlyList<string>? InstalledButInactiveMasters = null)
+{
+    /// <summary>The record each of <see cref="UnscannableSamples"/> is about, in the same order.</summary>
+    public IReadOnlyList<FormKey> UnscannableSampleKeys { get; init; } = Array.Empty<FormKey>();
+}
 
 /// <summary>The result of <see cref="ErrorCheck.Run"/>: the per-plugin reports (only plugins WITH findings), the sweep
 /// totals, the plugins the index build excluded as unparseable, and — on a scope error — a recoverable
