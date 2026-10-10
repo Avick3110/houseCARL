@@ -171,7 +171,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   unset, so the subrecord is not written; a null-synonym `Set` (`"0"`) is the other shape, the subrecord present
   with FormID zero. The two differ in game (an INFO's PNAM: absent puts the line last, present zero pins it first),
   so they are never conflated (#1144). The same unset link fills a nullable gendered half a compose leaves out, and
-  `CopyFrom` copies an absent nullable link as absent rather than rebuilding it from its zero FormKey.
+  `CopyFrom` carries the source link's nullable key, so an absent one copies as absent. One helper,
+  `FormLinkShape`, judges nullable against required and builds, sets and clears a link for every lane.
 - A condition `FormLinkOrIndex` is set through the parent-aware branch, which infers form-versus-index from the
   value and sets the owning arm's discriminator to match.
 - The gendered `[0]` / `[1]` alias maps to the pair's named arms through the same materialize-and-write-back the
@@ -329,8 +330,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   group is a typed refusal naming the shape rather than a throw rendered as an internal fault.
 - An unset or empty source seed CLEARS the target's value rather than leaving it, and the clear is reported as a
   clear rather than as a no-op or a zero count. A single link that is PRESENT with FormID zero is not unset: it is
-  copied as a present zero, nullable or required, and reported as one (#1144). A seed's shape is classified once, by the walk's own classifier, so
-  the attach and clone lanes cannot disagree about a field.
+  copied as a present zero, nullable or required, and reported as one; a zero entry in a link list keeps its index
+  (#1144). A seed's shape is classified once, by the walk's own classifier, so the attach and clone lanes cannot
+  disagree about a field.
 - The off-order link check is per lane: the attach lane asks UP FRONT, nothing stripping there, while the clone lane
   asks the ARTIFACT after the strip, and the refusal splits by cause so the remedy names something the caller did —
   their own `stop`, a record a previous call left in the patch, or an unseeded field carried across.
@@ -445,7 +447,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   one when pre-flight is bypassed.
 - `NullableLinkRemoveTests` — on a written file, a `Remove`d nullable link has no subrecord and a `Set "0"` one has
   a zero subrecord, the apply echo reads each back, `info_order` places them last and first, and a copy keeps the
-  source's shape, through `CopyFrom` and through the `copy target=` seed lane.
+  source's shape, through `CopyFrom` and through the `copy target=` seed lane, single links and link lists alike.
 - `SubclassRemoveTests` — `RemovalTypeFor` routes the typed remove through the flat group's `T`, so a record whose
   concrete class is a subclass of it is really removed rather than silently skipped.
 - `UpsertCreateTests` (RERUN / OVERRIDE / CROSS-TYPE / DUP) — the replace at a stable FormKey, every replace surfaced

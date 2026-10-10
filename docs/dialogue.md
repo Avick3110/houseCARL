@@ -50,17 +50,16 @@ PNAM above, and the two shapes are two different writes: `Set` `PreviousDialog` 
 (pinned first), and `Remove` on `PreviousDialog` leaves the subrecord out (the bottom). Each reads back as above,
 in the apply echo and in a record read (#1144; through 2.0.4 `Remove` also wrote the present zero, so a patch that
 used it to send lines to the bottom pinned them first instead: re-run the call with `into=` that patch, which
-fixes it in place, where a plain re-run writes a new `<name>_001.esp` beside the bad one). Either `Set` the position-1
-line's PNAM to `"0"`, or re-list the run beneath it in the same call, each of those lines carrying the FormID of
-the line above it: the merge places them back in front of the line that fell to the bottom and the original
-sequence is restored. And because
-`info_order` merges every plugin touching the topic, the line at position minus one can be one defined by a plugin
-your patch does not master. That does not dangle: the patch lane is handed the whole load order and Mutagen
-derives the master list from the records' own FormLinks, so writing that FormID **adds that plugin as a master**
-of your patch — a new hard dependency, one more plugin your patch requires and must load after. Decide whether
-you want it before you write the link; if you do not, name a line from a plugin you already master and accept the
-position it gives you. (A PNAM that truly resolves to nothing — a target no active plugin defines — places the
-line at the HEAD, not the bottom.)
+fixes it in place, where a plain re-run writes a new `<name>_001.esp` beside the bad one). Either `Set` the
+position-1 line's PNAM to `"0"`, or re-list the run beneath it in the same call, each of those lines carrying the
+FormID of the line above it: the merge places them back in front of the line that fell to the bottom and the
+original sequence is restored. And because `info_order` merges every plugin touching the topic, the line at
+position minus one can be one defined by a plugin your patch does not master. That does not dangle: the patch lane
+is handed the whole load order and Mutagen derives the master list from the records' own FormLinks, so writing
+that FormID **adds that plugin as a master** of your patch — a new hard dependency, one more plugin your patch
+requires and must load after. Decide whether you want it before you write the link; if you do not, name a line
+from a plugin you already master and accept the position it gives you. (A PNAM that truly resolves to nothing — a
+target no active plugin defines — places the line at the HEAD, not the bottom.)
 
 ## The bookkeeping create fills, and the flags they do not decide
 
