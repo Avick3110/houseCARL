@@ -172,4 +172,85 @@ public sealed class RecordsContainmentBatchTests : IClassFixture<OwnedChildFixtu
         Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
         Assert.Equal(seeks, _w.Svc.Counters.BodySeeks);
     }
+
+    long[] Costs() { var c = _w.Svc.Counters; return new[] { c.BodySeeks, c.TypedSeeks, c.CollectPasses, c.TypedCollectPasses }; }
+    long[] Since(long[] before) => Costs().Zip(before, (a, b) => a - b).ToArray();
+
+    /// <summary>The scan's gather reaches the resolver typed: every gather walk reads only the container's groups.
+    /// Fails on an untyped <c>GatherContainers</c>, which walks the winner plugin from the top.</summary>
+    [Theory]
+    [InlineData("PlacedObject", "*parent.EditorID = HcOcCellA")]
+    [InlineData("DialogResponses", "*parent.EditorID = HcOcTopic")]
+    [InlineData("PlacedObject", "*parent.*parent.EditorID = HcOcWrld")]
+    public void AParentScanGathersTyped(string type, string clause)
+    {
+        var before = Costs();
+        var r = RecordsTools.Records(_w.Svc, types: new[] { type }, where: new[] { clause },
+                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" },
+                                     counts_only: true);
+        Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
+        var d = Since(before);
+        Assert.True(d[2] > 0, string.Join(",", d));
+        Assert.Equal(d[2], d[3]);                                   // every gather walk typed
+    }
+
+    /// <summary>The formid-set lane gathers a chunk's containing records once: one walk per winner plugin for the
+    /// bodies and one for the containers, never one per distinct cell. Fails without the lane's <c>HoldParents</c>.</summary>
+    [Fact]
+    public void AFormidSetParentScanGathersEachChunksParentsOnce()
+    {
+        var list = Path.Combine(_w.Root, "refs-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        var w = RecordsTools.Records(_w.Svc, types: new[] { "PlacedObject" }, to_file: list);
+        Assert.False(w.StartsWith("error", StringComparison.Ordinal), w);
+
+        var before = Costs();
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { "@" + list }, where: new[] { "*parent.EditorID = HcOcCellA" },
+                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" },
+                                     counts_only: true);
+        Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
+        var d = Since(before);
+        Assert.Equal(0, d[0]);                                      // no record seeks its cell alone
+        Assert.Equal(3, d[3]);                                      // one typed container walk per winner plugin: Base, Mid, Top
+    }
+
+    /// <summary>A <c>fields=["*parent.EditorID"]</c> projection takes the render chunk's containers in one typed
+    /// gather, so no row seeks its cell alone. Fails when <c>Chunk.Parent</c> holds nothing.</summary>
+    [Fact]
+    public void AParentProjectionGathersTheChunksContainers()
+    {
+        var before = Costs();
+        var r = RecordsTools.Records(_w.Svc, types: new[] { "PlacedObject" }, project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "*parent.EditorID" } },
+                                     format: "json", limit: 1000);
+        Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
+        Assert.Contains("HcOcCellA", r);
+        var d = Since(before);
+        Assert.Equal(0, d[0]);                                      // no row seeks its cell alone
+        Assert.True(d[2] > 0 && d[2] == d[3], string.Join(",", d));   // the gathers ran, every one typed
+    }
+
+    /// <summary>The second hop of a projection, which the chunk does not gather, seeks its container typed.
+    /// Fails on an untyped <c>FetchContainer</c>.</summary>
+    [Fact]
+    public void ASecondHopProjectionSeeksTyped()
+    {
+        var before = Costs();
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { OwnedChildWorld.Fid(_w.WorldCellRef) },
+                                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "*parent.*parent.EditorID" } });
+        Assert.Contains("HcOcWrld", r);
+        var d = Since(before);
+        Assert.True(d[0] > 0, string.Join(",", d));
+        Assert.Equal(d[0], d[1]);                                   // every seek typed
+    }
+
+    /// <summary>A walk's <c>*parent</c> hop seeks the containing cell typed. Fails on the untyped walk fetch.</summary>
+    [Fact]
+    public void AWalksParentHopSeeksTyped()
+    {
+        var before = Costs();
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { OwnedChildWorld.Fid(_w.WorldCellRef) },
+                                     walk: new RecordsTools.RecordsWalk { seed_paths = new[] { "*parent.*parent" }, depth = 1 },
+                                     project: new RecordsTools.RecordsProject { form = "summary" });
+        Assert.Contains(OwnedChildWorld.Fid(_w.Worldspace), r);
+        Assert.Equal(1, Since(before)[1]);                          // the one hop, to the cell
+    }
 }
