@@ -119,6 +119,18 @@ internal static class DialogueWire
     internal static bool SeqIsFinding(SeqLintFinding? s) =>
         s is { QuestIsSge: true } && !(s.SeqExists && s.SeqContainsQuest == true && s.SeqNewerThanPlugin == true);
 
+    /// <summary>The plugin an unconfirmed <see cref="SeqVerdict"/> points at: the winning override when it defers to it, else the definer.</summary>
+    internal static string SeqPlugin(SeqLintFinding s) =>
+        OverrideInPlay(s) && !SeqUnchecked(s) ? s.WinnerPlugin : s.DefiningPlugin;
+
+    static bool OverrideInPlay(SeqLintFinding s) =>
+        !string.Equals(s.WinnerPlugin, s.DefiningPlugin, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The .seq check could not run, or ran without settling its contents or age.</summary>
+    static bool SeqUnchecked(SeqLintFinding s) =>
+        (!s.SeqExists && s.Note is not null)
+        || (s.SeqExists && (s.SeqContainsQuest is null || s.SeqNewerThanPlugin is null));
+
     /// <summary>The SEQ staleness and coverage block for a Start-Game-Enabled quest; skipped where SeqLint is null.</summary>
     internal static void AppendSeq(StringBuilder sb, SeqLintFinding? s)
     {
@@ -133,7 +145,7 @@ internal static class DialogueWire
     {
         var v = new StringBuilder();
         string fid = $"0x{s.OnDiskFormId:X8}";
-        bool overrideInPlay = !string.Equals(s.WinnerPlugin, s.DefiningPlugin, StringComparison.OrdinalIgnoreCase);
+        bool overrideInPlay = OverrideInPlay(s);
         bool covered = s.SeqExists && s.SeqContainsQuest == true && s.SeqNewerThanPlugin == true;
 
         if (!s.SeqExists && s.Note is not null)

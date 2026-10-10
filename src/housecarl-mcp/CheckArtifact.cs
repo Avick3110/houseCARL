@@ -93,7 +93,7 @@ internal static class CheckArtifact
             total += d2.ProblemsFound + SeedsNotReached(d2);
             foreach (var seed in d2.Resolved)
                 foreach (var f in DialogueSweep.Findings(seed.Report!))
-                    writer.WriteRow((w, _) => Row(w, "dialogue", f.Class, plugin: f.Plugin, formid: f.FormId,
+                    writer.WriteRow((w, _) => Row(w, "dialogue", f.Class, plugin: f.Plugin, formid: f.Record.ToString(),
                                                   editorid: f.EditorId, recordType: f.RecordType, target: f.Target,
                                                   script: f.Script, detail: f.Detail));
             foreach (var seed in d2.Unresolved)
