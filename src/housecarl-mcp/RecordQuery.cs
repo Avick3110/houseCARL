@@ -182,6 +182,20 @@ internal sealed partial class RecordReads
         // Plugins the winner scan could not open at all — a whole-plugin coverage gap, named in the response.
         var unreadablePlugins = new List<PluginUnreadableException>();
 
+        // Whether a row passes the body filters that run before where=, so a '*parent' gather skips the rows they drop.
+        bool ReachesWhere(IMajorRecordGetter body)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(editoridContains)
+                    && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
+                    return false;
+                if (DeletedRecordRule.HasNoLiveBody(body) && (refSet is not null || predicate is { NeedsLiveBody: true })) return false;
+                return ReferenceVerdict(body, refSet, refNone, references, false, out _, out _);
+            }
+            catch (Exception) { return true; }   // the row's own scan meets the fault and names it
+        }
+
         // Only the type=/plugins= branches consult this as a pre-filter, and neither can co-occur with an
         // index-supplied universe.
         HashSet<FormKey>? setFilter = hasFormidSet && !indexUniverse ? new HashSet<FormKey>(formidSet!) : null;
@@ -227,7 +241,9 @@ internal sealed partial class RecordReads
                     var bodies = WinnerBodies.For(view, sess, setPending, null, out var faults, ct);
                     // A winner plugin that would not open is a whole-plugin coverage gap, named once.
                     unreadablePlugins.AddRange(faults.Values);
-                    predicate?.HoldParents(bodies.Values);   // the chunk's containing records, one walk per winner plugin
+                    // The containing records of the rows that reach where=, one walk per winner plugin.
+                    predicate?.HoldParents(bodies.Values.Where(b =>
+                        !(conflictsOnly && (view.TouchingPlugins(b.FormKey)?.Count ?? 0) <= 1) && ReachesWhere(b)));
                     bool go = true;
                     try
                     {
@@ -385,7 +401,7 @@ internal sealed partial class RecordReads
                             ? p.body
                             : bodies.GetValueOrDefault(p.fk);
                     }
-                    predicate?.HoldParents(filterBodies.OfType<IMajorRecordGetter>());
+                    predicate?.HoldParents(filterBodies.OfType<IMajorRecordGetter>().Where(ReachesWhere));
                     bool go = true;
                     try
                     {
