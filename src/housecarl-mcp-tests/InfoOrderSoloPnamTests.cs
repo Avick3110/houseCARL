@@ -24,6 +24,8 @@ public sealed class SoloPnamWorld : IDisposable
     public FormKey B { get; }
     public FormKey C { get; }
     public FormKey DraftTopic { get; }
+    /// <summary>Defined with no lines by the active plugin; the draft alone lists lines in it.</summary>
+    public FormKey EmptyTopic { get; }
 
     public SoloPnamWorld()
     {
@@ -47,6 +49,8 @@ public sealed class SoloPnamWorld : IDisposable
         z.PreviousDialog.SetTo(y.FormKey);
         agree.Responses.Add(x); agree.Responses.Add(y); agree.Responses.Add(z);
 
+        var empty = mod.DialogTopics.AddNew(); empty.EditorID = "HcSoloEmpty";
+
         SyntheticInstance.WriteMod(instance, "SoloPnam", mod);
 
         var draft = new SkyrimMod(ModKey.FromNameAndExtension(DraftName), SkyrimRelease.SkyrimSE);
@@ -56,8 +60,15 @@ public sealed class SoloPnamWorld : IDisposable
         var t = new DialogResponses(draft.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcSoloDraftT" };
         t.PreviousDialog.SetTo(p.FormKey);
         draftTopic.Responses.Add(p); draftTopic.Responses.Add(q); draftTopic.Responses.Add(t);
-        SyntheticInstance.WriteMod(instance, "SoloDraft", draft);
+        // The active plugin defines HcSoloEmpty with no lines; only the draft lists any, in an order its PNAM keeps.
+        var emptyOverride = draft.DialogTopics.GetOrAddAsOverride(empty);
+        var u = new DialogResponses(draft.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcSoloDraftU" };
+        var v = new DialogResponses(draft.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcSoloDraftV" };
+        v.PreviousDialog.SetTo(u.FormKey);
+        emptyOverride.Responses.Add(u); emptyOverride.Responses.Add(v);
+        SyntheticInstance.WriteMod(instance, "SoloDraft", draft, mod);
         DraftTopic = draftTopic.FormKey;
+        EmptyTopic = empty.FormKey;
 
         SyntheticInstance.WriteProfile(instance,
             new[] { "# header", "-SoloDraft", "+SoloPnam", "+VanillaStub" },
@@ -95,6 +106,7 @@ public sealed class InfoOrderSoloPnamTests : IClassFixture<SoloPnamWorld>
     public void APnamThatDisagreesWithFileOrderIsListedInPlaceOrderAndMarked()
     {
         var r = InfoOrder(W.Disagree);
+        Assert.Contains($"effective INFO order — from a single plugin ({SoloPnamWorld.PluginName});", r);
         Assert.Contains($"#1  {Fid(W.A)}  placed by", r);
         Assert.Contains($"#2  {Fid(W.C)}  placed by", r);
         Assert.Contains($"#3  {Fid(W.B)}  MOVED from #2  placed by", r);
@@ -116,6 +128,21 @@ public sealed class InfoOrderSoloPnamTests : IClassFixture<SoloPnamWorld>
         Assert.Contains($"1 line changed order against {SoloPnamWorld.DraftName}'s own file order", r);
         Assert.Contains("the only plugin listing lines here, so every line shown is its own", r);
         Assert.DoesNotContain("its own list", r);
+        // The header names the one plugin; the touch count it replaces came to 0 here, the fold being out of the order.
+        Assert.Contains($"effective INFO order — from a single plugin ({SoloPnamWorld.DraftName});", r);
+        Assert.DoesNotContain("merged across", r);
+    }
+
+    /// <summary>An active plugin defines the topic with no lines and only the folded draft lists any, in an order its
+    /// PNAM keeps: the one-line answer main gave still stands.</summary>
+    [Fact]
+    public void AFoldedDraftThatAloneListsLinesInAnEmptyTopicKeepsTheOneLineAnswer()
+    {
+        var r = InfoOrder(W.EmptyTopic, source: SoloPnamWorld.DraftName);
+        Assert.DoesNotContain("error=", r);
+        Assert.Contains($"INFO order: 2 lines, from a single plugin ({SoloPnamWorld.DraftName}) — nothing merges here and its PNAM links keep its file order, so the effective order IS that plugin's own list.", r);
+        Assert.DoesNotContain("merged across", r);
+        Assert.DoesNotContain("not compared", r);
     }
 
     [Fact]
