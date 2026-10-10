@@ -138,8 +138,7 @@ public sealed class NullableLinkCopyTests : IDisposable
     public void APresentZeroSourceLinkCopiesAsAPresentZero() => Assert.Equal(0u, CopiedPnam(sourceZero: true));
 }
 
-/// <summary>#1144, the <c>copy target=</c> seed lane: an absent source link clears the target's, and a present zero,
-/// nullable (WNAM) or required (RNAM), copies as a present zero rather than being cleared or refused.</summary>
+/// <summary>#1144, the <c>copy target=</c> seed lane: an absent source link clears the target's; a present zero copies as one.</summary>
 [Trait("tier", "unit")]
 public sealed class NullableLinkSeedCopyTests : IDisposable
 {
@@ -260,8 +259,7 @@ public sealed class FormLinkShapeTests
     }
 }
 
-/// <summary>#1144 end to end: one patch Removes one line's PNAM and Sets another's to "0"; the echo reads each shape back
-/// from the file, and the merged order puts the Removed line last and the zeroed line first.</summary>
+/// <summary>#1144 end to end: a PNAM Remove and a PNAM Set "0" reach the file, the echo and info_order as absent and present zero.</summary>
 [Trait("tier", "integration")]
 public sealed class NullableLinkRemoveApplyTests : IDisposable
 {
