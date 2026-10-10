@@ -16,23 +16,25 @@ sealed record FieldFold(string Requested, string Root, string[] Tail, PathFold F
 /// contract in docs/architecture/read-engine.md.</summary>
 sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFold?[] Folds, int Depth, int CallerDepth = 1)
 {
-    /// <summary>What the READ is asked for: each distinct path once, with the depth that path's own column
-    /// needs and, for a <c>[*]</c> column that names a sub-path, that sub-path to read off each element.</summary>
+    /// <summary>What the READ is asked for: each distinct (path, sub-path) once, sub-path reads first so the
+    /// shared budget reaches them before any whole read, each at the depth its own column needs.</summary>
     internal (string[] Paths, (int Depth, string[]? Tail)[] Depths) Read()
     {
         var at = new Dictionary<(string, string?), int>();
         var paths = new List<string>(Paths.Length);
         var depths = new List<(int Depth, string[]? Tail)>(Paths.Length);
-        for (int i = 0; i < Paths.Length; i++)
-        {
-            // A [*count] column renders the list's own count line and nothing under it, so it reads at depth 1.
-            int d = Folds[i] switch { { Fold: PathFold.Set } => Depth, { Fold: PathFold.Count } => 1, _ => CallerDepth };
-            // A sub-path column always reads just that sub-path off each element, whatever else reads the list.
-            var tail = Folds[i] is { Fold: PathFold.Set, Tail.Length: > 0 } f ? f.Tail : null;
-            var key = (Paths[i], tail is null ? null : string.Join(".", tail));
-            if (at.TryGetValue(key, out int j)) { depths[j] = (Math.Max(depths[j].Depth, d), tail); continue; }
-            at[key] = paths.Count; paths.Add(Paths[i]); depths.Add((d, tail));
-        }
+        foreach (bool tails in new[] { true, false })
+            for (int i = 0; i < Paths.Length; i++)
+            {
+                // A sub-path column always reads just that sub-path off each element, whatever else reads the list.
+                var tail = Folds[i] is { Fold: PathFold.Set, Tail.Length: > 0 } f ? f.Tail : null;
+                if ((tail is not null) != tails) continue;
+                // A [*count] column renders the list's own count line and nothing under it, so it reads at depth 1.
+                int d = Folds[i] switch { { Fold: PathFold.Set } => Depth, { Fold: PathFold.Count } => 1, _ => CallerDepth };
+                var key = (Paths[i], tail is null ? null : string.Join(".", tail));
+                if (at.TryGetValue(key, out int j)) { depths[j] = (Math.Max(depths[j].Depth, d), tail); continue; }
+                at[key] = paths.Count; paths.Add(Paths[i]); depths.Add((d, tail));
+            }
         return (paths.ToArray(), depths.ToArray());
     }
 
