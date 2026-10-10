@@ -176,13 +176,13 @@ public sealed class RecordsContainmentBatchTests : IClassFixture<OwnedChildFixtu
     long[] Costs() { var c = _w.Svc.Counters; return new[] { c.BodySeeks, c.TypedSeeks, c.CollectPasses, c.TypedCollectPasses }; }
     long[] Since(long[] before) => Costs().Zip(before, (a, b) => a - b).ToArray();
 
-    /// <summary>The scan's gather reaches the resolver typed: every gather walk reads only the container's groups.
-    /// Fails on an untyped <c>GatherContainers</c>, which walks the winner plugin from the top.</summary>
+    /// <summary>The scan's gather reaches the resolver typed, one container walk per winner plugin, never one per
+    /// distinct cell. Fails on an untyped <c>GatherContainers</c>, and without the type lane's <c>HoldParents</c>.</summary>
     [Theory]
-    [InlineData("PlacedObject", "*parent.EditorID = HcOcCellA")]
-    [InlineData("DialogResponses", "*parent.EditorID = HcOcTopic")]
-    [InlineData("PlacedObject", "*parent.*parent.EditorID = HcOcWrld")]
-    public void AParentScanGathersTyped(string type, string clause)
+    [InlineData("PlacedObject", "*parent.EditorID = HcOcCellA", 3)]           // cells won by Base, Mid and Top
+    [InlineData("DialogResponses", "*parent.EditorID = HcOcTopic", 1)]
+    [InlineData("PlacedObject", "*parent.*parent.EditorID = HcOcWrld", 3)]
+    public void AParentScanGathersTyped(string type, string clause, int walks)
     {
         var before = Costs();
         var r = RecordsTools.Records(_w.Svc, types: new[] { type }, where: new[] { clause },
@@ -190,8 +190,7 @@ public sealed class RecordsContainmentBatchTests : IClassFixture<OwnedChildFixtu
                                      counts_only: true);
         Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
         var d = Since(before);
-        Assert.True(d[2] > 0, string.Join(",", d));
-        Assert.Equal(d[2], d[3]);                                   // every gather walk typed
+        Assert.Equal(new long[] { 0, 0, walks, walks }, d);        // no lone seek; every gather walk typed
     }
 
     /// <summary>The formid-set lane gathers a chunk's containing records once: one walk per winner plugin for the
