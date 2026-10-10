@@ -368,7 +368,6 @@ internal sealed partial class RecordReads
                 // Fetch one chunk's winner and containing-record bodies and scan its rows, in stream order; false stops the scan.
                 bool DrainChunk()
                 {
-                    ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan between chunks
                     var needed = new List<FormKey>(pending!.Count);
                     if (whereWinnerActive)
                         foreach (var p in pending)
