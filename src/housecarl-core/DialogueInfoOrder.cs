@@ -54,6 +54,9 @@ public sealed record InfoOrderView(
     /// <summary>Every touching plugin's list made it in; when false, nothing read off the order is authoritative.</summary>
     public bool Complete => UnreadContributors.Count == 0;
 
+    /// <summary>Exactly one plugin lists lines here and every touching list was read: nothing merges.</summary>
+    public bool Solo => ContributingPlugins.Count == 1 && Complete;
+
     /// <summary>The OFF-ORDER plugin folded in; every render carrying one must say so and mark its lines.</summary>
     public string? FoldedPlugin { get; init; }
 
@@ -72,7 +75,7 @@ public static class DialogueInfoOrder
     public static bool PnamZeroIsDistinguishable => true;
 
     /// <summary>Move analysis is O(n·m); past this many lines it is skipped, and said to be skipped.</summary>
-    const int MaxMoveAnalysisLines = 400;
+    public const int MaxMoveAnalysisLines = 400;
 
     /// <summary>Ceiling on PNAM-chain recursion depth — one frame per hop, and a stack overflow cannot be caught.</summary>
     const int MaxChainDepth = 400;
@@ -108,6 +111,9 @@ public static class DialogueInfoOrder
         // The DEFINING plugin's own list is the baseline a "moved" verdict is measured against.
         IReadOnlyDictionary<FormKey, int>? originIdx = null;
 
+        // A projection that is the ONLY list here lands ahead of nothing, so its own file order is the baseline.
+        bool loneList = groups.Count(g => g.Lines.Count > 0) == 1;
+
         // Every line any group carries, so a PNAM target within the topic never pays the fallback resolver.
         foreach (var (plugin, lines) in groups)
             foreach (var line in lines)
@@ -119,7 +125,7 @@ public static class DialogueInfoOrder
             contributing.Add(plugin);
 
             // The projection never sets the baseline; everything else merges as a plugin there would.
-            if (!plugin.Equals(projectedPlugin, StringComparison.OrdinalIgnoreCase))
+            if (loneList || !plugin.Equals(projectedPlugin, StringComparison.OrdinalIgnoreCase))
                 originIdx ??= lines
                     .Select((l, i) => (l.Info, i))
                     .GroupBy(p => p.Info)                         // a malformed duplicate keeps its FIRST index
@@ -151,7 +157,8 @@ public static class DialogueInfoOrder
 
         (state.Cycles, state.CycleMembers) = CountPnamCycles(order, state.Placed);
         return new InfoOrderView(entries, contributing, moved,
-                                 BuildNote(state, order.Count, originIdx is not null, unreadContributors, originIsDefiningPlugin))
+                                 BuildNote(state, order.Count, originIdx is not null, unreadContributors, originIsDefiningPlugin,
+                                           solo: loneList && unreadContributors is not { Count: > 0 }))
             { UnreadContributors = unreadContributors ?? Array.Empty<string>(),
               BaselineTrusted = originIsDefiningPlugin,
               MovesComputed = originIdx is not null && order.Count <= MaxMoveAnalysisLines && originIsDefiningPlugin };
@@ -159,7 +166,7 @@ public static class DialogueInfoOrder
 
     /// <summary>The DEGRADATION note: what did not run cleanly, and on what input. Data problems, not tool limits.</summary>
     static string? BuildNote(MergeState state, int lineCount, bool haveOrigin,
-                             IReadOnlyList<string>? unreadContributors, bool originIsDefiningPlugin)
+                             IReadOnlyList<string>? unreadContributors, bool originIsDefiningPlugin, bool solo)
     {
         var parts = new List<string>();
         if (haveOrigin && !originIsDefiningPlugin)
@@ -172,7 +179,8 @@ public static class DialogueInfoOrder
                       $"({string.Join(", ", unreadContributors)}) — their lines are MISSING from the order below, " +
                       "so it is incomplete and any line's position may be wrong; re-run (a plugin moved or locked " +
                       "by MO2/xEdit mid-call is the usual cause)");
-        if (haveOrigin && lineCount > MaxMoveAnalysisLines)
+        // A one-plugin topic says this in its one-line answer; "the order above is exact" would claim its PNAM order.
+        if (haveOrigin && lineCount > MaxMoveAnalysisLines && !solo)
             parts.Add($"this topic carries {lineCount} lines, past the {MaxMoveAnalysisLines}-line ceiling for move " +
                       "analysis — the order above is exact, but which lines moved was NOT computed");
         if (state.SelfReferencing.Count > 0)
