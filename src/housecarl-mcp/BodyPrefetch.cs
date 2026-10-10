@@ -1,4 +1,4 @@
-using Mutagen.Bethesda.Plugins;
+﻿using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using HousecarlCore;
 
@@ -34,7 +34,7 @@ internal static class BodyPrefetch
             plugins[fk] = plugin;
         }
         Interlocked.Add(ref counters.KeysWanted, plugins.Count);     // what this caller asked for, whether or not a row reads it
-        return new Chunk(gather, plugins);
+        return new Chunk(gather, plugins, view, session, ct);
     }
 
     /// <summary>One chunk's bodies, each source plugin enumerated once and only when a row asks for it.</summary>
@@ -42,9 +42,29 @@ internal static class BodyPrefetch
     {
         readonly BodyGather _gather;
         readonly Dictionary<FormKey, string> _plugins;
+        readonly LoadOrderResolver.IndexView _view;
+        readonly LoadOrderResolver.OverlaySession _session;
+        readonly CancellationToken _ct;
+        Dictionary<FormKey, IMajorRecordGetter>? _parents;
 
-        internal Chunk(BodyGather gather, Dictionary<FormKey, string> plugins)
-        { _gather = gather; _plugins = plugins; }
+        internal Chunk(BodyGather gather, Dictionary<FormKey, string> plugins,
+                       LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, CancellationToken ct)
+        { _gather = gather; _plugins = plugins; _view = view; _session = session; _ct = ct; }
+
+        /// <summary>The containing record <paramref name="parent"/> of one of this chunk's rows: the first '*parent'
+        /// hop a row reads gathers every row's containing record, one walk per winner plugin (#1147); null when the
+        /// gather does not hold it, and the hop then fetches it alone.</summary>
+        internal IMajorRecordGetter? Parent(FormKey parent)
+        {
+            if (_parents is null)
+            {
+                var wanted = new List<(FormKey Parent, Type ChildType, int Hops)>();
+                foreach (var (fk, plugin) in _plugins)
+                    if (_view.ParentOf(fk) is { } pk && _gather.Body(plugin, fk) is { } body) wanted.Add((pk, body.GetType(), 1));
+                _parents = ContainmentIndex.GatherContainers(_view, _session, wanted, out _, _ct);
+            }
+            return _parents.GetValueOrDefault(parent);
+        }
 
         /// <summary>This row's body, walking its source plugin once for the whole chunk. A body that is not gathered
         /// comes back null and the row's own read raises the fault it always did; an

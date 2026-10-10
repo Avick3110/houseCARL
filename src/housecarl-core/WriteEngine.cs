@@ -1076,7 +1076,7 @@ public static class WriteEngine
             && !(ListElementType(p.PropertyType) is { } e && e.IsAssignableFrom(childType)));   // a nameable list slot
 
     /// <summary>Can a value of <paramref name="t"/> hold a <paramref name="childType"/> record? The same walk, asked of ONE target type.</summary>
-    static bool ReachesRecordType(Type t, Type childType, HashSet<Type> seen, int depth)
+    internal static bool ReachesRecordType(Type t, Type childType, HashSet<Type> seen, int depth)
     {
         if (depth > 6 || !seen.Add(t)) return false;
         try

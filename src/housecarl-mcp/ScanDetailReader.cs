@@ -1,4 +1,4 @@
-using Mutagen.Bethesda.Plugins;
+﻿using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using HousecarlCore;
 
@@ -49,7 +49,7 @@ internal sealed class ScanDetailReader : IDisposable
         FillChunk(i);
         var body = _chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
         return _svc.ResolveReadOn(_q, fk, plugin, _fields, false, _depth, _resolveNames, _linkMemo,
-                                  _containerHint, _depths, _session, body);
+                                  _containerHint, _depths, _session, body, heldParent: _chunk is null ? null : _chunk.Parent);
     }
 
     /// <summary>The plugin whose body this row displays: the scan's own per-match source, or the winner when the
