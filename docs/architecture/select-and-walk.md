@@ -104,6 +104,15 @@ path walk, and containment comes off Mutagen's context walk.
 - The containment climb is index-only: a chain reads a body for the record its terms run on, and
   what carries across candidates is the VERDICT, not the body. The link-target cache is deliberately
   not shared with the hop — `types=` bounds the child population, not the parent one (#720).
+- A scan gathers its containing records a CHUNK at a time (#1147): the scan lanes buffer up to
+  10,000 candidates, `FieldPredicateSet.HoldParents` collects the chunk's distinct parent keys whose
+  verdict is not yet memoized, and `ContainmentIndex.GatherContainers` reads them through
+  `WinnerBodies.For`, one walk per winner plugin, in only the groups the child's container type sits
+  under (`ContainmentIndex.ContainerGetters`, derived from `WriteEngine.ChildBearingProperties`:
+  REFR/ACHR to CELL, INFO to DIAL, CELL to WRLD). The bodies are dropped when the chunk drains, so the
+  chunk is the memory bound and only verdicts outlive it. A parent the chunk did not gather (a hop on a
+  `->` target) is fetched alone, still typed. A projection's `*parent` read gathers its render chunk's
+  first-hop parents the same way, on the first row that reads one.
 - Containment is captured at index build from Mutagen's context walk, merged per plugin in priority
   order with the last declaration standing, and a plugin that throws part-way merges nothing.
 
@@ -123,6 +132,9 @@ path walk, and containment comes off Mutagen's context walk.
 - `WhereContainmentTests` / `RecordsContainmentTests` — the `*parent` step and its no-verdict rollups.
 - `WhereContainmentCostTests` — `ParentBodiesHeld` / `ParentBodyHighWater` / `ParentBodyFetches`, the
   #720 invariant that no containing record outlives the candidate that read it.
+- `WhereContainmentBatchTests` / `RecordsContainmentBatchTests` — the #1147 chunk gather: one gather
+  per chunk, each parent once, typed by the child, the same answer across a chunk boundary, and no
+  per-record seek on a real scan.
 - `WhereAccountingCauseTests` — the per-cause accounting sentences.
 - `RecordsUnmatchedMembersTests` — the unmatched-members bullet: text, json, `@file`, the cap, the manifest,
   a member only a lower scoped copy carries, a FormID named as typed; `UnmatchedMembersJudgementTests`,
