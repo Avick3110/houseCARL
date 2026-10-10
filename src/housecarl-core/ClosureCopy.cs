@@ -285,7 +285,7 @@ public static class ClosureCopy
             var mapped = new List<FormKey>();
             if (sv is IEnumerable sList and not string)
                 foreach (var el in sList)
-                    if (el is IFormLinkGetter l && l.FormKeyNullable is { } lk && !lk.IsNull) mapped.Add(Mapped(lk));
+                    if (el is IFormLinkGetter l) mapped.Add(Mapped(l.FormKey));   // a zero entry keeps its index (#1144)
 
             // A null target list is a list carrying nothing, so it is assigned INTO rather than refused.
             if (tv is not IList tList)
