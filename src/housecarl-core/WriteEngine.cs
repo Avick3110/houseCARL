@@ -1589,19 +1589,6 @@ public static class WriteEngine
         if (pt.IsArray)
             throw new ExpectedApplyRejectionException(
                 $"CopyFrom does not transplant the array-backed collection '{prop.Name}' ({Pretty(pt)}) — a fixed-size game structure; a tracked gap, mirroring the write verbs.");
-        // An ABSENT nullable link copies as absent; rebuilt from its FormKey it would write a present zero (#1144).
-        if (srcVal is IFormLinkGetter { FormKeyNullable: null } && IsNullableFormLink(pt))
-        {
-            if (prop.CanWrite) prop.SetValue(parent, EmptyFormLinkOf(pt));
-            else
-            {
-                var live = prop.GetValue(parent)
-                    ?? throw new InvalidOperationException($"CopyFrom: get-only formlink '{prop.Name}' is null on the target.");
-                (live.GetType().GetMethod("SetToNull", Type.EmptyTypes)
-                    ?? throw new InvalidOperationException($"CopyFrom: no SetToNull() on formlink {Pretty(live.GetType())}.")).Invoke(live, null);
-            }
-            return;
-        }
         if (prop.CanWrite)
         {
             // a value/enum/struct-value (int, float, enum, Color, Percent, FormKey…) — copied by value on assign
@@ -1613,9 +1600,9 @@ public static class WriteEngine
             if (TryDeepCopy(srcVal) is { } deep && pt.IsInstanceOfType(deep)) { prop.SetValue(parent, deep); return; }
             // a directly-assignable immutable reference (string, MemorySlice…) — safe to share while the source overlay lives
             if (pt.IsInstanceOfType(srcVal)) { prop.SetValue(parent, srcVal); return; }
-            // a settable FormLink slot (rare) — build the matching concrete from the source key
-            if (srcVal is IFormLinkGetter sfl && TryFormLink(sfl.FormKey.ToString(), Nullable.GetUnderlyingType(pt) ?? pt, out var mk)
-                && mk is not null && pt.IsInstanceOfType(mk)) { prop.SetValue(parent, mk); return; }
+            // a settable FormLink slot — build the matching concrete from the source key, an absent key staying absent (#1144)
+            if (srcVal is IFormLinkGetter sfl && FormLinkShape.Make(Nullable.GetUnderlyingType(pt) ?? pt, sfl.FormKeyNullable) is { } mk
+                && pt.IsInstanceOfType(mk)) { prop.SetValue(parent, mk); return; }
             throw new ExpectedApplyRejectionException(
                 $"CopyFrom cannot assign a {Pretty(srcVal.GetType())} into settable '{prop.Name}' ({Pretty(pt)}) — a field kind CopyFrom doesn't transplant yet (a clean refusal, not a silent skip).");
         }
@@ -1625,7 +1612,9 @@ public static class WriteEngine
         {
             var live = prop.GetValue(parent)
                 ?? throw new InvalidOperationException($"CopyFrom: get-only formlink '{prop.Name}' is null on the target.");
-            InvokeSetTo(live, fl.FormKey); return;
+            if (!FormLinkShape.TrySetTo(live, fl.FormKeyNullable))
+                throw new InvalidOperationException($"CopyFrom: formlink {Pretty(live.GetType())} has no SetTo(FormKey?), or is required and the source's is absent.");
+            return;
         }
         if (ClosedInterface(pt, typeof(IList<>)) is { } lif && srcVal is System.Collections.IEnumerable lsrc)
         {
@@ -1714,16 +1703,6 @@ public static class WriteEngine
         foreach (var e in src) if (e is not null) add.Invoke(live, new[] { CopyElement(elemType, e) });
     }
 
-    /// <summary>Reflectively call <c>SetTo(FormKey)</c> on a live get-only FormLink.</summary>
-    static void InvokeSetTo(object link, FormKey fk)
-    {
-        var m = link.GetType().GetMethod("SetTo", new[] { typeof(FormKey) });
-        if (m is not null) { m.Invoke(link, new object[] { fk }); return; }
-        var mn = link.GetType().GetMethod("SetTo", new[] { typeof(FormKey?) });
-        if (mn is not null) { mn.Invoke(link, new object?[] { (FormKey?)fk }); return; }
-        throw new InvalidOperationException($"CopyFrom: no SetTo(FormKey) on formlink {Pretty(link.GetType())}.");
-    }
-
     static void ApplyScalarVerb(object parent, PropertyInfo prop, WriteRequest req)
     {
         if (!prop.CanWrite) throw new InvalidOperationException($"Property '{prop.Name}' is not writable");
@@ -1746,9 +1725,8 @@ public static class WriteEngine
                 prop.SetValue(parent, Coerce(req.Value!, prop.PropertyType));
                 break;
             case "Remove": // clear a nullable scalar / substruct / formlink / polymorphic
-                // A FormLink setter REJECTS a null reference, so the clear routes through EmptyFormLinkOf (an unset
-                // link, no subrecord); a REQUIRED link cannot be absent, hence the loud refusal for a pre-flight bypass.
-                if (IsRequiredFormLink(prop.PropertyType))
+                // A link clears to an absent one (EmptyFormLinkOf); a REQUIRED link cannot be absent, so it refuses loudly.
+                if (FormLinkShape.IsRequired(prop.PropertyType))
                     throw new InvalidOperationException(
                         $"Remove is not valid on the required (non-nullable) FormLink '{prop.Name}' — a required link " +
                         "can't be dropped, only re-pointed. To clear it to a null link, Set it to a null-synonym value (\"0\").");
@@ -1985,27 +1963,7 @@ public static class WriteEngine
     static object? DefaultOf(Type t) => t.IsValueType ? System.Activator.CreateInstance(t) : null;
 
     /// <summary>A NON-NULL EMPTY link for a FormLink-family type, else null: a nullable one unset (no subrecord written), a required one FormKey.Null.</summary>
-    static object? EmptyFormLinkOf(Type t) =>
-        IsNullableFormLink(t)
-            ? typeof(FormLinkNullable<>).MakeGenericType(t.GetGenericArguments()[0])
-                  .GetConstructor(new[] { typeof(FormKey?) })!.Invoke(new object?[] { null })
-            : TryFormLink("0", t, out var link) ? link : null;
-
-    /// <summary>True iff <paramref name="t"/> is a NULLABLE FormLink-family type, by generic definition as <see cref="TryFormLink"/> keys off.</summary>
-    static bool IsNullableFormLink(Type t)
-    {
-        if (!t.IsGenericType) return false;
-        var def = t.GetGenericTypeDefinition();
-        return def == typeof(FormLinkNullable<>) || def == typeof(IFormLinkNullable<>) || def == typeof(IFormLinkNullableGetter<>);
-    }
-
-    /// <summary>True iff <paramref name="t"/> is a REQUIRED (non-nullable) FormLink-family type — the branch <see cref="TryFormLink"/> keys off too.</summary>
-    static bool IsRequiredFormLink(Type t)
-    {
-        if (!t.IsGenericType) return false;
-        var def = t.GetGenericTypeDefinition();
-        return def == typeof(FormLink<>) || def == typeof(IFormLink<>) || def == typeof(IFormLinkGetter<>);
-    }
+    static object? EmptyFormLinkOf(Type t) => FormLinkShape.Make(t, null);
 
     /// <summary>Map a getter/interface type to the concrete settable class the engine can instantiate, else null; one answer for every caller.</summary>
     internal static Type? ConcreteOf(Type t)
@@ -2558,17 +2516,9 @@ public static class WriteEngine
     {
         result = null;
         if (!u.IsGenericType) return false;
-        var targetGetter = u.GetGenericArguments()[0];
-        if (IsNullableFormLink(u))
+        if (FormLinkShape.IsNullable(u) || FormLinkShape.IsRequired(u))
         {
-            if (text != null)
-                result = System.Activator.CreateInstance(typeof(FormLinkNullable<>).MakeGenericType(targetGetter), ToFormKey(text));
-            return true;
-        }
-        if (IsRequiredFormLink(u))
-        {
-            if (text != null)
-                result = System.Activator.CreateInstance(typeof(FormLink<>).MakeGenericType(targetGetter), ToFormKey(text));
+            if (text != null) result = FormLinkShape.Make(u, ToFormKey(text));
             return true;
         }
         // IFormLinkOrIndex<T> is NOT coercible here — its ctor needs the owning arm, which Coerce has no access to.

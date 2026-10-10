@@ -902,7 +902,7 @@ public static class ReadEngine
         {
             if (!fl.FormKey.IsNull) return LeafRead.Value(FormIdToken.Of(fl.FormKey));
             // FormKeyNullable is null only when the subrecord is ABSENT; PRESENT with zero means the opposite.
-            bool nullable = WriteEngine.ClosedInterface(val.GetType(), typeof(IFormLinkNullableGetter<>)) is not null;
+            bool nullable = FormLinkShape.IsNullable(val.GetType());
             return LeafRead.None(nullable && fl.FormKeyNullable is not null ? PresentNullLinkNote : NullLinkNote);
         }
         // TranslatedString — the resolved .String.

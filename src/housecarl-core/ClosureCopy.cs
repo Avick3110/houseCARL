@@ -129,7 +129,7 @@ public static class ClosureCopy
             if (val is IFormLinkGetter singleLink)
             {
                 if (singleLink.FormKeyNullable is not { } fk || fk.IsNull || !isBound(fk)) continue;
-                if (!IsNullableLink(val))
+                if (!FormLinkShape.IsNullable(val.GetType()))
                     return new CopyRefusal(CopyRefusalKind.RequiredForeignLink,
                         $"the record's REQUIRED field '{prop.Name}' points at {FormIdToken.Of(fk)}, which is in the source universe " +
                         "being copied away from: it cannot be nulled without inventing data, and keeping it would " +
@@ -168,7 +168,7 @@ public static class ClosureCopy
             {
                 if (singleLink.FormKeyNullable is not { } fk || fk.IsNull || !isBound(fk)) continue;
                 // Pass 1 has already proven this link is nullable; the else-branch is a backstop.
-                if (TryNullLink(val))
+                if (FormLinkShape.TrySetTo(val, null))
                     stripped.Add(new StripEntry(prop.Name, FormIdToken.Of(fk)));
                 else
                     return StripResult.Fail(new CopyRefusal(CopyRefusalKind.RequiredForeignLink,
@@ -220,21 +220,6 @@ public static class ClosureCopy
         return new StripResult(true, null, stripped);
     }
 
-    /// <summary>Null a single link's key iff the link is genuinely NULLABLE, judged on the RECORD MODEL's
-    /// <c>IFormLinkNullable&lt;T&gt;</c>; false for a required link, which the caller escalates to the refusal.</summary>
-    static bool TryNullLink(object link)
-    {
-        if (!IsNullableLink(link)) return false;
-        var m = link.GetType().GetMethod("SetToNull", Type.EmptyTypes);
-        if (m is null) return false;
-        m.Invoke(link, null);
-        return true;
-    }
-
-    /// <summary>The non-mutating half of the same judgement, so pass 1 can decide without touching the record.</summary>
-    static bool IsNullableLink(object link) => link.GetType().GetInterfaces().Any(i =>
-        i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IFormLinkNullable<>));
-
     /// <summary>ATTACH — set the walked SEED fields on <paramref name="target"/> from <paramref name="source"/>,
     /// substituting the internalized keys, so only the seed paths are touched and only the target is written.</summary>
     public static StripResult AttachSeedFields(
@@ -280,18 +265,18 @@ public static class ClosureCopy
                 // An ABSENT source link clears the target's; a present zero copies as a present zero (#1144).
                 if (key is null)
                 {
-                    if (!TryClearLink(tv))
+                    if (!FormLinkShape.TrySetTo(tv, null))
                         return StripResult.Fail(new CopyRefusal(CopyRefusalKind.UnwritableTarget,
                             $"'{path}' is unset on the source and the target's is REQUIRED, so it cannot be cleared " +
                             "without inventing data", path));
                     set.Add(new StripEntry(path, "cleared", Cleared: true));
                     continue;
                 }
-                if (!TrySetLink(tv, Mapped(key.Value)))
+                if (!FormLinkShape.TrySetTo(tv, Mapped(key.Value)))
                     return StripResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant,
                         $"'{path}' could not be set on the target", path));
                 set.Add(new StripEntry(path, key.Value.IsNull
-                    ? (IsNullableLink(tv) ? ReadEngine.PresentNullLinkNote : ReadEngine.NullLinkNote).Trim('(', ')')
+                    ? (FormLinkShape.IsNullable(tv.GetType()) ? ReadEngine.PresentNullLinkNote : ReadEngine.NullLinkNote).Trim('(', ')')
                     : Mapped(key.Value).ToString()));
                 continue;
             }
@@ -327,29 +312,6 @@ public static class ClosureCopy
                 : new StripEntry(path, $"{mapped.Count} link(s)"));
         }
         return new StripResult(true, null, set);
-    }
-
-    /// <summary>Clear a single link property; false for a REQUIRED link, which has no legal null.</summary>
-    static bool TryClearLink(object linkObj)
-    {
-        if (!IsNullableLink(linkObj)) return false;
-        var m = linkObj.GetType().GetMethod("SetToNull", Type.EmptyTypes);
-        if (m is null) return false;
-        m.Invoke(linkObj, null);
-        return true;
-    }
-
-    /// <summary>Set a single link property's key, whichever of the required/nullable SetTo overloads it carries.</summary>
-    static bool TrySetLink(object linkObj, FormKey key)
-    {
-        foreach (var m in linkObj.GetType().GetMethods().Where(x => x.Name == "SetTo"))
-        {
-            var ps = m.GetParameters();
-            if (ps.Length != 1) continue;
-            if (ps[0].ParameterType == typeof(FormKey)) { m.Invoke(linkObj, new object?[] { key }); return true; }
-            if (ps[0].ParameterType == typeof(FormKey?)) { m.Invoke(linkObj, new object?[] { (FormKey?)key }); return true; }
-        }
-        return false;
     }
 
     /// <summary>Construct an empty list for a target property whose own is null; null when the declared type cannot be instantiated.</summary>
