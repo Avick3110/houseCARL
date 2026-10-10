@@ -303,8 +303,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                                        IReadOnlyList<(int Depth, string[]? Tail)>? depths = null,
                                        LoadOrderResolver.OverlaySession? session = null,
                                        IMajorRecordGetter? prefetched = null,
-                                       IReadOnlyCollection<string>? countFields = null)
-        => _reads.ResolveReadOn(q, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, session, prefetched, countFields);
+                                       IReadOnlyCollection<string>? countFields = null,
+                                       Func<FormKey, IMajorRecordGetter?>? heldParent = null)
+        => _reads.ResolveReadOn(q, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, session, prefetched, countFields, heldParent);
     internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk) => _reads.ResolveSummaryOn(q, fk);
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                                    bool resolveNames = false, string? plugin = null,

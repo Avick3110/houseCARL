@@ -1,0 +1,175 @@
+using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Records;
+using Mutagen.Bethesda.Skyrim;
+using HousecarlCore;
+using HousecarlMcp;
+using Xunit;
+
+namespace HousecarlMcpTests;
+
+/// <summary>#1147: a <c>*parent</c> scan gathers a chunk's containing records in ONE bulk fetch, typed by the
+/// child, instead of one untyped whole-plugin seek per distinct parent; only verdicts outlive the chunk.</summary>
+[Trait("tier", "unit")]
+public sealed class WhereContainmentBatchTests
+{
+    readonly SkyrimMod _mod = new(new ModKey("ParentBatch", ModType.Master), SkyrimRelease.SkyrimSE);
+    readonly Dictionary<FormKey, FormKey> _parents = new();
+    readonly Dictionary<FormKey, IMajorRecordGetter> _bodies = new();
+    readonly List<int> _gatherSizes = new();
+    readonly List<FormKey> _gathered = new();
+    readonly List<Type> _gatherTypes = new();
+    int _singleFetches;
+
+    Cell NewCell(string eid)
+    {
+        var c = new Cell(_mod.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = eid };
+        _bodies[c.FormKey] = c;
+        return c;
+    }
+
+    PlacedObject NewPlaced(string eid, IMajorRecordGetter parent)
+    {
+        var r = new PlacedObject(_mod.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = eid };
+        _bodies[r.FormKey] = r;
+        _parents[r.FormKey] = parent.FormKey;
+        return r;
+    }
+
+    FieldPredicateSet Bind(string clause, bool batched)
+    {
+        var (set, err) = FieldPredicateSet.Parse(new[] { clause });
+        Assert.Null(err);
+        set!.BindResolution(fk => _bodies.ContainsKey(fk) ? "ParentBatch.esm" : null,
+                            fk => { _singleFetches++; return _bodies.GetValueOrDefault(fk); },
+                            fk => _parents.TryGetValue(fk, out var p) ? p : null,
+                            batched
+                                ? wanted =>
+                                {
+                                    _gatherSizes.Add(wanted.Count);
+                                    var got = new Dictionary<FormKey, IMajorRecordGetter>();
+                                    foreach (var (pk, childType, hops) in wanted)
+                                    {
+                                        _gathered.Add(pk);
+                                        _gatherTypes.AddRange(ContainmentIndex.ContainerGetters(childType, hops));
+                                        if (_bodies.TryGetValue(pk, out var b)) got[pk] = b;
+                                    }
+                                    return got;
+                                }
+                                : null);
+        return set;
+    }
+
+    /// <summary>Run the set over the candidates a chunk at a time, as the scan lanes do; chunk 0 means unbatched.</summary>
+    static List<FormKey> Scan(FieldPredicateSet set, IReadOnlyList<IMajorRecordGetter> candidates, int chunk)
+    {
+        var hits = new List<FormKey>();
+        int size = chunk == 0 ? candidates.Count : chunk;
+        for (int start = 0; start < candidates.Count; start += size)
+        {
+            var part = candidates.Skip(start).Take(size).ToList();
+            if (chunk > 0) set.HoldParents(part);
+            foreach (var c in part) if (set.Matches(c)) hits.Add(c.FormKey);
+            set.ReleaseParents();
+        }
+        Assert.Null(set.FatalError);
+        return hits;
+    }
+
+    /// <summary>Many children of few parents: each parent is fetched once, all of them in one gather, and never
+    /// through the one-at-a-time fetch. Fails on the per-parent fetch, which makes four single calls.</summary>
+    [Fact]
+    public void AChunkOfChildrenFetchesEachParentOnceInOneGather()
+    {
+        var cells = Enumerable.Range(0, 4).Select(i => NewCell($"PbCell{i}")).ToList();
+        var placed = Enumerable.Range(0, 200).Select(i => (IMajorRecordGetter)NewPlaced($"PbRef{i}", cells[i % 4])).ToList();
+
+        var set = Bind("*parent.EditorID = PbCell2", batched: true);
+        var hits = Scan(set, placed, chunk: 1000);
+
+        Assert.Equal(50, hits.Count);
+        Assert.Equal(new[] { 4 }, _gatherSizes);                      // one gather, the four distinct parents
+        Assert.Equal(cells.Select(c => c.FormKey).OrderBy(k => k.ID), _gathered.OrderBy(k => k.ID));
+        Assert.Equal(0, _singleFetches);
+        Assert.Equal(1, set.ParentFetchCalls);
+        Assert.Equal(0, set.ParentBodiesHeld);
+    }
+
+    /// <summary>The gather is typed by the child: a placed reference's container is a cell, so the walk reads the
+    /// cell groups and not the whole plugin from the top.</summary>
+    [Fact]
+    public void TheGatherIsTypedByTheChildsContainer()
+    {
+        var cell = NewCell("PbTyped");
+        var placed = Enumerable.Range(0, 3).Select(i => (IMajorRecordGetter)NewPlaced($"PbTypedRef{i}", cell)).ToList();
+
+        Scan(Bind("*parent.EditorID = PbTyped", batched: true), placed, chunk: 10);
+
+        Assert.Equal(new[] { typeof(ICellGetter) }, _gatherTypes.Distinct());
+        Assert.Equal(new[] { typeof(IDialogTopicGetter) }, ContainmentIndex.ContainerGetters(typeof(DialogResponses), 1));
+        Assert.Equal(new[] { typeof(IWorldspaceGetter) }, ContainmentIndex.ContainerGetters(typeof(PlacedObject), 2));
+    }
+
+    /// <summary>A chunk boundary in the middle of one parent's children: the second chunk reuses the first chunk's
+    /// VERDICT, never its body, and the answer is the unbatched one.</summary>
+    [Fact]
+    public void AChunkBoundaryInsideOneParentsChildrenGivesTheSameAnswer()
+    {
+        var cells = Enumerable.Range(0, 4).Select(i => NewCell($"PbSplit{i}")).ToList();
+        // Grouped by cell, 50 each, so a 30-row chunk splits every cell's run of children.
+        var placed = Enumerable.Range(0, 200).Select(i => (IMajorRecordGetter)NewPlaced($"PbSplitRef{i}", cells[i / 50])).ToList();
+
+        var unbatched = Scan(Bind("*parent.EditorID = PbSplit1", batched: false), placed, chunk: 0);
+        int singleUnbatched = _singleFetches;
+        var batched = Scan(Bind("*parent.EditorID = PbSplit1", batched: true), placed, chunk: 30);
+
+        Assert.Equal(50, unbatched.Count);
+        Assert.Equal(unbatched, batched);
+        Assert.Equal(4, singleUnbatched);
+        Assert.Equal(singleUnbatched, _singleFetches);              // the batched pass made no single fetch of its own
+        Assert.Equal(4, _gathered.Count);                           // each parent gathered once across all seven chunks
+        Assert.Equal(_gathered.Count, _gathered.Distinct().Count());
+    }
+
+    /// <summary>A hop that dead-ends above its first step still names what it dead-ended on, read through the
+    /// gather rather than one fetch per dead end.</summary>
+    [Fact]
+    public void AChainThatDeadEndsIsReadThroughTheGather()
+    {
+        var placed = new List<IMajorRecordGetter>();
+        for (int i = 0; i < 10; i++)
+        {
+            var cell = NewCell($"PbLone{i}");
+            for (int r = 0; r < 3; r++) placed.Add(NewPlaced($"PbLoneRef{i}_{r}", cell));
+        }
+
+        var set = Bind("*parent.*parent.EditorID = PbNowhere", batched: true);
+        Assert.Empty(Scan(set, placed, chunk: 100));
+        Assert.Equal(0, _singleFetches);
+        Assert.Equal(new[] { 10 }, _gatherSizes);
+        Assert.Contains("Cell", set.AccountingNote());
+    }
+}
+
+/// <summary>The same against real plugins: a <c>*parent</c> scan makes no per-record seek, so no parent fetch
+/// walks its winner plugin from the top. Fails on the per-parent untyped <c>GetRecord</c>.</summary>
+[Trait("tier", "integration")]
+public sealed class RecordsContainmentBatchTests : IClassFixture<OwnedChildFixture>
+{
+    readonly OwnedChildWorld _w;
+
+    public RecordsContainmentBatchTests(OwnedChildFixture f) => _w = f.W;
+
+    [Theory]
+    [InlineData("PlacedObject", "*parent.EditorID = HcOcCellA")]
+    [InlineData("DialogResponses", "*parent.EditorID = HcOcTopic")]
+    [InlineData("PlacedObject", "*parent.*parent.EditorID = HcOcWrld")]
+    public void AParentScanMakesNoPerRecordSeek(string type, string clause)
+    {
+        var seeks = _w.Svc.Counters.BodySeeks;
+        var r = RecordsTools.Records(_w.Svc, types: new[] { type }, where: new[] { clause },
+                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" },
+                                     counts_only: true);
+        Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
+        Assert.Equal(seeks, _w.Svc.Counters.BodySeeks);
+    }
+}

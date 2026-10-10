@@ -1,4 +1,4 @@
-using Mutagen.Bethesda.Plugins;
+﻿using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Aspects;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -63,7 +63,8 @@ internal sealed partial class RecordReads
                             IReadOnlyList<(int Depth, string[]? Tail)>? depths = null,
                             IMajorRecordGetter? prefetched = null,
                             IReadOnlyCollection<string>? countFields = null,
-                            bool summary = false)
+                            bool summary = false,
+                            Func<FormKey, IMajorRecordGetter?>? heldParent = null)
     {
         // An explicitly-requested plugin excluded this session is said so, rather than falling through to a
         // misleading "does not define this record".
@@ -118,7 +119,7 @@ internal sealed partial class RecordReads
 
         // materialise while the session (overlay) is open; the *parent hop climbs the index's containment map and
         // fetches the containing record's winner body through the same session
-        var hop = ContainmentIndex.ReadHop(view, session);
+        var hop = ContainmentIndex.ReadHop(view, session, heldParent);
         var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, hop, depths);
         if (summary) record = record with { Name = ReadEngine.DisplayName(rec) };
         record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, unionMemo, out var childFields, hop, countFields);   // the additive union (or the index-only note), display-only
@@ -324,10 +325,12 @@ internal sealed partial class RecordReads
                                        IReadOnlyList<(int Depth, string[]? Tail)>? depths,
                                        LoadOrderResolver.OverlaySession? session,
                                        IMajorRecordGetter? prefetched,
-                                       IReadOnlyCollection<string>? countFields)
+                                       IReadOnlyCollection<string>? countFields,
+                                       Func<FormKey, IMajorRecordGetter?>? heldParent = null)
         => q.Pin is { } p
             ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
-                          batchSession: session, depths: depths, prefetched: prefetched, countFields: countFields)
+                          batchSession: session, depths: depths, prefetched: prefetched, countFields: countFields,
+                          heldParent: heldParent)
               with { Stamp = p.View.Stamp, Pin = p }
             : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, countFields);
 
@@ -493,7 +496,8 @@ internal sealed partial class RecordReads
             }
             var fk = keys[i];
             var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
-            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields, summary)
+            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields, summary,
+                                     chunk is null ? null : chunk.Parent)
                          with { Stamp = view.Stamp, Pin = pin });   // the batch's one build, stamped and pinned per item
         }
         return outcomes;
@@ -639,7 +643,8 @@ internal sealed partial class RecordReads
                 }
                 var fk = keys[i];
                 var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
-                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields, summary)
+                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields, summary,
+                                         chunk is null ? null : chunk.Parent)
                              with { Stamp = view.Stamp, Pin = pin });
             }
             return outcomes;
