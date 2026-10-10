@@ -294,7 +294,7 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
         var (paths, depths) = (plan! with { Depth = 4 }).Read();
         Assert.Equal(new[] { "Effects", "Effects", "EditorID" }, paths);
         Assert.Equal(new[] { 4, 4, 1 }, depths.Select(d => d.Depth));
-        Assert.Equal(new[] { "", "Data.Magnitude", "" }, depths.Select(d => string.Join(".", d.Tail ?? Array.Empty<string>())));
+        Assert.Equal(new[] { "Data.Magnitude", "", "" }, depths.Select(d => string.Join(".", d.Tail ?? Array.Empty<string>())));
     }
 
     /// <summary>An unquantified column beside a quantified one renders at the caller's own depth, so it is READ at

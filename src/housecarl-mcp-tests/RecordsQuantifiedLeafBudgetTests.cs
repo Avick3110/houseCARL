@@ -22,6 +22,9 @@ public sealed class QuantifiedLeafWorld : IDisposable
     /// <summary>More effects than the budget has lines, so even one leaf each is cut.</summary>
     public FormKey HugeSpell { get; }
 
+    /// <summary>A topic with <see cref="LongCount"/> responses, each heavy enough that whole bodies overrun the budget.</summary>
+    public FormKey LongTopic { get; }
+
     /// <summary>The long spell as built, for a read that does not go through the tool.</summary>
     public ISpellGetter LongSpellRecord { get; }
 
@@ -46,6 +49,15 @@ public sealed class QuantifiedLeafWorld : IDisposable
         {
             var e = new Effect(); e.BaseEffect.SetTo(mgef.FormKey); e.Data = new EffectData { Magnitude = i };
             huge.Effects.Add(e);
+        }
+
+        var topic = master.DialogTopics.AddNew(); topic.EditorID = "HcLeafTopic"; LongTopic = topic.FormKey;
+        for (int i = 0; i < LongCount; i++)
+        {
+            var info = new DialogResponses(master.GetNextFormKey(), SkyrimRelease.SkyrimSE);
+            info.Responses.Add(new DialogResponse { Text = "line " + i, ResponseNumber = 1 });
+            for (int c = 0; c < 3; c++) info.Conditions.Add(new ConditionFloat { ComparisonValue = c, Data = new GetLevelConditionData() });
+            topic.Responses.Add(info);
         }
 
         var instance = Path.Combine(Root, "inst");
@@ -137,17 +149,40 @@ public sealed class RecordsQuantifiedLeafBudgetTests : IClassFixture<QuantifiedL
 
     /// <summary>The sub-path column reads its own leaves whatever else the call reads off the same list.</summary>
     [Theory]
-    [InlineData("Effects")]
-    [InlineData("Effects[*]")]
-    [InlineData("Effects[0]")]
-    public void ASubPathColumnIsTheSameBesideTheWholeList(string sibling)
+    [InlineData("Effects", false)]
+    [InlineData("Effects[*]", false)]
+    [InlineData("Effects[0]", false)]
+    [InlineData("Effects", true)]
+    [InlineData("Effects[*]", true)]
+    [InlineData("Effects[0]", true)]
+    public void ASubPathColumnIsTheSameBesideTheWholeList(string sibling, bool siblingFirst)
     {
-        static List<string> Column(string dense) => JsonDocument.Parse(dense).RootElement.GetProperty("rows").EnumerateArray()
-            .Select(r => r[3].ValueKind == JsonValueKind.Null ? "" : r[3].ToString()).ToList();
-        var alone = Column(Dense(W.LongSpell, "Effects[*].BaseEffect.FormKey"));
-        var beside = Column(Dense(W.LongSpell, "Effects[*].BaseEffect.FormKey", sibling));
+        const string tail = "Effects[*].BaseEffect.FormKey";
+        var alone = Column(Dense(W.LongSpell, tail), tail);
+        var beside = Column(siblingFirst ? Dense(W.LongSpell, sibling, tail) : Dense(W.LongSpell, tail, sibling), tail);
         Assert.Equal(QuantifiedLeafWorld.LongCount, alone.Count(c => c.Contains("HcLeafMaster")));
         Assert.Equal(alone, beside);
+    }
+
+    /// <summary>The issue's own shape, a topic's responses read whole beside their FormKeys, in either order.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EveryResponseFormKeyComesBackBesideTheWholeResponses(bool wholeFirst)
+    {
+        const string tail = "Responses[*].FormKey";
+        var dense = wholeFirst ? Dense(W.LongTopic, "Responses[*]", tail) : Dense(W.LongTopic, tail, "Responses[*]");
+        Assert.Equal(QuantifiedLeafWorld.LongCount, Column(dense, tail).Count(c => c.Contains("HcLeafMaster")));
+    }
+
+    /// <summary>One column's dense cells, by the column's own spelling.</summary>
+    static List<string> Column(string dense, string column)
+    {
+        var root = JsonDocument.Parse(dense).RootElement;
+        int at = root.GetProperty("columns").EnumerateArray().Select(c => c.GetString()).ToList().IndexOf(column);
+        Assert.True(at >= 0, dense[..Math.Min(dense.Length, 400)]);
+        return root.GetProperty("rows").EnumerateArray()
+            .Select(r => r[at].ValueKind == JsonValueKind.Null ? "" : r[at].ToString()).Where(c => c.Length > 0).ToList();
     }
 
     /// <summary>Beside a sub-path column, a whole-element row still leads with the element's own line.</summary>
