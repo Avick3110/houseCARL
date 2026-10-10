@@ -79,10 +79,10 @@ public sealed class ContainmentIndex
     }
 
     /// <summary>The <c>*parent</c> hop a field read takes: this build's containment map, then the containing record's winner body through the caller's own session.</summary>
-    /// <param name="held">Containing records the caller already gathered in bulk; a miss there is fetched one at a time.</param>
+    /// <param name="held">A child's containing record from the caller's bulk gather; null fetches it alone.</param>
     public static Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)> ReadHop(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-        Func<FormKey, IMajorRecordGetter?>? held = null) => child =>
+        Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>? held = null) => child =>
     {
         var pk = view.ParentOf(child.FormKey);
         if (pk is null)
@@ -91,7 +91,7 @@ public sealed class ContainmentIndex
         var winner = view.ResolveWinner(pk.Value);
         if (winner is null)
             return (null, $"the containing record {FormIdToken.Of(pk.Value)} is not in the active load order");
-        var body = held?.Invoke(pk.Value) ?? FetchContainer(view, session, winner.Value.WinnerPlugin, pk.Value, child.GetType());
+        var body = held?.Invoke(child, pk.Value) ?? FetchContainer(view, session, winner.Value.WinnerPlugin, pk.Value, child.GetType());
         return body is null
             ? (null, $"the containing record {FormIdToken.Of(pk.Value)} would not fetch from its winner '{winner.Value.WinnerPlugin}'")
             : (body, null);
@@ -105,9 +105,7 @@ public sealed class ContainmentIndex
     /// <summary>The one getter type a <paramref name="childType"/> record's containing record can have; null when it can be more than one, or none.</summary>
     public static Type? ContainerGetter(Type childType) => ContainerGetters(childType, 1) is { Count: 1 } t ? t[0] : null;
 
-    /// <summary>The winner bodies of the containing records <paramref name="parents"/> names, each paired with the
-    /// type of the child it was climbed from and how many hops up: one walk per winner plugin, in the container
-    /// types' groups only. A record whose winner would not open is absent, its plugin named in <paramref name="unreadable"/>.</summary>
+    /// <summary>The winner bodies of <paramref name="parents"/>, one walk per winner plugin typed by the children; one whose winner would not open is absent.</summary>
     public static Dictionary<FormKey, IMajorRecordGetter> GatherContainers(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
         IEnumerable<(FormKey Parent, Type ChildType, int Hops)> parents,
@@ -124,8 +122,7 @@ public sealed class ContainmentIndex
         return WinnerBodies.For(view, session, keys, types.Count > 0 ? types : null, out unreadable, ct);
     }
 
-    /// <summary>The getter types of the records that can contain a <paramref name="child"/> record
-    /// <paramref name="hops"/> steps up, read off <see cref="WriteEngine.ChildBearingProperties"/>; empty when none can.</summary>
+    /// <summary>The getter types that can contain a <paramref name="child"/> record <paramref name="hops"/> steps up; empty when none can.</summary>
     public static IReadOnlyList<Type> ContainerGetters(Type child, int hops) =>
         _containerGetters.GetOrAdd((child, hops), static k =>
         {
