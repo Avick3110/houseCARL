@@ -66,11 +66,17 @@ public static class ReadEngine
 
     /// <summary>A FormLink carrying no target: a NON-nullable link holding FormID zero, or a NULLABLE link whose
     /// subrecord is ABSENT. Not round-trippable, so a note the conflict diff reads as "no value here".</summary>
-    internal const string NullLinkNote = "(null link)";
+    internal const string NullLinkNote = "(" + NullLinkText + ")";
+
+    /// <summary>The bare text of <see cref="NullLinkNote"/>, for a reply that is not a read.</summary>
+    internal const string NullLinkText = "null link";
 
     /// <summary>A NULLABLE FormLink whose subrecord is PRESENT and carries FormID zero — an INFO's PNAM "I am
     /// first" marker, told apart from an ABSENT nullable link by <c>FormKeyNullable</c>.</summary>
-    internal const string PresentNullLinkNote = "(null link, subrecord present)";
+    internal const string PresentNullLinkNote = "(" + PresentNullLinkText + ")";
+
+    /// <summary>The bare text of <see cref="PresentNullLinkNote"/>, for a reply that is not a read.</summary>
+    internal const string PresentNullLinkText = "null link, subrecord present";
 
     /// <summary>A present <c>TranslatedString</c> whose <c>.String</c> resolves to null.</summary>
     internal const string UnresolvedStringNote = "(unresolved localized string)";
