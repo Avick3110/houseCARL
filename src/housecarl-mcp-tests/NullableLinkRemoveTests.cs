@@ -197,6 +197,49 @@ public sealed class NullableLinkSeedCopyTests : IDisposable
     }
 }
 
+/// <summary>#1144: the one link helper sets a key, a present zero, or an absent link, and refuses absent on a required link.</summary>
+[Trait("tier", "unit")]
+public sealed class FormLinkShapeTests
+{
+    static readonly FormKey Key = new(ModKey.FromNameAndExtension("HcShape.esp"), 0x801);
+
+    [Fact]
+    public void ANullableLinkTakesAKeyAZeroAndAbsent()
+    {
+        var l = new FormLinkNullable<INpcGetter>(Key);
+        Assert.True(FormLinkShape.TrySetTo(l, FormKey.Null));
+        Assert.Equal(FormKey.Null, l.FormKeyNullable);
+        Assert.True(FormLinkShape.TrySetTo(l, null));
+        Assert.Null(l.FormKeyNullable);
+        Assert.True(FormLinkShape.TrySetTo(l, Key));
+        Assert.Equal(Key, l.FormKeyNullable);
+    }
+
+    [Fact]
+    public void ARequiredLinkRefusesAbsentAndKeepsItsKey()
+    {
+        var l = new FormLink<INpcGetter>(Key);
+        Assert.False(FormLinkShape.TrySetTo(l, null));
+        Assert.Equal(Key, l.FormKey);
+    }
+
+    [Theory]
+    [InlineData(typeof(FormLinkNullable<INpcGetter>), true)]
+    [InlineData(typeof(IFormLinkNullable<INpcGetter>), true)]
+    [InlineData(typeof(IFormLinkNullableGetter<INpcGetter>), true)]
+    [InlineData(typeof(FormLink<INpcGetter>), false)]
+    [InlineData(typeof(IFormLink<INpcGetter>), false)]
+    [InlineData(typeof(IFormLinkGetter<INpcGetter>), false)]
+    public void IsNullableJudgesEveryLinkType(Type t, bool nullable) => Assert.Equal(nullable, FormLinkShape.IsNullable(t));
+
+    [Fact]
+    public void MakeLeavesANullableLinkAbsentAndARequiredOneZero()
+    {
+        Assert.Null(((IFormLinkGetter)FormLinkShape.Make(typeof(IFormLinkNullable<INpcGetter>), null)!).FormKeyNullable);
+        Assert.Equal(FormKey.Null, ((IFormLinkGetter)FormLinkShape.Make(typeof(IFormLink<INpcGetter>), null)!).FormKeyNullable);
+    }
+}
+
 /// <summary>#1144 end to end: one patch Removes one line's PNAM and Sets another's to "0"; the echo reads each shape back
 /// from the file, and the merged order puts the Removed line last and the zeroed line first.</summary>
 [Trait("tier", "integration")]
