@@ -137,12 +137,13 @@ public sealed class RecordsQuantifiedLeafBudgetTests : IClassFixture<QuantifiedL
         Assert.Equal(QuantifiedLeafWorld.LongCount, dense.GetProperty("rows").GetArrayLength());
     }
 
-    /// <summary>A list leaf is opened at the depth the whole element's walk reaches it, not a level deeper, which
-    /// here would open every condition and overrun the budget.</summary>
+    /// <summary>A list leaf is read as the one line its cell renders; opening its conditions, here at depth 6,
+    /// would overrun the budget.</summary>
     [Fact]
-    public void ALeafIsOpenedNoDeeperThanTheWholeElementWalkOpensIt()
+    public void ALeafIsReadAsTheOneLineItsCellRenders()
     {
-        var r = Read(W.LongSpell, "Effects[*].Conditions");
+        var r = RecordsTools.Records(W.Svc, formids: new[] { RecordsWorld.Fid(W.LongSpell) }, max_chars: 1_000_000,
+            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*].Conditions" }, depth = 6 });
         Assert.Equal(QuantifiedLeafWorld.LongCount, CountOf(r, "].Conditions = "));
         Assert.DoesNotContain("expansion truncated", r);
     }
