@@ -1,1 +1,1 @@
-- **`->` link scans, `resolve_names` and cold reads now fetch each record from its own group instead of reading the plugin from the top, and `->` keeps no target bodies: `resolve_names` over 25 armatures went from 43 s to 0.1 s.**
+- **`->` link scans, `resolve_names` and cold record reads are much faster on large load orders.** To check: `resolve_names` over an armor's 25 armatures now answers in about 0.1 s, down from 43 s.

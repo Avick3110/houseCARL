@@ -103,7 +103,8 @@ path walk, and containment comes off Mutagen's context walk.
   in the same words. Everything below the hop reads the containing record with no second rule.
 - The containment climb is index-only: a chain reads a body for the record its terms run on, and
   what carries across candidates is the VERDICT, not the body (#720). The `->` step keeps the same
-  shape: its verdict is memoised per predicate and target, and the target body is dropped as soon as
+  shape: its verdict is memoised per predicate and target, with the notes the accounting sentence
+  quotes, so a hit names the same field a fresh read would; the target body is dropped as soon as
   it is judged, so a link scan holds no target bodies for the call (#1158).
 - A scan gathers its containing records a CHUNK at a time (#1147): the scan lanes buffer up to
   10,000 candidates, `FieldPredicateSet.HoldParents` collects the distinct parent keys, with no
@@ -143,7 +144,7 @@ path walk, and containment comes off Mutagen's context walk.
   the real scan, set lane, projection and walk no lone seek and only typed walks (`CostCounters.TypedSeeks`,
   `TypedCollectPasses`); rows dropped before `where=` gather nothing; a chunk crossing a plugin
   boundary; a projection hop walks only the rows it reads and does not reopen a faulted winner.
-- `LinkStepVerdictTests` — the `->` step judges each target once and holds no target body (#1158).
+- `LinkStepVerdictTests` — the `->` step judges each target once, holds no target body, and a remembered verdict names its own field (#1158).
 - `WhereAccountingCauseTests` — the per-cause accounting sentences.
 - `RecordsUnmatchedMembersTests` — the unmatched-members bullet: text, json, `@file`, the cap, the manifest,
   a member only a lower scoped copy carries, a FormID named as typed; `UnmatchedMembersJudgementTests`,
