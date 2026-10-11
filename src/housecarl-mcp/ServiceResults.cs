@@ -120,7 +120,7 @@ public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorI
     /// <summary>The list lane's row for one read outcome, its per-item error included.</summary>
     public static RecordSummary Of(ReadOutcome o) => o is { Error: null, Record: { } r }
         ? new RecordSummary(o.FormKey, r.Type, r.EditorId, o.WinnerPlugin!, o.OverrideDepth, null)
-          { Name = r.Name, Source = o.SourcePlugin, RuntimeFormId = o.RuntimeFormId, RuntimeFormIdNote = o.RuntimeFormIdNote }
+          { Name = r.Name, Source = o.SourcePlugin, RuntimeFormId = o.RuntimeFormId, RuntimeFormIdNote = o.RuntimeFormIdNote, Pin = o.Pin }
         : new RecordSummary(o.FormKey, "", null, "", 0, o.Error ?? "no record was read")
           { RuntimeFormId = o.RuntimeFormId, RuntimeFormIdNote = o.RuntimeFormIdNote };
 
@@ -129,6 +129,9 @@ public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorI
 
     /// <summary>Why the row has no runtime FormID — see <see cref="ReadOutcome.RuntimeFormIdNote"/>.</summary>
     public string? RuntimeFormIdNote { get; init; }
+
+    /// <summary>The build this row was answered from, so a render's shared-EditorID note reads the same one. Never serialized.</summary>
+    internal LoadOrderService.ViewPin? Pin { get; init; }
 
     /// <summary>Carry a resolved runtime address onto this row; the one place the two halves are set.</summary>
     public RecordSummary WithRuntime(RuntimeAddress a) => this with { RuntimeFormId = a.FormId, RuntimeFormIdNote = a.Note };

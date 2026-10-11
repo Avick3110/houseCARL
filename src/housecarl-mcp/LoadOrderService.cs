@@ -105,7 +105,13 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     /// <summary>A pinned (resolver, view) pair, carried on the outcome so the render-time fills a response makes
     /// read the build the outcome's epoch names. Pure data, no handles.</summary>
-    internal sealed record ViewPin(LoadOrderResolver Resolver, LoadOrderResolver.IndexView View);
+    internal sealed record ViewPin(LoadOrderResolver Resolver, LoadOrderResolver.IndexView View)
+    {
+        SharedEditorIds? _sharedNames;
+
+        /// <summary>This call's shared-EditorID lookup, made on first use and dropped with the pin.</summary>
+        internal SharedEditorIds SharedNames => _sharedNames ??= new SharedEditorIds(this);
+    }
 
     /// <summary>One captured build plus the resolver it came from, for a lane that opens an overlay session against it.</summary>
     internal ViewPin CapturePin()

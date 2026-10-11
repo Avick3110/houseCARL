@@ -174,6 +174,32 @@ internal static class ReadSentences
         : clauses == 1 ? Math.Max(UnionFraming.Length, NotReadFraming.Length) + ClauseFieldsMaxChars + ClauseGlue
         : UnionFraming.Length + NotReadFraming.Length + 2 * (ClauseFieldsMaxChars + ClauseGlue);
 
+    // ---- a name the game keys a setting by, carried by more than one record ------------------------
+
+    /// <summary>How many other FormIDs a shared-EditorID note names before it counts the rest.</summary>
+    internal const int SharedEditorIdNameCap = 3;
+
+    [MustState("shares EditorID", "one setting per name", "last plugin carrying any")]
+    internal const string SharedEditorIdFormat =
+        "shares EditorID {0} with {1}; the game keeps one setting per name, set by the last plugin carrying any " +
+        "of them: {2} ({3})";
+
+    /// <summary>The per-row note: the shared name, the other FormIDs carrying it, and the copy the game uses.</summary>
+    internal static string SharedEditorIdNote(string editorId, IReadOnlyList<string> others, string plugin, string formId) =>
+        string.Format(SharedEditorIdFormat, editorId,
+            string.Join(", ", others.Take(SharedEditorIdNameCap))
+            + (others.Count > SharedEditorIdNameCap ? $" (+{others.Count - SharedEditorIdNameCap} more)" : ""),
+            plugin, formId);
+
+    [MustState("could NOT be read", "other records sharing this EditorID")]
+    internal const string SharedEditorIdUnreadFormat =
+        "{0} plugin(s) " + CouldNotRead + " ({1}), so other records sharing this EditorID may be missing";
+
+    /// <summary>The gap clause when the winner scan behind the note could not open some plugins.</summary>
+    internal static string SharedEditorIdUnread(IReadOnlyList<string> plugins) =>
+        string.Format(SharedEditorIdUnreadFormat, plugins.Count,
+            string.Join(", ", plugins.Take(SharedEditorIdNameCap)) + (plugins.Count > SharedEditorIdNameCap ? ", …" : ""));
+
     // ---- a count table does not page ----------------------------------------------------------------
 
     /// <summary>The one sentence every lane refuses <c>offset=</c> against a whole-selection answer with (Aaron

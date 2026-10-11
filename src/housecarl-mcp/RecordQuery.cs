@@ -37,6 +37,7 @@ internal sealed partial class RecordReads
         // The caller's own build when its FormID door already captured one, so the tokens it parsed and the
         // records this scan matches come from ONE build.
         var view = pinnedView ?? resolver.Capture();
+        var pin = new LoadOrderService.ViewPin(resolver, view);   // the outcome's and every prefilled row's
         // A plugins= scope naming a plugin the order does not carry answers for the ones it does; the missing
         // names ride the scan note, and only an ALL-missing scope is refused.
         string? scopeMissingNote = null;
@@ -296,7 +297,7 @@ internal sealed partial class RecordReads
                                     sources.Add(null);                            // the winner body is what matched and displays
                                     matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
                                     prefilled?.Add(RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth)
-                                                   .WithRuntime(view.RuntimeAddressOf(fk)));
+                                                   .WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin });
                                 }
                             }
                             catch (Exception ex)
@@ -467,7 +468,7 @@ internal sealed partial class RecordReads
                             // The winner comes off the SAME view the scan runs on; type, editorid and name come
                             // from the body that MATCHED.
                             prefilled!.Add(RecordSummary.Of(fk, filterBody, view.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth)
-                                           .WithRuntime(view.RuntimeAddressOf(fk)));
+                                           .WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin });
                         }
                     }
                     catch (Exception ex)
@@ -546,7 +547,7 @@ internal sealed partial class RecordReads
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
-               { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view), GetterTypes = types,
+               { Stamp = view.Stamp, Pin = pin, GetterTypes = types,
                  ReverseIndexNote = reverseNote,
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList(),
                  Unmatched = predicate?.Unmatched ?? Array.Empty<string>(),
@@ -717,6 +718,7 @@ internal sealed partial class RecordReads
     {
         var resolver = _host.Resolver;
         var view = pinnedView ?? resolver.Capture();   // the caller's door build when it captured one — see CrossQuery
+        var pin = new LoadOrderService.ViewPin(resolver, view);
 
         if (groupBy is not null)
         {
@@ -868,7 +870,7 @@ internal sealed partial class RecordReads
                         sources.Add(pole.Plugin);
                         matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
                         prefilled.Add(RecordSummary.Of(fk, rec, w?.WinnerPlugin ?? "(not in the active order)", w?.OverrideDepth ?? 0)
-                                      .WithRuntime(view.RuntimeAddressOf(fk)));
+                                      .WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin });
                     }
                 }
                 catch (Exception ex)
@@ -901,7 +903,7 @@ internal sealed partial class RecordReads
         return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
                                      predicate?.AccountingNote(), sources, scanNote, matched, groupRows, groupBy,
                                      definedIn ? pole.Plugin : null, offset, false, null)
-               { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view),
+               { Stamp = view.Stamp, Pin = pin,
                  Unmatched = predicate?.Unmatched ?? Array.Empty<string>(),
                  UnmatchedGap = UnjudgedClause(0, unscannable) };
     }
