@@ -261,6 +261,39 @@ public sealed class LinkStepVerdictTests
         GC.KeepAlive(set);
     }
 
+    /// <summary>A remembered verdict brings back its own note: the rollup names the link step's bad key, not the one
+    /// another predicate read since. Fails when a memo hit leaves the stash the last fresh read of any predicate set.</summary>
+    [Fact]
+    public void ARememberedVerdictNamesItsOwnNote()
+    {
+        var (set, err) = FieldPredicateSet.Parse(new[]
+        {
+            "Armature[*any]->Conditions[any].CompareOperator = EqualTo",
+            "Keywords[foo].EditorID = HcNone",
+        });
+        Assert.Null(err);
+        var effect = new MagicEffect(new FormKey(Mod, 0x801), SkyrimRelease.SkyrimSE);
+        effect.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, Data = new GetLevelConditionData() });
+        var plain = new Armor(new FormKey(Mod, 0x802), SkyrimRelease.SkyrimSE);
+        var targets = new Dictionary<FormKey, IMajorRecordGetter> { [effect.FormKey] = effect, [plain.FormKey] = plain };
+        set!.BindResolution(_ => Mod.FileName.String, fk => targets[fk]);
+
+        // The first links both targets, so its verdict is the plain armor's missing field; the second links only the effect.
+        Armor Candidate(uint id, params FormKey[] links)
+        {
+            var a = new Armor(new FormKey(Mod, id), SkyrimRelease.SkyrimSE);
+            foreach (var l in links) a.Armature.Add(new FormLink<IArmorAddonGetter>(l));
+            return a;
+        }
+        set.Matches(Candidate(0x1001, effect.FormKey, plain.FormKey));
+        set.Matches(Candidate(0x1002, effect.FormKey));
+        set.Matches(new GlobalFloat(new FormKey(Mod, 0x1003), SkyrimRelease.SkyrimSE));   // neither field, so neither predicate refuses
+
+        Assert.Null(set.FatalError);
+        // Only the link step's own note says 'any'; the keyword predicate's says 'foo'.
+        Assert.Contains("got 'any'", set.AccountingNote() ?? "");
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     static int Scan(FieldPredicateSet set, FormKey[] targets, int candidates)
     {

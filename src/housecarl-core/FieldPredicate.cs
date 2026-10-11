@@ -63,7 +63,7 @@ public sealed class FieldPredicateSet
     // The keys that chunk asked for: one absent from the gather is the answer, not a reason to seek it again.
     HashSet<FormKey>? _heldAsked;
     // The link step's verdict per predicate and target, kept for the set's lifetime in place of the target bodies (#1158).
-    readonly Dictionary<(int Index, FormKey Target), (bool Satisfied, EvalKind Kind)> _targetVerdicts = new();
+    readonly Dictionary<(int Index, FormKey Target), (bool Satisfied, EvalKind Kind, Notes? Notes)> _targetVerdicts = new();
 
     // The '*parent' hop's verdict memo, keyed by the predicate and by which side hopped.
     readonly Dictionary<(int Index, bool LinkSide, FormKey Parent), (bool Satisfied, EvalKind Kind)> _parentVerdicts = new();
@@ -1180,12 +1180,26 @@ public sealed class FieldPredicateSet
     /// <summary>One target's verdict on the predicate's own side, read once per call; the body is dropped as soon as it is judged.</summary>
     (bool Satisfied, EvalKind Kind) TargetVerdict(Predicate p, FormKey fk)
     {
-        if (_targetVerdicts.TryGetValue((_evalIndex, fk), out var memo)) return memo;
+        if (_targetVerdicts.TryGetValue((_evalIndex, fk), out var memo))
+        {
+            if (memo.Notes is { } n) RestoreNotes(n);   // a hit leaves the rollup the same notes a fresh read would
+            return (memo.Satisfied, memo.Kind);
+        }
         var target = _fetchWinnerBody!(fk);
         var verdict = target is null ? (false, EvalKind.UnresolvedTarget) : EvalCore(p, target);
-        if (_fatal is null) _targetVerdicts[(_evalIndex, fk)] = verdict;
+        if (_fatal is null)
+            _targetVerdicts[(_evalIndex, fk)] = (verdict.Item1, verdict.Item2, verdict.Item2 == EvalKind.Definite ? null : TakeNotes());
         return verdict;
     }
+
+    /// <summary>The rollup's note stash, kept with a memoised no-verdict so a hit cannot leave another predicate's text behind.</summary>
+    readonly record struct Notes(string? ListHopOwner, string? ListHopRemedy, string? NotList, string? NoParent, string? BadKey);
+
+    Notes TakeNotes() => new(_lastListHopOwner, _lastListHopRemedy, _lastNotList, _lastNoParent, _lastBadKey);
+
+    void RestoreNotes(Notes n) =>
+        (_lastListHopOwner, _lastListHopRemedy, _lastNotList, _lastNoParent, _lastBadKey) =
+        (n.ListHopOwner, n.ListHopRemedy, n.NotList, n.NoParent, n.BadKey);
 
     /// <summary>Keep the loudest no-verdict class seen so far.</summary>
     static void Louder(ref EvalKind? held, EvalKind seen)
