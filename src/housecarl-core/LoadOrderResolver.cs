@@ -932,9 +932,10 @@ public sealed class LoadOrderResolver : IDisposable
                 while (true)
                 {
                     IMajorRecordGetter rec;
-                    // A fault partway through the plugin is collected like the open fault above, and the rest of the order still walks.
+                    // A parse fault partway through the plugin is collected like the open fault above, and the rest of the
+                    // order still walks; a cancellation, running out of memory or a bug goes on up.
                     try { if (!recs.MoveNext()) break; rec = recs.Current; }
-                    catch (Exception ex)
+                    catch (Exception ex) when (RecordParseFault.Is(ex))
                     {
                         var fault = new PluginUnscannableException(_names[i], ex);
                         if (unreadable is null) throw fault;
