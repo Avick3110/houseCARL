@@ -556,6 +556,7 @@ static class JsonWire
         var s = row.Subject!; var r = row.Reference!;
         WriteNullable(w, "type", s.RecordType);
         WriteNullable(w, "editorid", s.EditorId);
+        WriteSharedName(w, row.SharedNote);
         WriteDiffPole(w, "subject", s);
         WriteDiffPole(w, "reference", r);
         if (row.StackAbove is { Count: > 0 }) WriteStringArray(w, "stack_above", row.StackAbove);
@@ -638,6 +639,7 @@ static class JsonWire
         }
         WriteNullable(w, "type", row.Type);
         WriteNullable(w, "editorid", row.EditorId);
+        WriteSharedName(w, row.SharedNote);
         WriteNullable(w, "reference", row.ReferencePlugin);
         WriteStringArray(w, "touchers", row.Touchers);   // priority order, winner LAST
         // The precise owned-child answer, from the same TreeRow the text lane renders.
@@ -1260,6 +1262,7 @@ static class JsonWire
         w.WriteEndArray();
 
         List<(string Formid, string Error, string? Matches)>? errors = null;
+        List<(string Formid, string Note)>? sharedNotes = null;   // a rendered record's shared-EditorID note, beside the rows like errors
         int rendered = 0; bool rowsTruncated = false;
         var renderClock = System.Diagnostics.Stopwatch.StartNew();
         var childFields = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // the clause per tier, over the cells the rows carried
@@ -1318,7 +1321,7 @@ static class JsonWire
                         w.WriteStartArray();
                         w.WriteStringValue(r.FormKey);
                         WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
-                        WriteCell(w, EditorIdCell(r.EditorId, sharedNote));
+                        WriteCell(w, r.EditorId);
                         for (int c = 0; c < cols.Length; c++)
                         {
                             var col = cols[c];
@@ -1332,13 +1335,14 @@ static class JsonWire
                         foldRows++;
                     }
                     if (cut) break;                                   // a half-written record is not a rendered one
+                    if (sharedNote is not null) (sharedNotes ??= new()).Add((FormIdToken.Of(fk), sharedNote));
                     rendered++;
                     continue;
                 }
                 w.WriteStartArray();
                 w.WriteStringValue(r.FormKey);
                 WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
-                WriteCell(w, EditorIdCell(r.EditorId, sharedNote));
+                WriteCell(w, r.EditorId);
                 foreach (var f in r.Fields)
                 {
                     WriteCell(w, DenseCell(f));
@@ -1348,6 +1352,7 @@ static class JsonWire
                 if (anyScoped) WriteCell(w, o.SourcePlugin);          // the body this row's values were read from (winner_fields=true → the winner)
                 if (hasMatches) WriteCell(w, matches);
                 w.WriteEndArray();
+                if (sharedNote is not null) (sharedNotes ??= new()).Add((FormIdToken.Of(fk), sharedNote));
             }
             else
             {
@@ -1357,12 +1362,13 @@ static class JsonWire
                 w.WriteStringValue(FormIdToken.Of(m.FormKey));
                 WriteCell(w, RuntimeCell(m.RuntimeFormId, m.RuntimeFormIdNote));
                 w.WriteStringValue(m.Type);
-                WriteCell(w, EditorIdCell(m.EditorId, SharedEditorIds.Note(m.Pin, m.FormKey, m.Type)));
+                WriteCell(w, m.EditorId);
                 WriteCell(w, m.Name);
                 w.WriteStringValue(m.Winner);
                 w.WriteNumberValue(m.OverrideDepth);
                 if (hasMatches) WriteCell(w, matches);
                 w.WriteEndArray();
+                if (SharedEditorIds.Note(m.Pin, m.FormKey, m.Type) is { } note) (sharedNotes ??= new()).Add((FormIdToken.Of(m.FormKey), note));
             }
             rendered++;
         }
@@ -1375,6 +1381,15 @@ static class JsonWire
                 w.WriteStartObject(); w.WriteString("formid", efk); w.WriteString("error", err);
                 if (em is not null) w.WriteString("matches", em);   // as the json render keeps it on an error row
                 w.WriteEndObject();
+            }
+            w.WriteEndArray();
+        }
+        if (sharedNotes is not null)
+        {
+            w.WriteStartArray("editorid_notes");
+            foreach (var (nfk, note) in sharedNotes)
+            {
+                w.WriteStartObject(); w.WriteString("formid", nfk); w.WriteString("editorid_note", note); w.WriteEndObject();
             }
             w.WriteEndArray();
         }
@@ -1398,9 +1413,6 @@ static class JsonWire
         if (f.Link is not null) s = $"{s}   ({Wire.LinkText(f.Link)})";
         return s;
     }
-
-    /// <summary>The EditorID cell in a dense row, with a shared-EditorID note appended the way a cell's annotations are.</summary>
-    static string? EditorIdCell(string? editorId, string? note) => note is null ? editorId : $"{editorId}   ({note})";
 
     /// <summary>A row's shared-EditorID note, beside its <c>editorid</c>, only when owed.</summary>
     static void WriteSharedName(Utf8JsonWriter w, string? note)

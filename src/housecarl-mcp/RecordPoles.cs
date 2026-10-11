@@ -41,7 +41,11 @@ internal sealed partial class RecordReads
     /// <summary>One record's delta: subject pole versus reference pole, compared by <see
     /// cref="FieldsDiff"/>.</summary>
     public sealed record DeltaRow(string Formid, DiffPole? Subject, DiffPole? Reference, FieldsDiff.Result? Diff,
-                                  IReadOnlyList<string>? StackAbove, string? Note, string? Error);
+                                  IReadOnlyList<string>? StackAbove, string? Note, string? Error)
+    {
+        /// <summary>The shared-EditorID note the record's FormID owes, read off the batch's pin.</summary>
+        public string? SharedNote { get; init; }
+    }
 
     /// <summary>The project=delta batch: every pole of every record resolves against ONE captured build, so a
     /// comparison can never span two.</summary>
@@ -109,7 +113,8 @@ internal sealed partial class RecordReads
                 : null;
             // Two copies of one filename on opposite arms: the delta line names the off-order side's mod folder.
             var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.LabelVersus(s.Pole.Plugin));
-            return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null);
+            return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null)
+                   { SharedNote = SharedEditorIds.Note(pin, fk, s.Pole.RecordType) };
         }
 
         // An off-order subject is swept first: the sweep is what says which ids it holds.
@@ -547,7 +552,11 @@ internal sealed partial class RecordReads
     public sealed record TreeRow(string Formid, string? Type, string? EditorId,
                                  IReadOnlyList<string> Touchers, string? ReferencePlugin,
                                  IReadOnlyList<TreeNodeDelta> Nodes, string? Error,
-                                 IReadOnlyList<ChildDeclarers> ChildDeclarers);
+                                 IReadOnlyList<ChildDeclarers> ChildDeclarers)
+    {
+        /// <summary>The shared-EditorID note the record's FormID owes, read off the batch's pin.</summary>
+        public string? SharedNote { get; init; }
+    }
 
     /// <summary>The project=tree batch: per record, the full provider stack (touching list, winner last) with each
     /// provider diffed against the reference pole — the winner by default, or a named plugin under the one-pole
@@ -652,7 +661,7 @@ internal sealed partial class RecordReads
                 refGather.Release();
             }
 
-            var fills = FoldTreeChunkPinned(new LoadOrderService.ViewPin(resolver, view), session, keys, fields,
+            var fills = FoldTreeChunkPinned(pin, session, keys, fields,
                 (j, node, plugin, read, isWinner) =>
                 {
                     var touchers = liveTouchers[start + j];
@@ -700,7 +709,8 @@ internal sealed partial class RecordReads
                     continue;
                 }
                 rows[i] = new TreeRow(FormIdToken.Of(fk), fills[j]!.Type, fills[j]!.EditorId,
-                                      touchers, refLabel[j], ordered, null, fills[j]!.ChildDeclarers);
+                                      touchers, refLabel[j], ordered, null, fills[j]!.ChildDeclarers)
+                          { SharedNote = SharedEditorIds.Note(pin, fk, fills[j]!.Type) };
             }
             // Past the budget the rows are dropped and nothing further is read.
             if (meter.Check(end, liveRow.Count) is { } tooDear)
