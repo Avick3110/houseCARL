@@ -233,7 +233,7 @@ public sealed class WinnerSourceScanTests : IClassFixture<WinnerSourceFixture>
             var view = resolver.Capture();
             OverstateFirstRecordLength(_w.MidPath);                                  // opens; the walk dies part-way
             using var session = resolver.OpenSession();
-            var bodies = WinnerBodies.For(view, session, new[] { _w.Keys[7] }, null, out var faults);
+            var bodies = WinnerBodies.For(view, session, new[] { _w.Keys[7] }, out var faults);
             Assert.Empty(bodies);
             Assert.True(faults.ContainsKey(_w.MidName), string.Join("; ", faults.Values.Select(f => f.Message)));
             Assert.Contains("could not finish reading", faults[_w.MidName].Message);
@@ -268,23 +268,21 @@ public sealed class WinnerSourceScanTests : IClassFixture<WinnerSourceFixture>
         var view = resolver.Capture();
         using var session = resolver.OpenSession();
         var sink = new Dictionary<FormKey, IMajorRecordGetter>();
-        view.CollectRecords(session, _w.MidName, new[] { _w.Keys[7] }, null, sink);
+        view.CollectRecords(session, _w.MidName, new[] { _w.Keys[7] }, sink);
         Assert.Empty(sink);
     }
 
-    /// <summary>The typed gather decides its flat fallback per KEY, not per plugin. Handed a type that covers only
-    /// some of the wanted keys, it must still answer with the rest: Mutagen's typed enumeration routes nothing at
-    /// all for a type it does not model, so "the typed walk found something, therefore what it missed is not here"
-    /// turns a record the plugin holds into a silent absence.</summary>
+    /// <summary>A gather of keys of two record types walks each type's groups and answers both: what one type's walk
+    /// did not find is not absent from the plugin.</summary>
     [Fact]
-    public void ATypedGatherFallsThroughForAWantedKeyThatTypeDoesNotCover()
+    public void AGatherOfTwoRecordTypesAnswersBoth()
     {
         using var resolver = LoadOrderResolver.Build(new[] { _w.MasterPath, _w.LowPath, _w.MidPath });
         var view = resolver.Capture();
         using var session = resolver.OpenSession();
         var sink = new Dictionary<FormKey, IMajorRecordGetter>();
         view.CollectRecords(session, _w.MasterName,
-                            new[] { _w.Keys[20], _w.ArmorKeys[0] }, new[] { typeof(IWeaponGetter) }, sink);
+                            new[] { _w.Keys[20], _w.ArmorKeys[0] }, sink);
         Assert.Contains(_w.Keys[20], sink.Keys);
         Assert.Contains(_w.ArmorKeys[0], sink.Keys);
     }
