@@ -139,7 +139,7 @@ public static class FaceGenCheck
             if (raceMemo.TryGetValue(raceKey, out var had)) return had;
             bool? answer = null;
             if (view.ResolveWinner(raceKey) is { } rw
-                && view.GetRecord(session, rw.WinnerPlugin, raceKey, typeof(IRaceGetter)) is IRaceGetter race)
+                && view.GetRecord(session, rw.WinnerPlugin, raceKey) is IRaceGetter race)
                 answer = race.Flags.HasFlag(Race.Flag.FaceGenHead);
             return raceMemo[raceKey] = answer;
         }
@@ -153,7 +153,7 @@ public static class FaceGenCheck
                 {
                     if (judged.Contains(fk)) continue;
                     if (view.ResolveWinner(fk) is not { } w) continue;
-                    if (view.GetRecord(session, w.WinnerPlugin, fk, typeof(INpcGetter)) is not { } body) continue;
+                    if (view.GetRecord(session, w.WinnerPlugin, fk) is not { } body) continue;
                     Judge(fk, body, w.WinnerPlugin, offOrderFile: false);
                 }
             }
@@ -257,15 +257,10 @@ public static class FaceGenCheck
                          $@"{folder}\{name} — no plugin in this order defines this FormID, so no NPC reads this bake");
                     continue;
                 }
-                // Resolves to something that is not an NPC. A null body is the plugin having changed on disk since
-                // the index was built: its own row, so one moved plugin cannot kill a whole-order sweep.
-                var body = view.GetRecord(session, w.WinnerPlugin, fk);
-                if (body is null)
+                // Resolves to something that is not an NPC: the index knows the record's class, so no body is read.
+                if (view.WinnerClassOf(fk) is { } cls && !typeof(INpcGetter).IsAssignableFrom(cls))
                     Emit(FaceGenFindingClass.Inert, fk, folder, w.WinnerPlugin, null, null,
-                         $@"{folder}\{name} — {w.WinnerPlugin} no longer holds this FormID; it changed on disk after this order was indexed. Re-run the check.");
-                else if (body is not INpcGetter)
-                    Emit(FaceGenFindingClass.Inert, fk, folder, w.WinnerPlugin, null, null,
-                         $@"{folder}\{name} — this FormID is a {TypeNameOf(body)}, not an NPC, so no actor reads this bake");
+                         $@"{folder}\{name} — this FormID is a {TypeNameOf(cls)}, not an NPC, so no actor reads this bake");
             }
         }
 
@@ -391,7 +386,7 @@ public static class FaceGenCheck
             }
             if (pole is null) return (false, null, null, false);
 
-            var ownerBody = view.GetRecord(session, pole, fk, typeof(INpcGetter));
+            var ownerBody = view.GetRecord(session, pole, fk);
             if (ownerBody is null) return (false, null, null, false);
             var theirs = ReadEngine.ReadFields(ownerBody, FaceFields, depth: 4);
             var winner = ReadEngine.ReadFields(winnerBody, FaceFields, depth: 4);
@@ -463,8 +458,8 @@ public static class FaceGenCheck
         => !npc.Template.IsNull && npc.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits);
 
     /// <summary>A record's catalog type name, read the same way <see cref="ReadEngine"/> reads it so the two cannot spell one type differently.</summary>
-    static string TypeNameOf(IMajorRecordGetter body)
-        => RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(body.GetType())?.Name ?? "record");
+    static string TypeNameOf(Type recordClass)
+        => RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(recordClass)?.Name ?? "record");
 
     /// <summary>Parse a facegen filename into its index byte and 6-hex local id, or null when it is not the eight-hex form.</summary>
     public static (byte Index, uint Local)? ParseKeyFile(string fileName)

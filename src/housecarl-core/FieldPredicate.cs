@@ -56,14 +56,14 @@ public sealed class FieldPredicateSet
     Func<FormKey, IMajorRecordGetter?>? _fetchWinnerBody;
     // The `*parent` containment step's child->parent lookup.
     Func<FormKey, FormKey?>? _parentOf;
-    // The containing records' bodies, gathered many at once; each key carries the child type it was climbed from and how many hops up.
-    Func<IReadOnlyCollection<(FormKey Parent, Type ChildType, int Hops)>, IReadOnlyDictionary<FormKey, IMajorRecordGetter>>? _fetchParents;
+    // The containing records' bodies, gathered many at once.
+    Func<IReadOnlyCollection<FormKey>, IReadOnlyDictionary<FormKey, IMajorRecordGetter>>? _fetchParents;
     // One chunk's containing records, held only until the caller releases the chunk (#1147, #720).
     IReadOnlyDictionary<FormKey, IMajorRecordGetter>? _heldParents;
     // The keys that chunk asked for: one absent from the gather is the answer, not a reason to seek it again.
     HashSet<FormKey>? _heldAsked;
-    // Link-step targets cached for the set's lifetime; the '*parent' hop deliberately does not share it (#720).
-    readonly Dictionary<FormKey, IMajorRecordGetter?> _targetCache = new();
+    // The link step's verdict per predicate and target, kept for the set's lifetime in place of the target bodies (#1158).
+    readonly Dictionary<(int Index, FormKey Target), (bool Satisfied, EvalKind Kind)> _targetVerdicts = new();
 
     // The '*parent' hop's verdict memo, keyed by the predicate and by which side hopped.
     readonly Dictionary<(int Index, bool LinkSide, FormKey Parent), (bool Satisfied, EvalKind Kind)> _parentVerdicts = new();
@@ -106,7 +106,7 @@ public sealed class FieldPredicateSet
     /// <param name="fetchParents">The bulk fetch of a chunk's containing records; any other parent is read through <paramref name="fetchWinnerBody"/>.</param>
     public void BindResolution(Func<FormKey, string?> winnerOf, Func<FormKey, IMajorRecordGetter?>? fetchWinnerBody = null,
                                Func<FormKey, FormKey?>? parentOf = null,
-                               Func<IReadOnlyCollection<(FormKey Parent, Type ChildType, int Hops)>, IReadOnlyDictionary<FormKey, IMajorRecordGetter>>? fetchParents = null)
+                               Func<IReadOnlyCollection<FormKey>, IReadOnlyDictionary<FormKey, IMajorRecordGetter>>? fetchParents = null)
     {
         _winnerOf = winnerOf;
         _fetchWinnerBody = fetchWinnerBody;
@@ -119,7 +119,7 @@ public sealed class FieldPredicateSet
     {
         ReleaseParents();
         if (_fetchParents is null || _parentOf is null || !NeedsContainment) return;
-        var want = new Dictionary<FormKey, (FormKey Parent, Type ChildType, int Hops)>();
+        var want = new HashSet<FormKey>();
         foreach (var child in chunk)
             for (int k = 0; k < _predicates.Count; k++)
             {
@@ -131,15 +131,15 @@ public sealed class FieldPredicateSet
                 var at = child.FormKey;
                 int climbed = 0;
                 while (climbed < hops && _parentOf(at) is { } up) { at = up; climbed++; }
-                if (climbed == 0 || want.ContainsKey(at)) continue;
+                if (climbed == 0 || want.Contains(at)) continue;
                 // A chain that dead-ends above its first hop reads the record it stopped on, for the rollup sentence.
                 if (climbed == hops ? _parentVerdicts.ContainsKey((k, linkSide, at)) : _noParentTypes.ContainsKey(at)) continue;
-                want[at] = (at, child.GetType(), climbed);
+                want.Add(at);
             }
         if (want.Count == 0) return;
         ParentBodyFetches += want.Count;
-        _heldAsked = new HashSet<FormKey>(want.Keys);
-        _heldParents = _fetchParents(want.Values);
+        _heldAsked = want;
+        _heldParents = _fetchParents(want);
     }
 
     /// <summary>Drop the chunk's containing records; the verdicts they decided stay memoized.</summary>
@@ -1164,10 +1164,7 @@ public sealed class FieldPredicateSet
         EvalKind? unjudged = null;
         foreach (var fk in links)
         {
-            if (!_targetCache.TryGetValue(fk, out var target))
-                _targetCache[fk] = target = _fetchWinnerBody(fk);
-            if (target is null) { Louder(ref unjudged, EvalKind.UnresolvedTarget); continue; }
-            var (sat, kind) = EvalCore(p, target);
+            var (sat, kind) = TargetVerdict(p, fk);
             if (_fatal is not null) return (false, EvalKind.Definite);
             if (kind == EvalKind.Definite)
             {
@@ -1178,6 +1175,16 @@ public sealed class FieldPredicateSet
         }
         if (anyVerdict) return (false, EvalKind.Definite);
         return (false, unjudged ?? EvalKind.Unset);
+    }
+
+    /// <summary>One target's verdict on the predicate's own side, read once per call; the body is dropped as soon as it is judged.</summary>
+    (bool Satisfied, EvalKind Kind) TargetVerdict(Predicate p, FormKey fk)
+    {
+        if (_targetVerdicts.TryGetValue((_evalIndex, fk), out var memo)) return memo;
+        var target = _fetchWinnerBody!(fk);
+        var verdict = target is null ? (false, EvalKind.UnresolvedTarget) : EvalCore(p, target);
+        if (_fatal is null) _targetVerdicts[(_evalIndex, fk)] = verdict;
+        return verdict;
     }
 
     /// <summary>Keep the loudest no-verdict class seen so far.</summary>

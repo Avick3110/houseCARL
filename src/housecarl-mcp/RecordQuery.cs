@@ -239,7 +239,7 @@ internal sealed partial class RecordReads
                 // Gather one chunk's winner bodies and scan its keys in the universe's own order; false stops.
                 bool DrainSet()
                 {
-                    var bodies = WinnerBodies.For(view, sess, setPending, null, out var faults, ct);
+                    var bodies = WinnerBodies.For(view, sess, setPending, out var faults, ct);
                     // A winner plugin that would not open is a whole-plugin coverage gap, named once.
                     unreadablePlugins.AddRange(faults.Values);
                     // The containing records of the rows that reach where=, one walk per winner plugin.
@@ -398,7 +398,7 @@ internal sealed partial class RecordReads
                     if (whereWinnerActive)
                         foreach (var p in pending)
                             if (!string.Equals(p.winner, p.source, StringComparison.OrdinalIgnoreCase)) needed.Add(p.fk);
-                    var bodies = WinnerBodies.For(view, winnerSession!, needed, types, out var faults, ct);
+                    var bodies = WinnerBodies.For(view, winnerSession!, needed, out var faults, ct);
                     // A winner plugin that would not open is a whole-plugin coverage gap, named once in the
                     // response rather than only sampled three rows deep.
                     unreadablePlugins.AddRange(faults.Values);
@@ -559,7 +559,7 @@ internal sealed partial class RecordReads
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
-               { Stamp = view.Stamp, Pin = pin, GetterTypes = types,
+               { Stamp = view.Stamp, Pin = pin,
                  ReverseIndexNote = reverseNote,
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList(),
                  Unmatched = predicate?.Unmatched ?? Array.Empty<string>(),
@@ -960,7 +960,7 @@ internal sealed partial class RecordReads
     }
 
     /// <summary>A scan's '*parent' bulk fetch of a chunk's containing records; a winner that would not open goes to <paramref name="unreadable"/>.</summary>
-    static Func<IReadOnlyCollection<(FormKey Parent, Type ChildType, int Hops)>, IReadOnlyDictionary<FormKey, IMajorRecordGetter>> ParentGather(
+    static Func<IReadOnlyCollection<FormKey>, IReadOnlyDictionary<FormKey, IMajorRecordGetter>> ParentGather(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
         List<PluginUnreadableException> unreadable, CancellationToken ct) => wanted =>
     {

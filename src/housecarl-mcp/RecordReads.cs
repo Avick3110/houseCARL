@@ -438,9 +438,8 @@ internal sealed partial class RecordReads
                                                    string? containerHint,
                                                    IReadOnlyList<(int Depth, string[]? Tail)>? depths,
                                                    CancellationToken ct,
-                                                   IReadOnlyList<Type>? getterTypes,
                                                    IReadOnlyCollection<string>? countFields)
-        => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint, depths, ct, getterTypes, countFields);
+        => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint, depths, ct, countFields);
 
     /// <summary>The artifact-aware overload: <paramref name="artifactDemand"/> is checked against THIS capture's
     /// epoch — the same build that would answer — and a mismatch hands back <paramref name="artifactRefusal"/> and
@@ -452,7 +451,6 @@ internal sealed partial class RecordReads
                                                    string? containerHint,
                                                    IReadOnlyList<(int Depth, string[]? Tail)>? depths,
                                                    CancellationToken ct,
-                                                   IReadOnlyList<Type>? getterTypes,
                                                    IReadOnlyCollection<string>? countFields,
                                                    bool summary = false)
     {
@@ -492,7 +490,7 @@ internal sealed partial class RecordReads
             {
                 chunkStart = start;
                 chunk = BodyPrefetch.Gather(view, batchSession, resolver.Counters, keys, start, Math.Min(start + BodyPrefetch.ChunkRows, keys.Length),
-                                            _ => plugin, getterTypes, ct);
+                                            _ => plugin, ct);
             }
             var fk = keys[i];
             var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
@@ -588,7 +586,6 @@ internal sealed partial class RecordReads
         string? containerHint,
         IReadOnlyList<(int Depth, string[]? Tail)>? depths,
         CancellationToken ct,
-        IReadOnlyList<Type>? getterTypes,
         IReadOnlyCollection<string>? countFields,
         bool summary = false)
     {
@@ -639,7 +636,7 @@ internal sealed partial class RecordReads
                 {
                     chunkStart = start;
                     chunk = BodyPrefetch.Gather(view, batchSession, resolver.Counters, keys, start, Math.Min(start + BodyPrefetch.ChunkRows, keys.Length),
-                                                _ => plugin, getterTypes, ct);
+                                                _ => plugin, ct);
                 }
                 var fk = keys[i];
                 var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it

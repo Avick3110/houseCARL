@@ -242,7 +242,7 @@ public static class DialogueValidate
                 var g = (foldDefines ? fold!.Record(k) as IDialogTopicGetter : null)
                      ?? (foldDefines && !view.ContainsPlugin(fold!.Plugin)
                             ? null
-                            : view.GetRecord(session, k.ModKey.FileName.String, k, typeof(IDialogTopicGetter)) as IDialogTopicGetter);
+                            : view.GetRecord(session, k.ModKey.FileName.String, k) as IDialogTopicGetter);
                 baseCache[k] = g;
                 return g;
             }

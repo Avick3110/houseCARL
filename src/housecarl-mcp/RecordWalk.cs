@@ -155,10 +155,10 @@ internal sealed partial class RecordReads
         bool templateFollow = followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase);
 
         var bodyCache = new Dictionary<FormKey, IMajorRecordGetter?>();
-        IMajorRecordGetter? Fetch(FormKey k, Type? getterType = null)
+        IMajorRecordGetter? Fetch(FormKey k)
         {
             if (bodyCache.TryGetValue(k, out var c)) return c;
-            IMajorRecordGetter? g = view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k, getterType) : null;
+            IMajorRecordGetter? g = view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
             bodyCache[k] = g;
             return g;
         }
@@ -209,7 +209,7 @@ internal sealed partial class RecordReads
             for (int i = 0; i < wanted.Count; i += BodyPrefetch.ChunkRows)
             {
                 int end = Math.Min(i + BodyPrefetch.ChunkRows, wanted.Count);
-                var chunk = BodyPrefetch.Gather(view, session, resolver.Counters, wanted, i, end, _ => null, null, ct);
+                var chunk = BodyPrefetch.Gather(view, session, resolver.Counters, wanted, i, end, _ => null, ct);
                 // The walk asks for every key it gathered, so the chunk's deferred per-plugin walk is forced here.
                 for (int k = i; k < end; k++)
                     if (chunk.Body(wanted[k]) is { } body) bodyCache[wanted[k]] = body;
@@ -243,7 +243,7 @@ internal sealed partial class RecordReads
                 if (i == hops - 1 && hops == segs.Length) return new List<FormKey> { pk.Value };
                 IMajorRecordGetter? up;
                 // A fault reading the CONTAINING record is that record's, and the note names it — never this node's.
-                try { up = Fetch(pk.Value, ContainmentIndex.ContainerGetter(body.GetType())); }   // typed by the child, so the seek reads only the container's groups (#1147)
+                try { up = Fetch(pk.Value); }
                 catch (Exception ex) when (RecordParseFault.Is(ex))
                 { note = $"(the containing record {FormIdToken.Of(pk.Value)} {WalkUnscannableNote(WalkFaultOf(ex))})"; return new List<FormKey>(); }
                 if (up is null) { note = $"(the containing record {FormIdToken.Of(pk.Value)} would not fetch)"; return new List<FormKey>(); }

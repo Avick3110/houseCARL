@@ -598,11 +598,11 @@ public static class WriteEngine
     }
 
     /// <summary>The Type for Mutagen's typed ENUMERATION: the flat group's getter interface when one matches, else the record's own primary getter.</summary>
-    public static Type SeekTypeFor(IMajorRecordGetter record)
+    public static Type SeekTypeFor(Type recordClass)
     {
         foreach (var (_, getterIface) in FlatGroupTypes)
-            if (getterIface.IsInstanceOfType(record)) return getterIface;
-        return PrimaryGetter(record.GetType()) ?? record.GetType();
+            if (getterIface.IsAssignableFrom(recordClass)) return getterIface;
+        return PrimaryGetter(recordClass) ?? recordClass;
     }
 
     /// <summary>The flat groups' (T, getter-interface) pairs for <see cref="SkyrimMod"/>, MEMOIZED reflection metadata.</summary>

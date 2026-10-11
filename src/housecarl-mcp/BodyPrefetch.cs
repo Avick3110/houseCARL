@@ -16,13 +16,12 @@ internal static class BodyPrefetch
 
     /// <summary>The chunk covering rows <paramref name="start"/> to <paramref name="end"/>, ready to walk a plugin
     /// when a row asks. <paramref name="sourceAt"/> names the plugin whose body a row displays, or null for the
-    /// winner; <paramref name="getterTypes"/> narrows each walk to the GRUPs the caller's types live in.</summary>
+    /// winner.</summary>
     internal static Chunk Gather(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, CostCounters counters,
-        IReadOnlyList<FormKey> keys, int start, int end, Func<int, string?> sourceAt,
-        IReadOnlyList<Type>? getterTypes, CancellationToken ct)
+        IReadOnlyList<FormKey> keys, int start, int end, Func<int, string?> sourceAt, CancellationToken ct)
     {
-        var gather = new BodyGather(view, session, getterTypes, BodyGather.Absent.Null, onDemand: true, ct: ct);
+        var gather = new BodyGather(view, session, BodyGather.Absent.Null, onDemand: true, ct: ct);
         var plugins = new Dictionary<FormKey, string>();
         for (int r = start; r < end; r++)
         {
@@ -45,8 +44,8 @@ internal static class BodyPrefetch
         readonly LoadOrderResolver.IndexView _view;
         readonly LoadOrderResolver.OverlaySession _session;
         readonly CancellationToken _ct;
-        // The rows' containing records, one gather per child type that hopped, and the plugins each could not walk.
-        readonly Dictionary<Type, (Dictionary<FormKey, IMajorRecordGetter> Bodies, Dictionary<string, PluginUnreadableException> Faults)> _parents = new();
+        // The rows' containing records, gathered on the first hop, and the plugins that gather could not walk.
+        (Dictionary<FormKey, IMajorRecordGetter> Bodies, Dictionary<string, PluginUnreadableException> Faults)? _parents;
 
         internal Chunk(BodyGather gather, Dictionary<FormKey, string> plugins,
                        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, CancellationToken ct)
@@ -56,17 +55,15 @@ internal static class BodyPrefetch
         internal IMajorRecordGetter? Parent(IMajorRecordGetter child, FormKey parent)
         {
             if (!_plugins.ContainsKey(child.FormKey)) return null;   // a hop above the chunk's own rows
-            if (!_parents.ContainsKey(child.GetType()))
+            if (_parents is null)
             {
-                var wanted = _plugins.Keys.Select(fk => _view.ParentOf(fk)).OfType<FormKey>().Select(pk => (pk, child.GetType(), 1));
-                _parents[child.GetType()] = (ContainmentIndex.GatherContainers(_view, _session, wanted, out var faults, _ct), faults);
+                var wanted = _plugins.Keys.Select(fk => _view.ParentOf(fk)).OfType<FormKey>();
+                _parents = (ContainmentIndex.GatherContainers(_view, _session, wanted, out var faults, _ct), faults);
             }
-            foreach (var (bodies, _) in _parents.Values)
-                if (bodies.TryGetValue(parent, out var body)) return body;
+            var (bodies, gatherFaults) = _parents.Value;
+            if (bodies.TryGetValue(parent, out var body)) return body;
             // A winner the gather could not walk answers with that fault, never a second open per row.
-            if (_view.ResolveWinner(parent) is { } w)
-                foreach (var (_, faults) in _parents.Values)
-                    if (faults.TryGetValue(w.WinnerPlugin, out var fault)) throw fault;
+            if (_view.ResolveWinner(parent) is { } w && gatherFaults.TryGetValue(w.WinnerPlugin, out var fault)) throw fault;
             return null;
         }
 

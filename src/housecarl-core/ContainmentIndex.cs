@@ -91,52 +91,17 @@ public sealed class ContainmentIndex
         var winner = view.ResolveWinner(pk.Value);
         if (winner is null)
             return (null, $"the containing record {FormIdToken.Of(pk.Value)} is not in the active load order");
-        var body = held?.Invoke(child, pk.Value) ?? FetchContainer(view, session, winner.Value.WinnerPlugin, pk.Value, child.GetType());
+        var body = held?.Invoke(child, pk.Value) ?? view.GetRecord(session, winner.Value.WinnerPlugin, pk.Value);
         return body is null
             ? (null, $"the containing record {FormIdToken.Of(pk.Value)} would not fetch from its winner '{winner.Value.WinnerPlugin}'")
             : (body, null);
     };
 
-    /// <summary>One containing record's body, sought only in the groups a record of <paramref name="childType"/> can sit under (#1147).</summary>
-    static IMajorRecordGetter? FetchContainer(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                                              string plugin, FormKey parent, Type childType)
-        => view.GetRecord(session, plugin, parent, ContainerGetter(childType));
-
-    /// <summary>The one getter type a <paramref name="childType"/> record's containing record can have; null when it can be more than one, or none.</summary>
-    public static Type? ContainerGetter(Type childType) => ContainerGetters(childType, 1) is { Count: 1 } t ? t[0] : null;
-
-    /// <summary>The winner bodies of <paramref name="parents"/>, one walk per winner plugin typed by the children; one whose winner would not open is absent.</summary>
+    /// <summary>The winner bodies of <paramref name="parents"/>, one walk per winner plugin; one whose winner would not open is absent.</summary>
     public static Dictionary<FormKey, IMajorRecordGetter> GatherContainers(
-        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-        IEnumerable<(FormKey Parent, Type ChildType, int Hops)> parents,
+        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IEnumerable<FormKey> parents,
         out Dictionary<string, PluginUnreadableException> unreadable, CancellationToken ct = default)
-    {
-        var keys = new HashSet<FormKey>();
-        var types = new List<Type>();
-        foreach (var (pk, childType, hops) in parents)
-        {
-            keys.Add(pk);
-            foreach (var t in ContainerGetters(childType, hops))
-                if (!types.Contains(t)) types.Add(t);
-        }
-        return WinnerBodies.For(view, session, keys, types.Count > 0 ? types : null, out unreadable, ct);
-    }
-
-    /// <summary>The getter types that can contain a <paramref name="child"/> record <paramref name="hops"/> steps up; empty when none can.</summary>
-    public static IReadOnlyList<Type> ContainerGetters(Type child, int hops) =>
-        _containerGetters.GetOrAdd((child, hops), static k =>
-        {
-            var concrete = WriteEngine.PrimaryGetter(k.Child) is { } g ? WriteEngine.ConcreteOf(g) : null;
-            IEnumerable<Type> at = concrete is null ? Array.Empty<Type>() : new[] { concrete };
-            for (int i = 0; i < k.Hops; i++) at = at.SelectMany(ContainersOf).Distinct().ToList();
-            return at.Select(WriteEngine.PrimaryGetter).OfType<Type>().Distinct().ToList();
-        });
-    static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type Child, int Hops), IReadOnlyList<Type>> _containerGetters = new();
-
-    /// <summary>The concrete record classes with a child-bearing property that reaches <paramref name="concreteChild"/>.</summary>
-    static IEnumerable<Type> ContainersOf(Type concreteChild) =>
-        ConcreteRecordClasses().Where(t => WriteEngine.ChildBearingProperties(t)
-            .Any(p => WriteEngine.ReachesRecordType(p.PropertyType, concreteChild, new HashSet<Type>(), 0)));
+        => WinnerBodies.For(view, session, new HashSet<FormKey>(parents), out unreadable, ct);
 
     /// <summary>Every concrete record class Mutagen models for Skyrim.</summary>
     static IReadOnlyList<Type> ConcreteRecordClasses() => _concrete ??=

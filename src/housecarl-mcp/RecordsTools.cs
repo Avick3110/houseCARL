@@ -1597,7 +1597,7 @@ public static partial class RecordsTools
                 {
                     bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, bodyRead, depth, resolveNames, null,
                                                       out _, out var bref, out var brefEpoch, containerHint, readDepths,
-                                                      ct, outcome.GetterTypes, countFields, summary: summaryRows);
+                                                      ct, countFields, summary: summaryRows);
                     // A refusal is judged on the named cause, never on row count: a zero-match scan is honest.
                     if (bref is not null)
                         return json ? JsonWire.RenderError(bref, brefEpoch)
@@ -1610,7 +1610,7 @@ public static partial class RecordsTools
                     // fields_source="winner" retargeting display to the winner.
                     var srcs = outcome.Sources;
                     if (winnerFields || srcs is null || srcs.Take(keys.Count).All(s => s is null))
-                        bodies = svc.ResolveBatch(keys, bodyRead, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
+                        bodies = svc.ResolveBatch(keys, bodyRead, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, countFields: countFields);
                     else
                     {
                         var byIndex = new ReadOutcome[keys.Count];
@@ -1625,12 +1625,12 @@ public static partial class RecordsTools
                         }
                         if (winnerIdx.Count > 0)
                         {
-                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyRead, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
+                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyRead, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, countFields: countFields);
                             for (int i = 0; i < winnerIdx.Count; i++) byIndex[winnerIdx[i]] = res[i];
                         }
                         foreach (var kv in bySource)
                         {
-                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyRead, false, depth, resolveNames, kv.Key, containerHint, readDepths, ct, outcome.GetterTypes, countFields);
+                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyRead, false, depth, resolveNames, kv.Key, containerHint, readDepths, ct, countFields);
                             for (int i = 0; i < kv.Value.Count; i++) byIndex[kv.Value[i]] = res[i];
                         }
                         bodies = byIndex;
