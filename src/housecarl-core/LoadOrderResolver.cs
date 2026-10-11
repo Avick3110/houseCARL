@@ -86,7 +86,7 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly Dictionary<FormKey, (ushort winner, ushort count, byte type)> Index;   // ALL keys — winner, depth, and the winner's class code
         public readonly Dictionary<FormKey, int[]> Overriders;                // MULTI keys only — ordered touching overlay indices
         public readonly IndexTypes Types;                                     // the class codes this build interned
-        public readonly Dictionary<FormKey, byte[]> MixedTypes;               // MIXED keys only — each provider's class code, aligned with Overriders
+        public readonly Dictionary<FormKey, byte[]> MixedTypes;               // MIXED keys only — each provider's own class code, aligned with Overriders
         public readonly List<string> LoadFailures;                            // per-plugin index-build failures (open OR parse), always surfaced
         public readonly HashSet<int> Excluded;                                // overlay indices excluded this build — never re-touched by any path
         /// <summary>The SUBSET of <see cref="Excluded"/> whose file could not be OPENED at all; its own set, not derived from the reason string — prose can be reworded, membership is a fact.</summary>
@@ -355,6 +355,10 @@ public sealed class LoadOrderResolver : IDisposable
                                           Func<string, string?>? explainAbsence = null,
                                           CostCounters? counters = null)
     {
+        if (orderedPluginPaths.Count > ushort.MaxValue)
+            throw new ArgumentException(
+                $"the load order holds {orderedPluginPaths.Count:N0} plugins, past the {ushort.MaxValue:N0} the order index can number; " +
+                "check the plugin list handed to houseCARL.");
         var paths = new string[orderedPluginPaths.Count];
         var names = new string[orderedPluginPaths.Count];
         var stamps = new FileStamp[orderedPluginPaths.Count];
@@ -384,7 +388,7 @@ public sealed class LoadOrderResolver : IDisposable
         var index = new Dictionary<FormKey, (ushort winner, ushort count, byte type)>();
         var overriders = new Dictionary<FormKey, List<int>>();        // multi keys only
         var types = new IndexTypes();
-        var mixed = new Dictionary<FormKey, List<byte>>();            // keys whose providers differ in seek type
+        var mixed = new Dictionary<FormKey, List<byte>>();            // keys whose providers differ in class
         var failures = new List<string>();
         var excluded = new HashSet<int>();
         var unopenable = new HashSet<int>();                          // the could-not-be-OPENED subset
@@ -419,13 +423,13 @@ public sealed class LoadOrderResolver : IDisposable
                           || ov.ModKey.Type is ModType.Master or ModType.Light;
 
             // Buffer the WHOLE plugin's keys first (plugin-atomic); the CONTEXT walk carries each record's containing parent.
-            var keys = new List<(FormKey Key, byte Type)>();
+            var keys = new List<(FormKey Key, Type Class)>();
             var edges = new List<(FormKey Child, FormKey Parent)>();
             try
             {
                 foreach (var ctx in ov.EnumerateMajorRecordContexts())
                 {
-                    keys.Add((ctx.Record.FormKey, types.Intern(ctx.Record.GetType())));
+                    keys.Add((ctx.Record.FormKey, ctx.Record.GetType()));
                     ContainmentIndex.Stage(ctx, edges);
                 }
             }
@@ -441,8 +445,9 @@ public sealed class LoadOrderResolver : IDisposable
             finally { (ov as IDisposable)?.Dispose(); }                    // one plugin open at a time — never the whole floor
 
             containment.Merge(edges);                                      // later plugin wins, like the winner index
-            foreach (var (fk, t) in keys)                                  // merge the COMPLETE plugin into the index
+            foreach (var (fk, cls) in keys)                                // merge the COMPLETE plugin into the index
             {
+                var t = types.Intern(cls);
                 if (!index.TryGetValue(fk, out var e))
                 {
                     index[fk] = ((ushort)i, 1, t);                         // first sighting — singleton so far, no list
@@ -467,12 +472,12 @@ public sealed class LoadOrderResolver : IDisposable
             failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
             light, firstUnknownKind, firstUnknownKindName, containment, masterBlock);
 
-        // The code a key carries once one more provider joins: the winner's class while every provider shares a seek type, else Mixed.
+        // The code a key carries once one more provider joins: the one class while every provider shares it, else Mixed.
         byte MergeType(FormKey fk, byte held, int count, byte next)
         {
             if (held == IndexTypes.Mixed) { mixed[fk].Add(next); return held; }
-            if (ReferenceEquals(types.Seek(held), types.Seek(next))) return next;
-            // Every provider so far shares the held code's seek type, so it stands for each of them.
+            if (held == next) return next;
+            // Every provider so far shares the held class, so it stands for each of them.
             var per = new List<byte>(count + 1);
             for (int k = 0; k < count; k++) per.Add(held);
             per.Add(next);
