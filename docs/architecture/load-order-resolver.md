@@ -71,7 +71,7 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 - `RecordsOwnedChildTests.ABatchOpensEachPluginOnce_NotOncePerRecordItUnions` and `RecordsRenderCostTests.ADetailRenderOpensOneOverlayPerPluginNotPerRow` — one overlay open per plugin per call, counted through the service's `CostCounters.SessionOverlayOpens`.
 - `RuntimeFormIdTests.ALightPluginsRecordReadsByItsRuntimeFormId`, `AFullPluginsRecordReadsByItsLoadIndex`, `ALightIndexNoActivePluginOccupiesIsRefused` and `ADynamicFormIdIsRefusedAsBelongingToNoPlugin` — the two runtime address tables and their refusals.
 - `DegradedOrderMarkerTests` — a build that lost plugins carries the marker on every lane, and a healthy one carries none.
-- `TypedIndexTests` — every lane's seeks and gather walks are typed, a key a later plugin redefines as another record type is sought in each provider's own groups, a Global variant keeps one seek type, and a plugin without a copy is not read; `TypedIndexEquivalenceTests` — on the shared worlds every copy the typed door returns equals the one a flat walk finds.
+- `TypedIndexTests` — every lane's seeks and gather walks are typed, a key a later plugin redefines as another record type is sought in each provider's own groups, a Global variant keeps one seek type, each provider of a mixed key keeps its own class, and a plugin without a copy is not read; `IndexTypesTests` — a 256th class throws; `TypedIndexEquivalenceTests` — on the shared worlds every copy the typed door returns equals the one a flat walk finds.
 
 ## Where
 `src/housecarl-core/LoadOrderResolver.cs`: `Build`, `BuildIndex`, `IndexSnapshot`, `IndexView`,
