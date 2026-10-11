@@ -347,13 +347,20 @@ internal sealed partial class RecordReads
             var pending = chunked
                 ? new List<(FormKey fk, int depth, IMajorRecordGetter body, string? source, string? winner)>(WinnerGatherChunk)
                 : null;
+            // A winner scan that reads every GMST also builds the shared-EditorID lookup its rows' notes read.
+            var names = !hasPlugins && SharedEditorIds.Covers(types, _host.Types) ? new SharedEditorIds(view) : null;
+            var streamUnread = new List<PluginUnreadableException>();
             try
             {
                 // Carry the source plugin per record so the render shows the body the scan filtered: plugins= gives
                 // the scoped plugin's filename, type= gives null, meaning the winner.
                 IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string? source)> stream =
                     hasPlugins ? view.RecordsIn(plugins!, types).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)x.source))  // the scoped plugin's own body
-                               : view.WinnerRecordsOfType(types!, unreadablePlugins).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null));    // the load-order winner's body
+                               : view.WinnerRecordsOfType(types!, streamUnread).Select(x =>
+                               {
+                                   names?.Add(x.fk, x.body);
+                                   return (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null);    // the load-order winner's body
+                               });
                 bool stopped = false;
                 foreach (var (fk, depth, body, source) in stream)
                 {
@@ -381,6 +388,8 @@ internal sealed partial class RecordReads
                     if (pending.Count == WinnerGatherChunk && !DrainChunk()) { stopped = true; break; }
                 }
                 if (!stopped && chunked && pending!.Count > 0) DrainChunk();
+                unreadablePlugins.AddRange(streamUnread);
+                if (names is not null && !stopped) pin.Seed(names.Finish(streamUnread));
 
                 // Fetch one chunk's winner and containing-record bodies and scan its rows, in stream order; false stops the scan.
                 bool DrainChunk()
