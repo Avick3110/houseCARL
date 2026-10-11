@@ -336,7 +336,7 @@ internal sealed partial class RecordReads
 
     /// <summary>The summary twin of <see cref="ResolveReadOn"/> — the conflicts-only lazy fill.</summary>
     internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk)
-        => q.Pin is { } p ? ResolveSummary(p.Resolver, p.View, fk) : ResolveSummary(fk);
+        => q.Pin is { } p ? ResolveSummary(p.Resolver, p.View, fk) with { Pin = p } : ResolveSummary(fk);
 
     /// <summary>What a folded tree carries besides its nodes: the winner's identity, and the precise owned-child
     /// tier for the whole tree — empty when the visitor stopped the walk early, since a partial tier would read as

@@ -317,6 +317,7 @@ static class JsonWire
         WriteRuntime(w, o.RuntimeFormId, o.RuntimeFormIdNote);
         w.WriteString("type", r.Type);
         WriteNullable(w, "editorid", r.EditorId);
+        WriteSharedName(w, SharedEditorIds.Note(o.Pin, o.FormKey, r.Type));
         WriteNullable(w, "winner", o.WinnerPlugin);
         w.WriteNumber("override_depth", o.OverrideDepth);
         WriteNullable(w, "source", o.SourcePlugin);   // the body these field VALUES came from (scoped plugin vs winner)
@@ -1276,6 +1277,7 @@ static class JsonWire
                 var o = detailRow(i);
                 if (o.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), o.Error, matches)); rendered++; continue; }
                 var r = o.Record!;
+                var sharedNote = SharedEditorIds.Note(o.Pin, o.FormKey, r.Type);
                 if (fold is not null)
                 {
                     // A quantified path makes the requested paths PER ELEMENT: one row each, identity repeated.
@@ -1316,7 +1318,7 @@ static class JsonWire
                         w.WriteStartArray();
                         w.WriteStringValue(r.FormKey);
                         WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
-                        WriteCell(w, r.EditorId);
+                        WriteCell(w, EditorIdCell(r.EditorId, sharedNote));
                         for (int c = 0; c < cols.Length; c++)
                         {
                             var col = cols[c];
@@ -1336,7 +1338,7 @@ static class JsonWire
                 w.WriteStartArray();
                 w.WriteStringValue(r.FormKey);
                 WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
-                WriteCell(w, r.EditorId);
+                WriteCell(w, EditorIdCell(r.EditorId, sharedNote));
                 foreach (var f in r.Fields)
                 {
                     WriteCell(w, DenseCell(f));
@@ -1355,7 +1357,7 @@ static class JsonWire
                 w.WriteStringValue(FormIdToken.Of(m.FormKey));
                 WriteCell(w, RuntimeCell(m.RuntimeFormId, m.RuntimeFormIdNote));
                 w.WriteStringValue(m.Type);
-                WriteCell(w, m.EditorId);
+                WriteCell(w, EditorIdCell(m.EditorId, SharedEditorIds.Note(m.Pin, m.FormKey, m.Type)));
                 WriteCell(w, m.Name);
                 w.WriteStringValue(m.Winner);
                 w.WriteNumberValue(m.OverrideDepth);
@@ -1397,6 +1399,15 @@ static class JsonWire
         return s;
     }
 
+    /// <summary>The EditorID cell in a dense row, with a shared-EditorID note appended the way a cell's annotations are.</summary>
+    static string? EditorIdCell(string? editorId, string? note) => note is null ? editorId : $"{editorId}   ({note})";
+
+    /// <summary>A row's shared-EditorID note, beside its <c>editorid</c>, only when owed.</summary>
+    static void WriteSharedName(Utf8JsonWriter w, string? note)
+    {
+        if (note is not null) w.WriteString("editorid_note", note);
+    }
+
     /// <summary>The runtime-FormID cell in a dense row: the eight-hex form, else the reason in parentheses, else null.</summary>
     static string? RuntimeCell(string? runtime, string? note) => runtime ?? (note is null ? null : $"({note})");
 
@@ -1415,6 +1426,7 @@ static class JsonWire
         {
             w.WriteString("type", m.Type);
             WriteNullable(w, "editorid", m.EditorId);
+            WriteSharedName(w, SharedEditorIds.Note(m.Pin, m.FormKey, m.Type));
             if (m.Name is not null) w.WriteString("name", m.Name);
             if (m.Source is not null) w.WriteString("source", m.Source);
             if (m.Winner is not null) w.WriteString("winner", m.Winner);   // an off-order pole's row has no winner in the order
