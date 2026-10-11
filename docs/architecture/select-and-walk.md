@@ -71,7 +71,11 @@ path walk, and containment comes off Mutagen's context walk.
   a read FAULT on any candidate is said whatever the ratio, because those records could not be judged
   at all and passing them off as non-matches is the silently degraded answer. A record an empty
   quantified list decided read no leaf, so it is left out of the ratio: a wrong path behind `[*any]`
-  is still the loud no-such-field line when some lists are empty (#1160). The forms that read bodies
+  is still the loud no-such-field line when some lists are empty (#1160). Beside matches those lists
+  gave, the line says the count is not a confirmed answer instead of claiming 0. After a `->` hop, a
+  target an empty list satisfied does not end the record's walk while no record has read a value yet,
+  so the line never depends on the order of a record's links; once one has, the walk stops at the
+  first satisfying target as before. The forms that read bodies
   after the scan (`everything`, `rows`, a quantified `fields` path) carry the same line, and so does a
   `to_file=` manifest.
 - An `editorid in` or `formid in` term on the candidate itself (no `->` side, no `*parent` hop)

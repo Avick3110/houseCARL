@@ -1164,7 +1164,7 @@ public sealed class FieldPredicateSet
         if (links.Count == 0) return (false, EvalKind.Unset);   // present but empty — genuinely nothing linked
 
         // The loudest no-verdict class an actually-reached target produced; a target that does not resolve gets its own class.
-        bool anyVerdict = false, anyRead = false;
+        bool anyVerdict = false, anyRead = false, anySat = false;
         EvalKind? unjudged = null;
         foreach (var fk in links)
         {
@@ -1174,11 +1174,13 @@ public sealed class FieldPredicateSet
             {
                 anyVerdict = true;
                 anyRead |= kind == EvalKind.Definite;
-                if (sat) return (true, kind);
+                // An empty-list match goes on to the next target only while no record has read a value yet, so the note never hangs on link order.
+                if (sat && (anyRead || _valueRead[_evalIndex] > 0)) return (true, anyRead ? EvalKind.Definite : kind);
+                anySat |= sat;
             }
             else Louder(ref unjudged, kind);
         }
-        if (anyVerdict) return (false, anyRead ? EvalKind.Definite : EvalKind.Vacuous);
+        if (anyVerdict) return (anySat, anyRead ? EvalKind.Definite : EvalKind.Vacuous);
         return (false, unjudged ?? EvalKind.Unset);
     }
 
