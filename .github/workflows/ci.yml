@@ -62,7 +62,7 @@ jobs:
       # Every guard is an xUnit test in this project.
       - name: Tests — the 2.0 guard project (dotnet test)
         if: ${{ !cancelled() }}
-        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --logger "trx;LogFileName=guards.trx"
+        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --logger "trx;LogFileName=guards.trx" --blame-hang --blame-hang-timeout 10m --blame-hang-dump-type none
 
       # `dotnet test` exits 0 when it selects NOTHING — measured. So a filter added later (a new tier, a typo)
       # can take every guard out of CI and leave the step green with no signal. This
@@ -133,9 +133,10 @@ jobs:
       # trx, and the gate's own zero-test check reads the gating run's trx above. If the gating step
       # gains a filter, give this one the same or the summary describes a different set of tests.
       - name: Coverage — collect (visibility only)
+        id: coverage
         if: ${{ !cancelled() && github.event_name == 'push' }}
         continue-on-error: true
-        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --collect "Code Coverage;Format=cobertura" --results-directory coverage
+        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --collect "Code Coverage;Format=cobertura" --results-directory coverage --blame-hang --blame-hang-timeout 10m --blame-hang-dump-type none
 
       # Its own step, because the collect above is a separate command: GitHub's pwsh shell sets
       # $ErrorActionPreference = 'stop', and on pwsh 7.4 a native command exiting non-zero ends the
@@ -158,3 +159,15 @@ jobs:
           name: coverage-cobertura
           path: coverage/**/*.cobertura.xml
           if-no-files-found: warn
+
+      # --blame-hang above kills a test run stuck for 10 minutes and writes a Sequence_*.xml naming the
+      # test that was running; this keeps it. No dump (type none): the sequence file names the test.
+      - name: Tests — upload the hang blame file
+        if: ${{ failure() || steps.coverage.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-blame
+          path: |
+            src/housecarl-mcp-tests/TestResults/**/Sequence_*.xml
+            coverage/**/Sequence_*.xml
+          if-no-files-found: ignore
