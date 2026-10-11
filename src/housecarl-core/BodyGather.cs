@@ -18,7 +18,6 @@ public sealed class BodyGather
 
     readonly LoadOrderResolver.IndexView _view;
     readonly LoadOrderResolver.OverlaySession _session;
-    readonly IReadOnlyList<Type>? _getterTypes;
     readonly Absent _absent;
     readonly bool _onDemand;
     readonly CancellationToken _ct;
@@ -36,10 +35,10 @@ public sealed class BodyGather
     /// <param name="absent">What <see cref="Body"/> answers for a pair this gather does not hold.</param>
     /// <param name="onDemand">Walk a plugin on the first <see cref="Body"/> that wants it, not in <see cref="Gather"/>.</param>
     public BodyGather(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                      IReadOnlyList<Type>? getterTypes = null, Absent absent = Absent.Seek,
+                      Absent absent = Absent.Seek,
                       bool onDemand = false, CancellationToken ct = default)
     {
-        _view = view; _session = session; _getterTypes = getterTypes;
+        _view = view; _session = session;
         _absent = absent; _onDemand = onDemand; _ct = ct;
     }
 
@@ -83,7 +82,7 @@ public sealed class BodyGather
         if (!_held.TryGetValue(plugin, out var sink)) _held[plugin] = sink = new Dictionary<FormKey, IMajorRecordGetter>(keys.Count);
         _ct.ThrowIfCancellationRequested();   // a client that aborted stops the gather between plugin walks
         // A fault reading the PLUGIN leaves it unwalked, so Body answers by Absent with the same fault as before.
-        if (WalkOnce(_view, _session, plugin, keys, _getterTypes, sink) is { } fault) { _faults[plugin] = fault; return; }
+        if (WalkOnce(_view, _session, plugin, keys, sink) is { } fault) { _faults[plugin] = fault; return; }
         _walked.Add(plugin);
     }
 
@@ -92,10 +91,9 @@ public sealed class BodyGather
     /// plugin's fault. Public for the tree fold alone, which settles its wanted set at walk time.</summary>
     public static PluginUnreadableException? WalkOnce(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, string plugin,
-        IReadOnlyCollection<FormKey> keys, IReadOnlyList<Type>? getterTypes,
-        IDictionary<FormKey, IMajorRecordGetter> sink)
+        IReadOnlyCollection<FormKey> keys, IDictionary<FormKey, IMajorRecordGetter> sink)
     {
-        try { view.CollectRecords(session, plugin, keys, getterTypes, sink); return null; }
+        try { view.CollectRecords(session, plugin, keys, sink); return null; }
         catch (OutOfMemoryException) { throw; }
         catch (OperationCanceledException) { throw; }
         catch (PluginUnreadableException ex) { return ex; }

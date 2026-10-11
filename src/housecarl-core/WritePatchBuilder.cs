@@ -391,7 +391,7 @@ public static class WritePatchBuilder
         }
 
         // --- Phase 1b: resolve the harvested link targets ONCE, then pre-flight every edit that CONTRIBUTED a value again. ---
-        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens.Tokens);
+        var linkTypes = LinkTypeLookup(view);
         var linkRulebook = rulebook.WithLinkTargets(linkTypes);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(staged.Count);
         foreach (var s in staged)
@@ -471,7 +471,7 @@ public static class WritePatchBuilder
             return new PatchOutcome(true, null, outPath, extend, wouldMasters, ops, 0)
             {
                 DryRun = true, ReadBack = dryBack, Warning = forkWarning,
-                Note = JoinNotes(linkNote, mastersBefore is null ? null : MasterGrowWouldNote(fileName, mastersBefore, wouldMasters)),
+                Note = mastersBefore is null ? null : MasterGrowWouldNote(fileName, mastersBefore, wouldMasters),
             };
         }
 
@@ -508,12 +508,8 @@ public static class WritePatchBuilder
 
         return new PatchOutcome(true, null, outPath, extend, masters, reported, bytes)
             { ReadBack = readBack, Warning = forkWarning,
-              Note = JoinNotes(linkNote, mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters)) };
+              Note = mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters) };
     }
-
-    /// <summary>Two honesty notes on one outcome, in one string; two nulls stay null.</summary>
-    static string? JoinNotes(string? a, string? b) =>
-        a is null ? b : b is null ? a : a + " " + b;
 
     /// <summary>The "source plugin doesn't carry the record to copy" refusal, worded so the reader can tell WHICH record is missing.</summary>
     static string CopySourceMissing(PatchEdit e, string srcPlugin) =>
@@ -553,40 +549,9 @@ public static class WritePatchBuilder
         public bool Remove(string item) => throw new NotSupportedException("the harvest sink only accumulates.");
     }
 
-    /// <summary>The pre-flight's link-TARGET resolver, off the rulebook's own harvest tokens resolved up front per winner plugin; null where it cannot answer.</summary>
-    static (CorpusRulebook.LinkTargetLookup lookup, string? note) LinkTypeLookup(
-        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IReadOnlyCollection<string> tokens)
-    {
-        var keyOf = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
-        var byPlugin = new Dictionary<string, HashSet<FormKey>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var t in tokens)
-        {
-            if (!FormKey.TryFactory(t, out var fk) || fk == FormKey.Null) continue;
-            keyOf[t] = fk;
-            if (view.ResolveWinner(fk) is not { } w) continue;
-            if (!byPlugin.TryGetValue(w.WinnerPlugin, out var set)) byPlugin[w.WinnerPlugin] = set = new HashSet<FormKey>();
-            set.Add(fk);
-        }
-        var types = new Dictionary<FormKey, Type>();
-        List<string>? skipped = null;
-        foreach (var (plugin, keys) in byPlugin)
-        {
-            var sink = new Dictionary<FormKey, IMajorRecordGetter>();
-            // The exception carries the right sentence for its own fault, so the note quotes it rather than guessing.
-            try { view.CollectRecords(session, plugin, keys, null, sink); }
-            catch (PluginUnreadableException ex)
-            {
-                (skipped ??= new List<string>()).Add(
-                    // keys is the DISTINCT FormKeys, so the note counts records, not the write's link value slots.
-                    $"this write links to {keys.Count} distinct record(s) in '{plugin}', whose types were NOT " +
-                    $"checked: {ex.Message}");
-                continue;
-            }
-            foreach (var kv in sink) types[kv.Key] = kv.Value.GetType();
-        }
-        return (token => keyOf.TryGetValue(token, out var fk) && types.TryGetValue(fk, out var t) ? t : null,
-                skipped is null ? null : string.Join(" ", skipped));
-    }
+    /// <summary>The pre-flight's link-TARGET resolver: each harvest token's winning record class, read off the index with no body fetched; null where it cannot answer.</summary>
+    static CorpusRulebook.LinkTargetLookup LinkTypeLookup(LoadOrderResolver.IndexView view)
+        => token => FormKey.TryFactory(token, out var fk) && fk != FormKey.Null ? view.WinnerClassOf(fk) : null;
 
     /// <summary>Does this edit's CopyFrom source need the OFF-ORDER on-disk locate? The ONE rule both ends share.</summary>
     public static bool IsOffOrderCopySource(PatchEdit e, LoadOrderResolver.IndexView view)
@@ -758,7 +723,7 @@ public static class WritePatchBuilder
         }
 
         // --- Phase 1b: one resolve of the harvested link targets, then pre-flight every staged edit against it. ---
-        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens.Tokens);
+        var linkTypes = LinkTypeLookup(view);
         var linkRulebook = rulebook.WithLinkTargets(linkTypes);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource)>(staged.Count);
         foreach (var s in staged)
@@ -867,7 +832,7 @@ public static class WritePatchBuilder
             return new PatchOutcome(true, null, targetPath, false, wouldMasters, ops, 0)
             {
                 DryRun = true, InPlace = true, ReadBack = dryBack, Warning = forkWarning,
-                Note = JoinNotes(linkNote, MasterGrowWouldNote(fileName, mastersBefore, wouldMasters)),
+                Note = MasterGrowWouldNote(fileName, mastersBefore, wouldMasters),
             };
         }
 
@@ -915,7 +880,7 @@ public static class WritePatchBuilder
 
         return new PatchOutcome(true, null, targetPath, false, masters, reported, bytes)
             { ReadBack = readBack, InPlace = true, Warning = forkWarning,
-              Note = JoinNotes(linkNote, MasterGrowNote(fileName, mastersBefore, masters)) };
+              Note = MasterGrowNote(fileName, mastersBefore, masters) };
     }
 
     /// <summary>The re-sort note when a write GREW the target's master header, since a plugin loads only AFTER its masters.</summary>
@@ -2348,7 +2313,7 @@ public static class WritePatchBuilder
                 var verdict = harvestRulebook.CollectLinkValues(req, allEditorIds);
                 if (linkTokens.Adds == sunk) harvestVerdicts[req] = verdict;
             }
-        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens.Tokens);
+        var linkTypes = LinkTypeLookup(view);
         var linkRulebook = rulebook.WithLinkTargets(linkTypes);
 
         // --- Phase 0: open the destination FIRST, so a FormKey parent can resolve from it; nothing is mutated until Phase 3. ---
@@ -2825,7 +2790,7 @@ public static class WritePatchBuilder
         return new CreateOutcome(true, null, outPath, extend, created, masters, bytes)
         {
             ReadBack = readBack, InPlace = inPlace, Warning = forkWarning,
-            Note = JoinNotes(linkNote, mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters)),
+            Note = mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters),
         };
     }
 

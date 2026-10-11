@@ -83,8 +83,10 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>One index build's ENTIRE output, swapped in as a SINGLE reference write so no reader sees a torn view; contract in docs/architecture/load-order-resolver.md.</summary>
     internal sealed class IndexSnapshot   // internal (not private) so IndexView's ctor can take it; never leaves the assembly
     {
-        public readonly Dictionary<FormKey, (int winner, int count)> Index;   // ALL keys — winner + depth, O(1)
+        public readonly Dictionary<FormKey, (ushort winner, ushort count, byte type)> Index;   // ALL keys — winner, depth, and the winner's class code
         public readonly Dictionary<FormKey, int[]> Overriders;                // MULTI keys only — ordered touching overlay indices
+        public readonly IndexTypes Types;                                     // the class codes this build interned
+        public readonly Dictionary<FormKey, byte[]> MixedTypes;               // MIXED keys only — each provider's class code, aligned with Overriders
         public readonly List<string> LoadFailures;                            // per-plugin index-build failures (open OR parse), always surfaced
         public readonly HashSet<int> Excluded;                                // overlay indices excluded this build — never re-touched by any path
         /// <summary>The SUBSET of <see cref="Excluded"/> whose file could not be OPENED at all; its own set, not derived from the reason string — prose can be reworded, membership is a fact.</summary>
@@ -109,19 +111,33 @@ public sealed class LoadOrderResolver : IDisposable
 
         public readonly Lazy<RuntimeSlots> Slots;
 
-        public IndexSnapshot(Dictionary<FormKey, (int winner, int count)> index, Dictionary<FormKey, int[]> overriders,
-                             List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
+        public IndexSnapshot(Dictionary<FormKey, (ushort winner, ushort count, byte type)> index, Dictionary<FormKey, int[]> overriders,
+                             IndexTypes types, Dictionary<FormKey, byte[]> mixedTypes, List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
                              Dictionary<string, string> excludedPlugins, int maxDepth, string epoch,
                              bool[] light, int firstUnknownKind, string? firstUnknownKindName,
                              ContainmentIndex containment, bool[] masterBlock)
         {
-            Index = index; Overriders = overriders; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
+            Index = index; Overriders = overriders; Types = types; MixedTypes = mixedTypes; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
             ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; Light = light; Containment = containment;
             MasterBlock = masterBlock;
             FirstUnknownKind = firstUnknownKind; FirstUnknownKindName = firstUnknownKindName;
             Slots = new Lazy<RuntimeSlots>(() => RuntimeSlots.Build(light));
             Stamp = OrderStamp.For(epoch, excludedPlugins.Keys);
         }
+
+        /// <summary>The seek type plugin <paramref name="idx"/>'s copy of <paramref name="fk"/> is walked by; null with <paramref name="known"/> true when this build saw no copy there.</summary>
+        public Type? CopyType(FormKey fk, int idx, out bool known)
+        {
+            known = Index.TryGetValue(fk, out var e);
+            if (!known) return null;
+            int at = e.count == 1 ? (e.winner == idx ? 0 : -1) : Array.IndexOf(Overriders[fk], idx);
+            if (at < 0) return null;
+            return Types.Seek(e.type == IndexTypes.Mixed ? MixedTypes[fk][at] : e.type);
+        }
+
+        /// <summary>The record class of the winning copy, or null for a key this build did not see.</summary>
+        public Type? WinnerClass(FormKey fk)
+            => Index.TryGetValue(fk, out var e) ? Types.Class(e.type == IndexTypes.Mixed ? MixedTypes[fk][^1] : e.type) : null;
     }
 
     /// <summary>The runtime address tables for ONE build: which plugin loads at each load index and at each light index. The engine numbers the two kinds separately.</summary>
@@ -365,8 +381,10 @@ public sealed class LoadOrderResolver : IDisposable
     /// returning the build as one immutable <see cref="IndexSnapshot"/>; the exclusion contracts are in docs/architecture/load-order-resolver.md.</summary>
     IndexSnapshot BuildIndex()
     {
-        var index = new Dictionary<FormKey, (int winner, int count)>();
+        var index = new Dictionary<FormKey, (ushort winner, ushort count, byte type)>();
         var overriders = new Dictionary<FormKey, List<int>>();        // multi keys only
+        var types = new IndexTypes();
+        var mixed = new Dictionary<FormKey, List<byte>>();            // keys whose providers differ in seek type
         var failures = new List<string>();
         var excluded = new HashSet<int>();
         var unopenable = new HashSet<int>();                          // the could-not-be-OPENED subset
@@ -401,13 +419,13 @@ public sealed class LoadOrderResolver : IDisposable
                           || ov.ModKey.Type is ModType.Master or ModType.Light;
 
             // Buffer the WHOLE plugin's keys first (plugin-atomic); the CONTEXT walk carries each record's containing parent.
-            var keys = new List<FormKey>();
+            var keys = new List<(FormKey Key, byte Type)>();
             var edges = new List<(FormKey Child, FormKey Parent)>();
             try
             {
                 foreach (var ctx in ov.EnumerateMajorRecordContexts())
                 {
-                    keys.Add(ctx.Record.FormKey);
+                    keys.Add((ctx.Record.FormKey, types.Intern(ctx.Record.GetType())));
                     ContainmentIndex.Stage(ctx, edges);
                 }
             }
@@ -423,16 +441,16 @@ public sealed class LoadOrderResolver : IDisposable
             finally { (ov as IDisposable)?.Dispose(); }                    // one plugin open at a time — never the whole floor
 
             containment.Merge(edges);                                      // later plugin wins, like the winner index
-            foreach (var fk in keys)                                       // merge the COMPLETE plugin into the index
+            foreach (var (fk, t) in keys)                                  // merge the COMPLETE plugin into the index
             {
                 if (!index.TryGetValue(fk, out var e))
                 {
-                    index[fk] = (i, 1);                                    // first sighting — singleton so far, no list
+                    index[fk] = ((ushort)i, 1, t);                         // first sighting — singleton so far, no list
                 }
                 else
                 {
                     int newCount = e.count + 1;
-                    index[fk] = (i, newCount);                              // higher overlay = new winner
+                    index[fk] = ((ushort)i, (ushort)newCount, MergeType(fk, e.type, e.count, t));   // higher overlay = new winner
                     if (newCount == 2) overriders[fk] = new List<int> { e.winner, i };  // 2nd sighting promotes to multi
                     else overriders[fk].Add(i);                            // 3rd+ extends the list
                     if (newCount > maxDepth) maxDepth = newCount;
@@ -445,8 +463,22 @@ public sealed class LoadOrderResolver : IDisposable
         return new IndexSnapshot(
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
+            types, mixed.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),
             failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
             light, firstUnknownKind, firstUnknownKindName, containment, masterBlock);
+
+        // The code a key carries once one more provider joins: the winner's class while every provider shares a seek type, else Mixed.
+        byte MergeType(FormKey fk, byte held, int count, byte next)
+        {
+            if (held == IndexTypes.Mixed) { mixed[fk].Add(next); return held; }
+            if (ReferenceEquals(types.Seek(held), types.Seek(next))) return next;
+            // Every provider so far shares the held code's seek type, so it stands for each of them.
+            var per = new List<byte>(count + 1);
+            for (int k = 0; k < count; k++) per.Add(held);
+            per.Add(next);
+            mixed[fk] = per;
+            return IndexTypes.Mixed;
+        }
     }
 
     /// <summary>The epoch fingerprint: a deterministic identity for ONE build, over every plugin's filename, RESOLVED PATH and freshness stamp in priority order plus which plugins it
@@ -702,16 +734,19 @@ public sealed class LoadOrderResolver : IDisposable
             => _r.RecordsIn(plugins, getterTypes, _s, _absences);
 
         /// <summary>One record's body from a named plugin, with the excluded-plugin check judged against THIS view's build, so a winner and its body are never vetted by two builds.</summary>
-        public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, Type? getterType = null)
-            => _r.GetRecord(session, pluginName, fk, _s, getterType);
+        public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
+            => _r.GetRecord(session, pluginName, fk, _s);
 
         /// <summary>One record's body from a plugin the index says HOLDS it — the per-record fallback a chunked gather needs; it THROWS the inconsistency rather than answering null.</summary>
-        public IMajorRecordGetter FetchRecord(OverlaySession session, string pluginName, FormKey fk, Type? getterType = null)
-            => _r.FetchRecord(session, pluginName, fk, _s, getterType);
+        public IMajorRecordGetter FetchRecord(OverlaySession session, string pluginName, FormKey fk)
+            => _r.FetchRecord(session, pluginName, fk, _s);
 
         public void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
-                                   IReadOnlyList<Type>? getterTypes, IDictionary<FormKey, IMajorRecordGetter> sink)
-            => _r.CollectRecords(session, pluginName, wanted, getterTypes, sink, _s);
+                                   IDictionary<FormKey, IMajorRecordGetter> sink)
+            => _r.CollectRecords(session, pluginName, wanted, sink, _s);
+
+        /// <summary>The record class of the winning copy, read off this build with no body fetched; null for a key it did not see.</summary>
+        public Type? WinnerClassOf(FormKey fk) => _s.WinnerClass(fk);
 
         /// <summary>The master filenames a plugin DECLARES in its header, in declared order; throws on a name not in the order or excluded this build.</summary>
         public IReadOnlyList<string> DeclaredMasters(string pluginName) => _r.DeclaredMasters(pluginName, _s, _absences);
@@ -737,17 +772,14 @@ public sealed class LoadOrderResolver : IDisposable
     internal ConflictTree? ResolveTree(OverlaySession session, FormKey fk, IndexSnapshot s)
     {
         if (!s.Index.TryGetValue(fk, out var e)) return null;
-        var overlayIdxs = e.count == 1 ? new[] { e.winner } : s.Overriders[fk];
+        var overlayIdxs = e.count == 1 ? new int[] { e.winner } : s.Overriders[fk];
         var nodes = new ConflictNode[overlayIdxs.Length];
         string? recType = null;
-        // The FIRST body is fetched blind; every one after it seeks by the type that body turned out to be.
-        Type? getterType = null;
         for (int n = 0; n < overlayIdxs.Length; n++)
         {
             int oi = overlayIdxs[n];
-            var rec = FetchBody(session, oi, fk, getterType);
+            var rec = FetchBody(session, oi, fk, s);
             recType ??= RecordNaming.StripOverlay(rec.GetType().Name);
-            getterType ??= WriteEngine.SeekTypeFor(rec);
             nodes[n] = new ConflictNode(_names[oi], rec);
         }
         return new ConflictTree(fk, recType ?? "?", nodes);
@@ -758,17 +790,14 @@ public sealed class LoadOrderResolver : IDisposable
     internal IEnumerable<ConflictNode>? StreamTree(OverlaySession session, FormKey fk, IndexSnapshot s, bool winnerFirst = false)
     {
         if (!s.Index.TryGetValue(fk, out var e)) return null;
-        return Walk(e.count == 1 ? new[] { e.winner } : s.Overriders[fk]);
+        return Walk(e.count == 1 ? new int[] { e.winner } : s.Overriders[fk]);
 
         IEnumerable<ConflictNode> Walk(int[] overlayIdxs)
         {
-            // The FIRST body is fetched blind; every one after it seeks by that type, the same as the eager walk.
-            Type? getterType = null;
             for (int n = 0; n < overlayIdxs.Length; n++)
             {
                 int oi = overlayIdxs[winnerFirst ? overlayIdxs.Length - 1 - n : n];
-                var rec = FetchBody(session, oi, fk, getterType);
-                getterType ??= WriteEngine.SeekTypeFor(rec);
+                var rec = FetchBody(session, oi, fk, s);
                 yield return new ConflictNode(_names[oi], rec);
             }
         }
@@ -800,25 +829,28 @@ public sealed class LoadOrderResolver : IDisposable
     }
 
     /// <summary>Fetch one record's body from a NAMED plugin in the order; null if the plugin isn't in the order or doesn't define this FormKey. Read it before the session disposes.</summary>
-    public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, Type? getterType = null)
-        => GetRecord(session, pluginName, fk, _snap, getterType);          // single-shot: this call = its own build (the IndexView overload pins a whole operation)
+    public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
+        => GetRecord(session, pluginName, fk, _snap);                      // single-shot: this call = its own build (the IndexView overload pins a whole operation)
 
-    IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, IndexSnapshot s, Type? getterType)
+    IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, IndexSnapshot s)
     {
         if (!_nameToIdx.TryGetValue(pluginName, out int idx)) return null;
         if (s.Excluded.Contains(idx)) return null;                         // excluded plugin — never re-enumerate it (would re-throw); the service reports the reason via ExcludedPlugins
-        return SeekBody(session.Overlay(idx), fk, getterType);
+        return SeekBody(session, idx, fk, s);
     }
 
-    /// <summary>Find one record in one open overlay: with <paramref name="getterType"/> in hand a TYPED group seek (#354), without one the flat scan. A typed walk that yields nothing falls
-    /// back to the flat one, because a type Mutagen does not route would otherwise turn "this plugin has the record" into a silent "it does not".</summary>
-    IMajorRecordGetter? SeekBody(ISkyrimModGetter ov, FormKey fk, Type? getterType)
+    /// <summary>Find one record in one plugin, walking only the groups of the seek type this build recorded for that copy. The flat walk is left for a key the build did not see,
+    /// or a typed walk that missed because the plugin changed under the call; a copy the build says this plugin lacks is absent with no read.</summary>
+    IMajorRecordGetter? SeekBody(OverlaySession session, int idx, FormKey fk, IndexSnapshot s)
     {
+        var type = s.CopyType(fk, idx, out bool known);
+        if (known && type is null) return null;
+        var ov = session.Overlay(idx);
         System.Threading.Interlocked.Increment(ref Counters.BodySeeks);
-        if (getterType is not null)
+        if (type is not null)
         {
             System.Threading.Interlocked.Increment(ref Counters.TypedSeeks);
-            foreach (var rec in ov.EnumerateMajorRecords(getterType, throwIfUnknown: false))
+            foreach (var rec in ov.EnumerateMajorRecords(type, throwIfUnknown: false))
                 if (rec.FormKey == fk) return rec;
         }
         foreach (var rec in ov.EnumerateMajorRecords())
@@ -844,59 +876,62 @@ public sealed class LoadOrderResolver : IDisposable
         finally { (ov as IDisposable)?.Dispose(); }
     }
 
-    /// <summary>The bodies ONE plugin holds for a KNOWN set of FormKeys, gathered in a SINGLE enumeration into <paramref name="sink"/> — one walk however many are wanted (#251). A key this
-    /// plugin does not hold is simply absent; only the OPEN faults as <see cref="PluginUnreadableException"/>, and a walk fault is left as it came.</summary>
+    /// <summary>The bodies ONE plugin holds for a KNOWN set of FormKeys into <paramref name="sink"/>: one typed walk per seek type the wanted copies carry in this build, however many
+    /// are wanted (#251). A key this plugin does not hold is simply absent; only the OPEN faults as <see cref="PluginUnreadableException"/>, and a walk fault is left as it came.</summary>
     public void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
-                               IReadOnlyList<Type>? getterTypes, IDictionary<FormKey, IMajorRecordGetter> sink)
-        => CollectRecords(session, pluginName, wanted, getterTypes, sink, _snap);
+                               IDictionary<FormKey, IMajorRecordGetter> sink)
+        => CollectRecords(session, pluginName, wanted, sink, _snap);
 
     void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
-                        IReadOnlyList<Type>? getterTypes, IDictionary<FormKey, IMajorRecordGetter> sink, IndexSnapshot s)
+                        IDictionary<FormKey, IMajorRecordGetter> sink, IndexSnapshot s)
     {
         if (wanted.Count == 0) return;
         if (!_nameToIdx.TryGetValue(pluginName, out int idx)) return;
         if (s.Excluded.Contains(idx)) return;                              // excluded plugin — never re-enumerate it (would re-throw)
+        var byType = new Dictionary<Type, HashSet<FormKey>>();
+        var flat = new HashSet<FormKey>();                                 // keys the build did not see, and typed misses
+        foreach (var fk in wanted)
+        {
+            if (sink.ContainsKey(fk)) continue;                            // already in hand from an earlier call
+            if (s.CopyType(fk, idx, out bool known) is { } t)
+            {
+                if (!byType.TryGetValue(t, out var set)) byType[t] = set = new HashSet<FormKey>();
+                set.Add(fk);
+            }
+            else if (!known) flat.Add(fk);
+        }
+        if (byType.Count == 0 && flat.Count == 0) return;
         ISkyrimModGetter ov;
         // Only the OPEN is named as unopenable; a fault from the walk below is a different problem.
         try { ov = session.Overlay(idx); }
         catch (Exception ex) { throw new PluginUnreadableException(_names[idx], ex); }
-        var want = wanted as HashSet<FormKey> ?? new HashSet<FormKey>(wanted);
-        int got = 0;
-        foreach (var fk in want) if (sink.ContainsKey(fk)) got++;          // already in hand from an earlier call
-        if (got == want.Count) return;
         System.Threading.Interlocked.Increment(ref Counters.CollectPasses);         // past here the plugin is actually walked
-        if (getterTypes is { Count: > 0 })
+        if (byType.Count > 0) System.Threading.Interlocked.Increment(ref Counters.TypedCollectPasses);
+        foreach (var (t, keys) in byType)
         {
-            System.Threading.Interlocked.Increment(ref Counters.TypedCollectPasses);
-            foreach (var t in getterTypes)
-                foreach (var rec in ov.EnumerateMajorRecords(t, throwIfUnknown: false))
-                    if (want.Contains(rec.FormKey) && !sink.ContainsKey(rec.FormKey))
-                    {
-                        sink[rec.FormKey] = rec;
-                        if (++got == want.Count) return;
-                    }
-            // Fall through per key for whatever is STILL missing: a routed type's hits must not declare an unrouted type's records absent.
+            int left = keys.Count;
+            foreach (var rec in ov.EnumerateMajorRecords(t, throwIfUnknown: false))
+                if (keys.Contains(rec.FormKey) && sink.TryAdd(rec.FormKey, rec) && --left == 0) break;
+            if (left > 0) foreach (var fk in keys) if (!sink.ContainsKey(fk)) flat.Add(fk);
         }
+        if (flat.Count == 0) return;
+        int missing = flat.Count;
         foreach (var rec in ov.EnumerateMajorRecords())
-            if (want.Contains(rec.FormKey) && !sink.ContainsKey(rec.FormKey))
-            {
-                sink[rec.FormKey] = rec;
-                if (++got == want.Count) return;
-            }
+            if (flat.Contains(rec.FormKey) && sink.TryAdd(rec.FormKey, rec) && --missing == 0) return;
     }
 
-    internal IMajorRecordGetter FetchRecord(OverlaySession session, string pluginName, FormKey fk, IndexSnapshot s, Type? getterType)
+    internal IMajorRecordGetter FetchRecord(OverlaySession session, string pluginName, FormKey fk, IndexSnapshot s)
     {
         if (!_nameToIdx.TryGetValue(pluginName, out int idx) || s.Excluded.Contains(idx))
             throw new InvalidOperationException(
                 $"body-fetch inconsistency: {pluginName} is indexed as containing {FormIdToken.Of(fk)} but is not readable on this build.");
-        return FetchBody(session, idx, fk, getterType);
+        return FetchBody(session, idx, fk, s);
     }
 
     /// <summary>Fetch one record body from one overlay by re-enumerating it into the session; throws if the overlay cannot yield a FormKey the index says it contains.</summary>
-    IMajorRecordGetter FetchBody(OverlaySession session, int overlayIdx, FormKey fk, Type? getterType = null)
+    IMajorRecordGetter FetchBody(OverlaySession session, int overlayIdx, FormKey fk, IndexSnapshot s)
     {
-        if (SeekBody(session.Overlay(overlayIdx), fk, getterType) is { } rec) return rec;
+        if (SeekBody(session, overlayIdx, fk, s) is { } rec) return rec;
         throw new InvalidOperationException(
             $"body-fetch inconsistency: {_names[overlayIdx]} is indexed as containing {FormIdToken.Of(fk)} but did not yield it on re-enumeration.");
     }

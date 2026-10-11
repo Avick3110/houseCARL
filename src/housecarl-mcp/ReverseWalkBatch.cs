@@ -87,7 +87,7 @@ public static class ReverseWalkBatch
             // A candidate judged at an earlier hop is remembered, so its body is not read again.
             var need = new List<FormKey>(block.Count);
             foreach (var k in block) if (!linksOf.ContainsKey(k)) need.Add(k);
-            gathered = WinnerBodies.For(view, session, need, null, out var faults, ct);
+            gathered = WinnerBodies.For(view, session, need, out var faults, ct);
             gatheredKeys = new HashSet<FormKey>(need);
             foreach (var plugin in faults.Keys)
                 if (unreadableSeen.Add(plugin)) unreadableWinners.Add(plugin);

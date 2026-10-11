@@ -37,7 +37,6 @@ public static class OwnedChildUnion
         var touching = view.TouchingPlugins(fk);
         if (touching is null || touching.Count <= 1) return null;
 
-        var getterType = WriteEngine.SeekTypeFor(subjectBody);
         var members = new Dictionary<string, List<FormKey>>(StringComparer.Ordinal);
         var seen = new Dictionary<string, HashSet<FormKey>>(StringComparer.Ordinal);
         var declarers = new Dictionary<string, List<ChildUnionDeclarer>>(StringComparer.Ordinal);
@@ -59,7 +58,7 @@ public static class OwnedChildUnion
             IMajorRecordGetter? body;
             if (string.Equals(plugin, subjectPlugin, StringComparison.OrdinalIgnoreCase)) body = subjectBody;
             else
-                try { body = view.GetRecord(session, plugin, fk, getterType); }
+                try { body = view.GetRecord(session, plugin, fk); }
                 catch { body = null; }
             foreach (var f in fields.Keys)
             {

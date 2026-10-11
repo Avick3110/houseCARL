@@ -35,10 +35,8 @@ public static class EditorIdNearMiss
                     if (!string.Equals(body.EditorID, wanted, StringComparison.OrdinalIgnoreCase)) continue;
                     if (view.ResolveWinner(fk) is not { } w) continue;
                     if (string.Equals(w.WinnerPlugin, source, StringComparison.OrdinalIgnoreCase)) continue;   // this IS the winner — the scan saw this name and judged it
-                    // A winner body that will not fetch skips this candidate, not the walk. The candidate's own getter
-                    // type is passed so the winner body is sought in that record's GRUP rather than by a flat walk (#354).
-                    var winnerBody = view.GetRecord(session, w.WinnerPlugin, fk,
-                                                    getterTypes?.FirstOrDefault(t => t.IsInstanceOfType(body)));
+                    // A winner body that will not fetch skips this candidate, not the walk.
+                    var winnerBody = view.GetRecord(session, w.WinnerPlugin, fk);
                     if (winnerBody is null) continue;
                     var winnerEid = winnerBody.EditorID;
                     if (winnerEid is null)

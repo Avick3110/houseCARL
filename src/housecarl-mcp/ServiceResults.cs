@@ -91,8 +91,6 @@ public sealed record CrossQueryOutcome(
     public string? UnmatchedNote(bool inManifest) => Unmatched.Count == 0 ? null
         : FieldPredicateSet.UnmatchedSentence(Unmatched, FieldPredicateSet.UnmatchedShown, UnmatchedGap, inManifest);
 
-    /// <summary>The getter types the scan's types= resolved to, so the bulk body gather can seek their GRUPs instead of walking the plugin. Never serialized.</summary>
-    internal IReadOnlyList<Type>? GetterTypes { get; init; }
 
     /// <summary>The scan's pinned resolver and view, so the render's per-match fills read off the same build the scan matched. Never serialized.</summary>
     internal LoadOrderService.ViewPin? Pin { get; init; }

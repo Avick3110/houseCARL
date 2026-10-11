@@ -12,7 +12,7 @@ public static class WinnerBodies
     /// is ABSENT, and an unreadable winner plugin is named once in <paramref name="unreadable"/> with its cause.</summary>
     public static Dictionary<FormKey, IMajorRecordGetter> For(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-        IReadOnlyCollection<FormKey> candidates, IReadOnlyList<Type>? getterTypes,
+        IReadOnlyCollection<FormKey> candidates,
         out Dictionary<string, PluginUnreadableException> unreadable,
         CancellationToken ct = default)
     {
@@ -20,7 +20,7 @@ public static class WinnerBodies
         var bodies = new Dictionary<FormKey, IMajorRecordGetter>(candidates.Count);
         if (candidates.Count == 0) return bodies;
 
-        var gather = new BodyGather(view, session, getterTypes, ct: ct);
+        var gather = new BodyGather(view, session, ct: ct);
         foreach (var fk in candidates)
             if (view.ResolveWinner(fk) is { } w) gather.Want(w.WinnerPlugin, fk);
         gather.Gather();

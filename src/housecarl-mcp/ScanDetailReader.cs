@@ -63,10 +63,9 @@ internal sealed class ScanDetailReader : IDisposable
         int start = BodyPrefetch.ChunkStart(i);
         if (start == _chunkStart) return;
         _chunkStart = start;
-        // The scan's own resolved types narrow each plugin's walk to the GRUPs they live in.
         _chunk = BodyPrefetch.Gather(view, _session, _q.Pin!.Resolver.Counters, _q.Keys, start,
                                      Math.Min(start + BodyPrefetch.ChunkRows, _q.Keys.Count),
-                                     SourceAt, _q.GetterTypes, _ct);
+                                     SourceAt, _ct);
     }
 
     public void Dispose() => _session?.Dispose();

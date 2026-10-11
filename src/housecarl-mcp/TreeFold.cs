@@ -46,7 +46,6 @@ internal sealed partial class RecordReads
         var declares = new bool?[n][][];
         var types = new string?[n];
         var editorIds = new string?[n];
-        var seekTypes = new Type?[n];
         var stopped = new bool[n];
 
         RunPass(Groups());
@@ -99,21 +98,11 @@ internal sealed partial class RecordReads
                 var want = new HashSet<FormKey>();
                 foreach (var (r, _) in hits) if (!stopped[r]) want.Add(keys[r]);
                 if (want.Count == 0) continue;
-                // A row's type narrows its plugin's walk to the GRUPs that type lives in — the union over the rows
-                // this plugin serves, and only when EVERY one is known.
-                List<Type>? seek = new List<Type>();
-                foreach (var (r, _) in hits)
-                {
-                    if (stopped[r]) continue;
-                    if (seekTypes[r] is not { } t) { seek = null; break; }
-                    if (!seek.Contains(t)) seek.Add(t);
-                }
-                if (seek is { Count: 0 }) seek = null;
                 var sink = new Dictionary<FormKey, IMajorRecordGetter>(want.Count);
                 // The one gather rule, owned by BodyGather.WalkOnce; a fault there leaves the sink empty and every
                 // row falls back to the per-record fetch. Which ROW a fault names, and why, is in
                 // docs/architecture/read-engine.md.
-                if (BodyGather.WalkOnce(view, session, plugin, want, seek, sink) is not null) sink.Clear();
+                if (BodyGather.WalkOnce(view, session, plugin, want, sink) is not null) sink.Clear();
 
                 foreach (var (r, node) in hits)
                 {
@@ -122,7 +111,7 @@ internal sealed partial class RecordReads
                     var fk = keys[r];
                     var body = sink.TryGetValue(fk, out var got)
                              ? got
-                             : view.FetchRecord(session, plugin, fk, isWinner ? null : seekTypes[r]);
+                             : view.FetchRecord(session, plugin, fk);
                     Interlocked.Increment(ref p.Resolver.Counters.TreeBodiesRead);
                     if (isWinner)
                     {
@@ -133,7 +122,6 @@ internal sealed partial class RecordReads
                                         .OrderBy(f => f, StringComparer.Ordinal).ToList();
                         declares[r] = new bool?[wanted[r].Count][];
                         for (int f = 0; f < wanted[r].Count; f++) declares[r][f] = new bool?[providers[r].Length];
-                        seekTypes[r] = WriteEngine.SeekTypeFor(body);
                     }
                     var read = ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop);   // materialise while open
                     if (isWinner) { types[r] = read.Type; editorIds[r] = read.EditorId; }
