@@ -114,6 +114,11 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
         /// <summary>Hand the pin a lookup its call's own scan already built, so the first row does not walk again.</summary>
         internal void Seed(SharedEditorIds names) => _sharedNames ??= names;
+
+        // Equal by the build it pins, never by the lookup cached on it.
+        public bool Equals(ViewPin? other) => other is not null && Resolver == other.Resolver
+            && EqualityComparer<LoadOrderResolver.IndexView>.Default.Equals(View, other.View);
+        public override int GetHashCode() => HashCode.Combine(Resolver, View);
     }
 
     /// <summary>One captured build plus the resolver it came from, for a lane that opens an overlay session against it.</summary>
