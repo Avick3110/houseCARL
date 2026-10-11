@@ -110,7 +110,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         SharedEditorIds? _sharedNames;
 
         /// <summary>This call's shared-EditorID lookup, made on first use and dropped with the pin.</summary>
-        internal SharedEditorIds SharedNames => _sharedNames ??= new SharedEditorIds(this);
+        internal SharedEditorIds SharedNames => _sharedNames ??= SharedEditorIds.Walk(View);
+
+        /// <summary>Hand the pin a lookup its call's own scan already built, so the first row does not walk again.</summary>
+        internal void Seed(SharedEditorIds names) => _sharedNames ??= names;
     }
 
     /// <summary>One captured build plus the resolver it came from, for a lane that opens an overlay session against it.</summary>
