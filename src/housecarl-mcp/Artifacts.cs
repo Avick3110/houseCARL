@@ -258,10 +258,11 @@ internal static class Artifacts
         return s;
     }
 
-    /// <summary>Build and save the artifact for a batch read — one row per input, in input order, per-item errors included. <paramref name="matches"/> is parallel to <paramref name="outcomes"/> and carries the references= un-merge (#576).</summary>
+    /// <summary>Build and save the artifact for a batch read — one row per input, in input order, per-item errors included. <paramref name="matches"/> is parallel to <paramref name="outcomes"/> and carries the references= un-merge (#576); <paramref name="whereNote"/> is the selecting scan's where= accounting.</summary>
     public static (SpillInfo? Spill, string? Error) WriteBatch(
         IReadOnlyList<ReadOutcome> outcomes, ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
-        LeverNames? levers = null, int rowCap = int.MaxValue, IReadOnlyList<string?>? matches = null, bool summary = false)
+        LeverNames? levers = null, int rowCap = int.MaxValue, IReadOnlyList<string?>? matches = null, bool summary = false,
+        string? whereNote = null)
     {
         using var writer = new ResultArtifact.Writer();
         for (int i = 0; i < outcomes.Count; i++)
@@ -287,9 +288,13 @@ internal static class Artifacts
                                           summary
                                               ? new[] { "formid", "runtime_formid", "type", "editorid", "editorid_note?", "name?", "source", "winner?", "override_depth", "matches?" }
                                               : new[] { "formid", "runtime_formid", "type", "editorid", "editorid_note?", "winner", "override_depth", "source", "matches?", "fields" },
-                                          "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
+                                          "input order", outcomes.Count, epoch, BatchNotes(whereNote, OwnedChildNotes(AnnotatedFields(outcomes))));
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
+
+    /// <summary>A scan-selected batch's manifest notes: the where= accounting first, as on the scan lane, then the owned-child clause.</summary>
+    static IReadOnlyList<string>? BatchNotes(string? whereNote, IReadOnlyList<string>? child) =>
+        whereNote is null ? child : new[] { whereNote }.Concat(child ?? Array.Empty<string>()).ToList();
 
     /// <summary>Build and save the artifact for a delta result — one row per input, in input order, per-item refusals included.</summary>
     public static (SpillInfo? Spill, string? Error) WriteDelta(

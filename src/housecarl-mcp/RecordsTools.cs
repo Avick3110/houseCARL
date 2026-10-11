@@ -1683,7 +1683,7 @@ public static partial class RecordsTools
                 SpillState? evSpill = null;
                 if (wantFile)
                 {
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), evLevers, matches: evMatches, summary: summaryRows);
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), evLevers, matches: evMatches, summary: summaryRows, whereNote: outcome.PredicateNote);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, bodyEpoch) : "error: " + aerr;
                     evSpill = SpillState.Spilled(s!, manifestOnly: true);
                 }
@@ -1691,7 +1691,7 @@ public static partial class RecordsTools
                 if (evSpill is null && evTrunc)
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, bodyEpoch?.Epoch ?? "none");
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), evLevers, matches: evMatches, summary: summaryRows);
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), evLevers, matches: evMatches, summary: summaryRows, whereNote: outcome.PredicateNote);
                     evRendered = RenderEv(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return evRendered;
@@ -1891,11 +1891,11 @@ public static partial class RecordsTools
                 }
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
-                // Same coverage note the in-order body lane carries, on both transports, for the same reason.
-                if (outcome.ScanNote is not null)
+                // Same notes the in-order body lane carries (where= accounting, then coverage), on both transports.
+                if (string.Join("\n", new[] { outcome.PredicateNote, outcome.ScanNote }.OfType<string>()) is { Length: > 0 } owed)
                 {
-                    headerLine += "\n" + outcome.ScanNote;
-                    envelope.Add(new("scan_note", outcome.ScanNote));
+                    headerLine += "\n" + owed;
+                    envelope.Add(new("scan_note", owed));
                 }
                 // Selected by the off-order file scan, so the remedy vocabulary matches the body lane above.
                 var offLevers = formLevers.OnScanSelection();
@@ -1910,7 +1910,7 @@ public static partial class RecordsTools
                 var offEpoch = bodies.FirstOrDefault(o => o.Stamp is not null)?.Stamp ?? outcome.Stamp;
                 if (wantFile)
                 {
-                    var (sp, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), offLevers, matches: offMatches);
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), offLevers, matches: offMatches, whereNote: outcome.PredicateNote);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, offEpoch) : "error: " + aerr;
                     offSpill = SpillState.Spilled(sp!, manifestOnly: true);
                 }
@@ -1918,7 +1918,7 @@ public static partial class RecordsTools
                 if (offSpill is null && offTrunc)
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, offEpoch?.Epoch ?? "none");
-                    var (sp, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), offLevers, matches: offMatches);
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), offLevers, matches: offMatches, whereNote: outcome.PredicateNote);
                     offRendered = RenderOff(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return offRendered;

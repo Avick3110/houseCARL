@@ -45,11 +45,21 @@ public sealed class WrongPathNoteEveryFormTests : RecordsTestBase
     public void TheIssuesHopSaysNotAFieldAtZeroMatchesOnEveryForm(string shape)
         => Served(Call(shape, IssueWhere), "NOT A FIELD");
 
-    [Fact]
-    public void TheIssuesHopSaysNotAFieldInTheToFileManifest()
+    // The scan lane (fields) and the body lane (everything, a quantified fields path) each write their own manifest.
+    [Theory]
+    [InlineData("fields")]
+    [InlineData("fields-quantified")]
+    [InlineData("everything")]
+    public void TheIssuesHopSaysNotAFieldInTheToFileManifest(string shape)
     {
         var file = Path.Combine(W.Root, "wrong-path-" + Guid.NewGuid().ToString("N") + ".jsonl");
-        Served(RecordsTools.Records(Svc, types: Flst, where: IssueWhere, project: Fields("EditorID"), to_file: file), "NOT A FIELD");
+        var project = shape switch
+        {
+            "fields" => Fields("EditorID"),
+            "fields-quantified" => Fields("EditorID", "Items[*count]"),
+            _ => Form("everything"),
+        };
+        Served(RecordsTools.Records(Svc, types: Flst, where: IssueWhere, project: project, to_file: file), "NOT A FIELD");
         Assert.Contains("NOT A FIELD", File.ReadLines(file).First());
     }
 
