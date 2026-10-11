@@ -848,11 +848,8 @@ public sealed class LoadOrderResolver : IDisposable
         var ov = session.Overlay(idx);
         System.Threading.Interlocked.Increment(ref Counters.BodySeeks);
         if (type is not null)
-        {
-            System.Threading.Interlocked.Increment(ref Counters.TypedSeeks);
             foreach (var rec in ov.EnumerateMajorRecords(type, throwIfUnknown: false))
-                if (rec.FormKey == fk) return rec;
-        }
+                if (rec.FormKey == fk) { System.Threading.Interlocked.Increment(ref Counters.TypedSeeks); return rec; }
         foreach (var rec in ov.EnumerateMajorRecords())
             if (rec.FormKey == fk) return rec;
         return null;
@@ -906,7 +903,6 @@ public sealed class LoadOrderResolver : IDisposable
         try { ov = session.Overlay(idx); }
         catch (Exception ex) { throw new PluginUnreadableException(_names[idx], ex); }
         System.Threading.Interlocked.Increment(ref Counters.CollectPasses);         // past here the plugin is actually walked
-        if (byType.Count > 0) System.Threading.Interlocked.Increment(ref Counters.TypedCollectPasses);
         foreach (var (t, keys) in byType)
         {
             int left = keys.Count;
@@ -914,7 +910,7 @@ public sealed class LoadOrderResolver : IDisposable
                 if (keys.Contains(rec.FormKey) && sink.TryAdd(rec.FormKey, rec) && --left == 0) break;
             if (left > 0) foreach (var fk in keys) if (!sink.ContainsKey(fk)) flat.Add(fk);
         }
-        if (flat.Count == 0) return;
+        if (flat.Count == 0) { System.Threading.Interlocked.Increment(ref Counters.TypedCollectPasses); return; }
         int missing = flat.Count;
         foreach (var rec in ov.EnumerateMajorRecords())
             if (flat.Contains(rec.FormKey) && sink.TryAdd(rec.FormKey, rec) && --missing == 0) return;

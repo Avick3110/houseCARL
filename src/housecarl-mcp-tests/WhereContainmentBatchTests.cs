@@ -17,7 +17,6 @@ public sealed class WhereContainmentBatchTests
     readonly Dictionary<FormKey, IMajorRecordGetter> _bodies = new();
     readonly List<int> _gatherSizes = new();
     readonly List<FormKey> _gathered = new();
-    readonly List<Type> _gatherTypes = new();
     int _singleFetches;
 
     Cell NewCell(string eid)
@@ -47,10 +46,9 @@ public sealed class WhereContainmentBatchTests
                                 {
                                     _gatherSizes.Add(wanted.Count);
                                     var got = new Dictionary<FormKey, IMajorRecordGetter>();
-                                    foreach (var (pk, childType, hops) in wanted)
+                                    foreach (var pk in wanted)
                                     {
                                         _gathered.Add(pk);
-                                        _gatherTypes.AddRange(ContainmentIndex.ContainerGetters(childType, hops));
                                         if (_bodies.TryGetValue(pk, out var b)) got[pk] = b;
                                     }
                                     return got;
@@ -91,21 +89,6 @@ public sealed class WhereContainmentBatchTests
         Assert.Equal(cells.Select(c => c.FormKey).OrderBy(k => k.ID), _gathered.OrderBy(k => k.ID));
         Assert.Equal(0, _singleFetches);
         Assert.Equal(0, set.ParentBodiesHeld);
-    }
-
-    /// <summary>The gather is typed by the child: a placed reference's container is a cell, so the walk reads the
-    /// cell groups and not the whole plugin from the top.</summary>
-    [Fact]
-    public void TheGatherIsTypedByTheChildsContainer()
-    {
-        var cell = NewCell("PbTyped");
-        var placed = Enumerable.Range(0, 3).Select(i => (IMajorRecordGetter)NewPlaced($"PbTypedRef{i}", cell)).ToList();
-
-        Scan(Bind("*parent.EditorID = PbTyped", batched: true), placed, chunk: 10);
-
-        Assert.Equal(new[] { typeof(ICellGetter) }, _gatherTypes.Distinct());
-        Assert.Equal(new[] { typeof(IDialogTopicGetter) }, ContainmentIndex.ContainerGetters(typeof(DialogResponses), 1));
-        Assert.Equal(new[] { typeof(IWorldspaceGetter) }, ContainmentIndex.ContainerGetters(typeof(PlacedObject), 2));
     }
 
     /// <summary>A chunk boundary in the middle of one parent's children: the second chunk reuses the first chunk's
@@ -220,9 +203,7 @@ public sealed class RecordsContainmentBatchTests : IClassFixture<OwnedChildFixtu
                                      project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" },
                                      counts_only: true);
         Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
-        var d = Since(before);
-        Assert.Equal(0, d[0]);                                      // no record seeks its cell alone
-        Assert.Equal(3, d[3]);                                      // one typed container walk per winner plugin: Base, Mid, Top
+        Assert.Equal(new long[] { 0, 0, 6, 6 }, Since(before));    // no lone seek; per winner plugin one body walk and one container walk, all typed
     }
 
     /// <summary>A <c>fields=["*parent.EditorID"]</c> projection takes the render chunk's containers in one typed
@@ -321,26 +302,28 @@ public sealed class RecordsContainmentBatchTests : IClassFixture<OwnedChildFixtu
                                   formidSet: set);
         Assert.Null(q.Error);
         Assert.Equal(1, q.Total);
-        Assert.Equal(1, Since(before)[3]);
+        Assert.Equal(new long[] { 0, 0, 4, 4 }, Since(before));    // a body walk per winner plugin, then Top's container walk
     }
 
     /// <summary>A projection's first hop gathers the rows' containers without walking every row's source plugin
-    /// first: reading one Base row's parent walks Base alone for bodies. Fails when the gather reads each row's
-    /// body to learn its type (Base, Mid and Top walked).</summary>
+    /// first: reading one Base row walks Base alone, and the hop one walk per container winner, each typed. Fails
+    /// when the gather reads each row's body to learn its type (Base, Mid and Top walked for bodies).</summary>
     [Fact]
     public void AProjectionHopWalksOnlyTheSourcePluginsItsRowsRead()
     {
         var pin = _w.Svc.CapturePin();
         using var session = pin.Resolver.OpenSession();
         var keys = AllPlaced(pin.View);
-        var chunk = BodyPrefetch.Gather(pin.View, session, _w.Svc.Counters, keys, 0, keys.Count, _ => null, null, default);
+        var chunk = BodyPrefetch.Gather(pin.View, session, _w.Svc.Counters, keys, 0, keys.Count, _ => null, default);
         var row = keys.First(k => pin.View.ResolveWinner(k)!.Value.WinnerPlugin == _w.BaseName);
+        var containerWinners = keys.Select(k => pin.View.ParentOf(k)!.Value)
+                                   .Select(p => pin.View.ResolveWinner(p)!.Value.WinnerPlugin).Distinct().Count();
 
         var before = Costs();
         var body = chunk.Body(row)!;
         Assert.NotNull(chunk.Parent(body, pin.View.ParentOf(row)!.Value));
         var d = Since(before);
-        Assert.Equal(1, d[2] - d[3]);                               // one untyped body walk, Base's
+        Assert.Equal(new long[] { 0, 0, 1 + containerWinners, 1 + containerWinners }, d);   // Base's body walk, then the containers
     }
 
     /// <summary>A projection row whose containing record's winner would not open answers with the gather's fault
@@ -354,7 +337,7 @@ public sealed class RecordsContainmentBatchTests : IClassFixture<OwnedChildFixtu
         var keys = AllPlaced(pin.View).Where(k => pin.View.ResolveWinner(k)!.Value.WinnerPlugin == _w.BaseName
                                                   && pin.View.ParentOf(k) is { } p && (p == _w.CellG || p == _w.CellH)).ToList();
         Assert.True(keys.Count >= 2);
-        var chunk = BodyPrefetch.Gather(pin.View, session, _w.Svc.Counters, keys, 0, keys.Count, _ => null, null, default);
+        var chunk = BodyPrefetch.Gather(pin.View, session, _w.Svc.Counters, keys, 0, keys.Count, _ => null, default);
         var bodies = keys.Take(2).Select(k => chunk.Body(k)!).ToList();
 
         using (new FileStream(_w.PluginPaths[1], FileMode.Open, FileAccess.Read, FileShare.None))
