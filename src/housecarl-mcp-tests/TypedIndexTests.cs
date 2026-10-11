@@ -16,12 +16,14 @@ public sealed class TypedIndexWorld : IDisposable
     public string Root { get; }
     public string MasterName => "HcTypedMaster.esm";
     public string PatchName => "HcTypedPatch.esp";
+    public string LateName => "HcTypedLate.esp";
     public LoadOrderService Svc { get; }
     public FormKey Armor { get; }
     public FormKey List { get; }
     public FormKey Npc { get; }
     public FormKey Global { get; }
     public FormKey Clash { get; }
+    public FormKey Drift { get; }
 
     public TypedIndexWorld()
     {
@@ -48,6 +50,9 @@ public sealed class TypedIndexWorld : IDisposable
         var glob = new GlobalFloat(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcTypedGlobal", Data = 1.5f };
         master.Globals.Add(glob);
         var clash = master.Armors.AddNew("HcTypedClashArmor");
+        // A Float, then a Short, then a Weapon: three providers, three classes.
+        var drift = new GlobalFloat(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcTypedDrift", Data = 1f };
+        master.Globals.Add(drift);
 
         var patch = new SkyrimMod(ModKey.FromFileName(PatchName), SkyrimRelease.SkyrimSE);
         WriteEngine.GenericGetOrAddAsOverride(patch, armors[0]).EditorID = "HcTypedArmor0Patched";
@@ -55,24 +60,29 @@ public sealed class TypedIndexWorld : IDisposable
         patch.Globals.Add(new GlobalShort(glob.FormKey, SkyrimRelease.SkyrimSE) { EditorID = "HcTypedGlobal", Data = 2 });
         // A true seek-type mismatch: the patch redefines the master's armor as a weapon.
         patch.Weapons.Add(new Weapon(clash.FormKey, SkyrimRelease.SkyrimSE) { EditorID = "HcTypedClashWeapon" });
+        patch.Globals.Add(new GlobalShort(drift.FormKey, SkyrimRelease.SkyrimSE) { EditorID = "HcTypedDrift", Data = 2 });
+        var late = new SkyrimMod(ModKey.FromFileName(LateName), SkyrimRelease.SkyrimSE);
+        late.Weapons.Add(new Weapon(drift.FormKey, SkyrimRelease.SkyrimSE) { EditorID = "HcTypedDriftWeapon" });
 
         var instance = Path.Combine(Root, "inst");
         var mods = Path.Combine(instance, "mods");
         Directory.CreateDirectory(Path.Combine(mods, "TypedMaster"));
         Directory.CreateDirectory(Path.Combine(mods, "TypedPatch"));
+        Directory.CreateDirectory(Path.Combine(mods, "TypedLate"));
         master.BeginWrite.ToPath(Path.Combine(mods, "TypedMaster", MasterName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         patch.BeginWrite.ToPath(Path.Combine(mods, "TypedPatch", PatchName)).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+        late.BeginWrite.ToPath(Path.Combine(mods, "TypedLate", LateName)).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + PatchName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + PatchName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+TypedPatch\r\n+TypedMaster\r\n");
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + PatchName + "\r\n" + LateName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + PatchName + "\r\n*" + LateName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+TypedLate\r\n+TypedPatch\r\n+TypedMaster\r\n");
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
 
-        Armor = armors[0].FormKey; List = list.FormKey; Npc = npc.FormKey; Global = glob.FormKey; Clash = clash.FormKey;
+        Armor = armors[0].FormKey; List = list.FormKey; Npc = npc.FormKey; Global = glob.FormKey; Clash = clash.FormKey; Drift = drift.FormKey;
     }
 
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
@@ -179,6 +189,25 @@ public sealed class TypedIndexTests : IClassFixture<TypedIndexFixture>
         Assert.IsAssignableFrom<IGlobalShortGetter>(pin.View.GetRecord(session, _w.PatchName, _w.Global));
         Assert.Equal(new long[] { 2, 2, 0, 0 }, Since(before));
         Assert.True(typeof(IGlobalShortGetter).IsAssignableFrom(pin.View.WinnerClassOf(_w.Global)));
+    }
+
+    /// <summary>Each provider of a key keeps its own class: a Float, then a Short, then a Weapon.
+    /// Fails when the index fills earlier providers with the winner's class, reading [Short, Short, Weapon].</summary>
+    [Fact]
+    public void EachProviderOfAMixedKeyKeepsItsOwnClass()
+    {
+        var pin = _w.Svc.CapturePin();
+        var s = (LoadOrderResolver.IndexSnapshot)typeof(LoadOrderResolver.IndexView)
+            .GetField("_s", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(pin.View)!;
+        var classes = s.MixedTypes[_w.Drift].Select(s.Types.Class).ToArray();
+        Assert.Equal(3, classes.Length);
+        Assert.True(typeof(IGlobalFloatGetter).IsAssignableFrom(classes[0]), classes[0].Name);
+        Assert.True(typeof(IGlobalShortGetter).IsAssignableFrom(classes[1]), classes[1].Name);
+        Assert.True(typeof(IWeaponGetter).IsAssignableFrom(classes[2]), classes[2].Name);
+        using var session = pin.Resolver.OpenSession();
+        Assert.IsAssignableFrom<IGlobalFloatGetter>(pin.View.GetRecord(session, _w.MasterName, _w.Drift));
+        Assert.IsAssignableFrom<IGlobalShortGetter>(pin.View.GetRecord(session, _w.PatchName, _w.Drift));
+        Assert.IsAssignableFrom<IWeaponGetter>(pin.View.GetRecord(session, _w.LateName, _w.Drift));
     }
 
     /// <summary>A plugin the index says holds no copy of a key answers absent without reading it.</summary>
@@ -313,5 +342,20 @@ public sealed class LinkStepVerdictTests
         var r = new ArmorAddon(fk, SkyrimRelease.SkyrimSE) { EditorID = fk.ID % 2 == 0 ? "Hit" : "Miss" };
         weak.Add(new WeakReference(r));
         return r;
+    }
+}
+
+/// <summary>The class codes stop short of <see cref="IndexTypes.Mixed"/>: a 256th class throws, never reuses Mixed or wraps.</summary>
+[Trait("tier", "unit")]
+public sealed class IndexTypesTests
+{
+    [Fact]
+    public void TheClassPastTheLastCodeThrows()
+    {
+        var types = new IndexTypes();
+        var classes = typeof(object).Assembly.GetTypes().Where(t => !t.IsGenericTypeDefinition).Take(IndexTypes.Mixed + 1).ToArray();
+        for (int i = 0; i < IndexTypes.Mixed; i++) Assert.Equal((byte)i, types.Intern(classes[i]));
+        var ex = Assert.Throws<InvalidOperationException>(() => types.Intern(classes[IndexTypes.Mixed]));
+        Assert.Contains("houseCARL bug", ex.Message);
     }
 }

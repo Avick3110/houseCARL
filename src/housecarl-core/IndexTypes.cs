@@ -4,7 +4,7 @@ namespace HousecarlCore;
 /// learned from Mutagen's own parse while the build holds every record, so nothing here is hand-written.</summary>
 internal sealed class IndexTypes
 {
-    /// <summary>The code a key carries when its providers differ in seek type; their own codes sit beside the overriders.</summary>
+    /// <summary>The code a key carries when its providers differ in class; their own codes sit beside the overriders.</summary>
     public const byte Mixed = byte.MaxValue;
 
     readonly List<Type> _class = new();
@@ -19,6 +19,9 @@ internal sealed class IndexTypes
         if (ReferenceEquals(cls, _last)) return _lastCode;
         if (!_code.TryGetValue(cls, out var c))
         {
+            if (_class.Count == Mixed)
+                throw new InvalidOperationException(
+                    $"the load order holds more than {Mixed} record classes, past what the order index can code; this is a houseCARL bug, please report it.");
             _code[cls] = c = (byte)_class.Count;
             _class.Add(cls);
             _seek.Add(WriteEngine.SeekTypeFor(cls));
