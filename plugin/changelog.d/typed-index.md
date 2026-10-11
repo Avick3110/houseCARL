@@ -1,1 +1,1 @@
-- **`->` link scans, `resolve_names` and cold record reads now fetch each record from its own section of the plugin instead of reading the plugin from the top, and a `->` scan no longer holds every target it judged: the scans that ran to 38 GB now finish.**
+- **`->` link scans, `resolve_names` and cold reads now fetch each record from its own group instead of reading the plugin from the top, and `->` keeps no target bodies: `resolve_names` over 25 armatures went from 43 s to 0.1 s.**
