@@ -1,0 +1,1 @@
+- **`->` link scans, `resolve_names` and cold record reads now fetch each record from its own section of the plugin instead of reading the plugin from the top, and a `->` scan no longer holds every target it judged: the scans that ran to 38 GB now finish.**

@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-30
+updated: 2026-10-11
 covers: [src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/OwnedChildContent.cs, src/housecarl-core/OwnedChildLifecycle.cs, src/housecarl-mcp/JsonWire.cs]
 ---
 # Owned-child content: the additive union, and one sentence source
@@ -54,9 +54,8 @@ way — the field is a false-empty on both — but a scan never claims a quantit
 ### What it costs
 
 One body per touching plugin, and only on a read that actually emitted a child-bearing field — a projection
-naming none pays nothing. The bodies are seeked by the record's own type
-(`LoadOrderResolver.IndexView.GetRecord` takes it), which is #354: Mutagen's typed enumeration walks only the
-GRUPs that can hold that type, so finding a cell does not step over the placed references that outnumber it.
+naming none pays nothing. The bodies are seeked by each copy's own type, which the order index records
+(load-order-resolver.md; #354, #1158): Mutagen's typed enumeration walks only the GRUPs that can hold that type, so finding a cell does not step over the placed references that outnumber it.
 
 Measured on a #354-shaped synthetic order — one 19.2k-record master and nine ~2k plugins, a worldspace of 200
 exterior cells each carrying 40 placed references, every plugin overriding the worldspace and every cell while
