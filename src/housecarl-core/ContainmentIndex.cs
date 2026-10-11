@@ -97,11 +97,11 @@ public sealed class ContainmentIndex
             : (body, null);
     };
 
-    /// <summary>The winner bodies of <paramref name="parents"/>, one walk per winner plugin; one whose winner would not open is absent.</summary>
+    /// <summary>The winner bodies of <paramref name="parents"/>, one walk per winner plugin, deduped unless already a set; one whose winner would not open is absent.</summary>
     public static Dictionary<FormKey, IMajorRecordGetter> GatherContainers(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IEnumerable<FormKey> parents,
         out Dictionary<string, PluginUnreadableException> unreadable, CancellationToken ct = default)
-        => WinnerBodies.For(view, session, new HashSet<FormKey>(parents), out unreadable, ct);
+        => WinnerBodies.For(view, session, parents as IReadOnlySet<FormKey> ?? new HashSet<FormKey>(parents), out unreadable, ct);
 
     /// <summary>Every concrete record class Mutagen models for Skyrim.</summary>
     static IReadOnlyList<Type> ConcreteRecordClasses() => _concrete ??=
