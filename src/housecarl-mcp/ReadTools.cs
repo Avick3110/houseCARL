@@ -268,7 +268,7 @@ static partial class Wire
                     sb.Append("  winner=").Append(m.Winner).Append("  override_depth=").Append(m.OverrideDepth);
                     if (matches is not null) sb.Append("  matches=").Append(matches);
                     sb.Append('\n');
-                    AppendSharedName(sb, "    ", SharedEditorIds.Note(m.Pin, m.FormKey, m.Type));
+                    AppendSharedName(sb, "    ", SharedEditorIds.Note(m.Pin, m.FormKey, m.Type, m.Source));
                 }
             }
             // The clause this row earned goes back with the row when the row does.
@@ -584,7 +584,7 @@ static partial class Wire
         sb.Append("  editorid=").Append(r.EditorId ?? "<none>")
           .Append("  winner=").Append(o.WinnerPlugin)
           .Append("  override_depth=").Append(o.OverrideDepth).Append('\n');
-        AppendSharedName(sb, "", SharedEditorIds.Note(o.Pin, o.FormKey, r.Type));
+        AppendSharedName(sb, "", SharedEditorIds.Note(o.Pin, o.FormKey, r.Type, o.SourcePlugin));
         sb.Append("fields (from ").Append(o.SourcePlugin).Append("):\n");
         // The field loop's cut notice is charged before the first line and quotes the caller's max_chars, never the reduced budget it cuts against.
         string Cut(int i) => "  ... [truncated: showing " + i + " of " + r.Fields.Count +

@@ -476,8 +476,11 @@ internal sealed partial class RecordReads
                             matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);   // parallel to keys, multi-target only
                             // The winner comes off the SAME view the scan runs on; type, editorid and name come
                             // from the body that MATCHED.
-                            prefilled!.Add(RecordSummary.Of(fk, filterBody, view.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth)
-                                           .WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin });
+                            var rowWinner = view.ResolveWinner(fk)?.WinnerPlugin;
+                            // A scoped body that is not the winner's owes no shared-EditorID note, so it carries no pin.
+                            bool winnerBody = source is null || string.Equals(source, rowWinner, StringComparison.OrdinalIgnoreCase);
+                            prefilled!.Add(RecordSummary.Of(fk, filterBody, rowWinner ?? "?", depth)
+                                           .WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = winnerBody ? pin : null });
                         }
                     }
                     catch (Exception ex)
@@ -878,8 +881,9 @@ internal sealed partial class RecordReads
                         keys.Add(fk);
                         sources.Add(pole.Plugin);
                         matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
+                        // No pin: an off-order body is never the copy the game loads, so it owes no shared-EditorID note.
                         prefilled.Add(RecordSummary.Of(fk, rec, w?.WinnerPlugin ?? "(not in the active order)", w?.OverrideDepth ?? 0)
-                                      .WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin });
+                                      .WithRuntime(view.RuntimeAddressOf(fk)));
                     }
                 }
                 catch (Exception ex)

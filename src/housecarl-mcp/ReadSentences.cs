@@ -195,7 +195,7 @@ internal static class ReadSentences
     internal const string SharedEditorIdUnreadFormat =
         "{0} plugin(s) " + CouldNotRead + " ({1}), so other records sharing this EditorID may be missing";
 
-    /// <summary>The gap clause when the winner scan behind the note could not open some plugins.</summary>
+    /// <summary>The gap clause when the winner scan behind the note did not read some plugins: excluded by the index, or unreadable now.</summary>
     internal static string SharedEditorIdUnread(IReadOnlyList<string> plugins) =>
         string.Format(SharedEditorIdUnreadFormat, plugins.Count,
             string.Join(", ", plugins.Take(SharedEditorIdNameCap)) + (plugins.Count > SharedEditorIdNameCap ? ", …" : ""));
