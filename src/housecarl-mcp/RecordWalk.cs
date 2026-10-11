@@ -28,20 +28,6 @@ internal sealed partial class RecordReads
 
     static readonly List<FormKey> EmptyKeys = new();
 
-    /// <summary>Whether a fault reading one record is a PARSE of that record's content — Mutagen's own exceptions
-    /// and the argument/format failures its lazy span reads raise. Anything else is the CALL's and goes on up.</summary>
-    static bool IsWalkRecordFault(Exception ex)
-    {
-        for (var e = ex; e is not null; e = e.InnerException)
-            if (e is OperationCanceledException or OutOfMemoryException) return false;
-        for (var e = ex; e is not null; e = e.InnerException)
-        {
-            if (e.GetType().Namespace is { } ns && ns.StartsWith("Mutagen.Bethesda", StringComparison.Ordinal)) return true;
-            if (e is ArgumentException or FormatException or IndexOutOfRangeException or OverflowException or InvalidCastException) return true;
-        }
-        return false;
-    }
-
     /// <summary>How a walk reports a record whose content would not parse — the scan lanes' own account.</summary>
     static string WalkUnscannableNote(string fault)
         => $"could not be scanned (Mutagen could not parse its content) and was not entered — {fault}";
@@ -206,7 +192,7 @@ internal sealed partial class RecordReads
                                             npc?.Configuration.TemplateFlags ?? default, npc is not null,
                                             b is ILeveledNpcGetter);
             }
-            catch (Exception ex) when (IsWalkRecordFault(ex))
+            catch (Exception ex) when (RecordParseFault.Is(ex))
             {
                 return new WalkTemplateFact(typeName, null, default, false, default, npc is not null, false,
                                             WalkFaultOf(ex));
@@ -258,7 +244,7 @@ internal sealed partial class RecordReads
                 IMajorRecordGetter? up;
                 // A fault reading the CONTAINING record is that record's, and the note names it — never this node's.
                 try { up = Fetch(pk.Value, ContainmentIndex.ContainerGetter(body.GetType())); }   // typed by the child, so the seek reads only the container's groups (#1147)
-                catch (Exception ex) when (IsWalkRecordFault(ex))
+                catch (Exception ex) when (RecordParseFault.Is(ex))
                 { note = $"(the containing record {FormIdToken.Of(pk.Value)} {WalkUnscannableNote(WalkFaultOf(ex))})"; return new List<FormKey>(); }
                 if (up is null) { note = $"(the containing record {FormIdToken.Of(pk.Value)} would not fetch)"; return new List<FormKey>(); }
                 body = up;
@@ -294,7 +280,7 @@ internal sealed partial class RecordReads
             // lazily, so one record Mutagen cannot parse is a boundary and the walk goes on.
             if (body is not null && !atCap && !NotEntered(fact.Type) && fact.Unscannable is null)
                 try { fact.Links = LinksOf(body, followSegs, out _); }
-                catch (Exception ex) when (IsWalkRecordFault(ex)) { fact.Unscannable = WalkFaultOf(ex); }
+                catch (Exception ex) when (RecordParseFault.Is(ex)) { fact.Unscannable = WalkFaultOf(ex); }
             if (nodeFacts is not null) nodeFacts[k] = fact;
             return fact;
         }
@@ -367,7 +353,7 @@ internal sealed partial class RecordReads
             {
                 note = null;
                 try { return LinksOf(seedBody, segs, out note); }
-                catch (Exception ex) when (IsWalkRecordFault(ex))
+                catch (Exception ex) when (RecordParseFault.Is(ex))
                 {
                     var fault = WalkFaultOf(ex);
                     seedFault ??= fault;
