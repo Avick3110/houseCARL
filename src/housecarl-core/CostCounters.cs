@@ -7,7 +7,7 @@ public sealed class CostCounters
     /// <summary>Overlay opens the service's sessions have paid.</summary>
     public long SessionOverlayOpens;
 
-    /// <summary>Per-record whole-plugin seeks.</summary>
+    /// <summary>Every per-record seek, typed or not; the flat walks are <c>BodySeeks - TypedSeeks</c>.</summary>
     public long BodySeeks;
 
     /// <summary>Per-record seeks answered by walking only the record type's groups.</summary>
