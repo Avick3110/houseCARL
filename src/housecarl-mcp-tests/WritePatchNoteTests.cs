@@ -99,9 +99,10 @@ public sealed class WritePatchNoteTests : IDisposable
         Assert.Contains("re-sort your load order", o.Note);
     }
 
-    // T36: the link-type note (a linked plugin that could not be read at write time) is kept when no master note joins it.
+    // A linked plugin that cannot be read at write time still has its link target's type checked: the type comes
+    // from the order index, so no read is needed and no "types were not checked" note is owed (#1158).
     [Fact]
-    public void ALinkNoteWithNoMasterNoteIsKept()
+    public void ALinkedPluginHeldOpenAtWriteTimeLeavesNoNote()
     {
         var order = _rig.Order(_masterPath, _linkedPath);   // indexed while both open
         var edit = new WritePatchBuilder.PatchEdit
@@ -113,7 +114,7 @@ public sealed class WritePatchNoteTests : IDisposable
             o = WritePatchBuilder.Apply(order, TestCorpus.Rulebook, new[] { edit }, _rig.Out("HcWpNoteLink.esp"),
                 extend: false, dryRun: true);
         Assert.True(o.Success, o.Error);
-        Assert.Contains("HcWpNoteLinked.esm", o.Note);
+        Assert.Null(o.Note);
     }
 
     public void Dispose() => _rig.Dispose();

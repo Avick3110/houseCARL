@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-10-11
 covers: [src/housecarl-core/FieldPredicate.cs, src/housecarl-core/ContainmentIndex.cs]
 ---
 # Select and walk
@@ -102,24 +102,23 @@ path walk, and containment comes off Mutagen's context walk.
   `ContainmentIndex.SplitHops`, shared with the read walk, so both surfaces refuse the same mistake
   in the same words. Everything below the hop reads the containing record with no second rule.
 - The containment climb is index-only: a chain reads a body for the record its terms run on, and
-  what carries across candidates is the VERDICT, not the body. The link-target cache is deliberately
-  not shared with the hop — `types=` bounds the child population, not the parent one (#720).
+  what carries across candidates is the VERDICT, not the body (#720). The `->` step keeps the same
+  shape: its verdict is memoised per predicate and target, and the target body is dropped as soon as
+  it is judged, so a link scan holds no target bodies for the call (#1158).
 - A scan gathers its containing records a CHUNK at a time (#1147): the scan lanes buffer up to
   10,000 candidates, `FieldPredicateSet.HoldParents` collects the distinct parent keys, with no
   memoized verdict yet, of the chunk's rows that pass the filters run before `where=`
   (`editorid_contains`, `references=`, the deleted-record rule, the set lane's `conflicts_only`), and `ContainmentIndex.GatherContainers` reads them through
-  `WinnerBodies.For`, one walk per winner plugin, in only the groups the child's container type sits
-  under (`ContainmentIndex.ContainerGetters`, derived from `WriteEngine.ChildBearingProperties`:
-  REFR/ACHR to CELL, INFO to DIAL, CELL to WRLD). The bodies are dropped when the chunk drains, so the
+  `WinnerBodies.For`, one walk per winner plugin, typed by the order index like every fetch
+  (load-order-resolver.md). The bodies are dropped when the chunk drains, so the
   chunk is the memory bound and only verdicts outlive it. A winner plugin a gather cannot walk is named
   once in the scan's unreadable list. A parent the chunk did not gather (a hop on a `->` target) is
-  fetched alone through the one-at-a-time fetch, untyped, and its fault is the row's own, as before the
+  fetched alone through the one-at-a-time fetch, and its fault is the row's own, as before the
   gather. Stream bodies held in a chunk outlive their plugin's overlay: a chunk can span several
   plugins, and a Mutagen body reads after its overlay is disposed. A projection's `*parent` read
-  gathers its render chunk's first-hop parents the same way, typed by the row that hops, on the first
-  row of that type that reads one; a winner that gather could not walk answers each later row with
-  the same fault instead of reopening the plugin. A walk's `*parent` hop is not
-  batched, but its one fetch is typed the same way (`ContainmentIndex.ContainerGetter`).
+  gathers its render chunk's first-hop parents the same way, once per chunk, on the first row that
+  reads one; a winner that gather could not walk answers each later row with the same fault instead
+  of reopening the plugin. A walk's `*parent` hop is not batched; its one fetch is typed by the index.
 - Containment is captured at index build from Mutagen's context walk, merged per plugin in priority
   order with the last declaration standing, and a plugin that throws part-way merges nothing.
 
@@ -140,10 +139,11 @@ path walk, and containment comes off Mutagen's context walk.
 - `WhereContainmentCostTests` — `ParentBodiesHeld` / `ParentBodyHighWater` / `ParentBodyFetches`, the
   #720 invariant that no containing record outlives the candidate that read it.
 - `WhereContainmentBatchTests` / `RecordsContainmentBatchTests` — the #1147 chunk gather: one gather
-  per chunk, each parent once, typed by the child, the same answer across a chunk boundary, and on
+  per chunk, each parent once, the same answer across a chunk boundary, and on
   the real scan, set lane, projection and walk no lone seek and only typed walks (`CostCounters.TypedSeeks`,
   `TypedCollectPasses`); rows dropped before `where=` gather nothing; a chunk crossing a plugin
   boundary; a projection hop walks only the rows it reads and does not reopen a faulted winner.
+- `LinkStepVerdictTests` — the `->` step judges each target once and holds no target body (#1158).
 - `WhereAccountingCauseTests` — the per-cause accounting sentences.
 - `RecordsUnmatchedMembersTests` — the unmatched-members bullet: text, json, `@file`, the cap, the manifest,
   a member only a lower scoped copy carries, a FormID named as typed; `UnmatchedMembersJudgementTests`,
