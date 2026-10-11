@@ -61,6 +61,8 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
   Per-field presence is reliable only for nullable fields, whose absence the read engine spells, so a
   non-nullable scalar equalling the winner counts as agreement while the render never claims the
   contributor CARRIES it as a distinct subrecord.
+- The shared-EditorID note (#1076): the game keeps one game setting per name, and the last plugin in load order carrying any GMST of that name sets it (checked in game: `GetGameSetting iAllyHitNonCombatAllowed` returns Requiem's value over USSEP's). Each FormID's winner is still its own winner; the note is an annotation, not a change to resolution. A row whose type is in `SharedEditorIds.EngineKeyed` (data, one entry: `IGameSettingGetter`) and whose FormID shares its winner's EditorID (case-insensitive) with another winner of that type in the active order carries one sentence from `ReadSentences.SharedEditorIdNote`: the other FormIDs (three named, the rest counted) and the copy the game uses, the winner loading last. A unique name carries nothing. text puts it on a `note:` line under the row, json in `editorid_note` beside `editorid`, dense appended to the `editorid` cell as `name   (note)`. It rides the summary, fields, rows and everything forms on the formids=, scan and pole lanes, not the comparison forms, walk chains or `to_file=` artifacts.
+- The note's lookup is built per call, on the first keyed row a render asks about, by one winner scan of the keyed types over the row's `ViewPin` (`ViewPin.SharedNames`), and dropped with the pin; nothing is held at rest. A call with no keyed row never builds it. On ARR (1,865 GMSTs) the scan costs about 0.6 s per call, cold or warm. A plugin the scan cannot open is named on every keyed row's note, since a missed member could hide a shared name.
 
 ## Pinned by
 - `RecordsScopeCopyOrderTests` — a two-plugin scope answers the same rows under either name order, and a filter only the lower copy passes matches nothing.
@@ -78,6 +80,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 - `BodyGatherEquivalenceTests.AGatheredBodyIsTheBodyTheSingleFetchReturns` and `AFaultedPluginIsNamedAndFallsBackToTheSingleFetch` — a gathered body equals the one-at-a-time body, and a faulted plugin's fallback raises the same exception type and message the direct fetch does.
 - `PresentNullLinkDiffTests.ACarriedHeadMarkerDeltasAgainstASideCarryingNothing` — the diff's
   present-null-link split, and `TwoAbsentSidesStillCollapse` the two-absent case.
+- `SharedEditorIdNoteTests` — a shared GMST name names the other FormIDs and the last provider on text, json, dense and scan rows; a unique name carries no note.
 - `ReadPinTests.AProfileSwitchAfterThePinDoesNotSplitThePoleFromItsRoots` — a source= pole is located under the
   roots taken in its view's hold and opens with that hold's Data folder, across a mid-call profile switch.
 
@@ -90,7 +93,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 fold), `RecordPoles.cs` (comparison poles, the delta/tree batches), `RecordWalk.cs` (walk), `RecordQuery.cs`
 (cross-plugin query, off-order scan, effect chain), `ScopeSplit.cs` (the scan's `plugins=` split),
 `BodyPrefetch.cs` and `PoleGather.cs` (bulk bodies for a chunk of rows and of pole reads),
-`TreeFold.cs`, `FieldFold.cs`, `ReverseWalkBatch.cs`, `ScanDetailReader.cs`, `ReadSentences.cs`
+`TreeFold.cs`, `FieldFold.cs`, `ReverseWalkBatch.cs`, `ScanDetailReader.cs`, `SharedEditorIds.cs` (the shared-name note), `ReadSentences.cs`
 (the read surface's prose; the check families' own sentences now live in `CheckSentences.cs`, under
 `docs/architecture/check-families.md` and
 `docs/architecture/check-scripts-and-dialogue-families.md`). The type lookup is in `TypeLookup.cs`,

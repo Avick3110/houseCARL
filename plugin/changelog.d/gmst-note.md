@@ -1,0 +1,1 @@
+- **A game setting whose EditorID another GMST in the order shares now says so on its row, naming the other FormIDs and the copy the game uses.** Read `iAllyHitNonCombatAllowed` at `F129D5:Skyrim.esm` on ARR: the note names `3D2E8D:Requiem.esp`.
