@@ -1195,7 +1195,7 @@ public sealed class FieldPredicateSet
         var target = _fetchWinnerBody!(fk);
         var verdict = target is null ? (false, EvalKind.UnresolvedTarget) : EvalCore(p, target);
         if (_fatal is null)
-            _targetVerdicts[(_evalIndex, fk)] = (verdict.Item1, verdict.Item2, verdict.Item2 == EvalKind.Definite ? null : TakeNotes());
+            _targetVerdicts[(_evalIndex, fk)] = (verdict.Item1, verdict.Item2, verdict.Item2 is EvalKind.Definite or EvalKind.Vacuous ? null : TakeNotes());
         return verdict;
     }
 
