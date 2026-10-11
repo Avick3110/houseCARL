@@ -119,11 +119,90 @@ public sealed class SharedEditorIdNoteTests : IClassFixture<SharedGmstFixture>
         bytes[at] = (byte)'q';
         File.WriteAllBytes(path, bytes);
 
-        var note = SharedEditorIds.Note(pin, w.SharedInMaster, "GameSettingInt");
+        var note = SharedEditorIds.Note(pin, w.SharedInMaster, "GameSettingInt", null);
 
         Assert.NotNull(note);
         Assert.Contains($"shares EditorID iShared with {T(w.SharedInMid)};", note);
         Assert.Contains($"could NOT be read ({SharedGmstWorld.MidName})", note);
+    }
+
+    // An active plugin the index excluded could set any shared name last, so the note names it in its gap.
+    [Fact]
+    public void AnExcludedPluginIsNamedInTheGap()
+    {
+        using var w = new SharedGmstWorld(withBrokenPlugin: true);
+        var pin = w.Svc.CapturePin();
+        Assert.Contains(SharedGmstWorld.BrokenName, pin.View.Stamp.ExcludedPlugins);
+
+        var note = SharedEditorIds.Note(pin, w.SharedInMaster, "GameSettingInt", null);
+
+        Assert.NotNull(note);
+        Assert.Contains($"shares EditorID iShared with {T(w.SharedInMid)};", note);
+        Assert.Contains($"could NOT be read ({SharedGmstWorld.BrokenName})", note);
+    }
+
+    // A scoped body the game does not use names nothing: the master's iOver loses to the last plugin's override.
+    [Fact]
+    public void AScopedRowThatIsNotTheWinnersCarriesNoNote()
+    {
+        var scope = new RecordsTools.RecordsScope { names = new[] { SharedGmstWorld.MasterName } };
+        var fields = new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Data" } };
+
+        var summary = JsonDocument.Parse(RecordsTools.Records(_w.Svc, types: new[] { "GMST" }, plugins: scope, format: "json")).RootElement;
+        JsonElement Row(Mutagen.Bethesda.Plugins.FormKey fk) =>
+            summary.GetProperty("matches").EnumerateArray().Single(x => x.GetProperty("formid").GetString() == T(fk));
+        Assert.False(Row(_w.OverInMaster).TryGetProperty("editorid_note", out _));
+        Assert.Equal(Json(_w.SharedInMaster), Row(_w.SharedInMaster).GetProperty("editorid_note").GetString());
+
+        var dense = JsonDocument.Parse(RecordsTools.Records(_w.Svc, types: new[] { "GMST" }, plugins: scope, format: "dense",
+                                                            project: fields)).RootElement;
+        var noted = dense.GetProperty("editorid_notes").EnumerateArray().Select(n => n.GetProperty("formid").GetString()).ToList();
+        Assert.DoesNotContain(T(_w.OverInMaster), noted);
+        Assert.Contains(T(_w.SharedInMaster), noted);
+    }
+
+    // Every row owes the excluded-plugin gap, so the notes outweigh the rows: the trailer is charged against the cap.
+    [Fact]
+    public void ADenseScansNotesStayInsideMaxChars()
+    {
+        using var w = new SharedGmstWorld(withBrokenPlugin: true);
+        var full = RecordsTools.Records(w.Svc, types: new[] { "GMST" }, format: "dense");
+        var fullDoc = JsonDocument.Parse(full).RootElement;
+        int notes = fullDoc.GetProperty("editorid_notes").GetRawText().Length;
+        Assert.False(fullDoc.GetProperty("truncated").GetBoolean());
+        int cap = full.Length - notes / 2;   // the rows alone fit; the rows and their notes do not
+
+        var cut = RecordsTools.Records(w.Svc, types: new[] { "GMST" }, format: "dense", max_chars: cap);
+        var doc = JsonDocument.Parse(cut).RootElement;
+
+        Assert.True(doc.GetProperty("truncated").GetBoolean());
+        Assert.True(doc.GetProperty("rendered").GetInt32() < fullDoc.GetProperty("rendered").GetInt32());
+        // What the cap bought, rows and their notes, fits in it; the spill manifest a cut answer carries is owed whatever the cap.
+        Assert.True(doc.GetProperty("rows").GetRawText().Length + doc.GetProperty("editorid_notes").GetRawText().Length <= cap);
+    }
+
+    // Only a parse fault is collected: a cancellation inside the stream goes on up rather than being called a changed file.
+    [Fact]
+    public void ACancellationInsideTheWinnerStreamGoesOnUp()
+    {
+        var resolver = _w.Svc.CapturePin().Resolver;
+        var collected = new List<HousecarlCore.PluginUnreadableException>();
+
+        Assert.Throws<OperationCanceledException>(() => resolver.WinnerRecordsOfType(new CancelledAfterOneType(), collected).ToList());
+        Assert.Empty(collected);
+    }
+
+    /// <summary>A type list whose walk is cancelled once its first type is read.</summary>
+    sealed class CancelledAfterOneType : IReadOnlyList<Type>
+    {
+        public int Count => 2;
+        public Type this[int index] => typeof(Mutagen.Bethesda.Skyrim.IGameSettingGetter);
+        public IEnumerator<Type> GetEnumerator()
+        {
+            yield return typeof(Mutagen.Bethesda.Skyrim.IGameSettingGetter);
+            throw new OperationCanceledException();
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     static System.Text.Json.JsonElement Pole(string plugin) => JsonDocument.Parse(JsonSerializer.Serialize(plugin)).RootElement.Clone();

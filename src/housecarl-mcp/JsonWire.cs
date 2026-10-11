@@ -317,7 +317,7 @@ static class JsonWire
         WriteRuntime(w, o.RuntimeFormId, o.RuntimeFormIdNote);
         w.WriteString("type", r.Type);
         WriteNullable(w, "editorid", r.EditorId);
-        WriteSharedName(w, SharedEditorIds.Note(o.Pin, o.FormKey, r.Type));
+        WriteSharedName(w, SharedEditorIds.Note(o.Pin, o.FormKey, r.Type, o.SourcePlugin));
         WriteNullable(w, "winner", o.WinnerPlugin);
         w.WriteNumber("override_depth", o.OverrideDepth);
         WriteNullable(w, "source", o.SourcePlugin);   // the body these field VALUES came from (scoped plugin vs winner)
@@ -1263,6 +1263,12 @@ static class JsonWire
 
         List<(string Formid, string Error, string? Matches)>? errors = null;
         List<(string Formid, string Note)>? sharedNotes = null;   // a rendered record's shared-EditorID note, beside the rows like errors
+        int notesChars = 0;                                       // what the notes trailer will cost, charged against the cap as rows are
+        void AddNote(string formid, string note)
+        {
+            (sharedNotes ??= new()).Add((formid, note));
+            notesChars += note.Length + formid.Length + NoteEntryFraming;
+        }
         int rendered = 0; bool rowsTruncated = false;
         var renderClock = System.Diagnostics.Stopwatch.StartNew();
         var childFields = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // the clause per tier, over the cells the rows carried
@@ -1272,7 +1278,7 @@ static class JsonWire
         for (int i = 0; i < rowKeys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
         {
             w.Flush();
-            if (Chars(ms) >= cap) { rowsTruncated = true; break; }
+            if (Chars(ms) + notesChars >= cap) { rowsTruncated = true; break; }
             var fk = rowKeys[i];
             string? matches = matchedTargets is { } mt && i < mt.Count ? mt[i] : null;
             if (detail)
@@ -1280,7 +1286,7 @@ static class JsonWire
                 var o = detailRow(i);
                 if (o.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), o.Error, matches)); rendered++; continue; }
                 var r = o.Record!;
-                var sharedNote = SharedEditorIds.Note(o.Pin, o.FormKey, r.Type);
+                var sharedNote = SharedEditorIds.Note(o.Pin, o.FormKey, r.Type, o.SourcePlugin);
                 if (fold is not null)
                 {
                     // A quantified path makes the requested paths PER ELEMENT: one row each, identity repeated.
@@ -1317,7 +1323,7 @@ static class JsonWire
                     {
                         // The cap is per ROW, not per record: one record's element rows are unbounded.
                         w.Flush();
-                        if (Chars(ms) >= cap) { rowsTruncated = true; cut = true; break; }
+                        if (Chars(ms) + notesChars >= cap) { rowsTruncated = true; cut = true; break; }
                         w.WriteStartArray();
                         w.WriteStringValue(r.FormKey);
                         WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
@@ -1335,7 +1341,7 @@ static class JsonWire
                         foldRows++;
                     }
                     if (cut) break;                                   // a half-written record is not a rendered one
-                    if (sharedNote is not null) (sharedNotes ??= new()).Add((FormIdToken.Of(fk), sharedNote));
+                    if (sharedNote is not null) AddNote(FormIdToken.Of(fk), sharedNote);
                     rendered++;
                     continue;
                 }
@@ -1352,7 +1358,7 @@ static class JsonWire
                 if (anyScoped) WriteCell(w, o.SourcePlugin);          // the body this row's values were read from (winner_fields=true → the winner)
                 if (hasMatches) WriteCell(w, matches);
                 w.WriteEndArray();
-                if (sharedNote is not null) (sharedNotes ??= new()).Add((FormIdToken.Of(fk), sharedNote));
+                if (sharedNote is not null) AddNote(FormIdToken.Of(fk), sharedNote);
             }
             else
             {
@@ -1368,7 +1374,7 @@ static class JsonWire
                 w.WriteNumberValue(m.OverrideDepth);
                 if (hasMatches) WriteCell(w, matches);
                 w.WriteEndArray();
-                if (SharedEditorIds.Note(m.Pin, m.FormKey, m.Type) is { } note) (sharedNotes ??= new()).Add((FormIdToken.Of(m.FormKey), note));
+                if (SharedEditorIds.Note(m.Pin, m.FormKey, m.Type, m.Source) is { } note) AddNote(FormIdToken.Of(m.FormKey), note);
             }
             rendered++;
         }
@@ -1414,6 +1420,9 @@ static class JsonWire
         return s;
     }
 
+    /// <summary>One <c>editorid_notes</c> entry's keys and punctuation beyond its two strings, rounded up to cover the array's own key.</summary>
+    const int NoteEntryFraming = 64;
+
     /// <summary>A row's shared-EditorID note, beside its <c>editorid</c>, only when owed.</summary>
     static void WriteSharedName(Utf8JsonWriter w, string? note)
     {
@@ -1438,7 +1447,7 @@ static class JsonWire
         {
             w.WriteString("type", m.Type);
             WriteNullable(w, "editorid", m.EditorId);
-            WriteSharedName(w, SharedEditorIds.Note(m.Pin, m.FormKey, m.Type));
+            WriteSharedName(w, SharedEditorIds.Note(m.Pin, m.FormKey, m.Type, m.Source));
             if (m.Name is not null) w.WriteString("name", m.Name);
             if (m.Source is not null) w.WriteString("source", m.Source);
             if (m.Winner is not null) w.WriteString("winner", m.Winner);   // an off-order pole's row has no winner in the order

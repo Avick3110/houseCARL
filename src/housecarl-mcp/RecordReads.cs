@@ -719,9 +719,10 @@ internal sealed partial class RecordReads
                 if (summary) record = record with { Name = ReadEngine.DisplayName(rec) };
                 if (resolveNames) record = AnnotateLinks(record, view, session!, linkMemo!);
                 var winner = view.ResolveWinner(fk);                             // winner CONTEXT where the record also lives in the order
+                // No pin: an off-order body is never the copy the game loads, so it owes no shared-EditorID note.
                 results[index] = new ReadOutcome(fk, record, plugin, winner?.WinnerPlugin,
                                                  winner?.OverrideDepth ?? 0, null, null)
-                                 with { Stamp = view.Stamp, Pin = pin };
+                                 with { Stamp = view.Stamp };
             }
             return results.Select(r => r!).ToList();
         }

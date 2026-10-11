@@ -19,6 +19,7 @@ public sealed class SharedGmstWorld : IDisposable
     public const string MasterName = "HcGmstMaster.esm";
     public const string MidName = "HcGmstMid.esp";
     public const string LastName = "HcGmstLast.esp";
+    public const string BrokenName = "HcGmstBroken.esp";
 
     public FormKey SharedInMaster { get; }
     public FormKey SharedInMid { get; }
@@ -29,7 +30,8 @@ public sealed class SharedGmstWorld : IDisposable
     public FormKey OverInMaster { get; }
     public FormKey OverInMid { get; }
 
-    public SharedGmstWorld()
+    /// <param name="withBrokenPlugin">Also activate, last, a file that is not a plugin, so the index excludes it.</param>
+    public SharedGmstWorld(bool withBrokenPlugin = false)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-sharedgmst-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
@@ -60,9 +62,20 @@ public sealed class SharedGmstWorld : IDisposable
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), $"# header\r\n{MasterName}\r\n{MidName}\r\n{LastName}\r\n");
-        File.WriteAllText(Path.Combine(prof, "plugins.txt"), $"*{MasterName}\r\n*{MidName}\r\n*{LastName}\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+HcGmstLastMod\r\n+HcGmstMidMod\r\n+HcGmstMasterMod\r\n");
+        // A broken plugin loads last, so it could set any of the names the others share.
+        var broken = withBrokenPlugin ? BrokenName : null;
+        if (broken is not null)
+        {
+            var dir = Path.Combine(instance, "mods", "HcGmstBrokenMod");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, broken), "not a plugin");
+        }
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), $"# header\r\n{MasterName}\r\n{MidName}\r\n{LastName}\r\n"
+                                                               + (broken is null ? "" : $"{broken}\r\n"));
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"), $"*{MasterName}\r\n*{MidName}\r\n*{LastName}\r\n"
+                                                             + (broken is null ? "" : $"*{broken}\r\n"));
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n" + (broken is null ? "" : "+HcGmstBrokenMod\r\n")
+                                                             + "+HcGmstLastMod\r\n+HcGmstMidMod\r\n+HcGmstMasterMod\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
     }
