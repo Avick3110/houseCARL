@@ -171,7 +171,7 @@ internal static class Artifacts
         {
             renderClock = System.Diagnostics.Stopwatch.StartNew();
             identity = "formid";
-            schema = new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" };
+            schema = new[] { "formid", "runtime_formid", "type", "editorid", "editorid_note?", "winner", "override_depth", "source", "matches?", "fields" };
             sort = "load-order scan order (deterministic within one epoch)";
             var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
             // The same reader the inline renders use; a cancel throws before Save, so no half artifact reaches disk.
@@ -202,7 +202,7 @@ internal static class Artifacts
         else                                                                  // summary rows
         {
             identity = "formid";
-            schema = new[] { "formid", "runtime_formid", "type", "editorid", "name?", "winner", "override_depth", "matches?" };
+            schema = new[] { "formid", "runtime_formid", "type", "editorid", "editorid_note?", "name?", "winner", "override_depth", "matches?" };
             sort = "load-order scan order (deterministic within one epoch)";
             for (int i = 0; i < q.Keys.Count; i++)
             {
@@ -284,8 +284,8 @@ internal static class Artifacts
         // The manifest stamps which tool wrote the artifact; a re-entry refusal prints it back.
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           summary
-                                              ? new[] { "formid", "runtime_formid", "type", "editorid", "name?", "source", "winner?", "override_depth", "matches?" }
-                                              : new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" },
+                                              ? new[] { "formid", "runtime_formid", "type", "editorid", "editorid_note?", "name?", "source", "winner?", "override_depth", "matches?" }
+                                              : new[] { "formid", "runtime_formid", "type", "editorid", "editorid_note?", "winner", "override_depth", "source", "matches?", "fields" },
                                           "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
@@ -300,7 +300,7 @@ internal static class Artifacts
             writer.WriteRow((w, ms) => JsonWire.WriteDeltaRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Subject?.RecordType : null);
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "type", "editorid", "subject", "reference", "stack_above?", "note?", "complete", "deltas", "delta_count", "no_verdict_count", "agreed_count" },
+                                          new[] { "formid", "type", "editorid", "editorid_note?", "subject", "reference", "stack_above?", "note?", "complete", "deltas", "delta_count", "no_verdict_count", "agreed_count" },
                                           "input order", rows.Count, epoch ?? "");
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
@@ -315,7 +315,7 @@ internal static class Artifacts
             writer.WriteRow((w, ms) => JsonWire.WriteTreeRow(w, row, ms, int.MaxValue, LeverNames.Records),
                             row.Error is null ? row.Type : null);   // a records-only artifact: the rows speak the records vocabulary
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "type", "editorid", "reference", "touchers", "child_declarers?", "nodes" },
+                                          new[] { "formid", "type", "editorid", "editorid_note?", "reference", "touchers", "child_declarers?", "nodes" },
                                           "input order", rows.Count, epoch ?? "", PreciseChildNotes(rows));
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
