@@ -8,7 +8,9 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>Three plugins carrying game settings: <c>iShared</c> in the master and the middle plugin, <c>fTriple</c>
-/// in all three, <c>iUnique</c> in the master alone. Its own world, so no other world's GMST counts move.</summary>
+/// in all three, <c>iUnique</c> in the master alone, and <c>iOver</c> new in the master and the middle plugin with the
+/// last plugin overriding the master's, so that FormID's winner is not its defining plugin. Its own world, so no other
+/// world's GMST counts move.</summary>
 public sealed class SharedGmstWorld : IDisposable
 {
     public string Root { get; }
@@ -24,6 +26,8 @@ public sealed class SharedGmstWorld : IDisposable
     public FormKey TripleInMid { get; }
     public FormKey TripleInLast { get; }
     public FormKey Unique { get; }
+    public FormKey OverInMaster { get; }
+    public FormKey OverInMid { get; }
 
     public SharedGmstWorld()
     {
@@ -35,11 +39,14 @@ public sealed class SharedGmstWorld : IDisposable
         SharedInMaster = AddInt(master, "iShared", 1);
         TripleInMaster = AddFloat(master, "fTriple", 1f);
         Unique = AddInt(master, "iUnique", 9);
+        OverInMaster = AddInt(master, "iOver", 1);
         var mid = NewMod(MidName, ModType.Plugin);
         SharedInMid = AddInt(mid, "iShared", 2);
         TripleInMid = AddFloat(mid, "fTriple", 2f);
+        OverInMid = AddInt(mid, "iOver", 2);
         var last = NewMod(LastName, ModType.Plugin);
         TripleInLast = AddFloat(last, "fTriple", 3f);
+        last.GameSettings.Add(new GameSettingInt(OverInMaster, SkyrimRelease.SkyrimSE) { EditorID = "iOver", Data = 3 });
 
         foreach (var m in new[] { master, mid, last })
         {
@@ -78,6 +85,10 @@ public sealed class SharedGmstWorld : IDisposable
     }
 
     public static string Token(FormKey fk) => FormIdToken.Of(fk);
+
+    /// <summary>Where one of the three plugins sits on disk.</summary>
+    public string PluginPath(string fileName) =>
+        Path.Combine(Root, "inst", "mods", Path.GetFileNameWithoutExtension(fileName) + "Mod", fileName);
 
     public void Dispose()
     {
