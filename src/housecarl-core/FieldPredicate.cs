@@ -1465,22 +1465,25 @@ public sealed class FieldPredicateSet
                 // No candidate read a value — the CAUSE decides whether this is a wrong path or a correct path over a value-less scope.
                 const string loud = "yielded no readable value on any of";
                 long unset = UnsetCount(k);   // what is left: genuinely-unset valid fields
+                // The records an empty list decided are named apart, since they never reached the path.
+                string over = _vacuous[k] == 0 ? $"{_scanned:N0} scanned record(s)"
+                    : $"the {reached:N0} scanned record(s) that reached it (another {_vacuous[k]:N0} had an empty list, which decides without reading it)";
                 string reason;
                 if (_noField[k] == reached && _noParent[k] > 0)
                 {
                     // Nothing CONTAINS these records, so the hop has nowhere to go; name the properties that own children at all.
-                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — no record CONTAINS " +
+                    reason = $"predicate field '{path}' {loud} {over} — no record CONTAINS " +
                              $"{(_noParentWhat[k] is { } t ? $"a {t}" : "these records")}, on {_noParent[k]:N0} of them" +
                              (_noParent[k] == reached ? "" : "; on the rest the path is not a field at all") +
                              $". Containment runs from these properties only: {ContainmentIndex.ChildBearingSurface()}.";
                 }
                 else if (_noField[k] == reached && _badKey[k] > 0)
-                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — {_badKeyWhat[k]} (on {_badKey[k]:N0} of them; " +
+                    reason = $"predicate field '{path}' {loud} {over} — {_badKeyWhat[k]} (on {_badKey[k]:N0} of them; " +
                              "on the rest the path is not a field at all).";
                 else if (_noField[k] == reached && _notList[k] > 0)
                 {
                     // The quantifier is the thing to drop: the step exists, it is just not a list here.
-                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — the quantified step " +
+                    reason = $"predicate field '{path}' {loud} {over} — the quantified step " +
                              $"{_notListWhat[k] ?? "named there"} on {_notList[k]:N0} of them, so a fold has no elements to run over" +
                              (_notList[k] == reached ? "" : "; on the rest the path is not a field at all") +
                              ". Drop the quantifier, or point it at a list-valued field.";
@@ -1492,7 +1495,7 @@ public sealed class FieldPredicateSet
                     // The remedy is the read engine's: it checked the trailing segment against the collection's element type.
                     var remedy = _listHopRemedy[k]
                         ?? "index an element with BRACKETS (e.g. 'Effects[0].Data.Magnitude'), not a dotted segment";
-                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — the path steps THROUGH " +
+                    reason = $"predicate field '{path}' {loud} {over} — the path steps THROUGH " +
                              (owner is not null ? $"'{owner}', which is a list/dict, " : "a list/dict ") +
                              $"with a dotted segment, which dead-ends (on {_listHop[k]:N0} of them" +
                              (_listHop[k] == reached ? "" : "; on the rest the path is not a field at all") +
@@ -1500,29 +1503,31 @@ public sealed class FieldPredicateSet
                              "('Effects[*any].Data.Magnitude > 50'). For list->FormID membership use references=.";
                 }
                 else if (_noField[k] == reached)
-                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — it is NOT A FIELD on these records " +
+                    reason = $"predicate field '{path}' {loud} {over} — it is NOT A FIELD on these records " +
                              $"(a mistyped path, or a field that doesn't exist on this record type); check the field name against the record's schema.";
                 else if (_container[k] == reached)
-                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — it resolves to a container/list here, not a scalar " +
+                    reason = $"predicate field '{path}' {loud} {over} — it resolves to a container/list here, not a scalar " +
                              $"leaf; filter on a scalar sub-path (e.g. '{path}[0]' or a nested field), or use references= for list→FormID membership.";
                 else if (_unreadable[k] == reached)
-                    reason = $"predicate field '{path}' could not be READ on any of {_scanned:N0} scanned record(s) — a read FAULT (Mutagen could not " +
+                    reason = $"predicate field '{path}' could not be READ on any of {over} — a read FAULT (Mutagen could not " +
                              $"parse the field's content), NOT an unset value. This is a coverage/parse limit on this field, not a filter miss; the " +
                              $"filter can't judge these records.";
                 else if (_unresolved[k] == reached)
-                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — the link IS SET on every one, but NONE of its " +
+                    reason = $"predicate field '{path}' {loud} {over} — the link IS SET on every one, but NONE of its " +
                              $"targets are in this load order (a disabled plugin, or a master that isn't installed), so there was nothing to read " +
                              $"on the other side. Check the plugin holding the target records is enabled and its masters are present; widening the " +
                              $"scope will not help.";
                 else if (_noField[k] == 0 && _container[k] == 0 && _unreadable[k] == 0 && _unresolved[k] == 0)
-                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — but the field IS VALID; it is simply UNSET " +
+                    reason = $"predicate field '{path}' {loud} {over} — but the field IS VALID; it is simply UNSET " +
                              $"(absent/null) on every one, so the path reads fine and there are just no values in this scope. Widen the scope, or " +
                              $"the value you want may live on a different field (e.g. a dialogue topic's player text is on DIAL 'Name', not INFO 'Prompt').";
                 else
-                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — a mix of no-such-field ({_noField[k]:N0}), " +
+                    reason = $"predicate field '{path}' {loud} {over} — a mix of no-such-field ({_noField[k]:N0}), " +
                              $"container/list ({_container[k]:N0}), read-fault ({_unreadable[k]:N0}), unresolved link target ({_unresolved[k]:N0}), " +
                              $"and unset ({unset:N0}); check it's a scalar leaf that exists on these records.";
-                (notes ??= new()).Add(reason + " 0 matches on that basis is NOT a confirmed 'nothing matches'.");
+                (notes ??= new()).Add(reason + (_vacuous[k] == 0
+                    ? " 0 matches on that basis is NOT a confirmed 'nothing matches'."
+                    : " The match count on that basis is NOT a confirmed answer: only empty lists decided any record."));
             }
             else if (_noValue[k] * 2 > _scanned || _unreadable[k] > 0)
             {
