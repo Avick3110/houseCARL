@@ -69,7 +69,11 @@ path walk, and containment comes off Mutagen's context walk.
 - The accounting is loud or soft by ratio. No readable value on ANY candidate is a LOUD line saying
   the zero is not a confirmed nothing-matches; no value on MORE THAN HALF of them is a soft note; and
   a read FAULT on any candidate is said whatever the ratio, because those records could not be judged
-  at all and passing them off as non-matches is the silently degraded answer.
+  at all and passing them off as non-matches is the silently degraded answer. A record an empty
+  quantified list decided read no leaf, so it is left out of the ratio: a wrong path behind `[*any]`
+  is still the loud no-such-field line when some lists are empty (#1160). The forms that read bodies
+  after the scan (`everything`, `rows`, a quantified `fields` path) carry the same line, and so does a
+  `to_file=` manifest.
 - An `editorid in` or `formid in` term on the candidate itself (no `->` side, no `*parent` hop)
   names the members that have no record in the selection, in list order and as the caller typed them
   (#1092). The selection is the records the scan's selectors let through: `types=`, `plugins=` (on a
@@ -94,7 +98,7 @@ path walk, and containment comes off Mutagen's context walk.
 - A leading `not` flips a string operator's verdict only where that verdict is DEFINITE, so a
   mistyped path under `not contains` cannot match everything.
 - A quantified step (`[*any]`, `[*all]`, `[*none]`, `[*count]`) folds elements into a boolean or a
-  number; the bare `[*]` set token is refused. An empty list is a definite verdict, and one element
+  number; the bare `[*]` set token is refused. An empty list is a verdict that reads no leaf, and one element
   that could not be judged sinks a fold the judged elements have not already decided. A quantified
   step behind an unset step (an absent substruct, a missing gendered arm, an index past the end)
   folds an empty list, so `[*all]` and `[*none]` match vacuously and `[*count] = 0` matches.

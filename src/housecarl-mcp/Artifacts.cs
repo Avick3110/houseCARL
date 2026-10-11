@@ -228,12 +228,13 @@ internal static class Artifacts
         annotatedFields.Count == 0 ? null
             : ReadSentences.OwnedChildClauses(ReadSentences.Tier(annotatedFields, true), ReadSentences.Tier(annotatedFields, false));
 
-    /// <summary>The manifest notes a scan artifact carries: the scoped-vs-winner field-source note, then the owned-child clause. The scoped test is <see cref="JsonWire.AnyScopedFieldRow"/> itself, never a copy, so the two cannot disagree.</summary>
+    /// <summary>The manifest notes a scan artifact carries: the where= accounting, the scoped-vs-winner field-source note, then the owned-child clause. The scoped test is <see cref="JsonWire.AnyScopedFieldRow"/> itself, never a copy, so the two cannot disagree.</summary>
     static IReadOnlyList<string>? CrossQueryNotes(CrossQueryOutcome q, IReadOnlyList<string>? fields, bool winnerFields,
                                                   IReadOnlyDictionary<string, bool> annotatedFields,
                                                   LeverNames? levers)
     {
         var notes = new List<string>();
+        if (q.PredicateNote is not null) notes.Add(q.PredicateNote);   // where= accounting: a wrong path is not a real zero
         if (JsonWire.AnyScopedFieldRow(q, fields))
             notes.Add(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, levers));
         if (OwnedChildNotes(annotatedFields) is { } child) notes.AddRange(child);

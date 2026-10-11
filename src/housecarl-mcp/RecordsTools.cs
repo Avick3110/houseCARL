@@ -1661,12 +1661,12 @@ public static partial class RecordsTools
                 var bodyEpoch = bodyEpochs.FirstOrDefault() ?? outcome.Stamp;
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
-                // What the SCAN owes about its own coverage, carried on both transports here as it is on the scan
-                // lane, since a body form reads the same scan.
-                if (outcome.ScanNote is not null)
+                // What the SCAN owes (its where= accounting, then its coverage), carried on both transports here as
+                // on the scan lane, since a body form reads the same scan.
+                if (string.Join("\n", new[] { outcome.PredicateNote, outcome.ScanNote }.OfType<string>()) is { Length: > 0 } owed)
                 {
-                    headerLine += "\n" + outcome.ScanNote;
-                    envelope.Add(new("scan_note", outcome.ScanNote));
+                    headerLine += "\n" + owed;
+                    envelope.Add(new("scan_note", owed));
                 }
                 // Selected by a scan, not a formids list, so the batch notice's selection clause names limit=.
                 var evLevers = formLevers.OnScanSelection();

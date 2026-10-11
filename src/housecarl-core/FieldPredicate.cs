@@ -32,6 +32,7 @@ public sealed class FieldPredicateSet
 
     readonly IReadOnlyList<Predicate> _predicates;
     readonly long[] _valueRead;   // per-predicate: candidates whose path read SOME value
+    readonly long[] _vacuous;     // per-predicate: candidates decided by an empty quantified list alone, no leaf read
     readonly long[] _noValue;     // per-predicate: candidates whose path read NO value (any reason below)
     readonly long[] _noField;     // per-predicate SUBSET of _noValue: the path is not a field on the record (mistyped / wrong for this type)
     readonly long[] _container;   // per-predicate SUBSET of _noValue: the path resolves to a container/list, not a scalar leaf
@@ -149,6 +150,7 @@ public sealed class FieldPredicateSet
     {
         _predicates = predicates;
         _valueRead = new long[predicates.Count];
+        _vacuous = new long[predicates.Count];
         _noValue = new long[predicates.Count];
         _noField = new long[predicates.Count];
         _container = new long[predicates.Count];
@@ -746,6 +748,7 @@ public sealed class FieldPredicateSet
             switch (kind)
             {
                 case EvalKind.Definite: _valueRead[k]++; if (!sat) all = false; break;
+                case EvalKind.Vacuous: _vacuous[k]++; if (!sat) all = false; break;
                 case EvalKind.NoField: _noField[k]++; _noValue[k]++; all = false; break;
                 // A list hop is a no-such-field miss; the extra counter tells a missing bracket from a mistyped name.
                 case EvalKind.ListHop: _noField[k]++; _listHop[k]++; _noValue[k]++; _listHopOwner[k] ??= _lastListHopOwner; _listHopRemedy[k] ??= _lastListHopRemedy; all = false; break;
@@ -765,7 +768,7 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>How one predicate's evaluation on one record resolved: a definite verdict, or one of the no-verdict classes the accounting keys on.</summary>
-    enum EvalKind { Definite, NoField, ListHop, NotAList, NoParent, BadKey, Container, Unreadable, UnresolvedTarget, Unset }
+    enum EvalKind { Definite, Vacuous, NoField, ListHop, NotAList, NoParent, BadKey, Container, Unreadable, UnresolvedTarget, Unset }
 
     /// <summary>The type of the record the most recent <c>*parent</c> hop found no containing record for.</summary>
     string? _lastNoParent;
@@ -959,24 +962,25 @@ public sealed class FieldPredicateSet
         return $"a single {RecordNaming.StripGetterInterface(RecordNaming.StripOverlay((val?.GetType() ?? t).Name))} value";
     }
 
-    /// <summary>Fold one step's element verdicts into the record's; an empty list is a definite verdict, and one unjudged element sinks a fold the judged ones have not already decided.</summary>
+    /// <summary>Fold one step's element verdicts into the record's; an empty list decides without reading a leaf, and one unjudged element sinks a fold the judged ones have not already decided.</summary>
     (bool Satisfied, EvalKind Kind) FoldOver(Predicate p, List<object> elems, Fold fold, Func<object, (bool, EvalKind)> eval)
     {
-        if (elems.Count == 0) return (fold != Fold.Any, EvalKind.Definite);
-        bool anyVerdict = false, anyTrue = false, anyFalse = false;
+        if (elems.Count == 0) return (fold != Fold.Any, EvalKind.Vacuous);
+        bool anyVerdict = false, anyTrue = false, anyFalse = false, anyRead = false;
         EvalKind? unjudged = null;
         foreach (var e in elems)
         {
             var (sat, kind) = eval(e);
             if (_fatal is not null) return (false, EvalKind.Definite);
-            if (kind == EvalKind.Definite) { anyVerdict = true; if (sat) anyTrue = true; else anyFalse = true; }
+            if (kind is EvalKind.Definite or EvalKind.Vacuous) { anyVerdict = true; anyRead |= kind == EvalKind.Definite; if (sat) anyTrue = true; else anyFalse = true; }
             else if (unjudged is null || NoVerdictRank(kind) > NoVerdictRank(unjudged.Value)) unjudged = kind;
         }
-        if (fold == Fold.Any && anyTrue) return (true, EvalKind.Definite);
-        if (fold == Fold.NoneOf && anyTrue) return (false, EvalKind.Definite);
-        if (fold == Fold.All && anyFalse) return (false, EvalKind.Definite);
+        var decided = anyRead ? EvalKind.Definite : EvalKind.Vacuous;   // a verdict only empty lists gave read no leaf
+        if (fold == Fold.Any && anyTrue) return (true, decided);
+        if (fold == Fold.NoneOf && anyTrue) return (false, decided);
+        if (fold == Fold.All && anyFalse) return (false, decided);
         if (unjudged is { } u) return (false, u);
-        if (anyVerdict) return (fold != Fold.Any, EvalKind.Definite);
+        if (anyVerdict) return (fold != Fold.Any, decided);
         return (false, EvalKind.Unreadable);
     }
 
@@ -1160,20 +1164,21 @@ public sealed class FieldPredicateSet
         if (links.Count == 0) return (false, EvalKind.Unset);   // present but empty — genuinely nothing linked
 
         // The loudest no-verdict class an actually-reached target produced; a target that does not resolve gets its own class.
-        bool anyVerdict = false;
+        bool anyVerdict = false, anyRead = false;
         EvalKind? unjudged = null;
         foreach (var fk in links)
         {
             var (sat, kind) = TargetVerdict(p, fk);
             if (_fatal is not null) return (false, EvalKind.Definite);
-            if (kind == EvalKind.Definite)
+            if (kind is EvalKind.Definite or EvalKind.Vacuous)
             {
                 anyVerdict = true;
-                if (sat) return (true, EvalKind.Definite);
+                anyRead |= kind == EvalKind.Definite;
+                if (sat) return (true, kind);
             }
             else Louder(ref unjudged, kind);
         }
-        if (anyVerdict) return (false, EvalKind.Definite);
+        if (anyVerdict) return (false, anyRead ? EvalKind.Definite : EvalKind.Vacuous);
         return (false, unjudged ?? EvalKind.Unset);
     }
 
@@ -1453,32 +1458,34 @@ public sealed class FieldPredicateSet
         {
             var pk = _predicates[k];
             var path = pk.FullPath;
-            if (_valueRead[k] == 0)
+            // A record an empty quantified list decided read no leaf, so it says nothing about the path.
+            long reached = _scanned - _vacuous[k];
+            if (_valueRead[k] == 0 && reached > 0)
             {
                 // No candidate read a value — the CAUSE decides whether this is a wrong path or a correct path over a value-less scope.
                 const string loud = "yielded no readable value on any of";
                 long unset = UnsetCount(k);   // what is left: genuinely-unset valid fields
                 string reason;
-                if (_noField[k] == _scanned && _noParent[k] > 0)
+                if (_noField[k] == reached && _noParent[k] > 0)
                 {
                     // Nothing CONTAINS these records, so the hop has nowhere to go; name the properties that own children at all.
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — no record CONTAINS " +
                              $"{(_noParentWhat[k] is { } t ? $"a {t}" : "these records")}, on {_noParent[k]:N0} of them" +
-                             (_noParent[k] == _scanned ? "" : "; on the rest the path is not a field at all") +
+                             (_noParent[k] == reached ? "" : "; on the rest the path is not a field at all") +
                              $". Containment runs from these properties only: {ContainmentIndex.ChildBearingSurface()}.";
                 }
-                else if (_noField[k] == _scanned && _badKey[k] > 0)
+                else if (_noField[k] == reached && _badKey[k] > 0)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — {_badKeyWhat[k]} (on {_badKey[k]:N0} of them; " +
                              "on the rest the path is not a field at all).";
-                else if (_noField[k] == _scanned && _notList[k] > 0)
+                else if (_noField[k] == reached && _notList[k] > 0)
                 {
                     // The quantifier is the thing to drop: the step exists, it is just not a list here.
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — the quantified step " +
                              $"{_notListWhat[k] ?? "named there"} on {_notList[k]:N0} of them, so a fold has no elements to run over" +
-                             (_notList[k] == _scanned ? "" : "; on the rest the path is not a field at all") +
+                             (_notList[k] == reached ? "" : "; on the rest the path is not a field at all") +
                              ". Drop the quantifier, or point it at a list-valued field.";
                 }
-                else if (_noField[k] == _scanned && _listHop[k] > 0)
+                else if (_noField[k] == reached && _listHop[k] > 0)
                 {
                     // A missing bracket, not a mistyped name, so the schema is the wrong place to send the caller.
                     var owner = _listHopOwner[k];
@@ -1488,21 +1495,21 @@ public sealed class FieldPredicateSet
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — the path steps THROUGH " +
                              (owner is not null ? $"'{owner}', which is a list/dict, " : "a list/dict ") +
                              $"with a dotted segment, which dead-ends (on {_listHop[k]:N0} of them" +
-                             (_listHop[k] == _scanned ? "" : "; on the rest the path is not a field at all") +
+                             (_listHop[k] == reached ? "" : "; on the rest the path is not a field at all") +
                              $"). {Capitalize(remedy)}; to ask about EVERY element instead, quantify the step " +
                              "('Effects[*any].Data.Magnitude > 50'). For list->FormID membership use references=.";
                 }
-                else if (_noField[k] == _scanned)
+                else if (_noField[k] == reached)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — it is NOT A FIELD on these records " +
                              $"(a mistyped path, or a field that doesn't exist on this record type); check the field name against the record's schema.";
-                else if (_container[k] == _scanned)
+                else if (_container[k] == reached)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — it resolves to a container/list here, not a scalar " +
                              $"leaf; filter on a scalar sub-path (e.g. '{path}[0]' or a nested field), or use references= for list→FormID membership.";
-                else if (_unreadable[k] == _scanned)
+                else if (_unreadable[k] == reached)
                     reason = $"predicate field '{path}' could not be READ on any of {_scanned:N0} scanned record(s) — a read FAULT (Mutagen could not " +
                              $"parse the field's content), NOT an unset value. This is a coverage/parse limit on this field, not a filter miss; the " +
                              $"filter can't judge these records.";
-                else if (_unresolved[k] == _scanned)
+                else if (_unresolved[k] == reached)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — the link IS SET on every one, but NONE of its " +
                              $"targets are in this load order (a disabled plugin, or a master that isn't installed), so there was nothing to read " +
                              $"on the other side. Check the plugin holding the target records is enabled and its masters are present; widening the " +
