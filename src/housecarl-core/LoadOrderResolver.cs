@@ -904,7 +904,7 @@ public sealed class LoadOrderResolver : IDisposable
     // ---- Cross-query scan primitives: one enumeration pass each, the body yielded IN HAND, one plugin handle at a time, nothing held past the yield ----
 
     /// <summary>Stream every record of the given type(s) whose instance in this overlay IS the load-order winner — the winner body in hand per distinct typed FormKey, types unioned. Pass
-    /// <paramref name="unreadable"/> to collect a plugin that opened at index time but not now and carry on; with no collector the stream THROWS.</summary>
+    /// <paramref name="unreadable"/> to collect a plugin that opened at index time but not now, or whose records stop partway, and carry on; with no collector the stream THROWS.</summary>
     public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(
         IReadOnlyList<Type> getterTypes, ICollection<PluginUnreadableException>? unreadable = null)
         => WinnerRecordsOfType(getterTypes, _snap, unreadable);            // ONE build for the whole scan (captured here, at the call)
@@ -928,9 +928,22 @@ public sealed class LoadOrderResolver : IDisposable
             try
             {
                 // RecordArms is the shared arm re-check: a typed enumeration seeks the GRUP, which for an abstract group holds every arm.
-                foreach (var rec in RecordArms.OfTypes(ov, getterTypes))
+                using var recs = RecordArms.OfTypes(ov, getterTypes).GetEnumerator();
+                while (true)
+                {
+                    IMajorRecordGetter rec;
+                    // A fault partway through the plugin is collected like the open fault above, and the rest of the order still walks.
+                    try { if (!recs.MoveNext()) break; rec = recs.Current; }
+                    catch (Exception ex)
+                    {
+                        var fault = new PluginUnscannableException(_names[i], ex);
+                        if (unreadable is null) throw fault;
+                        unreadable.Add(fault);
+                        break;
+                    }
                     if (s.Index.TryGetValue(rec.FormKey, out var e) && e.winner == i)   // this overlay's instance wins
                         yield return (rec.FormKey, e.count, rec);
+                }
             }
             finally { (ov as IDisposable)?.Dispose(); }
         }

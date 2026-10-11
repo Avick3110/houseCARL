@@ -27,7 +27,7 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 - `Unopenable` is the subset of `Excluded` whose file could not be opened at all, kept as its own set rather than derived from the reason string, because a message is display prose and membership is a fact.
 - A master set retains excluded-but-openable plugins on purpose — a clean plugin can override a record whose origin master is excluded, and that master must still appear in the patch header — and skips the unopenable ones, recording each name so a serialize failure can be attributed.
 - An ACTIVE baseline master (Skyrim.esm / Update.esm) that cannot be opened refuses every write, thrown from the master-set builders, the single point every write lane funnels through.
-- A plugin that opened at index time but not now is `PluginUnreadableException`; one that opened but could not be walked to the end is `PluginUnscannableException`. Two faults, worded differently, both reported as whole-plugin coverage gaps.
+- A plugin that opened at index time but not now is `PluginUnreadableException`; one that opened but could not be walked to the end is `PluginUnscannableException`. Two faults, worded differently, both reported as whole-plugin coverage gaps. `WinnerRecordsOfType` given a collector collects either one and walks on to the next plugin; without one it throws it.
 
 ### Identity and freshness
 - The epoch fingerprint is derived from every plugin's filename, RESOLVED PATH and freshness stamp in priority order, plus the names of the plugins the build excluded; two builds over an unchanged order that indexed the same set fingerprint identically.
