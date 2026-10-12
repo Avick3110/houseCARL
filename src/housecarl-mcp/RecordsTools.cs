@@ -529,9 +529,11 @@ public static partial class RecordsTools
             headerLine += $"  source={statement}";
         }
         // A consumed scan's owed notes: header lines on text, the notes array on json, as the scan lane renders them.
+        IReadOnlyList<string>? scanNotes = null;   // the same list in manifest form, for every artifact the scan's consumer writes
         void OweNotes(CrossQueryOutcome scan)
         {
             foreach (var n in scan.OwedNotes(wantFile)) { headerLine += "\n" + n; envelope.Add(new("notes", n)); }
+            if (scan.OwedNotes(true, whole: true) is { Count: > 0 } all) scanNotes = all;
         }
         // A census is a text render too, so it is held to the same ceiling and says so when max_chars is smaller
         // than the statements it carries whatever the budget.
@@ -1027,7 +1029,7 @@ public static partial class RecordsTools
                 SpillState? spill = null;
                 if (wantFile)
                 {
-                    var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", Echo());
+                    var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", Echo(), scanNotes);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, wEpoch) : "error: " + aerr;
                     spill = SpillState.Spilled(s!, manifestOnly: true);
                 }
@@ -1039,7 +1041,7 @@ public static partial class RecordsTools
                 if (spill is null && truncated)
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, wEpoch?.Epoch ?? "none");
-                    var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, reservation, "ceiling", Echo());
+                    var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, reservation, "ceiling", Echo(), scanNotes);
                     rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return rendered;
@@ -1155,7 +1157,7 @@ public static partial class RecordsTools
             SpillState? spill = null;
             if (wantFile)
             {
-                var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo);
+                var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo, scanNotes);
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
@@ -1167,7 +1169,7 @@ public static partial class RecordsTools
             if (spill is null && truncated)
             {
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, reservation, "ceiling", echo);
+                var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, reservation, "ceiling", echo, scanNotes);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
             return rendered;
@@ -1195,7 +1197,7 @@ public static partial class RecordsTools
             SpillState? spill = null;
             if (wantFile)
             {
-                var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo);
+                var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo, scanNotes);
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
@@ -1207,7 +1209,7 @@ public static partial class RecordsTools
             if (spill is null && truncated)
             {
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, reservation, "ceiling", echo);
+                var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, reservation, "ceiling", echo, scanNotes);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
             return rendered;
@@ -1250,7 +1252,7 @@ public static partial class RecordsTools
             SpillState? spill = null;
             if (wantFile)
             {
-                var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo);
+                var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo, scanNotes);
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
@@ -1262,7 +1264,7 @@ public static partial class RecordsTools
             if (spill is null && truncated)
             {
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch?.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, reservation, "ceiling", echo);
+                var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, reservation, "ceiling", echo, scanNotes);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
             return rendered;

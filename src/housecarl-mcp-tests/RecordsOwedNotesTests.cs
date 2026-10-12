@@ -56,11 +56,20 @@ public sealed class RecordsOwedNotesTests : RecordsTestBase
         ["off-order everything manifest"] = ("everything", null, true, true),
         ["summary ceiling manifest"] = (null, "json", false, false),
         ["everything ceiling manifest"] = ("everything", "json", false, false),
+        ["delta manifest"] = ("delta", null, true, false),
+        ["tree manifest"] = ("tree", null, true, false),
+        ["info_order manifest"] = ("info_order", null, true, false),
+        ["chain manifest"] = ("chain", null, true, false),
+        ["delta ceiling manifest"] = ("delta", "json", false, false),
+        ["tree ceiling manifest"] = ("tree", "json", false, false),
+        ["info_order ceiling manifest"] = ("info_order", "json", false, false),
+        ["chain ceiling manifest"] = ("chain", "json", false, false),
     };
 
     // An off-order file scan owes only the notes its engine sets: no where_source, no reverse index, and its one weapon cannot make the mixed-type soft note.
-    // A ceiling spill needs rows to cut, so it is judged at some matches only.
+    // A ceiling spill needs rows to cut, so it is judged at some matches only. A walk takes no where= or references=, so only a scope's coverage note reaches it.
     static bool Owes(string note, string lane) =>
+        !(lane.StartsWith("chain") && note != "S+") &&
         !(lane.StartsWith("off-order") && note is "W0" or "W+" or "R0" or "R+" or "P+")
         && !(lane.Contains("ceiling") && note.EndsWith('0'));
 
@@ -92,6 +101,7 @@ public sealed class RecordsOwedNotesTests : RecordsTestBase
                                      references: n.Refs is null ? null : new[] { Fid(n.Refs == "MgefA" ? W.MgefA : W.Package) },
                                      source: l.OffOrder ? Plugin(W.OldName) : null,
                                      versus: l.Form == "delta" ? Plugin(W.MasterName) : null,
+                                     walk: l.Form == "chain" ? new RecordsTools.RecordsWalk { depth = 1 } : null,
                                      project: project, format: l.Format, to_file: art,
                                      max_chars: lane.Contains("ceiling") ? 300 : 0);
         if (lane.Contains("ceiling")) art = Je(r).GetProperty("spilled").GetProperty("path").GetString();
