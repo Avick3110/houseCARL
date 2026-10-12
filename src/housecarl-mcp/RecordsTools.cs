@@ -1482,7 +1482,6 @@ public static partial class RecordsTools
                 && (walk is not null || comparisonForm || form == "info_order" || (bodyLaneForm && !counts_only)))
             {
                 OweNotes(outcome);
-                if (outcome.ReverseIndexNote is not null) envelope.Add(new("reverse_index", outcome.ReverseIndexNote));   // kept beside notes, as before
             }
 
             // ---- walk= on a scan: the scan's matches are the seeds and the walk lane takes it from there,
@@ -1670,7 +1669,6 @@ public static partial class RecordsTools
                 var bodyEpoch = bodyEpochs.FirstOrDefault() ?? outcome.Stamp;
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
-                if (outcome.ScanNote is not null) envelope.Add(new("scan_note", outcome.ScanNote));   // coverage only; the owed notes rode the gate above
                 // Selected by a scan, not a formids list, so the batch notice's selection clause names limit=.
                 var evLevers = formLevers.OnScanSelection();
                 // Selected by the scan, so they carry its multi-target references= un-merge too, one row per key in
@@ -1900,7 +1898,6 @@ public static partial class RecordsTools
                 }
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
-                if (outcome.ScanNote is not null) envelope.Add(new("scan_note", outcome.ScanNote));   // coverage only, as on the in-order body lane
                 // Selected by the off-order file scan, so the remedy vocabulary matches the body lane above.
                 var offLevers = formLevers.OnScanSelection();
                 // Same rule as the in-order body lane: the file scan's rows carry its references= un-merge too.

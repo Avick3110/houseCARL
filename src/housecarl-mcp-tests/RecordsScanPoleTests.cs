@@ -210,15 +210,16 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Assert.Equal(0, opens);
     }
 
-    /// <summary>The note rides the scan's existing note channel, not a key of its own.</summary>
+    /// <summary>The note rides the scan's notes array, not a key of its own.</summary>
     [Theory]
     [InlineData("json")]
     [InlineData("dense")]
     public void OverlayScanWhere_TheNoteRidesTheScanNote(string format)
     {
         var r = RecordsTools.Records(Svc, types: Weap, source: Overlay("post"), where: new[] { "BasicStats.Damage >= 1" }, format: format);
-        Served(r, "\"scan_note\"", WhereNote);
+        Served(r, "\"notes\"", WhereNote);
         Assert.DoesNotContain("source_note", r);
+        Assert.DoesNotContain("scan_note", r);
     }
 
     /// <summary>references= is matched on the plugin records too, so the same note names it.</summary>

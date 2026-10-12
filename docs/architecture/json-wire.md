@@ -148,9 +148,11 @@ pairs.
 
 The one exception is `notes`: every `notes` pair is written as one `notes` array after the string pairs. A form that
 consumes a scan (a body read, a comparison, `info_order`, a walk) carries the scan's owed notes that way, the same
-member the scan's own render writes. Every renderer and every artifact manifest reads those notes from one list,
-`CrossQueryOutcome.OwedNotes` (predicate, unmatched, scan coverage, where_source, reverse index), and adds only its
-own; a body lane's `scan_note` and `reverse_index` members stay beside the array.
+member the scan's own render writes. Every response reads those notes from one list,
+`CrossQueryOutcome.OwedNotes` (predicate, unmatched, scan coverage, where_source, reverse index), written when the
+header or envelope is, so the unmatched note can point at a manifest the response wrote; every artifact manifest
+reads `ManifestNotes`, the same list naming every unmatched member, and adds only its own. Each note is said once:
+no separate `scan_note` or `reverse_index` member beside the array (the MGEF carrier result's `scan_note` is its own).
 
 ### Measuring a unit means writing it
 
