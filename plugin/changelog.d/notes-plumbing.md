@@ -1,0 +1,1 @@
+- **A `housecarl_records` scan read as `everything`, a comparison or `info_order`, or saved with `to_file=`, now carries every note the plain scan gives, such as unmatched `in` names.** Check: `form=everything where=["editorid in [A,Typo]"]` names `Typo`.
