@@ -240,6 +240,10 @@ internal static class Artifacts
         return notes.Count > 0 ? notes : null;
     }
 
+    /// <summary>Two optional note lists as one, null when both are empty.</summary>
+    static IReadOnlyList<string>? Joined(IReadOnlyList<string>? a, IReadOnlyList<string>? b) =>
+        a is null ? b : b is null ? a : a.Concat(b).ToList();
+
     /// <summary>The precise tier's response-level note for a tree artifact: <see cref="ReadSentences.DeclarersLead"/>
     /// stated once rather than per row, when any row's <c>child_declarers</c> reached the file.</summary>
     static IReadOnlyList<string>? PreciseChildNotes(IReadOnlyList<RecordReads.TreeRow> rows) =>
@@ -300,7 +304,7 @@ internal static class Artifacts
     /// <summary>Build and save the artifact for a delta result — one row per input, in input order, per-item refusals included.</summary>
     public static (SpillInfo? Spill, string? Error) WriteDelta(
         IReadOnlyList<RecordReads.DeltaRow> rows, string? epoch, ArtifactTarget target, string reason,
-        IReadOnlyList<KeyValuePair<string, string>> query)
+        IReadOnlyList<KeyValuePair<string, string>> query, IReadOnlyList<string>? scanNotes = null)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
@@ -308,14 +312,14 @@ internal static class Artifacts
                             row.Error is null ? row.Subject?.RecordType : null);
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "editorid_note?", "subject", "reference", "stack_above?", "note?", "complete", "deltas", "delta_count", "no_verdict_count", "agreed_count" },
-                                          "input order", rows.Count, epoch ?? "");
+                                          "input order", rows.Count, epoch ?? "", scanNotes);
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
     /// <summary>Build and save the artifact for a tree result — one row per record, the provider stack with per-node deltas.</summary>
     public static (SpillInfo? Spill, string? Error) WriteTree(
         IReadOnlyList<RecordReads.TreeRow> rows, string? epoch, ArtifactTarget target, string reason,
-        IReadOnlyList<KeyValuePair<string, string>> query)
+        IReadOnlyList<KeyValuePair<string, string>> query, IReadOnlyList<string>? scanNotes = null)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
@@ -323,14 +327,14 @@ internal static class Artifacts
                             row.Error is null ? row.Type : null);   // a records-only artifact: the rows speak the records vocabulary
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "editorid_note?", "reference", "touchers", "child_declarers?", "nodes" },
-                                          "input order", rows.Count, epoch ?? "", PreciseChildNotes(rows));
+                                          "input order", rows.Count, epoch ?? "", Joined(scanNotes, PreciseChildNotes(rows)));
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
     /// <summary>Build and save the artifact for a chain result — one row per seed, in input order: nodes with provenance, cycles, truncation notes, the template report.</summary>
     public static (SpillInfo? Spill, string? Error) WriteChain(
         IReadOnlyList<RecordReads.WalkSeedResult> rows, string? epoch, ArtifactTarget target, string reason,
-        IReadOnlyList<KeyValuePair<string, string>> query)
+        IReadOnlyList<KeyValuePair<string, string>> query, IReadOnlyList<string>? scanNotes = null)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
@@ -338,7 +342,7 @@ internal static class Artifacts
                             row.Error is null ? row.Type : null);
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "nodes", "cycles?", "truncation?", "template_inheritance?" },
-                                          "input order", rows.Count, epoch ?? "");
+                                          "input order", rows.Count, epoch ?? "", scanNotes);
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
@@ -387,7 +391,7 @@ internal static class Artifacts
     /// <summary>Build and save the artifact for an info_order result — one row per topic, in input order, the confidence gates as data and per-item errors included.</summary>
     public static (SpillInfo? Spill, string? Error) WriteInfoOrder(
         IReadOnlyList<RecordReads.InfoOrderRow> rows, string? epoch, ArtifactTarget target, string reason,
-        IReadOnlyList<KeyValuePair<string, string>> query)
+        IReadOnlyList<KeyValuePair<string, string>> query, IReadOnlyList<string>? scanNotes = null)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
@@ -395,7 +399,7 @@ internal static class Artifacts
                             row.Error is null ? row.Type : null);
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "winner", "contested", "complete", "folded_plugin?", "folded_contributed?", "moves_computed", "baseline_trusted", "contributing", "unread?", "note?", "moved_count", "order" },
-                                          "input order", rows.Count, epoch ?? "");
+                                          "input order", rows.Count, epoch ?? "", scanNotes);
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
