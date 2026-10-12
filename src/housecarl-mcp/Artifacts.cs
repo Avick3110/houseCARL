@@ -233,12 +233,10 @@ internal static class Artifacts
                                                   IReadOnlyDictionary<string, bool> annotatedFields,
                                                   LeverNames? levers)
     {
-        var notes = new List<string>();
+        var notes = new List<string>(q.OwedNotes(true, whole: true));   // the whole unmatched list: the response names only what fits
         if (JsonWire.AnyScopedFieldRow(q, fields))
             notes.Add(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, levers));
         if (OwnedChildNotes(annotatedFields) is { } child) notes.AddRange(child);
-        // The whole unmatched list: the response names only what fits.
-        if (q.Unmatched.Count > 0) notes.Add(FieldPredicateSet.UnmatchedSentence(q.Unmatched, q.Unmatched.Count, q.UnmatchedGap, inManifest: true));
         return notes.Count > 0 ? notes : null;
     }
 
@@ -257,10 +255,19 @@ internal static class Artifacts
         return s;
     }
 
+    /// <summary>A batch artifact's notes: what the scan that selected it owes, then the owned-child clause.</summary>
+    static IReadOnlyList<string>? BatchNotes(CrossQueryOutcome? scan, IReadOnlyDictionary<string, bool> annotatedFields)
+    {
+        var notes = new List<string>(scan?.OwedNotes(true, whole: true) ?? Array.Empty<string>());
+        if (OwnedChildNotes(annotatedFields) is { } child) notes.AddRange(child);
+        return notes.Count > 0 ? notes : null;
+    }
+
     /// <summary>Build and save the artifact for a batch read — one row per input, in input order, per-item errors included. <paramref name="matches"/> is parallel to <paramref name="outcomes"/> and carries the references= un-merge (#576).</summary>
     public static (SpillInfo? Spill, string? Error) WriteBatch(
         IReadOnlyList<ReadOutcome> outcomes, ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
-        LeverNames? levers = null, int rowCap = int.MaxValue, IReadOnlyList<string?>? matches = null, bool summary = false)
+        LeverNames? levers = null, int rowCap = int.MaxValue, IReadOnlyList<string?>? matches = null, bool summary = false,
+        CrossQueryOutcome? scan = null)
     {
         using var writer = new ResultArtifact.Writer();
         for (int i = 0; i < outcomes.Count; i++)
@@ -286,7 +293,7 @@ internal static class Artifacts
                                           summary
                                               ? new[] { "formid", "runtime_formid", "type", "editorid", "editorid_note?", "name?", "source", "winner?", "override_depth", "matches?" }
                                               : new[] { "formid", "runtime_formid", "type", "editorid", "editorid_note?", "winner", "override_depth", "source", "matches?", "fields" },
-                                          "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
+                                          "input order", outcomes.Count, epoch, BatchNotes(scan, AnnotatedFields(outcomes)));
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 

@@ -220,11 +220,7 @@ static partial class Wire
         else if (q.Capped) sb.Append(" (showing first ").Append(q.Keys.Count).Append("; raise limit=, page with offset=, or narrow to see more)");
         if (q.Stamp is not null) sb.Append(Wire.EpochInline(q.Stamp));   // offset= windows tile ONLY within one epoch
         sb.Append('\n');
-        if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');   // where= accounting: wrong path / no value
-        if (q.UnmatchedNote(spill?.Spill is not null) is { } unmatched) sb.Append(unmatched).Append('\n');
-        if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');             // records Mutagen could not parse
-        if (q.WhereSourceNote is not null) sb.Append(q.WhereSourceNote).Append('\n');   // where_source=winner is redundant under a type=-only scope
-        if (q.ReverseIndexNote is not null) sb.Append(q.ReverseIndexNote).Append('\n');   // the reverse-reference index's build cost and per-plugin freshness key
+        foreach (var owed in q.OwedNotes(spill?.Spill is not null)) sb.Append(owed).Append('\n');
         // Under a plugins= scope the per-match fields are the SCOPED plugin's own values, not the live winner's, said once from the helper the json and dense renders share.
         if (anyScoped) sb.Append("note: ").Append(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, lv)).Append('\n');
 
@@ -311,10 +307,7 @@ static partial class Wire
         if (q.ScopeLabel is not null) sb.Append(" (DEFINED IN ").Append(q.ScopeLabel).Append(')');
         if (q.Stamp is not null) sb.Append(Wire.EpochInline(q.Stamp));
         sb.Append('\n');
-        if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');
-        if (q.UnmatchedNote(spill?.Spill is not null) is { } unmatched) sb.Append(unmatched).Append('\n');
-        if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');
-        if (q.ReverseIndexNote is not null) sb.Append(q.ReverseIndexNote).Append('\n');
+        foreach (var owed in q.OwedNotes(spill?.Spill is not null)) sb.Append(owed).Append('\n');
         string Notice(int r) => "... [truncated: rendered " + r + " of " + groups.Count +
                                 " groups before hitting max_chars=" + cap + "; raise max_chars — the total above is exact]\n";
         string LimitNotice(int r) => "... [" + (groups.Count - r) + " more group(s) — raise limit= to see them; the " +

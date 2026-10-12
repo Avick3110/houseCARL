@@ -528,6 +528,11 @@ public static partial class RecordsTools
             envelope.Add(new("source", statement));
             headerLine += $"  source={statement}";
         }
+        // A consumed scan's owed notes: header lines on text, the notes array on json, as the scan lane renders them.
+        void OweNotes(CrossQueryOutcome scan)
+        {
+            foreach (var n in scan.OwedNotes(wantFile)) { headerLine += "\n" + n; envelope.Add(new("notes", n)); }
+        }
         // A census is a text render too, so it is held to the same ceiling and says so when max_chars is smaller
         // than the statements it carries whatever the budget.
         string Census(string body) => RenderCap.Settle(body, Wire.Cap(max_chars));
@@ -1463,17 +1468,17 @@ public static partial class RecordsTools
                 return e;
             }
 
-            // The reverse-reference index's accounting belongs to the response whatever consumes the scan: the two
-            // CrossQuery renderers read it off the outcome, and every form below carries it on header and envelope
-            // from here. bodyLaneForm is read by both this gate and the lane below, so the two cannot drift.
+            // What the scan owes belongs to the response whatever consumes the scan: the two CrossQuery renderers
+            // read it off the outcome, and every form below carries it from here. bodyLaneForm is read by both this
+            // gate and the lane below, so the two cannot drift.
             bool bodyLaneForm = form == "everything" || form == "rows"
                              || (form == "fields" && foldPlan is not null && !dense)
                              || (form is "fields" or "summary" && (scopePlusPole || srcSpec.ReplaysOverlay));
-            if (outcome.ReverseIndexNote is not null && outcome.Error is null && outcome.Groups is null
+            if (outcome.Error is null && outcome.Groups is null
                 && (walk is not null || comparisonForm || form == "info_order" || (bodyLaneForm && !counts_only)))
             {
-                envelope.Add(new("reverse_index", outcome.ReverseIndexNote));
-                headerLine += "\n" + outcome.ReverseIndexNote;
+                OweNotes(outcome);
+                if (outcome.ReverseIndexNote is not null) envelope.Add(new("reverse_index", outcome.ReverseIndexNote));   // kept beside notes, as before
             }
 
             // ---- walk= on a scan: the scan's matches are the seeds and the walk lane takes it from there,
@@ -1661,13 +1666,7 @@ public static partial class RecordsTools
                 var bodyEpoch = bodyEpochs.FirstOrDefault() ?? outcome.Stamp;
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
-                // What the SCAN owes about its own coverage, carried on both transports here as it is on the scan
-                // lane, since a body form reads the same scan.
-                if (outcome.ScanNote is not null)
-                {
-                    headerLine += "\n" + outcome.ScanNote;
-                    envelope.Add(new("scan_note", outcome.ScanNote));
-                }
+                if (outcome.ScanNote is not null) envelope.Add(new("scan_note", outcome.ScanNote));   // coverage only; the owed notes rode the gate above
                 // Selected by a scan, not a formids list, so the batch notice's selection clause names limit=.
                 var evLevers = formLevers.OnScanSelection();
                 // Selected by the scan, so they carry its multi-target references= un-merge too, one row per key in
@@ -1683,7 +1682,7 @@ public static partial class RecordsTools
                 SpillState? evSpill = null;
                 if (wantFile)
                 {
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), evLevers, matches: evMatches, summary: summaryRows);
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), evLevers, matches: evMatches, summary: summaryRows, scan: outcome);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, bodyEpoch) : "error: " + aerr;
                     evSpill = SpillState.Spilled(s!, manifestOnly: true);
                 }
@@ -1691,7 +1690,7 @@ public static partial class RecordsTools
                 if (evSpill is null && evTrunc)
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, bodyEpoch?.Epoch ?? "none");
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), evLevers, matches: evMatches, summary: summaryRows);
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), evLevers, matches: evMatches, summary: summaryRows, scan: outcome);
                     evRendered = RenderEv(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return evRendered;
@@ -1820,6 +1819,11 @@ public static partial class RecordsTools
                 return e;
             }
 
+            // The file scan's owed notes ride every form that consumes it, as on the in-order lane.
+            if (outcome.Error is null && outcome.Groups is null
+                && (comparisonForm || (form is ("fields" or "rows" or "everything") && !counts_only)))
+                OweNotes(outcome);
+
             // Comparisons over the file's matches: the file IS the subject pole (its version of each match).
             if (comparisonForm && outcome.Error is null && outcome.Groups is null)
             {
@@ -1891,12 +1895,7 @@ public static partial class RecordsTools
                 }
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
-                // Same coverage note the in-order body lane carries, on both transports, for the same reason.
-                if (outcome.ScanNote is not null)
-                {
-                    headerLine += "\n" + outcome.ScanNote;
-                    envelope.Add(new("scan_note", outcome.ScanNote));
-                }
+                if (outcome.ScanNote is not null) envelope.Add(new("scan_note", outcome.ScanNote));   // coverage only, as on the in-order body lane
                 // Selected by the off-order file scan, so the remedy vocabulary matches the body lane above.
                 var offLevers = formLevers.OnScanSelection();
                 // Same rule as the in-order body lane: the file scan's rows carry its references= un-merge too.
@@ -1910,7 +1909,7 @@ public static partial class RecordsTools
                 var offEpoch = bodies.FirstOrDefault(o => o.Stamp is not null)?.Stamp ?? outcome.Stamp;
                 if (wantFile)
                 {
-                    var (sp, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), offLevers, matches: offMatches);
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), offLevers, matches: offMatches, scan: outcome);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, offEpoch) : "error: " + aerr;
                     offSpill = SpillState.Spilled(sp!, manifestOnly: true);
                 }
@@ -1918,7 +1917,7 @@ public static partial class RecordsTools
                 if (offSpill is null && offTrunc)
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, offEpoch?.Epoch ?? "none");
-                    var (sp, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), offLevers, matches: offMatches);
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), offLevers, matches: offMatches, scan: outcome);
                     offRendered = RenderOff(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return offRendered;

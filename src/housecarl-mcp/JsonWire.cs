@@ -65,12 +65,14 @@ static class JsonWire
         WriteNullable(w, "error", error);
     }
 
-    /// <summary>Optional response-envelope pairs written as top-level string fields at the START of a document;
+    /// <summary>Optional response-envelope pairs written as top-level string fields at the START of a document, every "notes" pair one array;
     /// their keys must stay disjoint from every renderer's own — docs/architecture/json-wire.md.</summary>
     static void WriteEnvelope(Utf8JsonWriter w, IReadOnlyList<KeyValuePair<string, string>>? envelope)
     {
         if (envelope is null) return;
-        foreach (var kv in envelope) w.WriteString(kv.Key, kv.Value);
+        foreach (var kv in envelope) if (kv.Key != "notes") w.WriteString(kv.Key, kv.Value);
+        var notes = envelope.Where(kv => kv.Key == "notes").Select(kv => kv.Value).ToList();   // a consumed scan's owed notes, one array
+        if (notes.Count > 0) WriteStringArray(w, "notes", notes);
     }
 
     // ---- housecarl_diff_record ----------------------------------------------------------------------
@@ -1460,14 +1462,10 @@ static class JsonWire
     /// <summary>Accounting notes carried IN the JSON document, so json is never a degraded mode; omitted when none.</summary>
     static void WriteNotes(Utf8JsonWriter w, CrossQueryOutcome q, string? extra = null, SpillState? spill = null)
     {
-        var unmatched = q.UnmatchedNote(spill?.Spill is not null);
-        if (q.PredicateNote is null && unmatched is null && q.ScanNote is null && q.WhereSourceNote is null && q.ReverseIndexNote is null && extra is null) return;
+        var owed = q.OwedNotes(spill?.Spill is not null);
+        if (owed.Count == 0 && extra is null) return;
         w.WriteStartArray("notes");
-        if (q.PredicateNote is not null) w.WriteStringValue(q.PredicateNote);
-        if (unmatched is not null) w.WriteStringValue(unmatched);
-        if (q.ScanNote is not null) w.WriteStringValue(q.ScanNote);
-        if (q.WhereSourceNote is not null) w.WriteStringValue(q.WhereSourceNote);   // where_source=winner redundancy under a type=-only scope
-        if (q.ReverseIndexNote is not null) w.WriteStringValue(q.ReverseIndexNote);   // the reverse-reference index's build cost + per-plugin freshness key
+        foreach (var n in owed) w.WriteStringValue(n);
         if (extra is not null) w.WriteStringValue(extra);   // the scoped-vs-winner fields note
         w.WriteEndArray();
         // The note's names as data, bounded like the note; the note's "and N more" counts any cut.
