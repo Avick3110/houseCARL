@@ -91,6 +91,12 @@ public sealed record CrossQueryOutcome(
     public string? UnmatchedNote(bool inManifest) => Unmatched.Count == 0 ? null
         : FieldPredicateSet.UnmatchedSentence(Unmatched, FieldPredicateSet.UnmatchedShown, UnmatchedGap, inManifest);
 
+    /// <summary>Every note this scan owes whatever renders it, in order: predicate, unmatched, scan coverage, where_source, reverse index. <paramref name="whole"/> names every unmatched member, as a manifest does.</summary>
+    public IReadOnlyList<string> OwedNotes(bool inManifest, bool whole = false) =>
+        new[] { PredicateNote,
+                whole && Unmatched.Count > 0 ? FieldPredicateSet.UnmatchedSentence(Unmatched, Unmatched.Count, UnmatchedGap, true) : UnmatchedNote(inManifest),
+                ScanNote, WhereSourceNote, ReverseIndexNote }.OfType<string>().ToList();
+
 
     /// <summary>The scan's pinned resolver and view, so the render's per-match fills read off the same build the scan matched. Never serialized.</summary>
     internal LoadOrderService.ViewPin? Pin { get; init; }
