@@ -29,47 +29,52 @@ public sealed class RecordsOwedNotesTests : RecordsTestBase
         ["R+"] = (null, null, null, false, "MgefA", "reverse-reference index:"),
     };
 
-    // The lanes: (form, format, to_file manifest, off-order source).
-    static readonly Dictionary<string, (string? Form, string? Format, bool Manifest, bool OffOrder)> Lanes = new()
+    // The lanes: (form, format, to_file manifest, off-order source, forward walk). A reverse walk takes formids= only, so no scan seeds one.
+    static readonly Dictionary<string, (string? Form, string? Format, bool Manifest, bool OffOrder, bool Walk)> Lanes = new()
     {
-        ["summary text"] = (null, null, false, false),
-        ["summary json"] = (null, "json", false, false),
-        ["summary dense"] = (null, "dense", false, false),
-        ["fields text"] = ("fields", null, false, false),
-        ["fields json"] = ("fields", "json", false, false),
-        ["aggregate text"] = ("aggregate", null, false, false),
-        ["aggregate json"] = ("aggregate", "json", false, false),
-        ["summary manifest"] = (null, null, true, false),
-        ["everything text"] = ("everything", null, false, false),
-        ["everything json"] = ("everything", "json", false, false),
-        ["everything manifest"] = ("everything", null, true, false),
-        ["delta text"] = ("delta", null, false, false),
-        ["delta json"] = ("delta", "json", false, false),
-        ["tree text"] = ("tree", null, false, false),
-        ["tree json"] = ("tree", "json", false, false),
-        ["info_order text"] = ("info_order", null, false, false),
-        ["info_order json"] = ("info_order", "json", false, false),
-        ["off-order summary text"] = (null, null, false, true),
-        ["off-order summary manifest"] = (null, null, true, true),
-        ["off-order everything text"] = ("everything", null, false, true),
-        ["off-order everything json"] = ("everything", "json", false, true),
-        ["off-order everything manifest"] = ("everything", null, true, true),
-        ["summary ceiling manifest"] = (null, "json", false, false),
-        ["everything ceiling manifest"] = ("everything", "json", false, false),
-        ["delta manifest"] = ("delta", null, true, false),
-        ["tree manifest"] = ("tree", null, true, false),
-        ["info_order manifest"] = ("info_order", null, true, false),
-        ["chain manifest"] = ("chain", null, true, false),
-        ["delta ceiling manifest"] = ("delta", "json", false, false),
-        ["tree ceiling manifest"] = ("tree", "json", false, false),
-        ["info_order ceiling manifest"] = ("info_order", "json", false, false),
-        ["chain ceiling manifest"] = ("chain", "json", false, false),
+        ["summary text"] = (null, null, false, false, false),
+        ["summary json"] = (null, "json", false, false, false),
+        ["summary dense"] = (null, "dense", false, false, false),
+        ["fields text"] = ("fields", null, false, false, false),
+        ["fields json"] = ("fields", "json", false, false, false),
+        ["aggregate text"] = ("aggregate", null, false, false, false),
+        ["aggregate json"] = ("aggregate", "json", false, false, false),
+        ["summary manifest"] = (null, null, true, false, false),
+        ["everything text"] = ("everything", null, false, false, false),
+        ["everything json"] = ("everything", "json", false, false, false),
+        ["everything manifest"] = ("everything", null, true, false, false),
+        ["delta text"] = ("delta", null, false, false, false),
+        ["delta json"] = ("delta", "json", false, false, false),
+        ["tree text"] = ("tree", null, false, false, false),
+        ["tree json"] = ("tree", "json", false, false, false),
+        ["info_order text"] = ("info_order", null, false, false, false),
+        ["info_order json"] = ("info_order", "json", false, false, false),
+        ["off-order summary text"] = (null, null, false, true, false),
+        ["off-order summary manifest"] = (null, null, true, true, false),
+        ["off-order everything text"] = ("everything", null, false, true, false),
+        ["off-order everything json"] = ("everything", "json", false, true, false),
+        ["off-order everything manifest"] = ("everything", null, true, true, false),
+        ["summary ceiling manifest"] = (null, "json", false, false, false),
+        ["everything ceiling manifest"] = ("everything", "json", false, false, false),
+        ["delta manifest"] = ("delta", null, true, false, false),
+        ["tree manifest"] = ("tree", null, true, false, false),
+        ["info_order manifest"] = ("info_order", null, true, false, false),
+        ["chain manifest"] = ("chain", null, true, false, true),
+        ["delta ceiling manifest"] = ("delta", "json", false, false, false),
+        ["tree ceiling manifest"] = ("tree", "json", false, false, false),
+        ["info_order ceiling manifest"] = ("info_order", "json", false, false, false),
+        ["chain ceiling manifest"] = ("chain", "json", false, false, true),
+        ["walk summary text"] = (null, null, false, false, true),
+        ["walk everything json"] = ("everything", "json", false, false, true),
+        ["walk summary manifest"] = (null, null, true, false, true),
+        ["walk everything manifest"] = ("everything", null, true, false, true),
+        ["walk everything ceiling manifest"] = ("everything", "json", false, false, true),
     };
 
     // An off-order file scan owes only the notes its engine sets: no where_source, no reverse index, and its one weapon cannot make the mixed-type soft note.
     // A ceiling spill needs rows to cut, so it is judged at some matches only. A walk takes no where= or references=, so only a scope's coverage note reaches it.
     static bool Owes(string note, string lane) =>
-        !(lane.StartsWith("chain") && note != "S+") &&
+        !((lane.StartsWith("chain") || lane.StartsWith("walk")) && note != "S+") &&
         !(lane.StartsWith("off-order") && note is "W0" or "W+" or "R0" or "R+" or "P+")
         && !(lane.Contains("ceiling") && note.EndsWith('0'));
 
@@ -101,7 +106,7 @@ public sealed class RecordsOwedNotesTests : RecordsTestBase
                                      references: n.Refs is null ? null : new[] { Fid(n.Refs == "MgefA" ? W.MgefA : W.Package) },
                                      source: l.OffOrder ? Plugin(W.OldName) : null,
                                      versus: l.Form == "delta" ? Plugin(W.MasterName) : null,
-                                     walk: l.Form == "chain" ? new RecordsTools.RecordsWalk { depth = 1 } : null,
+                                     walk: l.Walk ? new RecordsTools.RecordsWalk { depth = 1 } : null,
                                      project: project, format: l.Format, to_file: art,
                                      max_chars: lane.Contains("ceiling") ? 300 : 0);
         if (lane.Contains("ceiling")) art = Je(r).GetProperty("spilled").GetProperty("path").GetString();
@@ -119,17 +124,23 @@ public sealed class RecordsOwedNotesTests : RecordsTestBase
             Assert.Contains(Je(r).GetProperty("notes").EnumerateArray(), e => e.GetString()!.Contains(n.Identity));
     }
 
-    // A body lane's ceiling spill says the manifest names every unmatched member, as the scan lane does, not "to_file= keeps the whole list".
+    // A body or comparison lane's ceiling spill says the manifest names every unmatched member, as the scan lane does, not "to_file= keeps the whole list".
     [Theory]
-    [InlineData(false, null)]
-    [InlineData(false, "json")]
-    [InlineData(true, null)]
-    [InlineData(true, "json")]
-    public void ABodyLaneCeilingSpillPointsAtItsManifest(bool offOrder, string? format)
+    [InlineData(false, null, "everything")]
+    [InlineData(false, "json", "everything")]
+    [InlineData(true, null, "everything")]
+    [InlineData(true, "json", "everything")]
+    [InlineData(false, null, "delta")]
+    [InlineData(false, "json", "delta")]
+    [InlineData(true, null, "delta")]
+    [InlineData(false, null, "tree")]
+    [InlineData(false, "json", "info_order")]
+    public void ACeilingSpillPointsAtItsManifest(bool offOrder, string? format, string form)
     {
-        var names = Enumerable.Range(1, 21).Select(i => $"NoSuchArmor{i:D2}").Prepend("HcRecW1");
+        var names = Enumerable.Range(1, 21).Select(i => $"NoSuchArmor{i:D2}").Prepend("HcRecW1").Prepend("HcRecW0");
         var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, where: new[] { $"editorid in [{string.Join(", ", names)}]" },
-                                     source: offOrder ? Plugin(W.OldName) : null, project: Form("everything"),
+                                     source: offOrder ? Plugin(W.OldName) : null, project: Form(form),
+                                     versus: form == "delta" ? Plugin(W.MasterName) : null,
                                      format: format, max_chars: 300);
 
         Assert.True(r.Contains("spilled"), r);
