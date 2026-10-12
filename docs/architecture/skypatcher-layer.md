@@ -131,7 +131,7 @@ tokens that resolve to nothing, resolved once per line, in the words a read uses
 **On a records scan.** `housecarl_records` with the post-state overlay over a scan replays only the rows its
 `limit=` window keeps. The scan selects off the plugin records, so `types=`, `plugins=`, `where=` and `references=`
 judge each record before the layer replays; when `where=` or `references=` is present the scan's note says so, naming
-them (`scan_note` on json and dense, a header line on text). The
+them (in `notes` on json and dense, a header line on text). The
 window's keys go through `OverlayPostBatch`, the list lane's batch, which opens one replay context for the call; an
 empty window opens none. A `summary` window is bounded by the render bound as the fields form is, and keeps the scan's
 `matches=` un-merge. `aggregate` and `counts_only` are not replayed: they count the plugin records, and the scan's

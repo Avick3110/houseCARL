@@ -95,7 +95,8 @@ public sealed class RecordsScopeMissingPluginTests : RecordsTestBase
                                         project: Form("everything"), limit: 1, format: "json");
 
         var root = System.Text.Json.JsonDocument.Parse(text).RootElement;   // parses, or the lane never rendered json
-        Assert.Contains(Missing, root.GetProperty("scan_note").GetString());
+        Assert.Contains(root.GetProperty("notes").EnumerateArray(), e => e.GetString()!.Contains(Missing));
+        Assert.False(root.TryGetProperty("scan_note", out _), "the note is said once, in notes");
     }
 
     /// <summary>The off-order lane takes the same shape: a scope with one absent name used to fail the whole call
