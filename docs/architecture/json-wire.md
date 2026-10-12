@@ -146,6 +146,12 @@ dedupe, so an envelope key colliding with a renderer's own top-level key (`count
 `truncated`, `total`, …) emits a duplicate-key document. The current set is disjoint; keep it that way when adding
 pairs.
 
+The one exception is `notes`: every `notes` pair is written as one `notes` array after the string pairs. A form that
+consumes a scan (a body read, a comparison, `info_order`, a walk) carries the scan's owed notes that way, the same
+member the scan's own render writes. Every renderer and every artifact manifest reads those notes from one list,
+`CrossQueryOutcome.OwedNotes` (predicate, unmatched, scan coverage, where_source, reverse index), and adds only its
+own; a body lane's `scan_note` and `reverse_index` members stay beside the array.
+
 ### Measuring a unit means writing it
 
 A `Utf8JsonWriter` cannot be asked what something would cost, and it BUFFERS — a length reading must flush first, or it
