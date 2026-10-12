@@ -535,6 +535,13 @@ public static partial class RecordsTools
             foreach (var n in scan.OwedNotes(wantFile)) { headerLine += "\n" + n; envelope.Add(new("notes", n)); }
             if (scan.OwedNotes(true, whole: true) is { Count: > 0 } all) scanNotes = all;
         }
+        // A ceiling spill makes a manifest after the notes were said, so the unmatched note points at it, as the scan lane's does.
+        void OwedOnSpill(CrossQueryOutcome scan)
+        {
+            if (scan.UnmatchedNote(false) is not { } was || scan.UnmatchedNote(true) is not { } now || was == now) return;
+            headerLine = headerLine.Replace(was, now);
+            if (envelope.FindIndex(kv => kv.Key == "notes" && kv.Value == was) is var i and >= 0) envelope[i] = new("notes", now);
+        }
         // A census is a text render too, so it is held to the same ceiling and says so when max_chars is smaller
         // than the statements it carries whatever the budget.
         string Census(string body) => RenderCap.Settle(body, Wire.Cap(max_chars));
@@ -1693,6 +1700,7 @@ public static partial class RecordsTools
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, bodyEpoch?.Epoch ?? "none");
                     var (s, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), evLevers, matches: evMatches, summary: summaryRows, scan: outcome);
+                    if (aerr is null) OwedOnSpill(outcome);
                     evRendered = RenderEv(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return evRendered;
@@ -1920,6 +1928,7 @@ public static partial class RecordsTools
                 {
                     using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, offEpoch?.Epoch ?? "none");
                     var (sp, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), offLevers, matches: offMatches, scan: outcome);
+                    if (aerr is null) OwedOnSpill(outcome);
                     offRendered = RenderOff(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return offRendered;

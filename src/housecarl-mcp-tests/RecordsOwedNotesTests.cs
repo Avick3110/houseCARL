@@ -118,4 +118,22 @@ public sealed class RecordsOwedNotesTests : RecordsTestBase
         else
             Assert.Contains(Je(r).GetProperty("notes").EnumerateArray(), e => e.GetString()!.Contains(n.Identity));
     }
+
+    // A body lane's ceiling spill says the manifest names every unmatched member, as the scan lane does, not "to_file= keeps the whole list".
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(false, "json")]
+    [InlineData(true, null)]
+    [InlineData(true, "json")]
+    public void ABodyLaneCeilingSpillPointsAtItsManifest(bool offOrder, string? format)
+    {
+        var names = Enumerable.Range(1, 21).Select(i => $"NoSuchArmor{i:D2}").Prepend("HcRecW1");
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, where: new[] { $"editorid in [{string.Join(", ", names)}]" },
+                                     source: offOrder ? Plugin(W.OldName) : null, project: Form("everything"),
+                                     format: format, max_chars: 300);
+
+        Assert.True(r.Contains("spilled"), r);
+        Assert.Contains("notes name them all", r);   // json escapes the apostrophe
+        Assert.DoesNotContain("keeps the whole list", r);
+    }
 }
