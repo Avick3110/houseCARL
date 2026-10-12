@@ -528,13 +528,11 @@ public static partial class RecordsTools
             envelope.Add(new("source", statement));
             headerLine += $"  source={statement}";
         }
-        // A consumed scan's owed notes, said when the header and envelope are written, so the unmatched note
-        // points at the manifest the response wrote, as the scan lane's does.
+        // A consumed scan's owed notes, appended after the header's own lines when the header is written.
         CrossQueryOutcome? owed = null;
-        int owedAt = 0;   // where in the header the notes go
-        void OweNotes(CrossQueryOutcome scan) { owed = scan; owedAt = headerLine.Length; }
+        void OweNotes(CrossQueryOutcome scan) => owed = scan;
         string Head(SpillState? sp) => owed is null ? headerLine
-            : headerLine.Insert(owedAt, string.Concat(owed.OwedNotes(sp?.Spill is not null).Select(n => "\n" + n)));
+            : headerLine + string.Concat(owed.OwedNotes(sp?.Spill is not null).Select(n => "\n" + n));
         List<KeyValuePair<string, string>> Env(SpillState? sp) => owed is null ? envelope
             : envelope.Concat(owed.OwedNotes(sp?.Spill is not null).Select(n => new KeyValuePair<string, string>("notes", n))).ToList();
         // A census is a text render too, so it is held to the same ceiling and says so when max_chars is smaller

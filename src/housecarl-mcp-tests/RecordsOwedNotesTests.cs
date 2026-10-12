@@ -124,6 +124,19 @@ public sealed class RecordsOwedNotesTests : RecordsTestBase
             Assert.Contains(Je(r).GetProperty("notes").EnumerateArray(), e => e.GetString()!.Contains(n.Identity));
     }
 
+    // A body lane's header gives its match-count line first, then the owed notes, as the scan lane does.
+    [Fact]
+    public void ABodyLaneCountsBeforeItsNotes()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, where: new[] { "editorid in [NoSuchArmorXyz, HcRecW0]" },
+                                     project: Form("everything"));
+
+        int count = r.IndexOf("match(es); bodies for the", StringComparison.Ordinal);
+        int note = r.IndexOf("have no record in this selection: NoSuchArmorXyz", StringComparison.Ordinal);
+        Assert.True(count >= 0 && note >= 0, First(r));
+        Assert.True(count < note, "the owed note precedes the match-count line: " + r[..Math.Min(r.Length, 600)]);
+    }
+
     // A body or comparison lane's ceiling spill says the manifest names every unmatched member, as the scan lane does, not "to_file= keeps the whole list".
     [Theory]
     [InlineData(false, null, "everything")]
