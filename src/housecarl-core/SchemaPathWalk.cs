@@ -119,14 +119,18 @@ public sealed class SchemaPathWalk
                     next.Add(new Pos(null, new Leaf(arm, false, null, g)));
                 else fails.Add((4, $"'{name}' is gendered, indexed by [0] (male) or [1] (female); got '{key}'"));
             }
+            else if (RawBytes(f) && int.TryParse(key, out _)) next.Add(new Pos(null, default));   // the read walk indexes a byte slice
             else fails.Add((3, $"'{name}[{key}]' brackets a step that is not a list — it is {What(f)} on {owner.Name}"));
         }
     }
 
     /// <summary>What a field is, for a sentence about a step that wanted a list.</summary>
     static string What(FieldSchema f) =>
-        f.Cardinality == "value" && (f.Type.Contains("Slice", StringComparison.Ordinal) || f.Type.Contains("Byte[]", StringComparison.Ordinal)) ? "a raw block of bytes"
+        RawBytes(f) ? "a raw block of bytes"
         : f.Cardinality == "dict" ? "a dict of keyed entries" : $"a single {RecordNaming.StripGetterInterface(f.TypeRef ?? f.Type)} value, a {f.Cardinality}";
+
+    static bool RawBytes(FieldSchema f) =>
+        f.Cardinality == "value" && (f.Type is "bytes" || f.Type.Contains("Slice", StringComparison.Ordinal) || f.Type.Contains("Byte[]", StringComparison.Ordinal));
 
     /// <summary>A step below a CLR value type, judged by reflection; an untyped or raw value is can't-tell.</summary>
     static void ClrStep(Type t, string name, string? key, PathFold fold, List<Pos> next, List<(int, string)> fails, string? miss)
@@ -154,7 +158,7 @@ public sealed class SchemaPathWalk
         return f.Cardinality switch
         {
             "substruct" or "polymorphic" when f.TypeRef is { } tr && _book.Type(tr) is { } t => new Pos(t, default),
-            "value" => new Pos(null, ClrLeaf(WriteEngine.ResolveType(f.GetterTypeAssemblyQualified))),
+            "value" or "scalar" or "enum" when f.FormLinkTarget is null => new Pos(null, ClrLeaf(WriteEngine.ResolveType(f.GetterTypeAssemblyQualified))),
             _ => new Pos(null, leaf),
         };
     }
