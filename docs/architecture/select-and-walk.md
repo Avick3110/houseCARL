@@ -29,15 +29,29 @@ path walk, and containment comes off Mutagen's context walk.
   list splits with the flags decode's `|` as a separator too (`[Body, Hands]` = `Body, Hands` =
   `Body | Hands`), and the decode's `slotNN` (biped) or `bitN` token for an unnamed bit; `=` and `!=`
   on a flags leaf resolve the same spellings, once per operand and enum. On a list or dict path the
-  has-family refuses the call, from the schema on a typed scan and at the first list read otherwise:
+  has-family refuses the call from the schema, before any record is read:
   a form-link list with form operands gets the list members' own spelling (`Keywords[*none] in [X]`),
   other form links a `->` step (`Keywords->editorid = X`), a dict one entry, any other list the
   scalar sub-path advice (`Factions[*any].<field> has 1`); the display's spaced `slot 32` is refused naming `slot32`; `exists` and `missing` take no
   operand; `in` and `not in` take a list. A leading `not` negates a string operator only.
 - On an enum leaf the schema names, a `=`, `!=`, `in` or `not in` literal that is neither a whole number (compared to
   the enum's underlying value) nor one of that enum's names (a comma list only on a `[Flags]` enum) refuses the call at
-  plan time with a "did you mean", when every `types=` type carrying the field rejects it; an untyped scan and a `->`
-  term's right side are not checked.
+  plan time with a "did you mean", when every enum the path can end on rejects it; a `->` right side is checked over
+  the target types that carry the field.
+- Whether a path names a field is decided from the generated schema before any record is read (#1160),
+  by `SchemaPathWalk`: one walk over each side of a term that carries the SET of types a step can be on —
+  struct fields, list elements, dict values, every arm of a union, `.Male`/`.Female` and `[0]`/`[1]` on a
+  gendered field, the records that can contain the type for `*parent`, and for `->` the link's declared
+  targets (an aspect interface by `IsAssignableFrom`, an any-record link or a struct left side as all
+  record types). A step below a `value` field is judged by reflection on its CLR type; `Object` and raw
+  bytes are can't-tell and pass. A path that names no field on any type it can be on, a quantifier on a
+  step that is not a list, a bracket key a list can never take, a dotted step through a list, or a value
+  operator on a list or dict leaf refuses the call, with the case slip or nearest name. With several
+  `types=`, a type that lacks the path gets one fixed note (`'ArmorRating' is not a field of Weapon; no
+  Weapon can match`) and is not scanned; the call refuses only when no listed type has the path. With
+  no `types=` the walk runs over every record type, refusing a path on none, and each record class is
+  judged the first time the scan meets it, with the same note. The schema and the read walk carry the
+  same members by construction: `SchemaWalkAgreementTests` holds them to it.
 - `editorid` reads the record's EditorID off the early EDID subrecord, never a reflection walk, so it
   answers on a record whose deep body Mutagen cannot parse. `winner` is the PROVENANCE term — which
   plugin wins the record, not its content — evaluated through the scan's bound resolution, so naming
@@ -48,8 +62,8 @@ path walk, and containment comes off Mutagen's context walk.
   ARTIFACT its identity column IS the list and carries an epoch obligation the consuming scan checks
   against its own captured build, refusing loud on a mismatch and naming both epochs.
 - A predicate never returns a silently wrong answer: every candidate that produced no value is
-  accounted per cause (no such field, list hop, non-list quantified step, no containing record,
-  container, read fault, unresolved link target, genuinely unset), and a numeric operator on a
+  accounted per data cause (no containing record, container, read fault, unresolved link target,
+  genuinely unset, where a field an arm or a link target does not carry counts as unset), and a numeric operator on a
   non-numeric field is a named `FatalError` on the first value-bearing candidate. A step into an
   element the record does not carry (a null gendered arm such as a male-only addon's `WorldModel[1]`,
   an absent list, dict key, or an index past the end) is unset, never a read fault (#1071). A read
@@ -57,9 +71,7 @@ path walk, and containment comes off Mutagen's context walk.
   missing value.
 - A bracket key a list can never take (a word such as `Conditions[any]`, a negative index, a `*` key
   on an indexing walk, a gendered index other than 0 or 1) is a wrong path, never a read fault
-  (`PathKeyShapeException`). A typed scan refuses it from the schema before any record is read when
-  every scanned type calls that step a list; otherwise it is counted per predicate and refuses only
-  when it was wrong on every scanned record, so a type where the key fits keeps the scan. Only the
+  (`PathKeyShapeException`). A scan refuses it from the schema before any record is read. Only the
   `where=` refusal adds the star hint (`Conditions[*any]`); other read lanes print the plain note.
 - The value operators take scalar-leaf paths only. `exists`/`missing` are the exception that matches
   a carried substruct or non-empty list; `in`/`not in` on `formid` test identity and read no body.
@@ -132,8 +144,10 @@ path walk, and containment comes off Mutagen's context walk.
   INFO answers `exists` and only a plain one answers `missing`.
 - `RecordsContainmentTests.ADeletedPlacedReferenceIsStillFilteredByTheCellThatHoldsIt` — the
   header-only-set-still-sees-deleted-records bullet, with a body-reading predicate dropping it beside.
-- `ValuePredicateTests.Ge_OnAPathWrongForMoreThanHalfAMixedScanGetsTheSoftNote_NotTheLoudOne` — the loud-versus-soft accounting bullet:
-  a path wrong for more than half a mixed scan gets "had no value on", not the loud line.
+- `ValuePredicateTests.Ge_OnAPathWrongForMoreThanHalfAMixedScanGetsTheSoftNote_NotTheLoudOne` — a type lacking the path
+  gets the fixed plan note and is not scanned.
+- `SchemaFirstPathTests` — the #1160 bullet: the real-use wrong paths refused at plan time, the real ones planned clean,
+  the per-type note with several `types=` and at first sight without; `SchemaWalkAgreementTests` the schema and the walk.
 - `RecordsArtifactTests` — `formid in @<artifact>` re-entry, its epoch check, and
   `APlainAtFileListStillEntersWithNoManifestAndNoEpochClaim` for the plain list file beside it.
 - `WhereContainmentTests` / `RecordsContainmentTests` — the `*parent` step and its no-verdict rollups.
@@ -144,7 +158,7 @@ path walk, and containment comes off Mutagen's context walk.
   the real scan, set lane, projection and walk no lone seek and only typed walks (`CostCounters.TypedSeeks`,
   `TypedCollectPasses`); rows dropped before `where=` gather nothing; a chunk crossing a plugin
   boundary; a projection hop walks only the rows it reads and does not reopen a faulted winner.
-- `LinkStepVerdictTests` — the `->` step judges each target once, holds no target body, and a remembered verdict names its own field (#1158).
+- `LinkStepVerdictTests` — the `->` step judges each target once and holds no target body (#1158); a wrong side is the plan's refusal.
 - `WhereAccountingCauseTests` — the per-cause accounting sentences.
 - `RecordsUnmatchedMembersTests` — the unmatched-members bullet: text, json, `@file`, the cap, the manifest,
   a member only a lower scoped copy carries, a FormID named as typed; `UnmatchedMembersJudgementTests`,
@@ -161,6 +175,7 @@ path walk, and containment comes off Mutagen's context walk.
 
 ## Where
 
-`src/housecarl-core/FieldPredicate.cs` (the `where=` grammar and its accounting),
+`src/housecarl-core/FieldPredicate.cs` (the `where=` grammar, its plan and its accounting),
+`SchemaPathWalk.cs` (the schema walk over a path),
 `ContainmentIndex.cs` (the child-to-parent map and the `*parent` grammar).
 Entry points: `housecarl_records` (`where=`).
