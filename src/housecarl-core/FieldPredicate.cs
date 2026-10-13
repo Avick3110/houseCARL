@@ -37,6 +37,7 @@ public sealed class FieldPredicateSet
     readonly long[] _unreadable;  // per-predicate SUBSET of _noValue: the path READ FAULTED (Mutagen-unparseable content) — a fault, NOT an unset value
     readonly long[] _unresolved;  // per-predicate SUBSET of _noValue: a '->' step's links are PRESENT but no target resolves (disabled plugin / missing master) — not an unset field
     readonly long[] _noParent;    // per-predicate SUBSET of _noValue: a '*parent' step found no containing record
+    readonly long[] _noField;     // per-predicate SUBSET of _noValue: the plan passed the path, but the read walk found no such member on the record
     readonly string?[] _noParentWhat;  // the record type it found none for, for the sentence
     readonly bool[]?[] _eidHits;   // per-predicate: which 'editorid in' members (by EidIndex position) matched
     readonly HashSet<FormKey>?[] _fkHits;   // per-predicate: the FormIDs a 'formid in' list matched
@@ -113,7 +114,7 @@ public sealed class FieldPredicateSet
         if (_fetchParents is null || _parentOf is null || !NeedsContainment) return;
         var want = new HashSet<FormKey>();
         foreach (var child in chunk)
-            for (int k = 0; k < _predicates.Count; k++)
+            for (int k = 0; k < _predicates.Count && (_walk is null || CanMatch(child.GetType())); k++)
             {
                 var p = _predicates[k];
                 // The candidate's own side only: a hop on a link TARGET is read when that target is reached.
@@ -146,6 +147,7 @@ public sealed class FieldPredicateSet
         _unreadable = new long[predicates.Count];
         _unresolved = new long[predicates.Count];
         _noParent = new long[predicates.Count];
+        _noField = new long[predicates.Count];
         _noParentWhat = new string?[predicates.Count];
         _eidHits = new bool[]?[predicates.Count];
         _fkHits = new HashSet<FormKey>?[predicates.Count];
@@ -204,9 +206,6 @@ public sealed class FieldPredicateSet
 
     /// <summary>Set once when a numeric operator meets a non-numeric field value; null while the predicate is well-typed.</summary>
     public string? FatalError => _fatal;
-
-    /// <summary>The error that stops a scan part way; a bad key on every record is judged only once the scan is done.</summary>
-    public string? AbortError => _fatal;
 
     /// <summary>The where= hint for a word key that names a quantifier: the starred step it meant.</summary>
     public static string StarHint(string name, string key) =>
@@ -662,6 +661,7 @@ public sealed class FieldPredicateSet
                 case EvalKind.Unreadable: _unreadable[k]++; _noValue[k]++; all = false; break;
                 // The links are there; their targets are not in this order — its own counter, its own remedy.
                 case EvalKind.UnresolvedTarget: _unresolved[k]++; _noValue[k]++; all = false; break;
+                case EvalKind.NoField: _noField[k]++; _noValue[k]++; all = false; break;
                 default: _noValue[k]++; all = false; break;   // Unset — a valid, value-less path
             }
         }
@@ -669,7 +669,7 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>How one predicate's evaluation on one record resolved: a definite verdict, or one of the no-verdict classes the accounting keys on.</summary>
-    enum EvalKind { Definite, NoParent, Container, Unreadable, UnresolvedTarget, Unset }
+    enum EvalKind { Definite, NoParent, Container, Unreadable, UnresolvedTarget, NoField, Unset }
 
     /// <summary>The type of the record the most recent <c>*parent</c> hop found no containing record for.</summary>
     string? _lastNoParent;
@@ -782,7 +782,7 @@ public sealed class FieldPredicateSet
             return (null, null, ClassifyMiss(note ?? ""));
         }
         // Below a value the schema could not judge, a step that is not a list is not carried here.
-        if (NotListShape(declared, val) is not null) return (null, null, EvalKind.Unset);
+        if (NotListShape(declared, val) is not null) return (null, null, EvalKind.NoField);
         return (val, parent, null);
     }
 
@@ -845,12 +845,15 @@ public sealed class FieldPredicateSet
         EvalKind.NoParent => 4,
         EvalKind.Container => 3,
         EvalKind.UnresolvedTarget => 2,
+        EvalKind.NoField => 2,
         _ => 1,   // Unset
     };
 
-    /// <summary>Classify a navigation miss; past a plan the schema passed, a field this record or arm does not carry is unset.</summary>
+    /// <summary>Classify a navigation miss: a read fault, a member the read walk did not find, or unset.</summary>
     static EvalKind ClassifyMiss(string note) =>
-        note.StartsWith("(unreadable", StringComparison.Ordinal) ? EvalKind.Unreadable : EvalKind.Unset;
+        note.StartsWith("(unreadable", StringComparison.Ordinal) ? EvalKind.Unreadable
+        : note.StartsWith("(no field", StringComparison.Ordinal) || note.StartsWith("(no links", StringComparison.Ordinal) ? EvalKind.NoField
+        : EvalKind.Unset;
 
     /// <summary>Decide one predicate against one leaf read — the shared tail of the plain path, a quantified step's element, and a <c>[*count]</c>.</summary>
     (bool Satisfied, EvalKind Kind) DecideLeaf(Predicate p, ReadEngine.LeafRead leaf)
@@ -862,7 +865,7 @@ public sealed class FieldPredicateSet
             {
                 case Presence.Present: return (p.Op == Op.Exists, EvalKind.Definite);
                 case Presence.Absent: return (p.Op == Op.Missing, EvalKind.Definite);
-                case Presence.NoField: return (false, EvalKind.Unset);   // not carried by this record or arm
+                case Presence.NoField: return (false, EvalKind.NoField);   // not carried by this record or arm
                 default: return (false, EvalKind.Unreadable);
             }
         }
@@ -883,7 +886,7 @@ public sealed class FieldPredicateSet
                 }
                 return (false, EvalKind.Container);
             }
-            return (false, EvalKind.Unset);
+            return (false, ClassifyMiss(note));
         }
 
         // Generalized membership on a leaf path: the leaf's token against the member list, '='-vocabulary equality per entry.
@@ -1003,8 +1006,8 @@ public sealed class FieldPredicateSet
         var (links, note) = collected;
         if (links is null)
         {
-            // A read fault, or no links to follow on this record.
-            return (false, (note ?? "").StartsWith("(unreadable", StringComparison.Ordinal) ? EvalKind.Unreadable : EvalKind.Unset);
+            // A read fault, a member the read walk did not find, or no links to follow on this record.
+            return (false, ClassifyMiss(note ?? ""));
         }
         if (links.Count == 0) return (false, EvalKind.Unset);   // present but empty — genuinely nothing linked
 
@@ -1298,8 +1301,9 @@ public sealed class FieldPredicateSet
                 if (leaves.All(SchemaPathWalk.BearsNoLink))
                     return $"predicate '{p.Text}': '{p.LinkPathDisplay}' holds no link, so '->' has no record to step to — name a link field on the left.";
                 var targets = walk.LinkTargets(leaves);
-                if (p.Pseudo != PseudoPath.None && p.ParentHops == 0) continue;
-                var right = walk.Walk(targets, p.ParentHops, p.PathSegments, p.PathFolds,
+                // A pseudo right side (editorid, formid, winner) walks its containment hops only, as the own side does.
+                bool pseudo = p.Pseudo != PseudoPath.None;
+                var right = walk.Walk(targets, p.ParentHops, pseudo ? Array.Empty<string>() : p.PathSegments, pseudo ? null : p.PathFolds,
                     targets.Count == 1 ? $"of {targets[0].Name}, the record type '{p.LinkPathDisplay}' links to" : $"on any record type '{p.LinkPathDisplay}' can link to");
                 if (right.Failure is { } rwhy) return Refuse(p, rwhy);
                 leaves = right.Leaves;
@@ -1400,6 +1404,10 @@ public sealed class FieldPredicateSet
             if (_lacking[k] is { } lack && !_carried[k])
                 notes.Add($"predicate '{_predicates[k].Text}': '{_predicates[k].FullPath}' names no field on any record type in scope ({string.Join(", ", lack.Take(3))}" +
                           $"{(lack.Count > 3 ? $", and {lack.Count - 3} more" : "")}), so no record here can match. 0 matches on that basis is NOT a confirmed 'nothing matches'.");
+        // Each predicate is carried somewhere, but no type met carries them all, so nothing was scanned.
+        if (!_typed && _scanned == 0 && notes.Count == 0 && _classVerdicts.ContainsValue(false))
+            notes.Add($"no record type in scope carries all of the predicates ({string.Join(", ", _predicates.Select(p => $"'{p.Text}'"))}), so no record here can match. " +
+                      "0 matches on that basis is NOT a confirmed 'nothing matches'.");
         for (int k = 0; k < _predicates.Count && _scanned > 0; k++)
         {
             var path = _predicates[k].FullPath;
@@ -1422,6 +1430,9 @@ public sealed class FieldPredicateSet
                              $"targets are in this load order (a disabled plugin, or a master that isn't installed), so there was nothing to read " +
                              $"on the other side. Check the plugin holding the target records is enabled and its masters are present; widening the " +
                              $"scope will not help.";
+                else if (_noField[k] == _scanned)
+                    reason = $"predicate field '{path}' was not found on any of {_scanned:N0} scanned record(s) — the read found no such member on " +
+                             $"these records, so the filter could NOT judge them; this is not an unset value.";
                 else if (UnsetCount(k) == _scanned)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — the field IS VALID; it is simply UNSET " +
                              $"(absent/null) on every one, so the path reads fine and there are just no values in this scope. Widen the scope, or " +
@@ -1454,11 +1465,12 @@ public sealed class FieldPredicateSet
         if (_container[k] > 0) parts.Add($"a container/list, not a scalar ({_container[k]:N0})");
         if (_unreadable[k] > 0) parts.Add($"a read fault — Mutagen could not parse the field ({_unreadable[k]:N0})");
         if (_unresolved[k] > 0) parts.Add($"the link is set but its target is not in this load order ({_unresolved[k]:N0})");
+        if (_noField[k] > 0) parts.Add($"not found on the record ({_noField[k]:N0})");
         return parts.Count == 0 ? "no value" : string.Join(", ", parts);
     }
 
     /// <summary>The genuinely-unset remainder: the no-value candidates none of the named causes accounts for.</summary>
-    long UnsetCount(int k) => _noValue[k] - _noParent[k] - _container[k] - _unreadable[k] - _unresolved[k];
+    long UnsetCount(int k) => _noValue[k] - _noParent[k] - _container[k] - _unreadable[k] - _unresolved[k] - _noField[k];
 
     /// <summary>How an operator is spelled back to the caller, with its leading <c>not</c> when it carries one.</summary>
     static string OpStr(Op op, bool negate) => negate ? "not " + OpStr(op) : OpStr(op);
