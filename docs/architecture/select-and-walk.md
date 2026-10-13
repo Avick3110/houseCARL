@@ -43,15 +43,18 @@ path walk, and containment comes off Mutagen's context walk.
   struct fields, list elements, dict values, every arm of a union, `.Male`/`.Female` and `[0]`/`[1]` on a
   gendered field, the records that can contain the type for `*parent`, and for `->` the link's declared
   targets (an aspect interface by `IsAssignableFrom`, an any-record link or a struct left side as all
-  record types). A step below a `value` field, or below a link (`Race.FormKey`, `Items[*any].IsNull`),
-  is judged by reflection on its CLR type; `Object` and raw bytes are can't-tell and pass. A path that names no field on any type it can be on, a quantifier on a
+  record types). A step below a `value`, scalar or enum field (`EditorID.Length`), or below a link
+  (`Race.FormKey`, `Items[*any].IsNull`), is judged by reflection on its CLR type; `Object` and raw
+  bytes are can't-tell and pass, and so is an integer key on raw bytes (`Unknown2[0]`). A path that names no field on any type it can be on, a quantifier on a
   step that is not a list, a bracket key a list can never take, a dotted step through a list, or a value
   operator on a list or dict leaf refuses the call, with the case slip or nearest name. With several
   `types=`, a type that lacks the path gets one fixed note (`'ArmorRating' is not a field of Weapon; no
   Weapon can match`) and is not scanned; the call refuses only when no listed type has the path. With
   no `types=` the walk runs over every record type, refusing a path on none, and each record class is
   judged the first time the scan meets it: a class lacking the path is skipped with no note of its own,
-  and one sentence says so only when no class the scan met carries the path. The schema and the read
+  and one sentence says so only when no class the scan met carries the path, or, for several
+  predicates, when no class met carries all of them. A pseudo right side of `->` (`editorid`,
+  `formid`) walks only its `*parent` hops. The schema and the read
   walk carry the same members, bar a named list of class-only drops: `SchemaWalkAgreementTests` holds
   them to it.
 - `editorid` reads the record's EditorID off the early EDID subrecord, never a reflection walk, so it
@@ -64,8 +67,8 @@ path walk, and containment comes off Mutagen's context walk.
   ARTIFACT its identity column IS the list and carries an epoch obligation the consuming scan checks
   against its own captured build, refusing loud on a mismatch and naming both epochs.
 - A predicate never returns a silently wrong answer: every candidate that produced no value is
-  accounted per data cause (no containing record, container, read fault, unresolved link target,
-  genuinely unset, where a field an arm or a link target does not carry counts as unset), and a numeric operator on a
+  accounted per cause (no containing record, container, read fault, unresolved link target, a member
+  the plan passed but the read walk did not find on the record, genuinely unset), and a numeric operator on a
   non-numeric field is a named `FatalError` on the first value-bearing candidate. A step into an
   element the record does not carry (a null gendered arm such as a male-only addon's `WorldModel[1]`,
   an absent list, dict key, or an index past the end) is unset, never a read fault (#1071). A read
