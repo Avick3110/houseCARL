@@ -126,7 +126,7 @@ public sealed class WhereListKeyShapeFoldTests
     }
 
     [Fact]
-    public void ABadKeyOnOneTypeDoesNotRefuseTheScanOfAnother()
+    public void ABadKeyNoListedTypeCanTakeRefusesThePlan()
     {
         // No listed type can take the path, so the plan refuses with the bad key's sentence.
         Assert.Contains("List 'Conditions' must be indexed by a non-negative integer; got 'any'.", SchemaPlan.Of("Conditions[any].CompareOperator = EqualTo", "MGEF", "ARMO"));
