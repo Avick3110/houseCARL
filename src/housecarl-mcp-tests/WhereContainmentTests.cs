@@ -160,8 +160,8 @@ public sealed class WhereContainmentTests
             Assert.Null(err);
             return set!;
         }
-        Assert.True(Assert.Single(Set("Responses[*any].Text = hi").QuantifiedSteps).OnScannedType);
-        Assert.False(Assert.Single(Set("*parent.Responses[*any].Text = hi").QuantifiedSteps).OnScannedType);
-        Assert.False(Assert.Single(Set("*parent.Keywords[*any]->editorid = X").QuantifiedSteps).OnScannedType);
+        var info = TestCorpus.Rulebook.RecordTypesNamed("INFO");
+        Assert.Null(Set("Responses[*any].Text = hi").Plan(TestCorpus.Rulebook.PathWalk, info));
+        Assert.Contains("'Responses' is not a field", Set("*parent.Responses[*any].Text = hi").Plan(TestCorpus.Rulebook.PathWalk, info));
     }
 }
