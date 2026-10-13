@@ -750,15 +750,22 @@ public static class CorpusGenerator
     internal static string? DroppedMember(Type getterIfc, Type runtime, PropertyInfo p)
     {
         if (IsInfrastructureProperty(p)) return "infrastructure";
-        // A member only classes or plumbing declare is class state, not data a getter exposes.
-        if (!runtime.IsInterface && WriteEngine.WalkMembers(runtime).Where(m => m.Name == p.Name)
-                .All(m => !m.DeclaringType!.IsInterface || IsInfrastructureProperty(m)))
+        if (!runtime.IsInterface && ClassStateDrops.Contains((RecordNaming.StripGetterInterface(getterIfc.Name), p.Name)))
             return "class state";
         if (!runtime.IsInterface && !IsOverlayTwin(runtime) && OverlayClassFor(runtime) is { } ov
             && WriteEngine.ResolveProperty(ov, p.Name) is null)
             return "a class member reads never meet: the overlay lacks it";
         return null;
     }
+
+    /// <summary>Class-only members the walk can read but the schema leaves out: overlay parse state and binary plumbing, named one by one.</summary>
+    static readonly HashSet<(string Type, string Member)> ClassStateDrops = new()
+    {
+        ("Armor", "BodyTemplate_IsSet"), ("ArmorAddon", "BodyTemplate_IsSet"), ("Race", "BodyTemplate_IsSet"), ("Race", "ExportingExtraNam3"),
+        ("GlobalFloat", "RawFloat"), ("GlobalInt", "RawFloat"), ("GlobalShort", "RawFloat"), ("GlobalUnknown", "RawFloat"),
+        ("Lod", "Level0Extra"), ("Lod", "Level1Extra"), ("Lod", "Level2Extra"), ("Lod", "Level3Extra"),
+        ("NavigationMapInfo", "ParentCell"), ("NavigationMapInfo", "ParentWorldspaceCoord"),
+    };
 
     /// <summary>Fields emitted from a type's concrete class rather than its getter interface, read-only by construction.</summary>
     static readonly HashSet<(string Type, string Field)> ClassOnlyFields = new();
