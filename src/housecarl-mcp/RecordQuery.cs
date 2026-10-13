@@ -280,7 +280,7 @@ internal sealed partial class RecordReads
                                 if (!keep) continue;
                                 if (predicate is not null && !predicate.Matches(body))
                                 {
-                                    if (predicate.AbortError is not null) { go = false; break; }
+                                    if (predicate.FatalError is not null) { go = false; break; }
                                     continue;
                                 }
                                 total++;
@@ -458,7 +458,7 @@ internal sealed partial class RecordReads
                         NoteLenient(fk, lenientNote);
                         if (predicate is not null && !predicate.Matches(filterBody))    // value filter on the same in-hand body, no extra fetch
                         {
-                            if (predicate.AbortError is not null) return false;   // e.g. a numeric op against a non-numeric field — abort and surface it
+                            if (predicate.FatalError is not null) return false;   // e.g. a numeric op against a non-numeric field — abort and surface it
                             return true;
                         }
                         total++;
@@ -788,7 +788,7 @@ internal sealed partial class RecordReads
                     if (!keep) continue;
                     if (predicate is not null && !predicate.Matches(rec))
                     {
-                        if (predicate.AbortError is not null) break;
+                        if (predicate.FatalError is not null) break;
                         continue;
                     }
                     total++;
