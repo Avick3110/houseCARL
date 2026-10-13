@@ -158,7 +158,7 @@ internal sealed partial class RecordReads
         try { types = _host.Types.ResolveSet(hasType ? typeSet : null); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
-        if (predicate is not null && hasType && SchemaPlanRefusal(typeSet!, predicate) is { } qerr)
+        if (predicate is not null && SchemaPlanRefusal(hasType ? typeSet : null, predicate) is { } qerr)
             return CrossQueryOutcome.Fail(qerr) with { Stamp = view.Stamp };
 
         var keys = new List<FormKey>();
@@ -575,90 +575,14 @@ internal sealed partial class RecordReads
         return parts.Count == 0 ? null : string.Join(" and ", parts);
     }
 
-    /// <summary>The schema's plan-time refusal: a quantifier on a step that is not a list, or an enum literal the field's enum lacks.</summary>
-    string? SchemaPlanRefusal(IReadOnlyList<string> typeTokens, FieldPredicateSet predicate)
+    /// <summary>The schema's plan for the where= set over the scan's types, or over every record type without types=; null when the scan may run.</summary>
+    string? SchemaPlanRefusal(IReadOnlyList<string>? typeTokens, FieldPredicateSet predicate)
     {
-        var schemas = new List<TypeSchema>();
-        foreach (var token in typeTokens)
+        var roots = new List<TypeSchema>();
+        foreach (var token in typeTokens ?? Array.Empty<string>())
             foreach (var ts in _host.Rulebook.RecordTypesNamed(token))
-                if (!schemas.Contains(ts)) schemas.Add(ts);
-        if (schemas.Count == 0) return null;
-
-        // A bracket key a list can never take, on a step every scanned type's schema calls a list: refused before any data.
-        foreach (var step in predicate.BadListKeys)
-        {
-            if (!step.OnScannedType) continue;
-            if (schemas.All(ts => _host.Rulebook.StepCardinality(ts, step.Path, step.Index) == "list"))
-                return $"predicate '{step.Text}': {WriteEngine.ListKeyShapeError(step.Name, step.Key, out _)}{FieldPredicateSet.StarHint(step.Name, step.Key)}";
-        }
-
-        foreach (var step in predicate.QuantifiedSteps)
-        {
-            // A '->' right side is rooted at the link TARGET's type, so the scanned type's schema has no say.
-            if (!step.OnScannedType) continue;
-            var whatItIs = new List<string>();
-            bool unanswered = false;
-            foreach (var ts in schemas)
-            {
-                var card = _host.Rulebook.StepCardinality(ts, step.Path, step.Index);
-                // The schema cannot say for this type, so this STEP goes to the runtime accounting.
-                if (card is null) { unanswered = true; break; }
-                if (card == "list") { whatItIs.Clear(); break; }
-                whatItIs.Add($"a {card} on {ts.Name}");
-            }
-            if (unanswered || whatItIs.Count == 0) continue;
-            return $"predicate '{step.Text}': '{step.Path[step.Index]}{step.Token}' quantifies a step that is not a list — " +
-                   $"it is {string.Join(", ", whatItIs.Take(3))}{(whatItIs.Count > 3 ? $", and {whatItIs.Count - 3} more" : "")}. " +
-                   "Drop the quantifier, or point it at a list-valued field.";
-        }
-        // A has-family op on a path every scanned type's schema calls a list or dict: refused before any data.
-        foreach (var leaf in predicate.HasLeaves)
-        {
-            var fields = schemas.Select(ts => _host.Rulebook.StepField(ts, leaf.Path, leaf.Path.Count - 1)).ToList();
-            if (fields.Count > 0 && fields.All(f => f?.Cardinality is "list" or "dict"))
-                return predicate.HasOnContainerRefusal(leaf.Predicate, fields[0]!.Cardinality == "dict", fields.All(f => f!.FormLinkTarget is not null));
-        }
-        return EnumLiteralRefusal(schemas, predicate);
-    }
-
-    /// <summary>A value literal that every scanned type carrying the field rejects by its enum; a type lacking the field has no say.</summary>
-    string? EnumLiteralRefusal(IReadOnlyList<TypeSchema> schemas, FieldPredicateSet predicate)
-    {
-        foreach (var cmp in predicate.ValueComparisons)
-        {
-            var enums = new List<Type>();
-            bool open = false;
-            foreach (var ts in schemas)
-            {
-                var (lacks, enumType) = _host.Rulebook.LeafEnumType(ts, cmp.Path, cmp.Folds);
-                if (lacks) continue;
-                if (enumType is null) { open = true; break; }
-                if (!enums.Contains(enumType)) enums.Add(enumType);
-            }
-            if (open || enums.Count == 0) continue;
-            foreach (var literal in cmp.Literals)
-            {
-                if (enums.Any(e => FieldPredicateSet.EnumLiteralFits(literal, e))) continue;
-                var enumNames = string.Join(" or ", enums.Select(e => e.DeclaringType is { } d ? $"{d.Name}.{e.Name}" : e.Name));
-                var flags = enums.Where(e => e.IsDefined(typeof(FlagsAttribute), false)).ToList();
-                var bare = literal.Trim('"', '\'');
-                string hint;
-                if (bare.Length < literal.Length && enums.Any(e => FieldPredicateSet.EnumLiteralFits(bare, e)))
-                    hint = $" The quotes are read as part of the value; write it bare: '{cmp.Text.Replace(literal, bare)}'.";
-                else if (literal.Contains(',') && flags.Count > 0)
-                {
-                    var bad = literal.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                                     .FirstOrDefault(m => !flags.Any(e => FieldPredicateSet.EnumLiteralFits(m, e))) ?? literal;
-                    hint = $" '{bad}' is no flag of it.{PluginNameSuggest.DidYouMean(bad, flags.SelectMany(Enum.GetNames).Distinct())}";
-                }
-                else if (literal.Contains(','))
-                    hint = $" {enumNames} is not a [Flags] enum, so a field holds one name and a comma list never matches; test several with 'in [a, b]'.";
-                else
-                    hint = PluginNameSuggest.DidYouMean(literal, enums.SelectMany(Enum.GetNames).Distinct());
-                return $"predicate '{cmp.Text}': '{literal}' names no value of the {enumNames} enum this field holds, so the test means nothing.{hint}";
-            }
-        }
-        return null;
+                if (!roots.Contains(ts)) roots.Add(ts);
+        return predicate.Plan(_host.Rulebook.PathWalk, roots.Count == 0 ? null : roots);
     }
 
     /// <summary>The one sentence a scan owes for records it filtered only after reading around content Mutagen
@@ -769,7 +693,7 @@ internal sealed partial class RecordReads
         try { types = _host.Types.ResolveSet(typeSet); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }
 
-        if (predicate is not null && typeSet is { Count: > 0 } && SchemaPlanRefusal(typeSet, predicate) is { } qerr)
+        if (predicate is not null && SchemaPlanRefusal(typeSet, predicate) is { } qerr)
             return CrossQueryOutcome.Fail(qerr) with { Stamp = view.Stamp };
 
         // The same split the in-order scan makes: a name the active order does not carry costs that name's share

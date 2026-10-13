@@ -82,6 +82,10 @@ public sealed class CorpusRulebook
         "a FormID (XXXXXX:Plugin.esp → form mode), a bare index, or 'alias N' / 'packdata N' (→ index mode)";
 
     public int TypeCount => _corpus.TotalTypes;
+
+    /// <summary>The where= path walk over this catalog, built once.</summary>
+    public SchemaPathWalk PathWalk => _pathWalk ??= new SchemaPathWalk(this, _corpus.Types.Values);
+    SchemaPathWalk? _pathWalk;
     public TypeSchema? Type(string name) => _corpus.Types.GetValueOrDefault(name);
 
     /// <summary>The record types a scope token names — a catalog name, a 4-char signature, or a polymorphic-base
@@ -103,63 +107,6 @@ public sealed class CorpusRulebook
                     if (Type(arm) is { Kind: "record" } a && !hits.Contains(a)) hits.Add(a);
         }
         return hits;
-    }
-
-    /// <summary>The cardinality the schema gives one step of a read path, rooted at <paramref name="root"/> — "list",
-    /// "dict", "substruct", "value", and so on. Null where the schema cannot say (a hop it cannot descend, a field it
-    /// does not know, a polymorphic disagreement), which a caller must read as "no answer", never as a refusal.</summary>
-    public string? StepCardinality(TypeSchema root, IReadOnlyList<string> path, int index) => StepField(root, path, index)?.Cardinality;
-
-    /// <summary>The schema's field at one step of a read path, on the same walk as <see cref="StepCardinality"/>; null where it cannot say.</summary>
-    public FieldSchema? StepField(TypeSchema root, IReadOnlyList<string> path, int index)
-    {
-        var current = root;
-        for (int i = 0; i < index; i++)
-        {
-            var hop = FindField(current, path[i], out _, out var hopErr);
-            if (hop is null || hopErr is not null) return null;
-            if (hop.Cardinality is not ("substruct" or "polymorphic") || hop.TypeRef is not { } tr) return null;
-            if (Type(tr) is not { } next) return null;
-            current = next;
-        }
-        var field = FindField(current, path[index], out _, out var err);
-        return err is null ? field : null;
-    }
-
-    /// <summary>A read path's leaf enum on <paramref name="root"/>: Lacks where a step names no field, Enum null where the schema cannot say or it is no enum.</summary>
-    public (bool Lacks, Type? Enum) LeafEnumType(TypeSchema root, IReadOnlyList<string> path, IReadOnlyList<PathFold>? folds)
-    {
-        var current = root;
-        for (int i = 0; i < path.Count; i++)
-        {
-            if (!TrySeg(path[i], out var name, out var key, out _)) return (false, null);
-            var field = FindField(current, name, out _, out var err);
-            if (err is not null) return (false, null);
-            if (field is null) return (true, null);
-            bool element = key is not null || (folds is not null && i < folds.Count && folds[i] != PathFold.None);
-            bool last = i == path.Count - 1;
-            string? next;
-            if (element)
-            {
-                if (field.Cardinality is not ("list" or "dict")) return (false, null);
-                if (last) return (false, EnumOf(field.ElementTypeAssemblyQualified));
-                next = field.ElementTypeRef;
-            }
-            else if (last)
-                return (false, field.Cardinality == "enum" ? EnumOf(field.MutableTypeAssemblyQualified ?? field.GetterTypeAssemblyQualified) : null);
-            else if (field.Cardinality is "substruct" or "polymorphic") next = field.TypeRef;
-            else return (false, null);
-            if (next is null || Type(next) is not { } t) return (false, null);
-            current = t;
-        }
-        return (false, null);
-
-        static Type? EnumOf(string? aq)
-        {
-            if (aq is null || WriteEngine.ResolveType(aq) is not { } rt) return null;
-            var u = System.Nullable.GetUnderlyingType(rt) ?? rt;
-            return u.IsEnum ? u : null;
-        }
     }
 
     /// <summary>The ONE source of truth for where corpus.json lives, defaulting to the dev-harness location. The MCP
