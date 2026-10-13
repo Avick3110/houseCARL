@@ -68,16 +68,16 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
         Assert.Contains("before hitting max_chars=", r);
     }
 
-    /// <summary>The same note must reach BOTH transports — json is never the degraded one — so the json
+    /// <summary>The same refusal must reach BOTH transports — json is never the degraded one — so the json
     /// sentence is compared verbatim against the text render rather than re-spelled here.</summary>
     [Fact]
-    public void AWrongPredicatePathsAccountingNoteReachesBothTransportsVerbatim()
+    public void AWrongPredicatePathsRefusalReachesBothTransportsVerbatim()
     {
         var bad = new[] { "NoSuchField = 5" };
-        var note = Doc(RecordsTools.Records(Svc, types: Weap, where: bad, format: "json"))
-                   .GetProperty("notes")[0].GetString()!;
-        Assert.Contains("NOT A FIELD", note);
-        Assert.Contains(note, RecordsTools.Records(Svc, types: Weap, where: bad));
+        var error = Doc(RecordsTools.Records(Svc, types: Weap, where: bad, format: "json"))
+                    .GetProperty("error").GetString()!;
+        Assert.Contains("'NoSuchField' is not a field", error);
+        Assert.Contains(error, RecordsTools.Records(Svc, types: Weap, where: bad));
     }
 
     // ---- reverse lookup over several targets ------------------------------------------------------

@@ -76,7 +76,9 @@ public sealed class WhereQuantifierTests
     {
         var (set, err) = FieldPredicateSet.Parse(new[] { clause });
         Assert.Null(err);
-        if (set!.NeedsResolution) set.BindResolution(_ => null, fk => _targets.GetValueOrDefault(fk));
+        // The plan runs first, as the scan's does; a path it refuses reads no record.
+        if (set!.Plan(TestCorpus.Rulebook.PathWalk, null) is { } refusal) return (new HashSet<FormKey>(), refusal);
+        if (set.NeedsResolution) set.BindResolution(_ => null, fk => _targets.GetValueOrDefault(fk));
         var hits = bodies.Where(b => set.Matches(b)).Select(b => b.FormKey).ToHashSet();
         return (hits, set.AccountingNote() ?? "");
     }
@@ -222,10 +224,8 @@ public sealed class WhereQuantifierTests
     [Fact]
     public void AQuantifierOnANonListStepFailsLoudInTheAccounting_NeverASilentZeroMatches()
     {
-        var (set, err) = FieldPredicateSet.Parse(new[] { "BodyTemplate[*any].FirstPersonFlags has Head" });
-        Assert.Null(err);
-        foreach (var a in _armors) Assert.False(set!.Matches(a));
-        var note = set!.AccountingNote() ?? "";
+        var (hits, note) = RunWithNote("BodyTemplate[*any].FirstPersonFlags has Head", _armors);
+        Assert.Empty(hits);
         Assert.Contains("not a list", note);
         Assert.Contains("BodyTemplate[*any]", note);
     }

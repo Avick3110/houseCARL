@@ -59,10 +59,7 @@ public sealed class WhereListKeyShapeTests
     [Fact]
     public void AWordKeyRefusesAndNamesTheStarredStep()
     {
-        var (hits, set) = Run("Conditions[any].CompareOperator = EqualTo");
-        Assert.Empty(hits);
-        Assert.Contains("'Conditions[*any]'", set.FatalError);
-        Assert.DoesNotContain("read FAULT", set.AccountingNote() ?? "");
+        Assert.Contains("'Conditions[*any]'", SchemaPlan.Of("Conditions[any].CompareOperator = EqualTo", "MGEF"));
     }
 
     [Fact]
@@ -75,18 +72,16 @@ public sealed class WhereListKeyShapeTests
     [Fact]
     public void AWordKeyThatIsNoQuantifierGetsNoStarHint()
     {
-        var (_, set) = Run("Conditions[abc].CompareOperator = EqualTo");
-        Assert.Contains("got 'abc'.", set.FatalError);
-        Assert.DoesNotContain("A quantifier takes a star", set.FatalError);
+        var refusal = SchemaPlan.Of("Conditions[abc].CompareOperator = EqualTo", "MGEF");
+        Assert.Contains("got 'abc'.", refusal);
+        Assert.DoesNotContain("A quantifier takes a star", refusal);
     }
 
     [Fact]
     public void AWordKeyOnANullListStillRefuses()
     {
         Assert.All(_mod.MagicEffects, e => Assert.Null(e.Keywords));
-        var (hits, set) = Run("Keywords[any] exists");
-        Assert.Empty(hits);
-        Assert.Contains("'Keywords[*any]'", set.FatalError);
+        Assert.Contains("'Keywords[*any]'", SchemaPlan.Of("Keywords[any] exists", "MGEF"));
         var f = ReadEngine.ReadFields((IMajorRecordGetter)_mod.MagicEffects.First(), new[] { "Keywords[abc]" }).Fields.Single();
         Assert.True(ReadEngine.IsNoSuchFieldNote(f.Note), f.Note);
     }
@@ -130,21 +125,11 @@ public sealed class WhereListKeyShapeFoldTests
         return e;
     }
 
-    static FieldPredicateSet Scan(string clause, IEnumerable<IMajorRecordGetter> records)
-    {
-        var (set, err) = FieldPredicateSet.Parse(new[] { clause });
-        Assert.Null(err);
-        foreach (var r in records) set!.Matches(r);
-        return set!;
-    }
-
     [Fact]
     public void ABadKeyOnOneTypeDoesNotRefuseTheScanOfAnother()
     {
-        var armor = _mod.Armors.AddNew();
-        var set = Scan("Conditions[any].CompareOperator = EqualTo", new IMajorRecordGetter[] { Effect(CompareOperator.EqualTo), armor });
-        Assert.Null(set.FatalError);
-        Assert.Contains("List 'Conditions' must be indexed by a non-negative integer; got 'any'.", set.AccountingNote() ?? "");
+        // No listed type can take the path, so the plan refuses with the bad key's sentence.
+        Assert.Contains("List 'Conditions' must be indexed by a non-negative integer; got 'any'.", SchemaPlan.Of("Conditions[any].CompareOperator = EqualTo", "MGEF", "ARMO"));
     }
 
     [Fact]
@@ -154,7 +139,7 @@ public sealed class WhereListKeyShapeFoldTests
         var note = ReadEngine.ReadFields(e, new[] { "Conditions[any].CompareOperator" }).Fields.Single().Note;
         Assert.True(ReadEngine.IsNoSuchFieldNote(note), note);
         Assert.DoesNotContain("A quantifier takes a star", note);
-        Assert.Contains("A quantifier takes a star: 'Conditions[*any]'.", Scan("Conditions[any].CompareOperator = EqualTo", new[] { e }).FatalError);
+        Assert.Contains("A quantifier takes a star: 'Conditions[*any]'.", SchemaPlan.Of("Conditions[any].CompareOperator = EqualTo", "MGEF"));
     }
 
     [Fact]
@@ -167,11 +152,7 @@ public sealed class WhereListKeyShapeFoldTests
     [Fact]
     public void AGenderedIndexOutOfRangeRefusesInsteadOfFaulting()
     {
-        var armor = _mod.Armors.AddNew();
-        armor.WorldModel = new GenderedItem<ArmorModel?>(new ArmorModel(), new ArmorModel());
-        var set = Scan("WorldModel[2] exists", new[] { armor });
-        Assert.Contains("indexed by [0] (male) or [1] (female); got '2'", set.FatalError);
-        Assert.DoesNotContain("read FAULT", set.AccountingNote() ?? "");
+        Assert.Contains("indexed by [0] (male) or [1] (female); got '2'", SchemaPlan.Of("WorldModel[2] exists", "ARMO"));
     }
 
     [Fact]

@@ -167,10 +167,8 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
         Assert.Contains("did you mean 'Effects[0].Data.Magnitude'?", r);
     }
 
-    /// <summary>The remedy is the same for every record the scan dead-ends on, and computing it costs a property
-    /// resolve, the element type's whole field list and a nearest-name sweep — so it is computed once for the
-    /// (element type, segment) pair, not once per scanned record. The segment is unique to this run so the memo
-    /// is cold when it runs.</summary>
+    /// <summary>The remedy comes from the schema at plan time, so no scanned record pays for it: the read engine's
+    /// per-record remedy is never computed. The segment is unique to this run so the memo is cold when it runs.</summary>
     [Fact]
     public void AScanComputesOneListHopRemedyForTheWholeScan()
     {
@@ -180,7 +178,7 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { $"Effects.{probe} > 0" });
         Assert.Contains("is not a field on its element type", r);
         Assert.True(W.SpellBodies.Count > 1, "the scan must cross more than one record for this to say anything");
-        Assert.Equal(1, Computed() - before);
+        Assert.Equal(0, Computed() - before);
     }
 
     /// <summary>The bracket is only half the diagnosis: a trailing segment that is not a field on the ELEMENT type
@@ -214,7 +212,7 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     {
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL", "WEAP" }, where: new[] { "Effects.Data.Magnitude > 0" });
         Assert.Contains("'Effects[0].Data.Magnitude'", r);
-        Assert.Contains("on the rest the path is not a field at all", r);
+        Assert.DoesNotContain("had no value", r);   // neither listed type carries it, so the plan refuses before a scan
     }
 
     [Fact]

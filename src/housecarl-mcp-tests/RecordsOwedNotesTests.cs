@@ -18,7 +18,7 @@ public sealed class RecordsOwedNotesTests : RecordsTestBase
     static readonly Dictionary<string, (string[]? Types, string[]? Where, string? WhereSource, bool Scope, string? Refs, string Identity)> Notes = new()
     {
         ["P0"] = (new[] { "WEAP" }, new[] { "Description contains x" }, null, false, null, "predicate field 'Description'"),
-        ["P+"] = (new[] { "MGEF", "SPEL", "WEAP" }, new[] { "BasicStats.Damage >= 0" }, null, false, null, "'BasicStats.Damage' had no value on"),
+        ["P+"] = (new[] { "MGEF", "SPEL", "WEAP" }, new[] { "BasicStats.Damage >= 0" }, null, false, null, "no MagicEffect can match"),
         ["U0"] = (new[] { "WEAP" }, new[] { "editorid in [NoSuchArmorXyz, NoSuchB]" }, null, false, null, "have no record in this selection: NoSuchArmorXyz"),
         ["U+"] = (new[] { "WEAP" }, new[] { "editorid in [NoSuchArmorXyz, HcRecW0, HcRecW1]" }, null, false, null, "have no record in this selection: NoSuchArmorXyz"),
         ["S0"] = (new[] { "WEAP" }, new[] { "editorid in [NoSuchArmorXyz]" }, null, true, null, "nothing from the 1 it does not"),

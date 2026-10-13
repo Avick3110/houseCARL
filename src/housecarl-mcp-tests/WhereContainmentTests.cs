@@ -162,6 +162,7 @@ public sealed class WhereContainmentTests
         }
         var info = TestCorpus.Rulebook.RecordTypesNamed("INFO");
         Assert.Null(Set("Responses[*any].Text = hi").Plan(TestCorpus.Rulebook.PathWalk, info));
-        Assert.Contains("'Responses' is not a field", Set("*parent.Responses[*any].Text = hi").Plan(TestCorpus.Rulebook.PathWalk, info));
+        // The hop lands on the topic, whose Responses are INFO records, so 'Text' is judged against those, not against a response line.
+        Assert.Contains("'Text' is not a field on DialogResponses", Set("*parent.Responses[*any].Text = hi").Plan(TestCorpus.Rulebook.PathWalk, info));
     }
 }
