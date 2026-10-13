@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Mutagen.Bethesda.Plugins;          // FormKey, ModKey
 using Mutagen.Bethesda.Plugins.Records;  // IMajorRecordGetter
 using Mutagen.Bethesda.Skyrim;           // IArmorGetter (assembly anchor)
+using HousecarlCore;
 
 namespace HousecarlGenerator;
 
@@ -62,6 +63,7 @@ public static class CorpusGenerator
         Warnings.Clear();
         CoverageAnomalies.Clear();
         ReportedUnextractable.Clear();
+        ClassOnlyFields.Clear();
         var asm = typeof(IArmorGetter).Assembly; // Mutagen.Bethesda.Skyrim
         Console.WriteLine($"Walking the full Mutagen type corpus via reflection...");
         Console.WriteLine($"  Assembly: {asm.GetName().Name} {asm.GetName().Version}");
@@ -206,6 +208,13 @@ public static class CorpusGenerator
             Warnings.Add($"No mutable interface resolved for {kind} '{catalogName}' ({getterType.Name}).");
 
         var getterProps = CollectAllProperties(getterType).ToList();
+        // A type read as its own class, never through an overlay, also carries the members that class implements (condition Parameter1/2).
+        if (ConcreteClassFor(getterType) is { } concrete && OverlayClassFor(concrete) is null)
+            foreach (var cp in CollectAllProperties(concrete).Where(cp => getterProps.All(g => g.Name != cp.Name)).ToList())
+            {
+                getterProps.Add(cp);
+                ClassOnlyFields.Add((catalogName, cp.Name));
+            }
         var mutableByName = mutableType == null
             ? new Dictionary<string, PropertyInfo>()
             : CollectAllProperties(mutableType).GroupBy(p => p.Name).ToDictionary(g => g.Key, g => g.First());
@@ -495,11 +504,12 @@ public static class CorpusGenerator
         return all.GroupBy(p => p.Name).Select(g => g.OrderByDescending(p => p.CanWrite).First());
     }
 
-    static bool IsInfrastructureProperty(PropertyInfo p)
+    internal static bool IsInfrastructureProperty(PropertyInfo p)
     {
         var ns = p.DeclaringType?.Namespace ?? "";
         bool inWhitelist = ns.StartsWith("Mutagen.Bethesda") || ns.StartsWith("Noggog");
         if (!inWhitelist) return true;
+        if (ns.Contains(".Binary", StringComparison.Ordinal)) return true;   // binary-translation plumbing (Global RawFloat)
         // Mutagen's fluent write-builder API (e.g. ISkyrimModGetter.BeginWrite -> BinaryModdedWriteBuilderTargetChoice<T>)
         // is the WRITE entrypoint, not editable data — surfaced once the mod container is seeded. Filter by both the
         // builder type family and the BeginWrite accessor name.
@@ -709,6 +719,49 @@ public static class CorpusGenerator
     /// it doesn't masquerade as a second "arm" of an otherwise non-polymorphic struct.
     /// </summary>
     internal static bool IsOverlayTwin(Type t) => t.Name.EndsWith("BinaryOverlay", StringComparison.Ordinal);
+
+    /// <summary>The concrete class that owns <paramref name="getterIfc"/>, closed over the same type arguments; null for an abstract base.</summary>
+    internal static Type? ConcreteClassFor(Type getterIfc)
+    {
+        var open = getterIfc.IsConstructedGenericType ? getterIfc.GetGenericTypeDefinition() : getterIfc;
+        var simple = open.Name.Split('`')[0];
+        if (!simple.StartsWith('I') || !simple.EndsWith("Getter", StringComparison.Ordinal)) return null;
+        var arity = open.IsGenericTypeDefinition ? open.Name[open.Name.IndexOf('`')..] : "";
+        var c = open.Assembly.GetType($"{open.Namespace}.{simple[1..^"Getter".Length]}{arity}");
+        if (c is not { IsClass: true, IsAbstract: false } || GetterInterfaceFor(c) != open) return null;
+        if (!c.IsGenericTypeDefinition) return c;
+        try { return getterIfc.IsConstructedGenericType ? c.MakeGenericType(getterIfc.GetGenericArguments()) : null; }
+        catch (ArgumentException) { return null; }
+    }
+
+    /// <summary>The lazy-read overlay class Mutagen reads <paramref name="concrete"/> through, or null when reads meet the class itself.</summary>
+    internal static Type? OverlayClassFor(Type concrete)
+    {
+        var def = concrete.IsConstructedGenericType ? concrete.GetGenericTypeDefinition() : concrete;
+        var tick = def.Name.IndexOf('`');
+        var name = tick < 0 ? def.Name + "BinaryOverlay" : def.Name[..tick] + "BinaryOverlay" + def.Name[tick..];
+        var ov = def.Assembly.GetType($"{def.Namespace}.{name}");
+        if (ov is null || !ov.IsGenericTypeDefinition) return ov;
+        try { return ov.MakeGenericType(concrete.GetGenericArguments()); }
+        catch (ArgumentException) { return null; }
+    }
+
+    /// <summary>Why the corpus leaves out a member the read walk resolves on <paramref name="runtime"/>, or null when it should not: the generator's listed drops.</summary>
+    internal static string? DroppedMember(Type getterIfc, Type runtime, PropertyInfo p)
+    {
+        if (IsInfrastructureProperty(p)) return "infrastructure";
+        // A member only classes or plumbing declare is class state, not data a getter exposes.
+        if (!runtime.IsInterface && WriteEngine.WalkMembers(runtime).Where(m => m.Name == p.Name)
+                .All(m => !m.DeclaringType!.IsInterface || IsInfrastructureProperty(m)))
+            return "class state";
+        if (!runtime.IsInterface && !IsOverlayTwin(runtime) && OverlayClassFor(runtime) is { } ov
+            && WriteEngine.ResolveProperty(ov, p.Name) is null)
+            return "a class member reads never meet: the overlay lacks it";
+        return null;
+    }
+
+    /// <summary>Fields emitted from a type's concrete class rather than its getter interface, read-only by construction.</summary>
+    static readonly HashSet<(string Type, string Field)> ClassOnlyFields = new();
 
     /// <summary>
     /// A record's own xEdit 4-char signature (Armor -> "ARMO"), read from its registration's
@@ -980,6 +1033,7 @@ public static class CorpusGenerator
     static bool IsExpectedReadOnly(TypeSchema t, FieldSchema f)
     {
         if (f.IsIdentity) return true;                                                       // R0
+        if (ClassOnlyFields.Contains((t.Name, f.Name))) return true;                         // R5 class-only reader member
         if (t.MutableInterface == null) return true;                                         // R1
         if (PolyDiscriminators.Contains(f.Name) && t.Kind is "arm" or "polymorphic-base")
             return true;                                                                     // R2
