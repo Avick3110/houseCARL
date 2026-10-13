@@ -2745,7 +2745,27 @@ public static class WriteEngine
     // ---- SHARED REFLECTION HELPERS ----
     internal static PropertyInfo? ResolveProperty(Type type, string name)
     {
-        var candidates = new List<PropertyInfo>();
+        PropertyInfo? best = null;
+        foreach (var t in WalkTypes(type))
+        {
+            PropertyInfo? p;
+            try { p = t.GetProperty(name, WalkFlags); }
+            catch (AmbiguousMatchException) { p = null; }   // several indexers named 'Item' (Array2d)
+            if (p is null || p.GetIndexParameters().Length != 0) continue;
+            if (best is null || (p.CanWrite && !best.CanWrite)) best = p;
+        }
+        return best;
+    }
+
+    /// <summary>Every member <see cref="ResolveProperty"/> can resolve on <paramref name="type"/>.</summary>
+    internal static IEnumerable<PropertyInfo> WalkMembers(Type type) =>
+        WalkTypes(type).SelectMany(t => t.GetProperties(WalkFlags)).Where(p => p.GetIndexParameters().Length == 0);
+
+    const BindingFlags WalkFlags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+
+    /// <summary>The type and every interface it implements, each once: where the read walk looks a member up.</summary>
+    static IEnumerable<Type> WalkTypes(Type type)
+    {
         var seen = new HashSet<Type>();
         var queue = new Queue<Type>();
         queue.Enqueue(type);
@@ -2753,11 +2773,8 @@ public static class WriteEngine
         while (queue.Count > 0)
         {
             var t = queue.Dequeue();
-            if (!seen.Add(t)) continue;
-            var p = t.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
-            if (p is not null) candidates.Add(p);
+            if (seen.Add(t)) yield return t;
         }
-        return candidates.OrderByDescending(p => p.CanWrite).FirstOrDefault();
     }
 
     /// <summary>Set a member to null through the SAME settability resolution the engine writes through; false for a get-only property, which a caller can skip.</summary>
