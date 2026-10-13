@@ -1,0 +1,1 @@
+- **A `where=` path that names no field is refused before the scan, on every form, with the field it most likely meant, instead of answering a bare 0.** To check: FLST `where=["Items[*any]->type = Armor"]` with `form=fields` refuses, naming `Type`.

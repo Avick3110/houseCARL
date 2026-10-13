@@ -118,7 +118,7 @@ public sealed class SchemaPathWalk
     /// <summary>What a field is, for a sentence about a step that wanted a list.</summary>
     static string What(FieldSchema f) =>
         f.Cardinality == "value" && (f.Type.Contains("Slice", StringComparison.Ordinal) || f.Type.Contains("Byte[]", StringComparison.Ordinal)) ? "a raw block of bytes"
-        : f.Cardinality == "dict" ? "a dict of keyed entries" : $"a single {RecordNaming.StripGetterInterface(f.TypeRef ?? f.Type)} value";
+        : f.Cardinality == "dict" ? "a dict of keyed entries" : $"a single {RecordNaming.StripGetterInterface(f.TypeRef ?? f.Type)} value, a {f.Cardinality}";
 
     /// <summary>A step below a CLR value type, judged by reflection; an untyped or raw value is can't-tell.</summary>
     static void ClrStep(Type t, string name, string? key, PathFold fold, List<Pos> next, List<(int, string)> fails)
