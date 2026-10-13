@@ -170,7 +170,7 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     /// <summary>The remedy comes from the schema at plan time, so no scanned record pays for it: the read engine's
     /// per-record remedy is never computed. The segment is unique to this run so the memo is cold when it runs.</summary>
     [Fact]
-    public void AScanComputesOneListHopRemedyForTheWholeScan()
+    public void AListHopRemedyComesFromThePlanSoNoScannedRecordComputesIt()
     {
         var probe = "HopMemoProbe" + Guid.NewGuid().ToString("N");
         int Computed() => HousecarlCore.ReadEngine.ListHopComputationsOf(typeof(Mutagen.Bethesda.Skyrim.IEffectGetter), probe);
@@ -211,8 +211,9 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     public void AMixedScanWhereOnlySomeTypesCarryTheListStillGetsTheBracketAdvice()
     {
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL", "WEAP" }, where: new[] { "Effects.Data.Magnitude > 0" });
+        // Neither listed type carries it, so the plan refuses before a scan, naming the bracketed path.
+        Assert.Contains("error: predicate 'Effects.Data.Magnitude > 0': the path steps THROUGH 'Effects'", r);
         Assert.Contains("'Effects[0].Data.Magnitude'", r);
-        Assert.DoesNotContain("had no value", r);   // neither listed type carries it, so the plan refuses before a scan
     }
 
     [Fact]

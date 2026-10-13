@@ -426,7 +426,7 @@ public sealed class ValuePredicateTests
 
     // probe: "soft note: matched only the weapons (3)", "SOFT (>half no-value), not the loud note", "names the cause"
     [Fact]
-    public void Ge_OnAPathWrongForMoreThanHalfAMixedScanGetsTheSoftNote_NotTheLoudOne()
+    public void Ge_OnAPathOneListedTypeLacksGetsThePlanNote_NotTheSoftOne()
     {
         // The type lacking the path is said once at plan time and not scanned; the other type scans.
         Assert.Null(SchemaPlan.Set("BasicStats.Damage >= 0", out var set, "MGEF", "WEAP"));
