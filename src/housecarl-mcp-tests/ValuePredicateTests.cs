@@ -261,9 +261,8 @@ public sealed class ValuePredicateTests
     [Fact]
     public void Exists_OnAMistypedPathFailsLoudAsNotAField_NotASilentZero()
     {
-        var (matched, set) = RunWithSet(MgefBodies, "Archetyp exists");
-        Assert.Empty(matched);
-        Assert.Contains("NOT A FIELD", set.AccountingNote());
+        // A mistyped path is refused before the scan, with the field it most likely meant.
+        Assert.Contains("did you mean 'Archetype'?", SchemaPlan.Of("Archetyp exists", "MGEF"));
     }
 
     // probe: "parse: `exists <value>` refused" and "parse: `missing <value>` refused"
@@ -381,11 +380,7 @@ public sealed class ValuePredicateTests
     [Fact]
     public void Eq_OnAWrongPathFailsLoud_NoReadableValue_NotASilentZero()
     {
-        var (matched, set) = RunWithSet(MgefBodies, "Archetyp.ActorValue = Infamy");
-        Assert.Empty(matched);
-        var note = set.AccountingNote();
-        Assert.Contains("no readable value", note);
-        Assert.Contains("NOT A FIELD", note);
+        Assert.Contains("'Archetyp' is not a field of MagicEffect", SchemaPlan.Of("Archetyp.ActorValue = Infamy", "MGEF"));
     }
 
     // probe: "valid-but-unset: 0 matches", "LOUD note", "says VALID/unset, NOT 'mistyped'"
@@ -433,13 +428,14 @@ public sealed class ValuePredicateTests
     [Fact]
     public void Ge_OnAPathWrongForMoreThanHalfAMixedScanGetsTheSoftNote_NotTheLoudOne()
     {
-        var (matched, set) = RunWithSet(MgefBodies.Concat(WeapBodies), "BasicStats.Damage >= 0");
+        // The type lacking the path is said once at plan time and not scanned; the other type scans.
+        Assert.Null(SchemaPlan.Set("BasicStats.Damage >= 0", out var set, "MGEF", "WEAP"));
+        var matched = MgefBodies.Concat(WeapBodies).Where(set.Matches).Select(b => b.FormKey).ToHashSet();
         Assert.Equal(Weaps(_ => true), matched);
         var note = set.AccountingNote();
-        Assert.Contains("had no value on", note);
-        Assert.DoesNotContain("yielded no readable value", note);
-        Assert.Contains("not a field on the record read", note);
-        Assert.DoesNotContain("read fault", note);
+        Assert.Contains("'BasicStats' is not a field of MagicEffect", note);
+        Assert.Contains("no MagicEffect can match", note);
+        Assert.DoesNotContain("had no value on", note);
     }
 
     // probe: "healthy scan: no spurious accounting note"

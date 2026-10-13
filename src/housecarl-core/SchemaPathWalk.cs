@@ -66,7 +66,7 @@ public sealed class SchemaPathWalk
             var next = new List<Pos>();
             var fails = new List<(int Rank, string Clause)>();
             var lacking = new List<TypeSchema>();
-            foreach (var pos in at) Step(pos, name, key, fold, next, fails, lacking);
+            foreach (var pos in at) Step(pos, name, key, fold, segs.Skip(i + 1).ToArray(), next, fails, lacking);
             if (next.Count > 0) { at = next.Distinct().ToList(); continue; }
             if (lacking.Count > 0) fails.Add((0, NoFieldClause(name, lacking.Distinct().ToList(), i == 0 ? where : $"on {Names(lacking)}")));
             return new(Array.Empty<Leaf>(), fails.OrderByDescending(f => f.Rank).First().Clause);
@@ -75,16 +75,16 @@ public sealed class SchemaPathWalk
     }
 
     /// <summary>One step from one position; what it reaches goes to <paramref name="next"/>, why it cannot to <paramref name="fails"/>.</summary>
-    void Step(Pos pos, string name, string? key, PathFold fold, List<Pos> next, List<(int, string)> fails, List<TypeSchema> lacking)
+    void Step(Pos pos, string name, string? key, PathFold fold, string[] rest, List<Pos> next, List<(int, string)> fails, List<TypeSchema> lacking)
     {
         if (pos.In is null)
         {
             var leaf = pos.At;
             if (leaf.CantTell) { next.Add(pos); return; }
             if (leaf.Field is not { } f) { ClrStep(leaf.Clr!, name, key, fold, next, fails); return; }
-            if (leaf.Container) { fails.Add((2, ListHopClause(f, name))); return; }
+            if (leaf.Container) { fails.Add((2, ListHopClause(f, name, rest))); return; }
             var inner = Inner(leaf);
-            if (inner.In is not null || inner.At.CantTell || inner.At.Clr is not null) { Step(inner, name, key, fold, next, fails, lacking); return; }
+            if (inner.In is not null || inner.At.CantTell || inner.At.Clr is not null) { Step(inner, name, key, fold, rest, next, fails, lacking); return; }
             fails.Add((1, f.Cardinality == "formlink" || f.FormLinkTarget is not null
                 ? $"'{f.Name}' is a link, so it has no field '{name}' of its own — read the linked record with '{f.Name}->{name}'"
                 : $"'{f.Name}' is a {(leaf.Element ? "plain element" : f.Cardinality)} value, so it has no field '{name}'"));
@@ -97,8 +97,8 @@ public sealed class SchemaPathWalk
             bool list = f.Cardinality is "list" or "dict";
             if (fold != PathFold.None)
             {
-                if (list) next.Add(new Pos(null, new Leaf(f, fold != PathFold.Count, null, owner)));
-                else fails.Add((3, $"'{name}{PathFoldGrammar.Token(fold)}' quantifies a step that is not a list — it is a {f.Cardinality} on {owner.Name}. " +
+                if (f.Cardinality == "list") next.Add(new Pos(null, new Leaf(f, fold != PathFold.Count, null, owner)));
+                else fails.Add((3, $"'{name}{PathFoldGrammar.Token(fold)}' quantifies a step that is not a list — it is {What(f)} on {owner.Name}. " +
                                    "Drop the quantifier, or point it at a list-valued field"));
             }
             else if (key is null) next.Add(new Pos(null, new Leaf(f, false, null, owner)));
@@ -109,11 +109,16 @@ public sealed class SchemaPathWalk
             {
                 if (key is "0" or "1" && g.Fields.FirstOrDefault(x => x.Name == WriteEngine.GenderedArmNames[key[0] - '0']) is { } arm)
                     next.Add(new Pos(null, new Leaf(arm, false, null, g)));
-                else fails.Add((4, $"'{name}' is gendered: '[0]' is its Male value and '[1]' its Female one, not '[{key}]'"));
+                else fails.Add((4, $"'{name}' is gendered, indexed by [0] (male) or [1] (female); got '{key}'"));
             }
-            else fails.Add((3, $"'{name}[{key}]' brackets a step that is not a list — it is a {f.Cardinality} on {owner.Name}"));
+            else fails.Add((3, $"'{name}[{key}]' brackets a step that is not a list — it is {What(f)} on {owner.Name}"));
         }
     }
+
+    /// <summary>What a field is, for a sentence about a step that wanted a list.</summary>
+    static string What(FieldSchema f) =>
+        f.Cardinality == "value" && (f.Type.Contains("Slice", StringComparison.Ordinal) || f.Type.Contains("Byte[]", StringComparison.Ordinal)) ? "a raw block of bytes"
+        : f.Cardinality == "dict" ? "a dict of keyed entries" : $"a single {RecordNaming.StripGetterInterface(f.TypeRef ?? f.Type)} value";
 
     /// <summary>A step below a CLR value type, judged by reflection; an untyped or raw value is can't-tell.</summary>
     static void ClrStep(Type t, string name, string? key, PathFold fold, List<Pos> next, List<(int, string)> fails)
@@ -204,22 +209,24 @@ public sealed class SchemaPathWalk
         else if (PluginNameSuggest.Nearest(name, fields, 1) is { Count: > 0 } near) hint = $"; did you mean '{near[0]}'?";
         else if (ModeledFieldIndex.Diagnose(owners[0].Name, name) is { ModeledOn.Count: > 0 } v)
             hint = $"; Mutagen models '{name}' on {v.ModeledOn.Count:N0} other type(s) ({string.Join(", ", v.ModeledOn.Take(3))}{(v.ModeledOn.Count > 3 ? ", …" : "")}), not on these";
-        else hint = "; check the name against the record's schema (the mutagen-reference skill)";
+        else hint = "; check the field name against the record's schema (the mutagen-reference skill)";
         return $"'{name}' is not a field {where}{hint}";
     }
 
-    /// <summary>A dotted step through a list or dict, with the bracket or quantifier it most likely meant.</summary>
-    string ListHopClause(FieldSchema list, string seg)
+    /// <summary>A dotted step through a list or dict, with the bracketed spelling it most likely meant.</summary>
+    string ListHopClause(FieldSchema list, string seg, string[] rest)
     {
-        var head = $"the path steps THROUGH '{list.Name}', which is a {list.Cardinality}, with a dotted segment '.{seg}'";
-        if (seg.All(char.IsDigit)) return $"{head}; index an element with brackets, '{list.Name}[{seg}]'";
+        var tail = rest.Length > 0 ? "." + string.Join(".", rest) : "";
+        var head = $"the path steps THROUGH '{list.Name}', which is a {list.Cardinality}, with a dotted segment, which dead-ends";
+        if (seg.All(char.IsDigit)) return $"{head}; index an element with brackets, e.g. '{list.Name}[{seg}]{tail}', not '{list.Name}.{seg}{tail}'";
         var elem = list.ElementTypeRef is { } er ? _book.Type(er) : null;
-        var on = elem is not null && FieldsNamed(elem, seg).Count > 0;
-        var near = elem is null || on ? null : PluginNameSuggest.Nearest(seg, WithArms(elem).SelectMany(t => t.Fields.Select(f => f.Name)).Distinct(), 1).FirstOrDefault();
-        var fix = elem is null || on ? $"index an element with brackets ('{list.Name}[0].{seg}') or quantify the step ('{list.Name}[*any].{seg}')"
-                : near is not null ? $"'{seg}' is not a field of its element type {elem.Name} either — did you mean '{list.Name}[*any].{near}'?"
-                : $"'{seg}' is not a field of its element type {elem.Name} either";
-        return $"{head}; {fix}. For list->FormID membership use references=";
+        if (elem is null || FieldsNamed(elem, seg).Count > 0)
+            return $"{head}; index an element with brackets: '{list.Name}[0].{seg}{tail}', not '{list.Name}.{seg}{tail}'; to ask about EVERY element, " +
+                   $"quantify the step ('{list.Name}[*any].{seg}{tail}'). For list->FormID membership use references=";
+        var near = PluginNameSuggest.Nearest(seg, WithArms(elem).SelectMany(t => t.Fields.Select(f => f.Name)).Distinct(), 1).FirstOrDefault();
+        return near is not null
+            ? $"{head}; '{seg}' is not a field on its element type {elem.Name} — did you mean '{list.Name}[0].{near}{tail}'?"
+            : $"{head}; '{seg}' is not a field on its element type {elem.Name}; index an element with brackets ('{list.Name}[0].<field>') and name a field {elem.Name} has";
     }
 
     static string Names(IReadOnlyCollection<TypeSchema> types) =>

@@ -36,10 +36,12 @@ public sealed class WhereAccountingCauseTests
         w.BasicStats = new WeaponBasicStats { Damage = 10, Weight = 1 };
 
         var bodies = mod.Spells.Select(s => (IMajorRecordGetter)s).Append(w).ToList();
-        var note = NoteOver("BasicStats.Damage >= 0", bodies);
+        Assert.Null(SchemaPlan.Set("BasicStats.Damage >= 0", out var set, "SPEL", "WEAP"));
+        foreach (var body in bodies) set.Matches(body);
+        var note = set.AccountingNote();
 
         Assert.NotNull(note);
-        Assert.Contains("not a field on the record read (4)", note);
+        Assert.Contains("no Spell can match", note);
         Assert.DoesNotContain("read fault", note);
         Assert.DoesNotContain("readable", note);
     }

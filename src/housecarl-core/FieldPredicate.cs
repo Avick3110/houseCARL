@@ -1281,7 +1281,7 @@ public sealed class FieldPredicateSet
         {
             var (segs, folds, hops) = CandidateSide(p);
             var own = walk.Walk(scope, hops, segs, folds, where);
-            if (own.Failure is { } why) return $"predicate '{p.Text}': {why}.";
+            if (own.Failure is { } why) return Refuse(p, why);
             if (roots is { Count: > 1 })
                 foreach (var r in roots)
                     if (walk.Walk(new[] { r }, hops, segs, folds, $"of {r.Name}").Failure is { } lack && _notedTypes.Add(r.Name))
@@ -1295,7 +1295,7 @@ public sealed class FieldPredicateSet
                 if (p.Pseudo != PseudoPath.None && p.ParentHops == 0) continue;
                 var right = walk.Walk(targets, p.ParentHops, p.PathSegments, p.PathFolds,
                     targets.Count == 1 ? $"of {targets[0].Name}, the record type '{p.LinkPathDisplay}' links to" : $"on any record type '{p.LinkPathDisplay}' can link to");
-                if (right.Failure is { } rwhy) return $"predicate '{p.Text}': {rwhy}.";
+                if (right.Failure is { } rwhy) return Refuse(p, rwhy);
                 leaves = right.Leaves;
             }
             if (p.Pseudo != PseudoPath.None) continue;
@@ -1310,7 +1310,9 @@ public sealed class FieldPredicateSet
         : p.Pseudo != PseudoPath.None ? (Array.Empty<string>(), null, p.ParentHops)
         : (p.PathSegments, p.PathFolds, p.ParentHops);
 
-    static string LackingNote(Predicate p, string why, TypeSchema type) => $"note: predicate '{p.Text}': {why}; no {type.Name} can match.";
+    static string LackingNote(Predicate p, string why, TypeSchema type) => $"note: predicate '{p.Text}': {why.TrimEnd('.')}; no {type.Name} can match.";
+
+    static string Refuse(Predicate p, string why) => $"predicate '{p.Text}': {why}{(why.EndsWith('.') || why.EndsWith('?') ? "" : ".")}";
 
     /// <summary>Whether a record of this runtime class can match every predicate; a class that cannot is said once.</summary>
     bool CanMatch(Type runtime)
@@ -1436,7 +1438,7 @@ public sealed class FieldPredicateSet
     {
         long unset = UnsetCount(k);
         var parts = new List<string>();
-        if (unset > 0) parts.Add($"unset — null, absent or not carried by that record ({unset:N0})");
+        if (unset > 0) parts.Add($"unset — null or absent ({unset:N0})");
         if (_noParent[k] > 0) parts.Add($"no containing record ({_noParent[k]:N0})");
         if (_container[k] > 0) parts.Add($"a container/list, not a scalar ({_container[k]:N0})");
         if (_unreadable[k] > 0) parts.Add($"a read fault — Mutagen could not parse the field ({_unreadable[k]:N0})");
