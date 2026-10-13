@@ -74,7 +74,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 - `ComparisonBatchReadTests.AbsentIdsExplainTheirPluginOnce` — the view explains an absent plugin from the profile once per pin: tree, delta (winner, pre, post), `fields` (plain and post) and `info_order` each read it once for 50 ids.
 - `RecordsRenderCostTests.ABatchBodyReadStopsWhenTheClientCancels` and `ACancelStopsAnEverythingRenderToo` — a cancelled batch and a cancelled render stop inside one record.
 - `RecordsWalkCostTests.AWalkHoldsNoReachedBodiesPastTheGatherThatReadThem` and `AWalkSplitAcrossPassesReachesTheSameSetAndHoldsOnePass` — a walk holds one gather pass and nothing at return.
-- `RecordsRemedyRepairTests.AScanComputesOneListHopRemedyForTheWholeScan` — the list-hop verdict is memoised per (element type, segment).
+- `RecordsRemedyRepairTests.AListHopRemedyComesFromThePlanSoNoScannedRecordComputesIt` — the list-hop remedy comes from the plan, so no scanned record computes it.
 - `ConditionSummaryLineTests` and `ConditionSummaryLinePresenceTests` — the compact condition line on both summary paths, the full form one level below it, and `Conditions[0] exists` still present.
 - `RecordsFieldFoldTests` — `[*]` and `[*count]` columns, and the read's truncation note surviving the fold.
 - `BodyGatherEquivalenceTests.AGatheredBodyIsTheBodyTheSingleFetchReturns` and `AFaultedPluginIsNamedAndFallsBackToTheSingleFetch` — a gathered body equals the one-at-a-time body, and a faulted plugin's fallback raises the same exception type and message the direct fetch does.

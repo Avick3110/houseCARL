@@ -43,15 +43,17 @@ path walk, and containment comes off Mutagen's context walk.
   struct fields, list elements, dict values, every arm of a union, `.Male`/`.Female` and `[0]`/`[1]` on a
   gendered field, the records that can contain the type for `*parent`, and for `->` the link's declared
   targets (an aspect interface by `IsAssignableFrom`, an any-record link or a struct left side as all
-  record types). A step below a `value` field is judged by reflection on its CLR type; `Object` and raw
-  bytes are can't-tell and pass. A path that names no field on any type it can be on, a quantifier on a
+  record types). A step below a `value` field, or below a link (`Race.FormKey`, `Items[*any].IsNull`),
+  is judged by reflection on its CLR type; `Object` and raw bytes are can't-tell and pass. A path that names no field on any type it can be on, a quantifier on a
   step that is not a list, a bracket key a list can never take, a dotted step through a list, or a value
   operator on a list or dict leaf refuses the call, with the case slip or nearest name. With several
   `types=`, a type that lacks the path gets one fixed note (`'ArmorRating' is not a field of Weapon; no
   Weapon can match`) and is not scanned; the call refuses only when no listed type has the path. With
   no `types=` the walk runs over every record type, refusing a path on none, and each record class is
-  judged the first time the scan meets it, with the same note. The schema and the read walk carry the
-  same members by construction: `SchemaWalkAgreementTests` holds them to it.
+  judged the first time the scan meets it: a class lacking the path is skipped with no note of its own,
+  and one sentence says so only when no class the scan met carries the path. The schema and the read
+  walk carry the same members, bar a named list of class-only drops: `SchemaWalkAgreementTests` holds
+  them to it.
 - `editorid` reads the record's EditorID off the early EDID subrecord, never a reflection walk, so it
   answers on a record whose deep body Mutagen cannot parse. `winner` is the PROVENANCE term — which
   plugin wins the record, not its content — evaluated through the scan's bound resolution, so naming
@@ -144,10 +146,10 @@ path walk, and containment comes off Mutagen's context walk.
   INFO answers `exists` and only a plain one answers `missing`.
 - `RecordsContainmentTests.ADeletedPlacedReferenceIsStillFilteredByTheCellThatHoldsIt` — the
   header-only-set-still-sees-deleted-records bullet, with a body-reading predicate dropping it beside.
-- `ValuePredicateTests.Ge_OnAPathWrongForMoreThanHalfAMixedScanGetsTheSoftNote_NotTheLoudOne` — a type lacking the path
+- `ValuePredicateTests.Ge_OnAPathOneListedTypeLacksGetsThePlanNote_NotTheSoftOne` — a type lacking the path
   gets the fixed plan note and is not scanned.
 - `SchemaFirstPathTests` — the #1160 bullet: the real-use wrong paths refused at plan time, the real ones planned clean,
-  the per-type note with several `types=` and at first sight without; `SchemaWalkAgreementTests` the schema and the walk.
+  the per-type note with several `types=`, no per-type note without them, and the steps below a link; `SchemaWalkAgreementTests` the schema and the walk.
 - `RecordsArtifactTests` — `formid in @<artifact>` re-entry, its epoch check, and
   `APlainAtFileListStillEntersWithNoManifestAndNoEpochClaim` for the plain list file beside it.
 - `WhereContainmentTests` / `RecordsContainmentTests` — the `*parent` step and its no-verdict rollups.
