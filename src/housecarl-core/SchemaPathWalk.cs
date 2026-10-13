@@ -66,7 +66,9 @@ public sealed class SchemaPathWalk
             var next = new List<Pos>();
             var fails = new List<(int Rank, string Clause)>();
             var lacking = new List<TypeSchema>();
-            foreach (var pos in at) Step(pos, name, key, fold, segs.Skip(i + 1).ToArray(), next, fails, lacking);
+            var shown = string.Concat(Enumerable.Repeat(ContainmentIndex.ParentToken + ".", hops))
+                        + string.Join(".", segs.Take(i).Select((s, j) => s + PathFoldGrammar.Token(folds is not null && j < folds.Count ? folds[j] : PathFold.None)));
+            foreach (var pos in at) Step(pos, name, key, fold, segs.Skip(i + 1).ToArray(), shown, next, fails, lacking);
             if (next.Count > 0) { at = next.Distinct().ToList(); continue; }
             if (lacking.Count > 0) fails.Add((0, NoFieldClause(name, lacking.Distinct().ToList(), i == 0 ? where : $"on {Names(lacking)}")));
             return new(Array.Empty<Leaf>(), fails.OrderByDescending(f => f.Rank).First().Clause);
@@ -75,19 +77,25 @@ public sealed class SchemaPathWalk
     }
 
     /// <summary>One step from one position; what it reaches goes to <paramref name="next"/>, why it cannot to <paramref name="fails"/>.</summary>
-    void Step(Pos pos, string name, string? key, PathFold fold, string[] rest, List<Pos> next, List<(int, string)> fails, List<TypeSchema> lacking)
+    void Step(Pos pos, string name, string? key, PathFold fold, string[] rest, string shown, List<Pos> next, List<(int, string)> fails, List<TypeSchema> lacking)
     {
         if (pos.In is null)
         {
             var leaf = pos.At;
             if (leaf.CantTell) { next.Add(pos); return; }
-            if (leaf.Field is not { } f) { ClrStep(leaf.Clr!, name, key, fold, next, fails); return; }
+            if (leaf.Field is not { } f) { ClrStep(leaf.Clr!, name, key, fold, next, fails, null); return; }
             if (leaf.Container) { fails.Add((2, ListHopClause(f, name, rest))); return; }
             var inner = Inner(leaf);
-            if (inner.In is not null || inner.At.CantTell || inner.At.Clr is not null) { Step(inner, name, key, fold, rest, next, fails, lacking); return; }
-            fails.Add((1, f.Cardinality == "formlink" || f.FormLinkTarget is not null
-                ? $"'{f.Name}' is a link, so it has no field '{name}' of its own — read the linked record with '{f.Name}->{name}'"
-                : $"'{f.Name}' is a {(leaf.Element ? "plain element" : f.Cardinality)} value, so it has no field '{name}'"));
+            if (inner.In is not null || inner.At.CantTell || inner.At.Clr is not null) { Step(inner, name, key, fold, rest, shown, next, fails, lacking); return; }
+            if (f.Cardinality == "formlink" || f.FormLinkTarget is not null)
+            {
+                // Below a link, its own members (FormKey, IsNull) are judged on the link's CLR type.
+                if (WriteEngine.ResolveType(leaf.Element ? f.ElementTypeAssemblyQualified ?? "" : f.GetterTypeAssemblyQualified) is { } lt)
+                    ClrStep(lt, name, key, fold, next, fails, $"'{f.Name}' is a link, so it has no field '{name}' of its own — read the linked record with '{shown}->{name}'");
+                else next.Add(new Pos(null, default));
+                return;
+            }
+            fails.Add((1, $"'{f.Name}' is a {(leaf.Element ? "plain element" : f.Cardinality)} value, so it has no field '{name}'"));
             return;
         }
         var hits = FieldsNamed(pos.In, name);
@@ -121,11 +129,11 @@ public sealed class SchemaPathWalk
         : f.Cardinality == "dict" ? "a dict of keyed entries" : $"a single {RecordNaming.StripGetterInterface(f.TypeRef ?? f.Type)} value, a {f.Cardinality}";
 
     /// <summary>A step below a CLR value type, judged by reflection; an untyped or raw value is can't-tell.</summary>
-    static void ClrStep(Type t, string name, string? key, PathFold fold, List<Pos> next, List<(int, string)> fails)
+    static void ClrStep(Type t, string name, string? key, PathFold fold, List<Pos> next, List<(int, string)> fails, string? miss)
     {
         if (key is not null || fold != PathFold.None) { next.Add(new Pos(null, default)); return; }
         if (WriteEngine.ResolveProperty(t, name) is { } p) next.Add(new Pos(null, ClrLeaf(p.PropertyType)));
-        else fails.Add((1, $"'{name}' is not a member of {RecordNaming.StripGetterInterface(t.Name)}"));
+        else fails.Add((1, miss ?? $"'{name}' is not a member of {RecordNaming.StripGetterInterface(t.Name)}"));
     }
 
     static Leaf ClrLeaf(Type? t)

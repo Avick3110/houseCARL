@@ -1270,11 +1270,17 @@ public sealed class FieldPredicateSet
     readonly List<string> _planNotes = new();
     readonly Dictionary<Type, bool> _classVerdicts = new();
     readonly HashSet<string> _notedTypes = new(StringComparer.Ordinal);
+    bool _typed;
+    bool[] _carried = [];
+    List<string>?[] _lacking = [];
 
     /// <summary>The schema's refusal for this set over <paramref name="roots"/> (null: any record type), or null with a note per listed type that cannot match; binds the per-class check the scan makes.</summary>
     public string? Plan(SchemaPathWalk walk, IReadOnlyList<TypeSchema>? roots)
     {
         _walk = walk;
+        _typed = roots is not null;
+        _carried = new bool[_predicates.Count];
+        _lacking = new List<string>?[_predicates.Count];
         var scope = roots ?? walk.Records;
         string where = roots is null ? "on any record type" : roots.Count == 1 ? $"of {roots[0].Name}" : $"of any of {string.Join(", ", roots.Select(r => r.Name))}";
         foreach (var p in _predicates)
@@ -1310,22 +1316,23 @@ public sealed class FieldPredicateSet
         : p.Pseudo != PseudoPath.None ? (Array.Empty<string>(), null, p.ParentHops)
         : (p.PathSegments, p.PathFolds, p.ParentHops);
 
-    static string LackingNote(Predicate p, string why, TypeSchema type) => $"note: predicate '{p.Text}': {why.TrimEnd('.')}; no {type.Name} can match.";
+    static string LackingNote(Predicate p, string why, TypeSchema type) => $"note: predicate '{p.Text}': {(why.EndsWith('?') ? why + " So" : why.TrimEnd('.') + ";")} no {type.Name} can match.";
 
     static string Refuse(Predicate p, string why) => $"predicate '{p.Text}': {why}{(why.EndsWith('.') || why.EndsWith('?') ? "" : ".")}";
 
-    /// <summary>Whether a record of this runtime class can match every predicate; a class that cannot is said once.</summary>
+    /// <summary>Whether a record of this runtime class can match every predicate; with types= a class that cannot is said once, without them only a path no class carries is.</summary>
     bool CanMatch(Type runtime)
     {
         if (_classVerdicts.TryGetValue(runtime, out var ok)) return ok;
         ok = true;
         if (_walk!.RecordOf(runtime) is { } ts)
-            foreach (var p in _predicates)
+            for (int k = 0; k < _predicates.Count; k++)
             {
-                var (segs, folds, hops) = CandidateSide(p);
-                if (_walk.Walk(new[] { ts }, hops, segs, folds, $"of {ts.Name}").Failure is not { } why) continue;
-                if (_notedTypes.Add(ts.Name)) _planNotes.Add(LackingNote(p, why, ts));
+                var (segs, folds, hops) = CandidateSide(_predicates[k]);
+                if (_walk.Walk(new[] { ts }, hops, segs, folds, $"of {ts.Name}").Failure is not { } why) { _carried[k] = true; continue; }
                 ok = false;
+                if (!_typed) { (_lacking[k] ??= new()).Add(ts.Name); continue; }
+                if (_notedTypes.Add(ts.Name)) _planNotes.Add(LackingNote(_predicates[k], why, ts));
                 break;
             }
         return _classVerdicts[runtime] = ok;
@@ -1389,6 +1396,10 @@ public sealed class FieldPredicateSet
     public string? AccountingNote()
     {
         var notes = new List<string>(_planNotes);
+        for (int k = 0; k < _lacking.Length; k++)
+            if (_lacking[k] is { } lack && !_carried[k])
+                notes.Add($"predicate '{_predicates[k].Text}': '{_predicates[k].FullPath}' names no field on any record type in scope ({string.Join(", ", lack.Take(3))}" +
+                          $"{(lack.Count > 3 ? $", and {lack.Count - 3} more" : "")}), so no record here can match. 0 matches on that basis is NOT a confirmed 'nothing matches'.");
         for (int k = 0; k < _predicates.Count && _scanned > 0; k++)
         {
             var path = _predicates[k].FullPath;
