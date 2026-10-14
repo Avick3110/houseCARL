@@ -11,6 +11,68 @@ what a user notices and how to check it; how it works goes in the matching `docs
 
 ## Unreleased
 
+## 2.0.5 — 2026-10-14
+
+houseCARL 2.0.5 makes the slow link scans fast and gives json one row shape. The `->` and `*parent` scans that ran for ten minutes or more on 2.0.4, and could run a server out of memory, now finish in seconds or tens of seconds: on a 3,258-plugin order, a `*parent.EditorID` filter over every placed reference went from over 15 minutes to 27 s, and `resolve_names`, cold record reads and `asset_status`'s first call over many folders are faster too. In json and `to_file` rows every `fields` entry is now one leaf, `{path, value}` or `{path, note}`, and `cells` is gone, so a consumer that reads `cells` must change; json scan notes, such as unmatched `in` names, sit in `notes`, which replaces `scan_note` and `reverse_index`. Summary rows carry each record's `Name`, which moves dense summary's later columns one place, and the default answer size is now about 40k characters. A `where=` path that names no field is refused before the scan with the field it most likely meant, instead of answering 0, as are an enum value the field lacks and a word-keyed list step. An `editorid in` or `formid in` list names the members that matched no record, a scan scoped to several plugins judges each record's highest-loading scoped copy, and flags fields take `[Body, Hands]`, `Body | Hands` or `slot32`. Every format names flag bits, known ones by name and others as `slotNN` or `bitN`, in reads, in the write tools' read-back and in `nif_inspect`, and a condition prints as one line. From field reports: `apply` `Remove` leaves out a nullable link such as an INFO's `PreviousDialog` and copies carry it as the source has it, so a patch 2.0.4 or earlier wrote with these should be re-run `into=` that patch; `check to_file=` writes a row for every finding it counts; a `[*]` path ending in one field returns it from every element; and `info_order` on a topic one plugin touches applies its PNAM links. A game setting whose EditorID another GMST shares now says so on its row. `load_order_status filter=` names the folder serving a plugin, its other copies and its header; the SKSE config audit reads bracketed plugin names and IED's form objects and cuts a large file per reference; SkyPatcher overlay reads show only the warnings that can reach the records read, and scans take the overlay pole; `bsa_list` and `bsa_extract` take `under=`; `format='dense'` works on more reads; more refusals name the call that works; and the server instructions reach a session whole. The entries below are in the order they landed.
+
+- **`housecarl_skse findings='config'` now reads a plugin name with brackets or parentheses whole, so a reference
+  into `[Caenarvon] Magecore.esp` or `Asuras Guard [Armor].esp` is checked instead of counted as a missing plugin.**
+- **houseCARL's server instructions now reach a Claude Code session whole, so the enable, generated-output and
+  SkyPatcher routing rules are no longer cut off.** The housecarl instructions in a new session no longer end in
+  `[truncated]`.
+- **`housecarl_bsa_list` and `housecarl_bsa_extract` take `under=` paths or globs, as `asset_status` does, and
+  `bsa_list` takes `counts_only=`, so reading two scripts no longer unpacks the whole archive.** Try
+  `bsa_extract under=["scripts/dlc2thirskdoorscript.pex"]` on `Skyrim - Misc.bsa`.
+- **`housecarl_records` now names every flag bit in every format, known bits by name and others as `slotNN` or
+  `bitN`; json adds a numeric `slots` array on biped fields.** Read an ARMA with slot 60 set.
+- **A `where=` step into a gendered arm, list or index a record lacks (`WorldModel[1].File` on a male-only ARMA)
+  now counts as unset, not a read fault.**
+- **`housecarl_records types=… where=` now refuses an enum value the field does not have, with a "did you mean",
+  instead of answering 0 matches.** `Archetype.ActorValue in [HeavyArmorMod]` on MGEF names `HeavyArmorModifier`.
+- **`housecarl_records format='dense'` now works on a `formids=` read, an off-order `source=`, and a
+  `plugins=` scope with a named `source=`, which used to refuse or answer in text; other forms refuse, naming what
+  to use.**
+- **`housecarl_load_order_status filter=<plugin>` now names the folder serving the plugin, every other copy with
+  its size, and the header's ESL and master flags, masters and record count.** Try `filter="Requiem.esp"`.
+- **A SkyPatcher overlay read now shows only the warnings whose INI line can reach the records read; the rest are one
+  line pointing to `housecarl_skypatcher_layer filter=<INI>`, which lists each line's warnings under it.**
+- **`housecarl_asset_status` answers a first call over many folders several times faster on a large order, for
+  `under=`, `asset_paths=` and `@file` alike.** A whole mod's files as `asset_paths=@file` on a fresh server shows it.
+- **`housecarl_skse findings=config filter=…` now cuts a file too big for `max_chars` per reference, non-OK first,
+  instead of dropping the whole file.** The cut file ends on `showing N of M references (all K non-OK shown)`.
+- **A list path keyed by a word (`Conditions[any]`) is now a wrong path, not a read fault, and a `delta` or `tree`
+  path with no field on both sides shows NO FIELD instead of identical.** `where=` refuses it, naming `Conditions[*any]`.
+- **`housecarl_records` json and `to_file` rows no longer carry `cells`: every `fields` entry is `{path, value}`
+  or `{path, note}`, so a consumer reads `f[path] = value`.** Grouping by element: `docs/architecture/json-wire.md`,
+  "One leaf shape".
+- **A `housecarl_records` scan scoped to several plugins now shows each record's highest-loading scoped copy, not
+  whichever plugin was named first, and `where=` judges that copy.** Rows come back in load order whatever the
+  order of `plugins.names`, which changes `limit=`/`offset=` pages.
+- **`has`, `has_any`, `has_none` and `=` on a flags field now take `[Body, Hands]`, `Body | Hands` and `slot32`
+  as well as `Body, Hands`, and on a list such as `Keywords` the has-family refuses with the form to use.**
+- **`housecarl_records` now prints a condition as one line, `[HasPerk(058200:Skyrim.esm) == 1 on Subject OR]`; one
+  more depth level shows every sub-field.** Read a PERK's `Conditions` at `depth=2`.
+- **`housecarl_nif_inspect` now names an unnamed shader flag bit with the `bitN` token `housecarl_records` uses,
+  instead of `(+unknown bits 0x…)`.**
+- **The default answer size is now about 40k characters (was 80k), so a large read spills to a results file or cuts with a notice before a client can reject it.** Raise `max_chars` for more inline.
+- **A `housecarl_records` scan with `where=["editorid in [...]"]` or `formid in [...]` now names the list members that matched no record in the selection.** Check: list a GMST name no plugin defines; the note and json `unmatched` name it.
+- **`housecarl_apply`, `housecarl_create` and `housecarl_forward` now decode a flags value in their read-back, and apply and create on each edit line (json: `display` on the op row), as `housecarl_records` does: named bits, `slotNN`/`bitN`, slot numbers.**
+- **`housecarl_skse findings=config` now reads the `{"id": …, "plugin": "…"}` forms in JSON configs such as IED's,
+  each at its JSON path, instead of calling those files clean; PlayerRef reads OK, not DANGLING.** Check with
+  `findings=config filter=IED`.
+- **`housecarl_records` summary rows now carry each record's `Name`, the pole's copy under `source=`, and `form='identity'` is a spelling of `summary`.** Dense summary gains a `name` column after `editorid` (later columns move one place), and summary artifacts list `name` in `row_schema`.
+- **`housecarl_records` scans now take the SkyPatcher overlay pole, replaying the `limit=` window, and a `plugins=` scope with a named `source=` now answers summary, aggregate and `counts_only`.** Check: `types=["ARMO"]` with `source={"overlay": "skypatcher", "state": "post"}`.
+- **`housecarl_records` refusals for `fields_source=` a plugin, `walk=` with `where=`, and `project.fields` on the chain form now name the call that works.** Check: `fields_source="Skyrim.esm"` on a scoped scan answers with `source="Skyrim.esm"`.
+- **A nullable link, such as an INFO's `PreviousDialog`, is now left out by `apply` `Remove`, and copied as the source has it by `CopyFrom`, `bundle=` and `copy target=`; re-run a patch 2.0.4 or earlier wrote with these, `into=` that patch.** The echo reads `(null link)`.
+- **`housecarl_check to_file=` now writes a row for every finding it counts — dialogue quest-level, `.seq`, silent-line and result-script findings included — and its manifest shows `complete:false` when `limit=` cut rows or seeds.**
+- **`info_order` on a topic one plugin touches now shows the order with its PNAM links applied, marks lines that changed order, and says the in-game order is untested.** Check: read such a topic whose PNAM skips a line.
+- **A quantified path ending in one field, such as `Responses[*].FormKey`, now returns that field from every element instead of stopping at the 2000-line cut.** Check: HirelingIdles (`055DEB:Skyrim.esm`, source Skyrim.esm) lists all 247.
+- **A `*parent` filter, aggregate or projection now gathers the containing cells and topics in one walk per plugin instead of one seek each: on a 3,258-plugin order, `*parent.EditorID = BleakFallsBarrow01` over every placed reference went from over 15 minutes to 27 s.**
+- **A game setting whose EditorID another GMST in the order shares now says so on its row, naming the other FormIDs and the copy the game uses.** Read `iAllyHitNonCombatAllowed` at `F129D5:Skyrim.esm` on ARR: the note names `3D2E8D:Requiem.esp`.
+- **`->` link scans, `resolve_names` and cold record reads are much faster on large load orders.** To check: `resolve_names` over an armor's 25 armatures now answers in about 0.1 s, down from 43 s.
+- **A `housecarl_records` scan read as `everything`, a comparison or `info_order`, or saved with `to_file=`, now gives every scan note, such as unmatched `in` names; on json they sit in `notes`, which replaces `scan_note` and `reverse_index` there.** Check: `form=everything where=["editorid in [A,Typo]"]` names `Typo`.
+- **A `where=` path that names no field is refused before the scan, on every form, with the field it most likely meant, instead of answering a bare 0.** To check: FLST `where=["Items[*any]->type = Armor"]` with `form=fields` refuses, naming `Type`.
+
 ## 2.0.4 — 2026-10-05
 
 houseCARL 2.0.4 refuses inputs it used to drop silently and keeps more answers inside their cap. `housecarl_apply` and `housecarl_create` refuse stray arguments, five tools refuse `patch=` beside `into=`, and apply's default patch name steps past a disabled `Patch.esp` as the others do. An in-place apply, create, remove or forward now refuses a pre-1.71 plugin with its own records below 0x800, as 2.0 promised, and an in-place or `into=` write refuses when the parser would drop or resize a subrecord. `housecarl_skypatcher_layer` and `info_order` cut to fit `max_chars` and mark the cut, and the layer says when a cap is too small for its header. The facegen and scripts checks name what they could not read, and never-baked presets get their own class. The errors and dialogue checks and SkyPatcher-layer reads no longer mix two profiles when MO2 switches mid-call. A walk takes `walk.through` to find the NPCs that carry an item, SkyPatcher keys match without regard to case, plugin lists take `@file`, delta and tree reads skip walks they cannot use and refuse only past ten minutes, a text answer names plugins lost to a load failure, and a malformed NIF is named. The tool descriptions now say each thing once, so the tool list is about a quarter smaller. The entries below are in the order they landed.
