@@ -1,1 +1,0 @@
-- **A `housecarl_records` scan read as `everything`, a comparison or `info_order`, or saved with `to_file=`, now gives every scan note, such as unmatched `in` names; on json they sit in `notes`, which replaces `scan_note` and `reverse_index` there.** Check: `form=everything where=["editorid in [A,Typo]"]` names `Typo`.

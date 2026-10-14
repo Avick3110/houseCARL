@@ -1,1 +1,0 @@
-- **`->` link scans, `resolve_names` and cold record reads are much faster on large load orders.** To check: `resolve_names` over an armor's 25 armatures now answers in about 0.1 s, down from 43 s.
