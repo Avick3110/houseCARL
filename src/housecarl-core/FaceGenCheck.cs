@@ -105,10 +105,18 @@ public static class FaceGenCheck
         string? scanError = null;
         // The record half's rows, by selection order; a stale-bake row waits in poleWait for its pole plugin's one read.
         var rows = new List<(int Order, FaceGenFinding? Row)>();
-        var poleWait = new List<(int Slot, FormKey Fk, string Pole, string WinnerPlugin, RecordFields Winner)>();
+        var poleWait = new List<(int Slot, FormKey Fk, string Pole, string WinnerPlugin, RecordFields Winner, string? OffOrder)>();
         int order = 0;
 
         using var session = resolver.OpenSession();
+
+        // One plugin's bodies for many NPCs; an open fault surfaces raw, as the one-record read this replaced surfaced it.
+        void Collect(string plugin, IReadOnlyCollection<FormKey> keys, Dictionary<FormKey, IMajorRecordGetter> sink)
+        {
+            try { view.CollectRecords(session, plugin, keys, sink); }
+            catch (PluginUnreadableException e) when (e.InnerException is { } inner)
+            { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(inner).Throw(); }
+        }
 
         void Judge(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile)
         {
@@ -162,7 +170,7 @@ public static class FaceGenCheck
                 foreach (var g in want.GroupBy(x => x.Winner, StringComparer.OrdinalIgnoreCase))
                 {
                     var bodies = new Dictionary<FormKey, IMajorRecordGetter>();
-                    view.CollectRecords(session, g.Key, g.Select(x => x.Fk).ToHashSet(), bodies);
+                    Collect(g.Key, g.Select(x => x.Fk).ToHashSet(), bodies);
                     foreach (var x in g)
                         if (bodies.TryGetValue(x.Fk, out var body)) { order = x.Order; Judge(x.Fk, body, x.Winner, offOrderFile: false); }
                 }
@@ -197,7 +205,14 @@ public static class FaceGenCheck
             foreach (var g in poleWait.GroupBy(p => p.Pole, StringComparer.OrdinalIgnoreCase))
             {
                 var owners = new Dictionary<FormKey, IMajorRecordGetter>();
-                view.CollectRecords(session, g.Key, g.Select(p => p.Fk).ToHashSet(), owners);
+                try { Collect(g.Key, g.Select(p => p.Fk).ToHashSet(), owners); }
+                catch (Exception e) when (g.All(p => p.OffOrder is not null))
+                {
+                    // A pole fault for NPCs judged only from off-order files is that file's partial sweep, as before.
+                    scanError ??= $"{g.First().OffOrder}: {e.GetType().Name}: {e.Message}";
+                    foreach (var p in g) rows[p.Slot] = (rows[p.Slot].Order, null);
+                    continue;
+                }
                 foreach (var p in g)
                 {
                     var why = owners.TryGetValue(p.Fk, out var owner) ? StaleWhy(owner, p.Winner, p.WinnerPlugin, p.Pole) : null;
@@ -329,7 +344,8 @@ public static class FaceGenCheck
                     if (pole is null) { if (unreadable) noPoleUnreadable++; else noPole++; return; }
                     if (string.Equals(pole, winnerPlugin, StringComparison.OrdinalIgnoreCase)) return;
                     cls = FaceGenFindingClass.StaleBake;
-                    poleWait.Add((rows.Count, fk, pole, winnerPlugin, ReadEngine.ReadFields(body, FaceFields, depth: 4)));
+                    poleWait.Add((rows.Count, fk, pole, winnerPlugin, ReadEngine.ReadFields(body, FaceFields, depth: 4),
+                                  offOrderFile ? winnerPlugin : null));
                 }
                 else cls = OneProduct(mw.Layer, tw.Layer) ? FaceGenFindingClass.FamilySplit
                                                          : FaceGenFindingClass.SplitBake;
