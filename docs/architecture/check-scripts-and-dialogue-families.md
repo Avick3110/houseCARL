@@ -31,13 +31,14 @@ by script at runtime.
 
 #### Each .pex is read once per sweep
 
-One sweep reads each BSA's file table once, walks each folder it looks a script up in once into a name table, and reads each `.pex` once
-(`ScriptPropertyCheck.PexReads`), so a parent shared
-by many children, or many scripts packed in one archive, costs one read. A BSA whose last-write time or size changes
-mid-sweep is reopened before its next read, so a script it no longer holds is reported as vanished, as a fresh read
-would. Only the parsed properties and parent are
-kept, and only for that sweep; the next call reads the disk afresh. The memo is keyed by the class name's exact
-spelling, so every name and reason is worded as a fresh load would word it.
+One sweep reads each BSA's file table once, walks each folder it looks a script up in once into a name table, and
+reads each `.pex` once (`ScriptPropertyCheck.PexReads`), so a parent shared by many children, or many scripts packed in
+one archive, costs one read. A folder the archive does not hold falls back to one whole-archive name table, built once
+and shared by every such folder. A table is held only once its walk completes, so a walk that throws leaves nothing
+cached and throws again on the next read. A BSA whose last-write time or size changes mid-sweep is reopened before its
+next read, so a script it no longer holds is reported as vanished, as a fresh read would. Only the parsed properties
+and parent are kept, and only for that sweep; the next call reads the disk afresh. The memo is keyed by the class
+name's exact spelling, so every name and reason is worded as a fresh load would word it.
 
 #### Unverifiable attachments ride through every filter
 
