@@ -1,1 +1,1 @@
-- **Whole-record reads and in-place writes are many times faster: `form=everything` over 300 records drops from about 16 s to 0.25 s, and an in-place apply of 1,500 records from 51 s to 1.3 s.** Time a `form=everything` read of a few hundred records to check.
+- **Whole-record reads are many times faster: `form=everything` over 300 records drops from about 16 s to 0.25 s.** Time a `form=everything` read of a few hundred records to check.
