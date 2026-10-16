@@ -926,9 +926,10 @@ public sealed class LoadOrderResolver : IDisposable
         if (byType.Count > 1)
             foreach (var shared in MutagenGroups.SharedGroups(byType.Keys))
                 CollectShared(ov, shared, byType, sink, flat);
-        foreach (var (t, keys) in byType)
+        foreach (var t in byType.Keys.Where(t => MutagenGroups.PropsOf(t) is not null).ToList())
+            CollectShared(ov, [t], byType, sink, flat);                   // a type alone in its groups reads them the same way, counted by one rule
+        foreach (var (t, keys) in byType)                                  // no group map (the base interface): Mutagen's own walk
         {
-            System.Threading.Interlocked.Add(ref Counters.GroupCopies, MutagenGroups.PropsOf(t)?.Length ?? 0);
             int left = keys.Count;
             foreach (var rec in ov.EnumerateMajorRecords(t, throwIfUnknown: false))
                 if (keys.Contains(rec.FormKey) && sink.TryAdd(rec.FormKey, rec) && --left == 0) break;

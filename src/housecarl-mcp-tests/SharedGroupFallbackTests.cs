@@ -53,4 +53,18 @@ public sealed class SharedGroupFallbackTests : IDisposable
         Assert.Equal(1, c.CollectPasses - passes);
         Assert.Equal(0, c.TypedCollectPasses - typed);
     }
+
+    // Fails when a type walked alone counts every group that could hold it: this plugin has no Worldspaces group.
+    [Fact]
+    public void ACellGatheredAloneCountsOnlyTheGroupThePluginHolds()
+    {
+        using var svc = _mo2.Open();
+        var pin = svc.CapturePin();
+        using var session = pin.Resolver.OpenSession();
+        var sink = new Dictionary<FormKey, IMajorRecordGetter>();
+        long copies = svc.Counters.GroupCopies;
+        pin.View.CollectRecords(session, _key.FileName, new[] { _cell }, sink);
+        Assert.Equal("HcSfCell", Assert.IsAssignableFrom<ICellGetter>(sink[_cell]).EditorID);
+        Assert.Equal(1, svc.Counters.GroupCopies - copies);
+    }
 }
