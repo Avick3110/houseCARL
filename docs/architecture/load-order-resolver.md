@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-11
-covers: [src/housecarl-core/LoadOrderResolver.cs, src/housecarl-core/IndexTypes.cs]
+updated: 2026-10-16
+covers: [src/housecarl-core/LoadOrderResolver.cs, src/housecarl-core/IndexTypes.cs, src/housecarl-core/MutagenGroups.cs]
 ---
 # The load-order resolver
 
@@ -43,6 +43,7 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 
 ### Fetching one record
 - Every in-order fetch is typed by the index, through one door: `SeekBody` for one record and `CollectRecords` for a gather, which groups the wanted keys by the seek type their copy in that plugin carries and walks each type's groups once. No caller passes a type. On Mutagen 0.54.4 every pass over a top-level group copies the whole group, so an untyped seek of a Skyrim.esm armor addon cost 1.5 s and 1.37 GB; typed it is about 1 ms (#1158).
+- Seek types that share top-level groups (cells, worldspaces and the references and navmeshes in them) share one read of each group in a gather: `CollectRecords` reads the group once and walks it once per type. Which groups hold which type is `MutagenGroups`, derived from Mutagen's getter interfaces by containment (never form links); the base record interface, held by every group, maps to null and walks flat. `CostCounters.GroupCopies` counts the groups a gather read.
 - A copy the build says a plugin does not hold is absent with no read. The flat walk is kept only for a key the build did not see, or a typed walk that misses because the plugin changed under the call; the next call's freshness check rebuilds. `CostCounters.TypedSeeks` and `TypedCollectPasses` count only fetches the typed walk answered, so a fallback shows as a gap.
 - `IndexView.WinnerClassOf` answers the winning record's class off the index with no body read: the write pre-flight's link-target check and the facegen check's "not an NPC" row read it.
 - Off-order files are not indexed, so their lanes still walk the file themselves.
@@ -72,9 +73,10 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 - `RuntimeFormIdTests.ALightPluginsRecordReadsByItsRuntimeFormId`, `AFullPluginsRecordReadsByItsLoadIndex`, `ALightIndexNoActivePluginOccupiesIsRefused` and `ADynamicFormIdIsRefusedAsBelongingToNoPlugin` — the two runtime address tables and their refusals.
 - `DegradedOrderMarkerTests` — a build that lost plugins carries the marker on every lane, and a healthy one carries none.
 - `TypedIndexTests` — every lane's seeks and gather walks are typed, a key a later plugin redefines as another record type is sought in each provider's own groups, a Global variant keeps one seek type, each provider of a mixed key keeps its own class, and a plugin without a copy is not read; `IndexTypesTests` — a 256th class throws; `TypedIndexEquivalenceTests` — on the shared worlds every copy the typed door returns equals the one a flat walk finds.
+- `MutagenGroupsTests` — the derived group map pins cells, references and navmeshes to one group set and NPCs to their own, and for every seek type walks exactly the groups Mutagen's own switch reads; `SharedGroupGatherTests` — a gather over cells and their references reads the shared groups once.
 
 ## Where
 `src/housecarl-core/LoadOrderResolver.cs`: `Build`, `BuildIndex`, `IndexSnapshot`, `IndexView`,
 `Capture`, `OverlaySession`, `OpenOverlay`, `RefreshIfStale`, `ComputeEpoch`, the scan
-primitives (`WinnerRecordsOfType`, `RecordsIn`, `CollectRecords`, `SeekBody`); `src/housecarl-core/IndexTypes.cs`, the class codes.
+primitives (`WinnerRecordsOfType`, `RecordsIn`, `CollectRecords`, `SeekBody`); `src/housecarl-core/IndexTypes.cs`, the class codes; `src/housecarl-core/MutagenGroups.cs`, the group map.
 Measured figures: SPEC §3.2 (the reverse-index bounds) and #728 (the index compaction).

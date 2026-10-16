@@ -19,6 +19,9 @@ public sealed class CostCounters
     /// <summary>Gather walks answered by reading only the wanted record types' groups.</summary>
     public long TypedCollectPasses;
 
+    /// <summary>Top-level groups a gather's typed walks read; a seek type walked alone counts every group holding it.</summary>
+    public long GroupCopies;
+
     /// <summary>Provider bodies the conflict-tree fold read.</summary>
     public long TreeBodiesRead;
 
