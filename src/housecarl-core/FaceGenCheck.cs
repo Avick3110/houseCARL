@@ -105,7 +105,7 @@ public static class FaceGenCheck
         string? scanError = null;
         // The record half's rows, by selection order; a stale-bake row waits in poleWait for its pole plugin's one read.
         var rows = new List<(int Order, FaceGenFinding? Row)>();
-        var poleWait = new List<(int Slot, FormKey Fk, string Pole, string WinnerPlugin, RecordFields Winner, string? OffOrder)>();
+        var poleWait = new List<(int Slot, FormKey Fk, string Pole, string WinnerPlugin, RecordFields? Winner, string? OffOrder)>();
         int order = 0;
 
         using var session = resolver.OpenSession();
@@ -210,13 +210,14 @@ public static class FaceGenCheck
                 {
                     // A pole fault for NPCs judged only from off-order files is that file's partial sweep, as before.
                     scanError ??= $"{g.First().OffOrder}: {e.GetType().Name}: {e.Message}";
-                    foreach (var p in g) rows[p.Slot] = (rows[p.Slot].Order, null);
+                    foreach (var p in g) if (p.Slot >= 0) rows[p.Slot] = (rows[p.Slot].Order, null);
                     continue;
                 }
                 foreach (var p in g)
                 {
-                    var why = owners.TryGetValue(p.Fk, out var owner) ? StaleWhy(owner, p.Winner, p.WinnerPlugin, p.Pole) : null;
-                    if (owner is null) noPole++;
+                    if (!owners.TryGetValue(p.Fk, out var owner)) noPole++;
+                    if (p.Slot < 0) continue;                                // stale_bake was not asked for: counted, not kept
+                    var why = owner is null ? null : StaleWhy(owner, p.Winner!, p.WinnerPlugin, p.Pole);
                     rows[p.Slot] = (rows[p.Slot].Order, why is null ? null : rows[p.Slot].Row! with { Detail = why });
                 }
             }
@@ -344,7 +345,9 @@ public static class FaceGenCheck
                     if (pole is null) { if (unreadable) noPoleUnreadable++; else noPole++; return; }
                     if (string.Equals(pole, winnerPlugin, StringComparison.OrdinalIgnoreCase)) return;
                     cls = FaceGenFindingClass.StaleBake;
-                    poleWait.Add((rows.Count, fk, pole, winnerPlugin, ReadEngine.ReadFields(body, FaceFields, depth: 4),
+                    bool keep = classes.HasFlag(cls);
+                    poleWait.Add((keep ? rows.Count : -1, fk, pole, winnerPlugin,
+                                  keep ? ReadEngine.ReadFields(body, FaceFields, depth: 4) : null,
                                   offOrderFile ? winnerPlugin : null));
                 }
                 else cls = OneProduct(mw.Layer, tw.Layer) ? FaceGenFindingClass.FamilySplit
@@ -369,6 +372,7 @@ public static class FaceGenCheck
                 if (body is INpcGetter n && NoHeadOrFaceData(n)) detail = NoHeadHint;
             }
 
+            if (!classes.HasFlag(cls)) return;                              // Add would drop it
             rows.Add((order, new FaceGenFinding(fk.ToString(), body.EditorID, master,
                                    winnerPlugin + (offOrderFile ? " (off-order)" : ""),
                                    WinnerText(mesh), WinnerText(tint), Token(cls), Fix(cls), detail,
