@@ -6,22 +6,42 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The dialogue check judges a PNAM or LinkTo target's type off the index, so a right-typed target's
-/// body is never fetched. The targets sit in their own plugin, held open while the check runs: any body fetch
-/// from it fails, so a clean answer proves none was made.</summary>
+/// <summary>The dialogue check judges a Branch, PNAM or LinkTo target's type off the index (the fold's own record
+/// where the fold wins it), so no target body is fetched, right type or wrong.</summary>
 [Trait("tier", "integration")]
 public sealed class DialogueTypeCheckTests : IDisposable
 {
     readonly string _dir = Path.Combine(Path.GetTempPath(), "hc-dialogue-typecheck-" + Guid.NewGuid().ToString("N"));
 
+    public DialogueTypeCheckTests() => Directory.CreateDirectory(_dir);
+
     public void Dispose() { try { Directory.Delete(_dir, true); } catch { /* best-effort */ } }
 
-    [Fact]
-    public void ManyRightTypedTargetsInOnePluginFetchNoBodyAndAWrongTypeIsStillReported()
+    string Write(SkyrimMod mod, params ISkyrimModGetter[] masters)
     {
-        Directory.CreateDirectory(_dir);
-        var tKey = new ModKey("HcDtTargets", ModType.Master);
-        var t = new SkyrimMod(tKey, SkyrimRelease.SkyrimSE);
+        string path = Path.Combine(_dir, mod.ModKey.FileName.String);
+        mod.BeginWrite.ToPath(path).WithLoadOrder(masters).Write();
+        return path;
+    }
+
+    static List<string> LinkIssues(DialogueValidationReport report)
+    {
+        Assert.Null(report.Error);
+        Assert.Null(report.CheckError);
+        return report.Topics.Single().Issues.Select(i => i.Message)
+            .Where(m => m.Contains("PNAM") || m.Contains("LinkTo") || m.Contains("DialogTopic.Branch points at")).ToList();
+    }
+
+    static string LinkTo(FormKey info, FormKey target, string which)
+        => $"INFO {FormIdToken.Of(info)} links (LinkTo) to {FormIdToken.Of(target)}, which {which} — the conversation chain is broken.";
+
+    [Fact]
+    public void TargetsInAHeldOpenPluginFetchNoBodyAndWrongTypesAreStillReported()
+    {
+        // The Branch, PNAM and LinkTo targets sit in one plugin, held open while the check runs: any body fetch
+        // from it fails, so a clean answer proves none was made. The Quest stays in the seed: its body is read
+        // once for its aliases.
+        var t = new SkyrimMod(new ModKey("HcDtTargets", ModType.Master), SkyrimRelease.SkyrimSE);
         var lines = new List<FormKey>();
         var topics = new List<FormKey>();
         for (int n = 0; n < 20; n++)
@@ -31,14 +51,12 @@ public sealed class DialogueTypeCheckTests : IDisposable
             dt.Responses.Add(i);
             topics.Add(dt.FormKey); lines.Add(i.FormKey);
         }
-        string tPath = Path.Combine(_dir, tKey.FileName.String);
-        t.BeginWrite.ToPath(tPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        var branch = t.DialogBranches.AddNew(); branch.EditorID = "HcDtBranch";
+        var weap = t.Weapons.AddNew(); weap.EditorID = "HcDtWeap";
+        string tPath = Write(t);
 
-        var sKey = new ModKey("HcDtSeed", ModType.Plugin);
-        var s = new SkyrimMod(sKey, SkyrimRelease.SkyrimSE);
+        var s = new SkyrimMod(new ModKey("HcDtSeed", ModType.Plugin), SkyrimRelease.SkyrimSE);
         var quest = s.Quests.AddNew(); quest.EditorID = "HcDtQuest";
-        var branch = s.DialogBranches.AddNew(); branch.EditorID = "HcDtBranch";
-        var weap = s.Weapons.AddNew(); weap.EditorID = "HcDtWeap";
         var topic = s.DialogTopics.AddNew(); topic.EditorID = "HcDtSeedTopic";
         topic.Quest.SetTo(quest.FormKey); topic.Branch.SetTo(branch.FormKey); topic.SubtypeName = new RecordType("CUST");
         for (int n = 0; n < 20; n++)
@@ -51,25 +69,64 @@ public sealed class DialogueTypeCheckTests : IDisposable
         }
         var bad = new DialogResponses(s.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcDtSeedBad" };
         DialogueCkParity.ApplyInfoDefaults(bad);
+        bad.PreviousDialog.SetTo(weap.FormKey);
         bad.LinkTo.Add(new FormLink<IDialogTopicGetter>(weap.FormKey));
         topic.Responses.Add(bad);
-        string sPath = Path.Combine(_dir, sKey.FileName.String);
-        s.BeginWrite.ToPath(sPath).WithLoadOrder(new[] { t }).Write();
+        string sPath = Write(s, t);
 
-        var dataDir = Path.Combine(_dir, "data"); Directory.CreateDirectory(dataDir);
         using var resolver = LoadOrderResolver.Build(new[] { tPath, sPath });
-        using var assets = AssetResolver.Build("", "", dataDir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+        using var assets = AssetResolver.Build("", "", _dir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
         resolver.Capture();
 
         using var hold = HeldOpen.Hold(tPath);
-        var report = DialogueValidate.Run(resolver, assets, topic.FormKey);
+        var issues = LinkIssues(DialogueValidate.Run(resolver, assets, topic.FormKey));
 
-        Assert.Null(report.Error);
-        Assert.Null(report.CheckError);
-        var links = report.Topics.Single().Issues
-            .Where(i => i.Message.Contains("PNAM") || i.Message.Contains("LinkTo")).ToList();
-        var only = Assert.Single(links);
-        Assert.Contains(FormIdToken.Of(weap.FormKey), only.Message);
-        Assert.Contains("a Weapon, not a dialogue topic", only.Message);
+        Assert.Equal(new[]
+        {
+            $"INFO {FormIdToken.Of(bad.FormKey)} has a previous-link (PNAM -> {FormIdToken.Of(weap.FormKey)}) that resolves to a Weapon, not a dialogue line (INFO).",
+            LinkTo(bad.FormKey, weap.FormKey, "resolves to a Weapon, not a dialogue topic (DIAL)"),
+        }, issues);
+    }
+
+    [Fact]
+    public void AFoldIsJudgedByItsOwnTypesAndARecordOnlyItHoldsIsPresent()
+    {
+        var t = new SkyrimMod(new ModKey("HcDtfTargets", ModType.Master), SkyrimRelease.SkyrimSE);
+        var target = t.DialogTopics.AddNew(); target.EditorID = "HcDtfTarget";
+        string tPath = Write(t);
+
+        var sKey = new ModKey("HcDtfSeed", ModType.Plugin);
+        var s = new SkyrimMod(sKey, SkyrimRelease.SkyrimSE);
+        var quest = s.Quests.AddNew(); quest.EditorID = "HcDtfQuest";
+        var topic = s.DialogTopics.AddNew(); topic.EditorID = "HcDtfSeedTopic";
+        topic.Quest.SetTo(quest.FormKey); topic.SubtypeName = new RecordType("CUST");
+        // A topic no plugin in the order defines: only the fold carries it.
+        var foldOnly = new FormKey(sKey, 0xABC);
+        var info = new DialogResponses(s.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcDtfSeedI" };
+        DialogueCkParity.ApplyInfoDefaults(info);
+        info.LinkTo.Add(new FormLink<IDialogTopicGetter>(target.FormKey));
+        info.LinkTo.Add(new FormLink<IDialogTopicGetter>(foldOnly));
+        topic.Responses.Add(info);
+        string sPath = Write(s, t);
+
+        // The off-order file carries the target's FormKey as a WEAP, and the topic only it holds.
+        var f = new SkyrimMod(new ModKey("HcDtfFold", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        f.Weapons.Add(new Weapon(target.FormKey, SkyrimRelease.SkyrimSE) { EditorID = "HcDtfWeap" });
+        f.DialogTopics.Add(new DialogTopic(foldOnly, SkyrimRelease.SkyrimSE) { EditorID = "HcDtfFoldOnly" });
+        string fPath = Write(f, t, s);
+
+        using var resolver = LoadOrderResolver.Build(new[] { tPath, sPath });
+        using var assets = AssetResolver.Build("", "", _dir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+
+        Assert.Equal(new[]
+        {
+            LinkTo(info.FormKey, foldOnly, "is not in the active load order (a dialogue topic (DIAL) missing or disabled)"),
+        }, LinkIssues(DialogueValidate.Run(resolver, assets, topic.FormKey)));
+
+        using var fold = DialogueFold.Open(f.ModKey.FileName.String, "test", fPath, null);
+        Assert.Equal(new[]
+        {
+            LinkTo(info.FormKey, target.FormKey, "resolves to a Weapon, not a dialogue topic (DIAL)"),
+        }, LinkIssues(DialogueValidate.Run(resolver, assets, topic.FormKey, fold: fold)));
     }
 }
