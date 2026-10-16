@@ -1,0 +1,1 @@
+- **Apply, in-place and forward over many nested records (placed references, dialogue lines) in one call are many times faster.** 2,000 placed-reference edits in one apply now take about 1 s instead of 13 s.
