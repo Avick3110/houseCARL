@@ -1,1 +1,1 @@
-- **A facegen check is much faster: a whole-order sweep, a `plugins=` sweep and Requiem's take seconds, not minutes, with the same answer.** Run `housecarl_check` with `findings=["facegen"], plugins=["Skyrim.esm"]` and time it.
+- **A facegen check is faster with the same answer: a `plugins=` check drops from minutes to a few seconds, and a whole-order check takes about a third of the time.** Run `housecarl_check` with `findings=["facegen"], plugins=["Skyrim.esm"]` and time it.
