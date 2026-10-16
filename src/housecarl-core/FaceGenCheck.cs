@@ -103,10 +103,9 @@ public static class FaceGenCheck
         var offOrderScanned = new List<string>();
         var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? scanError = null;
-        // The record half's rows, by selection order; a stale-bake row waits in poleWait for its pole plugin's one read.
-        var rows = new List<(int Order, FaceGenFinding? Row)>();
-        var poleWait = new List<(int Slot, FormKey Fk, string Pole, string WinnerPlugin, RecordFields? Winner, string? OffOrder)>();
-        int order = 0;
+        // The record half's rows with their selection order; a stale-bake row waits in poleWait for its pole plugin's one read.
+        var rows = new List<(int Order, FaceGenFinding Row)>();
+        var poleWait = new List<(int Order, FaceGenFinding Row, FormKey Fk, string Pole, string WinnerPlugin, RecordFields Winner, string? OffOrder)>();
 
         using var session = resolver.OpenSession();
 
@@ -118,9 +117,8 @@ public static class FaceGenCheck
             { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(inner).Throw(); }
         }
 
-        void Judge(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile)
+        void Judge(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile, int order)
         {
-            order++;
             if (recordScope is not null && !recordScope.Matches(fk, body)) return;
             if (!judged.Add(fk)) return;
             npcsScanned++;
@@ -133,7 +131,7 @@ public static class FaceGenCheck
                 case false: noFaceGenRace++; return;
                 case null: raceUnresolved++; return;
             }
-            Classify(fk, body, winnerPlugin, offOrderFile);
+            Classify(fk, body, winnerPlugin, offOrderFile, order);
         }
 
         // exclude= narrows the SELECTION, not the judgement, so an NPC is out only when EVERY plugin touching it is
@@ -159,10 +157,10 @@ public static class FaceGenCheck
 
         try
         {
+            int next = 0;                                                    // the selection order of the next NPC judged
             if (targets.Count > 0)
             {
-                // A plugin scope selects the NPCs those plugins touch, then judges each at its LOAD-ORDER WINNER,
-                // read one winner plugin at a time; the order index keeps the rows in selection order.
+                // A plugin scope selects the NPCs those plugins touch, then judges each at its LOAD-ORDER WINNER.
                 var want = new List<(FormKey Fk, string Winner, int Order)>();
                 var seen = new HashSet<FormKey>();
                 foreach (var (fk, _, _, _) in view.RecordsIn(targets, NpcTypes))
@@ -172,9 +170,9 @@ public static class FaceGenCheck
                     var bodies = new Dictionary<FormKey, IMajorRecordGetter>();
                     Collect(g.Key, g.Select(x => x.Fk).ToHashSet(), bodies);
                     foreach (var x in g)
-                        if (bodies.TryGetValue(x.Fk, out var body)) { order = x.Order; Judge(x.Fk, body, x.Winner, offOrderFile: false); }
+                        if (bodies.TryGetValue(x.Fk, out var body)) Judge(x.Fk, body, x.Winner, offOrderFile: false, x.Order);
                 }
-                order = want.Count;
+                next = want.Count;
             }
             else if (scope is not { Count: > 0 })
             {
@@ -182,7 +180,7 @@ public static class FaceGenCheck
                 {
                     var winner = view.ResolveWinner(fk)?.WinnerPlugin ?? fk.ModKey.FileName.String;
                     if (ExcludedOut(fk, winner)) continue;
-                    Judge(fk, body, winner, offOrderFile: false);
+                    Judge(fk, body, winner, offOrderFile: false, next++);
                 }
             }
 
@@ -195,7 +193,7 @@ public static class FaceGenCheck
                     {
                         ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path));
                         foreach (var body in SweepScope.RecordsFrom(ov, new SweepScope(null, null, NpcTypes, "NPC_")))
-                            Judge(body.FormKey, body, name, offOrderFile: true);
+                            Judge(body.FormKey, body, name, offOrderFile: true, next++);
                     }
                     catch (Exception e) { scanError ??= $"{name}: {e.GetType().Name}: {e.Message}"; }
                     finally { (ov as IDisposable)?.Dispose(); }
@@ -208,20 +206,17 @@ public static class FaceGenCheck
                 try { Collect(g.Key, g.Select(p => p.Fk).ToHashSet(), owners); }
                 catch (Exception e) when (g.All(p => p.OffOrder is not null))
                 {
-                    // A pole fault for NPCs judged only from off-order files is that file's partial sweep, as before.
+                    // Off-order NPCs only: this pole's stale verdicts are dropped and the sweep is flagged partial.
                     scanError ??= $"{g.First().OffOrder}: {e.GetType().Name}: {e.Message}";
-                    foreach (var p in g) if (p.Slot >= 0) rows[p.Slot] = (rows[p.Slot].Order, null);
                     continue;
                 }
                 foreach (var p in g)
                 {
-                    if (!owners.TryGetValue(p.Fk, out var owner)) noPole++;
-                    if (p.Slot < 0) continue;                                // stale_bake was not asked for: counted, not kept
-                    var why = owner is null ? null : StaleWhy(owner, p.Winner!, p.WinnerPlugin, p.Pole);
-                    rows[p.Slot] = (rows[p.Slot].Order, why is null ? null : rows[p.Slot].Row! with { Detail = why });
+                    if (!owners.TryGetValue(p.Fk, out var owner)) { noPole++; continue; }
+                    if (StaleWhy(owner, p.Winner, p.WinnerPlugin, p.Pole) is { } why) Keep(p.Order, p.Row with { Detail = why });
                 }
             }
-            foreach (var (_, row) in rows.OrderBy(r => r.Order)) if (row is not null) Add(row);
+            foreach (var (_, row) in rows.OrderBy(r => r.Order)) Add(row);
         }
         catch (Exception e)
         {
@@ -324,7 +319,7 @@ public static class FaceGenCheck
                                       NeverBakedCharGenPreset: charGenPreset, NeverBakedPlayer: player);
 
         // ---- the per-NPC join ---------------------------------------------------------------------
-        void Classify(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile)
+        void Classify(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile, int order)
         {
             var meshPath = FaceGenPath.For(fk, FaceGenSlot.Mesh);
             var tintPath = FaceGenPath.For(fk, FaceGenSlot.Tint);
@@ -344,11 +339,10 @@ public static class FaceGenCheck
                     var (pole, unreadable) = PoleFor(fk, winnerPlugin, mw.Layer);
                     if (pole is null) { if (unreadable) noPoleUnreadable++; else noPole++; return; }
                     if (string.Equals(pole, winnerPlugin, StringComparison.OrdinalIgnoreCase)) return;
-                    cls = FaceGenFindingClass.StaleBake;
-                    bool keep = classes.HasFlag(cls);
-                    poleWait.Add((keep ? rows.Count : -1, fk, pole, winnerPlugin,
-                                  keep ? ReadEngine.ReadFields(body, FaceFields, depth: 4) : null,
-                                  offOrderFile ? winnerPlugin : null));
+                    if (!classes.HasFlag(FaceGenFindingClass.StaleBake)) return;  // not asked for: no pole read
+                    poleWait.Add((order, RowOf(FaceGenFindingClass.StaleBake, null), fk, pole, winnerPlugin,
+                                  ReadEngine.ReadFields(body, FaceFields, depth: 4), offOrderFile ? winnerPlugin : null));
+                    return;
                 }
                 else cls = OneProduct(mw.Layer, tw.Layer) ? FaceGenFindingClass.FamilySplit
                                                          : FaceGenFindingClass.SplitBake;
@@ -373,10 +367,18 @@ public static class FaceGenCheck
             }
 
             if (!classes.HasFlag(cls)) return;                              // Add would drop it
-            rows.Add((order, new FaceGenFinding(fk.ToString(), body.EditorID, master,
-                                   winnerPlugin + (offOrderFile ? " (off-order)" : ""),
-                                   WinnerText(mesh), WinnerText(tint), Token(cls), Fix(cls), detail,
-                                   (mesh ?? tint)?.Layer)));
+            Keep(order, RowOf(cls, detail));
+
+            FaceGenFinding RowOf(FaceGenFindingClass c, string? why)
+                => new(fk.ToString(), body.EditorID, master, winnerPlugin + (offOrderFile ? " (off-order)" : ""),
+                       WinnerText(mesh), WinnerText(tint), Token(c), Fix(c), why, (mesh ?? tint)?.Layer);
+        }
+
+        // counts_only lists no rows, so their order does not matter and a row is counted at once.
+        void Keep(int order, FaceGenFinding row)
+        {
+            if (countsOnly) Add(row);
+            else rows.Add((order, row));
         }
 
         // One half of the pair: the winning provider plus the MO2 LAYER it lives in. A BSA carries its layer down
