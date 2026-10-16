@@ -63,10 +63,10 @@ unresolvable PNAM is reported. Deleted INFOs are skipped and tallied. Resolution
 validating within {plugin + its masters} alone is a deliberately deferred capability. The whole run is wrapped, so a
 resolve or asset failure rides `CheckError` rather than being swallowed.
 
-A Quest, Branch, PNAM or LinkTo target's TYPE is read off the index (the fold's own record where the fold wins it);
-a body is fetched only when that type is wrong, to name what the target is. Every fetch from a plugin copies its
-whole top-level group, so fetching each target sank a large follower quest past 8 GB. One consequence: a
-right-typed target whose plugin changes mid-call passes, where a fetch would have called it unreadable.
+A Quest, Branch, PNAM or LinkTo target's TYPE is read off the index (the fold's own record where the fold wins it),
+and a wrong type is named from that class: no target body is fetched. Every fetch from a plugin copies its whole
+top-level group, so fetching each target sank a large follower quest past 8 GB. A target whose plugin changes
+mid-call is caught by ruling F's stamp check (pending that PR), which re-checks every plugin the call relied on.
 
 Standing limits a render must state rather than let "checks passed" read as "this will play": CTDA conditions are
 semantic and only the game evaluates them, and lip-sync and audio content are outside the data layer.
@@ -110,9 +110,9 @@ defaulting to the widest set. The same table decides what the epoch stamp names:
 substrate throughout and the stamp caveats nothing.
 
 ## Pinned by
-- `DialogueTypeCheckTests` — right-typed PNAM and LinkTo targets in a held-open plugin fetch no body, and a
-  wrong-typed LinkTo is still reported, naming its type. `DialogueTypeCheckFoldTests` — a fold that wins a link
-  target as another record type is judged by the fold's type, not the order's.
+- `DialogueTypeCheckTests` — Branch, PNAM and LinkTo targets in a held-open plugin fetch no body, right type or
+  wrong, and a wrong type is still reported by name; a fold that wins a link target as another record type is
+  judged by the fold's type, and a record only the fold holds counts as present.
 - `DialogueCkParityPairTests` and `DialogueCkParityCreateTests` — the fill and gap pairs; their `*-WINS` tests pin
   NON-OVERRIDE, their `*-AUTOFILL` tests NEVER SILENT, `DIAL-PNAM-WINS` an explicit `0` Priority, and
   `QUST-ALIAS-LOCATION` VTCK's scope to reference aliases.
