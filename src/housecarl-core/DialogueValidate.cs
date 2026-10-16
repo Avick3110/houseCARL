@@ -228,10 +228,8 @@ public static class DialogueValidate
             string? ProviderOf(FormKey k)
                 => FoldProvides(k) ? fold!.Plugin : view.ResolveWinner(k)?.WinnerPlugin;
 
-            // Cheap O(1) existence check, so only a PRESENT link pays Resolve's body fetch. See ValidateTopic.BadRef.
-            bool InOrder(FormKey k) => !k.IsNull && (fold?.Holds(k) == true || view.ResolveWinner(k) is not null);
-            // The winning copy's class off the index (the fold's own where it wins), so a type check fetches no body.
-            Type? ClassOf(FormKey k) => FoldWins(k) ? fold!.Record(k)?.GetType() : view.WinnerClassOf(k);
+            // The winning copy's class off the index (the fold's own where it wins); null means absent. Fetches no body.
+            Type? ClassOf(FormKey k) => FoldWins(k) && fold!.Record(k) is { } r ? r.GetType() : view.WinnerClassOf(k);
 
             // The topic's copy in its DEFINING master, for the SNAM ownership gate: a cached, typed DIAL seek.
             var baseCache = new Dictionary<FormKey, IDialogTopicGetter?>();
@@ -265,7 +263,7 @@ public static class DialogueValidate
 
             if (body is IDialogTopicGetter topic)
             {
-                var tv = ValidateTopic(topic, provider, InOrder, Resolve, av, BaseCopy, forceLoaded, ClassOf)
+                var tv = ValidateTopic(topic, provider, ClassOf, Resolve, av, BaseCopy, forceLoaded)
                     with { WinnerIsFolded = FoldProvides(fk) };
                 return new DialogueValidationReport(fk, "topic", topic.EditorID ?? "", provider, new[] { tv })
                     { ReadIncomplete = av.ReadIncomplete, RootFailures = av.RootFailures,
@@ -289,7 +287,7 @@ public static class DialogueValidate
                     if (NonNull(dt.Quest.FormKeyNullable) is not { } qk || qk != fk) continue;
                     var wp = view.ResolveWinner(tfk)?.WinnerPlugin ?? provider;
                     topicAt[tfk] = topics.Count;
-                    topics.Add(ValidateTopic(dt, wp, InOrder, Resolve, av, BaseCopy, forceLoaded, ClassOf));
+                    topics.Add(ValidateTopic(dt, wp, ClassOf, Resolve, av, BaseCopy, forceLoaded));
                 }
 
                 // The folded file's own topics, run after the winner scan, which owns its overlay while it streams.
@@ -302,7 +300,7 @@ public static class DialogueValidate
                         bool listed = topicAt.TryGetValue(ft.FormKey, out int at);
                         // A topic the fold RE-PARENTS away is dropped rather than left standing.
                         if (!ownsIt) { if (listed) topics[at] = null; continue; }
-                        var tv = ValidateTopic(ft, fold.Plugin, InOrder, Resolve, av, BaseCopy, forceLoaded, ClassOf)
+                        var tv = ValidateTopic(ft, fold.Plugin, ClassOf, Resolve, av, BaseCopy, forceLoaded)
                             with { WinnerIsFolded = true };
                         if (listed) topics[at] = tv;
                         else { topicAt[ft.FormKey] = topics.Count; topics.Add(tv); }
@@ -355,9 +353,8 @@ public static class DialogueValidate
     /// <param name="forceLoaded">the force-loaded names beyond the base masters; a null leaves the gate knowing
     /// only those five — a louder answer, never a quieter one.</param>
     internal static TopicValidation ValidateTopic(IDialogTopicGetter topic, string winnerPlugin,
-        Func<FormKey, bool> inOrder, Func<FormKey, IMajorRecordGetter?> resolve, AssetResolver.AssetView assetView,
-        Func<FormKey, IDialogTopicGetter?> baseCopy, IReadOnlyCollection<string>? forceLoaded,
-        Func<FormKey, Type?> classOf)
+        Func<FormKey, Type?> classOf, Func<FormKey, IMajorRecordGetter?> resolve, AssetResolver.AssetView assetView,
+        Func<FormKey, IDialogTopicGetter?> baseCopy, IReadOnlyCollection<string>? forceLoaded)
     {
         var edid = topic.EditorID ?? "";
         var issues = new List<DialogueIssue>();
@@ -368,14 +365,12 @@ public static class DialogueValidate
         // Text-encoding lint over the player-facing strings; WARN only, and report-only.
         CheckEncoding(topic.Name?.String, $"DialogTopic.Name ({edid})", issues);
 
-        // Classify a SET reference: cheap existence first, then a body fetch only for the wrong-type case.
+        // Classify a SET reference off the winner's class alone: no body is fetched.
         string? BadRef(FormKey target, string expects, Type expected)
         {
-            if (!inOrder(target)) return $"is not in the active load order ({expects} missing or disabled)";
-            if (classOf(target) is { } cls && expected.IsAssignableFrom(cls)) return null;
-            var body = resolve(target);
-            return body is not null && expected.IsInstanceOfType(body) ? null
-                : $"resolves to {(body is null ? "an unreadable record" : "a " + RecordNaming.StripOverlay(body.GetType().Name))}, not {expects}";
+            if (classOf(target) is not { } cls) return $"is not in the active load order ({expects} missing or disabled)";
+            return expected.IsAssignableFrom(cls) ? null
+                : $"resolves to a {RecordNaming.StripOverlay(cls.Name)}, not {expects}";
         }
 
         // --- Quest wiring: an unowned topic may never present its lines.
@@ -550,7 +545,7 @@ public static class DialogueValidate
             {
                 conditioned++;
                 // Static condition (CTDA) lints: they catch MALFORMED conditions and never evaluate one.
-                CheckConditions(info, ownerAliasIds, ownerQuestLabel, inOrder, resolve, issues);
+                CheckConditions(info, ownerAliasIds, ownerQuestLabel, classOf, resolve, issues);
             }
 
             // The exact methods the per-create teeth run, so the create path and the validator cannot drift.
@@ -677,7 +672,7 @@ public static class DialogueValidate
     /// <summary>Static condition-lint suite over one INFO's <c>Conditions</c> — the data-layer-decidable subset,
     /// all emitting WARNING; what is deliberately not linted is in docs/architecture/dialogue-validation.md.</summary>
     internal static void CheckConditions(IDialogResponsesGetter info, HashSet<uint>? ownerAliasIds, string ownerQuestLabel,
-        Func<FormKey, bool> inOrder, Func<FormKey, IMajorRecordGetter?> resolve, List<DialogueIssue> issues)
+        Func<FormKey, Type?> classOf, Func<FormKey, IMajorRecordGetter?> resolve, List<DialogueIssue> issues)
     {
         int n = 0;
         foreach (var cond in info.Conditions)
@@ -696,7 +691,7 @@ public static class DialogueValidate
                 if (data.Reference.IsNull)
                     issues.Add(new(DialogueIssueSeverity.Warning,
                         $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) is set to Run On a specific reference, but no reference is set — it evaluates against nothing, so the gate never behaves as intended."));
-                else if (!inOrder(refKey) && !EngineImplicit.IsImplicit(refKey))
+                else if (classOf(refKey) is null && !EngineImplicit.IsImplicit(refKey))
                     issues.Add(new(DialogueIssueSeverity.Warning,
                         $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) Run On reference {FormIdToken.Of(refKey)} is not in the active load order — the gate evaluates against nothing."));
             }
@@ -722,19 +717,19 @@ public static class DialogueValidate
                 FormKey? paramFk =
                     v is IFormLinkGetter fl && !fl.IsNull ? fl.FormKey
                     : floiIsForm && WriteEngine.IsFormLinkOrIndex(p.PropertyType) ? WriteEngine.ReadFloiFormKey(v) : null;
-                if (paramFk is { } pk && !inOrder(pk) && !EngineImplicit.IsImplicit(pk))
+                if (paramFk is { } pk && classOf(pk) is null && !EngineImplicit.IsImplicit(pk))
                     issues.Add(new(DialogueIssueSeverity.Warning,
                         $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) references {FormIdToken.Of(pk)}, which is not in the active load order — a deleted/disabled form or a wrong FormID, so the condition can't evaluate as intended."));
             }
 
             // 4. Dangling global comparison value: it lives on the Condition, outside the param sweep above.
-            if (cond is IConditionGlobalGetter cg && !cg.ComparisonValue.IsNull && !inOrder(cg.ComparisonValue.FormKey))
+            if (cond is IConditionGlobalGetter cg && !cg.ComparisonValue.IsNull && classOf(cg.ComparisonValue.FormKey) is null)
                 issues.Add(new(DialogueIssueSeverity.Warning,
                     $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) compares against global {FormIdToken.Of(cg.ComparisonValue.FormKey)}, which is not in the active load order."));
 
             // 5. GetIsID pointed at a PLACED reference — the wrong KIND of form; gated on floiIsForm.
             if (data is IGetIsIDConditionDataGetter gid && floiIsForm && WriteEngine.ReadFloiFormKey(gid.Object) is { } objFk
-                && inOrder(objFk) && resolve(objFk) is IPlacedGetter)
+                && classOf(objFk) is not null && resolve(objFk) is IPlacedGetter)
                 issues.Add(new(DialogueIssueSeverity.Warning,
                     $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} (GetIsID) points at the placed reference {FormIdToken.Of(objFk)}, but GetIsID compares the run-on actor's BASE form — pass the base NPC_/object, not a placed instance."));
         }
