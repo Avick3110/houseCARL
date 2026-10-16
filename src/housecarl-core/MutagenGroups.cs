@@ -12,6 +12,12 @@ public static class MutagenGroups
 {
     static readonly Lazy<(PropertyInfo Prop, HashSet<Type> Held)[]> Groups = new(Build);
     static readonly ConcurrentDictionary<Type, PropertyInfo[]?> Memo = new();
+    static readonly Lazy<Dictionary<PropertyInfo, Func<ISkyrimModGetter, object?>>> Getters =
+        new(() => Groups.Value.ToDictionary(g => g.Prop, g => g.Prop.GetMethod!.CreateDelegate<Func<ISkyrimModGetter, object?>>()));
+
+    /// <summary>The group <paramref name="prop"/> names on <paramref name="mod"/>, read through a compiled getter so a
+    /// fault inside it arrives as itself, not wrapped by reflection.</summary>
+    public static object? Read(PropertyInfo prop, ISkyrimModGetter mod) => Getters.Value[prop](mod);
 
     /// <summary>The <see cref="ISkyrimModGetter"/> group properties that hold <paramref name="seekType"/>, in declaration
     /// order; null when no group holds it, or every group does (the base record interface): the caller walks flat.</summary>
