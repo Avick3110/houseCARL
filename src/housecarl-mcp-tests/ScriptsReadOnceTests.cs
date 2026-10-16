@@ -65,6 +65,14 @@ public sealed class ScriptsReadOnceTests : IDisposable
     }
 
     [Fact]
+    public void SeveralScriptsInOneFolderWalkItsFileListOnce()
+    {
+        var reads = Sweep(out var result);
+        Assert.Equal(3, reads.PexLoads);
+        Assert.Equal(1, reads.FolderListsRead);
+    }
+
+    [Fact]
     public void AParentSharedByTwoChildrenLoadsOnce()
     {
         var reads = Sweep(out var result);
