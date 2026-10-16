@@ -447,7 +447,16 @@ public static class ScriptPropertyCheck
 
         // Keyed by exact spelling, so every name and reason reads exactly as a fresh load would word it.
         readonly Dictionary<string, Link> _links = new(StringComparer.Ordinal);
-        readonly Dictionary<string, (IArchiveReader Reader, FileStamp Stamp, Dictionary<string, Dictionary<string, IArchiveFile>> Folders)> _archives = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, HeldArchive> _archives = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>One opened archive: its reader, the stamp it was opened at, and the name tables walked so far.</summary>
+        sealed class HeldArchive(IArchiveReader reader, FileStamp stamp)
+        {
+            internal IArchiveReader Reader { get; } = reader;
+            internal FileStamp Stamp { get; } = stamp;
+            internal Dictionary<string, Dictionary<string, IArchiveFile>> Folders { get; } = new(StringComparer.OrdinalIgnoreCase);
+            internal Dictionary<string, IArchiveFile>? WholeArchive { get; set; }
+        }
 
         internal AssetResolver.AssetView Av { get; } = av;
         internal int ArchiveTablesRead { get; private set; }
@@ -470,22 +479,30 @@ public static class ScriptPropertyCheck
             var stamp = FileStamp.Of(archivePath);
             if (!_archives.TryGetValue(archivePath, out var held) || held.Stamp != stamp)
             {
-                _archives[archivePath] = held = (Archive.CreateReader(GameRelease.SkyrimSE, archivePath), stamp, new(StringComparer.OrdinalIgnoreCase));
+                _archives[archivePath] = held = new HeldArchive(Archive.CreateReader(GameRelease.SkyrimSE, archivePath), stamp);
                 ArchiveTablesRead++;
             }
             var want = AssetResolver.Normalize(entryPath);
             var dir = Path.GetDirectoryName(want) ?? "";
             if (!held.Folders.TryGetValue(dir, out var names))
             {
-                // Name -> entry for the folder (the whole archive when it has no such folder); the first spelling wins.
-                // Held only once the walk completes, so a walk that throws leaves nothing cached and throws again.
-                names = new(StringComparer.OrdinalIgnoreCase);
-                foreach (var file in held.Reader.TryGetFolder(dir, out var folder) ? folder.Files : held.Reader.Files)
-                    names.TryAdd(AssetResolver.Normalize(file.Path), file);
+                // A folder the archive lacks shares the one whole-archive table.
+                names = held.Reader.TryGetFolder(dir, out var folder)
+                    ? NameTable(folder.Files)
+                    : held.WholeArchive ??= NameTable(held.Reader.Files);
                 held.Folders[dir] = names;
-                FolderListsRead++;
             }
             return names.TryGetValue(want, out var entry) ? entry.GetBytes() : null;
+        }
+
+        /// <summary>Normalized name to entry over one walk of <paramref name="files"/>; the first spelling wins.</summary>
+        Dictionary<string, IArchiveFile> NameTable(IEnumerable<IArchiveFile> files)
+        {
+            var names = new Dictionary<string, IArchiveFile>(StringComparer.OrdinalIgnoreCase);
+            foreach (var file in files)
+                names.TryAdd(AssetResolver.Normalize(file.Path), file);
+            FolderListsRead++;
+            return names;
         }
     }
 
