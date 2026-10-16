@@ -230,6 +230,8 @@ public static class DialogueValidate
 
             // Cheap O(1) existence check, so only a PRESENT link pays Resolve's body fetch. See ValidateTopic.BadRef.
             bool InOrder(FormKey k) => !k.IsNull && (fold?.Holds(k) == true || view.ResolveWinner(k) is not null);
+            // The winning copy's class off the index (the fold's own where it wins), so a type check fetches no body.
+            Type? ClassOf(FormKey k) => FoldWins(k) ? fold!.Record(k)?.GetType() : view.WinnerClassOf(k);
 
             // The topic's copy in its DEFINING master, for the SNAM ownership gate: a cached, typed DIAL seek.
             var baseCache = new Dictionary<FormKey, IDialogTopicGetter?>();
@@ -263,7 +265,7 @@ public static class DialogueValidate
 
             if (body is IDialogTopicGetter topic)
             {
-                var tv = ValidateTopic(topic, provider, InOrder, Resolve, av, BaseCopy, forceLoaded)
+                var tv = ValidateTopic(topic, provider, InOrder, Resolve, av, BaseCopy, forceLoaded, ClassOf)
                     with { WinnerIsFolded = FoldProvides(fk) };
                 return new DialogueValidationReport(fk, "topic", topic.EditorID ?? "", provider, new[] { tv })
                     { ReadIncomplete = av.ReadIncomplete, RootFailures = av.RootFailures,
@@ -287,7 +289,7 @@ public static class DialogueValidate
                     if (NonNull(dt.Quest.FormKeyNullable) is not { } qk || qk != fk) continue;
                     var wp = view.ResolveWinner(tfk)?.WinnerPlugin ?? provider;
                     topicAt[tfk] = topics.Count;
-                    topics.Add(ValidateTopic(dt, wp, InOrder, Resolve, av, BaseCopy, forceLoaded));
+                    topics.Add(ValidateTopic(dt, wp, InOrder, Resolve, av, BaseCopy, forceLoaded, ClassOf));
                 }
 
                 // The folded file's own topics, run after the winner scan, which owns its overlay while it streams.
@@ -300,7 +302,7 @@ public static class DialogueValidate
                         bool listed = topicAt.TryGetValue(ft.FormKey, out int at);
                         // A topic the fold RE-PARENTS away is dropped rather than left standing.
                         if (!ownsIt) { if (listed) topics[at] = null; continue; }
-                        var tv = ValidateTopic(ft, fold.Plugin, InOrder, Resolve, av, BaseCopy, forceLoaded)
+                        var tv = ValidateTopic(ft, fold.Plugin, InOrder, Resolve, av, BaseCopy, forceLoaded, ClassOf)
                             with { WinnerIsFolded = true };
                         if (listed) topics[at] = tv;
                         else { topicAt[ft.FormKey] = topics.Count; topics.Add(tv); }
@@ -354,7 +356,8 @@ public static class DialogueValidate
     /// only those five — a louder answer, never a quieter one.</param>
     internal static TopicValidation ValidateTopic(IDialogTopicGetter topic, string winnerPlugin,
         Func<FormKey, bool> inOrder, Func<FormKey, IMajorRecordGetter?> resolve, AssetResolver.AssetView assetView,
-        Func<FormKey, IDialogTopicGetter?> baseCopy, IReadOnlyCollection<string>? forceLoaded)
+        Func<FormKey, IDialogTopicGetter?> baseCopy, IReadOnlyCollection<string>? forceLoaded,
+        Func<FormKey, Type?> classOf)
     {
         var edid = topic.EditorID ?? "";
         var issues = new List<DialogueIssue>();
@@ -366,11 +369,12 @@ public static class DialogueValidate
         CheckEncoding(topic.Name?.String, $"DialogTopic.Name ({edid})", issues);
 
         // Classify a SET reference: cheap existence first, then a body fetch only for the wrong-type case.
-        string? BadRef(FormKey target, string expects, Func<IMajorRecordGetter, bool> isExpected)
+        string? BadRef(FormKey target, string expects, Type expected)
         {
             if (!inOrder(target)) return $"is not in the active load order ({expects} missing or disabled)";
+            if (classOf(target) is { } cls && expected.IsAssignableFrom(cls)) return null;
             var body = resolve(target);
-            return body is not null && isExpected(body) ? null
+            return body is not null && expected.IsInstanceOfType(body) ? null
                 : $"resolves to {(body is null ? "an unreadable record" : "a " + RecordNaming.StripOverlay(body.GetType().Name))}, not {expects}";
         }
 
@@ -379,13 +383,13 @@ public static class DialogueValidate
         if (questFk is null)
             issues.Add(new(DialogueIssueSeverity.Warning,
                 "DialogTopic.Quest is unset — this topic is not owned by a quest. Most dialogue topics are; an unowned topic may never present its lines in game. Verify this is intentional."));
-        else if (BadRef(questFk.Value, "a quest (QUST)", b => b is IQuestGetter) is { } qwhy)
+        else if (BadRef(questFk.Value, "a quest (QUST)", typeof(IQuestGetter)) is { } qwhy)
             issues.Add(new(DialogueIssueSeverity.Problem,
                 $"DialogTopic.Quest points at {FormIdToken.Of(questFk.Value)}, which {qwhy} — the owning quest is unresolved."));
 
         // --- Branch wiring: optional, but if set it must resolve to a real DLBR.
         var branchFk = NonNull(topic.Branch.FormKeyNullable);
-        if (branchFk is not null && BadRef(branchFk.Value, "a dialogue branch (DLBR)", b => b is IDialogBranchGetter) is { } bwhy)
+        if (branchFk is not null && BadRef(branchFk.Value, "a dialogue branch (DLBR)", typeof(IDialogBranchGetter)) is { } bwhy)
             issues.Add(new(DialogueIssueSeverity.Problem,
                 $"DialogTopic.Branch points at {branchFk.Value}, which {bwhy} — the branch wiring is broken."));
 
@@ -529,7 +533,7 @@ public static class DialogueValidate
 
             // PNAM: absence is the norm and is NEVER flagged; only a SET unresolvable link is a defect.
             var pnam = NonNull(info.PreviousDialog.FormKeyNullable);
-            if (pnam is not null && BadRef(pnam.Value, "a dialogue line (INFO)", b => b is IDialogResponsesGetter) is { } pwhy)
+            if (pnam is not null && BadRef(pnam.Value, "a dialogue line (INFO)", typeof(IDialogResponsesGetter)) is { } pwhy)
                 issues.Add(new(DialogueIssueSeverity.Problem,
                     $"INFO {FormIdToken.Of(info.FormKey)} has a previous-link (PNAM -> {FormIdToken.Of(pnam.Value)}) that {pwhy}."));
 
@@ -537,7 +541,7 @@ public static class DialogueValidate
             foreach (var link in info.LinkTo)
             {
                 var lk = link.FormKey;
-                if (!lk.IsNull && BadRef(lk, "a dialogue topic (DIAL)", b => b is IDialogTopicGetter) is { } lwhy)
+                if (!lk.IsNull && BadRef(lk, "a dialogue topic (DIAL)", typeof(IDialogTopicGetter)) is { } lwhy)
                     issues.Add(new(DialogueIssueSeverity.Problem,
                         $"INFO {FormIdToken.Of(info.FormKey)} links (LinkTo) to {FormIdToken.Of(lk)}, which {lwhy} — the conversation chain is broken."));
             }
