@@ -11,59 +11,32 @@ namespace HousecarlMcpTests;
 [Trait("tier", "integration")]
 public sealed class FaceGenPoleBatchTests : IDisposable
 {
-    const string MasterName = "HcPbMaster.esm";
     const string OverhaulName = "HcPbOverhaul.esp";
     const int NpcCount = 3;
 
-    readonly string _root = Path.Combine(Path.GetTempPath(), "hc-fg-polebatch-" + Guid.NewGuid().ToString("N"));
+    readonly FaceGenPoleWorld _w = new("HcPbRace");
     readonly LoadOrderService _svc;
 
     public FaceGenPoleBatchTests()
     {
-        var instance = Path.Combine(_root, "instance");
-        var profile = Path.Combine(instance, "profiles", "Default");
-        var baseDir = Path.Combine(instance, "mods", "PbBase");
-        var overDir = Path.Combine(instance, "mods", "PbOverhaul");
-        foreach (var d in new[] { profile, baseDir, overDir, Path.Combine(_root, "game", "Data") }) Directory.CreateDirectory(d);
-        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
-            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
-            + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
-
         // Every NPC has a clean pair in PbBase, which ships the master; the overhaul wins each with another face colour.
         var master = new SkyrimMod(new ModKey("HcPbMaster", ModType.Master), SkyrimRelease.SkyrimSE);
-        var race = master.Races.AddNew();
-        race.EditorID = "HcPbRace";
-        race.Flags = Race.Flag.Playable | Race.Flag.FaceGenHead;
         var overhaul = new SkyrimMod(new ModKey("HcPbOverhaul", ModType.Plugin), SkyrimRelease.SkyrimSE);
         for (int i = 0; i < NpcCount; i++)
         {
             var n = master.Npcs.AddNew();
             n.EditorID = "HcPbNpc" + i;
-            n.Race.SetTo(race);
-            n.TextureLighting = System.Drawing.Color.FromArgb(0, 10, 20, 30);
-            foreach (var slot in new[] { FaceGenSlot.Mesh, FaceGenSlot.Tint })
-            {
-                var p = Path.Combine(baseDir, FaceGenPath.For(n.FormKey, slot));
-                Directory.CreateDirectory(Path.GetDirectoryName(p)!);
-                File.WriteAllText(p, "x");
-            }
-            overhaul.Npcs.GetOrAddAsOverride(n).TextureLighting = System.Drawing.Color.FromArgb(0, 200, 100, 50);
+            n.Race.SetTo(_w.Race);
+            FaceGenPoleWorld.Face(n, 10);
+            FaceGenPoleWorld.Face(overhaul.Npcs.GetOrAddAsOverride(n), 200);
+            _w.Bake("PbBase", n.FormKey);
         }
-        master.BeginWrite.ToPath(Path.Combine(baseDir, MasterName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-        overhaul.BeginWrite.ToPath(Path.Combine(overDir, OverhaulName)).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
-
-        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + OverhaulName + "\r\n");
-        File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + MasterName + "\r\n*" + OverhaulName + "\r\n");
-        File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+PbOverhaul\r\n+PbBase\r\n");
-        File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=Skyrim - Meshes0.bsa\r\n");
-        _svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(_root, "houseCARL.user.json")));
+        _w.Write(master, "PbBase", true, _w.RaceMod);
+        _w.Write(overhaul, "PbOverhaul", true, _w.RaceMod, master);
+        _svc = _w.Open();
     }
 
-    public void Dispose()
-    {
-        _svc.Dispose();
-        if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
-    }
+    public void Dispose() => _w.Dispose();
 
     (long Passes, long Seeks) Cost(IReadOnlyList<string>? plugins)
     {
