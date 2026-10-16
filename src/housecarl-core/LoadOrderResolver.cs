@@ -908,8 +908,12 @@ public sealed class LoadOrderResolver : IDisposable
         try { ov = session.Overlay(idx); }
         catch (Exception ex) { throw new PluginUnreadableException(_names[idx], ex); }
         System.Threading.Interlocked.Increment(ref Counters.CollectPasses);         // past here the plugin is actually walked
+        if (byType.Count > 1)
+            foreach (var shared in MutagenGroups.SharedGroups(byType.Keys))
+                CollectShared(ov, shared, byType, sink, flat);
         foreach (var (t, keys) in byType)
         {
+            System.Threading.Interlocked.Add(ref Counters.GroupCopies, MutagenGroups.PropsOf(t)?.Length ?? 0);
             int left = keys.Count;
             foreach (var rec in ov.EnumerateMajorRecords(t, throwIfUnknown: false))
                 if (keys.Contains(rec.FormKey) && sink.TryAdd(rec.FormKey, rec) && --left == 0) break;
@@ -919,6 +923,33 @@ public sealed class LoadOrderResolver : IDisposable
         int missing = flat.Count;
         foreach (var rec in ov.EnumerateMajorRecords())
             if (flat.Contains(rec.FormKey) && sink.TryAdd(rec.FormKey, rec) && --missing == 0) return;
+    }
+
+    /// <summary>Seek types that share groups (cells, worldspaces, the references in them) read each shared group once, with
+    /// one typed walk per type over that one copy, instead of one copy per type. Their misses join <paramref name="flat"/>.</summary>
+    void CollectShared(ISkyrimModGetter ov, List<Type> types, Dictionary<Type, HashSet<FormKey>> byType,
+                       IDictionary<FormKey, IMajorRecordGetter> sink, HashSet<FormKey> flat)
+    {
+        var left = types.ToDictionary(t => t, t => byType[t].Count);
+        var props = types.ToDictionary(t => t, t => MutagenGroups.PropsOf(t)!);
+        foreach (var prop in types.SelectMany(t => props[t]).Distinct().OrderBy(p => p.MetadataToken))
+        {
+            if (!types.Any(t => left[t] > 0 && props[t].Contains(prop))) continue;      // every type it holds is found
+            if (prop.GetValue(ov) is not IMajorRecordGetterEnumerable group) continue;
+            System.Threading.Interlocked.Increment(ref Counters.GroupCopies);
+            foreach (var t in types)
+            {
+                if (left[t] == 0 || !props[t].Contains(prop)) continue;
+                var keys = byType[t];
+                foreach (var rec in group.EnumerateMajorRecords(t, throwIfUnknown: false))
+                    if (keys.Contains(rec.FormKey) && sink.TryAdd(rec.FormKey, rec) && --left[t] == 0) break;
+            }
+        }
+        foreach (var t in types)
+        {
+            foreach (var fk in byType[t]) if (!sink.ContainsKey(fk)) flat.Add(fk);
+            byType.Remove(t);
+        }
     }
 
     internal IMajorRecordGetter FetchRecord(OverlaySession session, string pluginName, FormKey fk, IndexSnapshot s)
