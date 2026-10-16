@@ -29,12 +29,36 @@ public sealed class WholeRecordCorpusParseTests : IDisposable
         CorpusRulebook.CorpusPath = fresh;
         try
         {
-            var r = RecordsTools.Records(_w.Svc, formids: ids,
-                                         project: new RecordsTools.RecordsProject { form = "everything" });
+            string ReadAll() => RecordsTools.Records(_w.Svc, formids: ids,
+                                                     project: new RecordsTools.RecordsProject { form = "everything" });
+            var r = ReadAll();
             Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
             Assert.Contains($"batch: {ids.Length} records", r);
             Assert.Contains("EditorID = HcCostKeyword0", r);
-            Assert.Equal(1, CorpusRulebook.ParsesOf(fresh));
+            Assert.Equal(1, ModeledFieldIndex.LoadsOf(fresh));
+            // With the corpus gone, a read that re-parsed per record would fall back to reflection and list other fields.
+            File.Delete(fresh);
+            // The rows, without the timing and the spill file's name, which differ call to call.
+            static string Untimed(string s) => System.Text.RegularExpressions.Regex.Replace(s.Split("\n\nspilled:")[0], @"\d+ ms", "N ms");
+            Assert.Equal(Untimed(r), Untimed(ReadAll()));
+            Assert.Equal(1, ModeledFieldIndex.LoadsOf(fresh));
+        }
+        finally
+        {
+            CorpusRulebook.CorpusPath = saved;
+        }
+    }
+
+    [Fact]
+    public void AMissingCorpusIsTriedOncePerPath()
+    {
+        var saved = CorpusRulebook.CorpusPath;
+        var missing = _w.Scratch("no-corpus.json");
+        CorpusRulebook.CorpusPath = missing;
+        try
+        {
+            for (int i = 0; i < 50; i++) Assert.Null(ModeledFieldIndex.FieldsOf("Weapon"));
+            Assert.Equal(1, ModeledFieldIndex.LoadsOf(missing));
         }
         finally
         {
