@@ -111,7 +111,8 @@ substrate throughout and the stamp caveats nothing.
 
 ## Pinned by
 - `DialogueTypeCheckTests` — right-typed PNAM and LinkTo targets in a held-open plugin fetch no body, and a
-  wrong-typed LinkTo is still reported, naming its type.
+  wrong-typed LinkTo is still reported, naming its type. `DialogueTypeCheckFoldTests` — a fold that wins a link
+  target as another record type is judged by the fold's type, not the order's.
 - `DialogueCkParityPairTests` and `DialogueCkParityCreateTests` — the fill and gap pairs; their `*-WINS` tests pin
   NON-OVERRIDE, their `*-AUTOFILL` tests NEVER SILENT, `DIAL-PNAM-WINS` an explicit `0` Priority, and
   `QUST-ALIAS-LOCATION` VTCK's scope to reference aliases.
