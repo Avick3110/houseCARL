@@ -32,7 +32,9 @@ by script at runtime.
 #### Each .pex is read once per sweep
 
 One sweep reads each BSA's file table once and each `.pex` once (`ScriptPropertyCheck.PexReads`), so a parent shared
-by many children, or many scripts packed in one archive, costs one read. Only the parsed properties and parent are
+by many children, or many scripts packed in one archive, costs one read. A BSA whose last-write time or size changes
+mid-sweep is reopened before its next read, so a script it no longer holds is reported as vanished, as a fresh read
+would. Only the parsed properties and parent are
 kept, and only for that sweep; the next call reads the disk afresh. The memo is keyed by the class name's exact
 spelling, so every name and reason is worded as a fresh load would word it.
 
@@ -80,7 +82,8 @@ out of.
   each gate that must produce no sentence at all: a `contains` term, a second predicate, a `formids=` set,
   `conflicts_only`, a `references=` filter, an aggregate, and an explicit plugin scope.
 - *Each .pex is read once per sweep*: `ScriptsReadOnceTests` — one archive table read and three `.pex` loads for two
-  children sharing a parent, and four loads, each finding keeping its own spelling, when the children spell the parent differently.
+  children sharing a parent, four loads, each finding keeping its own spelling, when the children spell the parent
+  differently, and a BSA replaced under a live sweep reported as vanished.
 
 ## Where
 - `src/housecarl-core/ScriptPropertyCheck.cs` — the scripts family: `ScriptPropertyCheck.Run`,
