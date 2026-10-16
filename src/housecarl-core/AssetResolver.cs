@@ -229,6 +229,16 @@ public sealed class AssetResolver : IDisposable
         finally { (reader as IDisposable)?.Dispose(); }           // disposes nothing in 0.53.1 — see ReadArchiveTable
     }
 
+    /// <summary>One archive's whole file table keyed by normalized entry path, the first of a duplicate winning as in
+    /// <see cref="TryReadArchiveEntry"/>, so many reads from one archive cost one open. THROWS when it cannot be read.</summary>
+    public static Dictionary<string, IArchiveFile> ReadArchiveFiles(string archivePath)
+    {
+        var files = new Dictionary<string, IArchiveFile>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Archive.CreateReader(GameRelease.SkyrimSE, archivePath).Files)
+            files.TryAdd(Normalize(file.Path), file);
+        return files;
+    }
+
     /// <summary>Is <paramref name="entryPath"/> inside this archive? The existence half of <see cref="TryReadArchiveEntry"/> — same match, no GetBytes.</summary>
     public static bool ArchiveHasEntry(string archivePath, string entryPath)
     {
@@ -795,7 +805,7 @@ public sealed class AssetResolver : IDisposable
         $"{rootName}: could not {verb} '{(dir.Length == 0 ? "\\" : dir)}' — {Concise(ex)}";
 
     /// <summary>Normalize an asset path for matching: forward slashes to backslashes, drop a leading separator. Lenient — never throws.</summary>
-    static string Normalize(string p) => (p ?? "").Replace('/', '\\').TrimStart('\\');
+    internal static string Normalize(string p) => (p ?? "").Replace('/', '\\').TrimStart('\\');
 
     /// <summary>The public form of the one path gate — normalize and validate a Data-relative path — so the place lane's destination rides this validator.</summary>
     public static string ValidateRelPath(string relPath) => NormalizeQueryPath(relPath);
