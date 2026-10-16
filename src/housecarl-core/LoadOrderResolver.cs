@@ -935,7 +935,7 @@ public sealed class LoadOrderResolver : IDisposable
         foreach (var prop in types.SelectMany(t => props[t]).Distinct().OrderBy(p => p.MetadataToken))
         {
             if (!types.Any(t => left[t] > 0 && props[t].Contains(prop))) continue;      // every type it holds is found
-            if (prop.GetValue(ov) is not IMajorRecordGetterEnumerable group) continue;
+            if (MutagenGroups.Read(prop, ov) is not IMajorRecordGetterEnumerable group) continue;
             System.Threading.Interlocked.Increment(ref Counters.GroupCopies);
             foreach (var t in types)
             {
