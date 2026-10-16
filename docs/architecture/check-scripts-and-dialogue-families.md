@@ -29,6 +29,13 @@ BSA that failed to read this build is surfaced, so a "not found" that may merely
 authoritative absence. An unbound object property is a flag to VERIFY, not a proven defect: it is sometimes filled
 by script at runtime.
 
+#### Each .pex is read once per sweep
+
+One sweep reads each BSA's file table once and each `.pex` once (`ScriptPropertyCheck.PexReads`), so a parent shared
+by many children, or many scripts packed in one archive, costs one read. Only the parsed properties and parent are
+kept, and only for that sweep; the next call reads the disk afresh. The memo is keyed by the class name's exact
+spelling, so every name and reason is worded as a fresh load would word it.
+
 #### Unverifiable attachments ride through every filter
 
 A script whose `.pex` could not be read might be the very one declaring the property being filtered for, so dropping
