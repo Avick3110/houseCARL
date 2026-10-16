@@ -478,9 +478,11 @@ public static class ScriptPropertyCheck
             if (!held.Folders.TryGetValue(dir, out var names))
             {
                 // Name -> entry for the folder (the whole archive when it has no such folder); the first spelling wins.
-                held.Folders[dir] = names = new(StringComparer.OrdinalIgnoreCase);
+                // Held only once the walk completes, so a walk that throws leaves nothing cached and throws again.
+                names = new(StringComparer.OrdinalIgnoreCase);
                 foreach (var file in held.Reader.TryGetFolder(dir, out var folder) ? folder.Files : held.Reader.Files)
                     names.TryAdd(AssetResolver.Normalize(file.Path), file);
+                held.Folders[dir] = names;
                 FolderListsRead++;
             }
             return names.TryGetValue(want, out var entry) ? entry.GetBytes() : null;
