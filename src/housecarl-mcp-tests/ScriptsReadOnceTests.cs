@@ -8,7 +8,8 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>A scripts sweep reads each archive's file table once and each .pex once: two child scripts and the parent
-/// they share, all packed in one BSA, cost one table read and three .pex loads.</summary>
+/// they share, all packed in one BSA, cost one table read and three .pex loads. A parent the two children spell
+/// differently is loaded once per spelling, so each finding keeps its own child's spelling.</summary>
 [Trait("tier", "integration")]
 public sealed class ScriptsReadOnceTests : IDisposable
 {
@@ -24,7 +25,7 @@ public sealed class ScriptsReadOnceTests : IDisposable
         return File.ReadAllBytes(path);
     }
 
-    ScriptPropertyCheck.PexReads Sweep(out ScriptCheckResult result)
+    ScriptPropertyCheck.PexReads Sweep(out ScriptCheckResult result, string parentOfB = Base)
     {
         Directory.CreateDirectory(_root);
         var bsa = Path.Combine(_root, "HcPo.bsa");
@@ -34,7 +35,7 @@ public sealed class ScriptsReadOnceTests : IDisposable
             {
                 (Base.ToLowerInvariant() + ".pex", Pex(Base, null, "BaseThing")),
                 (ChildA.ToLowerInvariant() + ".pex", Pex(ChildA, Base, "AThing")),
-                (ChildB.ToLowerInvariant() + ".pex", Pex(ChildB, Base, "BThing")),
+                (ChildB.ToLowerInvariant() + ".pex", Pex(ChildB, parentOfB, "BThing")),
             }),
         }));
 
@@ -49,7 +50,7 @@ public sealed class ScriptsReadOnceTests : IDisposable
             new[] { new ActiveArchive(bsa, "HcPo.esp", 0) });
         var av = assets.Capture();
         var reads = new ScriptPropertyCheck.PexReads(av);
-        result = ScriptPropertyCheck.Run(resolver, resolver.Capture(), av, null, 1000, reads: reads);
+        result = ScriptPropertyCheck.Run(reads, resolver, resolver.Capture(), av, null, 1000);
         return reads;
     }
 
@@ -67,5 +68,17 @@ public sealed class ScriptsReadOnceTests : IDisposable
         var reads = Sweep(out var result);
         Assert.Contains(result.Reports, r => r.Unbound.Any(u => u.DeclaringScript == Base && u.Script == ChildB));
         Assert.Equal(3, reads.PexLoads);
+    }
+
+    [Fact]
+    public void AParentSpelledTwoWaysKeepsEachSpelling()
+    {
+        var upper = Base.ToUpperInvariant();
+        var reads = Sweep(out var result, upper);
+        var declaring = result.Reports.SelectMany(r => r.Unbound)
+            .Where(u => u.PropertyName == "BaseThing").Select(u => (u.Script, u.DeclaringScript)).Distinct().ToList();
+        Assert.Contains((ChildA, Base), declaring);
+        Assert.Contains((ChildB, upper), declaring);
+        Assert.Equal(4, reads.PexLoads);
     }
 }
