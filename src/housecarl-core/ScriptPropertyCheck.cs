@@ -1,3 +1,4 @@
+using Mutagen.Bethesda.Archives;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -33,14 +34,17 @@ public static class ScriptPropertyCheck
 
     /// <summary>The view-threaded body: the caller's captured view decides membership, drives the sweep and stamps
     /// success and refusals alike. The caller's asset capture <paramref name="av"/> resolves every .pex, and
-    /// <see cref="ScriptCheckResult.ReadIncomplete"/> carries its caveat separately.</summary>
+    /// <see cref="ScriptCheckResult.ReadIncomplete"/> carries its caveat separately. <paramref name="reads"/> is this
+    /// sweep's .pex reader, passed only by a test that counts its reads.</summary>
     public static ScriptCheckResult Run(LoadOrderResolver resolver, LoadOrderResolver.IndexView view, AssetResolver.AssetView av,
                                         IReadOnlyList<string>? scope, int limit,
                                         SweepScope? recordScope = null, string? propertyContains = null,
                                         ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false,
                                         SweepExclusion.Resolved? exclude = null,
-                                        IReadOnlyList<(string Name, string Path)>? offOrder = null)
+                                        IReadOnlyList<(string Name, string Path)>? offOrder = null,
+                                        PexReads? reads = null)
     {
+        reads ??= new PexReads(av);
         var propFilter = string.IsNullOrWhiteSpace(propertyContains) ? null : propertyContains.Trim();
         bool PropOk(string name) => propFilter is null || name.Contains(propFilter, StringComparison.OrdinalIgnoreCase);
         int excludedFromScope = 0;
@@ -168,7 +172,7 @@ public static class ScriptPropertyCheck
                             if (PropOk(pname)) nulls.Add(new NullObjectProperty(scriptClass, pname));
                         }
 
-                var chain = ResolveChain(av, chainCache, scriptClass);
+                var chain = ResolveChain(reads, chainCache, scriptClass);
                 if (chain.OwnLoadError is not null)
                 {
                     unver.Add(new ScriptUnverifiable(scriptClass, chain.OwnLoadError));
@@ -327,17 +331,17 @@ public static class ScriptPropertyCheck
 
     /// <summary>One <c>Auto</c> property the chain declares: its name, the <c>.pex</c> type name, the script it is
     /// declared in, whether it carries a baked initializer, and whether its type is a form/object type.</summary>
-    sealed record DeclaredProp(string Name, string TypeName, string DeclaringScript, bool HasInitializer, bool IsObjectType);
+    internal sealed record DeclaredProp(string Name, string TypeName, string DeclaringScript, bool HasInitializer, bool IsObjectType);
 
-    static ChainResult ResolveChain(AssetResolver.AssetView av, Dictionary<string, ChainResult> cache, string scriptClass)
+    static ChainResult ResolveChain(PexReads reads, Dictionary<string, ChainResult> cache, string scriptClass)
     {
         if (cache.TryGetValue(scriptClass, out var hit)) return hit;
-        var result = BuildChain(av, scriptClass);
+        var result = BuildChain(reads, scriptClass);
         cache[scriptClass] = result;
         return result;
     }
 
-    static ChainResult BuildChain(AssetResolver.AssetView av, string scriptClass)
+    static ChainResult BuildChain(PexReads reads, string scriptClass)
     {
         var byName = new Dictionary<string, DeclaredProp>(StringComparer.OrdinalIgnoreCase);   // first (most-derived) wins
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -348,71 +352,118 @@ public static class ScriptPropertyCheck
         {
             if (!visited.Add(current)) break;   // cycle guard (a malformed hierarchy) — stop, never spin
 
-            if (!TryLoadPex(av, current, out var pex, out var reason))
+            var link = reads.Load(current);
+            if (link.Reason is not null)
             {
                 if (hops == 0)
-                    return new ChainResult(Array.Empty<DeclaredProp>(), null, reason);   // the script's OWN .pex — unverifiable
-                chainNote = $"the extends chain was truncated at '{current}' ({reason}) — properties it and its ancestors declare were not checked.";
+                    return new ChainResult(Array.Empty<DeclaredProp>(), null, link.Reason);   // the script's OWN .pex — unverifiable
+                chainNote = $"the extends chain was truncated at '{current}' ({link.Reason}) — properties it and its ancestors declare were not checked.";
                 break;
             }
+            if (link.Props is null) { chainNote ??= $"'{current}.pex' held no script object — its properties were not checked."; break; }
 
-            // A single-script .pex has one object named for the class; take the matching object (else the first).
-            var obj = pex!.Objects.FirstOrDefault(o => string.Equals(o.Name, current, StringComparison.OrdinalIgnoreCase))
-                      ?? pex.Objects.FirstOrDefault();
-            if (obj is null) { chainNote ??= $"'{current}.pex' held no script object — its properties were not checked."; break; }
-
-            foreach (var p in obj.Properties)
-            {
-                if (!p.Flags.HasFlag(PropertyFlags.AutoVar)) continue;   // Auto (editable, silently-defaulting) props only
-                var name = p.Name?.Trim();
-                if (string.IsNullOrEmpty(name) || byName.ContainsKey(name)) continue;
-                var typeName = (p.TypeName ?? "").Trim();
-                var backing = obj.Variables.FirstOrDefault(v =>
-                    string.Equals(v.Name, p.AutoVarName, StringComparison.OrdinalIgnoreCase));
-                bool hasInit = backing is not null && PapyrusDecompiler.InitText(backing.VariableData) is not null;
-                byName[name] = new DeclaredProp(name, typeName, current, hasInit, IsObjectType(typeName));
-            }
-
-            current = string.IsNullOrWhiteSpace(obj.ParentClassName) ? null : obj.ParentClassName.Trim();
+            foreach (var d in link.Props) byName.TryAdd(d.Name, d);
+            current = link.Parent;
         }
 
         return new ChainResult(byName.Values.ToList(), chainNote, null);
     }
 
-    /// <summary>Open <c>Scripts\&lt;class&gt;.pex</c> off the winning VFS source, loose or BSA-packed. Returns false
-    /// with a NAMED reason, never a silent absence.</summary>
-    static bool TryLoadPex(AssetResolver.AssetView av, string scriptClass, out PexFile? pex, out string? reason)
+    /// <summary>One sweep's .pex reads: each archive's file table is read once and each script's .pex parsed once,
+    /// and only the parsed properties and parent are kept. It lives for one sweep, never longer.</summary>
+    public sealed class PexReads(AssetResolver.AssetView av)
     {
-        pex = null; reason = null;
-        var rel = $@"Scripts\{scriptClass.Replace(':', '\\')}.pex";   // a namespaced class Ns:Script lives at Scripts\Ns\Script.pex
-        var res = av.ResolveForPlacement(rel);
-        if (res.Sources.Count == 0)
+        /// <summary>One parsed script: its Auto properties (null when the .pex held no script object) and parent, or
+        /// the NAMED <see cref="Reason"/> its .pex could not be read.</summary>
+        internal sealed record Link(IReadOnlyList<DeclaredProp>? Props, string? Parent, string? Reason);
+
+        // Keyed by exact spelling, so every name and reason reads exactly as a fresh load would word it.
+        readonly Dictionary<string, Link> _links = new(StringComparer.Ordinal);
+        readonly Dictionary<string, Dictionary<string, IArchiveFile>> _archives = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>How many archive file tables this sweep read.</summary>
+        public int ArchiveTablesRead { get; private set; }
+        /// <summary>How many .pex loads this sweep made.</summary>
+        public int PexLoads { get; private set; }
+
+        internal Link Load(string scriptClass)
         {
-            // The hedge names the folder it could not read, so a modder has something to act on rather than a warning
-            // that one failed; bounded to the first root and a count, because this reason repeats per property.
-            reason = $"'{rel}' is not on disk (the script is not compiled, or not in the load order){(av.ReadIncomplete ? " — and a BSA or a loose mod folder failed to read this build, so it may merely be unscanned" + av.RootFailureBrief : "")}.";
-            return false;
+            if (!_links.TryGetValue(scriptClass, out var link))
+                _links[scriptClass] = link = TryLoadPex(scriptClass, out var pex, out var reason)
+                    ? Parse(scriptClass, pex!) : new Link(null, null, reason);
+            return link;
         }
-        var src = res.Sources[0];   // winner first
-        try
+
+        static Link Parse(string scriptClass, PexFile pex)
         {
-            if (src.LooseFilePath is not null)
-                pex = PexFile.CreateFromFile(src.LooseFilePath, GameCategory.Skyrim);
-            else if (src.ArchivePath is not null)
+            // A single-script .pex has one object named for the class; take the matching object (else the first).
+            var obj = pex.Objects.FirstOrDefault(o => string.Equals(o.Name, scriptClass, StringComparison.OrdinalIgnoreCase))
+                      ?? pex.Objects.FirstOrDefault();
+            if (obj is null) return new Link(null, null, null);
+
+            var props = new List<DeclaredProp>();
+            foreach (var p in obj.Properties)
             {
-                var bytes = AssetResolver.TryReadArchiveEntry(src.ArchivePath, src.EntryPath);
-                if (bytes is null) { reason = $"'{rel}' vanished from '{Path.GetFileName(src.ArchivePath)}' between listing and read."; return false; }
-                using var ms = new MemoryStream(bytes);
-                pex = PexFile.CreateFromStream(ms, GameCategory.Skyrim);
+                if (!p.Flags.HasFlag(PropertyFlags.AutoVar)) continue;   // Auto (editable, silently-defaulting) props only
+                var name = p.Name?.Trim();
+                if (string.IsNullOrEmpty(name)) continue;
+                var typeName = (p.TypeName ?? "").Trim();
+                var backing = obj.Variables.FirstOrDefault(v =>
+                    string.Equals(v.Name, p.AutoVarName, StringComparison.OrdinalIgnoreCase));
+                bool hasInit = backing is not null && PapyrusDecompiler.InitText(backing.VariableData) is not null;
+                props.Add(new DeclaredProp(name, typeName, scriptClass, hasInit, IsObjectType(typeName)));
             }
-            else { reason = $"'{rel}' resolved to no readable source."; return false; }
-            return true;
+            return new Link(props, string.IsNullOrWhiteSpace(obj.ParentClassName) ? null : obj.ParentClassName.Trim(), null);
         }
-        catch (Exception ex)
+
+        /// <summary>Open <c>Scripts\&lt;class&gt;.pex</c> off the winning VFS source, loose or BSA-packed. Returns false
+        /// with a NAMED reason, never a silent absence.</summary>
+        bool TryLoadPex(string scriptClass, out PexFile? pex, out string? reason)
         {
-            pex = null;
-            reason = $"Mutagen cannot read '{rel}' ({ex.GetType().Name}: {ex.Message}) — the known unreadable-pex class.";
-            return false;
+            PexLoads++;
+            pex = null; reason = null;
+            var rel = $@"Scripts\{scriptClass.Replace(':', '\\')}.pex";   // a namespaced class Ns:Script lives at Scripts\Ns\Script.pex
+            var res = av.ResolveForPlacement(rel);
+            if (res.Sources.Count == 0)
+            {
+                // The hedge names the folder it could not read, so a modder has something to act on rather than a warning
+                // that one failed; bounded to the first root and a count, because this reason repeats per property.
+                reason = $"'{rel}' is not on disk (the script is not compiled, or not in the load order){(av.ReadIncomplete ? " — and a BSA or a loose mod folder failed to read this build, so it may merely be unscanned" + av.RootFailureBrief : "")}.";
+                return false;
+            }
+            var src = res.Sources[0];   // winner first
+            try
+            {
+                if (src.LooseFilePath is not null)
+                    pex = PexFile.CreateFromFile(src.LooseFilePath, GameCategory.Skyrim);
+                else if (src.ArchivePath is not null)
+                {
+                    var bytes = ReadEntry(src.ArchivePath, src.EntryPath);
+                    if (bytes is null) { reason = $"'{rel}' vanished from '{Path.GetFileName(src.ArchivePath)}' between listing and read."; return false; }
+                    using var ms = new MemoryStream(bytes);
+                    pex = PexFile.CreateFromStream(ms, GameCategory.Skyrim);
+                }
+                else { reason = $"'{rel}' resolved to no readable source."; return false; }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                pex = null;
+                reason = $"Mutagen cannot read '{rel}' ({ex.GetType().Name}: {ex.Message}) — the known unreadable-pex class.";
+                return false;
+            }
+        }
+
+        /// <summary>One entry's bytes, its archive's file table read on first use. Null when the entry is not there;
+        /// THROWS when the archive cannot be read.</summary>
+        byte[]? ReadEntry(string archivePath, string entryPath)
+        {
+            if (!_archives.TryGetValue(archivePath, out var files))
+            {
+                _archives[archivePath] = files = AssetResolver.ReadArchiveFiles(archivePath);
+                ArchiveTablesRead++;
+            }
+            return files.TryGetValue(AssetResolver.Normalize(entryPath), out var file) ? file.GetBytes() : null;
         }
     }
 
