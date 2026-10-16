@@ -96,8 +96,8 @@ in a different order, because the Creation Kit bakes from the values rather than
 **Records are read one plugin at a time, never one NPC at a time.** A one-record seek rebuilds the plugin's whole
 NPC group, so the poles' copies are gathered by pole plugin after the selection and compared there, and under
 `plugins=` the winners are gathered by winner plugin the same way. Only each NPC's verdict outlives its plugin's
-group; the winner's face fields are held until its pole is read. The rows keep the selection order, so the answer is
-the same as reading each NPC alone.
+group; the winner's face fields are held until its pole is read, and no pole is read when `stale_bake` is not asked
+for. The rows keep the selection order, so the answer is the same as reading each NPC alone.
 
 **A clean pair whose record test could not run is counted apart, never counted clean.** When the facegen owner's mod
 ships no plugin that defines the NPC — a texture-only mod, overwrite, Data — there is no pole, and the header states
