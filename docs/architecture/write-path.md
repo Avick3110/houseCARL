@@ -123,7 +123,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   pre-flight decides, and which recognisers it shares with apply, is [`corpus-rulebook.md`](corpus-rulebook.md)'s.
 - Flat-versus-nested is ONE decision — does a flat `SkyrimGroup<T>` match — off one `EnumerateFlatGroups`
   enumeration the override, create, removal-type and seek-type lanes all derive from; a nested record needs the
-  source link cache to rebuild its parent chain and fails loud without it.
+  source link cache to rebuild its parent chain and fails loud without it. The session builds that cache once per
+  source plugin and keeps it for the call; releasing a plugin's overlay before an in-place swap drops its cache too.
 - A flat group typed by an abstract base is created by naming a concrete arm, discovered from the runtime hierarchy;
   the bare base is refused with the discovered arms listed, never a guessed default.
 - Create is idempotent through upsert: a record the patch ITSELF defines is replaced at the same FormKey, while a

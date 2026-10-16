@@ -2589,7 +2589,6 @@ public static class WritePatchBuilder
         // Positional with each created record's Ops: the WriteRequest behind the op, or null for a CK-parity fill.
         var opRequests = new List<List<WriteRequest?>>(specs.Count);
         var createdByEditorId = new Dictionary<string, IMajorRecord>(StringComparer.OrdinalIgnoreCase);
-        var linkCacheByPlugin = new Dictionary<string, Mutagen.Bethesda.Plugins.Cache.ILinkCache>(StringComparer.OrdinalIgnoreCase);
 
         // Resolve a spec's parent to a SETTABLE record IN the patch; (null, error) fails the WHOLE call.
         (IMajorRecord? parent, string? error) MakeSettableParent(int idx)
@@ -2598,12 +2597,7 @@ public static class WritePatchBuilder
             if (plan.patchParent is not null) return (plan.patchParent, null);   // a prior-into= patch-local record
             if (plan.body is not null)
             {
-                Mutagen.Bethesda.Plugins.Cache.ILinkCache? cache = null;
-                if (WriteEngine.RecordNeedsSourceCache(plan.body))
-                {
-                    if (!linkCacheByPlugin.TryGetValue(plan.sourcePlugin!, out cache))
-                        linkCacheByPlugin[plan.sourcePlugin!] = (cache = session.LinkCacheFor(plan.sourcePlugin!))!;
-                }
+                var cache = WriteEngine.RecordNeedsSourceCache(plan.body) ? session.LinkCacheFor(plan.sourcePlugin!) : null;
                 return (WriteEngine.GenericGetOrAddAsOverride(patchMod, plan.body, cache), null);
             }
             if (!createdByEditorId.TryGetValue(plan.sibling!, out var sib))

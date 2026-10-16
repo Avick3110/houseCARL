@@ -22,6 +22,9 @@ public sealed class CostCounters
     /// <summary>Provider bodies the conflict-tree fold read.</summary>
     public long TreeBodiesRead;
 
+    /// <summary>Link caches the service's sessions have built.</summary>
+    public long LinkCacheBuilds;
+
     /// <summary>Record bodies the chunk gather was asked for.</summary>
     public long KeysWanted;
 

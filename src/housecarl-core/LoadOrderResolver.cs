@@ -278,15 +278,23 @@ public sealed class LoadOrderResolver : IDisposable
         public void ReleaseOverlay(string fileName)
         {
             var hits = _open.Keys.Where(i => string.Equals(_r._names[i], fileName, StringComparison.OrdinalIgnoreCase)).ToList();
-            foreach (var i in hits) { (_open[i] as IDisposable)?.Dispose(); _open.Remove(i); }
+            foreach (var i in hits) { (_open[i] as IDisposable)?.Dispose(); _open.Remove(i); _linkCaches.Remove(i); }
         }
 
-        /// <summary>An immutable link cache over ONE named plugin in this session, for the write path's nested-parent reconstruction. Costly, never held past the session; null if not in the order.</summary>
+        /// <summary>An immutable link cache over ONE named plugin in this session, for the write path's nested-parent reconstruction. Built once per (session, plugin), dropped with its overlay, never held past the session; null if not in the order.</summary>
         public ILinkCache? LinkCacheFor(string pluginName)
-            => _r._nameToIdx.TryGetValue(pluginName, out int idx) ? Overlay(idx).ToImmutableLinkCache() : null;
+        {
+            if (!_r._nameToIdx.TryGetValue(pluginName, out int idx)) return null;
+            if (_linkCaches.TryGetValue(idx, out var lc)) return lc;
+            System.Threading.Interlocked.Increment(ref _r.Counters.LinkCacheBuilds);
+            return _linkCaches[idx] = Overlay(idx).ToImmutableLinkCache();
+        }
+
+        readonly Dictionary<int, ILinkCache> _linkCaches = new();
 
         public void Dispose()
         {
+            _linkCaches.Clear();
             foreach (var ov in _open.Values) (ov as IDisposable)?.Dispose();
             _open.Clear();
         }
