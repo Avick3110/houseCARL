@@ -2,15 +2,23 @@ using System.Collections.Concurrent;
 
 namespace HousecarlCore;
 
-/// <summary>Which catalog types model a field NAME — the generated schema read by field instead of by type, so a mistyped name and a real field this record type does not carry can be told apart. Lookups are ORDINAL.</summary>
+/// <summary>Which catalog types model a field NAME — the generated schema read by field instead of by type, so a mistyped name and a real field this record type does not carry can be told apart — and where every whole-record read gets each type's field list, off one corpus parse per corpus path. Lookups are ORDINAL.</summary>
 public static class ModeledFieldIndex
 {
     /// <summary>What the schema says about a name that would not resolve on the owner type; <see cref="OnOwner"/> true is a defect to name, and <see cref="NearIsCaseSlip"/> a certainty rather than a guess.</summary>
     public readonly record struct Verdict(bool OnOwner, IReadOnlyList<string> ModeledOn, string? Near, bool NearIsCaseSlip);
 
     /// <summary>One slot, keyed by the corpus path it was built from and published as ONE immutable reference, so a reader takes both dictionaries and the path together without the gate.</summary>
-    sealed record Snapshot(string Path, Dictionary<string, string[]> ByField, Dictionary<string, string[]> ByType);
+    sealed record Snapshot(string Path, Dictionary<string, string[]> ByField, Dictionary<string, IReadOnlyList<string>> ByType);
     static volatile Snapshot? _cache;
+    /// <summary>The corpus path whose load last failed, so a missing or unparseable corpus is tried once per path, not once per record.</summary>
+    static volatile string? _failed;
+
+    /// <summary>How many times the corpus at each path has been loaded to build the index, failed loads included.</summary>
+    static readonly ConcurrentDictionary<string, int> Loads = new(StringComparer.Ordinal);
+
+    /// <summary>How many times the index has loaded the corpus at <paramref name="corpusJsonPath"/>; 0 when it never did.</summary>
+    internal static int LoadsOf(string corpusJsonPath) => Loads.TryGetValue(corpusJsonPath, out var n) ? n : 0;
     static readonly object Gate = new();
 
     /// <summary>Memoised per (corpus path, owner type, field name), so the nearest-name sweep does not run once per scanned record.</summary>
@@ -47,7 +55,7 @@ public static class ModeledFieldIndex
     }
 
     /// <summary>The owner type's own field a miss most likely meant, and whether it is the CASE-only slip — checked first and answered exactly, because field names are case-sensitive.</summary>
-    static (string? Near, bool CaseSlip) NearestOn(Dictionary<string, string[]> byType, string ownerTypeName, string fieldName)
+    static (string? Near, bool CaseSlip) NearestOn(Dictionary<string, IReadOnlyList<string>> byType, string ownerTypeName, string fieldName)
     {
         if (!byType.TryGetValue(ownerTypeName, out var fields)) return default;
         foreach (var f in fields)
@@ -61,18 +69,22 @@ public static class ModeledFieldIndex
         var path = CorpusRulebook.CorpusPath;
         // The built snapshot never changes, so the standing one answers without the gate; only a rebuild takes it.
         if (_cache is { } cur && cur.Path == path) return cur;
+        if (_failed == path) return null;
         lock (Gate)
         {
             if (_cache is { } c && c.Path == path) return c;
+            if (_failed == path) return null;
+            Loads.AddOrUpdate(path, 1, static (_, n) => n + 1);
             Corpus corpus;
             try { corpus = CorpusRulebook.LoadCorpus(path); }
-            catch { return null; }   // corpus not built / unparseable — say nothing rather than guess
+            catch { _failed = path; return null; }   // corpus not built / unparseable — say nothing rather than guess
             var byField = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-            var byType = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            // Read-only once at build, so a caller cannot change the list every later read sees.
+            var byType = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
             // corpus.Types is ordinal-sorted, so both lists come out sorted without a sort here.
             foreach (var (typeName, schema) in corpus.Types)
             {
-                byType[typeName] = schema.Fields.Select(f => f.Name).ToArray();
+                byType[typeName] = Array.AsReadOnly(schema.Fields.Select(f => f.Name).ToArray());
                 foreach (var f in schema.Fields)
                 {
                     if (!byField.TryGetValue(f.Name, out var owners)) byField[f.Name] = owners = new List<string>();
