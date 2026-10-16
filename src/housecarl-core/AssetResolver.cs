@@ -198,18 +198,23 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>Read one BSA's file table with Mutagen's native reader into a string set. IArchiveReader is not
-    /// IDisposable in Mutagen 0.53.1, so the finally's cast disposes nothing and is not the release mechanism.</summary>
-    static HashSet<string> ReadArchiveTable(string archivePath)
+    /// IDisposable in Mutagen 0.53.1, so the finally casts below dispose nothing and are not the release mechanism.</summary>
+    static HashSet<string> ReadArchiveTable(string archivePath) =>
+        new(ReadArchiveFiles(archivePath).Keys, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>One archive's file table keyed by normalized entry path, only the entries under
+    /// <paramref name="prefix"/>, the first of a duplicate winning as in <see cref="TryReadArchiveEntry"/>, so many
+    /// reads from one archive cost one open. The reader is not disposed because the entries outlive it, and no handle
+    /// is held: each <c>GetBytes</c> reopens the file. THROWS when the archive cannot be read.</summary>
+    public static Dictionary<string, IArchiveFile> ReadArchiveFiles(string archivePath, string prefix = "")
     {
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var reader = Archive.CreateReader(GameRelease.SkyrimSE, archivePath);
-        try
+        var files = new Dictionary<string, IArchiveFile>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Archive.CreateReader(GameRelease.SkyrimSE, archivePath).Files)
         {
-            foreach (var file in reader.Files)
-                set.Add(Normalize(file.Path));
+            var path = Normalize(file.Path);
+            if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) files.TryAdd(path, file);
         }
-        finally { (reader as IDisposable)?.Dispose(); }           // disposes nothing in 0.53.1 — see the summary
-        return set;
+        return files;
     }
 
     /// <summary>Read ONE entry's bytes out of a BSA with Mutagen's native reader. Returns a fresh array, null when
@@ -227,16 +232,6 @@ public sealed class AssetResolver : IDisposable
             return null;                                           // archive read fine, entry simply not present
         }
         finally { (reader as IDisposable)?.Dispose(); }           // disposes nothing in 0.53.1 — see ReadArchiveTable
-    }
-
-    /// <summary>One archive's whole file table keyed by normalized entry path, the first of a duplicate winning as in
-    /// <see cref="TryReadArchiveEntry"/>, so many reads from one archive cost one open. THROWS when it cannot be read.</summary>
-    public static Dictionary<string, IArchiveFile> ReadArchiveFiles(string archivePath)
-    {
-        var files = new Dictionary<string, IArchiveFile>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in Archive.CreateReader(GameRelease.SkyrimSE, archivePath).Files)
-            files.TryAdd(Normalize(file.Path), file);
-        return files;
     }
 
     /// <summary>Is <paramref name="entryPath"/> inside this archive? The existence half of <see cref="TryReadArchiveEntry"/> — same match, no GetBytes.</summary>
