@@ -1,6 +1,4 @@
-using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
-using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
 using Xunit;
@@ -9,86 +7,83 @@ namespace HousecarlMcpTests;
 
 /// <summary>
 /// A write of many NESTED records (placed references) out of one plugin builds ONE source link cache for the call,
-/// not one per edit. A link cache over a real master costs seconds and gigabytes, so the count is the claim.
+/// not one per edit, on every write lane that nests. A link cache over a real master costs seconds and gigabytes, so
+/// the count is the claim.
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class NestedWriteLinkCacheTests : IDisposable
 {
     const int Refs = 40;
 
-    readonly string _root;
-    readonly LoadOrderResolver _resolver;
-    readonly string _masterName;
-    readonly List<FormKey> _refs = new();
+    readonly NestedRefRig _w = new(Refs);
 
-    public NestedWriteLinkCacheTests()
+    static List<WritePatchBuilder.PatchEdit> SetScales(IEnumerable<FormKey> keys) =>
+        keys.Select(k => WritePathRig.Set(k, "Scale", "2")).ToList();
+
+    long Builds(Func<bool> call, Func<string?> error)
     {
-        _root = Path.Combine(Path.GetTempPath(), "hc-nestedlc-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_root);
-
-        var master = new SkyrimMod(new ModKey("HcNestedLcMaster", ModType.Master), SkyrimRelease.SkyrimSE);
-        _masterName = master.ModKey.FileName.String;
-        var cell = new Cell(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcNestedLcCell" };
-        for (int i = 0; i < Refs; i++)
-        {
-            var r = new PlacedObject(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcNestedLcRef" + i, Scale = 1.0f };
-            cell.Temporary.Add(r);
-            _refs.Add(r.FormKey);
-        }
-        var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
-        sub.Cells.Add(cell);
-        var block = new CellBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock };
-        block.SubBlocks.Add(sub);
-        master.Cells.Records.Add(block);
-        var masterFile = Path.Combine(_root, _masterName);
-        master.BeginWrite.ToPath(masterFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-
-        _resolver = LoadOrderResolver.Build(new[] { masterFile });
-    }
-
-    float[] WrittenScales(string path)
-    {
-        using var mod = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
-        var byKey = mod.EnumerateMajorRecords<IPlacedObjectGetter>().ToDictionary(r => r.FormKey, r => r.Scale ?? 0f);
-        return _refs.Select(k => byKey.TryGetValue(k, out var s) ? s : 0f).ToArray();
+        var before = _w.Order.Counters.LinkCacheBuilds;
+        Assert.True(call(), error());
+        return _w.Order.Counters.LinkCacheBuilds - before;
     }
 
     [Fact]
     public void ANestedApplyBuildsOneLinkCacheNotOnePerEdit()
     {
-        var edits = _refs.Select(k => new WritePatchBuilder.PatchEdit
-        {
-            Target = k, Path = new[] { "Scale" }, Verb = "Set", Value = "2",
-        }).ToList();
-        var path = Path.Combine(_root, "HcNestedLcApply.esp");
+        var path = _w.Rig.Out("HcNestedLcApply.esp");
+        WritePatchBuilder.PatchOutcome o = null!;
+        var builds = Builds(() => (o = WritePatchBuilder.Apply(_w.Order, TestCorpus.Rulebook, SetScales(_w.MasterRefs), path, extend: false)).Success, () => o.Error);
 
-        var before = _resolver.Counters.LinkCacheBuilds;
-        var outcome = WritePatchBuilder.Apply(_resolver, TestCorpus.Rulebook, edits, path, extend: false);
-        var builds = _resolver.Counters.LinkCacheBuilds - before;
-
-        Assert.True(outcome.Success, outcome.Error);
         Assert.True(builds == 1, $"{Refs} nested edits out of one plugin built {builds} link caches.");
-        Assert.All(WrittenScales(path), s => Assert.Equal(2f, s));
+        Assert.All(_w.Scales(path, _w.MasterRefs), s => Assert.Equal(2f, s));
     }
 
     [Fact]
     public void ANestedForwardBuildsOneLinkCacheNotOnePerRecord()
     {
-        var specs = _refs.Select(k => new WritePatchBuilder.ForwardSpec { Target = k, FromPlugin = _masterName }).ToList();
-        var path = Path.Combine(_root, "HcNestedLcForward.esp");
+        var specs = _w.MasterRefs.Select(k => new WritePatchBuilder.ForwardSpec { Target = k, FromPlugin = NestedRefRig.MasterName }).ToList();
+        var path = _w.Rig.Out("HcNestedLcForward.esp");
+        WritePatchBuilder.ForwardOutcome o = null!;
+        var builds = Builds(() => (o = WritePatchBuilder.ForwardRecords(_w.Order, specs, path, extend: false, sourceParam: "source")).Success, () => o.Error);
 
-        var before = _resolver.Counters.LinkCacheBuilds;
-        var outcome = WritePatchBuilder.ForwardRecords(_resolver, specs, path, extend: false, sourceParam: "source");
-        var builds = _resolver.Counters.LinkCacheBuilds - before;
-
-        Assert.True(outcome.Success, outcome.Error);
         Assert.True(builds == 1, $"{Refs} nested forwards out of one plugin built {builds} link caches.");
-        Assert.All(WrittenScales(path), s => Assert.Equal(1f, s));
+        Assert.All(_w.Scales(path, _w.MasterRefs), s => Assert.Equal(1f, s));
     }
 
-    public void Dispose()
+    [Fact]
+    public void ANestedInPlaceApplyBuildsOneLinkCacheNotOnePerEdit()
     {
-        _resolver.Dispose();
-        try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
+        WritePatchBuilder.PatchOutcome o = null!;
+        var builds = Builds(() => (o = WritePatchBuilder.ApplyInPlace(_w.Order, TestCorpus.Rulebook, SetScales(_w.UserRefs), _w.UserPath, NestedRefRig.UserName)).Success, () => o.Error);
+
+        Assert.True(builds == 1, $"{Refs} nested in-place edits in one plugin built {builds} link caches.");
+        Assert.All(_w.Scales(_w.UserPath, _w.UserRefs), s => Assert.Equal(2f, s));
     }
+
+    [Fact]
+    public void ANestedInPlaceForwardBuildsOneLinkCacheNotOnePerRecord()
+    {
+        var specs = _w.MasterRefs.Select(k => new WritePatchBuilder.ForwardSpec { Target = k, FromPlugin = NestedRefRig.MasterName }).ToList();
+        WritePatchBuilder.ForwardOutcome o = null!;
+        var builds = Builds(() => (o = WritePatchBuilder.ForwardRecordsInPlace(_w.Order, specs, _w.TargetPath, NestedRefRig.TargetName, "source=")).Success, () => o.Error);
+
+        Assert.True(builds == 1, $"{Refs} nested in-place forwards out of one plugin built {builds} link caches.");
+        Assert.All(_w.Scales(_w.TargetPath, _w.MasterRefs), s => Assert.Equal(1f, s));
+    }
+
+    [Fact]
+    public void ANestedCreateUnderOneCellBuildsOneLinkCacheNotOnePerRecord()
+    {
+        using var c = new NestedCreateRig();
+        var specs = Enumerable.Range(0, Refs).Select(i => NestedCreateRig.Under(c.Cell.ToString(), "PlacedObject", "HcNestedLcNew" + i) with { IntoCollection = "Temporary" }).ToArray();
+        var before = c.Order.Counters.LinkCacheBuilds;
+        var (o, path) = c.Create("HcNestedLcCreate.esp", specs);
+        var builds = c.Order.Counters.LinkCacheBuilds - before;
+
+        Assert.True(o.Success, o.Error);
+        Assert.True(builds == 1, $"{Refs} nested creates under one plugin's cell built {builds} link caches.");
+        Assert.Equal(Refs, c.Open(path).EnumerateMajorRecords<IPlacedObjectGetter>().Count());
+    }
+
+    public void Dispose() => _w.Dispose();
 }
