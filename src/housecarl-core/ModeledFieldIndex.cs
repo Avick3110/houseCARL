@@ -21,7 +21,7 @@ public static class ModeledFieldIndex
         Index() is { } idx ? Verdicts.ComputationsOf((idx.Path, ownerTypeName, fieldName)) : 0;
 
     /// <summary>The modeled field names of one catalog type in schema order, off the one parse per corpus path; null when the corpus is absent or does not carry the type.</summary>
-    public static string[]? FieldsOf(string typeName) => Index() is { } idx && idx.ByType.TryGetValue(typeName, out var f) ? f : null;
+    public static IReadOnlyList<string>? FieldsOf(string typeName) => Index() is { } idx && idx.ByType.TryGetValue(typeName, out var f) ? f : null;
 
     /// <summary>What the schema knows about <paramref name="fieldName"/> not resolving on <paramref name="ownerTypeName"/>; null when the corpus is absent or the catalog does not carry the owner.</summary>
     public static Verdict? Diagnose(string ownerTypeName, string fieldName)
