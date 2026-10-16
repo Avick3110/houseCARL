@@ -67,8 +67,37 @@ public sealed class ScriptsReadOnceTests : IDisposable
     [Fact]
     public void SeveralScriptsInOneFolderWalkItsFileListOnce()
     {
-        var reads = Sweep(out var result);
-        Assert.Equal(3, reads.PexLoads);
+        var reads = Sweep(out _);
+        Assert.Equal(1, reads.FolderListsRead);
+    }
+
+    [Fact]
+    public void ANamespacedScriptWalksItsOwnFolderOnce()
+    {
+        Directory.CreateDirectory(_root);
+        var bsa = Path.Combine(_root, "HcPo.bsa");
+        File.WriteAllBytes(bsa, BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, new[]
+        {
+            ("scripts", new[] { (Base.ToLowerInvariant() + ".pex", Pex(Base, null, "BaseThing")) }),
+            (@"scripts\ns", new[] { ("hcpons.pex", Pex("HcPoNs", null, "NsThing")) }),
+        }));
+        using var assets = AssetResolver.Build("", "", _root, Array.Empty<string>(),
+            new[] { new ActiveArchive(bsa, "HcPo.esp", 0) });
+        var reads = new ScriptPropertyCheck.PexReads(assets.Capture());
+        Assert.Null(reads.Load(Base).Reason);
+        Assert.Null(reads.Load("Ns:HcPoNs").Reason);
+        Assert.Equal(2, reads.FolderListsRead);
+    }
+
+    [Fact]
+    public void FoldersTheArchiveLacksShareOneWholeArchiveTable()
+    {
+        var bsa = WriteBsa((Base, Pex(Base, null, "BaseThing")));
+        using var assets = AssetResolver.Build("", "", _root, Array.Empty<string>(),
+            new[] { new ActiveArchive(bsa, "HcPo.esp", 0) });
+        var reads = new ScriptPropertyCheck.PexReads(assets.Capture());
+        Assert.Null(reads.ReadEntry(bsa, @"Scripts\Gone\HcPoGone.pex"));
+        Assert.Null(reads.ReadEntry(bsa, @"Meshes\HcPoGone.nif"));
         Assert.Equal(1, reads.FolderListsRead);
     }
 
