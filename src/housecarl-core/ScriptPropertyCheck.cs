@@ -437,8 +437,8 @@ public static class ScriptPropertyCheck
         }
     }
 
-    /// <summary>One sweep's .pex reads: each archive's scripts table is read once and each .pex parsed once, keeping
-    /// only its properties and parent. It lives for one sweep, never longer.</summary>
+    /// <summary>One sweep's .pex reads: each archive's reader is opened once and each .pex parsed once, keeping only
+    /// its properties and parent. It lives for one sweep, never longer.</summary>
     internal sealed class PexReads(AssetResolver.AssetView av)
     {
         /// <summary>One parsed script: its Auto properties (null when the .pex held no script object) and parent, or
@@ -447,7 +447,7 @@ public static class ScriptPropertyCheck
 
         // Keyed by exact spelling, so every name and reason reads exactly as a fresh load would word it.
         readonly Dictionary<string, Link> _links = new(StringComparer.Ordinal);
-        readonly Dictionary<string, Dictionary<string, IArchiveFile>> _archives = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, (IArchiveReader Reader, FileStamp Stamp)> _archives = new(StringComparer.OrdinalIgnoreCase);
 
         internal AssetResolver.AssetView Av { get; } = av;
         internal int ArchiveTablesRead { get; private set; }
@@ -461,16 +461,24 @@ public static class ScriptPropertyCheck
                 ? Parse(scriptClass, pex!) : new Link(null, null, reason);
         }
 
-        /// <summary>One entry's bytes, its archive's scripts table read on first use. Null when the entry is not there;
-        /// THROWS when the archive cannot be read.</summary>
+        /// <summary>One entry's bytes through the archive's reader, opened on first use and again when the file's
+        /// stamp has changed, so a replaced archive is read fresh. Null when the entry is not there; THROWS when the
+        /// archive cannot be read. The reader holds no handle: each <c>GetBytes</c> reopens the file.</summary>
         internal byte[]? ReadEntry(string archivePath, string entryPath)
         {
-            if (!_archives.TryGetValue(archivePath, out var files))
+            var stamp = FileStamp.Of(archivePath);
+            if (!_archives.TryGetValue(archivePath, out var held) || held.Stamp != stamp)
             {
-                _archives[archivePath] = files = AssetResolver.ReadArchiveFiles(archivePath, @"scripts\");
+                _archives[archivePath] = held = (Archive.CreateReader(GameRelease.SkyrimSE, archivePath), stamp);
                 ArchiveTablesRead++;
             }
-            return files.TryGetValue(AssetResolver.Normalize(entryPath), out var file) ? file.GetBytes() : null;
+            var want = AssetResolver.Normalize(entryPath);
+            var files = held.Reader.TryGetFolder(Path.GetDirectoryName(want) ?? "", out var folder)
+                ? folder.Files : held.Reader.Files;
+            foreach (var file in files)
+                if (string.Equals(AssetResolver.Normalize(file.Path), want, StringComparison.OrdinalIgnoreCase))
+                    return file.GetBytes();
+            return null;
         }
     }
 
