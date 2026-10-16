@@ -1,0 +1,1 @@
+- **The dialogue check on a large follower quest no longer runs out of memory.** Seed `housecarl_check findings=["dialogue"]` with a follower quest such as Inigo's `InigofollowerDialogue`: it answers in seconds.
