@@ -1,1 +1,1 @@
-- **The scripts check is about ten times faster: a whole-order `findings=["scripts"]` sweep of a large modlist took 23–27 s instead of 256–302 s, with the same findings.** Run it on your whole order and time it.
+- **The scripts check is much faster: a whole-order `findings=["scripts"]` sweep of a large modlist took about 25 s on a warm disk cache (about 2 minutes cold) instead of 4–5 minutes, same findings.** Time it on your order.

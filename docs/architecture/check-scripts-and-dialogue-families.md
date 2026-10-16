@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-23
+updated: 2026-10-16
 covers: [src/housecarl-core/ScriptPropertyCheck.cs, src/housecarl-core/EditorIdNearMiss.cs]
 ---
 # The scripts and dialogue families, and the EditorID near-miss hint
@@ -79,6 +79,8 @@ out of.
 - *The EditorID near-miss hint*: `WhereNearMissTests`, whose arms cover the rename sentence, the winner that dropped its EditorID, and
   each gate that must produce no sentence at all: a `contains` term, a second predicate, a `formids=` set,
   `conflicts_only`, a `references=` filter, an aggregate, and an explicit plugin scope.
+- *Each .pex is read once per sweep*: `ScriptsReadOnceTests` — one archive table read and three `.pex` loads for two
+  children sharing a parent, and four loads, each finding keeping its own spelling, when the children spell the parent differently.
 
 ## Where
 - `src/housecarl-core/ScriptPropertyCheck.cs` — the scripts family: `ScriptPropertyCheck.Run`,
