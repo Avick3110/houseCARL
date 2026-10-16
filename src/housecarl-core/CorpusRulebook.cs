@@ -131,13 +131,14 @@ public sealed class CorpusRulebook
     /// deserialise throws a named exception — never a silent empty corpus.</summary>
     public static Corpus LoadCorpus(string corpusJsonPath)
     {
-        Parses.AddOrUpdate(Path.GetFullPath(corpusJsonPath), 1, (_, n) => n + 1);
         if (!File.Exists(corpusJsonPath))
             throw new FileNotFoundException(
                 $"corpus.json not found at {Path.GetFullPath(corpusJsonPath)}. Generate it first: " +
                 "dotnet run --project src/housecarl-generator");
-        return JsonSerializer.Deserialize<Corpus>(File.ReadAllText(corpusJsonPath))
+        var corpus = JsonSerializer.Deserialize<Corpus>(File.ReadAllText(corpusJsonPath))
             ?? throw new InvalidOperationException("corpus.json deserialised to null.");
+        Parses.AddOrUpdate(Path.GetFullPath(corpusJsonPath), 1, (_, n) => n + 1);
+        return corpus;
     }
 
     /// <summary>Pre-flight. Returns null if the write is legal, else a fail-loud message.
