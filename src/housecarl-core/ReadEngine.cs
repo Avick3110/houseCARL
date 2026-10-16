@@ -1309,11 +1309,10 @@ public static class ReadEngine
     /// <summary>The modeled field names for the whole-record dump — the CORPUS, falling back to reflection.</summary>
     static IEnumerable<string> ModeledFieldNames(string typeName, Type recordRuntimeType)
     {
-        Corpus? corpus = null;
-        try { corpus = CorpusRulebook.LoadCorpus(); } catch { /* corpus not built / unparseable → reflection fallback */ }
-        if (corpus is not null && corpus.Types.TryGetValue(typeName, out var schema))
+        // One parse per corpus path, not one per record; a corpus absent, unparseable or without the type → reflection.
+        if (ModeledFieldIndex.FieldsOf(typeName) is { } modeled)
         {
-            foreach (var f in schema.Fields) yield return f.Name;
+            foreach (var f in modeled) yield return f;
             yield break;
         }
 
