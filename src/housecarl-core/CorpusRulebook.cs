@@ -123,10 +123,15 @@ public sealed class CorpusRulebook
     /// that want the catalog model directly rather than the validator wrapper.</summary>
     public static Corpus LoadCorpus() => LoadCorpus(CorpusPath);
 
+    /// <summary>How many times the corpus at this path has been read and parsed in this process.</summary>
+    internal static int ParsesOf(string corpusJsonPath) => Parses.TryGetValue(Path.GetFullPath(corpusJsonPath), out var n) ? n : 0;
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> Parses = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The raw deserialised <see cref="Corpus"/> from an explicit path. A missing file or a null
     /// deserialise throws a named exception — never a silent empty corpus.</summary>
     public static Corpus LoadCorpus(string corpusJsonPath)
     {
+        Parses.AddOrUpdate(Path.GetFullPath(corpusJsonPath), 1, (_, n) => n + 1);
         if (!File.Exists(corpusJsonPath))
             throw new FileNotFoundException(
                 $"corpus.json not found at {Path.GetFullPath(corpusJsonPath)}. Generate it first: " +
