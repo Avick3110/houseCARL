@@ -103,11 +103,16 @@ public static class FaceGenCheck
         var offOrderScanned = new List<string>();
         var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? scanError = null;
+        // The record half's rows, by selection order; a stale-bake row waits in poleWait for its pole plugin's one read.
+        var rows = new List<(int Order, FaceGenFinding? Row)>();
+        var poleWait = new List<(int Slot, FormKey Fk, string Pole, string WinnerPlugin, RecordFields Winner)>();
+        int order = 0;
 
         using var session = resolver.OpenSession();
 
         void Judge(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile)
         {
+            order++;
             if (recordScope is not null && !recordScope.Matches(fk, body)) return;
             if (!judged.Add(fk)) return;
             npcsScanned++;
@@ -148,14 +153,20 @@ public static class FaceGenCheck
         {
             if (targets.Count > 0)
             {
-                // A plugin scope selects the NPCs those plugins touch, then judges each at its LOAD-ORDER WINNER.
+                // A plugin scope selects the NPCs those plugins touch, then judges each at its LOAD-ORDER WINNER,
+                // read one winner plugin at a time; the order index keeps the rows in selection order.
+                var want = new List<(FormKey Fk, string Winner, int Order)>();
+                var seen = new HashSet<FormKey>();
                 foreach (var (fk, _, _, _) in view.RecordsIn(targets, NpcTypes))
+                    if (seen.Add(fk) && view.ResolveWinner(fk) is { } w) want.Add((fk, w.WinnerPlugin, want.Count));
+                foreach (var g in want.GroupBy(x => x.Winner, StringComparer.OrdinalIgnoreCase))
                 {
-                    if (judged.Contains(fk)) continue;
-                    if (view.ResolveWinner(fk) is not { } w) continue;
-                    if (view.GetRecord(session, w.WinnerPlugin, fk) is not { } body) continue;
-                    Judge(fk, body, w.WinnerPlugin, offOrderFile: false);
+                    var bodies = new Dictionary<FormKey, IMajorRecordGetter>();
+                    view.CollectRecords(session, g.Key, g.Select(x => x.Fk).ToHashSet(), bodies);
+                    foreach (var x in g)
+                        if (bodies.TryGetValue(x.Fk, out var body)) { order = x.Order; Judge(x.Fk, body, x.Winner, offOrderFile: false); }
                 }
+                order = want.Count;
             }
             else if (scope is not { Count: > 0 })
             {
@@ -181,6 +192,20 @@ public static class FaceGenCheck
                     catch (Exception e) { scanError ??= $"{name}: {e.GetType().Name}: {e.Message}"; }
                     finally { (ov as IDisposable)?.Dispose(); }
                 }
+
+            // The stale-bake poles, one read per pole plugin; only the verdicts outlive its group.
+            foreach (var g in poleWait.GroupBy(p => p.Pole, StringComparer.OrdinalIgnoreCase))
+            {
+                var owners = new Dictionary<FormKey, IMajorRecordGetter>();
+                view.CollectRecords(session, g.Key, g.Select(p => p.Fk).ToHashSet(), owners);
+                foreach (var p in g)
+                {
+                    var why = owners.TryGetValue(p.Fk, out var owner) ? StaleWhy(owner, p.Winner, p.WinnerPlugin, p.Pole) : null;
+                    if (owner is null) noPole++;
+                    rows[p.Slot] = (rows[p.Slot].Order, why is null ? null : rows[p.Slot].Row! with { Detail = why });
+                }
+            }
+            foreach (var (_, row) in rows.OrderBy(r => r.Order)) if (row is not null) Add(row);
         }
         catch (Exception e)
         {
@@ -300,11 +325,11 @@ public static class FaceGenCheck
                     // A clean pair: both halves come out of ONE MO2 layer — the layer, not the provider name, is what
                     // makes a pair clean. The remaining question is whether the winning record still agrees with the
                     // plugin whose mod baked these files.
-                    var (stale, why, pole, unreadable) = StaleAgainstOwner(fk, body, winnerPlugin, mw.Layer);
+                    var (pole, unreadable) = PoleFor(fk, winnerPlugin, mw.Layer);
                     if (pole is null) { if (unreadable) noPoleUnreadable++; else noPole++; return; }
-                    if (!stale) return;
+                    if (string.Equals(pole, winnerPlugin, StringComparison.OrdinalIgnoreCase)) return;
                     cls = FaceGenFindingClass.StaleBake;
-                    detail = why;
+                    poleWait.Add((rows.Count, fk, pole, winnerPlugin, ReadEngine.ReadFields(body, FaceFields, depth: 4)));
                 }
                 else cls = OneProduct(mw.Layer, tw.Layer) ? FaceGenFindingClass.FamilySplit
                                                          : FaceGenFindingClass.SplitBake;
@@ -328,10 +353,10 @@ public static class FaceGenCheck
                 if (body is INpcGetter n && NoHeadOrFaceData(n)) detail = NoHeadHint;
             }
 
-            Add(new FaceGenFinding(fk.ToString(), body.EditorID, master,
+            rows.Add((order, new FaceGenFinding(fk.ToString(), body.EditorID, master,
                                    winnerPlugin + (offOrderFile ? " (off-order)" : ""),
                                    WinnerText(mesh), WinnerText(tint), Token(cls), Fix(cls), detail,
-                                   (mesh ?? tint)?.Layer));
+                                   (mesh ?? tint)?.Layer)));
         }
 
         // One half of the pair: the winning provider plus the MO2 LAYER it lives in. A BSA carries its layer down
@@ -364,42 +389,40 @@ public static class FaceGenCheck
             return t.ToLowerInvariant();
         }
 
-        // The record axis, run only on a clean pair: compare the WINNING record's face fields against the same record
-        // as the FACEGEN OWNER's plugin defines it (docs/facegen.md).
-        (bool Stale, string? Why, string? Pole, bool Unreadable) StaleAgainstOwner(FormKey fk, IMajorRecordGetter winnerBody,
-                                                                 string winnerPlugin, string layer)
+        // The record axis, run only on a clean pair: the FACEGEN OWNER's plugin whose copy the winner is compared with
+        // (docs/facegen.md), or the winner itself when the bake's own layer ships it: they agree by construction.
+        (string? Pole, bool Unreadable) PoleFor(FormKey fk, string winnerPlugin, string layer)
         {
             var shipped = pluginsInMod(layer);
-            if (shipped is null) return (false, null, null, true);          // the folder would not list: untested, not "ships none"
-            if (shipped.Count == 0) return (false, null, null, false);
+            if (shipped is null) return (null, true);                       // the folder would not list: untested, not "ships none"
+            if (shipped.Count == 0) return (null, false);
             // The pole both ships in the bake's own layer AND touches this record. Asking the touching list first is
             // what keeps a whole-order sweep affordable.
             var touching = view.TouchingPlugins(fk);
-            if (touching is null) return (false, null, null, false);
+            if (touching is null) return (null, false);
             string? pole = null;
             foreach (var name in touching)                                  // priority order, so the last match wins
             {
                 if (!shipped.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
-                // The bake's own layer ships the winner: record and files agree by construction, no read needed.
-                if (string.Equals(name, winnerPlugin, StringComparison.OrdinalIgnoreCase)) return (false, null, name, false);
+                if (string.Equals(name, winnerPlugin, StringComparison.OrdinalIgnoreCase)) return (name, false);
                 pole = name;
             }
-            if (pole is null) return (false, null, null, false);
+            return (pole, false);
+        }
 
-            var ownerBody = view.GetRecord(session, pole, fk);
-            if (ownerBody is null) return (false, null, null, false);
+        // The stale verdict for one NPC against its pole's copy, or null when the face fields agree.
+        static string? StaleWhy(IMajorRecordGetter ownerBody, RecordFields winner, string winnerPlugin, string pole)
+        {
             var theirs = ReadEngine.ReadFields(ownerBody, FaceFields, depth: 4);
-            var winner = ReadEngine.ReadFields(winnerBody, FaceFields, depth: 4);
             var diff = FieldsDiff.Compare(theirs, winner, referenceLabel: "winner");
             // Two deltas are not a stale bake — HairColor and an order-only list difference (docs/facegen.md).
             var real = diff.Deltas
                            .Where(d => !d.StartsWith(HairColorPath, StringComparison.Ordinal)
                                     && !d.Contains(OrderOnlyDelta, StringComparison.Ordinal))
                            .ToList();
-            if (real.Count == 0) return (false, null, pole, false);
-            return (true, $"winner {winnerPlugin} disagrees with the bake's own plugin {pole} on "
-                        + string.Join(", ", real.Take(3)) + (real.Count > 3 ? $" (+{real.Count - 3} more)" : ""),
-                    pole, false);
+            if (real.Count == 0) return null;
+            return $"winner {winnerPlugin} disagrees with the bake's own plugin {pole} on "
+                 + string.Join(", ", real.Take(3)) + (real.Count > 3 ? $" (+{real.Count - 3} more)" : "");
         }
 
         static string? WinnerText(FaceGenHalf? h)
