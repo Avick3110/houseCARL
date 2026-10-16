@@ -207,20 +207,29 @@ public sealed class LoadOrderResolver : IDisposable
     public sealed class OverlaySession : IDisposable
     {
         readonly LoadOrderResolver _r;
-        readonly Dictionary<int, ISkyrimModGetter> _open = new();
+        readonly Dictionary<int, OpenPlugin> _open = new();
         internal OverlaySession(LoadOrderResolver r) => _r = r;
+
+        /// <summary>One opened plugin: its overlay and the link cache built over it, if any, released together.</summary>
+        sealed class OpenPlugin(ISkyrimModGetter overlay)
+        {
+            public ISkyrimModGetter Overlay { get; } = overlay;
+            public ILinkCache? Cache;
+        }
 
         /// <summary>The counters of the resolver this session reads through.</summary>
         public CostCounters Counters => _r.Counters;
 
-        internal ISkyrimModGetter Overlay(int idx)
+        internal ISkyrimModGetter Overlay(int idx) => Opened(idx).Overlay;
+
+        OpenPlugin Opened(int idx)
         {
-            if (!_open.TryGetValue(idx, out var ov))
+            if (!_open.TryGetValue(idx, out var op))
             {
                 System.Threading.Interlocked.Increment(ref _r.Counters.SessionOverlayOpens);
-                _open[idx] = ov = OpenOverlay(_r._paths[idx], _r._dataDir);
+                _open[idx] = op = new OpenPlugin(OpenOverlay(_r._paths[idx], _r._dataDir));
             }
-            return ov;
+            return op;
         }
 
         /// <summary>Open EVERY plugin (priority order) as the FULL known-master set the multi-master write path hands the serializer; a write into an active patch uses <see cref="AllMastersExcept"/>.</summary>
@@ -278,24 +287,22 @@ public sealed class LoadOrderResolver : IDisposable
         public void ReleaseOverlay(string fileName)
         {
             var hits = _open.Keys.Where(i => string.Equals(_r._names[i], fileName, StringComparison.OrdinalIgnoreCase)).ToList();
-            foreach (var i in hits) { (_open[i] as IDisposable)?.Dispose(); _open.Remove(i); _linkCaches.Remove(i); }
+            foreach (var i in hits) { (_open[i].Overlay as IDisposable)?.Dispose(); _open.Remove(i); }
         }
 
         /// <summary>An immutable link cache over ONE named plugin in this session, for the write path's nested-parent reconstruction. Built once per (session, plugin), dropped with its overlay, never held past the session; null if not in the order.</summary>
         public ILinkCache? LinkCacheFor(string pluginName)
         {
             if (!_r._nameToIdx.TryGetValue(pluginName, out int idx)) return null;
-            if (_linkCaches.TryGetValue(idx, out var lc)) return lc;
+            var op = Opened(idx);
+            if (op.Cache is not null) return op.Cache;
             System.Threading.Interlocked.Increment(ref _r.Counters.LinkCacheBuilds);
-            return _linkCaches[idx] = Overlay(idx).ToImmutableLinkCache();
+            return op.Cache = op.Overlay.ToImmutableLinkCache();
         }
-
-        readonly Dictionary<int, ILinkCache> _linkCaches = new();
 
         public void Dispose()
         {
-            _linkCaches.Clear();
-            foreach (var ov in _open.Values) (ov as IDisposable)?.Dispose();
+            foreach (var op in _open.Values) (op.Overlay as IDisposable)?.Dispose();
             _open.Clear();
         }
     }
