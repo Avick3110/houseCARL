@@ -447,10 +447,11 @@ public static class ScriptPropertyCheck
 
         // Keyed by exact spelling, so every name and reason reads exactly as a fresh load would word it.
         readonly Dictionary<string, Link> _links = new(StringComparer.Ordinal);
-        readonly Dictionary<string, (IArchiveReader Reader, FileStamp Stamp)> _archives = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, (IArchiveReader Reader, FileStamp Stamp, Dictionary<string, Dictionary<string, IArchiveFile>> Folders)> _archives = new(StringComparer.OrdinalIgnoreCase);
 
         internal AssetResolver.AssetView Av { get; } = av;
         internal int ArchiveTablesRead { get; private set; }
+        internal int FolderListsRead { get; private set; }
         internal int PexLoads { get; private set; }
 
         internal Link Load(string scriptClass)
@@ -469,16 +470,20 @@ public static class ScriptPropertyCheck
             var stamp = FileStamp.Of(archivePath);
             if (!_archives.TryGetValue(archivePath, out var held) || held.Stamp != stamp)
             {
-                _archives[archivePath] = held = (Archive.CreateReader(GameRelease.SkyrimSE, archivePath), stamp);
+                _archives[archivePath] = held = (Archive.CreateReader(GameRelease.SkyrimSE, archivePath), stamp, new(StringComparer.OrdinalIgnoreCase));
                 ArchiveTablesRead++;
             }
             var want = AssetResolver.Normalize(entryPath);
-            var files = held.Reader.TryGetFolder(Path.GetDirectoryName(want) ?? "", out var folder)
-                ? folder.Files : held.Reader.Files;
-            foreach (var file in files)
-                if (string.Equals(AssetResolver.Normalize(file.Path), want, StringComparison.OrdinalIgnoreCase))
-                    return file.GetBytes();
-            return null;
+            var dir = Path.GetDirectoryName(want) ?? "";
+            if (!held.Folders.TryGetValue(dir, out var names))
+            {
+                // Name -> entry for the folder (the whole archive when it has no such folder); the first spelling wins.
+                held.Folders[dir] = names = new(StringComparer.OrdinalIgnoreCase);
+                foreach (var file in held.Reader.TryGetFolder(dir, out var folder) ? folder.Files : held.Reader.Files)
+                    names.TryAdd(AssetResolver.Normalize(file.Path), file);
+                FolderListsRead++;
+            }
+            return names.TryGetValue(want, out var entry) ? entry.GetBytes() : null;
         }
     }
 

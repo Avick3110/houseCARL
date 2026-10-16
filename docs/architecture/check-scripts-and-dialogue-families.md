@@ -31,7 +31,8 @@ by script at runtime.
 
 #### Each .pex is read once per sweep
 
-One sweep reads each BSA's file table once and each `.pex` once (`ScriptPropertyCheck.PexReads`), so a parent shared
+One sweep reads each BSA's file table once, walks each of its folders once into a name table, and reads each `.pex` once
+(`ScriptPropertyCheck.PexReads`), so a parent shared
 by many children, or many scripts packed in one archive, costs one read. A BSA whose last-write time or size changes
 mid-sweep is reopened before its next read, so a script it no longer holds is reported as vanished, as a fresh read
 would. Only the parsed properties and parent are
