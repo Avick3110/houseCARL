@@ -504,11 +504,11 @@ internal sealed partial class RecordReads
             {
                 var part = rows.GetRange(s, Math.Min(passRows, rows.Count - s));
                 var partKeys = part.Select(r => keys[r.Row]).ToArray();
-                var chunk = BodyPrefetch.Gather(view, session, counters, partKeys, 0, partKeys.Length, j => part[j].Source, ct);
+                var chunk = BodyPrefetch.Gather(view, session, counters, partKeys, 0, partKeys.Length, j => part[j].Source, ct, parents);
                 foreach (var (i, _) in part)
                 {
                     ct.ThrowIfCancellationRequested();   // a client that aborted stops the batch inside one record
-                    slots[i] = readRow(keys[i], chunk.Body(keys[i]), parents.Parent);
+                    slots[i] = readRow(keys[i], chunk.Body(keys[i]), chunk.Parent);
                 }
             }
         for (int i = 0; i < slots.Length; i++)

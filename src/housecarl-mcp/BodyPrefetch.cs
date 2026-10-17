@@ -16,10 +16,10 @@ internal static class BodyPrefetch
 
     /// <summary>The chunk covering rows <paramref name="start"/> to <paramref name="end"/>, ready to walk a plugin
     /// when a row asks. <paramref name="sourceAt"/> names the plugin whose body a row displays, or null for the
-    /// winner.</summary>
+    /// winner; <paramref name="parents"/> is the rows' container gather when the caller owns it, else the chunk's own.</summary>
     internal static Chunk Gather(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, CostCounters counters,
-        IReadOnlyList<FormKey> keys, int start, int end, Func<int, string?> sourceAt, CancellationToken ct)
+        IReadOnlyList<FormKey> keys, int start, int end, Func<int, string?> sourceAt, CancellationToken ct, Parents? parents = null)
     {
         var gather = new BodyGather(view, session, BodyGather.Absent.Null, onDemand: true, ct: ct);
         var plugins = new Dictionary<FormKey, string>();
@@ -33,7 +33,7 @@ internal static class BodyPrefetch
             plugins[fk] = plugin;
         }
         Interlocked.Add(ref counters.KeysWanted, plugins.Count);     // what this caller asked for, whether or not a row reads it
-        return new Chunk(gather, plugins, view, session, ct);
+        return new Chunk(gather, plugins, view, session, ct, parents);
     }
 
     /// <summary>One chunk's bodies, each source plugin enumerated once and only when a row asks for it.</summary>
@@ -44,8 +44,9 @@ internal static class BodyPrefetch
         readonly Parents _parents;
 
         internal Chunk(BodyGather gather, Dictionary<FormKey, string> plugins,
-                       LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, CancellationToken ct)
-        { _gather = gather; _plugins = plugins; _parents = new Parents(view, session, plugins.Keys, ct); }
+                       LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, CancellationToken ct,
+                       Parents? parents = null)
+        { _gather = gather; _plugins = plugins; _parents = parents ?? new Parents(view, session, plugins.Keys, ct); }
 
         /// <summary>A row's containing record, gathered for every row on the first hop its child type takes (#1147); null fetches it alone.</summary>
         internal IMajorRecordGetter? Parent(IMajorRecordGetter child, FormKey parent) => _parents.Parent(child, parent);
