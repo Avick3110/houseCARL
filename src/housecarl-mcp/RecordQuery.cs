@@ -252,8 +252,7 @@ internal sealed partial class RecordReads
                     var judged = new SetVerdict[all.Count];
                     // A kept row's summary, held while at most offset+limit kept rows precede it in the universe.
                     long cap = groups is null && limit > 0 ? (long)offset + limit : 0;
-                    var shown = new SortedSet<int>();
-                    var rows = new Dictionary<int, (List<FormKey>? Hit, RecordSummary? Summary, Exception? Fault)>();
+                    var rows = new SortedList<int, (List<FormKey>? Hit, RecordSummary? Summary, Exception? Fault)>();
                     var faults = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
                     OrderedGather.ForEachGroup(view, sess, all, (bodies, asked) =>
                     {
@@ -268,11 +267,11 @@ internal sealed partial class RecordReads
                                     || (!string.IsNullOrEmpty(editoridContains)
                                         && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                                     || (DeletedRecordRule.HasNoLiveBody(body) && refSet is not null))
-                                { judged[i] = new SetVerdict(SetVerdict.Dropped, false, null, null, null); continue; }
+                                { judged[i] = new SetVerdict(SetKind.Dropped, false, null, null, null); continue; }
                                 bool keep = ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null,
                                                              out var hitTargets, out var lenientNote);
-                                judged[i] = new SetVerdict(SetVerdict.Judged, keep, lenientNote, body.GetType(), null);
-                                if (!keep || shown.Count >= cap && (cap == 0 || i > shown.Max)) continue;
+                                judged[i] = new SetVerdict(SetKind.Judged, keep, lenientNote, body.GetType(), null);
+                                if (!keep || rows.Count >= cap && (cap == 0 || i > rows.Keys[^1])) continue;
                                 RecordSummary? summary = null; Exception? fault = null;
                                 try
                                 {
@@ -280,11 +279,11 @@ internal sealed partial class RecordReads
                                     summary = RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth).WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin };
                                 }
                                 catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { fault = ex; }
-                                shown.Add(i); rows[i] = (hitTargets, summary, fault);
-                                if (shown.Count > cap) { rows.Remove(shown.Max); shown.Remove(shown.Max); }
+                                rows[i] = (hitTargets, summary, fault);
+                                if (rows.Count > cap) rows.RemoveAt(rows.Count - 1);
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
-                            { judged[i] = new SetVerdict(SetVerdict.Threw, false, null, null, $"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}"); }
+                            { judged[i] = new SetVerdict(SetKind.Threw, false, null, null, $"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}"); }
                         }
                     }, faults, ct);
                     for (int i = 0; i < all.Count; i++)
@@ -293,9 +292,9 @@ internal sealed partial class RecordReads
                         var w = view.ResolveWinner(fk)!.Value;
                         var j = judged[i];
                         if (faults.TryGetValue(w.WinnerPlugin, out var f) && !unreadablePlugins.Contains(f)) unreadablePlugins.Add(f);
-                        if (j.Kind == SetVerdict.Missing || f is not null) { NoteMissing(fk, w.WinnerPlugin, f); continue; }
-                        if (j.Kind == SetVerdict.Threw) { Unscannable(j.Error!); continue; }
-                        if (j.Kind == SetVerdict.Dropped) continue;
+                        if (j.Kind == SetKind.Missing || f is not null) { NoteMissing(fk, w.WinnerPlugin, f); continue; }
+                        if (j.Kind == SetKind.Threw) { Unscannable(j.Error!); continue; }
+                        if (j.Kind == SetKind.Dropped) continue;
                         NoteLenient(fk, j.Note);
                         if (!j.Keep) continue;
                         var row = rows.GetValueOrDefault(i);
@@ -1003,8 +1002,8 @@ internal sealed partial class RecordReads
     };
 
     /// <summary>One universe key's outcome from the read door.</summary>
-    readonly record struct SetVerdict(byte Kind, bool Keep, string? Note, Type? Type, string? Error)
-    {
-        public const byte Missing = 0, Dropped = 1, Judged = 2, Threw = 3;
-    }
+    readonly record struct SetVerdict(SetKind Kind, bool Keep, string? Note, Type? Type, string? Error);
+
+    /// <summary>What the read door made of one universe key; a key it never met keeps the array default, Missing.</summary>
+    enum SetKind { Missing = 0, Dropped, Judged, Threw }
 }
