@@ -163,7 +163,6 @@ public sealed class FieldPredicateSet
             if (climbed == hops) { if (!_parentVerdicts.ContainsKey((k, linkSide, at))) parents.Add((k, linkSide, at)); }
             else if (climbed > 0 && !_noParentTypes.ContainsKey(at)) deadEnds.Add(at);   // the rollup names the record a chain stops on
         }
-        var fatal = _fatal; int evalIndex = _evalIndex;
         if (candidateKeys is not null && _parentOf is not null)
             foreach (var key in candidateKeys)
             {
@@ -193,6 +192,7 @@ public sealed class FieldPredicateSet
         foreach (var (k, ls, at) in parents) Add(at, (k, true, ls));
         foreach (var at in deadEnds) Add(at, (-1, true, false));
         if (byKey.Count == 0) return;
+        var fatal = _fatal; int evalIndex = _evalIndex;
         forEachGroup(byKey.Keys, (bodies, asked) =>
         {
             var present = new HashSet<FormKey>(asked.Where(bodies.ContainsKey));
