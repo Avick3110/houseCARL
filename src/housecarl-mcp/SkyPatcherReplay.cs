@@ -64,6 +64,46 @@ internal sealed partial class AssetLayers
             _formResolver = new SkyPatcherServiceResolver(layers, view, session);
         }
 
+        /// <summary>Per folder, the lines checked against every record and the lines that can touch only the records they name.</summary>
+        readonly Dictionary<string, (List<int> Always, Dictionary<FormKey, List<int>> ByKey)> _lineIndex = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The lines of <paramref name="folder"/> that can touch <paramref name="fk"/>, in apply order.</summary>
+        IReadOnlyList<SkyPatcherOverlay.OrderedLine> LinesFor(SkyPatcherDiscovery.FolderScan folder, IReadOnlyList<SkyPatcherOverlay.OrderedLine> lines, FormKey fk)
+        {
+            if (!_lineIndex.TryGetValue(folder.Subfolder, out var ix))
+            {
+                ix = (new List<int>(), new Dictionary<FormKey, List<int>>());
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    if (NamedTargets(lines[i].Parsed, folder.Catalog!) is not { } keys) { ix.Always.Add(i); continue; }
+                    foreach (var k in keys) { if (!ix.ByKey.TryGetValue(k, out var li)) ix.ByKey[k] = li = new(); li.Add(i); }
+                }
+                _lineIndex[folder.Subfolder] = ix;
+            }
+            if (!ix.ByKey.TryGetValue(fk, out var mine))
+                return ix.Always.Count == lines.Count ? lines : ix.Always.ConvertAll(i => lines[i]);
+            return ix.Always.Concat(mine).Order().Select(i => lines[i]).ToList();
+        }
+
+        /// <summary>The records a patch line can touch when its only filter is one bare primary filter naming FormIDs; null for any other line, or one carrying a parse note, which the overlay must see on every record.</summary>
+        HashSet<FormKey>? NamedTargets(SkyPatcherLine line, SkyPatcherRecordCatalog recordCatalog)
+        {
+            if (line.Kind != SkyPatcherLineKind.Patch || line.Note is not null) return null;
+            HashSet<FormKey>? keys = null;
+            foreach (var seg in line.Segments)
+            {
+                var cls = Catalog.Classify(recordCatalog, seg.Key);
+                if (cls.Role == SkyPatcherKeyRole.Operation) continue;
+                if (cls.Role != SkyPatcherKeyRole.Filter || keys is not null || cls.Filter!.Kind != SkyPatcherFilterKind.Primary
+                    || (cls.Connective ?? "") != "" || seg.Values.Count == 0) return null;
+                keys = new HashSet<FormKey>();
+                foreach (var v in seg.Values)
+                    if (v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var k)) keys.Add(k);
+                    else return null;
+            }
+            return keys;
+        }
+
         /// <summary>An EditorID of one type to its winning FormKey; null on a miss.</summary>
         internal FormKey? ResolveEditorId(string editorId, string? mutagenType) => _formResolver.ResolveEditorId(editorId, mutagenType);
 
@@ -129,7 +169,7 @@ internal sealed partial class AssetLayers
                 }
                 if (!_linesCache.TryGetValue(folder.Subfolder, out var lines))
                     _linesCache[folder.Subfolder] = lines = SkyPatcherDiscovery.OrderedLines(folder);
-                var result = SkyPatcherOverlay.Apply(copy, fk, body.EditorID, Catalog, folder.Catalog, m, lines, _formResolver);
+                var result = SkyPatcherOverlay.Apply(copy, fk, body.EditorID, Catalog, folder.Catalog, m, LinesFor(folder, lines, fk), _formResolver);
                 // A toggled-off folder contributes nothing: reporting its files as applied would assert INIs the DLL skips.
                 folders.Add(new SkyPatcherFolderOutcome(folder.Subfolder,
                     folder.PatchingEnabled ? folder.Files.Count(f => f.NotApplied is null) : 0, lines.Count, result,
