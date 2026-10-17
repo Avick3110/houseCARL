@@ -140,8 +140,6 @@ public sealed class FieldPredicateSet
     /// <summary>Drop the chunk's containing records; the verdicts they decided stay memoized.</summary>
     public void ReleaseParents() { _heldParents = null; _heldAsked = null; }
 
-    // The read door's collect pass records the '->' targets it meets here instead of judging them.
-    HashSet<(int K, FormKey Fk)>? _collectPairs;
     // One door group's target bodies, and the keys it yielded, while that group is judged.
     IReadOnlyDictionary<FormKey, IMajorRecordGetter>? _heldTargets;
     HashSet<FormKey>? _heldTargetsAsked;
@@ -166,35 +164,26 @@ public sealed class FieldPredicateSet
             else if (climbed > 0 && !_noParentTypes.ContainsKey(at)) deadEnds.Add(at);   // the rollup names the record a chain stops on
         }
         var fatal = _fatal; int evalIndex = _evalIndex;
-        _collectPairs = pairs;
-        try
-        {
-            if (candidateKeys is not null && _parentOf is not null)
-                foreach (var key in candidateKeys)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    for (int k = 0; k < _predicates.Count; k++)
-                        if (_predicates[k] is { LinkPath: null, ParentHops: > 0 } p) Climb(key, k, false, p.ParentHops);
-                }
-            foreach (var child in candidates ?? Enumerable.Empty<IMajorRecordGetter>())
+        if (candidateKeys is not null && _parentOf is not null)
+            foreach (var key in candidateKeys)
             {
                 ct.ThrowIfCancellationRequested();
-                if (_walk is not null && !CanMatch(child.GetType())) continue;
                 for (int k = 0; k < _predicates.Count; k++)
-                {
-                    var p = _predicates[k];
-                    bool linkSide = p.LinkPath is not null;
-                    int hops = linkSide ? p.LinkParentHops : p.ParentHops;
-                    if (hops > 0) { if (_parentOf is not null) Climb(child.FormKey, k, linkSide, hops); continue; }
-                    if (!linkSide) continue;
-                    _evalIndex = k;
-                    // Collecting judges nothing; a fault here is the scan's to raise on the same record.
-                    try { EvalLinkPath(p, child, 0); }
-                    catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { }
-                }
+                    if (_predicates[k] is { LinkPath: null, ParentHops: > 0 } p) Climb(key, k, false, p.ParentHops);
+            }
+        foreach (var child in candidates ?? Enumerable.Empty<IMajorRecordGetter>())
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_walk is not null && !CanMatch(child.GetType())) continue;
+            for (int k = 0; k < _predicates.Count; k++)
+            {
+                var p = _predicates[k];
+                bool linkSide = p.LinkPath is not null;
+                int hops = linkSide ? p.LinkParentHops : p.ParentHops;
+                if (hops > 0) { if (_parentOf is not null) Climb(child.FormKey, k, linkSide, hops); continue; }
+                if (linkSide) CollectTargets(p, k, child, 0, pairs);
             }
         }
-        finally { _collectPairs = null; _fatal = fatal; _evalIndex = evalIndex; }
         var byKey = new Dictionary<FormKey, List<(int K, bool Parent, bool LinkSide)>>();
         void Add(FormKey fk, (int, bool, bool) v) { if (!byKey.TryGetValue(fk, out var l)) byKey[fk] = l = new(); l.Add(v); }
         foreach (var (k, fk) in pairs) Add(fk, (k, false, false));
@@ -1098,6 +1087,20 @@ public sealed class FieldPredicateSet
         return JudgeTargets(p, ReadEngine.CollectLinksAt(obj, from == 0 ? segs : segs[from..]));
     }
 
+    /// <summary>Gather every target <see cref="EvalLinkPath"/> would judge from <paramref name="obj"/>, judging none.</summary>
+    void CollectTargets(Predicate p, int k, object obj, int from, HashSet<(int K, FormKey Fk)> pairs)
+    {
+        var segs = p.LinkPath!;
+        int q = FirstFold(p.LinkFolds, from, segs.Length);
+        if (q < 0) { Add(ReadEngine.CollectLinksAt(obj, from == 0 ? segs : segs[from..]).Links); return; }
+        var (elems, _, miss) = ElementsAt(obj, segs, p.LinkFolds!, from, q);
+        if (miss is not null) return;
+        foreach (var e in elems!)
+            if (q + 1 >= segs.Length) Add(ReadEngine.LinksIn(e, p.LinkPathDisplay ?? "").Links);
+            else CollectTargets(p, k, e, q + 1, pairs);
+        void Add(List<FormKey>? links) { foreach (var fk in links ?? new()) pairs.Add((k, fk)); }
+    }
+
     /// <summary>Resolve one collected link set to its winner bodies and judge the predicate's own side on them — satisfied iff any target satisfies.</summary>
     (bool Satisfied, EvalKind Kind) JudgeTargets(Predicate p, (List<FormKey>? Links, string? Note) collected)
     {
@@ -1135,7 +1138,6 @@ public sealed class FieldPredicateSet
             if (memo.Kind == EvalKind.NoParent) _lastNoParent = _targetNoParent.GetValueOrDefault((_evalIndex, fk));
             return memo;
         }
-        if (_collectPairs is not null) { _collectPairs.Add((_evalIndex, fk)); return (false, EvalKind.Unset); }
         var target = _heldTargetsAsked is not null && _heldTargetsAsked.Contains(fk) ? _heldTargets![fk] : _fetchWinnerBody!(fk);
         var verdict = target is null ? (false, EvalKind.UnresolvedTarget) : EvalCore(p, target);
         if (_fatal is null)
