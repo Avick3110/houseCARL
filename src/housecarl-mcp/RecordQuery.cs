@@ -275,8 +275,7 @@ internal sealed partial class RecordReads
                                 RecordSummary? summary = null; Exception? fault = null;
                                 try
                                 {
-                                    var w = all[i].W;
-                                    summary = RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth).WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin };
+                                    summary = Summarize(fk, body, all[i].W);
                                 }
                                 catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { fault = ex; }
                                 rows[i] = (hitTargets, summary, fault);
@@ -297,9 +296,22 @@ internal sealed partial class RecordReads
                         NoteLenient(fk, j.Note);
                         if (!j.Keep) continue;
                         var row = rows.GetValueOrDefault(i);
-                        LandRow(fk, w.WinnerPlugin, j.Type!, row.Hit, () => row.Summary ?? throw row.Fault!);
+                        LandRow(fk, w.WinnerPlugin, j.Type!, () => row.Summary is { } held ? (row.Hit, held)
+                                                                  : row.Fault is { } e ? throw e : Refetch(fk, w));
                     }
                 }
+
+                // A kept row that reached the page after its held summary was given up, read again from its winner.
+                (List<FormKey>?, RecordSummary) Refetch(FormKey fk, WinnerInfo w)
+                {
+                    var body = view.GetRecord(sess, w.WinnerPlugin, fk)
+                               ?? throw new InvalidOperationException($"winner '{w.WinnerPlugin}' did not yield the record on fetch");
+                    ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null, out var hit, out _);
+                    return (hit, Summarize(fk, body, w));
+                }
+
+                RecordSummary Summarize(FormKey fk, IMajorRecordGetter body, WinnerInfo w)
+                    => RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth).WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin };
 
                 void Unscannable(string sample) { unscannable++; if (unscannableSamples.Count < 3) unscannableSamples.Add(sample); }
 
@@ -308,7 +320,7 @@ internal sealed partial class RecordReads
                                                  : $"{FormIdToken.Of(fk)} — winner '{winner}' did not yield the record on fetch");
 
                 // Count one kept row: bump its group_by key, or land it on the page if its summary builds.
-                void LandRow(FormKey fk, string winner, Type bodyType, List<FormKey>? hit, Func<RecordSummary> summary)
+                void LandRow(FormKey fk, string winner, Type bodyType, Func<(List<FormKey>? Hit, RecordSummary Summary)> land)
                 {
                     total++;
                     if (groups is not null)
@@ -320,13 +332,13 @@ internal sealed partial class RecordReads
                     }
                     else if (total > offset && keys.Count < limit)
                     {
-                        RecordSummary shown;
-                        try { shown = summary(); }
+                        (List<FormKey>? hit, RecordSummary shown) row;
+                        try { row = land(); }
                         catch (Exception ex) { Unscannable($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}"); return; }
                         keys.Add(fk);
                         sources.Add(null);                            // the winner body is what matched and displays
-                        matched?.Add(hit is not null ? string.Join(", ", hit) : null);
-                        prefilled?.Add(shown);
+                        matched?.Add(row.hit is not null ? string.Join(", ", row.hit) : null);
+                        prefilled?.Add(row.shown);
                     }
                 }
 
@@ -370,9 +382,7 @@ internal sealed partial class RecordReads
                                     if (predicate.FatalError is not null) { go = false; break; }
                                     continue;
                                 }
-                                LandRow(fk, w.Value.WinnerPlugin, body.GetType(), hitTargets,
-                                        () => RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth)
-                                                  .WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin });
+                                LandRow(fk, w.Value.WinnerPlugin, body.GetType(), () => (hitTargets, Summarize(fk, body, w.Value)));
                             }
                             catch (Exception ex) { Unscannable($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}"); }
                         }

@@ -87,3 +87,50 @@ public sealed class DoorNoParentNoteTests : IDisposable
         Assert.True(r.Contains("no record CONTAINS a Armor"), r);
     }
 }
+
+/// <summary>A formid universe whose first winner faults after its armor took the page's one held summary: the next
+/// plugin's armor still lands on the page, read again from its winner, and the faulted plugin's keys are unscannable.</summary>
+[Trait("tier", "integration")]
+public sealed class DoorFaultedPageTests : IDisposable
+{
+    readonly ScratchMo2 _mo2 = new("hc-door-page-");
+
+    public void Dispose() => _mo2.Delete();
+
+    [Fact]
+    public void ALaterPluginsRowLandsAfterAFaultedOneHeldTheSlot()
+    {
+        var p = new ModKey("HcDoorPageP", ModType.Master);
+        var q = new ModKey("HcDoorPageQ", ModType.Plugin);
+        var pm = new SkyrimMod(p, SkyrimRelease.SkyrimSE);
+        var armorP = pm.Armors.AddNew(); armorP.EditorID = "HcDpArmorP";
+        var cell = new Cell(pm.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcDpCell", Flags = Cell.Flag.IsInteriorCell };
+        var block = new CellBlock { BlockNumber = 1, GroupType = GroupTypeEnum.InteriorCellBlock };
+        var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+        sub.Cells.Add(cell); block.SubBlocks.Add(sub); pm.Cells.Records.Add(block);
+        var pPath = _mo2.InMod("DoorPageP", p);
+        pm.BeginWrite.ToPath(pPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        var qm = new SkyrimMod(q, SkyrimRelease.SkyrimSE);
+        var armorQ = qm.Armors.AddNew(); armorQ.EditorID = "HcDpArmorQ";
+        qm.BeginWrite.ToPath(_mo2.InMod("DoorPageQ", q)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        _mo2.Profile(p.FileName + "\r\n" + q.FileName + "\r\n", "*" + p.FileName + "\r\n*" + q.FileName + "\r\n", "+DoorPageQ\r\n+DoorPageP\r\n");
+        using var svc = _mo2.Open();
+        var ids = new[] { ScratchMo2.Fid(armorP.FormKey), ScratchMo2.Fid(cell.FormKey), ScratchMo2.Fid(armorQ.FormKey) };
+        Assert.Contains("HcDpCell", RecordsTools.Records(svc, formids: ids));
+
+        // 0xFF over the first block header inside P's CELL group, with the file's size and write time kept.
+        var mtime = File.GetLastWriteTimeUtc(pPath);
+        var bytes = File.ReadAllBytes(pPath);
+        int at = -1;
+        for (int i = 0; i + 12 <= bytes.Length && at < 0; i++)
+            if (bytes.AsSpan(i, 4).SequenceEqual("GRUP"u8) && bytes.AsSpan(i + 8, 4).SequenceEqual("CELL"u8)) at = i;
+        Assert.True(at >= 0, "the plugin has no CELL group");
+        bytes.AsSpan(at + 24, 24).Fill(0xFF);
+        File.WriteAllBytes(pPath, bytes);
+        File.SetLastWriteTimeUtc(pPath, mtime);
+
+        var r = RecordsTools.Records(svc, formids: ids, references: new[] { "!" + ScratchMo2.Fid(armorP.FormKey) }, limit: 1);
+        Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
+        Assert.True(r.Contains("HcDpArmorQ") && r.Contains("2 record instance(s) could not be scanned"), r);
+    }
+}
