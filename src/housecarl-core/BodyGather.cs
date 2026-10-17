@@ -51,11 +51,26 @@ public sealed class BodyGather
         set.Add(fk);
     }
 
-    /// <summary>Walk each declared plugin ONCE — a no-op when deferred, and once per gather, faults included.</summary>
+    /// <summary>Read the declared pairs through the door, each (plugin, group) once — a no-op when deferred, and once per gather, faults included.</summary>
     public void Gather()
     {
         if (_onDemand) return;
-        foreach (var plugin in _declared.Keys) Walk(plugin);
+        var plugins = _declared.Keys.Where(_attempted.Add).ToList();
+        var pairs = new List<(string, FormKey)>();
+        foreach (var plugin in plugins)
+        {
+            _held[plugin] = new Dictionary<FormKey, IMajorRecordGetter>(_declared[plugin].Count);
+            foreach (var fk in _declared[plugin]) pairs.Add((plugin, fk));
+        }
+        var faults = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
+        OrderedGather.ForEachGroup(_view, _session, pairs, (plugin, bodies, _) =>
+        {
+            foreach (var (fk, body) in bodies) _held[plugin][fk] = body;
+        }, faults, _ct);
+        // A faulted plugin keeps what it yielded and stays unwalked, so Body falls back per record as before.
+        foreach (var plugin in plugins)
+            if (faults.TryGetValue(plugin, out var fault)) _faults[plugin] = fault;
+            else _walked.Add(plugin);
     }
 
     /// <summary>The gathered body, or <see cref="Absent"/>'s answer when this gather does not hold the pair.</summary>
