@@ -634,6 +634,7 @@ internal sealed partial class AssetLayers
                 var folderTypes = fieldMap.ForSubfolder(folder.Subfolder).Select(m => m.RecordType).ToList();
                 foreach (var eid in eids)
                 {
+                    ct.ThrowIfCancellationRequested();
                     var rfk = folderTypes.Select(t => replay.ResolveEditorId(eid, t)).FirstOrDefault(x => x is not null);
                     if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
                 }
@@ -644,6 +645,7 @@ internal sealed partial class AssetLayers
                 handedOver += asked.Count;
                 foreach (var fk in asked)
                 {
+                    ct.ThrowIfCancellationRequested();
                     var r = replay.Replay(fk, bodies.GetValueOrDefault(fk));
                     // An unpatchable type has nothing to replay, so it counts with the failures as it always has.
                     if (r.Error is not null || r.IsUnpatchable) { failedReplays++; continue; }
