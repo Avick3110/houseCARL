@@ -139,10 +139,7 @@ internal sealed partial class RecordReads
         for (int i = 0; i < rf.Fields.Count; i++)
         {
             var f = rf.Fields[i];
-            // Whichever carrier the line RENDERED its reference on: the round-trip token, or the FormID a
-            // container element's summary note spelled. One rule, one shape of value.
-            var rendered = f.HasValue ? f.Token : f.NoteRef;
-            if (rendered is { } tok && FormKey.TryFactory(tok, out var fk) && !fk.IsNull)
+            if (LinkTarget(f) is { } fk)
             {
                 rebuilt ??= new List<FieldValue>(rf.Fields);
                 rebuilt[i] = f with { Link = ResolveRefOne(view, session, fk, memo) };
@@ -150,6 +147,10 @@ internal sealed partial class RecordReads
         }
         return rebuilt is null ? rf : rf with { Fields = rebuilt };
     }
+
+    /// <summary>The form a line renders a reference to, on its round-trip token or a container element's summary note; null for none.</summary>
+    static FormKey? LinkTarget(FieldValue f)
+        => (f.HasValue ? f.Token : f.NoteRef) is { } tok && FormKey.TryFactory(tok, out var fk) && !fk.IsNull ? fk : null;
 
     /// <summary>On a read of a field that OWNS CHILD RECORDS, state the ADDITIVE UNION the game assembles there —
     /// every distinct child every touching plugin declares, keyed by FormID. The field's own VALUE stays the read
@@ -546,8 +547,7 @@ internal sealed partial class RecordReads
         foreach (var rf in records)
             if (rf is not null)
                 foreach (var f in rf.Fields)
-                    if ((f.HasValue ? f.Token : f.NoteRef) is { } tok && FormKey.TryFactory(tok, out var fk) && !fk.IsNull
-                        && !memo.Refs.ContainsKey(fk) && view.ResolveWinner(fk) is not null)
+                    if (LinkTarget(f) is { } fk && !memo.Refs.ContainsKey(fk) && view.ResolveWinner(fk) is not null)
                         want.Add(fk);
         if (want.Count == 0) return;
         OrderedGather.ForEachGroup(view, session, want, (bodies, asked) =>
