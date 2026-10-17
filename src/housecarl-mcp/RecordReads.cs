@@ -497,12 +497,19 @@ internal sealed partial class RecordReads
             catch (Exception ex) { slots[i] = ReadOutcome.Fail(default, $"bad FormID '{formids[i]}': {ex.Message}"); continue; }
             if ((plugin ?? view.ResolveWinner(keys[i])?.WinnerPlugin) is { } source) sourced.Add((i, source));
         }
-        // Every row's container comes from one gather, however many groups the rows span.
-        var parents = new BodyPrefetch.Parents(view, session, sourced.Select(r => keys[r.Row]).ToHashSet(), ct);
+        var passes = new List<List<(int Row, string Source)>>();
         foreach (var (_, rows) in OrderedGather.Sort(view, sourced, r => r.Source, r => keys[r.Row]))
             for (int s = 0; s < rows.Count; s += passRows)   // the held bodies stay bounded inside one big group
+                passes.Add(rows.GetRange(s, Math.Min(passRows, rows.Count - s)));
+        // Consecutive passes share one container gather per run of at most passRows rows, so held containers stay bounded too.
+        for (int p = 0; p < passes.Count;)
+        {
+            int end = p, runRows = 0;
+            while (end < passes.Count && runRows + passes[end].Count <= passRows) runRows += passes[end++].Count;
+            var parents = new BodyPrefetch.Parents(view, session, passes.Skip(p).Take(end - p).SelectMany(x => x).Select(r => keys[r.Row]).ToHashSet(), ct);
+            for (; p < end; p++)
             {
-                var part = rows.GetRange(s, Math.Min(passRows, rows.Count - s));
+                var part = passes[p];
                 var partKeys = part.Select(r => keys[r.Row]).ToArray();
                 var chunk = BodyPrefetch.Gather(view, session, counters, partKeys, 0, partKeys.Length, j => part[j].Source, ct, parents);
                 foreach (var (i, _) in part)
@@ -511,6 +518,7 @@ internal sealed partial class RecordReads
                     slots[i] = readRow(keys[i], chunk.Body(keys[i]), chunk.Parent);
                 }
             }
+        }
         for (int i = 0; i < slots.Length; i++)
             if (slots[i] is null)
             {
