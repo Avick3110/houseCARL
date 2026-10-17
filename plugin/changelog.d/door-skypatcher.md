@@ -1,0 +1,1 @@
+- **`housecarl_skypatcher_layer` is much faster: on a large modlist the whole-layer call took about 9 s instead of 150 s, with the same answer.** Time it on your order.
