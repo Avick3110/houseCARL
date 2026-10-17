@@ -312,6 +312,7 @@ public sealed class PerkEffectEncodingTests : IClassFixture<PerkEncodingFixture>
         Assert.Contains("selection = 2 record(s)", r);
         Assert.Contains(_w.InconsistentPerkFid, r);
         Assert.DoesNotContain("whose winning plugin could not be read", r);
+        Assert.Contains("winner record(s) were read leniently", r);
     }
 
     [Fact]
