@@ -54,7 +54,6 @@ public static class EffectChain
         return hits ?? (IReadOnlyList<EffectHit>)Array.Empty<EffectHit>();
     }
 
-
     /// <summary>Resolve the effect chain for <paramref name="mgef"/> over the order <paramref name="resolver"/> holds,
     /// scanning the winner bodies of <paramref name="scope"/>. One capture, per-record fault isolation, holds nothing.
     /// The typed-match gate runs first, so a bad target never reads as a silent "0 carriers"; a valid but unused MGEF
@@ -122,30 +121,51 @@ public static class EffectChain
             foreach (var (fk, _, body) in view.WinnerRecordsOfType(scope, unreadable))
             {
                 ct.ThrowIfCancellationRequested();
-                // Per-record fault isolation: one record Mutagen cannot parse is excluded and accounted, per seed as Match faults.
-                HashSet<FormKey>? present = null;
+                // One walk of the carrier's effects; each seed's hits are held until the walk ends, so a fault drops
+                // that seed's hits on this carrier and counts it unscannable, as a per-seed Match did.
+                Dictionary<FormKey, List<EffectHit>>? hits = null;
+                Dictionary<FormKey, Exception>? faults = null;
+                Exception? whole = null;
                 try
                 {
                     var effects = EffectsOf(body) ?? Array.Empty<IEffectGetter>();
                     for (int e = 0; e < effects.Count; e++)
-                        if (seedAt.ContainsKey(effects[e].BaseEffect.FormKey)) (present ??= new()).Add(effects[e].BaseEffect.FormKey);
-                }
-                catch (Exception ex) { foreach (var i in live) Skip(i, fk, ex); continue; }
-                if (present is null) continue;
-                string type = RecordNaming.StripOverlay(body.GetType().Name);
-                string winner = view.ResolveWinner(fk)?.WinnerPlugin ?? "?";
-                foreach (var mgef in present)
-                    foreach (var i in seedAt[mgef])
+                    {
+                        var eff = effects[e];
+                        var mgef = eff.BaseEffect.FormKey;
+                        if (!seedAt.ContainsKey(mgef) || faults?.ContainsKey(mgef) == true) continue;
                         try
                         {
-                            foreach (var h in Match(body, mgef))
-                            {
-                                total[i]++;
-                                if (rows[i].Count < limit)
-                                    rows[i].Add(new EffectChainRow(fk, type, body.EditorID, winner, h.Index, h.Count, h.Magnitude, h.Area, h.Duration));
-                            }
+                            var d = eff.Data;   // absent data is reported at zero; a Data fault marks only this seed
+                            hits ??= new();
+                            if (!hits.TryGetValue(mgef, out var l)) hits[mgef] = l = new List<EffectHit>();
+                            l.Add(new EffectHit(e, effects.Count, d?.Magnitude ?? 0f, d?.Area ?? 0, d?.Duration ?? 0));
                         }
-                        catch (Exception ex) { Skip(i, fk, ex); }
+                        catch (Exception ex) { (faults ??= new())[mgef] = ex; hits?.Remove(mgef); }
+                    }
+                }
+                catch (Exception ex) { whole = ex; }   // the list itself faulted: every seed not already faulted fails here
+                if (faults is not null)
+                    foreach (var (mgef, ex) in faults)
+                        foreach (var i in seedAt[mgef]) Skip(i, fk, ex);
+                if (whole is not null)
+                {
+                    foreach (var i in live)
+                        if (faults is null || !faults.ContainsKey(mgefs[i])) Skip(i, fk, whole);
+                    continue;
+                }
+                if (hits is null) continue;
+                string type, winner; string? eid;
+                try { type = RecordNaming.StripOverlay(body.GetType().Name); winner = view.ResolveWinner(fk)?.WinnerPlugin ?? "?"; eid = body.EditorID; }
+                catch (Exception ex) { foreach (var mgef in hits.Keys) foreach (var i in seedAt[mgef]) Skip(i, fk, ex); continue; }
+                foreach (var (mgef, list) in hits)
+                    foreach (var i in seedAt[mgef])
+                        foreach (var h in list)
+                        {
+                            total[i]++;
+                            if (rows[i].Count < limit)
+                                rows[i].Add(new EffectChainRow(fk, type, eid, winner, h.Index, h.Count, h.Magnitude, h.Area, h.Duration));
+                        }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
