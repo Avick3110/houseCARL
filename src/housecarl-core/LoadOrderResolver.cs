@@ -559,8 +559,7 @@ public sealed class LoadOrderResolver : IDisposable
     public IndexView Capture(AbsenceCache? absences)
     {
         var s = _snap;
-        MidCallChange.Relied(_names, _paths, s.BuiltStamps);   // ruling F: re-statted before the call answers
-        return new(this, s, absences);
+        return new(this, s, absences, MidCallChange.Relied(_names, _paths, s.BuiltStamps));   // ruling F: what the call answers from
     }
 
     // ---- runtime FormIDs: the eight-hex form the game, the console and the logs print --------------------
@@ -655,7 +654,11 @@ public sealed class LoadOrderResolver : IDisposable
         readonly LoadOrderResolver _r;
         readonly IndexSnapshot _s;
         readonly AbsenceCache? _absences;   // null on a single-shot view, which explains each absence afresh
-        internal IndexView(LoadOrderResolver r, IndexSnapshot s, AbsenceCache? absences) { _r = r; _s = s; _absences = absences; }   // only Capture() constructs
+        readonly MidCallChange.Build? _relied;   // the plugins this call answered from, re-statted before it answers (ruling F)
+        internal IndexView(LoadOrderResolver r, IndexSnapshot s, AbsenceCache? absences, MidCallChange.Build? relied)
+        { _r = r; _s = s; _absences = absences; _relied = relied; }   // only Capture() constructs
+
+        int Rely(int idx) { if (_relied is { } b) b.Answered[idx] = true; return idx; }
 
         public int PluginCount => _r._paths.Length;
 
@@ -727,7 +730,7 @@ public sealed class LoadOrderResolver : IDisposable
         public string? DataDir => _r.DataDir;
 
         public WinnerInfo? ResolveWinner(FormKey fk)
-            => _s.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _r._names[e.winner], e.count) : null;
+            => _s.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _r._names[Rely(e.winner)], e.count) : null;
 
         /// <summary>False when the winner plugin carries this FormKey more than once, so its merged copies cannot stand for the one a body read returns.</summary>
         public bool WinnerHoldsOnce(FormKey fk)
@@ -765,15 +768,18 @@ public sealed class LoadOrderResolver : IDisposable
         public bool Touches(FormKey fk, string pluginName)
         {
             if (!_r._nameToIdx.TryGetValue(pluginName, out int i) || !_s.Index.TryGetValue(fk, out var e)) return false;
+            Rely(i);
             return e.count == 1 ? e.winner == i : Array.IndexOf(_s.Overriders[fk], i) >= 0;
         }
 
         public IReadOnlyList<string>? TouchingPlugins(FormKey fk)
         {
             if (!_s.Index.TryGetValue(fk, out var e)) return null;
-            if (e.count == 1) return new[] { _r._names[e.winner] };    // singleton: sole overrider = winner
-            var names = _r._names;                                     // local copy — a struct's lambda can't capture 'this'
-            return Array.ConvertAll(_s.Overriders[fk], i => names[i]);
+            if (e.count == 1) return new[] { _r._names[Rely(e.winner)] };    // singleton: sole overrider = winner
+            var over = _s.Overriders[fk];
+            var names = new string[over.Length];
+            for (int k = 0; k < over.Length; k++) names[k] = _r._names[Rely(over[k])];
+            return names;
         }
 
         // The resolver's own streams and fetches, each judged against THIS view's build.
@@ -798,7 +804,11 @@ public sealed class LoadOrderResolver : IDisposable
             => _r.CollectRecords(session, pluginName, wanted, sink, _s);
 
         /// <summary>The record class of the winning copy, read off this build with no body fetched; null for a key it did not see.</summary>
-        public Type? WinnerClassOf(FormKey fk) => _s.WinnerClass(fk);
+        public Type? WinnerClassOf(FormKey fk)
+        {
+            if (_s.Index.TryGetValue(fk, out var e)) Rely(e.winner);
+            return _s.WinnerClass(fk);
+        }
 
         /// <summary>The read door's sort key for one copy: the plugin's load position and the seek type its copy is walked by; a plugin outside the order sorts last.</summary>
         public (int Idx, Type? Seek) GroupOf(string pluginName, FormKey fk)
@@ -1154,8 +1164,7 @@ public sealed class LoadOrderResolver : IDisposable
     internal void CheckUnchanged(int idx, IndexSnapshot s)
     {
         if (idx >= s.BuiltStamps.Length) return;
-        MidCallChange.Relied(_names, _paths, s.BuiltStamps);
-        MidCallChange.Check(_names[idx], _paths[idx], s.BuiltStamps[idx]);
+        MidCallChange.Check(MidCallChange.Relied(_names, _paths, s.BuiltStamps), _names, _paths, s.BuiltStamps, idx);
     }
 
     /// <summary>Re-stat the plugin files and rebuild the index if any last-write OR length differs from the baseline, then return true. A changed plugin SET is a new order; the caller re-Builds.</summary>
