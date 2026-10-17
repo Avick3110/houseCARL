@@ -550,7 +550,7 @@ internal sealed partial class RecordReads
         {
             foreach (var fk in asked)
                 if (bodies.TryGetValue(fk, out var b)) memo.Refs[fk] = RefOf(fk, b, view.ResolveWinner(fk)!.Value.WinnerPlugin);
-        }, null, ct);
+        }, new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase), ct);
     }
 
     // ---- `records`: the one-pole batch (source=named, wherever the plugin lives) -----------------------
