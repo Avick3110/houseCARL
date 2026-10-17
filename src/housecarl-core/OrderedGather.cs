@@ -3,12 +3,10 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlCore;
 
-/// <summary>The read door: a call's keys sorted by plugin, then by Mutagen group, each group walked once and dropped
-/// before the next; contract in docs/architecture/read-engine.md.</summary>
+/// <summary>The read door: each plugin's group walked once per call; contract in docs/architecture/read-engine.md.</summary>
 public static class OrderedGather
 {
-    /// <summary>Walk each (winner plugin, group) of <paramref name="keys"/> once, in load order, handing the group's bodies
-    /// and the keys it was asked for to <paramref name="perGroup"/>. A key with no winner is not handed over.</summary>
+    /// <summary>Walk each (winner plugin, group) of <paramref name="keys"/> once, in load order, handing over its bodies and asked keys.</summary>
     public static void ForEachGroup(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                     IEnumerable<FormKey> keys,
                                     Action<IReadOnlyDictionary<FormKey, IMajorRecordGetter>, IReadOnlyCollection<FormKey>> perGroup,
@@ -21,9 +19,7 @@ public static class OrderedGather
         ForEachGroup(view, session, pairs, (_, bodies, asked) => perGroup(bodies, asked), unreadable, ct, stop);
     }
 
-    /// <summary>The same door over named copies: each (plugin, key) is read from that plugin, not its winner. A group
-    /// keeps what its walk yielded before a fault; the fault goes to <paramref name="unreadable"/>, and that plugin's
-    /// later groups are handed over unread. <paramref name="stop"/> ends the walk before the next group.</summary>
+    /// <summary>The same door over named copies: each (plugin, key) is read from that plugin, not its winner.</summary>
     public static void ForEachGroup(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                     IEnumerable<(string Plugin, FormKey Key)> pairs,
                                     Action<string, IReadOnlyDictionary<FormKey, IMajorRecordGetter>, IReadOnlyCollection<FormKey>> perGroup,
@@ -42,9 +38,7 @@ public static class OrderedGather
         }
     }
 
-    /// <summary>The door's order: <paramref name="items"/> bucketed by (plugin, Mutagen group), sorted by load position
-    /// then group. Seek types whose groups overlap in one plugin (cells, worldspaces, the references inside them) share
-    /// one bucket; a plugin outside the order sorts last, in buckets of its own.</summary>
+    /// <summary>The door's order: <paramref name="items"/> bucketed by (plugin, Mutagen group), by load position then group.</summary>
     public static List<(string Plugin, List<T> Items)> Sort<T>(LoadOrderResolver.IndexView view, IEnumerable<T> items,
                                                                Func<T, string> pluginOf, Func<T, FormKey> keyOf)
     {

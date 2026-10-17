@@ -238,9 +238,7 @@ internal sealed partial class RecordReads
                 }
                 if (!setStopped && setPending.Count > 0) DrainSet();
 
-                // With no where=, the universe is judged one group at a time through the door. Only a key's verdict
-                // outlives its group, and its summary only while its row can still land on the page; rows are then
-                // counted in the universe's order, exactly as DrainSet counts them.
+                // With no where=, judge the universe a group at a time through the door, then count rows in universe order.
                 void JudgeSetByGroup()
                 {
                     var all = new List<FormKey>();
@@ -432,8 +430,7 @@ internal sealed partial class RecordReads
                                    names?.Add(x.fk, x.body);
                                    return (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null);    // the load-order winner's body
                                });
-                // A '->' or '*parent' term reads through the door: one pass collects every target and container the
-                // scan will ask for, each group is read once, and the scan below judges off the verdicts.
+                // A '->' or '*parent' term reads its targets and containers through the door, each group once.
                 if (predicate is { NeedsBodyResolution: true } && !whereWinnerActive)
                 {
                     var doorFaults = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);

@@ -149,10 +149,7 @@ public sealed class FieldPredicateSet
     /// <summary>Whether any term follows a '->' link, so a candidate's body must be read to learn its targets.</summary>
     public bool NeedsLinkStep => _predicates.Any(p => p.LinkPath is not null);
 
-    /// <summary>Collect every '->' target, own-side container and dead-end record the scan will ask for, from
-    /// <paramref name="candidates"/>' bodies or, for containment alone, <paramref name="candidateKeys"/> on the index;
-    /// then judge them one group at a time through <paramref name="forEachGroup"/>, keeping only verdicts. A key its
-    /// group did not yield, and every key after a typed error, is left for the scan to read and raise in its own order.</summary>
+    /// <summary>Collect every target and container the scan will ask for, then judge them a group at a time, keeping verdicts.</summary>
     public void PrimeOrdered(IEnumerable<IMajorRecordGetter>? candidates, IEnumerable<FormKey>? candidateKeys,
                              Action<IEnumerable<FormKey>, Action<IReadOnlyDictionary<FormKey, IMajorRecordGetter>, IReadOnlyCollection<FormKey>>> forEachGroup,
                              CancellationToken ct = default)
@@ -236,9 +233,7 @@ public sealed class FieldPredicateSet
             }
             finally { _heldTargets = null; _heldTargetsAsked = null; _heldParents = heldParents; _heldAsked = heldAsked; _evalIndex = evalIndex; }
         });
-        // A typed error met in group order is not reported here: the scan meets it again in candidate order, so it
-        // names the same record it names without the door.
-        _fatal = fatal;
+        _fatal = fatal;   // a typed error is the scan's to raise, in candidate order
     }
 
     FieldPredicateSet(IReadOnlyList<Predicate> predicates)
