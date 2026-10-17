@@ -864,9 +864,10 @@ internal sealed partial class RecordReads
             }
             if (!facts.TryGetValue(fk, out var fact))
             {
-                var why = unreadable.TryGetValue(win.Value.WinnerPlugin, out var fault) ? $": {fault.Message}" : ".";
                 rows.Add(new InfoOrderRow(FormIdToken.Of(fk), null, null, win.Value.WinnerPlugin, null,
-                                          $"the winner body of {FormIdToken.Of(fk)} could not be read from '{win.Value.WinnerPlugin}'{why}"));
+                                          unreadable.TryGetValue(win.Value.WinnerPlugin, out var fault)
+                                              ? $"the winner body of {FormIdToken.Of(fk)} could not be read: {fault.Message}"
+                                              : $"the winner body of {FormIdToken.Of(fk)} could not be read from '{win.Value.WinnerPlugin}'."));
                 continue;
             }
             if (!fact.Topic)
