@@ -1,4 +1,5 @@
 using HousecarlCore;
+using HousecarlMcp;
 using Mutagen.Bethesda.Plugins;
 using Xunit;
 
@@ -29,5 +30,23 @@ public sealed class EffectChainManyTests : IClassFixture<SmallDoorWorld>
         Assert.Equal(one, many);
         Assert.Contains("total=4", many[0]);   // A: base spell, held spell, and Top's spell twice
         Assert.Contains("total=2", many[1]);   // B: Top's spell and enchantment
+    }
+    /// <summary>Five seeds through the Records tool read each carrier group and the MGEF group once, not once per seed.</summary>
+    [Fact]
+    public void FiveSeedsReadEachCarrierGroupOnce()
+    {
+        var d = GroupReadDelta.Of(_w.Svc, () => RecordsTools.Records(_w.Svc, formids: _w.Effects.Select(ScratchMo2.Fid).ToArray(),
+                                                                      walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
+                                                                      project: new RecordsTools.RecordsProject { form = "chain" }),
+                                  "HcSdTopEnch", "HcSdHeldSpell");
+
+        Assert.Equal(new Dictionary<(string, string), int>
+        {
+            [(_w.Base.FileName.String, "MagicEffects")] = 1,
+            [(_w.Base.FileName.String, "Spells")] = 1,
+            [(_w.Top.FileName.String, "Spells")] = 1,
+            [(_w.Top.FileName.String, "ObjectEffects")] = 1,
+            [(_w.Held.FileName.String, "Spells")] = 1,
+        }, d);
     }
 }
