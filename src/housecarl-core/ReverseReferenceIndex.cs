@@ -200,7 +200,7 @@ public sealed class ReverseReferenceIndex
     }
 
     /// <summary>Bring every partition up to date against the files on disk, staged in fresh collections and published in one assignment; the opener is the resolver's, so none is held at rest.</summary>
-    internal Refreshed Refresh(IReadOnlyList<string> names, IReadOnlyList<string> paths,
+    internal Refreshed Refresh(IReadOnlyList<string> names, IReadOnlyList<string> paths, IReadOnlyList<FileStamp> stamps,
                                Func<int, ISkyrimModGetter> open, ICollection<int> excluded)
     {
         var sw = Stopwatch.StartNew();
@@ -224,7 +224,7 @@ public sealed class ReverseReferenceIndex
             var path = paths[i];
             if (next.ByPath.ContainsKey(path)) continue;           // the same file twice in the order is one partition
             next.Order.Add(path);
-            var stamp = FileStamp.Of(path);
+            var stamp = stamps[i];                                // the call's build, so a partition another call rebuilt since is not held
             if (prev.ByPath.TryGetValue(path, out var have) && have.Stamp == stamp)
             {
                 next.ByPath[path] = have;                          // this plugin's bytes are the ones it was built from
