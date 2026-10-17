@@ -483,9 +483,7 @@ internal sealed partial class RecordReads
     /// <summary>How many rows of one group a batch reads before it releases their bodies; a test lowers it to split a group.</summary>
     internal int BatchPassRows { get; set; } = BodyPrefetch.ChunkRows;
 
-    /// <summary>A batch's rows read through the door: parsed, sorted by (source plugin, group), each group walked once
-    /// per <see cref="BodyPrefetch.ChunkRows"/> of its rows, and answered in row order. A row that did not parse keeps
-    /// its error in its slot; a row with no source plugin is read alone, and its own read names why.</summary>
+    /// <summary>A batch's rows read through the door, a group at a time, and answered in input order.</summary>
     static ReadOutcome[] ReadRowsOrdered(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, CostCounters counters,
                                          IReadOnlyList<string> formids, string? plugin, int passRows, CancellationToken ct,
                                          Func<FormKey, IMajorRecordGetter?, Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>?, ReadOutcome> readRow)
@@ -522,8 +520,7 @@ internal sealed partial class RecordReads
         return slots!;
     }
 
-    /// <summary>resolve_names over read rows: every link target primed through <see cref="PrimeNames"/>, then each row
-    /// annotated off the memo, after its owned-child union.</summary>
+    /// <summary>resolve_names over read rows: every link target primed through the door, then each row annotated off the memo.</summary>
     static void NameLinks(IList<ReadOutcome> outcomes, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                           LinkMemo memo, CancellationToken ct)
     {
@@ -533,8 +530,7 @@ internal sealed partial class RecordReads
                 outcomes[r] = outcomes[r] with { Record = AnnotateLinks(rf, view, session, memo) };
     }
 
-    /// <summary>Fill <paramref name="memo"/> with the identity of the link targets these records render, each target's
-    /// winner group walked once; a target the door does not yield is left to <see cref="ResolveRefOne"/>.</summary>
+    /// <summary>Fill <paramref name="memo"/> with the link targets these records render, each target's winner group read once.</summary>
     static void PrimeNames(IEnumerable<RecordFields?> records, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                            LinkMemo memo, CancellationToken ct)
     {
