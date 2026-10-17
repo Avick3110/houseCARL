@@ -57,6 +57,8 @@ public sealed class FieldPredicateSet
     HashSet<FormKey>? _heldAsked;
     // The link step's verdict per predicate and target, kept for the set's lifetime in place of the target bodies (#1158).
     readonly Dictionary<(int Index, FormKey Target), (bool Satisfied, EvalKind Kind)> _targetVerdicts = new();
+    // The type a memoised no-parent verdict found no container for, so the note names it on a memo hit.
+    readonly Dictionary<(int Index, FormKey Target), string?> _targetNoParent = new();
 
     // The '*parent' hop's verdict memo, keyed by the predicate and by which side hopped.
     readonly Dictionary<(int Index, bool LinkSide, FormKey Parent), (bool Satisfied, EvalKind Kind)> _parentVerdicts = new();
@@ -1133,11 +1135,19 @@ public sealed class FieldPredicateSet
     /// <summary>One target's verdict on the predicate's own side, read once per call; the body is dropped as soon as it is judged.</summary>
     (bool Satisfied, EvalKind Kind) TargetVerdict(Predicate p, FormKey fk)
     {
-        if (_targetVerdicts.TryGetValue((_evalIndex, fk), out var memo)) return memo;
+        if (_targetVerdicts.TryGetValue((_evalIndex, fk), out var memo))
+        {
+            if (memo.Kind == EvalKind.NoParent) _lastNoParent = _targetNoParent.GetValueOrDefault((_evalIndex, fk));
+            return memo;
+        }
         if (_collectPairs is not null) { _collectPairs.Add((_evalIndex, fk)); return (false, EvalKind.Unset); }
         var target = _heldTargetsAsked is not null && _heldTargetsAsked.Contains(fk) ? _heldTargets![fk] : _fetchWinnerBody!(fk);
         var verdict = target is null ? (false, EvalKind.UnresolvedTarget) : EvalCore(p, target);
-        if (_fatal is null) _targetVerdicts[(_evalIndex, fk)] = verdict;
+        if (_fatal is null)
+        {
+            _targetVerdicts[(_evalIndex, fk)] = verdict;
+            if (verdict.Item2 == EvalKind.NoParent) _targetNoParent[(_evalIndex, fk)] = _lastNoParent;
+        }
         return verdict;
     }
 

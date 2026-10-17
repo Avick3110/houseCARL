@@ -61,3 +61,29 @@ public sealed class DoorFaultedUniverseTests : IDisposable
         Assert.True(r.Contains("scan: 0 matches") && r.Contains("2 record instance(s) could not be scanned"), r);
     }
 }
+
+/// <summary>A target-side '*parent' on targets of two types that no record contains: the note names the first
+/// candidate's target type, though the door judged the other type last.</summary>
+[Trait("tier", "integration")]
+public sealed class DoorNoParentNoteTests : IDisposable
+{
+    readonly ScratchMo2 _mo2 = new("hc-door-noparent-");
+
+    public void Dispose() => _mo2.Delete();
+
+    [Fact]
+    public void TheNoteNamesTheFirstCandidatesTargetType()
+    {
+        var key = new ModKey("HcDoorNoParent", ModType.Master);
+        var m = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
+        var armor = m.Armors.AddNew(); armor.EditorID = "HcDnpArmor";
+        var weapon = m.Weapons.AddNew(); weapon.EditorID = "HcDnpWeapon";
+        var l1 = m.FormLists.AddNew(); l1.EditorID = "HcDnpList1"; l1.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(armor.FormKey));
+        var l2 = m.FormLists.AddNew(); l2.EditorID = "HcDnpList2"; l2.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(weapon.FormKey));
+        m.BeginWrite.ToPath(_mo2.InMod("DoorNoParent", key)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        _mo2.Profile(key.FileName + "\r\n", "*" + key.FileName + "\r\n", "+DoorNoParent\r\n");
+        using var svc = _mo2.Open();
+        var r = RecordsTools.Records(svc, types: new[] { "FormList" }, where: new[] { "Items[*any]->*parent.EditorID = HcDnpNone" });
+        Assert.True(r.Contains("no record CONTAINS a Armor"), r);
+    }
+}
