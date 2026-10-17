@@ -76,13 +76,15 @@ public sealed class ComparisonMeterTests : IClassFixture<RenderCostFixture>
     public void AListDeltaPastTheBudgetRefusesAfterTwoChunksNamingTheRate()
     {
         var ids = Hundred;
-        long twoChunks = Delta(Passes, () => ListDelta(ids.Take(2 * Chunk).ToArray()));
-        long before = Passes();
+        var twoChunks = GroupReadDelta.Of(Svc, () => ListDelta(ids.Take(2 * Chunk).ToArray()));
+        var before = new Dictionary<(string Plugin, string Group), int>(Svc.Counters.GroupReads);
         var r = Metered(Dear, () => ListDelta(ids));
         Assert.StartsWith("error: this delta " + DearHead +
                           " (about 45 rows fit at that rate); name only the fields you need with fields= on this same call", r);
         Assert.Contains(RenderBudget.ComparisonListLever, r);
-        Assert.Equal(twoChunks, Passes() - before);                  // the first two chunks only, nothing further
+        var reads = Svc.Counters.GroupReads.Where(kv => kv.Value != before.GetValueOrDefault(kv.Key))
+                                           .ToDictionary(kv => (kv.Key.Plugin, kv.Key.Group), kv => kv.Value - before.GetValueOrDefault(kv.Key));
+        Assert.Equal(twoChunks, reads);                              // the first two chunks only, nothing further
     }
 
     /// <summary>The figure the refusal names clears it when fed back, under the same rate, through two checks.</summary>
@@ -146,13 +148,21 @@ public sealed class ComparisonMeterTests : IClassFixture<RenderCostFixture>
     public void AListDeltaUnderTheBudgetReadsEveryRowOnce()
     {
         var ids = Hundred;
-        long head = Delta(Passes, () => ListDelta(ids.Take(2 * Chunk).ToArray()));
-        long tail = Delta(Passes, () => ListDelta(ids.Skip(2 * Chunk).ToArray()));
-        long before = Passes();
-        var r = Metered(Reads(0), () => ListDelta(ids));
-        Assert.False(r.StartsWith("error:"), r);
-        Assert.Contains("count=100 ", r);
-        Assert.Equal(head + tail, Passes() - before);                // the first chunks kept, the rest read once
+        var reads = GroupReadDelta.Of(Svc, () => Metered(Reads(0), () => ListDelta(ids)), "count=100 ");
+        Assert.Equal(new Dictionary<(string, string), int>
+        {
+            [(_w.MasterName, "Weapons")] = 4,
+            [(_w.MasterName, "Armors")] = 2,
+            [(_w.OverriderNames[3], "Armors")] = 2,
+            [(_w.OverriderNames[2], "Armors")] = 1,
+        }, reads);
+    }
+
+    [Fact]
+    public void ADeltaCheapAt64AndDearAt128RefusesAt128()
+    {
+        var r = Metered(Reads(0, 0, 64 * 1_000, 128 * 6_000), () => ListDelta(Hundred.Concat(Hundred).ToArray()));
+        Assert.StartsWith("error: this delta measured 6 s a row over its first 128 records, about 20.0 minutes for all 200", r);
     }
 
     /// <summary>Malformed and unresolved ids are settled up front, so the chunks, and the two-chunk rule, are over the rows that read.</summary>
