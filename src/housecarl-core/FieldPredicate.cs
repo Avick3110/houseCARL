@@ -181,7 +181,8 @@ public sealed class FieldPredicateSet
                 int hops = linkSide ? p.LinkParentHops : p.ParentHops;
                 if (hops > 0) { if (_parentOf is not null) Climb(child.FormKey, k, linkSide, hops); continue; }
                 if (!linkSide) continue;
-                // A record that faults here is skipped: the scan meets the same fault on it and names it unscannable.
+                // A fault ends this predicate's collection for the record; targets already gathered are still read and judged,
+                // which costs a few reads, and the scan meets the same fault on the record and names it unscannable.
                 try { CollectTargets(p, k, child, pairs); }
                 catch (Exception ex) when (ex is not (OperationCanceledException or OutOfMemoryException)) { }
             }
