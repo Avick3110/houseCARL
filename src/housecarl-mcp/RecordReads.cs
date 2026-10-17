@@ -776,7 +776,7 @@ internal sealed partial class RecordReads
     /// through the index alone.</summary>
     public IReadOnlyList<InfoOrderRow> InfoOrderBatch(IReadOnlyList<string> formids, ArtifactDemand? demand,
                                                       out string? refusal, out OrderStamp? epoch,
-                                                      PoleInfo? foldArm, FoldFacts? foldFacts)
+                                                      PoleInfo? foldArm, FoldFacts? foldFacts, CancellationToken ct = default)
     {
         refusal = null;
         var resolver = _host.Resolver;
@@ -804,11 +804,24 @@ internal sealed partial class RecordReads
         // a dictionary keyed on FormKey would leave the earlier duplicates rendering a fabricated failure.
         var dialRows = new List<(int Index, FormKey Fk)>();
         var dialSeen = new HashSet<FormKey>();
+        var parsed = new List<(string Raw, FormKey? Fk, string? Error)>(formids.Count);
         foreach (var raw in formids)
         {
-            FormKey fk;
-            try { fk = view.ParseFormId(raw); }
-            catch (Exception ex) { rows.Add(new InfoOrderRow(raw?.Trim() ?? "", null, null, null, null, $"bad FormID '{raw}': {ex.Message}")); continue; }
+            try { parsed.Add((raw, view.ParseFormId(raw), null)); }
+            catch (Exception ex) { parsed.Add((raw, null, $"bad FormID '{raw}': {ex.Message}")); }
+        }
+        // Every winner body is read through the door, keeping only its type and EditorID.
+        var facts = new Dictionary<FormKey, (bool Topic, string Type, string? EditorId)>();
+        var unreadable = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
+        OrderedGather.ForEachGroup(view, session, parsed.Where(p => p.Fk is not null).Select(p => p.Fk!.Value), (bodies, _) =>
+        {
+            foreach (var (fk, b) in bodies)
+                facts[fk] = (b is Mutagen.Bethesda.Skyrim.IDialogTopicGetter, RecordNaming.StripOverlay(b.GetType().Name), b.EditorID);
+        }, unreadable, ct);
+        foreach (var (raw, parsedFk, parseError) in parsed)
+        {
+            if (parseError is not null) { rows.Add(new InfoOrderRow(raw?.Trim() ?? "", null, null, null, null, parseError)); continue; }
+            var fk = parsedFk!.Value;
             var win = view.ResolveWinner(fk);
             if (win is null)
             {
@@ -824,24 +837,23 @@ internal sealed partial class RecordReads
                 rows.Add(new InfoOrderRow(FormIdToken.Of(fk), null, null, null, null, UnresolvedFormId(view, fk)));
                 continue;
             }
-            var body = view.GetRecord(session, win.Value.WinnerPlugin, fk);
-            if (body is null)
+            if (!facts.TryGetValue(fk, out var fact))
             {
+                var why = unreadable.TryGetValue(win.Value.WinnerPlugin, out var fault) ? $": {fault.Message}" : ".";
                 rows.Add(new InfoOrderRow(FormIdToken.Of(fk), null, null, win.Value.WinnerPlugin, null,
-                                          $"the winner body of {FormIdToken.Of(fk)} could not be read from '{win.Value.WinnerPlugin}'."));
+                                          $"the winner body of {FormIdToken.Of(fk)} could not be read from '{win.Value.WinnerPlugin}'{why}"));
                 continue;
             }
-            if (body is not Mutagen.Bethesda.Skyrim.IDialogTopicGetter)
+            if (!fact.Topic)
             {
-                var typeName = RecordNaming.StripOverlay(body.GetType().Name);
-                rows.Add(new InfoOrderRow(FormIdToken.Of(fk), typeName, body.EditorID, win.Value.WinnerPlugin, null,
+                var typeName = fact.Type;
+                rows.Add(new InfoOrderRow(FormIdToken.Of(fk), typeName, fact.EditorId, win.Value.WinnerPlugin, null,
                     $"{FormIdToken.Of(fk)} is a {typeName}, and the info_order form renders the merged INFO sequence of a DIALOGUE TOPIC (DIAL). " +
                     "For a quest's topics, select them by composition: types=[\"DIAL\"] where=[\"Quest = " + FormIdToken.Of(fk) + "\"]."));
                 continue;
             }
             dialRows.Add((rows.Count, fk));
-            rows.Add(new InfoOrderRow(FormIdToken.Of(fk), RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
-                                      win.Value.WinnerPlugin, null, null));
+            rows.Add(new InfoOrderRow(FormIdToken.Of(fk), fact.Type, fact.EditorId, win.Value.WinnerPlugin, null, null));
             if (dialSeen.Add(fk)) dialFks.Add(fk);
         }
         if (dialFks.Count > 0)
