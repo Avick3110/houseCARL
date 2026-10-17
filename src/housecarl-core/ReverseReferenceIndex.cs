@@ -17,6 +17,7 @@ public sealed class ReverseReferenceIndex
         public Dictionary<ulong, ulong[]> ByTarget = new();
         public long Pairs;
         public int Unscannable;                        // records whose own link walk threw — excluded and counted
+        public int Unkeyed;                            // of those, the ones that threw before their key was recorded
         public int Lenient;                            // records whose links were read leniently — indexed, with a named gap
         public string? Unreadable;                     // set ⇒ this plugin contributed nothing, and why
         // What the build saw of each copy that carries no edge, so a walk can judge a winner's copy off the index.
@@ -159,6 +160,8 @@ public sealed class ReverseReferenceIndex
         if (p.NoLive.Contains(pk)) return CopyFact.NoLiveBody;
         if (p.Unscannables.Contains(pk)) return CopyFact.Unscannable;
         p.LenientNotes.TryGetValue(pk, out note);
+        // A record that threw before its key was recorded could be this one, so an unrecorded key is not known live.
+        if (p.Unkeyed > 0 && note is null) return CopyFact.Unknown;
         return CopyFact.Live;
     }
 
@@ -270,6 +273,7 @@ public sealed class ReverseReferenceIndex
                 {
                     unscannable++;
                     if (source is { } s) part.Unscannables.Add(s);
+                    else part.Unkeyed++;
                 }
             }
         }
