@@ -164,6 +164,30 @@ public sealed class MidCallChangeTests : IDisposable
         Assert.False(v2.ReverseIndex!.HasAnyReferencer(mgef), "the reverse index kept the old file's edge");
     }
 
+    /// <summary>Two calls overlap: the later one's door rebuilt a saved plugin's reverse-index partition, so the earlier
+    /// call, still on the old build, must not answer from the new edges; its refresh refuses instead.</summary>
+    [Fact]
+    public void AnOlderCallDoesNotHoldAPartitionANewerCallRebuilt()
+    {
+        var path = Path.Combine(_dir, "HcMcRev.esm");
+        void World(bool linked)
+        {
+            var m = new SkyrimMod(ModKey.FromFileName("HcMcRev.esm"), SkyrimRelease.SkyrimSE);
+            var e = m.MagicEffects.AddNew(); e.EditorID = "HcMcRevMgef";
+            var spel = m.Spells.AddNew(); spel.EditorID = "HcMcRevSpell";
+            if (linked) spel.Effects.Add(new Effect { BaseEffect = e.ToNullableLink(), Data = new EffectData { Magnitude = 1 } });
+            m.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        }
+        World(false);
+        using var resolver = LoadOrderResolver.Build(new[] { path });
+        var older = resolver.Capture();                 // call A's door, before the save
+        World(true); File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(5));
+        Assert.True(resolver.RefreshIfStale());         // call B's door
+        resolver.Capture().EnsureReverseIndex();
+        var ex = Assert.Throws<LoadOrderChangedMidCallException>(() => older.EnsureReverseIndex());
+        Assert.Equal("HcMcRev.esm", ex.Plugin);
+    }
+
     /// <summary>An answer read off the index alone opens no plugin, so the open check never sees it: the dialogue
     /// check judges a right-typed LinkTo target by the index (#1173). The target's plugin is saved mid-call, and the
     /// call's last check refuses, naming it.</summary>
