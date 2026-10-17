@@ -181,7 +181,10 @@ public sealed class FieldPredicateSet
                 bool linkSide = p.LinkPath is not null;
                 int hops = linkSide ? p.LinkParentHops : p.ParentHops;
                 if (hops > 0) { if (_parentOf is not null) Climb(child.FormKey, k, linkSide, hops); continue; }
-                if (linkSide) CollectTargets(p, k, child, 0, pairs);
+                if (!linkSide) continue;
+                // A record that faults here is skipped: the scan meets the same fault on it and names it unscannable.
+                try { CollectTargets(p, k, child, 0, pairs); }
+                catch (Exception ex) when (ex is not (OperationCanceledException or OutOfMemoryException)) { }
             }
         }
         var byKey = new Dictionary<FormKey, List<(int K, bool Parent, bool LinkSide)>>();
