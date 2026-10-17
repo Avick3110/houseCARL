@@ -98,15 +98,18 @@ internal sealed partial class RecordReads
         // Whether the subject holds a version of the record, as the subject pole itself answers it.
         bool SubjectHolds(FormKey fk, string? subjectPlugin) => sGather.Holds?.Invoke(fk) ?? subjectPlugin is not null;
 
+        // A window's readings, made while each group was open and consumed by RowAt.
+        var sAt = new Dictionary<int, PoleReading>();
+        var rAt = new Dictionary<int, PoleReading>();
         DeltaRow RowAt(int i)
         {
             var (raw, fkOpt, parseError) = parsed[i];
             if (parseError is not null) return new DeltaRow(raw?.Trim() ?? "", null, null, null, null, null, parseError);
             var fk = fkOpt!.Value;
-            var s = sReader(fk, null);
+            var s = sAt.Remove(i, out var sr) ? sr : sReader(fk, null);
             if (s.Error is not null) return new DeltaRow(FormIdToken.Of(fk), s.Pole, null, null, null, null, "subject: " + s.Error);
             // previous_provider is measured from the SUBJECT, so the reference reader is handed the subject's plugin.
-            var r = rReader(fk, s.Pole!.Plugin);
+            var r = rAt.Remove(i, out var rr) ? rr : rReader(fk, s.Pole!.Plugin);
             if (r.Error is not null) return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error);
             string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
                 ? "the two poles resolved to the SAME provider — the diff is trivially empty by construction"
@@ -119,7 +122,7 @@ internal sealed partial class RecordReads
 
         // An off-order subject is swept first: the sweep is what says which ids it holds.
         if (sOffOrder is not null && wanted.Count > 0) sGather.Prime?.Invoke();
-        // Rows whose subject holds no version read no body, so they are settled here and only the live ones chunked.
+        // Rows whose subject holds no version read no body, so they are settled here and only the live ones windowed.
         var rows = new DeltaRow[parsed.Count];
         var live = new List<int>();
         for (int i = 0; i < parsed.Count; i++)
@@ -129,20 +132,16 @@ internal sealed partial class RecordReads
         }
         if (live.Count > 0) { sGather.Prime?.Invoke(); rGather.Prime?.Invoke(); }
         meter.Start();
-        // A chunk of live rows at a time, so each pole walks a plugin once for the whole chunk.
-        for (int start = 0; start < live.Count; start = ChunkEnd(start, live.Count))
+        // Windows of 32, 32, then doubling, each read a group at a time per pole: the subjects, then their references.
+        for (int start = 0, end; start < live.Count; start = end)
         {
-            int end = ChunkEnd(start, live.Count);
-            var chunkKeys = new List<FormKey>(end - start);
-            for (int j = start; j < end; j++) chunkKeys.Add(parsed[live[j]].Fk!.Value);
-            sGather.Open(view, session, chunkKeys);
-            // The reference's rows: each key whose subject holds a version, with the plugin the subject resolved to.
-            var refRows = new List<(FormKey Key, string? Subject)>(chunkKeys.Count);
-            foreach (var key in chunkKeys)
-                if (sGather.PluginOf?.Invoke(key, null) is var sp && SubjectHolds(key, sp)) refRows.Add((key, sp));
-            rGather.Open(view, session, refRows);
-
-            for (int j = start; j < end; j++) rows[live[j]] = RowAt(live[j]);
+            end = Math.Min(start + Math.Max(ComparisonChunkRows, start), live.Count);
+            var window = live.GetRange(start, end - start);
+            sGather.Each(view, session, window.Select(i => (i, parsed[i].Fk!.Value, (string?)null)).ToList(),
+                         i => sAt[i] = sReader(parsed[i].Fk!.Value, null));
+            rGather.Each(view, session, window.Where(i => sAt[i].Error is null).Select(i => (i, parsed[i].Fk!.Value, (string?)sAt[i].Pole!.Plugin)).ToList(),
+                         i => rAt[i] = rReader(parsed[i].Fk!.Value, sAt[i].Pole!.Plugin));
+            foreach (var i in window) rows[i] = RowAt(i);
             // Past the budget the rows are dropped and nothing further is read.
             if (meter.Check(end, live.Count) is { } tooDear)
             {
