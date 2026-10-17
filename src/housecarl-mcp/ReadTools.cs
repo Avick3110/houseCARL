@@ -610,7 +610,7 @@ static partial class Wire
     internal static string LinkText(ResolvedRef r) =>
         // Unresolved has two causes and the ref itself says which.
         !r.Resolved ? (r.Winner is { } w
-            ? $"unresolved: '{w}' defines this target but did not yield it on fetch"
+            ? (r.Error is { } e ? $"unresolved: {e}" : $"unresolved: '{w}' defines this target but did not yield it on fetch")
             : "unresolved: no active plugin defines this target")
         : string.IsNullOrEmpty(r.Name) ? $"→ {r.EditorId ?? "<no editorid>"}"
         : $"→ {r.EditorId ?? "<no editorid>"} \"{r.Name}\"";
