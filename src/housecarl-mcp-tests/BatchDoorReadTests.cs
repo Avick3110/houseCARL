@@ -148,6 +148,32 @@ public sealed class BatchDoorReadTests : IClassFixture<BatchDoorReadWorld>
         }, reads);
     }
 
+    Dictionary<(string, string), int> RowReads(int passRows)
+    {
+        var prior = _w.Svc.ReadArea.BatchPassRows;
+        _w.Svc.ReadArea.BatchPassRows = passRows;
+        try
+        {
+            var rows = new[] { Fid(_w.Armor1), Fid(_w.Weapon1), Fid(_w.Armor2), Fid(_w.Weapon2) };
+            return GroupReadDelta.Of(_w.Svc, () => RecordsTools.Records(_w.Svc, formids: rows, project: new RecordsTools.RecordsProject
+                                                                        { form = "fields", fields = new[] { "Keywords" } }),
+                                     "HcBatchArmor2", "HcBatchWeapon2");
+        }
+        finally { _w.Svc.ReadArea.BatchPassRows = prior; }
+    }
+
+    // Interleaved rows, two to a pass: sorted by group, each group's two rows are one read.
+    [Fact]
+    public void InterleavedRowsAreSortedSoEachGroupIsReadOncePerPass()
+        => Assert.Equal(new Dictionary<(string, string), int> { [("HcBatchBase.esm", "Armors")] = 1, [("HcBatchExtra.esp", "Weapons")] = 1 },
+                        RowReads(2));
+
+    // One row to a pass: a group with two rows is read twice, so the cap holds inside one group.
+    [Fact]
+    public void AGroupWithMoreRowsThanOnePassIsReadOncePerPass()
+        => Assert.Equal(new Dictionary<(string, string), int> { [("HcBatchBase.esm", "Armors")] = 2, [("HcBatchExtra.esp", "Weapons")] = 2 },
+                        RowReads(1));
+
     [Fact]
     public void AFormIdOutsideTheOrderWithNoPluginIsItsOwnRowErrorAndTheOtherRowsStillAnswer()
     {
