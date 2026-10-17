@@ -1,5 +1,6 @@
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlMcp;
 using Xunit;
@@ -51,6 +52,73 @@ public sealed class BatchDoorReadWorld : IDisposable
     }
 
     public void Dispose() { Svc.Dispose(); _mo2.Delete(); }
+}
+
+/// <summary>Two plugins: Base defines a cell and one reference in it; Extra restates the cell and adds a second reference.</summary>
+public sealed class BatchParentWorld : IDisposable
+{
+    readonly ScratchMo2 _mo2 = new("hc-batch-parent-");
+    public readonly ModKey Base = new("HcBatchCellBase", ModType.Master), Extra = new("HcBatchCellExtra", ModType.Plugin);
+    public LoadOrderService Svc { get; }
+    public FormKey Ref1 { get; }
+    public FormKey Ref2 { get; }
+
+    public BatchParentWorld()
+    {
+        var b = new SkyrimMod(Base, SkyrimRelease.SkyrimSE);
+        var cell = new Cell(b.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcBatchCell", Flags = Cell.Flag.IsInteriorCell };
+        var ref1 = new PlacedObject(b.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcBatchRef1" };
+        cell.Temporary.Add(ref1);
+        AddCell(b, cell);
+        b.BeginWrite.ToPath(_mo2.InMod("CellBase", Base)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        var x = new SkyrimMod(Extra, SkyrimRelease.SkyrimSE);
+        var restated = new Cell(cell.FormKey, SkyrimRelease.SkyrimSE) { EditorID = cell.EditorID, Flags = cell.Flags };
+        var ref2 = new PlacedObject(x.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcBatchRef2" };
+        restated.Temporary.Add(ref2);
+        AddCell(x, restated);
+        x.BeginWrite.ToPath(_mo2.InMod("CellExtra", Extra)).WithLoadOrder(new ISkyrimModGetter[] { b }).Write();
+
+        (Ref1, Ref2) = (ref1.FormKey, ref2.FormKey);
+        var names = new[] { Base, Extra }.Select(k => k.FileName.String).ToList();
+        _mo2.Profile(string.Join("\r\n", names) + "\r\n", string.Join("", names.Select(n => "*" + n + "\r\n")),
+                     "+CellExtra\r\n+CellBase\r\n");
+        Svc = _mo2.Open();
+    }
+
+    static void AddCell(SkyrimMod m, Cell c)
+    {
+        var block = new CellBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock };
+        var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+        sub.Cells.Add(c);
+        block.SubBlocks.Add(sub);
+        m.Cells.Records.Add(block);
+    }
+
+    public void Dispose() { Svc.Dispose(); _mo2.Delete(); }
+}
+
+/// <summary>A batch whose rows sit in two plugins reads their one container group once.</summary>
+[Trait("tier", "integration")]
+public sealed class BatchParentReadTests : IClassFixture<BatchParentWorld>
+{
+    readonly BatchParentWorld _w;
+    public BatchParentReadTests(BatchParentWorld w) => _w = w;
+
+    static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
+
+    // Each row's body reads its own plugin's Cells group; the cell, won by Extra, is read once more for both rows.
+    [Fact]
+    public void ABatchAcrossTwoPluginsReadsTheContainerGroupOnce()
+    {
+        var reads = GroupReadDelta.Of(_w.Svc, () => RecordsTools.Records(_w.Svc, formids: new[] { Fid(_w.Ref1), Fid(_w.Ref2) },
+                                          project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "*parent.EditorID" } }),
+                                      "HcBatchRef1", "HcBatchRef2");
+        Assert.Equal(new Dictionary<(string, string), int>
+        {
+            [("HcBatchCellBase.esm", "Cells")] = 1, [("HcBatchCellExtra.esp", "Cells")] = 2,
+        }, reads);
+    }
 }
 
 /// <summary>A formids= batch reads its rows a group at a time and its names through the door, and still answers one

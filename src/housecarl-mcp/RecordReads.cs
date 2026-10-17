@@ -496,6 +496,8 @@ internal sealed partial class RecordReads
             catch (Exception ex) { slots[i] = ReadOutcome.Fail(default, $"bad FormID '{formids[i]}': {ex.Message}"); continue; }
             if ((plugin ?? view.ResolveWinner(keys[i])?.WinnerPlugin) is { } source) sourced.Add((i, source));
         }
+        // Every row's container comes from one gather, however many groups the rows span.
+        var parents = new BodyPrefetch.Parents(view, session, sourced.Select(r => keys[r.Row]).ToHashSet(), ct);
         foreach (var (_, rows) in OrderedGather.Sort(view, sourced, r => r.Source, r => keys[r.Row]))
             for (int s = 0; s < rows.Count; s += BodyPrefetch.ChunkRows)   // the held bodies stay bounded inside one big group
             {
@@ -505,7 +507,7 @@ internal sealed partial class RecordReads
                 foreach (var (i, _) in part)
                 {
                     ct.ThrowIfCancellationRequested();   // a client that aborted stops the batch inside one record
-                    slots[i] = readRow(keys[i], chunk.Body(keys[i]), chunk.Parent);
+                    slots[i] = readRow(keys[i], chunk.Body(keys[i]), parents.Parent);
                 }
             }
         for (int i = 0; i < slots.Length; i++)
