@@ -504,7 +504,7 @@ internal sealed partial class RecordReads
             {
                 var part = rows.GetRange(s, Math.Min(passRows, rows.Count - s));
                 var partKeys = part.Select(r => keys[r.Row]).ToArray();
-                var chunk = BodyPrefetch.Gather(view, session, counters, partKeys, 0, partKeys.Length, _ => plugin, ct);
+                var chunk = BodyPrefetch.Gather(view, session, counters, partKeys, 0, partKeys.Length, j => part[j].Source, ct);
                 foreach (var (i, _) in part)
                 {
                     ct.ThrowIfCancellationRequested();   // a client that aborted stops the batch inside one record
