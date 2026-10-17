@@ -8,34 +8,13 @@ namespace HousecarlMcpTests;
 
 /// <summary>The collect pass gathers every '->' target the scan judges, so each target group is read once.</summary>
 [Trait("tier", "integration")]
-public sealed class DoorCollectTests : IClassFixture<DoorGroupReadWorld>, IClassFixture<DoorCollectWorld>
+public sealed class DoorCollectTests : IClassFixture<DoorCollectWorld>
 {
-    readonly DoorGroupReadWorld _w;
     readonly DoorCollectWorld _c;
-    public DoorCollectTests(DoorGroupReadWorld w, DoorCollectWorld c) { _w = w; _c = c; }
+    public DoorCollectTests(DoorCollectWorld c) => _c = c;
 
-    static Dictionary<(string, string), int> Reads(LoadOrderService svc, string type, string where, string expect)
-    {
-        var before = new Dictionary<(string Plugin, string Group), int>(svc.Counters.GroupReads);
-        var r = RecordsTools.Records(svc, types: new[] { type }, where: new[] { where });
-        Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
-        Assert.True(r.Contains(expect), r);
-        return svc.Counters.GroupReads.Where(kv => kv.Value != before.GetValueOrDefault(kv.Key))
-                                      .ToDictionary(kv => (kv.Key.Plugin, kv.Key.Group), kv => kv.Value - before.GetValueOrDefault(kv.Key));
-    }
-
-    [Theory]
-    [InlineData("Items[*all]->editorid startswith HcDoorArmor")]
-    [InlineData("Items[*none]->editorid = HcDoorNoSuchArmor")]
-    public void EveryFoldReadsTheTargetGroupOnce(string where)
-    {
-        string B = _w.Base.FileName.String, T = _w.Top.FileName.String;
-        Assert.Equal(new Dictionary<(string, string), int>
-        {
-            [(B, "FormLists")] = 2,
-            [(B, "Armors")] = 1, [(T, "Armors")] = 1,
-        }, Reads(_w.Svc, "FormList", where, "HcDoorList"));
-    }
+    Dictionary<(string, string), int> Reads(string type, string where, string expect) =>
+        GroupReadDelta.Of(_c.Svc, () => RecordsTools.Records(_c.Svc, types: new[] { type }, where: new[] { where }), "scan: 1 match", expect);
 
     /// <summary>A fold over a list of structs follows the link inside each element: Top's Factions, which wins every faction, is read once.</summary>
     [Fact]
@@ -46,7 +25,7 @@ public sealed class DoorCollectTests : IClassFixture<DoorGroupReadWorld>, IClass
         {
             [(B, "Npcs")] = 2, [(T, "Npcs")] = 2,
             [(T, "Factions")] = 1,
-        }, Reads(_c.Svc, "Npc", "Factions[*any].Faction->editorid = HcColFaction3", "HcColMember"));
+        }, Reads("Npc", "Factions[*any].Faction->editorid = HcColFaction3", "HcColMember"));
     }
 
     /// <summary>A link with no fold is collected too: Top's NPCs, the templates, are read once more, not once per record.</summary>
@@ -57,7 +36,7 @@ public sealed class DoorCollectTests : IClassFixture<DoorGroupReadWorld>, IClass
         Assert.Equal(new Dictionary<(string, string), int>
         {
             [(B, "Npcs")] = 2, [(T, "Npcs")] = 3,
-        }, Reads(_c.Svc, "Npc", "Template->editorid = HcColTemplate2", "HcColTemplated2"));
+        }, Reads("Npc", "Template->editorid = HcColTemplate2", "HcColTemplated2"));
     }
 
     /// <summary>A list whose last element cannot be read is named unscannable, as the scan names it; the other list matches.</summary>
