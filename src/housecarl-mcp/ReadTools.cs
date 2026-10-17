@@ -253,7 +253,7 @@ static partial class Wire
             }
             else
             {
-                var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // lazy fill for conflicts-only, pinned to the scan's build
+                var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk, ct);   // lazy fill for conflicts-only, pinned to the scan's build
                 sb.Append("  ").Append(FormIdToken.Of(m.FormKey));
                 if (m.Error is not null) sb.Append("  error=").Append(m.Error).Append('\n');
                 else
