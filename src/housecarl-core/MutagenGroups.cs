@@ -34,16 +34,22 @@ public static class MutagenGroups
     {
         var sets = types.Where(t => PropsOf(t) is not null)
                         .Select(t => (Props: new HashSet<PropertyInfo>(PropsOf(t)!), Types: new List<Type> { t })).ToList();
+        JoinOverlapping(sets);
+        return sets.Where(s => s.Types.Count > 1).Select(s => s.Types).ToList();
+    }
+
+    /// <summary>Join the sets whose keys overlap, in place, until no two do; a joined set keeps the first one's place.</summary>
+    public static void JoinOverlapping<TKey, TItem>(List<(HashSet<TKey> Keys, List<TItem> Items)> sets)
+    {
         for (int a = 0; a < sets.Count; a++)
             for (int b = a + 1; b < sets.Count; b++)
-                if (sets[a].Props.Overlaps(sets[b].Props))
+                if (sets[a].Keys.Overlaps(sets[b].Keys))
                 {
-                    sets[a].Props.UnionWith(sets[b].Props);
-                    sets[a].Types.AddRange(sets[b].Types);
+                    sets[a].Keys.UnionWith(sets[b].Keys);
+                    sets[a].Items.AddRange(sets[b].Items);
                     sets.RemoveAt(b);
                     b = a;                                                 // the joined set may now overlap one already passed
                 }
-        return sets.Where(s => s.Types.Count > 1).Select(s => s.Types).ToList();
     }
 
     static (PropertyInfo, HashSet<Type>)[] Build()
