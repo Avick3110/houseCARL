@@ -606,8 +606,7 @@ internal sealed partial class RecordReads
         }
         else                                                                  // conflicts_only alone — index keys only, no body fetch
         {
-            // Summaries here would each need a winner-body fetch; leaving them to the renderer means a big limit
-            // with a small max_chars does not fetch bodies it will never show.
+            // The renderer fills the summaries: its first row reads every kept key through the door, shown or not.
             foreach (var fk in view.ConflictKeys())
             {
                 ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record

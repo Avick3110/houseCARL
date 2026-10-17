@@ -1109,7 +1109,7 @@ static class JsonWire
                     }
                     else
                     {
-                        var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // pinned to the scan's build
+                        var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk, ct);   // pinned to the scan's build
                         WriteSummaryRow(w, m, matches);
                     }
                     rendered++;
@@ -1196,7 +1196,7 @@ static class JsonWire
                 // dense refuses depth>1 unless a quantifier asks for it; every read is pinned to the scan's build.
                 truncated = WriteDenseTable(w, ms, cap, manifestOnly, q.Keys, fields, fold, anyScoped, q.MatchedTargets,
                     i => reader!.Row(i),
-                    i => q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, q.Keys[i]),
+                    i => q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, q.Keys[i], ct),
                     renderMs =>
                     {
                         // The other half of a call's cost, stated in-band beside the rows it bought (#582).
