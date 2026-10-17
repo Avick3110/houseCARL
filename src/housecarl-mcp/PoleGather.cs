@@ -38,21 +38,15 @@ internal sealed class PoleGather
     /// <para>The gathered bodies are held until <see cref="Release"/>, so what a pole holds is its own chunk's rows —
     /// <see cref="RecordReads.ComparisonChunkRows"/> of them. A delta reads through <see cref="Each"/> instead, which
     /// holds one group's bodies at a time and keeps only the window's readings.</para></summary>
-    internal void Open(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                       IReadOnlyList<(FormKey Key, string? Subject)> rows)
+    internal void Open(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IReadOnlyList<FormKey> keys)
     {
         _gather = null;
-        if (PluginOf is null || rows.Count == 0) return;
+        if (PluginOf is null || keys.Count == 0) return;
         var g = new BodyGather(view, session);
-        foreach (var (key, subject) in rows)
-            if (PluginOf(key, subject) is { } plugin) g.Want(plugin, key);
+        Declare(g, keys.Select((k, i) => (i, k, (string?)null)), new Dictionary<FormKey, List<int>>());
         g.Gather();
         _gather = g;
     }
-
-    /// <summary>The same, for a pole whose rows are not measured from a subject.</summary>
-    internal void Open(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IReadOnlyList<FormKey> keys)
-        => Open(view, session, keys.Select(k => (k, (string?)null)).ToList());
 
     /// <summary>Read a delta window a group at a time: <paramref name="read"/> runs on each row while only its group's
     /// bodies are held, then on the rows this pole reads no in-order body for.</summary>
@@ -61,6 +55,17 @@ internal sealed class PoleGather
     {
         var g = new BodyGather(view, session);
         var rowsOf = new Dictionary<FormKey, List<int>>();
+        var rest = Declare(g, rows, rowsOf);
+        _gather = g;
+        try { g.Gather(asked => { foreach (var key in asked) rowsOf[key].ForEach(read); }); }
+        finally { _gather = null; }
+        rest.ForEach(read);
+    }
+
+    /// <summary>Declare each row's body on <paramref name="g"/>, filing the row under its key in <paramref name="rowsOf"/>;
+    /// answers the rows this pole reads no in-order body for.</summary>
+    List<int> Declare(BodyGather g, IEnumerable<(int Row, FormKey Key, string? Subject)> rows, Dictionary<FormKey, List<int>> rowsOf)
+    {
         var rest = new List<int>();
         foreach (var (row, key, subject) in rows)
         {
@@ -69,10 +74,7 @@ internal sealed class PoleGather
             if (!rowsOf.TryGetValue(key, out var l)) rowsOf[key] = l = new List<int>();
             l.Add(row);
         }
-        _gather = g;
-        try { g.Gather(asked => { foreach (var key in asked) rowsOf[key].ForEach(read); }); }
-        finally { _gather = null; }
-        rest.ForEach(read);
+        return rest;
     }
 
     /// <summary>Drop the chunk's gathered bodies. A caller that has finished READING through this gather while the
