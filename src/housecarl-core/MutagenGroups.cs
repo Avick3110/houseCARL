@@ -19,6 +19,11 @@ public static class MutagenGroups
     /// fault inside it arrives as itself, not wrapped by reflection.</summary>
     public static object? Read(PropertyInfo prop, ISkyrimModGetter mod) => Getters.Value[prop](mod);
 
+    /// <summary>The group <paramref name="prop"/> names on <paramref name="mod"/>, or null when the file lacks it: Mutagen
+    /// stands in an empty, writable group for a missing one, and an overlay's own groups are read-only.</summary>
+    public static IMajorRecordGetterEnumerable? Present(PropertyInfo prop, ISkyrimModGetter mod)
+        => Read(prop, mod) is IMajorRecordGetterEnumerable group and not IMajorRecordEnumerable ? group : null;
+
     /// <summary>The <see cref="ISkyrimModGetter"/> group properties that hold <paramref name="seekType"/>, in declaration
     /// order; null when no group holds it, or every group does (the base record interface): the caller walks flat.</summary>
     public static PropertyInfo[]? PropsOf(Type seekType) => Memo.GetOrAdd(seekType, static t =>

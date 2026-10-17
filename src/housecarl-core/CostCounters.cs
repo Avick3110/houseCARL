@@ -25,14 +25,6 @@ public sealed class CostCounters
     /// map counts once as <c>*flat</c>.</summary>
     public readonly ConcurrentDictionary<(string Plugin, string Group), int> GroupReads = new();
 
-    /// <summary>Count one walk of the groups <paramref name="seek"/> lives in, or one flat walk when it has none.</summary>
-    public void CountGroupRead(string plugin, Type? seek)
-    {
-        if (seek is not null && MutagenGroups.PropsOf(seek) is { } props)
-            foreach (var p in props) CountGroupRead(plugin, p.Name);
-        else CountGroupRead(plugin, "*flat");
-    }
-
     /// <summary>Count one read of one named group.</summary>
     public void CountGroupRead(string plugin, string group) => GroupReads.AddOrUpdate((plugin, group), 1, static (_, n) => n + 1);
 

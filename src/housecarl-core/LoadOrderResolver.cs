@@ -879,11 +879,22 @@ public sealed class LoadOrderResolver : IDisposable
         return null;
     }
 
-    /// <summary>One walk of plugin <paramref name="idx"/>: the groups of <paramref name="t"/>, or every record when null, counted in <see cref="CostCounters.GroupReads"/>.</summary>
+    /// <summary>One walk of plugin <paramref name="idx"/>: the groups of <paramref name="t"/> it has, or every record when null, counted in <see cref="CostCounters.GroupReads"/>.</summary>
     IEnumerable<IMajorRecordGetter> Walk(ISkyrimModGetter ov, int idx, Type? t, bool throwIfUnknown = false)
     {
-        Counters.CountGroupRead(_names[idx], t);
+        if (t is not null && MutagenGroups.PropsOf(t) is { } props) return Groups();
+        Counters.CountGroupRead(_names[idx], "*flat");
         return t is null ? ov.EnumerateMajorRecords() : ov.EnumerateMajorRecords(t, throwIfUnknown);
+
+        IEnumerable<IMajorRecordGetter> Groups()
+        {
+            foreach (var prop in props)
+            {
+                if (MutagenGroups.Present(prop, ov) is not { } group) continue;
+                Counters.CountGroupRead(_names[idx], prop.Name);
+                foreach (var rec in group.EnumerateMajorRecords(t, throwIfUnknown)) yield return rec;
+            }
+        }
     }
 
     /// <summary>The master filenames a plugin declares in its header: opens the overlay, reads <c>ModHeader.MasterReferences</c>, disposes. Throws on a name not in the order or excluded this
@@ -962,7 +973,7 @@ public sealed class LoadOrderResolver : IDisposable
         foreach (var prop in types.SelectMany(t => props[t]).Distinct().OrderBy(p => p.MetadataToken))
         {
             if (!types.Any(t => left[t] > 0 && props[t].Contains(prop))) continue;      // every type it holds is found
-            if (MutagenGroups.Read(prop, ov) is not IMajorRecordGetterEnumerable group) continue;
+            if (MutagenGroups.Present(prop, ov) is not { } group) continue;
             Counters.CountGroupRead(_names[idx], prop.Name);
             foreach (var t in types)
             {
