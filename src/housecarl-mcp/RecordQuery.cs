@@ -295,7 +295,7 @@ internal sealed partial class RecordReads
                         var w = view.ResolveWinner(fk)!.Value;
                         var j = judged[i];
                         if (faults.TryGetValue(w.WinnerPlugin, out var f) && !unreadablePlugins.Contains(f)) unreadablePlugins.Add(f);
-                        if (j.Kind == SetVerdict.Missing)
+                        if (j.Kind == SetVerdict.Missing || f is not null)
                         {
                             unscannable++;
                             if (unscannableSamples.Count < 3)
