@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace HousecarlCore;
 
 /// <summary>What one service's reads cost, counted where the work happens: never read by product code, never rendered,
@@ -19,8 +21,20 @@ public sealed class CostCounters
     /// <summary>Gather walks answered by reading only the wanted record types' groups.</summary>
     public long TypedCollectPasses;
 
-    /// <summary>Top-level groups a gather's typed walks read; a seek type walked alone counts every group holding it.</summary>
-    public long GroupCopies;
+    /// <summary>Reads of each plugin's top-level groups by the in-order walks, keyed (plugin, group); a walk with no group
+    /// map counts once as <c>*flat</c>.</summary>
+    public readonly ConcurrentDictionary<(string Plugin, string Group), int> GroupReads = new();
+
+    /// <summary>Count one walk of the groups <paramref name="seek"/> lives in, or one flat walk when it has none.</summary>
+    public void CountGroupRead(string plugin, Type? seek)
+    {
+        if (seek is not null && MutagenGroups.PropsOf(seek) is { } props)
+            foreach (var p in props) CountGroupRead(plugin, p.Name);
+        else CountGroupRead(plugin, "*flat");
+    }
+
+    /// <summary>Count one read of one named group.</summary>
+    public void CountGroupRead(string plugin, string group) => GroupReads.AddOrUpdate((plugin, group), 1, static (_, n) => n + 1);
 
     /// <summary>Provider bodies the conflict-tree fold read.</summary>
     public long TreeBodiesRead;

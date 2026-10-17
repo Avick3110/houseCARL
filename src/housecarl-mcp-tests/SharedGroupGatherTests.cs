@@ -52,7 +52,8 @@ public sealed class SharedGroupGatherTests : IDisposable
         using var session = pin.Resolver.OpenSession();
         var sink = new Dictionary<FormKey, IMajorRecordGetter>();
         var c = svc.Counters;
-        long copies = c.GroupCopies, passes = c.CollectPasses, typed = c.TypedCollectPasses;
+        var reads = new Dictionary<(string Plugin, string Group), int>(c.GroupReads);
+        long passes = c.CollectPasses, typed = c.TypedCollectPasses;
         pin.View.CollectRecords(session, _key.FileName, new[] { _inCell, _inRef, _exCell, _exRef, _npc, _actor, _arrow, _hazard }, sink);
         Assert.IsAssignableFrom<ICellGetter>(sink[_inCell]);
         Assert.IsAssignableFrom<ICellGetter>(sink[_exCell]);
@@ -62,8 +63,13 @@ public sealed class SharedGroupGatherTests : IDisposable
         Assert.Equal("HcSgActor", Assert.IsAssignableFrom<IPlacedNpcGetter>(sink[_actor]).EditorID);
         Assert.Equal("HcSgArrow", Assert.IsAssignableFrom<IPlacedArrowGetter>(sink[_arrow]).EditorID);
         Assert.Equal("HcSgHazard", Assert.IsAssignableFrom<IPlacedHazardGetter>(sink[_hazard]).EditorID);
-        Assert.Equal(3, c.GroupCopies - copies);
+        Assert.Equal(new Dictionary<string, int> { ["Cells"] = 1, ["Worldspaces"] = 1, ["Npcs"] = 1 }, GroupReadsSince(c, reads));
         Assert.Equal(1, c.CollectPasses - passes);
         Assert.Equal(1, c.TypedCollectPasses - typed);
     }
+
+    /// <summary>The groups read since <paramref name="before"/>, by group name, with how many times each.</summary>
+    internal static Dictionary<string, int> GroupReadsSince(HousecarlCore.CostCounters c, Dictionary<(string Plugin, string Group), int> before)
+        => c.GroupReads.Where(kv => kv.Value != before.GetValueOrDefault(kv.Key))
+                       .ToDictionary(kv => kv.Key.Group, kv => kv.Value - before.GetValueOrDefault(kv.Key));
 }
