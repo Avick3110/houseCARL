@@ -715,11 +715,11 @@ public sealed class LoadOrderResolver : IDisposable
 
         /// <summary>Is this plugin LIGHT — ESL-flagged in its header, or a <c>.esl</c> — in THIS build? A refusal about ESL compaction asks the index rather than inferring it from a FormID.</summary>
         public bool IsLightFlagged(string pluginName)
-            => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.Light[i];
+            => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.Light[Rely(i)];
 
         /// <summary>Is this plugin in the MASTER BLOCK (a header Master flag, or a .esm/.esl filename)? See <see cref="IndexSnapshot.MasterBlock"/> for why it is not the light flag.</summary>
         public bool IsMasterBlock(string pluginName)
-            => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.MasterBlock[i];
+            => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.MasterBlock[Rely(i)];
 
         /// <summary>The on-disk PATH of the active plugin named <paramref name="pluginName"/>, or null — the minimal name→path exposure the dialogue validator's SEQ lint needs.</summary>
         public string? PluginPath(string pluginName)
