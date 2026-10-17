@@ -183,17 +183,21 @@ internal sealed partial class RecordReads
         // Plugins the winner scan could not open at all — a whole-plugin coverage gap, named in the response.
         var unreadablePlugins = new List<PluginUnreadableException>();
 
-        // Whether a row passes the body filters that run before where=, so a '*parent' gather skips the rows they drop.
-        bool ReachesWhere(IMajorRecordGetter body)
+        // The filters before where=: conflicts_only by touching plugins (when asked), editorid_contains, and a body with nothing live to test.
+        PreWhere BeforeWhere(IMajorRecordGetter body, bool touching)
         {
-            try
-            {
-                if (!string.IsNullOrEmpty(editoridContains)
-                    && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
-                    return false;
-                if (DeletedRecordRule.HasNoLiveBody(body) && (refSet is not null || predicate is { NeedsLiveBody: true })) return false;
-                return ReferenceVerdict(body, refSet, refNone, references, false, out _, out _);
-            }
+            if (touching && conflictsOnly && (view.TouchingPlugins(body.FormKey)?.Count ?? 0) <= 1) return PreWhere.Filtered;
+            if (!string.IsNullOrEmpty(editoridContains)
+                && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
+                return PreWhere.Filtered;
+            return DeletedRecordRule.HasNoLiveBody(body) && (refSet is not null || predicate is { NeedsLiveBody: true })
+                ? PreWhere.NoLiveBody : PreWhere.Pass;
+        }
+
+        // Whether a row passes the body filters that run before where=, so a '*parent' gather skips the rows they drop.
+        bool ReachesWhere(IMajorRecordGetter body, bool touching = false)
+        {
+            try { return BeforeWhere(body, touching) == PreWhere.Pass && ReferenceVerdict(body, refSet, refNone, references, false, out _, out _); }
             catch (Exception) { return true; }   // the row's own scan meets the fault and names it
         }
 
@@ -263,10 +267,7 @@ internal sealed partial class RecordReads
                             int i = at[fk];
                             try
                             {
-                                if ((conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1)
-                                    || (!string.IsNullOrEmpty(editoridContains)
-                                        && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
-                                    || (DeletedRecordRule.HasNoLiveBody(body) && refSet is not null))
+                                if (BeforeWhere(body, touching: true) != PreWhere.Pass)
                                 { judged[i] = new SetVerdict(SetKind.Dropped, false, null, null, null); continue; }
                                 bool keep = ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null,
                                                              out var hitTargets, out var lenientNote);
@@ -349,8 +350,7 @@ internal sealed partial class RecordReads
                     // A winner plugin that would not open is a whole-plugin coverage gap, named once.
                     unreadablePlugins.AddRange(faults.Values);
                     // The containing records of the rows that reach where=, one walk per winner plugin.
-                    predicate?.HoldParents(bodies.Values.Where(b =>
-                        !(conflictsOnly && (view.TouchingPlugins(b.FormKey)?.Count ?? 0) <= 1) && ReachesWhere(b)));
+                    predicate?.HoldParents(bodies.Values.Where(b => ReachesWhere(b, touching: true)));
                     bool go = true;
                     try
                     {
@@ -363,14 +363,10 @@ internal sealed partial class RecordReads
                             {
                                 if (!bodies.TryGetValue(fk, out var body))
                                 { NoteMissing(fk, w.Value.WinnerPlugin, faults.GetValueOrDefault(w.Value.WinnerPlugin)); continue; }
-                                if (conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1) continue;
-                                if (!string.IsNullOrEmpty(editoridContains)
-                                    && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
-                                    continue;
+                                var pre = BeforeWhere(body, touching: true);
                                 // A deleted record only another where= term drops still counts toward the 'in' list members.
-                                if (DeletedRecordRule.HasNoLiveBody(body)
-                                    && (refSet is not null || predicate is { NeedsLiveBody: true }))
-                                { if (refSet is null) predicate!.NoteMembers(body); continue; }
+                                if (pre == PreWhere.NoLiveBody && refSet is null) predicate!.NoteMembers(body);
+                                if (pre != PreWhere.Pass) continue;
                                 // The same one-read verdict the scoped lane makes, so the formids-as-universe lane —
                                 // where an unbounded references= also lands — answers identically.
                                 bool keep = ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null,
@@ -518,7 +514,7 @@ internal sealed partial class RecordReads
                             ? p.body
                             : bodies.GetValueOrDefault(p.fk);
                     }
-                    predicate?.HoldParents(filterBodies.OfType<IMajorRecordGetter>().Where(ReachesWhere));
+                    predicate?.HoldParents(filterBodies.OfType<IMajorRecordGetter>().Where(b => ReachesWhere(b)));
                     bool go = true;
                     try
                     {
@@ -1014,6 +1010,9 @@ internal sealed partial class RecordReads
 
     /// <summary>One universe key's outcome from the read door.</summary>
     readonly record struct SetVerdict(SetKind Kind, bool Keep, string? Note, Type? Type, string? Error);
+
+    /// <summary>Which filter before where= drops a row: none, a body filter, or a body with nothing live to test.</summary>
+    enum PreWhere { Pass, Filtered, NoLiveBody }
 
     /// <summary>What the read door made of one universe key; a key it never met keeps the array default, Missing.</summary>
     enum SetKind { Missing = 0, Dropped, Judged, Threw }
