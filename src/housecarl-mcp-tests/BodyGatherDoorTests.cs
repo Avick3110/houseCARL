@@ -37,9 +37,11 @@ public sealed class BodyGatherDoorTests : IDisposable
     string Name(int i) => _mods[i].FileName.String;
 
     /// <summary>0xFF over the first record header inside the plugin's <paramref name="sig"/> group, size and write time kept, so walking that group throws.</summary>
-    void Break(int i, string sig)
+    void Break(int i, string sig) => Break(Path.Combine(_mo2.ModsDir, _mods[i].Name, Name(i)), sig);
+
+    /// <summary>0xFF over the first record header inside the <paramref name="sig"/> group of the plugin at <paramref name="path"/>.</summary>
+    static void Break(string path, string sig)
     {
-        var path = Path.Combine(_mo2.ModsDir, _mods[i].Name, Name(i));
         var mtime = File.GetLastWriteTimeUtc(path);
         var bytes = File.ReadAllBytes(path);
         var tag = System.Text.Encoding.ASCII.GetBytes(sig);
@@ -136,5 +138,34 @@ public sealed class BodyGatherDoorTests : IDisposable
         Break(1, "NPC_");
         var r = RecordsTools.Records(svc, formids: ids, where: new[] { "editorid startswith HcGdW" });
         Assert.True(r.Contains("scan: 2 matches") && r.Contains("HcGdWHcGdB0") && r.Contains("HcGdWHcGdB1") && r.Contains(Name(1)), r);
+    }
+
+    /// <summary>formids= with conflicts_only and no where=, over an overriding plugin with a broken NPC_ group: its
+    /// weapons answer and only the broken group's keys are named unscannable.</summary>
+    [Fact]
+    public void AFormidUniverseJudgesTheHealthyGroupsOfAPluginWithABrokenOne()
+    {
+        var a = _mods[0];
+        var o = new ModKey("HcGdO", ModType.Plugin);
+        var om = new SkyrimMod(o, SkyrimRelease.SkyrimSE);
+        var (npcs, weapons) = _keys[a];
+        for (int i = 0; i < 2; i++)
+        {
+            om.Npcs.Add(new Npc(npcs[i], SkyrimRelease.SkyrimSE) { EditorID = "HcGdN" + a.Name + i });
+            om.Weapons.Add(new Weapon(weapons[i], SkyrimRelease.SkyrimSE) { EditorID = "HcGdW" + a.Name + i });
+        }
+        var aPath = Path.Combine(_mo2.ModsDir, a.Name, Name(0));
+        using (var aMod = SkyrimMod.CreateFromBinaryOverlay(aPath, SkyrimRelease.SkyrimSE))
+            om.BeginWrite.ToPath(_mo2.InMod(o.Name, o)).WithLoadOrder(new ISkyrimModGetter[] { aMod }).Write();
+        var all = _mods.Append(o).ToArray();
+        _mo2.Profile(string.Concat(all.Select(k => k.FileName + "\r\n")), string.Concat(all.Select(k => "*" + k.FileName + "\r\n")),
+                     string.Concat(Enumerable.Reverse(all).Select(k => "+" + k.Name + "\r\n")));
+        using var svc = _mo2.Open();
+        var ids = npcs.Concat(weapons).Select(ScratchMo2.Fid).ToArray();
+        Assert.Contains("scan: 4 matches", RecordsTools.Records(svc, formids: ids, conflicts_only: true));
+        Break(Path.Combine(_mo2.ModsDir, o.Name, o.FileName.String), "NPC_");
+        var r = RecordsTools.Records(svc, formids: ids, conflicts_only: true);
+        Assert.True(r.Contains("scan: 2 matches") && r.Contains("HcGdWHcGdA0") && r.Contains("HcGdWHcGdA1")
+                    && r.Contains("2 record instance(s) could not be scanned"), r);
     }
 }

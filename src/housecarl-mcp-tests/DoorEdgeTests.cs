@@ -7,8 +7,8 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>A formid universe on a plugin whose Cells group broke after the index build: every key that plugin wins is
-/// unscannable, whichever group the door walked first and in whatever order the keys were asked.</summary>
+/// <summary>A formid universe on a plugin whose Cells group broke after the index build: only the cell is unscannable and
+/// the armor still answers, in whatever order the keys were asked.</summary>
 [Trait("tier", "integration")]
 public sealed class DoorFaultedUniverseTests : IDisposable
 {
@@ -50,7 +50,7 @@ public sealed class DoorFaultedUniverseTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void AFaultedWinnersKeysAreAllUnscannable(bool armorFirst)
+    public void OnlyTheBrokenGroupsKeysAreUnscannable(bool armorFirst)
     {
         using var svc = _mo2.Open();
         var ids = new[] { ScratchMo2.Fid(_cell), ScratchMo2.Fid(_armor) };
@@ -58,7 +58,7 @@ public sealed class DoorFaultedUniverseTests : IDisposable
         BreakCellGroup();
         if (armorFirst) Array.Reverse(ids);
         var r = RecordsTools.Records(svc, formids: ids, references: new[] { "!" + ScratchMo2.Fid(_armor) });
-        Assert.True(r.Contains("scan: 0 matches") && r.Contains("2 record instance(s) could not be scanned"), r);
+        Assert.True(r.Contains("scan: 1 match") && r.Contains("HcDfArmor") && r.Contains("1 record instance(s) could not be scanned"), r);
     }
 }
 
@@ -88,8 +88,8 @@ public sealed class DoorNoParentNoteTests : IDisposable
     }
 }
 
-/// <summary>A formid universe whose first winner faults after its armor took the page's one held summary: the next
-/// plugin's armor still lands on the page, read again from its winner, and the faulted plugin's keys are unscannable.</summary>
+/// <summary>A formid universe whose first winner's CELL group faults: that plugin's armor keeps the page's one slot, the
+/// next plugin's armor is counted, and only the cell is unscannable.</summary>
 [Trait("tier", "integration")]
 public sealed class DoorFaultedPageTests : IDisposable
 {
@@ -98,7 +98,7 @@ public sealed class DoorFaultedPageTests : IDisposable
     public void Dispose() => _mo2.Delete();
 
     [Fact]
-    public void ALaterPluginsRowLandsAfterAFaultedOneHeldTheSlot()
+    public void AFaultedPluginsHealthyRowKeepsThePageSlot()
     {
         var p = new ModKey("HcDoorPageP", ModType.Master);
         var q = new ModKey("HcDoorPageQ", ModType.Plugin);
@@ -131,6 +131,7 @@ public sealed class DoorFaultedPageTests : IDisposable
 
         var r = RecordsTools.Records(svc, formids: ids, references: new[] { "!" + ScratchMo2.Fid(armorP.FormKey) }, limit: 1);
         Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
-        Assert.True(r.Contains("HcDpArmorQ") && r.Contains("2 record instance(s) could not be scanned"), r);
+        Assert.True(r.Contains("scan: 2 matches") && r.Contains("HcDpArmorP") && !r.Contains("HcDpArmorQ")
+                    && r.Contains("1 record instance(s) could not be scanned"), r);
     }
 }

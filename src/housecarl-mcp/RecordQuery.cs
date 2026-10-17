@@ -291,7 +291,7 @@ internal sealed partial class RecordReads
                         var (fk, w) = all[i];
                         var j = judged[i];
                         if (faults.TryGetValue(w.WinnerPlugin, out var f) && !unreadablePlugins.Contains(f)) unreadablePlugins.Add(f);
-                        if (j.Kind == SetKind.Missing || f is not null) { NoteMissing(fk, w.WinnerPlugin, f); continue; }
+                        if (j.Kind == SetKind.Missing) { NoteMissing(fk, w.WinnerPlugin, f); continue; }
                         if (j.Kind == SetKind.Threw) { Unscannable(j.Error!); continue; }
                         if (j.Kind == SetKind.Dropped) continue;
                         NoteLenient(fk, j.Note);
