@@ -550,11 +550,16 @@ internal sealed partial class RecordReads
                     if (LinkTarget(f) is { } fk && !memo.Refs.ContainsKey(fk) && !want.ContainsKey(fk) && view.ResolveWinner(fk) is { } w)
                         want[fk] = w.WinnerPlugin;
         if (want.Count == 0) return;
+        var faults = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
         OrderedGather.ForEachGroup(view, session, want.Select(kv => (kv.Value, kv.Key)), (plugin, bodies, asked) =>
         {
             foreach (var fk in asked)
                 if (bodies.TryGetValue(fk, out var b)) memo.Refs[fk] = RefOf(fk, b, plugin);
-        }, new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase), ct);
+        }, faults, ct);
+        // A target the walk of a faulted winner did not yield names that fault, and is not fetched again per target.
+        foreach (var (fk, plugin) in want)
+            if (!memo.Refs.ContainsKey(fk) && faults.TryGetValue(plugin, out var fault))
+                memo.Refs[fk] = new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Winner: plugin, Error: fault.Message);
     }
 
     // ---- `records`: the one-pole batch (source=named, wherever the plugin lives) -----------------------

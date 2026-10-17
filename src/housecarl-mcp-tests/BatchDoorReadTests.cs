@@ -17,6 +17,7 @@ public sealed class BatchDoorReadWorld : IDisposable
     public FormKey Armor2 { get; }
     public FormKey Weapon1 { get; }
     public FormKey Weapon2 { get; }
+    public string BaseFile { get; }
 
     public BatchDoorReadWorld()
     {
@@ -29,7 +30,8 @@ public sealed class BatchDoorReadWorld : IDisposable
             a.Keywords = new() { kw[0].ToLink(), kw[1].ToLink() };
             return a;
         }).ToList();
-        b.BeginWrite.ToPath(_mo2.InMod("BatchBase", Base)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        BaseFile = _mo2.InMod("BatchBase", Base);
+        b.BeginWrite.ToPath(BaseFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         var x = new SkyrimMod(Extra, SkyrimRelease.SkyrimSE);
         var own = x.Keywords.AddNew();
@@ -196,6 +198,17 @@ public sealed class BatchDoorReadTests : IClassFixture<BatchDoorReadWorld>
     {
         var r = Read(new[] { "123456:HcBatchNope.esp", Fid(_w.Weapon1) });
         Assert.Contains("is not present in the load order", r);
+        Assert.Contains("(→ HcBatchKw3)", r);
+    }
+
+    // Base held open: the weapon's Base keyword names Base's fault and is not fetched again; its own keyword still resolves.
+    [Fact]
+    public void ANameTargetInAPluginThatCannotBeReadNamesItsFault()
+    {
+        string r;
+        using (new FileStream(_w.BaseFile, FileMode.Open, FileAccess.Read, FileShare.None))
+            r = Read(new[] { Fid(_w.Weapon1) });
+        Assert.Contains("(unresolved: could not read 'HcBatchBase.esm'", r);
         Assert.Contains("(→ HcBatchKw3)", r);
     }
 
