@@ -54,15 +54,7 @@ public static class OrderedGather
         foreach (var plugin in byType.Keys.GroupBy(k => (k.Idx, k.Plugin)))
         {
             var sets = plugin.Select(k => (Groups: GroupsOf(k.Seek), Items: byType[k])).ToList();
-            for (int a = 0; a < sets.Count; a++)
-                for (int b = a + 1; b < sets.Count; b++)
-                    if (sets[a].Groups.Overlaps(sets[b].Groups))
-                    {
-                        sets[a].Groups.UnionWith(sets[b].Groups);
-                        sets[a].Items.AddRange(sets[b].Items);
-                        sets.RemoveAt(b);
-                        b = a;                                                 // the joined set may now overlap one already passed
-                    }
+            MutagenGroups.JoinOverlapping(sets);
             foreach (var (groups, list) in sets)
                 buckets.Add((plugin.Key.Idx, string.Join("+", groups.Order(StringComparer.Ordinal)), plugin.Key.Plugin, list));
         }
