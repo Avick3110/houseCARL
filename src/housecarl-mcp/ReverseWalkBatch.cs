@@ -64,6 +64,8 @@ public static class ReverseWalkBatch
 
         var built = view.EnsureReverseIndex();
         var index = view.ReverseIndex!;
+        // One generation for the whole walk, so candidates and verdicts cannot come from two builds.
+        var gen = index.Pin();
         int unreadable = 0, noLiveBody = 0, noWinner = 0;
         // Every candidate is judged once, however many frontiers name it.
         var linksOf = new Dictionary<FormKey, IReadOnlySet<FormKey>?>();
@@ -94,7 +96,7 @@ public static class ReverseWalkBatch
         ReverseReferenceIndex.CopyFact IndexFact(FormKey k, string winner, out string? note)
         {
             note = null;
-            return view.WinnerHoldsOnce(k) ? index.WinnerFact(k, winner, out note) : ReverseReferenceIndex.CopyFact.Unknown;
+            return view.WinnerHoldsOnce(k) ? index.WinnerFact(k, winner, out note, gen) : ReverseReferenceIndex.CopyFact.Unknown;
         }
         // The rest are read through the door one block at a time, each body reduced to its verdict while its group is open.
         void Gather(IReadOnlyList<FormKey> block)
@@ -204,7 +206,7 @@ public static class ReverseWalkBatch
             hops = ReverseSelection.Transitive(index, seedKeys, depth, maxNodes,
                                                shaped ? Admit : Verify, out capped, Gather,
                                                shaped ? k => !boundaries.Contains(k) : null,
-                                               frontier => index.ReferencersOf(frontier, WinnerOf, fromWinner));
+                                               frontier => index.ReferencersOf(frontier, WinnerOf, fromWinner, gen));
         }
         catch (WalkRefused r)
         {

@@ -9,7 +9,7 @@ namespace HousecarlCore;
 /// <summary>The reverse edge, whole-order: a target FormKey to the records that carry a FormLink to it; contracts in docs/architecture/walk-and-reverse.md.</summary>
 public sealed class ReverseReferenceIndex
 {
-    sealed class Partition
+    internal sealed class Partition
     {
         public string Path = "";
         public string Name = "";
@@ -26,7 +26,7 @@ public sealed class ReverseReferenceIndex
     }
 
     /// <summary>One published, immutable state of the index; a read takes the field once and is consistent for its whole run.</summary>
-    sealed class Generation
+    internal sealed class Generation
     {
         // Keyed on the plugin PATH, not its filename: two entries can share a filename, and a filename key would drop the lower-priority copy's edges.
         public Dictionary<string, Partition> ByPath = new(StringComparer.OrdinalIgnoreCase);
@@ -79,6 +79,16 @@ public sealed class ReverseReferenceIndex
 
     volatile Generation _gen = new();
 
+    /// <summary>One generation, taken once, so every read of one walk sees the same partitions.</summary>
+    public sealed class Pinned
+    {
+        internal readonly Generation G;
+        internal Pinned(Generation g) => G = g;
+    }
+
+    /// <summary>The generation published now, for a caller that reads it more than once.</summary>
+    public Pinned Pin() => new(_gen);
+
     /// <summary>Plugins with a partition in this index.</summary>
     public int PartitionCount => _gen.ByPath.Count;
 
@@ -113,9 +123,9 @@ public sealed class ReverseReferenceIndex
 
     /// <summary>Every record linking ANY of these targets, deduped, in load order: a candidate set; <paramref name="fromWinner"/> gets those whose edge is from their winner's partition.</summary>
     public IReadOnlyList<FormKey> ReferencersOf(IReadOnlyList<FormKey> targets, Func<FormKey, string?>? winnerOf = null,
-                                                HashSet<FormKey>? fromWinner = null)
+                                                HashSet<FormKey>? fromWinner = null, Pinned? at = null)
     {
-        var g = _gen;
+        var g = at?.G ?? _gen;
         fromWinner?.Clear();
         var packed = new List<ulong>(targets.Count);
         foreach (var t in targets) if (g.TryPack(t, out var pt)) packed.Add(pt);
@@ -141,10 +151,10 @@ public sealed class ReverseReferenceIndex
     public enum CopyFact { Unknown, NoLiveBody, Live, Unscannable }
 
     /// <summary>Unknown when the index cannot say (no readable partition for the plugin); Live carries the copy's lenient-read note, if any.</summary>
-    public CopyFact WinnerFact(FormKey record, string winnerPlugin, out string? note)
+    public CopyFact WinnerFact(FormKey record, string winnerPlugin, out string? note, Pinned? at = null)
     {
         note = null;
-        var g = _gen;
+        var g = at?.G ?? _gen;
         if (!g.ByName.TryGetValue(winnerPlugin, out var p) || p.Unreadable is not null || !g.TryPack(record, out var pk)) return CopyFact.Unknown;
         if (p.NoLive.Contains(pk)) return CopyFact.NoLiveBody;
         if (p.Unscannables.Contains(pk)) return CopyFact.Unscannable;
