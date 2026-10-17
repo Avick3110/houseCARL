@@ -80,7 +80,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 - `ComparisonBatchReadTests` and `ComparisonBatchOffOrderReadTests` — a delta walks no pole plugin for a row that pole holds nothing of (a named subject or reference, a post-state subject whose replay is unavailable, an off-order subject), and still gathers the reference for a post-state or off-order subject that holds its rows.
 - `ComparisonBatchReadTests.AbsentIdsExplainTheirPluginOnce` — the view explains an absent plugin from the profile once per pin: tree, delta (winner, pre, post), `fields` (plain and post) and `info_order` each read it once for 50 ids.
 - `RecordsRenderCostTests.ABatchBodyReadStopsWhenTheClientCancels` and `ACancelStopsAnEverythingRenderToo` — a cancelled batch and a cancelled render stop inside one record.
-- `RecordsWalkCostTests.AWalkHoldsNoReachedBodiesPastTheGatherThatReadThem` and `AWalkSplitAcrossPassesReachesTheSameSetAndHoldsOnePass` — a walk holds one gather pass and nothing at return.
+- `RecordsWalkCostTests.AWalkHoldsNoReachedBodiesPastTheGatherThatReadThem` and `AWalkSplitAcrossPassesReachesTheSameSetAndHoldsOnePass` — a forward hop is one pass through the read door, reading each group once and holding one group's bodies, and a walk holds nothing at return.
 - `RecordsRemedyRepairTests.AListHopRemedyComesFromThePlanSoNoScannedRecordComputesIt` — the list-hop remedy comes from the plan, so no scanned record computes it.
 - `ConditionSummaryLineTests` and `ConditionSummaryLinePresenceTests` — the compact condition line on both summary paths, the full form one level below it, and `Conditions[0] exists` still present.
 - `RecordsFieldFoldTests` — `[*]` and `[*count]` columns, and the read's truncation note surviving the fold.
