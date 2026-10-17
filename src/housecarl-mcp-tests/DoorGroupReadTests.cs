@@ -96,8 +96,8 @@ public sealed class DoorGroupReadTests : IClassFixture<DoorGroupReadWorld>
     string M => _w.Mid.FileName.String;
     string T => _w.Top.FileName.String;
 
-    /// <summary>The three armors Top wins are read in one walk of Top's Armors group, not one per armor. FormLists is
-    /// read twice per plugin: once by the pass that collects the targets, once by the scan (two passes, ruled 2026-10-15 (3)).</summary>
+    /// <summary>The three armors Top wins are read in one walk of Top's Armors group, not one per armor. Base's FormLists
+    /// is read twice: the collect pass and the scan each read it once. Mid and Top have no FormLists group to read.</summary>
     [Fact]
     public void ALinkScanReadsTheTargetGroupOnce()
     {
@@ -105,7 +105,7 @@ public sealed class DoorGroupReadTests : IClassFixture<DoorGroupReadWorld>
                     "HcDoorList");
         Assert.Equal(new Dictionary<(string, string), int>
         {
-            [(B, "FormLists")] = 2, [(M, "FormLists")] = 2, [(T, "FormLists")] = 2,
+            [(B, "FormLists")] = 2,
             [(B, "Armors")] = 1, [(T, "Armors")] = 1,
         }, d);
     }
@@ -129,7 +129,7 @@ public sealed class DoorGroupReadTests : IClassFixture<DoorGroupReadWorld>
     }
 
     /// <summary>Both cells, won by Top and asked for by two scan chunks, come from one read of Top's Cells group. The
-    /// candidates come off the index, so the references are streamed once, by the scan.</summary>
+    /// candidates come off the index, so the references are streamed once, by the scan. No plugin has a Worldspaces group.</summary>
     [Fact]
     public void AParentScanReadsTheContainerGroupOnce()
     {
@@ -137,9 +137,7 @@ public sealed class DoorGroupReadTests : IClassFixture<DoorGroupReadWorld>
                     "HcDoorRefB");
         Assert.Equal(new Dictionary<(string, string), int>
         {
-            [(B, "Cells")] = 1, [(B, "Worldspaces")] = 1,
-            [(M, "Cells")] = 1, [(M, "Worldspaces")] = 1,
-            [(T, "Cells")] = 2, [(T, "Worldspaces")] = 1,
+            [(B, "Cells")] = 1, [(M, "Cells")] = 1, [(T, "Cells")] = 2,
         }, d);
     }
 
