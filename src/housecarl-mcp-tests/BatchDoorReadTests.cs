@@ -118,6 +118,25 @@ public sealed class BatchParentReadTests : IClassFixture<BatchParentWorld>
             [("HcBatchCellBase.esm", "Cells")] = 1, [("HcBatchCellExtra.esp", "Cells")] = 2,
         }, reads);
     }
+
+    // One row to a pass: the two rows are two runs, so the cell's group is gathered once per run on top of Ref2's own read.
+    [Fact]
+    public void EachRunOfPassRowsGathersItsOwnContainers()
+    {
+        var prior = _w.Svc.ReadArea.BatchPassRows;
+        _w.Svc.ReadArea.BatchPassRows = 1;
+        try
+        {
+            var reads = GroupReadDelta.Of(_w.Svc, () => RecordsTools.Records(_w.Svc, formids: new[] { Fid(_w.Ref1), Fid(_w.Ref2) },
+                                              project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "*parent.EditorID" } }),
+                                          "HcBatchRef1", "HcBatchRef2");
+            Assert.Equal(new Dictionary<(string, string), int>
+            {
+                [("HcBatchCellBase.esm", "Cells")] = 1, [("HcBatchCellExtra.esp", "Cells")] = 3,
+            }, reads);
+        }
+        finally { _w.Svc.ReadArea.BatchPassRows = prior; }
+    }
 }
 
 /// <summary>A formids= batch reads its rows and names a group at a time and answers one row per input, in order.</summary>
