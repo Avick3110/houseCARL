@@ -39,6 +39,9 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
   only when the winner's partition is missing or unreadable, or when the winner plugin carries the key
   twice (`IndexView.WinnerHoldsOnce`): the index merges both copies, while a body read and
   `references=` take the first.
+- A forward hop is one pass through the read door with no 2,000-row cap per pass: it holds one
+  group's asked bodies plus the hop's node facts at once, inside the door's bound. The rise in the
+  forward walk's peak (1.66 → 1.89 GB on ARR's Player walk) is likely the hop's facts.
 - A transitive reverse walk spends its node budget BEFORE a candidate is verified, so a spent budget
   stops the body reads as well as the reach and a raised budget on a retry sees the same graph; the
   hop the cut landed on is marked rather than reading as a hop that reached nothing.
