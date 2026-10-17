@@ -24,7 +24,7 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
 - Cycles are found by a post-walk pass over the recorded edge set, not by the BFS parent map: a
   mutual reference between two siblings is a real cycle no ancestry test can see. Any other repeat
   is a re-convergence and is deduped. A refusal carries nothing usable rather than a partial copy.
-- The reverse index is lazy, partitioned per plugin and keyed on (path, mtime) beside the order-wide
+- The reverse index is lazy, partitioned per plugin and keyed on (path, last-write, length) beside the order-wide
   epoch, generational so a read is never torn, and plugin-atomic so a half-read plugin leaves no
   partial edges. Its measured build cost and held size are in
   `dev/projects/tool-surface-2.0/SPEC.md` §3.2 and its 2026-09-05 amendment.
