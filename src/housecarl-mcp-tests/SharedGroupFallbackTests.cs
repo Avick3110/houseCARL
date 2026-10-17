@@ -62,9 +62,9 @@ public sealed class SharedGroupFallbackTests : IDisposable
         var pin = svc.CapturePin();
         using var session = pin.Resolver.OpenSession();
         var sink = new Dictionary<FormKey, IMajorRecordGetter>();
-        long copies = svc.Counters.GroupCopies;
+        var reads = new Dictionary<(string Plugin, string Group), int>(svc.Counters.GroupReads);
         pin.View.CollectRecords(session, _key.FileName, new[] { _cell }, sink);
         Assert.Equal("HcSfCell", Assert.IsAssignableFrom<ICellGetter>(sink[_cell]).EditorID);
-        Assert.Equal(1, svc.Counters.GroupCopies - copies);
+        Assert.Equal(new Dictionary<string, int> { ["Cells"] = 1 }, SharedGroupGatherTests.GroupReadsSince(svc.Counters, reads));
     }
 }

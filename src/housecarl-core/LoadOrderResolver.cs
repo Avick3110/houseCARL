@@ -834,7 +834,7 @@ public sealed class LoadOrderResolver : IDisposable
         var ov = OpenOverlay(_paths[idx], _dataDir);
         try
         {
-            foreach (var rec in ov.EnumerateMajorRecords())
+            foreach (var rec in Walk(ov, idx, null))
             {
                 var fk = rec.FormKey;
                 if (!s.Index.TryGetValue(fk, out var e))               // the FILE outran the snapshot (edited after the build) — name it, never skip
@@ -868,11 +868,18 @@ public sealed class LoadOrderResolver : IDisposable
         var ov = session.Overlay(idx);
         System.Threading.Interlocked.Increment(ref Counters.BodySeeks);
         if (type is not null)
-            foreach (var rec in ov.EnumerateMajorRecords(type, throwIfUnknown: false))
+            foreach (var rec in Walk(ov, idx, type))
                 if (rec.FormKey == fk) { System.Threading.Interlocked.Increment(ref Counters.TypedSeeks); return rec; }
-        foreach (var rec in ov.EnumerateMajorRecords())
+        foreach (var rec in Walk(ov, idx, null))
             if (rec.FormKey == fk) return rec;
         return null;
+    }
+
+    /// <summary>One walk of plugin <paramref name="idx"/>: the groups of <paramref name="t"/>, or every record when null, counted in <see cref="CostCounters.GroupReads"/>.</summary>
+    IEnumerable<IMajorRecordGetter> Walk(ISkyrimModGetter ov, int idx, Type? t, bool throwIfUnknown = false)
+    {
+        Counters.CountGroupRead(_names[idx], t);
+        return t is null ? ov.EnumerateMajorRecords() : ov.EnumerateMajorRecords(t, throwIfUnknown);
     }
 
     /// <summary>The master filenames a plugin declares in its header: opens the overlay, reads <c>ModHeader.MasterReferences</c>, disposes. Throws on a name not in the order or excluded this
@@ -925,25 +932,25 @@ public sealed class LoadOrderResolver : IDisposable
         System.Threading.Interlocked.Increment(ref Counters.CollectPasses);         // past here the plugin is actually walked
         if (byType.Count > 1)
             foreach (var shared in MutagenGroups.SharedGroups(byType.Keys))
-                CollectShared(ov, shared, byType, sink, flat);
+                CollectShared(ov, idx, shared, byType, sink, flat);
         foreach (var t in byType.Keys.Where(t => MutagenGroups.PropsOf(t) is not null).ToList())
-            CollectShared(ov, [t], byType, sink, flat);                   // a type alone in its groups reads them the same way, counted by one rule
+            CollectShared(ov, idx, [t], byType, sink, flat);                   // a type alone in its groups reads them the same way, counted by one rule
         foreach (var (t, keys) in byType)                                  // no group map (the base interface): Mutagen's own walk
         {
             int left = keys.Count;
-            foreach (var rec in ov.EnumerateMajorRecords(t, throwIfUnknown: false))
+            foreach (var rec in Walk(ov, idx, t))
                 if (keys.Contains(rec.FormKey) && sink.TryAdd(rec.FormKey, rec) && --left == 0) break;
             if (left > 0) foreach (var fk in keys) if (!sink.ContainsKey(fk)) flat.Add(fk);
         }
         if (flat.Count == 0) { System.Threading.Interlocked.Increment(ref Counters.TypedCollectPasses); return; }
         int missing = flat.Count;
-        foreach (var rec in ov.EnumerateMajorRecords())
+        foreach (var rec in Walk(ov, idx, null))
             if (flat.Contains(rec.FormKey) && sink.TryAdd(rec.FormKey, rec) && --missing == 0) return;
     }
 
     /// <summary>Seek types that share groups (cells, worldspaces, the references in them) read each shared group once, with
     /// one typed walk per type over that one copy, instead of one copy per type. Their misses join <paramref name="flat"/>.</summary>
-    void CollectShared(ISkyrimModGetter ov, List<Type> types, Dictionary<Type, HashSet<FormKey>> byType,
+    void CollectShared(ISkyrimModGetter ov, int idx, List<Type> types, Dictionary<Type, HashSet<FormKey>> byType,
                        IDictionary<FormKey, IMajorRecordGetter> sink, HashSet<FormKey> flat)
     {
         var left = types.ToDictionary(t => t, t => byType[t].Count);
@@ -952,7 +959,7 @@ public sealed class LoadOrderResolver : IDisposable
         {
             if (!types.Any(t => left[t] > 0 && props[t].Contains(prop))) continue;      // every type it holds is found
             if (MutagenGroups.Read(prop, ov) is not IMajorRecordGetterEnumerable group) continue;
-            System.Threading.Interlocked.Increment(ref Counters.GroupCopies);
+            Counters.CountGroupRead(_names[idx], prop.Name);
             foreach (var t in types)
             {
                 if (left[t] == 0 || !props[t].Contains(prop)) continue;
@@ -1011,7 +1018,7 @@ public sealed class LoadOrderResolver : IDisposable
             try
             {
                 // RecordArms is the shared arm re-check: a typed enumeration seeks the GRUP, which for an abstract group holds every arm.
-                using var recs = RecordArms.OfTypes(ov, getterTypes).GetEnumerator();
+                using var recs = RecordArms.OfTypes(getterTypes, t => Walk(ov, i, t, throwIfUnknown: true)).GetEnumerator();
                 while (true)
                 {
                     IMajorRecordGetter rec;
@@ -1053,8 +1060,8 @@ public sealed class LoadOrderResolver : IDisposable
             try
             {
                 IEnumerable<IMajorRecordGetter> recs = getterTypes is null
-                    ? ov.EnumerateMajorRecords()
-                    : RecordArms.OfTypes(ov, getterTypes);   // the shared arm re-check
+                    ? Walk(ov, i, null)
+                    : RecordArms.OfTypes(getterTypes, t => Walk(ov, i, t, throwIfUnknown: true));   // the shared arm re-check
                 foreach (var rec in recs)
                     if (s.Index.TryGetValue(rec.FormKey, out var e)
                         && (e.count == 1 || !HigherScopedCopy(s.Overriders[rec.FormKey], i, inScope)))

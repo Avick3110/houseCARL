@@ -8,5 +8,9 @@ namespace HousecarlCore;
 public static class RecordArms
 {
     public static IEnumerable<IMajorRecordGetter> OfTypes(ISkyrimModGetter ov, IReadOnlyList<Type> getterTypes)
-        => getterTypes.SelectMany(t => ov.EnumerateMajorRecords(t, throwIfUnknown: true).Where(t.IsInstanceOfType));
+        => OfTypes(getterTypes, t => ov.EnumerateMajorRecords(t, throwIfUnknown: true));
+
+    /// <summary>The same arms over a caller's own typed walk, for the resolver's counted walks.</summary>
+    public static IEnumerable<IMajorRecordGetter> OfTypes(IReadOnlyList<Type> getterTypes, Func<Type, IEnumerable<IMajorRecordGetter>> walk)
+        => getterTypes.SelectMany(t => walk(t).Where(t.IsInstanceOfType));
 }
