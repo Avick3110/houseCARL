@@ -16,8 +16,9 @@ internal sealed partial class RecordReads
     /// then stay at it, so the subject readings a window holds are bounded at any row count.</summary>
     internal const int DeltaWindowCapRows = 2_048;
 
-    /// <summary>The delta window cap a call reads with; <see cref="DeltaWindowCapRows"/>, and a test lowers it.</summary>
-    internal int DeltaWindowCap { get; set; } = DeltaWindowCapRows;
+    /// <summary>The delta window cap a call reads with; <see cref="DeltaWindowCapRows"/>, and a test lowers it, never below one row.</summary>
+    internal int DeltaWindowCap { get => _deltaWindowCap; set => _deltaWindowCap = Math.Max(1, value); }
+    int _deltaWindowCap = DeltaWindowCapRows;
 
     /// <summary>One provider's fields as the fold reaches them, <paramref name="node"/> WINNER FIRST; return false
     /// to stop this row.</summary>
