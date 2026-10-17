@@ -84,6 +84,8 @@ public static class ReverseWalkBatch
         }
         // This hop's candidates whose winning copy links the frontier, by the index.
         var fromWinner = new HashSet<FormKey>();
+        // Candidates the index judged live: their links are not held, fromWinner says whether they reach a frontier.
+        var indexJudged = new HashSet<FormKey>();
         // What the door's bodies decided, for the candidates the index cannot judge.
         var pre = new Dictionary<FormKey, PreJudged>();
         // The winner plugins the gather could not read, named once each, so a caller can act on the coverage gap.
@@ -105,7 +107,7 @@ public static class ReverseWalkBatch
             var need = new List<(string, FormKey)>(block.Count);
             foreach (var k in block)
             {
-                if (linksOf.ContainsKey(k) || pre.ContainsKey(k) || WinnerOf(k) is not { } w) continue;
+                if (linksOf.ContainsKey(k) || indexJudged.Contains(k) || pre.ContainsKey(k) || WinnerOf(k) is not { } w) continue;
                 var fact = IndexFact(k, w, out var note);
                 if (fact == ReverseReferenceIndex.CopyFact.Unknown) need.Add((w, k));
                 else pre[k] = FromIndex(k, fact, note);
@@ -135,15 +137,15 @@ public static class ReverseWalkBatch
             if (fact == ReverseReferenceIndex.CopyFact.NoLiveBody) return new(PreKind.NoLiveBody);
             string? type = shaped ? RecordNaming.StripOverlay(view.WinnerClassOf(k)!.Name) : null;
             return fact == ReverseReferenceIndex.CopyFact.Unscannable ? new(PreKind.LinksThrew, null, type)
-                                                                     : new(PreKind.Links, IndexJudged, type, note);
+                                                                     : new(PreKind.Indexed, null, type, note);
         }
         // The index answers in CANDIDATES; references= re-tests each against the body it judges, and so does this,
         // so a false hop-1 node cannot seed a false subtree.
         bool Verify(FormKey candidate, IReadOnlySet<FormKey> frontier)
         {
-            if (!linksOf.TryGetValue(candidate, out var links))
+            IReadOnlySet<FormKey>? links = null;
+            if (!indexJudged.Contains(candidate) && !linksOf.TryGetValue(candidate, out links))
             {
-                links = null;
                 if (WinnerOf(candidate) is not { } w) noWinner++;
                 else
                 {
@@ -171,14 +173,16 @@ public static class ReverseWalkBatch
                         else
                         {
                             if (pj.Note is { } note && lenientSeen.Add(candidate)) lenientRecords.Add(note);
-                            links = pj.Links;
+                            if (pj.Kind == PreKind.Indexed) indexJudged.Add(candidate);
+                            else links = pj.Links;
                         }
                     }
                 }
-                linksOf[candidate] = links;
+                if (!indexJudged.Contains(candidate)) linksOf[candidate] = links;
             }
-            if (links is null) return false;
-            if (ReferenceEquals(links, IndexJudged) ? fromWinner.Contains(candidate) : links.Any(frontier.Contains))
+            bool judgedByIndex = indexJudged.Contains(candidate);
+            if (!judgedByIndex && links is null) return false;
+            if (judgedByIndex ? fromWinner.Contains(candidate) : links!.Any(frontier.Contains))
             {
                 noLink.Remove(candidate);
                 return true;
@@ -234,10 +238,8 @@ public static class ReverseWalkBatch
         };
     }
 
-    /// <summary>The links an index-judged live candidate carries: whether they reach the frontier is <c>fromWinner</c>'s.</summary>
-    static readonly IReadOnlySet<FormKey> IndexJudged = new HashSet<FormKey>();
-
-    enum PreKind { Unreadable, NoLiveBody, Links, LinksThrew }
+    /// <summary>Indexed: live by the index, so whether it links the frontier is <c>fromWinner</c>'s.</summary>
+    enum PreKind { Unreadable, NoLiveBody, Links, LinksThrew, Indexed }
 
     /// <summary>One candidate's verdict for the check: its links, its type for the shaped walk, and its lenient note.</summary>
     readonly record struct PreJudged(PreKind Kind, IReadOnlySet<FormKey>? Links = null, string? Type = null, string? Note = null);
