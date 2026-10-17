@@ -98,9 +98,8 @@ internal sealed partial class RecordReads
         // Whether the subject holds a version of the record, as the subject pole itself answers it.
         bool SubjectHolds(FormKey fk, string? subjectPlugin) => sGather.Holds?.Invoke(fk) ?? subjectPlugin is not null;
 
-        // A window's readings, made while each group was open and consumed by RowAt.
+        // A window's subject readings, made while each group was open and consumed by RowAt.
         var sAt = new Dictionary<int, PoleReading>();
-        var rAt = new Dictionary<int, PoleReading>();
         DeltaRow RowAt(int i)
         {
             var (raw, fkOpt, parseError) = parsed[i];
@@ -109,7 +108,7 @@ internal sealed partial class RecordReads
             var s = sAt.Remove(i, out var sr) ? sr : sReader(fk, null);
             if (s.Error is not null) return new DeltaRow(FormIdToken.Of(fk), s.Pole, null, null, null, null, "subject: " + s.Error);
             // previous_provider is measured from the SUBJECT, so the reference reader is handed the subject's plugin.
-            var r = rAt.Remove(i, out var rr) ? rr : rReader(fk, s.Pole!.Plugin);
+            var r = rReader(fk, s.Pole!.Plugin);
             if (r.Error is not null) return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error);
             string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
                 ? "the two poles resolved to the SAME provider — the diff is trivially empty by construction"
@@ -132,7 +131,7 @@ internal sealed partial class RecordReads
         }
         if (live.Count > 0) { sGather.Prime?.Invoke(); rGather.Prime?.Invoke(); }
         meter.Start();
-        // Windows of 32, 32, then doubling, each read a group at a time per pole: the subjects, then their references.
+        // Windows of 32, 32, then doubling, each read a group at a time per pole: the subjects, then each row diffed as its reference is read.
         for (int start = 0, end; start < live.Count; start = end)
         {
             end = Math.Min(start + Math.Max(ComparisonChunkRows, start), live.Count);
@@ -140,8 +139,8 @@ internal sealed partial class RecordReads
             sGather.Each(view, session, window.Select(i => (i, parsed[i].Fk!.Value, (string?)null)).ToList(),
                          i => sAt[i] = sReader(parsed[i].Fk!.Value, null));
             rGather.Each(view, session, window.Where(i => sAt[i].Error is null).Select(i => (i, parsed[i].Fk!.Value, (string?)sAt[i].Pole!.Plugin)).ToList(),
-                         i => rAt[i] = rReader(parsed[i].Fk!.Value, sAt[i].Pole!.Plugin));
-            foreach (var i in window) rows[i] = RowAt(i);
+                         i => rows[i] = RowAt(i));
+            foreach (var i in window) if (sAt.ContainsKey(i)) rows[i] = RowAt(i);   // the subject's own error
             // Past the budget the rows are dropped and nothing further is read.
             if (meter.Check(end, live.Count) is { } tooDear)
             {
