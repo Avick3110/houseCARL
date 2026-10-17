@@ -715,6 +715,10 @@ public sealed class LoadOrderResolver : IDisposable
         public WinnerInfo? ResolveWinner(FormKey fk)
             => _s.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _r._names[e.winner], e.count) : null;
 
+        /// <summary>False when the winner plugin carries this FormKey more than once, so its merged copies cannot stand for the one a body read returns.</summary>
+        public bool WinnerHoldsOnce(FormKey fk)
+            => !_s.Index.TryGetValue(fk, out var e) || e.count < 2 || _s.Overriders[fk][^2] != e.winner;
+
         /// <summary>O(1): the record that CONTAINS this one in THIS build — a DIAL over its INFO, a CELL over its placed references and navmeshes, a WRLD over its cells.</summary>
         public FormKey? ParentOf(FormKey fk) => _s.Containment.ParentOf(fk);
 

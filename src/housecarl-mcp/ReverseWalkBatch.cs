@@ -63,6 +63,7 @@ public static class ReverseWalkBatch
         }
 
         var built = view.EnsureReverseIndex();
+        var index = view.ReverseIndex!;
         int unreadable = 0, noLiveBody = 0, noWinner = 0;
         // Every candidate is judged once, however many frontiers name it.
         var linksOf = new Dictionary<FormKey, IReadOnlySet<FormKey>?>();
@@ -72,25 +73,66 @@ public static class ReverseWalkBatch
         var typeOf = new Dictionary<FormKey, string>();
         var noLink = new HashSet<FormKey>();
         using var session = pin.Resolver.OpenSession();
-        // The bodies the check reads are gathered a block of candidates at a time, one enumeration per winner
-        // plugin in the block; only the block about to be judged is gathered, so a spent node budget stops it.
-        Dictionary<FormKey, IMajorRecordGetter> gathered = new();
-        var gatheredKeys = new HashSet<FormKey>();
+        // Each candidate's winner plugin, resolved once.
+        var winners = new Dictionary<FormKey, string?>();
+        string? WinnerOf(FormKey k)
+        {
+            if (!winners.TryGetValue(k, out var w)) winners[k] = w = view.ResolveWinner(k)?.WinnerPlugin;
+            return w;
+        }
+        // This hop's candidates whose winning copy links the frontier, by the index.
+        var fromWinner = new HashSet<FormKey>();
+        // What the door's bodies decided, for the candidates the index cannot judge.
+        var pre = new Dictionary<FormKey, PreJudged>();
         // The winner plugins the gather could not read, named once each, so a caller can act on the coverage gap.
         var unreadableWinners = new List<string>();
         // Candidates the body check could only read leniently: verified, but with a named gap.
         var lenientRecords = new List<string>();
         var lenientSeen = new HashSet<FormKey>();
         var unreadableSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // The index walked the winner's copy with the same link walk when it was built, so it judges that copy with no
+        // body read, unless the winner holds the key twice and a body read would return only its first copy.
+        ReverseReferenceIndex.CopyFact IndexFact(FormKey k, string winner, out string? note)
+        {
+            note = null;
+            return view.WinnerHoldsOnce(k) ? index.WinnerFact(k, winner, out note) : ReverseReferenceIndex.CopyFact.Unknown;
+        }
+        // The rest are read through the door a block at a time, each body reduced to its verdict while its group is
+        // open; only the block about to be judged is read, so a spent node budget stops it.
         void Gather(IReadOnlyList<FormKey> block)
         {
             // A candidate judged at an earlier hop is remembered, so its body is not read again.
-            var need = new List<FormKey>(block.Count);
-            foreach (var k in block) if (!linksOf.ContainsKey(k)) need.Add(k);
-            gathered = WinnerBodies.For(view, session, need, out var faults, ct);
-            gatheredKeys = new HashSet<FormKey>(need);
+            var need = new List<(string, FormKey)>(block.Count);
+            foreach (var k in block)
+                if (!linksOf.ContainsKey(k) && !pre.ContainsKey(k) && WinnerOf(k) is { } w
+                    && IndexFact(k, w, out _) == ReverseReferenceIndex.CopyFact.Unknown)
+                    need.Add((w, k));
+            if (need.Count == 0) return;
+            var faults = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
+            OrderedGather.ForEachGroup(view, session, need, (_, bodies, asked) =>
+            {
+                foreach (var fk in asked) pre[fk] = Judge(bodies.GetValueOrDefault(fk));
+            }, faults, ct);
             foreach (var plugin in faults.Keys)
                 if (unreadableSeen.Add(plugin)) unreadableWinners.Add(plugin);
+        }
+        PreJudged Judge(IMajorRecordGetter? body)
+        {
+            if (body is null) return new(PreKind.Unreadable);
+            if (ReverseReferenceIndex.HoldsNoEdges(body)) return new(PreKind.NoLiveBody);
+            string? type = shaped ? RecordNaming.StripOverlay(body.GetType().Name) : null;
+            // The SAME link walk references= makes, so the two spellings cannot disagree about a record whose links
+            // only read leniently.
+            var set = new HashSet<FormKey>();
+            try { return new(PreKind.Links, set, type, RecordLinks.Collect(body, set)); }
+            catch (Exception) { return new(PreKind.LinksThrew, null, type); }
+        }
+        PreJudged FromIndex(FormKey k, ReverseReferenceIndex.CopyFact fact, string? note)
+        {
+            if (fact == ReverseReferenceIndex.CopyFact.NoLiveBody) return new(PreKind.NoLiveBody);
+            string? type = shaped ? RecordNaming.StripOverlay(view.WinnerClassOf(k)!.Name) : null;
+            return fact == ReverseReferenceIndex.CopyFact.Unscannable ? new(PreKind.LinksThrew, null, type)
+                                                                     : new(PreKind.Links, IndexJudged, type, note);
         }
         // The index answers in CANDIDATES; references= re-tests each against the body it judges, and so does this,
         // so a false hop-1 node cannot seed a false subtree.
@@ -99,40 +141,42 @@ public static class ReverseWalkBatch
             if (!linksOf.TryGetValue(candidate, out var links))
             {
                 links = null;
-                var w = view.ResolveWinner(candidate);
-                if (w is null) noWinner++;
+                if (WinnerOf(candidate) is not { } w) noWinner++;
                 else
                 {
-                    IMajorRecordGetter? body = null;
-                    bool threw = false;
-                    // Any throw out of the lazy overlay seek is a coverage gap on that one record, counted and
-                    // skipped, never the end of the walk.
-                    if (gatheredKeys.Contains(candidate)) gathered.TryGetValue(candidate, out body);
-                    else
-                        try { body = view.GetRecord(session, w.Value.WinnerPlugin, candidate); }
-                        catch (Exception) { threw = true; }
-                    if (threw || body is null) unreadable++;
-                    else if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter) noLiveBody++;
+                    var fact = IndexFact(candidate, w, out var indexNote);
+                    PreJudged pj;
+                    if (fact != ReverseReferenceIndex.CopyFact.Unknown) pj = FromIndex(candidate, fact, indexNote);
+                    else if (!pre.Remove(candidate, out pj))
+                    {
+                        // Any throw out of the lazy overlay seek is a coverage gap on that one record, counted and
+                        // skipped, never the end of the walk.
+                        IMajorRecordGetter? body = null;
+                        try { body = view.GetRecord(session, w, candidate); }
+                        catch (Exception) { }
+                        pj = Judge(body);
+                    }
+                    if (pj.Kind == PreKind.Unreadable) unreadable++;
+                    else if (pj.Kind == PreKind.NoLiveBody) noLiveBody++;
                     else
                     {
-                        if (shaped) typeOf[candidate] = RecordNaming.StripOverlay(body.GetType().Name);
-                        // The SAME link walk references= makes, so the two spellings cannot disagree about a
-                        // record whose links only read leniently.
-                        var set = new HashSet<FormKey>();
-                        try
+                        if (shaped) typeOf[candidate] = pj.Type!;
+                        if (pj.Kind == PreKind.LinksThrew) unreadable++;
+                        else
                         {
-                            if (RecordLinks.Collect(body, set) is { } note && lenientSeen.Add(candidate))
-                                lenientRecords.Add(note);
-                            links = set;
+                            if (pj.Note is { } note && lenientSeen.Add(candidate)) lenientRecords.Add(note);
+                            links = pj.Links;
                         }
-                        catch (Exception) { unreadable++; }
                     }
                 }
                 linksOf[candidate] = links;
             }
             if (links is null) return false;
-            foreach (var l in links)
-                if (frontier.Contains(l)) { noLink.Remove(candidate); return true; }
+            if (ReferenceEquals(links, IndexJudged) ? fromWinner.Contains(candidate) : links.Any(frontier.Contains))
+            {
+                noLink.Remove(candidate);
+                return true;
+            }
             noLink.Add(candidate);
             return false;
         }
@@ -159,9 +203,10 @@ public static class ReverseWalkBatch
         bool capped;
         try
         {
-            hops = ReverseSelection.Transitive(view.ReverseIndex!, seedKeys, depth, maxNodes,
+            hops = ReverseSelection.Transitive(index, seedKeys, depth, maxNodes,
                                                shaped ? Admit : Verify, out capped, Gather,
-                                               shaped ? k => !boundaries.Contains(k) : null);
+                                               shaped ? k => !boundaries.Contains(k) : null,
+                                               frontier => index.ReferencersOf(frontier, WinnerOf, fromWinner));
         }
         catch (WalkRefused r)
         {
@@ -182,6 +227,14 @@ public static class ReverseWalkBatch
             Boundaries = boundaries.Count,
         };
     }
+
+    /// <summary>The links an index-judged live candidate carries: whether they reach the frontier is <c>fromWinner</c>'s.</summary>
+    static readonly IReadOnlySet<FormKey> IndexJudged = new HashSet<FormKey>();
+
+    enum PreKind { Unreadable, NoLiveBody, Links, LinksThrew }
+
+    /// <summary>One candidate's verdict for the check: its links, its type for the shaped walk, and its lenient note.</summary>
+    readonly record struct PreJudged(PreKind Kind, IReadOnlySet<FormKey>? Links = null, string? Type = null, string? Note = null);
 
     /// <summary>A refuse exclusion reached: the walk ends and the call returns nothing.</summary>
     sealed class WalkRefused(string message) : Exception(message);
