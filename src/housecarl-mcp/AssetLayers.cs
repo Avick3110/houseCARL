@@ -663,7 +663,8 @@ internal sealed partial class AssetLayers
                 int c = string.Compare(x.File, y.File, StringComparison.OrdinalIgnoreCase);
                 if (c != 0) return c;
                 c = x.Line.CompareTo(y.Line);
-                return c != 0 ? c : string.Compare(x.FormKey, y.FormKey, StringComparison.OrdinalIgnoreCase);
+                c = string.Compare(x.FormKey, y.FormKey, StringComparison.OrdinalIgnoreCase);
+                return c != 0 ? c : string.Compare(x.FieldPath, y.FieldPath, StringComparison.Ordinal);
             });
             if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
             if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them; read one with {ToolNames.Records} formids=[\"<FormID>\"] source={{\"overlay\": \"skypatcher\", \"state\": \"post\"}}).");
