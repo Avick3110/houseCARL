@@ -45,13 +45,13 @@ public sealed class ReverseReferenceIndex
             _byName = new Lazy<Dictionary<string, Partition>>(BuildByName, LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
-        /// <summary>The partitions by plugin filename, the first in priority order taking a shared name.</summary>
+        /// <summary>The partitions by plugin filename, the last in priority order taking a shared name, as the resolver's winner does.</summary>
         public Dictionary<string, Partition> ByName => _byName.Value;
 
         Dictionary<string, Partition> BuildByName()
         {
             var d = new Dictionary<string, Partition>(StringComparer.OrdinalIgnoreCase);
-            foreach (var path in Order) if (ByPath.TryGetValue(path, out var p)) d.TryAdd(p.Name, p);
+            foreach (var path in Order) if (ByPath.TryGetValue(path, out var p)) d[p.Name] = p;
             return d;
         }
 
@@ -130,7 +130,8 @@ public sealed class ReverseReferenceIndex
                     {
                         var fk = g.Unpack(r);
                         if (seen.Add(r)) outp.Add(fk);
-                        if (winnerOf is not null && string.Equals(winnerOf(fk), p.Name, StringComparison.OrdinalIgnoreCase)) fromWinner?.Add(fk);
+                        if (winnerOf is not null && fromWinner is not null && winnerOf(fk) is { } w
+                            && g.ByName.TryGetValue(w, out var wp) && ReferenceEquals(wp, p)) fromWinner.Add(fk);
                     }
         }
         return outp;
