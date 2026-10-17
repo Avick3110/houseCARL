@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-09
+updated: 2026-10-17
 covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/housecarl-mcp/RenderBounds.cs, src/housecarl-mcp/ComparisonMeter.cs, src/housecarl-mcp/SweepEmission.cs, src/housecarl-mcp/SweepDemand.cs, src/housecarl-mcp/BodyAllocation.cs, src/housecarl-mcp/BatchRender.cs, src/housecarl-mcp/TransportAccounting.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-core/CharCountedStream.cs, src/housecarl-core/JsonTextEncoder.cs]
 ---
 # The render budget: what `max_chars` counts, and who gets to spend it
@@ -222,8 +222,9 @@ What passes is **metered** (`ComparisonMeter`):
   steady rate: at most two chunks (64 rows) are read before the first check can refuse. Never with one chunk or less
   left, since that work is kept rather than thrown away to save it. Otherwise after every chunk, so warm-up the first
   chunk pays (lazy plugin opens, the replay's INI parse and EditorID sweep) dilutes, and a list sorted cheap-first is
-  caught at the chunk that shows it. A refused call spends at most the budget plus one chunk. The budget covers the call
-  up to the batch's end; the render after it is not charged.
+  caught at the chunk that shows it. A delta reads in windows of 32, 32, then doubling, each pole a group at a time, so
+  past 64 rows it checks at 128, 256 and so on; a refused delta spends at most the budget plus one window, a tree the
+  budget plus one chunk. The budget covers the call up to the batch's end; the render after it is not charged.
 - **The figure it names.** "About K rows fit" is 90% of the budget left after the time spent before the batch, at that
   rate, rounded down, so feeding it back as `limit=` or as fewer ids clears the refusal on a steady rate. A census or a
   `to_file=` artifact says "narrow the selection to about K matches" instead, since `limit=` does not lower what it
@@ -272,7 +273,8 @@ reaches only the calling test's flow) is the meter's clock for tests.
   - time before the batch is named as the cause, and a census names a narrower selection;
   - a delta chunks only rows that read: malformed and unresolved ids, ids the off-order file lacks, and a named source
     that does not touch an id walks no plugin for it;
-  - a call under the budget reads every row once.
+  - a call under the budget reads every row once, a delta each group once per window (the exact (plugin, group)
+    counts are pinned), and a delta cheap at 64 rows and dear at 128 refuses at 128.
 
   `RecordsRenderCostTests.TheEstimateReadsProperlyJustOverTheComparisonBound` — the floor constants: 20,000 whole and
   15,000,000 narrowed rows run, one more refuses.
