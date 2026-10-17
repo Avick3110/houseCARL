@@ -543,17 +543,17 @@ internal sealed partial class RecordReads
     static void PrimeNames(IEnumerable<RecordFields?> records, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                            LinkMemo memo, CancellationToken ct)
     {
-        var want = new HashSet<FormKey>();
+        var want = new Dictionary<FormKey, string>();   // each target and its winner, resolved once
         foreach (var rf in records)
             if (rf is not null)
                 foreach (var f in rf.Fields)
-                    if (LinkTarget(f) is { } fk && !memo.Refs.ContainsKey(fk) && view.ResolveWinner(fk) is not null)
-                        want.Add(fk);
+                    if (LinkTarget(f) is { } fk && !memo.Refs.ContainsKey(fk) && !want.ContainsKey(fk) && view.ResolveWinner(fk) is { } w)
+                        want[fk] = w.WinnerPlugin;
         if (want.Count == 0) return;
-        OrderedGather.ForEachGroup(view, session, want, (bodies, asked) =>
+        OrderedGather.ForEachGroup(view, session, want.Select(kv => (kv.Value, kv.Key)), (plugin, bodies, asked) =>
         {
             foreach (var fk in asked)
-                if (bodies.TryGetValue(fk, out var b)) memo.Refs[fk] = RefOf(fk, b, view.ResolveWinner(fk)!.Value.WinnerPlugin);
+                if (bodies.TryGetValue(fk, out var b)) memo.Refs[fk] = RefOf(fk, b, plugin);
         }, new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase), ct);
     }
 
