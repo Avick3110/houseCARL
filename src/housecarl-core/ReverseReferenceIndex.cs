@@ -89,7 +89,9 @@ public sealed class ReverseReferenceIndex
     public long PairCount => _gen.ByPath.Values.Sum(p => p.Pairs);
 
     /// <summary>What the index holds, to the nearest useful order of magnitude. Reported, not enforced — there is no ceiling knob.</summary>
-    public long ApproxBytes => PairCount * 8 + (long)TargetSlotCount * 40;
+    public long ApproxBytes => PairCount * 8 + (long)TargetSlotCount * 40
+        + _gen.ByPath.Values.Sum(p => (long)(p.NoLive.Count + p.Unscannables.Count) * 24
+                                      + p.LenientNotes.Values.Sum(n => 48L + 2L * n.Length));
 
     /// <summary>Does anything in the order link to this record? The whole of the orphan question, in one lookup.</summary>
     public bool HasAnyReferencer(FormKey target)
