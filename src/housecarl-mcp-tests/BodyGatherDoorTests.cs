@@ -194,4 +194,18 @@ public sealed class BodyGatherDoorTests : IDisposable
         gather.CopyInto(after);
         Assert.Empty(after);
     }
+
+    /// <summary>A per-group gather dropped its bodies, so a later Body for a declared key reads the record, never null.</summary>
+    [Fact]
+    public void BodyAfterAPerGroupGatherStillReadsTheRecord()
+    {
+        using var svc = _mo2.Open();
+        var pin = svc.CapturePin();
+        using var session = pin.Resolver.OpenSession();
+        var gather = new BodyGather(pin.View, session);
+        var fk = _keys[_mods[1]].Weapons[0];
+        gather.Want(Name(1), fk);
+        gather.Gather(_ => { });
+        Assert.Equal(pin.View.GetRecord(session, Name(1), fk)!.EditorID, gather.Body(Name(1), fk)?.EditorID);
+    }
 }

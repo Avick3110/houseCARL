@@ -72,9 +72,10 @@ public sealed class BodyGather
             _held[plugin].Clear();
         }, faults, _ct);
         // A faulted plugin keeps what it yielded and stays unwalked, so Body falls back per record as before.
+        // A per-group gather dropped what it held, so its plugins stay unwalked too and a later Body seeks rather than answering null.
         foreach (var plugin in plugins)
             if (faults.TryGetValue(plugin, out var fault)) _faults[plugin] = fault;
-            else _walked.Add(plugin);
+            else if (perGroup is null) _walked.Add(plugin);
     }
 
     /// <summary>The gathered body, or <see cref="Absent"/>'s answer when this gather does not hold the pair.</summary>
