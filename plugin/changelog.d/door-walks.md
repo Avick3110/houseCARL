@@ -1,0 +1,1 @@
+- **Walks are faster: a reverse walk judges its candidates off the reverse index, and a forward walk reads each group once per hop.** On a 3,250-plugin order a warm reverse walk took 13 s instead of 47 s, and a forward walk from the Player 91 s instead of 238 s.
