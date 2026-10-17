@@ -1260,7 +1260,7 @@ public static class WritePatchBuilder
         var resolved = new List<(ForwardSpec spec, IMajorRecordGetter body, string? priorWinner, bool wasWinner, bool offOrderBody)>(specs.Count);
         var problems = new List<string>();
         var seen = new HashSet<FormKey>();
-        // One walk per SOURCE plugin for the whole call (#723), declared under the same guards the loop refuses on first.
+        // One walk per SOURCE (plugin, group) for the whole call (#723), declared under the same guards the loop refuses on first.
         var gather = new BodyGather(view, session);
         var wantSeen = new HashSet<FormKey>();
         foreach (var s in specs)
@@ -2414,7 +2414,7 @@ public static class WritePatchBuilder
             return $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid. "
                  + "Pass replace=true to overwrite it, or pick another editorid.";
         }
-        // Declare every parent body the loop will read, then gather one walk per DEFINER plugin (#757), under the loop's own guards.
+        // Declare every parent body the loop will read, then gather one walk per DEFINER (plugin, group) (#757), under the loop's own guards.
         var wantedEdids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in specs)
         {

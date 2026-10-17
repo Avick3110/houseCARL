@@ -97,7 +97,7 @@ public sealed class ContainmentIndex
             : (body, null);
     };
 
-    /// <summary>The winner bodies of <paramref name="parents"/>, one walk per winner plugin, deduped unless already a set; one whose winner would not open is absent.</summary>
+    /// <summary>The winner bodies of <paramref name="parents"/>, one walk per winner (plugin, group), deduped unless already a set; one whose winner would not open, or whose group would not walk, is absent.</summary>
     public static Dictionary<FormKey, IMajorRecordGetter> GatherContainers(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IEnumerable<FormKey> parents,
         out Dictionary<string, PluginUnreadableException> unreadable, CancellationToken ct = default)
