@@ -82,15 +82,7 @@ public sealed class DoorGroupReadTests : IClassFixture<DoorGroupReadWorld>
     readonly DoorGroupReadWorld _w;
     public DoorGroupReadTests(DoorGroupReadWorld w) => _w = w;
 
-    Dictionary<(string, string), int> Run(Func<string> call, string expect)
-    {
-        var before = new Dictionary<(string Plugin, string Group), int>(_w.Svc.Counters.GroupReads);
-        var r = call();
-        Assert.False(r.StartsWith("error", StringComparison.Ordinal), r);
-        Assert.True(r.Contains(expect), r);
-        return _w.Svc.Counters.GroupReads.Where(kv => kv.Value != before.GetValueOrDefault(kv.Key))
-                                          .ToDictionary(kv => (kv.Key.Plugin, kv.Key.Group), kv => kv.Value - before.GetValueOrDefault(kv.Key));
-    }
+    Dictionary<(string, string), int> Run(Func<string> call, string expect) => GroupReadDelta.Of(_w.Svc, call, expect);
 
     string B => _w.Base.FileName.String;
     string M => _w.Mid.FileName.String;
@@ -103,6 +95,20 @@ public sealed class DoorGroupReadTests : IClassFixture<DoorGroupReadWorld>
     {
         var d = Run(() => RecordsTools.Records(_w.Svc, types: new[] { "FormList" }, where: new[] { "Items[*any]->editorid startswith HcDoorArmor" }),
                     "HcDoorList");
+        Assert.Equal(new Dictionary<(string, string), int>
+        {
+            [(B, "FormLists")] = 2,
+            [(B, "Armors")] = 1, [(T, "Armors")] = 1,
+        }, d);
+    }
+
+    /// <summary>The '*all' and '*none' folds collect their targets the same way, so the same groups are read as many times.</summary>
+    [Theory]
+    [InlineData("Items[*all]->editorid startswith HcDoorArmor")]
+    [InlineData("Items[*none]->editorid = HcDoorNoSuchArmor")]
+    public void EveryFoldReadsTheTargetGroupOnce(string where)
+    {
+        var d = Run(() => RecordsTools.Records(_w.Svc, types: new[] { "FormList" }, where: new[] { where }), "HcDoorList");
         Assert.Equal(new Dictionary<(string, string), int>
         {
             [(B, "FormLists")] = 2,
