@@ -6,9 +6,7 @@ using HousecarlMcp;
 
 namespace HousecarlMcpTests;
 
-/// <summary>Base defines five magic effects, two topics, three weapons and a spell carrying effect A; Top overrides the
-/// three weapons and adds a spell carrying A, B, A, an enchantment carrying B and a topic; Held, last, adds a topic,
-/// a magic effect and a spell carrying A, for a test to hold open.</summary>
+/// <summary>A Base, Top and Held plugin of magic effects, spells, an enchantment, topics and weapons; Held, last, is the one a test holds open.</summary>
 public sealed class SmallDoorWorld : IDisposable
 {
     readonly ScratchMo2 _mo2 = new("hc-small-door-");
