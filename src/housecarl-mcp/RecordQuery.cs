@@ -226,6 +226,8 @@ internal sealed partial class RecordReads
                 const int SetGatherChunk = 10_000;
                 var setPending = new List<FormKey>(SetGatherChunk);
                 bool setStopped = false;
+                if (predicate is null) JudgeSetByGroup();
+                else
                 foreach (var fk in formidSet!)
                 {
                     ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan between records, and the gather stops it between plugin walks
@@ -235,6 +237,100 @@ internal sealed partial class RecordReads
                     if (setPending.Count == SetGatherChunk && !DrainSet()) { setStopped = true; break; }
                 }
                 if (!setStopped && setPending.Count > 0) DrainSet();
+
+                // With no where=, the universe is judged one group at a time through the door. Only a key's verdict
+                // outlives its group, and its summary only while its row can still land on the page; rows are then
+                // counted in the universe's order, exactly as DrainSet counts them.
+                void JudgeSetByGroup()
+                {
+                    var all = new List<FormKey>();
+                    foreach (var fk in formidSet!)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        if (seenSet.Add(fk) && view.ResolveWinner(fk) is not null) all.Add(fk);
+                    }
+                    var at = new Dictionary<FormKey, int>(all.Count);
+                    for (int i = 0; i < all.Count; i++) at[all[i]] = i;
+                    var judged = new SetVerdict[all.Count];
+                    // A kept row's summary, held while at most offset+limit kept rows precede it in the universe.
+                    long cap = groups is null && limit > 0 ? (long)offset + limit : 0;
+                    var shown = new SortedSet<int>();
+                    var rows = new Dictionary<int, (List<FormKey>? Hit, RecordSummary? Summary, Exception? Fault)>();
+                    var faults = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
+                    OrderedGather.ForEachGroup(view, sess, all, (bodies, asked) =>
+                    {
+                        foreach (var fk in asked)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            if (!bodies.TryGetValue(fk, out var body)) continue;
+                            int i = at[fk];
+                            try
+                            {
+                                if ((conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1)
+                                    || (!string.IsNullOrEmpty(editoridContains)
+                                        && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
+                                    || (DeletedRecordRule.HasNoLiveBody(body) && refSet is not null))
+                                { judged[i] = new SetVerdict(SetVerdict.Dropped, false, null, null, null); continue; }
+                                bool keep = ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null,
+                                                             out var hitTargets, out var lenientNote);
+                                judged[i] = new SetVerdict(SetVerdict.Judged, keep, lenientNote, RecordNaming.StripOverlay(body.GetType().Name), null);
+                                if (!keep || shown.Count >= cap && (cap == 0 || i > shown.Max)) continue;
+                                RecordSummary? summary = null; Exception? fault = null;
+                                try
+                                {
+                                    var w = view.ResolveWinner(fk)!.Value;
+                                    summary = RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth).WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin };
+                                }
+                                catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { fault = ex; }
+                                shown.Add(i); rows[i] = (hitTargets, summary, fault);
+                                if (shown.Count > cap) { rows.Remove(shown.Max); shown.Remove(shown.Max); }
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+                            { judged[i] = new SetVerdict(SetVerdict.Threw, false, null, null, $"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}"); }
+                        }
+                    }, faults, ct);
+                    for (int i = 0; i < all.Count; i++)
+                    {
+                        var fk = all[i];
+                        var w = view.ResolveWinner(fk)!.Value;
+                        var j = judged[i];
+                        if (faults.TryGetValue(w.WinnerPlugin, out var f) && !unreadablePlugins.Contains(f)) unreadablePlugins.Add(f);
+                        if (j.Kind == SetVerdict.Missing)
+                        {
+                            unscannable++;
+                            if (unscannableSamples.Count < 3)
+                                unscannableSamples.Add(f is not null
+                                    ? $"{FormIdToken.Of(fk)} — {f.GetType().Name}: {f.Message}"
+                                    : $"{FormIdToken.Of(fk)} — winner '{w.WinnerPlugin}' did not yield the record on fetch");
+                            continue;
+                        }
+                        if (j.Kind == SetVerdict.Threw) { unscannable++; if (unscannableSamples.Count < 3) unscannableSamples.Add(j.Error!); continue; }
+                        if (j.Kind == SetVerdict.Dropped) continue;
+                        NoteLenient(fk, j.Note);
+                        if (!j.Keep) continue;
+                        total++;
+                        if (groups is not null)
+                        {
+                            var gk = groupBy == "type" ? j.Type!
+                                   : groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String)
+                                   : w.WinnerPlugin;
+                            groups[gk] = groups.GetValueOrDefault(gk) + 1;
+                        }
+                        else if (total > offset && keys.Count < limit)
+                        {
+                            var row = rows[i];
+                            keys.Add(fk);
+                            sources.Add(null);                            // the winner body is what matched and displays
+                            matched?.Add(row.Hit is not null ? string.Join(", ", row.Hit) : null);
+                            if (row.Fault is { } ex)
+                            {
+                                unscannable++;
+                                if (unscannableSamples.Count < 3) unscannableSamples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
+                            }
+                            else prefilled?.Add(row.Summary!);
+                        }
+                    }
+                }
 
                 // Gather one chunk's winner bodies and scan its keys in the universe's own order; false stops.
                 bool DrainSet()
@@ -361,6 +457,35 @@ internal sealed partial class RecordReads
                                    names?.Add(x.fk, x.body);
                                    return (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null);    // the load-order winner's body
                                });
+                // A '->' or '*parent' term reads through the door: one pass collects every target and container the
+                // scan will ask for, each group is read once, and the scan below judges off the verdicts.
+                if (predicate is { NeedsBodyResolution: true } && !whereWinnerActive)
+                {
+                    var doorFaults = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
+                    void Door(IEnumerable<FormKey> wanted, Action<IReadOnlyDictionary<FormKey, IMajorRecordGetter>, IReadOnlyCollection<FormKey>> judge)
+                        => OrderedGather.ForEachGroup(view, winnerSession!, wanted, judge, doorFaults, ct, () => predicate.FatalError is not null);
+                    bool Kept(FormKey fk, int depth) => (setFilter is null || setFilter.Contains(fk)) && !(conflictsOnly && depth <= 1)
+                                                        && !(definedIn && !scopedModKeys!.Contains(fk.ModKey));
+                    if (!hasPlugins && !predicate.NeedsLinkStep && string.IsNullOrEmpty(editoridContains) && refSet is null)
+                    {
+                        // Containment alone: the candidates and their containers are index facts, so no candidate body is read.
+                        var classOk = new Dictionary<Type, bool>();
+                        bool OfType(Type c) { if (!classOk.TryGetValue(c, out var ok)) classOk[c] = ok = types!.Any(t => t.IsAssignableFrom(c)); return ok; }
+                        predicate.PrimeOrdered(null,
+                            view.RecordKeys().Where(fk => view.WinnerClassOf(fk) is { } c && OfType(c) && view.ResolveWinner(fk) is { } w && Kept(fk, w.OverrideDepth)),
+                            Door, ct);
+                    }
+                    else
+                    {
+                        var preSeen = new HashSet<FormKey>();
+                        IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> pre =
+                            hasPlugins ? view.RecordsIn(plugins!, types).Select(x => (x.fk, x.depth, x.body))
+                                       : view.WinnerRecordsOfType(types!, new List<PluginUnreadableException>());
+                        // A plugin that faults ends the collect pass quietly; the scan meets the fault in its own order.
+                        predicate.PrimeOrdered(UntilFault(pre).Where(x => preSeen.Add(x.fk) && Kept(x.fk, x.depth) && ReachesWhere(x.body)).Select(x => x.body),
+                                               null, Door, ct);
+                    }
+                }
                 bool stopped = false;
                 foreach (var (fk, depth, body, source) in stream)
                 {
@@ -883,6 +1008,18 @@ internal sealed partial class RecordReads
         return EffectChain.Resolve(_host.Resolver, mgef, scope, limit);
     }
 
+    /// <summary><paramref name="source"/> up to the first fault, which ends it quietly; cancellation and out-of-memory still throw.</summary>
+    static IEnumerable<T> UntilFault<T>(IEnumerable<T> source)
+    {
+        using var e = source.GetEnumerator();
+        while (true)
+        {
+            try { if (!e.MoveNext()) yield break; }
+            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { yield break; }
+            yield return e.Current;
+        }
+    }
+
     /// <summary>A scan's '*parent' bulk fetch of a chunk's containing records; a winner that would not open goes to <paramref name="unreadable"/>.</summary>
     static Func<IReadOnlyCollection<FormKey>, IReadOnlyDictionary<FormKey, IMajorRecordGetter>> ParentGather(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
@@ -892,4 +1029,10 @@ internal sealed partial class RecordReads
         unreadable.AddRange(faults.Values);
         return bodies;
     };
+
+    /// <summary>One universe key's outcome from the read door.</summary>
+    readonly record struct SetVerdict(byte Kind, bool Keep, string? Note, string? Type, string? Error)
+    {
+        public const byte Missing = 0, Dropped = 1, Judged = 2, Threw = 3;
+    }
 }
