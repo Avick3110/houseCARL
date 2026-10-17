@@ -1,6 +1,6 @@
 ---
 updated: 2026-10-17
-covers: [src/housecarl-core/LoadOrderResolver.cs, src/housecarl-core/IndexTypes.cs, src/housecarl-core/MutagenGroups.cs]
+covers: [src/housecarl-core/LoadOrderResolver.cs, src/housecarl-core/IndexTypes.cs, src/housecarl-core/MutagenGroups.cs, src/housecarl-core/MidCallChange.cs]
 ---
 # The load-order resolver
 
@@ -39,14 +39,22 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 - `RefreshIfStale` handles content edits to existing plugins; a changed plugin SET is a new order and the caller rebuilds.
 - Every baseline is statted BEFORE the read it baselines, so a write landing during the read shows up on the next check rather than being absorbed into the baseline.
 - Freshness never fires between tool calls — no watcher, no loop — so an actively re-sorting user cannot make the server thrash.
-- The reverse-reference index is held on the RESOLVER, not the snapshot, and carried over when a rebuilt resolver replaces one (`AdoptReverseIndexFrom`); its partitions are keyed on (path, mtime), so only the plugins this order added are walked.
+- The reverse-reference index is held on the RESOLVER, not the snapshot, and carried over when a rebuilt resolver replaces one (`AdoptReverseIndexFrom`); its partitions are keyed on (path, last-write, length), so only the plugins this order added or changed are walked; a rewrite that keeps the time but not the length rebuilds its partition.
 
 ### Fetching one record
 - Every in-order fetch is typed by the index, through one door: `SeekBody` for one record and `CollectRecords` for a gather, which groups the wanted keys by the seek type their copy in that plugin carries and walks each type's groups once. No caller passes a type. On Mutagen 0.54.4 every pass over a top-level group copies the whole group, so an untyped seek of a Skyrim.esm armor addon cost 1.5 s and 1.37 GB; typed it is about 1 ms (#1158).
 - Seek types that share top-level groups (cells, worldspaces and the references and navmeshes in them) share one read of each group in a gather: `CollectRecords` reads the group once and walks it once per type. Which groups hold which type is `MutagenGroups`, derived from Mutagen's getter interfaces by containment (never form links); the base record interface, held by every group, maps to null and walks flat. `CostCounters.GroupReads` counts reads per (plugin, group): every in-order walk goes through the resolver's `Walk`, which walks and counts each group of its seek type that the plugin has, or counts `*flat` for a flat walk or a type with no group map; a gather's shared-group read counts the one group it read. A group the plugin lacks is not counted on either lane: Mutagen stands in an empty, writable group for it, and `MutagenGroups.Present` skips it. A gather also skips a group once every wanted type was found. The index builds, the off-order reads and the check sweeps are not counted.
-- A copy the build says a plugin does not hold is absent with no read. The flat walk is kept only for a key the build did not see, or a typed walk that misses because the plugin changed under the call; the next call's freshness check rebuilds. `CostCounters.TypedSeeks` and `TypedCollectPasses` count only fetches the typed walk answered, so a fallback shows as a gap.
+- A copy the build says a plugin does not hold is absent with no read. The flat walk is kept only for a key the build did not see, or a typed walk that misses because the plugin was rewritten keeping its size and last-write time, the one change the mid-call check cannot see; the next call's freshness check rebuilds. `CostCounters.TypedSeeks` and `TypedCollectPasses` count only fetches the typed walk answered, so a fallback shows as a gap.
 - `IndexView.WinnerClassOf` answers the winning record's class off the index with no body read: the write pre-flight's link-target check and the facegen check's "not an NPC" row read it.
 - Off-order files are not indexed, so their lanes still walk the file themselves.
+
+### A plugin changed mid-call (ruling F)
+- Each build keeps the stamp (last-write + length) it read every plugin at (`BuiltStamps`). Every open of an active plugin in a call (the session, the scan streams, the reverse-index partition build, a write's target parse via `IndexView.CheckFile`) first compares the file's stamp once against its build; a mismatch throws `LoadOrderChangedMidCallException`, one sentence naming the plugin. A file outside the order has no build stamp: the call's first sight pins it (`MidCallChange.PinOffOrder`), and every later open must match.
+- The tool guard holds one mark per call (`MidCallChange.Begin`). The first change found is kept on it, so a lane that folds the throw into a row or a partial answer still returns the refusal. `BodyGather.WalkOnce`, `CollectRecords`' open and the reverse-index partition build let the refusal through rather than naming the plugin unreadable.
+- An answer read off the index alone opens no plugin (the dialogue check's target types, `WinnerClassOf`). So before a call answers, the guard re-stats every plugin of every build the call captured (`Capture` and the checks register it) and every pinned file: one stat per plugin per call.
+- A write re-runs that sweep just before `CommitStagedPatch` swaps the file in, so a file another program saved since the write read it refuses the write and keeps the other program's bytes. The call's own output is exempt after its commit, and a call that committed answers what it wrote.
+- Not covered: `.seq`, asset and INI writes, which write no plugin; the commit sweep needs the guard's mark, so an engine call made without it gets the per-open checks only. A rewrite that keeps both the length and the last-write time is invisible here, as it is to `RefreshIfStale` and the epoch. The checks are a stat then an open, so a save landing between the two is read unseen; once the file is open, Windows blocks the save.
+- A profile switch mid-call changes no plugin file: the call answers whole off the order it began on, and the next call follows the new profile.
 
 ### Sessions and writes
 - A per-call `OverlaySession` opens each plugin the call touches AT MOST ONCE and disposes every one when the call returns; the write path takes its master set and its link cache from that same session.
@@ -63,7 +71,8 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 ## Pinned by
 - `ScopedRecordSourcePairingTests.ATwoPluginScopeYieldsTheHigherLoadingPluginsBodyOnce` — `RecordsIn` over two plugins yields the higher-loading one's body once, under either name order.
 - `atrest-probe` (generator, a manual probe run by name) — zero handles at rest: after a build, after a read through a session, and after a create, every plugin file is renamable and the created patch deletable.
-- `SnapshotViewPinningTests` — a view captured before a real `RefreshIfStale` still answers all-old, a view taken after it answers all-new, and the service answers one operation off one view.
+- `SnapshotViewPinningTests` — a view captured before a real `RefreshIfStale` still answers all-old off the index, its scan refuses at the rewritten plugin, a view taken after it answers all-new, and the service answers one operation off one view.
+- `MidCallChangeTests` — a save before the first open or between two groups refuses the call and the retry answers the new state; a save between a write's parse and its commit refuses the write and leaves the other save in place; an index-only answer refuses when its plugin changes; a same-time, new-length rewrite rebuilds the reverse-index partition. `BodyGatherEquivalenceTests.APluginMovedAwayUnderTheGatherRefuses`, `TypedIndexStaleFileTests` and `FreshnessCaptureTests.AProfileSwitchMidCallAnswersOffTheOrderTheCallBeganOn` pin the rest.
 - `EpochFingerprintTests` — the fingerprint is deterministic over the world state, a content edit (newer OR older), a reorder and a set change each change it, and every index-backed lane carries the capture's epoch.
 - `FreshnessCaptureTests` — the by-value stamp comparison catches a restored backup, `SetInstance` stamps its ini baseline before the read, one status line comes from one build, and a read-path refresh defers while a write holds the write gate.
 - `FreshnessKeyTests.AnEditThatLeavesTheMtimeAloneIsStillSeenAsStale`, `TheSharedStampSeparatesTwoFilesThatDifferOnlyInLength` and `AnUntouchedOrderIsNotReportedStale` — the last-write-plus-length stamp, and that an untouched order is not reported stale.
