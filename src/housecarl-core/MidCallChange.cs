@@ -49,7 +49,11 @@ public static class MidCallChange
         public string? Settle()
         {
             if (Current.Value is not { } m) return null;
-            lock (m) return (m.Written.Count > 0 ? m.Plugin : Moved(m, commit: false)) is { } p ? new LoadOrderChangedMidCallException(p).Message : null;
+            lock (m)
+                return (m.Written.Count > 0 ? m.Plugin : Moved(m, commit: false)) is not { } p ? null
+                    : m.Written.Count == 0 ? new LoadOrderChangedMidCallException(p).Message
+                    : $"'{p}' changed on disk during this call, after houseCARL had written {string.Join(", ", m.Written.Select(Path.GetFileName))}; " +
+                      "the rest was not done. Check those files before rerunning.";
         }
 
         public void Dispose() { if (owns) Current.Value = null; }
