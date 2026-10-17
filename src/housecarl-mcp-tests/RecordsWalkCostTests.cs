@@ -201,7 +201,7 @@ public sealed class RecordsWalkCostTests
     /// <summary>A reached node costs its row, not its body. A record getter is a slice of its whole GRUP's byte
     /// array and pins it, so caching every reached node's body until the call ended pinned one array per source
     /// GRUP per plugin — 270 KB a reached node on a real order, and an OOM at a raised budget (#719). Bodies now
-    /// live for the gather pass that read them, and the reached set is gone before anything renders.</summary>
+    /// live for the group that read them (the hop's 900 items), and the reached set is gone before anything renders.</summary>
     [Fact]
     public void AWalkHoldsNoReachedBodiesPastTheGatherThatReadThem()
     {
@@ -212,8 +212,7 @@ public sealed class RecordsWalkCostTests
         var reached = WalkCostWorld.Seeds * (WalkCostWorld.ItemsPerSeed + 1) + 1;
         Assert.Contains($"reached={reached}", response);
         Assert.Equal(0, Svc.Counters.WalkBodiesHeldAtReturn);
-        Assert.True(Svc.Counters.WalkBodyHighWater <= BodyPrefetch.ChunkRows,
-                    $"the walk held {Svc.Counters.WalkBodyHighWater} bodies at once — past the {BodyPrefetch.ChunkRows} one gather pass allows.");
+        Assert.Equal(WalkCostWorld.Seeds * WalkCostWorld.ItemsPerSeed, Svc.Counters.WalkBodyHighWater);
     }
 
     /// <summary>The same walk with a pass small enough to SPLIT — every seed slice and every hop runs several
@@ -232,13 +231,14 @@ public sealed class RecordsWalkCostTests
                                               project: Chain(), counts_only: true);
 
         var whole = Walk();
-        var split = WithPassRows(passRows, Walk);
+        string split = "";
+        var reads = GroupReadDelta.Of(Svc, () => split = WithPassRows(passRows, Walk));
 
         Assert.Equal(whole, split);
         Assert.Contains($"reached={reached}", split);
+        Assert.Equal(1, reads[(_w.MasterName, "Ammunitions")]);
         Assert.Equal(0, Svc.Counters.WalkBodiesHeldAtReturn);
-        Assert.True(Svc.Counters.WalkBodyHighWater <= passRows,
-                    $"a walk passing {passRows} keys at a time held {Svc.Counters.WalkBodyHighWater} bodies at once.");
+        Assert.Equal(WalkCostWorld.Seeds * WalkCostWorld.ItemsPerSeed, Svc.Counters.WalkBodyHighWater);
     }
 
     /// <summary>The node budget is spent across passes, not per pass: a seed capped at one node records one node and
@@ -305,12 +305,14 @@ public sealed class RecordsWalkCostTests
         Svc.ReadArea.WalkPassRows = 5;
         try
         {
-            Walk(Svc);
-            Assert.True(Svc.Counters.WalkBodyHighWater <= 5, $"the lowered service held {Svc.Counters.WalkBodyHighWater} bodies at once.");
-
+            var lowered = GroupReadDelta.Of(Svc, () => Walk(Svc));
             Assert.Equal(BodyPrefetch.ChunkRows, other.ReadArea.WalkPassRows);
-            Walk(other);
-            Assert.True(other.Counters.WalkBodyHighWater > 5, $"the other service held only {other.Counters.WalkBodyHighWater} bodies at once, so it walked in the lowered passes.");
+            var unlowered = GroupReadDelta.Of(other, () => Walk(other));
+
+            // The seeds' group is read once per seed pass (and once by the scan and once by the hop) on each service.
+            int passes = (WalkCostWorld.Seeds + 2 + 4) / 5;
+            Assert.Equal(passes + 2, lowered[(_w.MasterName, "Npcs")]);
+            Assert.Equal(3, unlowered[(_w.MasterName, "Npcs")]);
         }
         finally { Svc.ReadArea.WalkPassRows = prior; }
     }

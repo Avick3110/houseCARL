@@ -9,8 +9,8 @@ internal sealed partial class RecordReads
 {
     // ---- the traversal construct (walk=) ---------------------------------------------------------------
 
-    /// <summary>How many record bodies one forward-walk gather pass reads before it releases them;
-    /// <see cref="BodyPrefetch.ChunkRows"/>, and a test lowers it to split a hop.</summary>
+    /// <summary>How many seeds one forward-walk seed pass reads before it releases them;
+    /// <see cref="BodyPrefetch.ChunkRows"/>, and a test lowers it to split the seeds. A hop is one pass through the door.</summary>
     internal int WalkPassRows { get; set; } = BodyPrefetch.ChunkRows;
 
     /// <summary>Everything a walk takes from one reached node: its identity and its links, as values — what a key
@@ -198,22 +198,18 @@ internal sealed partial class RecordReads
                                             WalkFaultOf(ex));
             }
         }
-        // The hop's bodies, one enumeration per source plugin. A key the gather does not return stays UNCACHED, so
-        // Fetch still raises whatever the per-record read raises: the gather is an optimisation, not an error path.
-        void Prefetch(IReadOnlyList<FormKey> keys)
+        // Keys read through the door, each group once. A key the door does not return stays UNCACHED, so Fetch still
+        // raises whatever the per-record read raises: the door is an optimisation, not an error path.
+        void ThroughDoor(List<FormKey> keys, Action<IReadOnlyDictionary<FormKey, IMajorRecordGetter>, IReadOnlyCollection<FormKey>> perGroup)
         {
-            var wanted = new List<FormKey>();
-            var seen = new HashSet<FormKey>();
-            foreach (var k in keys)
-                if (!k.IsNull && !bodyCache.ContainsKey(k) && seen.Add(k)) wanted.Add(k);
-            for (int i = 0; i < wanted.Count; i += BodyPrefetch.ChunkRows)
-            {
-                int end = Math.Min(i + BodyPrefetch.ChunkRows, wanted.Count);
-                var chunk = BodyPrefetch.Gather(view, session, resolver.Counters, wanted, i, end, _ => null, ct);
-                // The walk asks for every key it gathered, so the chunk's deferred per-plugin walk is forced here.
-                for (int k = i; k < end; k++)
-                    if (chunk.Body(wanted[k]) is { } body) bodyCache[wanted[k]] = body;
-            }
+            Interlocked.Add(ref counters.KeysWanted, keys.Count);
+            OrderedGather.ForEachGroup(view, session, keys, perGroup, null, ct);
+        }
+        // The bodies in hand have given up what the walk needs of them; they go now.
+        void Release()
+        {
+            if (bodyCache.Count > counters.WalkBodyHighWater) counters.WalkBodyHighWater = bodyCache.Count;
+            bodyCache.Clear();
         }
         static string TypeOf(IMajorRecordGetter b) => RecordNaming.StripOverlay(b.GetType().Name);
         List<FormKey> LinksOf(IMajorRecordGetter body, string[]? segs, out string? note)
@@ -257,10 +253,13 @@ internal sealed partial class RecordReads
 
         // What each reached key yielded, by value, so a key two seeds both reach is READ once per call.
         var nodeFacts = seeds.Count > 1 ? new Dictionary<FormKey, WalkNodeFact>() : null;
+        // A pass's node facts, worked out while each body's group was open.
+        var hopFacts = new Dictionary<FormKey, WalkNodeFact>();
 
         // The node's identity and, unless it is at the depth cap or an excluded class, its links.
         WalkNodeFact FactFor(FormKey k, bool atCap)
         {
+            if (hopFacts.Remove(k, out var pre)) return pre;
             var fact = nodeFacts is not null && nodeFacts.TryGetValue(k, out var f) ? f : null;
             if (fact is not null && (!fact.Resolved || atCap || fact.Links is not null || fact.Unscannable is not null || NotEntered(fact.Type))) return fact;
 
@@ -309,7 +308,7 @@ internal sealed partial class RecordReads
             try { seedKeys[i] = view.ParseFormId(seeds[i]); seedGather.Add(seedKeys[i]); }
             catch (Exception ex) { rows[i] = new WalkSeedResult(seeds[i]?.Trim() ?? "", null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null, $"bad FormID '{seeds[i]}': {ex.Message}"); }
         }
-        Prefetch(seedGather);
+        ThroughDoor(seedGather, (bodies, _) => { foreach (var (k, b) in bodies) bodyCache[k] = b; });
 
         for (int i = s0; i < s1; i++)
         {
@@ -392,9 +391,8 @@ internal sealed partial class RecordReads
             }
             states[i] = st;
         }
-        // The slice's seed bodies have given up their identity and their first-hop links; they go now.
-        if (bodyCache.Count > counters.WalkBodyHighWater) counters.WalkBodyHighWater = bodyCache.Count;
-        bodyCache.Clear();
+        // The slice's seed bodies have given up their identity and their first-hop links.
+        Release();
         }
 
         // The hops: every seed advances one hop together, so the hop's bodies are ONE gather, and a node at the depth
@@ -430,7 +428,7 @@ internal sealed partial class RecordReads
                 int took = 0, seenItems = 0;
                 foreach (var q in s.Frontier)
                 {
-                    if (seenItems >= atLevel[i] || frontier.Count >= WalkPassRows) break;
+                    if (seenItems >= atLevel[i]) break;
                     seenItems++;
                     // A key this seed already visited is dropped at dequeue, so gathering it would spend a slot
                     // on a body no row ever shows.
@@ -442,7 +440,14 @@ internal sealed partial class RecordReads
                 take[i] = seenItems;
             }
             if (!more) break;
-            if (frontier.Count > 0) Prefetch(frontier);
+            // The hop is one pass through the door: each body is reduced to its node fact while its group is open.
+            if (frontier.Count > 0)
+                ThroughDoor(frontier, (bodies, _) =>
+                {
+                    foreach (var (k, b) in bodies) bodyCache[k] = b;
+                    foreach (var k in bodies.Keys) hopFacts[k] = FactFor(k, d >= depth);
+                    Release();
+                });
 
             for (int si = 0; si < states.Length; si++)
             {
@@ -480,8 +485,7 @@ internal sealed partial class RecordReads
                         {
                             refusal = WalkExclusionMatch.RefuseSentence(type, key, pulledBy);
                             // A refusal returns nothing, so the pass in hand is dead: release it here.
-                            if (bodyCache.Count > counters.WalkBodyHighWater) counters.WalkBodyHighWater = bodyCache.Count;
-                            bodyCache.Clear();
+                            Release();
                             counters.WalkBodiesHeldAtReturn = 0;
                             return Array.Empty<WalkSeedResult>();
                         }
@@ -519,10 +523,9 @@ internal sealed partial class RecordReads
                 // An empty frontier means this seed is finished, so the bookkeeping goes back now.
                 if (st.Frontier.Count == 0) { st.Visited = new(); st.Frontier = new(); st.Settle(); }
             }
-            // The pass is over: the bodies it gathered have given up their identity and their links, so they go
-            // now rather than at the end of the call.
-            if (bodyCache.Count > counters.WalkBodyHighWater) counters.WalkBodyHighWater = bodyCache.Count;
-            bodyCache.Clear();
+            // The pass is over: what it read alone, and the facts of nodes a cut left undequeued, go now.
+            Release();
+            hopFacts.Clear();
             }
         }
 
