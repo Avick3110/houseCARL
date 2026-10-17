@@ -660,7 +660,7 @@ public static partial class RecordsTools
             // ---- info_order: the merged effective INFO sequence. ----
             if (form == "info_order")
             {
-                var ioRows = svc.InfoOrderBatch(ids, demand, out var ioRefusal, out var ioEpoch, ioFold, ioFoldFacts);
+                var ioRows = svc.InfoOrderBatch(ids, demand, out var ioRefusal, out var ioEpoch, ioFold, ioFoldFacts, ct);
                 if (ioRefusal is not null)
                     return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + Wire.EpochLine(ioEpoch);
                 if (FoldSeam(ioEpoch) is { } ioTear) return Wire.Refuse(json, ioTear, ioEpoch);
@@ -1555,7 +1555,7 @@ public static partial class RecordsTools
                     envelope.Add(new("fold_selection", $"the scan selected these topics from the ACTIVE order; a topic only '{ioFoldFacts.Label}' defines is not among them — name it in formids= to read its merge."));
                     headerLine += $"\n(the scan selects from the ACTIVE order; a topic only '{ioFoldFacts.Label}' defines is reached by naming it in formids=)";
                 }
-                var ioRows = svc.InfoOrderBatch(ioKeys, null, out var ioRefusal, out var ioEpoch, ioFold, ioFoldFacts);
+                var ioRows = svc.InfoOrderBatch(ioKeys, null, out var ioRefusal, out var ioEpoch, ioFold, ioFoldFacts, ct);
                 if (ioRefusal is not null)
                     return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + Wire.EpochLine(ioEpoch);
                 if (FoldSeam(ioEpoch) is { } ioScanTear) return Wire.Refuse(json, ioScanTear, ioEpoch);

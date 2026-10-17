@@ -383,8 +383,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         => _reads.WalkForwardBatch(seeds, seedPaths, follow, depth, maxNodes, exclusions, demand, out refusal, out epoch, ct, wantCycles, through, leftOut);
     internal IReadOnlyList<RecordReads.InfoOrderRow> InfoOrderBatch(IReadOnlyList<string> formids, ArtifactDemand? demand,
                                                                    out string? refusal, out OrderStamp? epoch,
-                                                                   RecordReads.PoleInfo? foldArm = null, RecordReads.FoldFacts? foldFacts = null)
-        => _reads.InfoOrderBatch(formids, demand, out refusal, out epoch, foldArm, foldFacts);
+                                                                   RecordReads.PoleInfo? foldArm = null, RecordReads.FoldFacts? foldFacts = null,
+                                                                   CancellationToken ct = default)
+        => _reads.InfoOrderBatch(formids, demand, out refusal, out epoch, foldArm, foldFacts, ct);
     public CrossQueryOutcome CrossQuery(IReadOnlyList<string>? typeSet, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
                                         bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
