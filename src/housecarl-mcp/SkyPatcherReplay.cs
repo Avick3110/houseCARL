@@ -100,8 +100,7 @@ internal sealed partial class AssetLayers
             {
                 var cls = Catalog.Classify(recordCatalog, seg.Key);
                 if (cls.Role == SkyPatcherKeyRole.Operation) continue;
-                if (cls.Role != SkyPatcherKeyRole.Filter || keys is not null || cls.Filter!.Kind != SkyPatcherFilterKind.Primary
-                    || (cls.Connective ?? "") != "" || seg.Values.Count == 0) return null;
+                if (!SkyPatcherConflicts.IsBarePrimary(cls) || keys is not null || seg.Values.Count == 0) return null;
                 keys = new HashSet<FormKey>();
                 foreach (var v in seg.Values)
                     if (v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var k)) keys.Add(k);
