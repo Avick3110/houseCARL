@@ -65,24 +65,30 @@ internal sealed partial class AssetLayers
         }
 
         /// <summary>Per folder, the lines checked against every record and the lines that can touch only the records they name.</summary>
-        readonly Dictionary<string, (List<int> Always, Dictionary<FormKey, List<int>> ByKey)> _lineIndex = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, (List<int> Always, IReadOnlyList<SkyPatcherOverlay.OrderedLine> AlwaysLines, Dictionary<FormKey, List<int>> ByKey)> _lineIndex = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>The lines of <paramref name="folder"/> that can touch <paramref name="fk"/>, in apply order.</summary>
         IReadOnlyList<SkyPatcherOverlay.OrderedLine> LinesFor(SkyPatcherDiscovery.FolderScan folder, IReadOnlyList<SkyPatcherOverlay.OrderedLine> lines, FormKey fk)
         {
             if (!_lineIndex.TryGetValue(folder.Subfolder, out var ix))
             {
-                ix = (new List<int>(), new Dictionary<FormKey, List<int>>());
+                var always = new List<int>();
+                var byKey = new Dictionary<FormKey, List<int>>();
                 for (int i = 0; i < lines.Count; i++)
                 {
-                    if (NamedTargets(lines[i].Parsed, folder.Catalog!) is not { } keys) { ix.Always.Add(i); continue; }
-                    foreach (var k in keys) { if (!ix.ByKey.TryGetValue(k, out var li)) ix.ByKey[k] = li = new(); li.Add(i); }
+                    if (NamedTargets(lines[i].Parsed, folder.Catalog!) is not { } keys) { always.Add(i); continue; }
+                    foreach (var k in keys) { if (!byKey.TryGetValue(k, out var li)) byKey[k] = li = new(); li.Add(i); }
                 }
+                ix = (always, always.Count == lines.Count ? lines : always.ConvertAll(i => lines[i]), byKey);
                 _lineIndex[folder.Subfolder] = ix;
             }
-            if (!ix.ByKey.TryGetValue(fk, out var mine))
-                return ix.Always.Count == lines.Count ? lines : ix.Always.ConvertAll(i => lines[i]);
-            return ix.Always.Concat(mine).Order().Select(i => lines[i]).ToList();
+            if (!ix.ByKey.TryGetValue(fk, out var mine)) return ix.AlwaysLines;
+            // Both lists ascend and share no line, so a two-way merge keeps apply order.
+            var merged = new List<SkyPatcherOverlay.OrderedLine>(ix.Always.Count + mine.Count);
+            int a = 0, m = 0;
+            while (a < ix.Always.Count || m < mine.Count)
+                merged.Add(lines[m == mine.Count || (a < ix.Always.Count && ix.Always[a] < mine[m]) ? ix.Always[a++] : mine[m++]]);
+            return merged;
         }
 
         /// <summary>The records a patch line can touch when its only filter is one bare primary filter naming FormIDs; null for any other line, or one carrying a parse note, which the overlay must see on every record.</summary>
