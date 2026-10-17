@@ -364,6 +364,22 @@ public sealed class RecordsWalkCostTests
         Assert.DoesNotContain("hard upper bound", response);
     }
 
+    /// <summary>A reverse walk judges each candidate off the reverse index, which read the winner's copy when it was
+    /// built, so its body check reads no candidate: the template top's 1 referrer at depth 1 and 301 at depth 2 cost
+    /// one read of the NPC group, the selection's own.</summary>
+    [Theory]
+    [InlineData(1, 1)]
+    [InlineData(2, WalkCostWorld.Seeds + 1)]
+    public void AReverseWalkReadsNoCandidateBody(int depth, int referrers)
+    {
+        var reads = GroupReadDelta.Of(Svc, () => RecordsTools.Records(Svc, formids: new[] { "000800:" + _w.MasterName },
+                                          walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "*", depth = depth },
+                                          project: Fields(), counts_only: true),
+                                      $"({referrers} referrer(s), seeds included)");
+
+        Assert.Equal(new Dictionary<(string, string), int> { [(_w.MasterName, "Npcs")] = 1 }, reads);
+    }
+
     /// <summary>And the bound itself is a legal budget, not one off it — the refusal is above, not at.</summary>
     [Fact]
     public void ANodeBudgetAtTheCeilingWalks()

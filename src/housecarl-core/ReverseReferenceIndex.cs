@@ -19,6 +19,10 @@ public sealed class ReverseReferenceIndex
         public int Unscannable;                        // records whose own link walk threw — excluded and counted
         public int Lenient;                            // records whose links were read leniently — indexed, with a named gap
         public string? Unreadable;                     // set ⇒ this plugin contributed nothing, and why
+        // What the build saw of each copy that carries no edge, so a walk can judge a winner's copy off the index.
+        public HashSet<ulong> NoLive = new();          // deleted, or not a link container
+        public HashSet<ulong> Unscannables = new();    // its link walk threw
+        public Dictionary<ulong, string> LenientNotes = new();
     }
 
     /// <summary>One published, immutable state of the index; a read takes the field once and is consistent for its whole run.</summary>
@@ -33,9 +37,23 @@ public sealed class ReverseReferenceIndex
 
         // Built in the constructor, not on first ask: a '??=' on a shared field is a check-then-assign.
         readonly Lazy<HashSet<ulong>> _referenced;
+        readonly Lazy<Dictionary<string, Partition>> _byName;
 
-        public Generation() =>
+        public Generation()
+        {
             _referenced = new Lazy<HashSet<ulong>>(BuildReferenced, LazyThreadSafetyMode.ExecutionAndPublication);
+            _byName = new Lazy<Dictionary<string, Partition>>(BuildByName, LazyThreadSafetyMode.ExecutionAndPublication);
+        }
+
+        /// <summary>The partitions by plugin filename, the first in priority order taking a shared name.</summary>
+        public Dictionary<string, Partition> ByName => _byName.Value;
+
+        Dictionary<string, Partition> BuildByName()
+        {
+            var d = new Dictionary<string, Partition>(StringComparer.OrdinalIgnoreCase);
+            foreach (var path in Order) if (ByPath.TryGetValue(path, out var p)) d.TryAdd(p.Name, p);
+            return d;
+        }
 
         /// <summary>Every target something in the order links, as one set; built on first ask and thrown away with the generation.</summary>
         public HashSet<ulong> Referenced => _referenced.Value;
@@ -91,10 +109,13 @@ public sealed class ReverseReferenceIndex
         return outp;
     }
 
-    /// <summary>Every record that links to ANY of these targets, deduped, in load order then plugin-enumeration order; the answer is a CANDIDATE set the caller still judges on the body it means.</summary>
-    public IReadOnlyList<FormKey> ReferencersOf(IReadOnlyList<FormKey> targets)
+    /// <summary>Every record that links to ANY of these targets, deduped, in load order then plugin-enumeration order; the answer is a CANDIDATE set the caller still judges on the body it means.
+    /// Given <paramref name="winnerOf"/>, <paramref name="fromWinner"/> is refilled with the candidates whose edge comes from their own winner plugin's partition.</summary>
+    public IReadOnlyList<FormKey> ReferencersOf(IReadOnlyList<FormKey> targets, Func<FormKey, string?>? winnerOf = null,
+                                                HashSet<FormKey>? fromWinner = null)
     {
         var g = _gen;
+        fromWinner?.Clear();
         var packed = new List<ulong>(targets.Count);
         foreach (var t in targets) if (g.TryPack(t, out var pt)) packed.Add(pt);
         var seen = new HashSet<ulong>();
@@ -105,10 +126,32 @@ public sealed class ReverseReferenceIndex
             foreach (var pt in packed)
                 if (p.ByTarget.TryGetValue(pt, out var arr))
                     foreach (var r in arr)
-                        if (seen.Add(r)) outp.Add(g.Unpack(r));
+                    {
+                        var fk = g.Unpack(r);
+                        if (seen.Add(r)) outp.Add(fk);
+                        if (winnerOf is not null && string.Equals(winnerOf(fk), p.Name, StringComparison.OrdinalIgnoreCase)) fromWinner?.Add(fk);
+                    }
         }
         return outp;
     }
+
+    /// <summary>What the winner plugin's partition saw of a record's copy there.</summary>
+    public enum CopyFact { Unknown, NoLiveBody, Live, Unscannable }
+
+    /// <summary>Unknown when the index cannot say (no readable partition for the plugin); Live carries the copy's lenient-read note, if any.</summary>
+    public CopyFact WinnerFact(FormKey record, string winnerPlugin, out string? note)
+    {
+        note = null;
+        var g = _gen;
+        if (!g.ByName.TryGetValue(winnerPlugin, out var p) || p.Unreadable is not null || !g.TryPack(record, out var pk)) return CopyFact.Unknown;
+        if (p.NoLive.Contains(pk)) return CopyFact.NoLiveBody;
+        if (p.Unscannables.Contains(pk)) return CopyFact.Unscannable;
+        p.LenientNotes.TryGetValue(pk, out note);
+        return CopyFact.Live;
+    }
+
+    /// <summary>A record that carries no reference: deleted, so its links are not live, or not a link container at all.</summary>
+    public static bool HoldsNoEdges(IMajorRecordGetter rec) => DeletedRecordRule.HasNoLiveBody(rec) || rec is not IFormLinkContainerGetter;
 
     /// <summary>What one refresh did, for the response's in-band accounting.</summary>
     public sealed record Refreshed(int Partitions, int Rebuilt, long ElapsedMs, int TargetSlots, long Pairs,
@@ -202,16 +245,20 @@ public sealed class ReverseReferenceIndex
         {
             foreach (var rec in ov.EnumerateMajorRecords())
             {
+                ulong? source = null;
                 try
                 {
-                    // A deleted record's content is not live, so none of its links is a real reference.
-                    if (DeletedRecordRule.HasNoLiveBody(rec)) continue;
-                    if (rec is not IFormLinkContainerGetter) continue;
+                    source = Pack(into, rec.FormKey);
+                    if (HoldsNoEdges(rec)) { part.NoLive.Add(source.Value); continue; }
                     // The SAME link walk the scan lanes make, so a record missing here is missing from every lane downstream (#301).
-                    edges.Source = Pack(into, rec.FormKey);
-                    if (RecordLinks.Walk(rec, ref edges) is not null) lenient++;
+                    edges.Source = source.Value;
+                    if (RecordLinks.Walk(rec, ref edges) is { } note) { lenient++; part.LenientNotes.TryAdd(source.Value, note); }
                 }
-                catch { unscannable++; }
+                catch
+                {
+                    unscannable++;
+                    if (source is { } s) part.Unscannables.Add(s);
+                }
             }
         }
         catch (Exception ex)
@@ -304,7 +351,8 @@ public static class ReverseSelection
                                                 int depth, int maxNodes,
                                                 Func<FormKey, IReadOnlySet<FormKey>, bool>? verify, out bool capped,
                                                 Action<IReadOnlyList<FormKey>>? prepare = null,
-                                                Func<FormKey, bool>? expand = null)
+                                                Func<FormKey, bool>? expand = null,
+                                                Func<IReadOnlyList<FormKey>, IReadOnlyList<FormKey>>? referencers = null)
     {
         capped = false;
         var hops = new List<Hop>();
@@ -318,7 +366,7 @@ public static class ReverseSelection
             // What the next hop expands from: every reached node, less those expand turns away (kept as boundaries).
             var nextFrontier = expand is null ? next : new List<FormKey>();
             bool cut = false;
-            var candidates = index.ReferencersOf(frontier);
+            var candidates = referencers is null ? index.ReferencersOf(frontier) : referencers(frontier);
             int prepared = 0;
             for (int i = 0; i < candidates.Count; i++)
             {
