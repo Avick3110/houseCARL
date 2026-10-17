@@ -55,21 +55,33 @@ public sealed class DeltaWindowRowTests : IDisposable
         Assert.Contains(rows[0].Diff!.Deltas, d => d.Contains("HcDwOverride"));
     }
 
-    /// <summary>A subject the index says holds the record but whose read errors still answers its row, with the subject's error.</summary>
+    /// <summary>A subject the index says holds the record but whose read errors still answers its row, with the
+    /// subject's error. Rewritten under the pin, the file refuses the call (ruling F); rewritten with its size and
+    /// last-write time kept, the one change ruling F cannot see, the row carries the error.</summary>
     [Fact]
     public void ASubjectThatHoldsTheRecordButErrorsCarriesItsError()
     {
         using var svc = _mo2.Open();
+        var subject = new RecordReads.PoleSpec(RecordReads.PoleKind.Named, _b.FileName.String);
+        var ids = new[] { ScratchMo2.Fid(_weapons[0]) };
+        var path = _mo2.InMod(_b.Name, _b);
+        var time = File.GetLastWriteTimeUtc(path);
         svc.CaptureView();   // the index is built while HcDwB.esp still overrides the first weapon
-        svc.ReadArea.AfterReadPinForGuard = () =>
+        void RewriteB(bool keepStamp) => svc.ReadArea.AfterReadPinForGuard = () =>
         {
             svc.ReadArea.AfterReadPinForGuard = null;
             WriteB(_weapons[1]);   // inside the hold: the file no longer holds what the pinned index says it does
+            if (keepStamp) File.SetLastWriteTimeUtc(path, time);
         };
-        var rows = Delta(svc, new[] { ScratchMo2.Fid(_weapons[0]) },
-                         new RecordReads.PoleSpec(RecordReads.PoleKind.Named, _b.FileName.String));
-        var row = Assert.Single(rows);
+
+        RewriteB(keepStamp: true);
+        var row = Assert.Single(Delta(svc, ids, subject));
         Assert.NotNull(row);
         Assert.StartsWith("subject: ", row.Error);
+
+        WriteB(_weapons[0]);
+        File.SetLastWriteTimeUtc(path, time);
+        RewriteB(keepStamp: false);
+        Assert.Equal(_b.FileName.String, Assert.Throws<LoadOrderChangedMidCallException>(() => Delta(svc, ids, subject)).Plugin);
     }
 }

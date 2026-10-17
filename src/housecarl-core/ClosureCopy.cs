@@ -358,6 +358,7 @@ public static class ClosureCopy
         SkyrimMod patch;
         if (extend)
         {
+            MidCallChange.PinOffOrder(outPath); // ruling F
             try { patch = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath)); }
             catch (Exception ex) { return ClosureCopyOutcome.Fail(engine: ex.Message, sources: consulted); }
             // The whole existing patch is re-serialized, so it runs the round-trip check before anything is copied in.

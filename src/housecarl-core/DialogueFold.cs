@@ -119,6 +119,7 @@ public sealed class DialogueFold : IDisposable
     public static DialogueFold Read(string plugin, string where, string path, string? dataDir, string? label = null)
     {
         var fold = new DialogueFold(plugin, string.IsNullOrEmpty(label) ? plugin : label!, where) { Path = path };
+        MidCallChange.PinOffOrder(path); // ruling F
         var ov = LoadOrderResolver.OpenOverlay(path, string.IsNullOrEmpty(dataDir) ? null : dataDir);
         try
         {
@@ -135,6 +136,7 @@ public sealed class DialogueFold : IDisposable
     public static DialogueFold Open(string plugin, string where, string path, string? dataDir, string? label = null)
     {
         var fold = new DialogueFold(plugin, string.IsNullOrEmpty(label) ? plugin : label!, where) { Path = path };
+        MidCallChange.PinOffOrder(path); // ruling F
         var ov = LoadOrderResolver.OpenOverlay(path, string.IsNullOrEmpty(dataDir) ? null : dataDir);
         fold._openFile = ov as IDisposable;
         try

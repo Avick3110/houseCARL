@@ -117,8 +117,13 @@ public sealed class SharedEditorIdNoteTests : IClassFixture<SharedGmstFixture>
         int at = IndexOf(bytes, System.Text.Encoding.ASCII.GetBytes("fTriple\0"));
         Assert.True(at > 0);
         bytes[at] = (byte)'q';
+        var stamp = File.GetLastWriteTimeUtc(path);
         File.WriteAllBytes(path, bytes);
 
+        // Seen first as a changed file, which refuses (ruling F); with its stamp put back, only the parse fault is left.
+        Assert.Equal(SharedGmstWorld.MidName, Assert.Throws<LoadOrderChangedMidCallException>(
+            () => SharedEditorIds.Note(pin, w.SharedInMaster, "GameSettingInt", null)).Plugin);
+        File.SetLastWriteTimeUtc(path, stamp);
         var note = SharedEditorIds.Note(pin, w.SharedInMaster, "GameSettingInt", null);
 
         Assert.NotNull(note);

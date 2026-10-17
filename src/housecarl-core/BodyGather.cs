@@ -116,6 +116,7 @@ public sealed class BodyGather
         try { view.CollectRecords(session, plugin, keys, sink); return null; }
         catch (OutOfMemoryException) { throw; }
         catch (OperationCanceledException) { throw; }
+        catch (LoadOrderChangedMidCallException) { throw; }
         catch (PluginUnreadableException ex) { return ex; }
         catch (Exception ex) { return new PluginUnscannableException(plugin, ex); }
     }

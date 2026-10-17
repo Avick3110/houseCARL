@@ -79,15 +79,16 @@ public sealed class SnapshotViewPinningTests : IDisposable
         Assert.Equal(new[] { _w1 }, _old.ConflictKeys().ToList());
     }
 
-    // Probe: "PINNED SCAN: viewOld.RecordsIn(master) yields W1 at the OLD depth 2 (a live re-deref would say 1)";
-    // "PINNED SCAN: viewOld.WinnerRecordsOfType yields ONLY W2".
+    // A scan of the unchanged master still rides the old build (W1 at the OLD depth 2); a scan that reaches the
+    // rewritten override refuses, naming it, rather than read a file the old build does not describe (ruling F).
     [Fact]
-    public void TheOldViewsScanStreamsRideTheOldBuild()
+    public void TheOldViewsScanRefusesAtTheRewrittenPlugin()
     {
         var pinnedIn = Assert.Single(_old.RecordsIn(new[] { MasterName }, null).Where(x => x.fk == _w1));
         Assert.Equal(2, pinnedIn.depth);
-        var pinnedWin = Assert.Single(_old.WinnerRecordsOfType(new[] { typeof(IWeaponGetter) }));
-        Assert.NotEqual(_w1, pinnedWin.fk);
+        var refused = Assert.Throws<LoadOrderChangedMidCallException>(
+            () => _old.WinnerRecordsOfType(new[] { typeof(IWeaponGetter) }).ToList());
+        Assert.Equal(OvrName, refused.Plugin);
     }
 
     // Probe: "FRESH: viewNew.ResolveWinner(W1) = master, depth 1"; "FRESH: viewNew.TouchingPlugins(W1) = [master] only";

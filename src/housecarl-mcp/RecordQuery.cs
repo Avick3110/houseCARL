@@ -821,6 +821,7 @@ internal sealed partial class RecordReads
         catch (Exception ex) { return CrossQueryOutcome.Fail($"'{pole.Plugin}' is not a valid plugin filename: {ex.Message}"); }
 
         ISkyrimModGetter ov;
+        MidCallChange.PinOffOrder(pole.Path!); // ruling F
         try { ov = LoadOrderResolver.OpenOverlay(pole.Path!, string.IsNullOrEmpty(pole.DataDir) ? null : pole.DataDir); }
         catch (Exception ex) { return CrossQueryOutcome.Fail($"could not open '{pole.Path}' as a Skyrim plugin: {ex.Message}") with { Stamp = view.Stamp }; }
 

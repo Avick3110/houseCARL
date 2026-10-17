@@ -1353,7 +1353,12 @@ public static class WriteEngine
     /// <summary>Stage 2 of the atomic write: swap the staged temp over the target — File.Replace when it exists, a rename when it does not.</summary>
     static void CommitStagedPatch(string tmpPath, string outputPath)
     {
-        try { AtomicFile.Commit(tmpPath, outputPath); }
+        try
+        {
+            MidCallChange.BeforeCommit();                     // ruling F: every file this call relied on is still the one it read
+            AtomicFile.Commit(tmpPath, outputPath);
+            MidCallChange.AfterCommit(outputPath);
+        }
         finally { CleanupStaged(tmpPath); }
     }
 

@@ -6,13 +6,13 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>A plugin rewritten after the index build (#1158): a typed seek that misses falls back to a flat walk and still finds the record.
-/// Fails when the flat fallback is removed: the armor key, now a weapon, is then not found.</summary>
+/// <summary>A plugin rewritten after the index build (#1158) is no longer read under that build: the seek and the
+/// gather refuse, naming it (ruling F), instead of falling back to a flat walk of a file the build does not describe.</summary>
 [Trait("tier", "integration")]
 public sealed class TypedIndexStaleFileTests
 {
     [Fact]
-    public void ATypedMissOnARewrittenPluginFallsBackToAFlatWalk()
+    public void ASeekOrGatherOnARewrittenPluginRefuses()
     {
         using var w = new TypedIndexWorld();
         var pin = w.Svc.CapturePin();
@@ -23,24 +23,16 @@ public sealed class TypedIndexStaleFileTests
         master.BeginWrite.ToPath(Path.Combine(w.Root, "inst", "mods", "TypedMaster", w.MasterName))
             .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        long[] Costs() { var c = w.Svc.Counters; return new[] { c.BodySeeks, c.TypedSeeks, c.CollectPasses, c.TypedCollectPasses }; }
-
         using (var session = pin.Resolver.OpenSession())
-        {
-            var before = Costs();
-            var seek = pin.View.GetRecord(session, w.MasterName, w.Armor);
-            Assert.Equal("HcTypedStaleWeapon", Assert.IsAssignableFrom<IWeaponGetter>(seek).EditorID);
-            Assert.Null(pin.View.GetRecord(session, w.MasterName, w.List));
-            Assert.Equal(new long[] { 2, 0, 0, 0 }, Costs().Zip(before, (a, b) => a - b).ToArray());
-        }
+            Assert.Equal(w.MasterName, Assert.Throws<LoadOrderChangedMidCallException>(
+                () => pin.View.GetRecord(session, w.MasterName, w.Armor)).Plugin);
 
         using (var session = pin.Resolver.OpenSession())
         {
             var sink = new Dictionary<FormKey, IMajorRecordGetter>();
-            var before = Costs();
-            pin.View.CollectRecords(session, w.MasterName, new[] { w.Armor }, sink);
-            Assert.Equal("HcTypedStaleWeapon", Assert.IsAssignableFrom<IWeaponGetter>(sink[w.Armor]).EditorID);
-            Assert.Equal(new long[] { 0, 0, 1, 0 }, Costs().Zip(before, (a, b) => a - b).ToArray());
+            Assert.Equal(w.MasterName, Assert.Throws<LoadOrderChangedMidCallException>(
+                () => pin.View.CollectRecords(session, w.MasterName, new[] { w.Armor }, sink)).Plugin);
+            Assert.Empty(sink);
         }
     }
 }

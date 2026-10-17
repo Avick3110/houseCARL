@@ -13,6 +13,7 @@ public static class ReservedOwnRecords
     /// The floor is Mutagen's own rule: 0 (no check) when the header version allows the low range (1.71+ on SE), else 0x800. Throws when the file cannot be read.</summary>
     public static (int Count, IReadOnlyList<FormKey> First) Find(string pluginPath)
     {
+        MidCallChange.PinOffOrder(pluginPath); // ruling F
         using var ov = SkyrimMod.CreateFromBinaryOverlay(pluginPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(pluginPath));
         var floor = Math.Min(ov.GetDefaultInitialNextFormID(forceUseLowerFormIDRanges: null), FormIdRange.EngineReservedFloor);
         var self = ov.ModKey;

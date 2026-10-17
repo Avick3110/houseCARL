@@ -191,6 +191,7 @@ public static class FaceGenCheck
                     ISkyrimModGetter? ov = null;
                     try
                     {
+                        MidCallChange.PinOffOrder(path); // ruling F
                         ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path));
                         foreach (var body in SweepScope.RecordsFrom(ov, new SweepScope(null, null, NpcTypes, "NPC_")))
                             Judge(body.FormKey, body, name, offOrderFile: true, next++);
