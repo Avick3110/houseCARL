@@ -137,7 +137,8 @@ public sealed class BodyGatherDoorTests : IDisposable
         Assert.Contains("scan: 2 matches", RecordsTools.Records(svc, formids: ids, where: new[] { "editorid startswith HcGdW" }));
         Break(1, "NPC_");
         var r = RecordsTools.Records(svc, formids: ids, where: new[] { "editorid startswith HcGdW" });
-        Assert.True(r.Contains("scan: 2 matches") && r.Contains("HcGdWHcGdB0") && r.Contains("HcGdWHcGdB1") && r.Contains(Name(1)), r);
+        Assert.True(r.Contains("scan: 2 matches") && r.Contains("HcGdWHcGdB0") && r.Contains("HcGdWHcGdB1")
+                    && r.Contains($"coverage gap: 1 plugin(s) could not be read, so any record they win is missing from this answer: could not finish reading '{Name(1)}'"), r);
     }
 
     /// <summary>formids= with conflicts_only and no where=, over an overriding plugin with a broken NPC_ group: its
