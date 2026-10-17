@@ -638,9 +638,10 @@ internal sealed partial class AssetLayers
                     if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
                 }
             }
-            failedReplays += targets.Count(t => view.ResolveWinner(t) is null);   // not in the order: the door skips them
+            int handedOver = 0;
             OrderedGather.ForEachGroup(view, session, targets, (bodies, asked) =>
             {
+                handedOver += asked.Count;
                 foreach (var fk in asked)
                 {
                     var r = replay.Replay(fk, bodies.GetValueOrDefault(fk));
@@ -657,6 +658,7 @@ internal sealed partial class AssetLayers
                     }
                 }
             }, ct: ct);
+            failedReplays += targets.Count - handedOver;   // not in the order: the door skips them
             // Stable output: targets is a hash set, so without this a re-run cannot be diffed against the previous one.
             noOps.Sort((x, y) =>
             {
