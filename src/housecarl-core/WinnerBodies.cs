@@ -4,7 +4,7 @@ using Mutagen.Bethesda.Plugins.Records;
 namespace HousecarlCore;
 
 /// <summary>The live winner's BODY for each of a known set of records — <see cref="BodyGather"/> with a scan's
-/// winner resolution in front of it, gathered by PLUGIN and one CHUNK at a time; see
+/// winner resolution in front of it, gathered a (plugin, group) at a time and one CHUNK at a time; see
 /// docs/architecture/read-engine.md.</summary>
 public static class WinnerBodies
 {

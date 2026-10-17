@@ -127,7 +127,7 @@ path walk, and containment comes off Mutagen's context walk.
   10,000 candidates, `FieldPredicateSet.HoldParents` collects the distinct parent keys, with no
   memoized verdict yet, of the chunk's rows that pass the filters run before `where=`
   (`editorid_contains`, `references=`, the deleted-record rule, the set lane's `conflicts_only`), and `ContainmentIndex.GatherContainers` reads them through
-  `WinnerBodies.For`, one walk per winner plugin, typed by the order index like every fetch
+  `WinnerBodies.For`, one walk per winner (plugin, group), typed by the order index like every fetch
   (load-order-resolver.md). The bodies are dropped when the chunk drains, so the
   chunk is the memory bound and only verdicts outlive it. A winner plugin a gather cannot walk is named
   once in the scan's unreadable list. A parent the chunk did not gather (a hop on a `->` target) is
