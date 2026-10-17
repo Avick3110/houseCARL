@@ -1,0 +1,100 @@
+using Mutagen.Bethesda;
+using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Skyrim;
+using HousecarlMcp;
+using Xunit;
+
+namespace HousecarlMcpTests;
+
+/// <summary>Two plugins: Base defines two keywords and two armors carrying both; Extra defines a third keyword and two
+/// weapons carrying one Base keyword and its own.</summary>
+public sealed class BatchDoorReadWorld : IDisposable
+{
+    readonly ScratchMo2 _mo2 = new("hc-batch-door-");
+    public readonly ModKey Base = new("HcBatchBase", ModType.Master), Extra = new("HcBatchExtra", ModType.Plugin);
+    public LoadOrderService Svc { get; }
+    public FormKey Armor1 { get; }
+    public FormKey Armor2 { get; }
+    public FormKey Weapon1 { get; }
+    public FormKey Weapon2 { get; }
+
+    public BatchDoorReadWorld()
+    {
+        var b = new SkyrimMod(Base, SkyrimRelease.SkyrimSE);
+        var kw = Enumerable.Range(1, 2).Select(i => { var k = b.Keywords.AddNew(); k.EditorID = "HcBatchKw" + i; return k; }).ToList();
+        var armors = Enumerable.Range(1, 2).Select(i =>
+        {
+            var a = b.Armors.AddNew();
+            a.EditorID = "HcBatchArmor" + i;
+            a.Keywords = new() { kw[0].ToLink(), kw[1].ToLink() };
+            return a;
+        }).ToList();
+        b.BeginWrite.ToPath(_mo2.InMod("BatchBase", Base)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        var x = new SkyrimMod(Extra, SkyrimRelease.SkyrimSE);
+        var own = x.Keywords.AddNew();
+        own.EditorID = "HcBatchKw3";
+        var weapons = Enumerable.Range(1, 2).Select(i =>
+        {
+            var w = x.Weapons.AddNew();
+            w.EditorID = "HcBatchWeapon" + i;
+            w.Keywords = new() { kw[0].ToLink(), own.ToLink() };
+            return w;
+        }).ToList();
+        x.BeginWrite.ToPath(_mo2.InMod("BatchExtra", Extra)).WithLoadOrder(new ISkyrimModGetter[] { b }).Write();
+
+        (Armor1, Armor2, Weapon1, Weapon2) = (armors[0].FormKey, armors[1].FormKey, weapons[0].FormKey, weapons[1].FormKey);
+        var names = new[] { Base, Extra }.Select(k => k.FileName.String).ToList();
+        _mo2.Profile(string.Join("\r\n", names) + "\r\n", string.Join("", names.Select(n => "*" + n + "\r\n")),
+                     "+BatchExtra\r\n+BatchBase\r\n");
+        Svc = _mo2.Open();
+    }
+
+    public void Dispose() { Svc.Dispose(); _mo2.Delete(); }
+}
+
+/// <summary>A formids= batch reads its rows a group at a time and its names through the door, and still answers one
+/// row per input, in input order, with a bad or absent FormID as that row's own error.</summary>
+[Trait("tier", "integration")]
+public sealed class BatchDoorReadTests : IClassFixture<BatchDoorReadWorld>
+{
+    readonly BatchDoorReadWorld _w;
+    public BatchDoorReadTests(BatchDoorReadWorld w) => _w = w;
+
+    static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
+
+    // Interleaved across the two plugins, with a parse error and a FormID of a plugin outside the order between them.
+    string[] Rows => new[] { Fid(_w.Armor1), Fid(_w.Weapon1), "zzz", Fid(_w.Armor2), "123456:HcBatchNope.esp", Fid(_w.Weapon2) };
+
+    string Read(string[] rows) => RecordsTools.Records(_w.Svc, formids: rows, project: new RecordsTools.RecordsProject
+                                                      { form = "fields", fields = new[] { "Keywords" }, depth = 2, resolve_names = true });
+
+    [Fact]
+    public void ABatchAcrossTwoPluginsReadsEachRowGroupAndEachNameGroupOnce()
+    {
+        var reads = GroupReadDelta.Of(_w.Svc, () => Read(Rows), "(→ HcBatchKw2)", "(→ HcBatchKw3)");
+        Assert.Equal(new Dictionary<(string, string), int>
+        {
+            [("HcBatchBase.esm", "Armors")] = 1, [("HcBatchBase.esm", "Keywords")] = 1,
+            [("HcBatchExtra.esp", "Weapons")] = 1, [("HcBatchExtra.esp", "Keywords")] = 1,
+        }, reads);
+    }
+
+    [Fact]
+    public void AFormIdOutsideTheOrderWithNoPluginIsItsOwnRowErrorAndTheOtherRowsStillAnswer()
+    {
+        var r = Read(new[] { "123456:HcBatchNope.esp", Fid(_w.Weapon1) });
+        Assert.Contains("is not present in the load order", r);
+        Assert.Contains("(→ HcBatchKw3)", r);
+    }
+
+    [Fact]
+    public void RowsAnswerInInputOrderWithTheParseErrorInItsSlot()
+    {
+        var r = Read(Rows);
+        var at = new[] { "HcBatchArmor1", "HcBatchWeapon1", "bad FormID 'zzz'", "HcBatchArmor2", "HcBatchNope.esp", "HcBatchWeapon2" }
+                 .Select(m => r.IndexOf(m, StringComparison.Ordinal)).ToList();
+        Assert.All(at, i => Assert.True(i >= 0, r));
+        Assert.Equal(at.Order().ToList(), at);
+    }
+}

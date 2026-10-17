@@ -393,12 +393,16 @@ internal sealed partial class RecordReads
             var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
             result = body is null
                 ? new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Winner: w.Value.WinnerPlugin)   // winner named but the fetch didn't yield it
-                : new ResolvedRef(FormIdToken.Of(fk), Resolved: true, Type: RecordNaming.StripOverlay(body.GetType().Name),
-                                  EditorId: body.EditorID, Name: ReadEngine.DisplayName(body), Winner: w.Value.WinnerPlugin);
+                : RefOf(fk, body, w.Value.WinnerPlugin);
         }
         memo.Refs[fk] = result;
         return result;
     }
+
+    /// <summary>A resolved target's identity, read off its winner's body.</summary>
+    static ResolvedRef RefOf(FormKey fk, IMajorRecordGetter body, string winner)
+        => new(FormIdToken.Of(fk), Resolved: true, Type: RecordNaming.StripOverlay(body.GetType().Name),
+               EditorId: body.EditorID, Name: ReadEngine.DisplayName(body), Winner: winner);
 
     /// <summary>The artifact-epoch mismatch refusal — one wording for every consuming lane, naming both epochs and
     /// the two legitimate next moves.</summary>
@@ -468,37 +472,80 @@ internal sealed partial class RecordReads
         var unionMemo = new ChildUnionMemo();                  // the caller NAMED these records: the union lane, one assembly per record
         // One overlay cache for the whole batch.
         using var batchSession = resolver.OpenSession();
-        var outcomes = new List<ReadOutcome>(formids.Count);
-        // Every FormID is parsed up front so the bodies can be gathered a CHUNK of rows at a time — one
-        // enumeration per source plugin — and the scan's body forms come through here, so this lane and the scan
-        // render lane cost the same per row.
+        // The scan's body forms come through here too, so this lane and the scan render lane cost the same per row.
+        var outcomes = ReadRowsOrdered(view, batchSession, resolver.Counters, formids, plugin, ct, (fk, body, parent) =>
+            ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, false, null, containerHint, unionMemo, batchSession, depths, body, countFields, summary, parent)
+                with { Stamp = view.Stamp, Pin = pin });   // the batch's one build, stamped and pinned per item
+        if (resolveNames) NameLinks(outcomes, view, batchSession, linkMemo!, ct);
+        return outcomes;
+    }
+
+    /// <summary>A batch's rows read through the door: parsed, sorted by (source plugin, group), each group walked once
+    /// per <see cref="BodyPrefetch.ChunkRows"/> of its rows, and answered in row order. A row that did not parse keeps
+    /// its error in its slot; a row with no source plugin is read alone, and its own read names why.</summary>
+    static ReadOutcome[] ReadRowsOrdered(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, CostCounters counters,
+                                         IReadOnlyList<string> formids, string? plugin, CancellationToken ct,
+                                         Func<FormKey, IMajorRecordGetter?, Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>?, ReadOutcome> readRow)
+    {
         var keys = new FormKey[formids.Count];
-        var parseErrors = new string?[formids.Count];
+        var slots = new ReadOutcome?[formids.Count];
+        var sourced = new List<(int Row, string Source)>(formids.Count);
         for (int i = 0; i < formids.Count; i++)
         {
             try { keys[i] = view.ParseFormId(formids[i]); }
-            catch (Exception ex) { parseErrors[i] = $"bad FormID '{formids[i]}': {ex.Message}"; }
+            catch (Exception ex) { slots[i] = ReadOutcome.Fail(default, $"bad FormID '{formids[i]}': {ex.Message}"); continue; }
+            if ((plugin ?? view.ResolveWinner(keys[i])?.WinnerPlugin) is { } source) sourced.Add((i, source));
         }
-        BodyPrefetch.Chunk? chunk = null;
-        int chunkStart = -1;
-        for (int i = 0; i < formids.Count; i++)
-        {
-            ct.ThrowIfCancellationRequested();   // a client that aborted stops the batch inside one record
-            if (parseErrors[i] is { } perr) { outcomes.Add(ReadOutcome.Fail(default, perr)); continue; }
-            int start = BodyPrefetch.ChunkStart(i);
-            if (start != chunkStart)
+        foreach (var (_, rows) in OrderedGather.Sort(view, sourced, r => r.Source, r => keys[r.Row]))
+            for (int s = 0; s < rows.Count; s += BodyPrefetch.ChunkRows)   // the held bodies stay bounded inside one big group
             {
-                chunkStart = start;
-                chunk = BodyPrefetch.Gather(view, batchSession, resolver.Counters, keys, start, Math.Min(start + BodyPrefetch.ChunkRows, keys.Length),
-                                            _ => plugin, ct);
+                var part = rows.GetRange(s, Math.Min(BodyPrefetch.ChunkRows, rows.Count - s));
+                var partKeys = part.Select(r => keys[r.Row]).ToArray();
+                var chunk = BodyPrefetch.Gather(view, session, counters, partKeys, 0, partKeys.Length, _ => plugin, ct);
+                foreach (var (i, _) in part)
+                {
+                    ct.ThrowIfCancellationRequested();   // a client that aborted stops the batch inside one record
+                    slots[i] = readRow(keys[i], chunk.Body(keys[i]), chunk.Parent);
+                }
             }
-            var fk = keys[i];
-            var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
-            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields, summary,
-                                     chunk is null ? null : chunk.Parent)
-                         with { Stamp = view.Stamp, Pin = pin });   // the batch's one build, stamped and pinned per item
-        }
-        return outcomes;
+        for (int i = 0; i < slots.Length; i++)
+            if (slots[i] is null)
+            {
+                ct.ThrowIfCancellationRequested();
+                slots[i] = readRow(keys[i], null, null);
+            }
+        return slots!;
+    }
+
+    /// <summary>resolve_names over read rows: every link target primed through <see cref="PrimeNames"/>, then each row
+    /// annotated off the memo, after its owned-child union.</summary>
+    static void NameLinks(IList<ReadOutcome> outcomes, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                          LinkMemo memo, CancellationToken ct)
+    {
+        PrimeNames(outcomes.Select(o => o.Record), view, session, memo, ct);
+        for (int r = 0; r < outcomes.Count; r++)
+            if (outcomes[r].Record is { } rf)
+                outcomes[r] = outcomes[r] with { Record = AnnotateLinks(rf, view, session, memo) };
+    }
+
+    /// <summary>Fill <paramref name="memo"/> with the identity of the link targets these records render, each target's
+    /// winner group walked once; a target the door does not yield is left to <see cref="ResolveRefOne"/>.</summary>
+    static void PrimeNames(IEnumerable<RecordFields?> records, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                           LinkMemo memo, CancellationToken ct)
+    {
+        var want = new HashSet<FormKey>();
+        foreach (var rf in records)
+            if (rf is not null)
+                foreach (var f in rf.Fields)
+                    if ((f.HasValue ? f.Token : f.NoteRef) is { } tok && FormKey.TryFactory(tok, out var fk) && !fk.IsNull
+                        && !memo.Refs.ContainsKey(fk) && view.ResolveWinner(fk) is not null)
+                        want.Add(fk);
+        if (want.Count == 0) return;
+        OrderedGather.ForEachGroup(view, session, want, (bodies, asked) =>
+        {
+            foreach (var fk in asked)
+                if (bodies.TryGetValue(fk, out var b)) memo.Refs[fk] = RefOf(fk, b, view.ResolveWinner(fk)!.Value.WinnerPlugin);
+        }, null, ct);
     }
 
     // ---- `records`: the one-pole batch (source=named, wherever the plugin lives) -----------------------
@@ -616,34 +663,10 @@ internal sealed partial class RecordReads
             var linkMemo = resolveNames ? new LinkMemo() : null;
             var unionMemo = new ChildUnionMemo();   // named records again: the union lane
             using var batchSession = resolver.OpenSession();   // and one overlay cache for the batch, as ResolveBatch has
-            var outcomes = new List<ReadOutcome>(formids.Count);
-            // Parsed up front and gathered a chunk at a time, the same shape ResolveBatch reads by.
-            var keys = new FormKey[formids.Count];
-            var parseErrors = new string?[formids.Count];
-            for (int i = 0; i < formids.Count; i++)
-            {
-                try { keys[i] = view.ParseFormId(formids[i]); }
-                catch (Exception ex) { parseErrors[i] = $"bad FormID '{formids[i]}': {ex.Message}"; }
-            }
-            BodyPrefetch.Chunk? chunk = null;
-            int chunkStart = -1;
-            for (int i = 0; i < formids.Count; i++)
-            {
-                ct.ThrowIfCancellationRequested();   // a client that aborted stops the batch inside one record
-                if (parseErrors[i] is { } perr) { outcomes.Add(ReadOutcome.Fail(default, perr)); continue; }
-                int start = BodyPrefetch.ChunkStart(i);
-                if (start != chunkStart)
-                {
-                    chunkStart = start;
-                    chunk = BodyPrefetch.Gather(view, batchSession, resolver.Counters, keys, start, Math.Min(start + BodyPrefetch.ChunkRows, keys.Length),
-                                                _ => plugin, ct);
-                }
-                var fk = keys[i];
-                var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
-                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields, summary,
-                                         chunk is null ? null : chunk.Parent)
-                             with { Stamp = view.Stamp, Pin = pin });
-            }
+            var outcomes = ReadRowsOrdered(view, batchSession, resolver.Counters, formids, plugin, ct, (fk, body, parent) =>
+                ResolveRead(resolver, view, fk, plugin, fields, false, depth, false, null, containerHint, unionMemo, batchSession, depths, body, countFields, summary, parent)
+                    with { Stamp = view.Stamp, Pin = pin });
+            if (resolveNames) NameLinks(outcomes, view, batchSession, linkMemo!, ct);
             return outcomes;
         }
 
@@ -714,14 +737,15 @@ internal sealed partial class RecordReads
                 }
                 var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, depths: depths);   // materialise while the overlay is open
                 if (summary) record = record with { Name = ReadEngine.DisplayName(rec) };
-                if (resolveNames) record = AnnotateLinks(record, view, session!, linkMemo!);
                 var winner = view.ResolveWinner(fk);                             // winner CONTEXT where the record also lives in the order
                 // No pin: an off-order body is never the copy the game loads, so it owes no shared-EditorID note.
                 results[index] = new ReadOutcome(fk, record, plugin, winner?.WinnerPlugin,
                                                  winner?.OverrideDepth ?? 0, null, null)
                                  with { Stamp = view.Stamp };
             }
-            return results.Select(r => r!).ToList();
+            var answered = results.Select(r => r!).ToList();
+            if (resolveNames) NameLinks(answered, view, session!, linkMemo!, ct);   // names resolve against the active order's session
+            return answered;
         }
         finally { (ov as IDisposable)?.Dispose(); }
     }
