@@ -12,6 +12,13 @@ internal sealed partial class RecordReads
     /// both hold one materialised thing per row of the chunk.</summary>
     internal const int ComparisonChunkRows = 32;
 
+    /// <summary>The largest delta window: windows double from <see cref="ComparisonChunkRows"/> up to this many rows,
+    /// then stay at it, so the subject readings a window holds are bounded at any row count.</summary>
+    internal const int DeltaWindowCapRows = 2_048;
+
+    /// <summary>The delta window cap a call reads with; <see cref="DeltaWindowCapRows"/>, and a test lowers it.</summary>
+    internal int DeltaWindowCap { get; set; } = DeltaWindowCapRows;
+
     /// <summary>One provider's fields as the fold reaches them, <paramref name="node"/> WINNER FIRST; return false
     /// to stop this row.</summary>
     internal delegate bool TreeNodeVisitor(int row, int node, string plugin, RecordFields read, bool isWinner);
