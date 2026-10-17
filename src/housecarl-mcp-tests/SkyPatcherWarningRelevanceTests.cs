@@ -280,3 +280,19 @@ public sealed class SkyPatcherLineLevelWarningTests : IDisposable
         Assert.Equal(-1, text.IndexOf("EditorID table missing a plugin", first + 1, StringComparison.Ordinal));
     }
 }
+
+/// <summary>A noted line that names another record by FormID still leaves its pointer on a read it does not reach.</summary>
+[Trait("tier", "integration")]
+public sealed class SkyPatcherNotedLineTests : IDisposable
+{
+    const string IniName = "HcPreNote.ini";
+
+    // A bare-primary line naming HcHeelBoots (0x810) only, carrying a parse note (the doubled ':').
+    readonly SkyPatcherRelevanceWorld _w = new(new[] { (IniName, "filterByArmors=HcSpRel.esp|000810:keywordsToAdd=HcAddKw::\r\n") });
+
+    public void Dispose() => _w.Dispose();
+
+    [Fact]
+    public void AParseNoteOnAnotherRecordsLineStillPoints()
+        => Assert.Contains($"filter={IniName} lists them", _w.Read(new[] { _w.Plain }));
+}
