@@ -606,7 +606,7 @@ internal sealed partial class RecordReads
         }
         else                                                                  // conflicts_only alone — index keys only, no body fetch
         {
-            // The renderer fills the summaries: its first row reads every kept key through the door, shown or not.
+            // The render lane fills the summaries through the door, once, before it renders.
             foreach (var fk in view.ConflictKeys())
             {
                 ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
@@ -956,8 +956,7 @@ internal sealed partial class RecordReads
 
     // ---- effect-chain resolver -------------------------------------------------------------------------
 
-    /// <summary>Resolve which SPEL/ENCH/ALCH/SCRL/INGR apply a MagicEffect, with each effect entry's magnitude, area
-    /// and duration, for each of <paramref name="mgefs"/> off one pass over the carriers.</summary>
+    /// <summary>Which SPEL/ENCH/ALCH/SCRL/INGR apply each of <paramref name="mgefs"/>, with each entry's magnitude, area and duration, off one carrier pass.</summary>
     public IReadOnlyList<EffectChainResult> ResolveEffectChains(IReadOnlyList<FormKey> mgefs, IReadOnlyList<string>? typesNarrow,
                                                                 int limit, CancellationToken ct = default)
     {
