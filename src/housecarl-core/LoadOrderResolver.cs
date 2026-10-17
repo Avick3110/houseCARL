@@ -768,6 +768,10 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>The record class of the winning copy, read off this build with no body fetched; null for a key it did not see.</summary>
         public Type? WinnerClassOf(FormKey fk) => _s.WinnerClass(fk);
 
+        /// <summary>The read door's sort key for one copy: the plugin's load position and the seek type its copy is walked by; a plugin outside the order sorts last.</summary>
+        public (int Idx, Type? Seek) GroupOf(string pluginName, FormKey fk)
+            => _r._nameToIdx.TryGetValue(pluginName, out int i) ? (i, _s.CopyType(fk, i, out _)) : (int.MaxValue, null);
+
         /// <summary>The master filenames a plugin DECLARES in its header, in declared order; throws on a name not in the order or excluded this build.</summary>
         public IReadOnlyList<string> DeclaredMasters(string pluginName) => _r.DeclaredMasters(pluginName, _s, _absences);
 
