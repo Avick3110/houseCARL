@@ -169,4 +169,29 @@ public sealed class BodyGatherDoorTests : IDisposable
         Assert.True(r.Contains("scan: 2 matches") && r.Contains("HcGdWHcGdA0") && r.Contains("HcGdWHcGdA1")
                     && r.Contains("2 record instance(s) could not be scanned"), r);
     }
+
+    /// <summary>With a per-group hook, each group's bodies are dropped once it is handled: inside every group's hook the
+    /// gather holds exactly that group's asked bodies, never an earlier group's.</summary>
+    [Fact]
+    public void APerGroupGatherHoldsOnlyTheGroupBeingHandled()
+    {
+        using var svc = _mo2.Open();
+        var pin = svc.CapturePin();
+        using var session = pin.Resolver.OpenSession();
+        var gather = new BodyGather(pin.View, session);
+        foreach (var i in new[] { 0, 1, 2 })
+            foreach (var fk in _keys[_mods[i]].Npcs.Concat(_keys[_mods[i]].Weapons)) gather.Want(Name(i), fk);
+        int groups = 0;
+        gather.Gather(asked =>
+        {
+            groups++;
+            var held = new Dictionary<FormKey, IMajorRecordGetter>();
+            gather.CopyInto(held);
+            Assert.Equal(asked.OrderBy(k => k.ToString()), held.Keys.OrderBy(k => k.ToString()));
+        });
+        Assert.Equal(6, groups);
+        var after = new Dictionary<FormKey, IMajorRecordGetter>();
+        gather.CopyInto(after);
+        Assert.Empty(after);
+    }
 }
