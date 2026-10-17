@@ -98,15 +98,18 @@ public static class ReverseWalkBatch
             note = null;
             return view.WinnerHoldsOnce(k) ? index.WinnerFact(k, winner, out note, gen) : ReverseReferenceIndex.CopyFact.Unknown;
         }
-        // The rest are read through the door one block at a time, each body reduced to its verdict while its group is open.
+        // Each block is judged off the index where it can be; the rest are read through the door, each body reduced to its verdict while its group is open.
         void Gather(IReadOnlyList<FormKey> block)
         {
             // A candidate judged at an earlier hop is remembered, so its body is not read again.
             var need = new List<(string, FormKey)>(block.Count);
             foreach (var k in block)
-                if (!linksOf.ContainsKey(k) && !pre.ContainsKey(k) && WinnerOf(k) is { } w
-                    && IndexFact(k, w, out _) == ReverseReferenceIndex.CopyFact.Unknown)
-                    need.Add((w, k));
+            {
+                if (linksOf.ContainsKey(k) || pre.ContainsKey(k) || WinnerOf(k) is not { } w) continue;
+                var fact = IndexFact(k, w, out var note);
+                if (fact == ReverseReferenceIndex.CopyFact.Unknown) need.Add((w, k));
+                else pre[k] = FromIndex(k, fact, note);
+            }
             if (need.Count == 0) return;
             var faults = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
             OrderedGather.ForEachGroup(view, session, need, (_, bodies, asked) =>
@@ -144,17 +147,20 @@ public static class ReverseWalkBatch
                 if (WinnerOf(candidate) is not { } w) noWinner++;
                 else
                 {
-                    var fact = IndexFact(candidate, w, out var indexNote);
-                    PreJudged pj;
-                    if (fact != ReverseReferenceIndex.CopyFact.Unknown) pj = FromIndex(candidate, fact, indexNote);
-                    else if (!pre.Remove(candidate, out pj))
+                    // Gather has judged the block already; the index is asked here only for a candidate it did not cover.
+                    if (!pre.Remove(candidate, out var pj))
                     {
-                        // Any throw out of the lazy overlay seek is a coverage gap on that one record, counted and
-                        // skipped, never the end of the walk.
-                        IMajorRecordGetter? body = null;
-                        try { body = view.GetRecord(session, w, candidate); }
-                        catch (Exception) { }
-                        pj = Judge(body);
+                        var fact = IndexFact(candidate, w, out var indexNote);
+                        if (fact != ReverseReferenceIndex.CopyFact.Unknown) pj = FromIndex(candidate, fact, indexNote);
+                        else
+                        {
+                            // Any throw out of the lazy overlay seek is a coverage gap on that one record, counted and
+                            // skipped, never the end of the walk.
+                            IMajorRecordGetter? body = null;
+                            try { body = view.GetRecord(session, w, candidate); }
+                            catch (Exception) { }
+                            pj = Judge(body);
+                        }
                     }
                     if (pj.Kind == PreKind.Unreadable) unreadable++;
                     else if (pj.Kind == PreKind.NoLiveBody) noLiveBody++;
