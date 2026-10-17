@@ -139,8 +139,8 @@ public static class ReverseWalkBatch
             return fact == ReverseReferenceIndex.CopyFact.Unscannable ? new(PreKind.LinksThrew, null, type)
                                                                      : new(PreKind.Indexed, null, type, note);
         }
-        // The index answers in CANDIDATES; references= re-tests each against the body it judges, and so does this,
-        // so a false hop-1 node cannot seed a false subtree.
+        // The index answers in CANDIDATES: one the index judged live is checked against the winner partition's own
+        // edges (fromWinner), the rest against the body's links, so a false hop-1 node cannot seed a false subtree.
         bool Verify(FormKey candidate, IReadOnlySet<FormKey> frontier)
         {
             IReadOnlySet<FormKey>? links = null;
