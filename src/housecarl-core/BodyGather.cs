@@ -3,7 +3,7 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlCore;
 
-/// <summary>Many record bodies, ONE walk per plugin — the one primitive every lane that gathers in bulk reads
+/// <summary>Many record bodies, each (plugin, group) read once — the one primitive every lane that gathers in bulk reads
 /// through; contract in docs/architecture/read-engine.md.</summary>
 public sealed class BodyGather
 {
