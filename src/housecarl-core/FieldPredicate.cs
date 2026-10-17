@@ -183,7 +183,7 @@ public sealed class FieldPredicateSet
                 if (hops > 0) { if (_parentOf is not null) Climb(child.FormKey, k, linkSide, hops); continue; }
                 if (!linkSide) continue;
                 // A record that faults here is skipped: the scan meets the same fault on it and names it unscannable.
-                try { CollectTargets(p, k, child, 0, pairs); }
+                try { CollectTargets(p, k, child, pairs); }
                 catch (Exception ex) when (ex is not (OperationCanceledException or OutOfMemoryException)) { }
             }
         }
@@ -1074,34 +1074,27 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>The link step's left path from segment <paramref name="from"/> down.</summary>
-    (bool Satisfied, EvalKind Kind) EvalLinkPath(Predicate p, object obj, int from)
-    {
-        var segs = p.LinkPath!;
-        int q = FirstFold(p.LinkFolds, from, segs.Length);
-        if (q >= 0)
-        {
-            var (elems, _, miss) = ElementsAt(obj, segs, p.LinkFolds!, from, q);
-            if (miss is { } m) return (false, m);
-            return FoldOver(p, elems!, p.LinkFolds![q],
-                            e => q + 1 >= segs.Length
-                                 ? JudgeTargets(p, ReadEngine.LinksIn(e, p.LinkPathDisplay ?? ""))
-                                 : EvalLinkPath(p, e, q + 1));
-        }
-        return JudgeTargets(p, ReadEngine.CollectLinksAt(obj, from == 0 ? segs : segs[from..]));
-    }
+    (bool Satisfied, EvalKind Kind) EvalLinkPath(Predicate p, object obj, int from) =>
+        WalkLink(p, obj, from, c => JudgeTargets(p, c), (elems, fold, each) => FoldOver(p, elems, fold, each), m => (false, m));
 
     /// <summary>Gather every target <see cref="EvalLinkPath"/> would judge from <paramref name="obj"/>, judging none.</summary>
-    void CollectTargets(Predicate p, int k, object obj, int from, HashSet<(int K, FormKey Fk)> pairs)
+    void CollectTargets(Predicate p, int k, object obj, HashSet<(int K, FormKey Fk)> pairs) =>
+        WalkLink(p, obj, 0,
+                 c => { if (c.Links is { } links) foreach (var fk in links) pairs.Add((k, fk)); return true; },
+                 (elems, _, each) => { foreach (var e in elems) each(e); return true; },
+                 _ => true);
+
+    /// <summary>The one walk of a link path: fold each list on the way down, and hand each link set it reaches to <paramref name="leaf"/>.</summary>
+    T WalkLink<T>(Predicate p, object obj, int from, Func<(List<FormKey>? Links, string? Note), T> leaf,
+                  Func<List<object>, Fold, Func<object, T>, T> fold, Func<EvalKind, T> miss)
     {
         var segs = p.LinkPath!;
         int q = FirstFold(p.LinkFolds, from, segs.Length);
-        if (q < 0) { Add(ReadEngine.CollectLinksAt(obj, from == 0 ? segs : segs[from..]).Links); return; }
-        var (elems, _, miss) = ElementsAt(obj, segs, p.LinkFolds!, from, q);
-        if (miss is not null) return;
-        foreach (var e in elems!)
-            if (q + 1 >= segs.Length) Add(ReadEngine.LinksIn(e, p.LinkPathDisplay ?? "").Links);
-            else CollectTargets(p, k, e, q + 1, pairs);
-        void Add(List<FormKey>? links) { foreach (var fk in links ?? new()) pairs.Add((k, fk)); }
+        if (q < 0) return leaf(ReadEngine.CollectLinksAt(obj, from == 0 ? segs : segs[from..]));
+        var (elems, _, m) = ElementsAt(obj, segs, p.LinkFolds!, from, q);
+        if (m is { } kind) return miss(kind);
+        return fold(elems!, p.LinkFolds![q],
+                    e => q + 1 >= segs.Length ? leaf(ReadEngine.LinksIn(e, p.LinkPathDisplay ?? "")) : WalkLink(p, e, q + 1, leaf, fold, miss));
     }
 
     /// <summary>Resolve one collected link set to its winner bodies and judge the predicate's own side on them — satisfied iff any target satisfies.</summary>
