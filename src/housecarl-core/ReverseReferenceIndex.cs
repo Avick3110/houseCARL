@@ -130,7 +130,7 @@ public sealed class ReverseReferenceIndex
                     {
                         var fk = g.Unpack(r);
                         if (seen.Add(r)) outp.Add(fk);
-                        if (winnerOf is not null && fromWinner is not null && winnerOf(fk) is { } w
+                        if (winnerOf is not null && fromWinner is not null && !fromWinner.Contains(fk) && winnerOf(fk) is { } w
                             && g.ByName.TryGetValue(w, out var wp) && ReferenceEquals(wp, p)) fromWinner.Add(fk);
                     }
         }
