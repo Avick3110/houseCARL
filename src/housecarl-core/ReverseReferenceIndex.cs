@@ -111,8 +111,7 @@ public sealed class ReverseReferenceIndex
         return outp;
     }
 
-    /// <summary>Every record that links to ANY of these targets, deduped, in load order then plugin-enumeration order; the answer is a CANDIDATE set the caller still judges on the body it means.
-    /// Given <paramref name="winnerOf"/>, <paramref name="fromWinner"/> is refilled with the candidates whose edge comes from their own winner plugin's partition.</summary>
+    /// <summary>Every record linking ANY of these targets, deduped, in load order: a candidate set; <paramref name="fromWinner"/> gets those whose edge is from their winner's partition.</summary>
     public IReadOnlyList<FormKey> ReferencersOf(IReadOnlyList<FormKey> targets, Func<FormKey, string?>? winnerOf = null,
                                                 HashSet<FormKey>? fromWinner = null)
     {

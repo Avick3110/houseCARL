@@ -90,15 +90,13 @@ public static class ReverseWalkBatch
         var lenientRecords = new List<string>();
         var lenientSeen = new HashSet<FormKey>();
         var unreadableSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        // The index walked the winner's copy with the same link walk when it was built, so it judges that copy with no
-        // body read, unless the winner holds the key twice and a body read would return only its first copy.
+        // The index judges the winner's copy without a body read, unless the winner holds the key twice.
         ReverseReferenceIndex.CopyFact IndexFact(FormKey k, string winner, out string? note)
         {
             note = null;
             return view.WinnerHoldsOnce(k) ? index.WinnerFact(k, winner, out note) : ReverseReferenceIndex.CopyFact.Unknown;
         }
-        // The rest are read through the door a block at a time, each body reduced to its verdict while its group is
-        // open; only the block about to be judged is read, so a spent node budget stops it.
+        // The rest are read through the door one block at a time, each body reduced to its verdict while its group is open.
         void Gather(IReadOnlyList<FormKey> block)
         {
             // A candidate judged at an earlier hop is remembered, so its body is not read again.
