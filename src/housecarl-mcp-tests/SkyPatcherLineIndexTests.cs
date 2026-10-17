@@ -89,3 +89,26 @@ public sealed class SkyPatcherLayerGroupReadTests : IDisposable
         Assert.Equal(new Dictionary<(string, string), int> { [("HcSpRel.esp", "Armors")] = 1 }, d);
     }
 }
+
+/// <summary>No-op rows list by file, then line, then FormKey: a line's FormKey never moves it ahead of an earlier line.</summary>
+[Trait("tier", "integration")]
+public sealed class SkyPatcherNoOpOrderTests : IDisposable
+{
+    // :1 names 000812, :2 names 000810; both set the weight the armor already has.
+    readonly SkyPatcherRelevanceWorld _w = new(new[]
+    {
+        ("HcNoOpOrder.ini", "filterByArmors=HcSpRel.esp|000812:weight=0\r\n"
+                            + "filterByArmors=HcSpRel.esp|000810:weight=0\r\n"),
+    });
+
+    public void Dispose() => _w.Dispose();
+
+    [Fact]
+    public void NoOpRowsListInLineOrder()
+    {
+        var r = SkyPatcherTools.SkyPatcherLayer(_w.Svc);
+        int first = r.IndexOf("HcNoOpOrder.ini:1 ", StringComparison.Ordinal), second = r.IndexOf("HcNoOpOrder.ini:2 ", StringComparison.Ordinal);
+        Assert.True(first >= 0 && second >= 0, r);
+        Assert.True(first < second, r);
+    }
+}
