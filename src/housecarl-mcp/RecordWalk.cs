@@ -198,12 +198,16 @@ internal sealed partial class RecordReads
                                             WalkFaultOf(ex));
             }
         }
-        // Keys read through the door, each group once. A key the door does not return stays UNCACHED, so Fetch still
-        // raises whatever the per-record read raises: the door is an optimisation, not an error path.
+        // Keys read through the door, each group once; an unreturned key stays uncached, so Fetch raises its own fault.
         void ThroughDoor(List<FormKey> keys, Action<IReadOnlyDictionary<FormKey, IMajorRecordGetter>, IReadOnlyCollection<FormKey>> perGroup)
         {
-            Interlocked.Add(ref counters.KeysWanted, keys.Count);
-            OrderedGather.ForEachGroup(view, session, keys, perGroup, null, ct);
+            var pairs = new List<(string, FormKey)>(keys.Count);
+            var seen = new HashSet<FormKey>();
+            foreach (var k in keys)
+                if (!k.IsNull && !bodyCache.ContainsKey(k) && seen.Add(k) && view.ResolveWinner(k) is { } w)
+                    pairs.Add((w.WinnerPlugin, k));
+            Interlocked.Add(ref counters.KeysWanted, pairs.Count);
+            OrderedGather.ForEachGroup(view, session, pairs, (_, bodies, asked) => perGroup(bodies, asked), null, ct);
         }
         // The bodies in hand have given up what the walk needs of them; they go now.
         void Release()
