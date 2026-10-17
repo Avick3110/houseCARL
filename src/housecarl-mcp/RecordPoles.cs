@@ -136,11 +136,16 @@ internal sealed partial class RecordReads
         {
             end = Math.Min(start + Math.Min(Math.Max(ComparisonChunkRows, start), DeltaWindowCap), live.Count);
             var window = live.GetRange(start, end - start);
-            sGather.Each(view, session, window.Select(i => (i, parsed[i].Fk!.Value, (string?)null)).ToList(),
-                         i => sAt[i] = sReader(parsed[i].Fk!.Value, null));
-            rGather.Each(view, session, window.Where(i => sAt[i].Error is null).Select(i => (i, parsed[i].Fk!.Value, (string?)sAt[i].Pole!.Plugin)).ToList(),
-                         i => rows[i] = RowAt(i));
-            foreach (var i in window) if (sAt.ContainsKey(i)) rows[i] = RowAt(i);   // the subject's own error
+            // A subject that errors settles its row as it is read; only the ok readings wait for the reference.
+            sGather.Each(view, session, window.Select(i => (i, parsed[i].Fk!.Value, (string?)null)).ToList(), i =>
+            {
+                sAt[i] = sReader(parsed[i].Fk!.Value, null);
+                if (sAt[i].Error is not null) rows[i] = RowAt(i);
+            });
+            var referenced = new List<(int, FormKey, string?)>(sAt.Count);
+            foreach (var i in window)
+                if (sAt.TryGetValue(i, out var s)) referenced.Add((i, parsed[i].Fk!.Value, s.Pole!.Plugin));
+            rGather.Each(view, session, referenced, i => rows[i] = RowAt(i));
             // Past the budget the rows are dropped and nothing further is read.
             if (meter.Check(end, live.Count) is { } tooDear)
             {
