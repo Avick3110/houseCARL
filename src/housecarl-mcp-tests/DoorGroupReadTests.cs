@@ -31,9 +31,9 @@ public sealed class DoorGroupReadWorld : IDisposable
         baseOnly.EditorID = "HcDoorArmor4";
         baseOnly.BodyTemplate = new BodyTemplate { ArmorType = ArmorType.Clothing };
         foreach (var a in armors.Append(baseOnly)) list.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(a.FormKey));
-        var cellA = new Cell(b.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcDoorCellA", Flags = Cell.Flag.IsInteriorCell };
+        var cellA = new Cell(b.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcDoorCellA", Flags = Cell.Flag.IsInteriorCell, Name = "HcDoorRoomA" };
         for (int i = 0; i < RefsInA; i++) cellA.Temporary.Add(new PlacedObject(b.GetNextFormKey(), SkyrimRelease.SkyrimSE));
-        var cellB = new Cell(b.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcDoorCellB", Flags = Cell.Flag.IsInteriorCell };
+        var cellB = new Cell(b.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcDoorCellB", Flags = Cell.Flag.IsInteriorCell, Name = "HcDoorRoomB" };
         cellB.Temporary.Add(new PlacedObject(b.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcDoorRefB", Base = new FormLinkNullable<IPlaceableObjectGetter>(armors[0].FormKey) });
         Armor1 = armors[0].FormKey;
         AddCells(b, cellA, cellB);
@@ -60,7 +60,7 @@ public sealed class DoorGroupReadWorld : IDisposable
         return m;
     }
 
-    static Cell Restated(Cell c) => new(c.FormKey, SkyrimRelease.SkyrimSE) { EditorID = c.EditorID, Flags = c.Flags };
+    static Cell Restated(Cell c) => new(c.FormKey, SkyrimRelease.SkyrimSE) { EditorID = c.EditorID, Flags = c.Flags, Name = c.Name?.String };
 
     static void AddCells(SkyrimMod m, params Cell[] cells)
     {
@@ -117,6 +117,15 @@ public sealed class DoorGroupReadTests : IClassFixture<DoorGroupReadWorld>
     {
         var r = RecordsTools.Records(_w.Svc, types: new[] { "FormList" }, where: new[] { "Items[*any]->BodyTemplate.ArmorType > 5" });
         Assert.Contains("read 'HeavyArmor'", r);
+    }
+
+    /// <summary>The same for a '*parent' typed error: a container judged under an error is not memoised, so the scan
+    /// names the cell its first reference sits in.</summary>
+    [Fact]
+    public void AParentScanErrorNamesTheCandidateOrderRecord()
+    {
+        var r = RecordsTools.Records(_w.Svc, types: new[] { "PlacedObject" }, where: new[] { "*parent.Name > 5" });
+        Assert.True(r.Contains("read 'HcDoorRoomA'"), r);
     }
 
     /// <summary>Both cells, won by Top and asked for by two scan chunks, come from one read of Top's Cells group. The
