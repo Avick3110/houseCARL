@@ -211,6 +211,8 @@ public sealed class FieldPredicateSet
             try
             {
                 foreach (var fk in present)
+                {
+                    ct.ThrowIfCancellationRequested();
                     foreach (var (k, isParent, linkSide) in byKey[fk])
                     {
                         if (_fatal is not null) return;
@@ -228,6 +230,7 @@ public sealed class FieldPredicateSet
                         if (_fatal is not null) return;                 // never memoized: the scan meets it again
                         _parentVerdicts[(k, linkSide, fk)] = verdict;
                     }
+                }
             }
             finally { _heldTargets = null; _heldTargetsAsked = null; _heldParents = heldParents; _heldAsked = heldAsked; _evalIndex = evalIndex; }
         });
