@@ -131,10 +131,10 @@ internal sealed partial class RecordReads
         }
         if (live.Count > 0) { sGather.Prime?.Invoke(); rGather.Prime?.Invoke(); }
         meter.Start();
-        // Windows of 32, 32, then doubling, each read a group at a time per pole: the subjects, then each row diffed as its reference is read.
+        // Windows of 32, 32, then doubling up to the cap, each read a group at a time per pole: the subjects, then each row diffed as its reference is read.
         for (int start = 0, end; start < live.Count; start = end)
         {
-            end = Math.Min(start + Math.Max(ComparisonChunkRows, start), live.Count);
+            end = Math.Min(start + Math.Min(Math.Max(ComparisonChunkRows, start), DeltaWindowCap), live.Count);
             var window = live.GetRange(start, end - start);
             sGather.Each(view, session, window.Select(i => (i, parsed[i].Fk!.Value, (string?)null)).ToList(),
                          i => sAt[i] = sReader(parsed[i].Fk!.Value, null));
