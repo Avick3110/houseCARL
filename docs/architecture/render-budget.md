@@ -222,9 +222,10 @@ What passes is **metered** (`ComparisonMeter`):
   steady rate: at most two chunks (64 rows) are read before the first check can refuse. Never with one chunk or less
   left, since that work is kept rather than thrown away to save it. Otherwise after every chunk, so warm-up the first
   chunk pays (lazy plugin opens, the replay's INI parse and EditorID sweep) dilutes, and a list sorted cheap-first is
-  caught at the chunk that shows it. A delta reads in windows of 32, 32, then doubling, each pole a group at a time, so
-  past 64 rows it checks at 128, 256 and so on; a refused delta spends at most the budget plus one window, a tree the
-  budget plus one chunk. The budget covers the call up to the batch's end; the render after it is not charged.
+  caught at the chunk that shows it. A delta reads in windows of 32, 32, then doubling up to 2,048 rows
+  (`DeltaWindowCapRows`), then 2,048 each, each pole a group at a time, so past 64 rows it checks at 128, 256 and so on
+  up to 2,048, then every 2,048 rows (Aaron, 2026-10-17); the cap bounds the subject readings a window holds. A refused
+  delta spends at most the budget plus one window, a tree the budget plus one chunk. The budget covers the call up to the batch's end; the render after it is not charged.
 - **The figure it names.** "About K rows fit" is 90% of the budget left after the time spent before the batch, at that
   rate, rounded down, so feeding it back as `limit=` or as fewer ids clears the refusal on a steady rate. A census or a
   `to_file=` artifact says "narrow the selection to about K matches" instead, since `limit=` does not lower what it
@@ -274,7 +275,9 @@ reaches only the calling test's flow) is the meter's clock for tests.
   - a delta chunks only rows that read: malformed and unresolved ids, ids the off-order file lacks, and a named source
     that does not touch an id walks no plugin for it;
   - a call under the budget reads every row once, a delta each group once per window (the exact (plugin, group)
-    counts are pinned), and a delta cheap at 64 rows and dear at 128 refuses at 128.
+    counts are pinned), and a delta cheap at 64 rows and dear at 128 refuses at 128;
+  - with the window cap lowered to 64, a 300-row delta checks at 64, 128, 192 and 256
+    (`ADeltaPastTheWindowCapChecksAfterEveryCappedWindow`).
 
   `RecordsRenderCostTests.TheEstimateReadsProperlyJustOverTheComparisonBound` — the floor constants: 20,000 whole and
   15,000,000 narrowed rows run, one more refuses.
