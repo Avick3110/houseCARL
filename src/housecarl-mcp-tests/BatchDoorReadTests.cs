@@ -7,8 +7,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>Two plugins: Base defines two keywords and two armors carrying both; Extra defines a third keyword and two
-/// weapons carrying one Base keyword and its own.</summary>
+/// <summary>Two plugins: Base has two keywords and two armors carrying both; Extra a keyword and two weapons.</summary>
 public sealed class BatchDoorReadWorld : IDisposable
 {
     readonly ScratchMo2 _mo2 = new("hc-batch-door-");
@@ -121,8 +120,7 @@ public sealed class BatchParentReadTests : IClassFixture<BatchParentWorld>
     }
 }
 
-/// <summary>A formids= batch reads its rows a group at a time and its names through the door, and still answers one
-/// row per input, in input order, with a bad or absent FormID as that row's own error.</summary>
+/// <summary>A formids= batch reads its rows and names a group at a time and answers one row per input, in order.</summary>
 [Trait("tier", "integration")]
 public sealed class BatchDoorReadTests : IClassFixture<BatchDoorReadWorld>
 {
