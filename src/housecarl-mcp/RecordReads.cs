@@ -473,18 +473,21 @@ internal sealed partial class RecordReads
         // One overlay cache for the whole batch.
         using var batchSession = resolver.OpenSession();
         // The scan's body forms come through here too, so this lane and the scan render lane cost the same per row.
-        var outcomes = ReadRowsOrdered(view, batchSession, resolver.Counters, formids, plugin, ct, (fk, body, parent) =>
+        var outcomes = ReadRowsOrdered(view, batchSession, resolver.Counters, formids, plugin, BatchPassRows, ct, (fk, body, parent) =>
             ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, false, null, containerHint, unionMemo, batchSession, depths, body, countFields, summary, parent)
                 with { Stamp = view.Stamp, Pin = pin });   // the batch's one build, stamped and pinned per item
         if (resolveNames) NameLinks(outcomes, view, batchSession, linkMemo!, ct);
         return outcomes;
     }
 
+    /// <summary>How many rows of one group a batch reads before it releases their bodies; a test lowers it to split a group.</summary>
+    internal int BatchPassRows { get; set; } = BodyPrefetch.ChunkRows;
+
     /// <summary>A batch's rows read through the door: parsed, sorted by (source plugin, group), each group walked once
     /// per <see cref="BodyPrefetch.ChunkRows"/> of its rows, and answered in row order. A row that did not parse keeps
     /// its error in its slot; a row with no source plugin is read alone, and its own read names why.</summary>
     static ReadOutcome[] ReadRowsOrdered(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, CostCounters counters,
-                                         IReadOnlyList<string> formids, string? plugin, CancellationToken ct,
+                                         IReadOnlyList<string> formids, string? plugin, int passRows, CancellationToken ct,
                                          Func<FormKey, IMajorRecordGetter?, Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>?, ReadOutcome> readRow)
     {
         var keys = new FormKey[formids.Count];
@@ -499,9 +502,9 @@ internal sealed partial class RecordReads
         // Every row's container comes from one gather, however many groups the rows span.
         var parents = new BodyPrefetch.Parents(view, session, sourced.Select(r => keys[r.Row]).ToHashSet(), ct);
         foreach (var (_, rows) in OrderedGather.Sort(view, sourced, r => r.Source, r => keys[r.Row]))
-            for (int s = 0; s < rows.Count; s += BodyPrefetch.ChunkRows)   // the held bodies stay bounded inside one big group
+            for (int s = 0; s < rows.Count; s += passRows)   // the held bodies stay bounded inside one big group
             {
-                var part = rows.GetRange(s, Math.Min(BodyPrefetch.ChunkRows, rows.Count - s));
+                var part = rows.GetRange(s, Math.Min(passRows, rows.Count - s));
                 var partKeys = part.Select(r => keys[r.Row]).ToArray();
                 var chunk = BodyPrefetch.Gather(view, session, counters, partKeys, 0, partKeys.Length, _ => plugin, ct);
                 foreach (var (i, _) in part)
@@ -665,7 +668,7 @@ internal sealed partial class RecordReads
             var linkMemo = resolveNames ? new LinkMemo() : null;
             var unionMemo = new ChildUnionMemo();   // named records again: the union lane
             using var batchSession = resolver.OpenSession();   // and one overlay cache for the batch, as ResolveBatch has
-            var outcomes = ReadRowsOrdered(view, batchSession, resolver.Counters, formids, plugin, ct, (fk, body, parent) =>
+            var outcomes = ReadRowsOrdered(view, batchSession, resolver.Counters, formids, plugin, BatchPassRows, ct, (fk, body, parent) =>
                 ResolveRead(resolver, view, fk, plugin, fields, false, depth, false, null, containerHint, unionMemo, batchSession, depths, body, countFields, summary, parent)
                     with { Stamp = view.Stamp, Pin = pin });
             if (resolveNames) NameLinks(outcomes, view, batchSession, linkMemo!, ct);
