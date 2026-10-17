@@ -406,7 +406,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         => _reads.OffOrderQuery(pole, typeSet, references, editoridContains, scopePlugins, definedIn, where, limit, groupBy, offset,
                                 formidSet, artifactDemands, pinnedView, referencesNone, ct);
     public EffectChainResult ResolveEffectChain(FormKey mgef, IReadOnlyList<string>? typesNarrow, int limit)
-        => _reads.ResolveEffectChain(mgef, typesNarrow, limit);
+        => _reads.ResolveEffectChains(new[] { mgef }, typesNarrow, limit)[0];
+    public IReadOnlyList<EffectChainResult> ResolveEffectChains(IReadOnlyList<FormKey> mgefs, IReadOnlyList<string>? typesNarrow, int limit,
+                                                                CancellationToken ct = default)
+        => _reads.ResolveEffectChains(mgefs, typesNarrow, limit, ct);
 
     internal RecordReads ReadArea => _reads;   // the reads area instance, for tests that set its seams
 

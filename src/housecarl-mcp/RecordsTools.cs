@@ -881,24 +881,20 @@ public static partial class RecordsTools
             {
                 // The typed MGEF lane: a non-MGEF seed fails loud per item rather than reading as '0 carriers'.
                 var results = new List<(string Seed, EffectChainResult Result)>(ids.Length);
+                var seedAt = new List<(int Row, FormKey Fk)>();
                 foreach (var raw in ids)
                 {
                     FormKey fk;
                     try { fk = door.Parse(raw); }
                     catch (Exception ex) { results.Add((raw?.Trim() ?? "", EffectChainResult.Fail($"bad FormID '{raw}': {ex.Message}"))); continue; }
-                    // The per-seed carrier bound is the walk's own reach budget; limit=/offset= stay the SEED window.
-                    results.Add((FormIdToken.Of(fk), svc.ResolveEffectChain(fk, types, walkMaxNodes)));
+                    seedAt.Add((results.Count, fk));
+                    results.Add((FormIdToken.Of(fk), null!));
                 }
-                // One build for the whole batch, so the per-seed stamps must agree and an @artifact seed list's
-                // epoch demand must match it.
-                var epochsR = results.Select(r => r.Result.Stamp).Where(e => e is not null).Distinct().ToList();
-                if (epochsR.Count > 1)
-                {
-                    var tear = $"the load order changed while the seeds resolved (epochs {string.Join(", ", epochsR.Select(e => e!.Epoch))}) — " +
-                               "the carrier sets would mix builds. Retry the call.";
-                    return json ? JsonWire.RenderError(tear, epochsR[^1]) : "error: " + tear;
-                }
-                var epochR = epochsR.FirstOrDefault();
+                // Every seed off one capture and one carrier pass; the per-seed carrier bound is the walk's reach budget.
+                var chains = svc.ResolveEffectChains(seedAt.Select(s => s.Fk).ToList(), types, walkMaxNodes, ct);
+                for (int i = 0; i < seedAt.Count; i++) results[seedAt[i].Row] = (results[seedAt[i].Row].Seed, chains[i]);
+                // An @artifact seed list's epoch demand must match the one build the batch read.
+                var epochR = results.Select(r => r.Result.Stamp).FirstOrDefault(e => e is not null);
                 if (demand is not null && (epochR is null || demand.Epoch != epochR.Epoch))
                 {
                     var dref = epochR is null
