@@ -273,7 +273,7 @@ internal sealed partial class RecordReads
                                 { judged[i] = new SetVerdict(SetVerdict.Dropped, false, null, null, null); continue; }
                                 bool keep = ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null,
                                                              out var hitTargets, out var lenientNote);
-                                judged[i] = new SetVerdict(SetVerdict.Judged, keep, lenientNote, RecordNaming.StripOverlay(body.GetType().Name), null);
+                                judged[i] = new SetVerdict(SetVerdict.Judged, keep, lenientNote, body.GetType(), null);
                                 if (!keep || shown.Count >= cap && (cap == 0 || i > shown.Max)) continue;
                                 RecordSummary? summary = null; Exception? fault = null;
                                 try
@@ -295,40 +295,40 @@ internal sealed partial class RecordReads
                         var w = view.ResolveWinner(fk)!.Value;
                         var j = judged[i];
                         if (faults.TryGetValue(w.WinnerPlugin, out var f) && !unreadablePlugins.Contains(f)) unreadablePlugins.Add(f);
-                        if (j.Kind == SetVerdict.Missing || f is not null)
-                        {
-                            unscannable++;
-                            if (unscannableSamples.Count < 3)
-                                unscannableSamples.Add(f is not null
-                                    ? $"{FormIdToken.Of(fk)} — {f.GetType().Name}: {f.Message}"
-                                    : $"{FormIdToken.Of(fk)} — winner '{w.WinnerPlugin}' did not yield the record on fetch");
-                            continue;
-                        }
-                        if (j.Kind == SetVerdict.Threw) { unscannable++; if (unscannableSamples.Count < 3) unscannableSamples.Add(j.Error!); continue; }
+                        if (j.Kind == SetVerdict.Missing || f is not null) { NoteMissing(fk, w.WinnerPlugin, f); continue; }
+                        if (j.Kind == SetVerdict.Threw) { Unscannable(j.Error!); continue; }
                         if (j.Kind == SetVerdict.Dropped) continue;
                         NoteLenient(fk, j.Note);
                         if (!j.Keep) continue;
-                        total++;
-                        if (groups is not null)
-                        {
-                            var gk = groupBy == "type" ? j.Type!
-                                   : groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String)
-                                   : w.WinnerPlugin;
-                            groups[gk] = groups.GetValueOrDefault(gk) + 1;
-                        }
-                        else if (total > offset && keys.Count < limit)
-                        {
-                            var row = rows[i];
-                            keys.Add(fk);
-                            sources.Add(null);                            // the winner body is what matched and displays
-                            matched?.Add(row.Hit is not null ? string.Join(", ", row.Hit) : null);
-                            if (row.Fault is { } ex)
-                            {
-                                unscannable++;
-                                if (unscannableSamples.Count < 3) unscannableSamples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
-                            }
-                            else prefilled?.Add(row.Summary!);
-                        }
+                        var row = rows.GetValueOrDefault(i);
+                        LandRow(fk, w.WinnerPlugin, j.Type!, row.Hit, () => row.Summary ?? throw row.Fault!);
+                    }
+                }
+
+                void Unscannable(string sample) { unscannable++; if (unscannableSamples.Count < 3) unscannableSamples.Add(sample); }
+
+                void NoteMissing(FormKey fk, string winner, PluginUnreadableException? f)
+                    => Unscannable(f is not null ? $"{FormIdToken.Of(fk)} — {f.GetType().Name}: {f.Message}"
+                                                 : $"{FormIdToken.Of(fk)} — winner '{winner}' did not yield the record on fetch");
+
+                // Count one kept row: bump its group_by key, or land it on the page.
+                void LandRow(FormKey fk, string winner, Type bodyType, List<FormKey>? hit, Func<RecordSummary> summary)
+                {
+                    total++;
+                    if (groups is not null)
+                    {
+                        var gk = groupBy == "type" ? RecordNaming.StripOverlay(bodyType.Name)
+                               : groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String)
+                               : winner;
+                        groups[gk] = groups.GetValueOrDefault(gk) + 1;
+                    }
+                    else if (total > offset && keys.Count < limit)
+                    {
+                        keys.Add(fk);
+                        sources.Add(null);                            // the winner body is what matched and displays
+                        matched?.Add(hit is not null ? string.Join(", ", hit) : null);
+                        try { prefilled?.Add(summary()); }
+                        catch (Exception ex) { Unscannable($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}"); }
                     }
                 }
 
@@ -352,14 +352,7 @@ internal sealed partial class RecordReads
                             try
                             {
                                 if (!bodies.TryGetValue(fk, out var body))
-                                {
-                                    unscannable++;
-                                    if (unscannableSamples.Count < 3)
-                                        unscannableSamples.Add(faults.TryGetValue(w.Value.WinnerPlugin, out var f)
-                                            ? $"{FormIdToken.Of(fk)} — {f.GetType().Name}: {f.Message}"
-                                            : $"{FormIdToken.Of(fk)} — winner '{w.Value.WinnerPlugin}' did not yield the record on fetch");
-                                    continue;
-                                }
+                                { NoteMissing(fk, w.Value.WinnerPlugin, faults.GetValueOrDefault(w.Value.WinnerPlugin)); continue; }
                                 if (conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1) continue;
                                 if (!string.IsNullOrEmpty(editoridContains)
                                     && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
@@ -379,29 +372,11 @@ internal sealed partial class RecordReads
                                     if (predicate.FatalError is not null) { go = false; break; }
                                     continue;
                                 }
-                                total++;
-                                if (groups is not null)
-                                {
-                                    var gk = groupBy == "type" ? RecordNaming.StripOverlay(body.GetType().Name)
-                                           : groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String)
-                                           : w.Value.WinnerPlugin;
-                                    groups[gk] = groups.GetValueOrDefault(gk) + 1;
-                                }
-                                else if (total > offset && keys.Count < limit)
-                                {
-                                    keys.Add(fk);
-                                    sources.Add(null);                            // the winner body is what matched and displays
-                                    matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
-                                    prefilled?.Add(RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth)
-                                                   .WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin });
-                                }
+                                LandRow(fk, w.Value.WinnerPlugin, body.GetType(), hitTargets,
+                                        () => RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth)
+                                                  .WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin });
                             }
-                            catch (Exception ex)
-                            {
-                                unscannable++;
-                                if (unscannableSamples.Count < 3)
-                                    unscannableSamples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
-                            }
+                            catch (Exception ex) { Unscannable($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}"); }
                         }
                     }
                     finally { predicate?.ReleaseParents(); }
@@ -1031,7 +1006,7 @@ internal sealed partial class RecordReads
     };
 
     /// <summary>One universe key's outcome from the read door.</summary>
-    readonly record struct SetVerdict(byte Kind, bool Keep, string? Note, string? Type, string? Error)
+    readonly record struct SetVerdict(byte Kind, bool Keep, string? Note, Type? Type, string? Error)
     {
         public const byte Missing = 0, Dropped = 1, Judged = 2, Threw = 3;
     }
