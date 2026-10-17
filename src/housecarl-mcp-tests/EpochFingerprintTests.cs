@@ -230,7 +230,7 @@ public sealed class EpochFingerprintTests : IDisposable
     // Probe arm 4: "scan, single read, and batch outcomes all carry the ViewPin", "the pinned render still stamps the
     // scanned build", "its fills read the SCANNED build's winners (1/1)", "the NEXT query re-stamps", "status agrees".
     [Fact]
-    public void APinnedRender_FillsFromTheScannedBuildAndTheNextQueryReStamps()
+    public void APinnedRender_RefusesAPluginRewrittenUnderItAndTheNextQueryReStamps()
     {
         using var svc = Service();
         var current = svc.Stats().epoch;
@@ -246,9 +246,10 @@ public sealed class EpochFingerprintTests : IDisposable
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ov2, _master.Weapons.Skip(1).First())).BasicStats = new WeaponBasicStats { Damage = 99, Weight = 1 };
         ov2.BeginWrite.ToPath(_ovFile).WithLoadOrder(new ISkyrimModGetter[] { _master }).Write();
 
-        var pinned = JsonWire.RenderCrossQuery(svc, q, new[] { "EditorID" }, 0, false, false);
-        Assert.Contains($"\"epoch\": \"{current}\"", pinned);
-        Assert.Single(Regex.Matches(pinned, "\"winner\": \"" + Regex.Escape(OvName) + "\""));
+        // The pinned render would fill from the rewritten file under the old build's epoch: it refuses, naming it.
+        var refused = Assert.Throws<LoadOrderChangedMidCallException>(
+            () => JsonWire.RenderCrossQuery(svc, q, new[] { "EditorID" }, 0, false, false));
+        Assert.Equal(OvName, refused.Plugin);
 
         var q2 = svc.ReadArea.CrossQuery("WEAP", null, null, false, null, null, 500);
         Assert.NotNull(q2.Epoch);

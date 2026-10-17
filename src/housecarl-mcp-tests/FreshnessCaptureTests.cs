@@ -203,10 +203,10 @@ public sealed class FreshnessCaptureTests : IDisposable
         return false;
     }
 
-    // Probe arm 4: "every round landed the flip inside Apply's Phase-1 loop", "every round produced a patch to judge",
-    // and "no successful patch mixed two builds' winners".
+    // Probe arm 4: "every round landed the flip inside Apply's Phase-1 loop"; the override the flip rewrote is read
+    // by the write after that, so every round refuses, naming it, and writes nothing (ruling F).
     [Fact]
-    public async Task OneMultiEditWrite_ResolvesEveryEditAgainstOneBuild()
+    public async Task OneMultiEditWrite_RefusesWhenAPluginChangesInsideIt()
     {
         var dir = Path.Combine(_root, "core-f5");
         Directory.CreateDirectory(dir);
@@ -217,10 +217,9 @@ public sealed class FreshnessCaptureTests : IDisposable
         {
             Target = fk, Path = new[] { "BasicStats", "Weight" }, Verb = "Set", Value = "7",
         }).ToList();
-        var want = _fks.Take(OvN).ToHashSet();
 
         const int Rounds = 12;
-        int staged = 0, mixed = 0, successes = 0;
+        int staged = 0, refusals = 0;
         for (int r = 0; r < Rounds; r++)
         {
             TryCopy(_emptyFile, oPath);                         // reset: the master wins everything (Damage 10)
@@ -247,15 +246,39 @@ public sealed class FreshnessCaptureTests : IDisposable
                 }
                 o = await wt.WaitAsync(Timeout);                  // a write that never joins fails the test by timing out
             }
-            Assert.True(o.Success, $"round {r}: {o.Error}");
-            successes++;
-            using var back = SkyrimMod.CreateFromBinaryOverlay(o.OutputPath, SkyrimRelease.SkyrimSE);
-            var marks = back.Weapons.Where(w => want.Contains(w.FormKey)).Select(w => w.BasicStats?.Damage ?? 0).ToHashSet();
-            if (marks.Count > 1) mixed++;
+            Assert.False(o.Success, $"round {r} wrote a patch across a rewritten plugin");
+            Assert.Contains($"'{OvName}' changed on disk during this call", o.Error);
+            Assert.False(File.Exists(Path.Combine(outDir, "HcFcgOut.esp")));
+            refusals++;
         }
         Assert.Equal(Rounds, staged);
-        Assert.Equal(Rounds, successes);
-        Assert.Equal(0, mixed);
+        Assert.Equal(Rounds, refusals);
+    }
+
+    // A profile switch mid-call changes no plugin file, so ruling F does not refuse it: the call answers whole off
+    // the order it began on, and the next call's door follows the new profile.
+    [Fact]
+    public void AProfileSwitchMidCallAnswersOffTheOrderTheCallBeganOn()
+    {
+        var inst = NewInstance("inst-midprofile");
+        var prof = Path.Combine(inst, "profiles", "Default");
+        MasterAndExtra(prof);
+        using var svc = NewService(inst, "midprofile");
+        Assert.Equal(2, svc.Stats().plugins);
+        string Scan() => RecordsTools.Records(svc, types: new[] { "WEAP" }, where: new[] { "editorid in [HcFcgW000, HcFcgExtraW]" });
+
+        bool switched = false;
+        MidCallChange.BeforeCheck.Value = name => { if (!switched && name == MasterName) { MasterOnly(prof); switched = true; } };
+        string during;
+        try { during = Scan(); }
+        finally { MidCallChange.BeforeCheck.Value = null; }
+        Assert.True(switched);
+        Assert.DoesNotContain("error:", during);
+        Assert.Contains("editorid=HcFcgExtraW", during);
+
+        var after = Scan();
+        Assert.DoesNotContain("editorid=HcFcgExtraW", after);
+        Assert.Contains("editorid=HcFcgW000", after);   // the master still answers
     }
 
     // Probe arm 5: "the mid-write read served the last good snapshot (refresh deferred, no mid-write rebuild)" and

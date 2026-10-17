@@ -13,7 +13,7 @@ public sealed class ReverseReferenceIndex
     {
         public string Path = "";
         public string Name = "";
-        public DateTime Mtime;
+        public FileStamp Stamp;                       // last-write AND length the partition was built from
         public Dictionary<ulong, ulong[]> ByTarget = new();
         public long Pairs;
         public int Unscannable;                        // records whose own link walk threw — excluded and counted
@@ -183,7 +183,7 @@ public sealed class ReverseReferenceIndex
             sb.Append(Rebuilt > 0 ? $"built {Rebuilt} plugin partition(s) in {ElapsedMs} ms"
                                   : $"unchanged, {Partitions} plugin partition(s) held");
             sb.Append($" ({Pairs} target→referencer pairs over {TargetSlots} target slots, ~{ApproxBytes / (1024 * 1024)} MB held), ");
-            sb.Append($"key={Key} (per plugin, path+mtime — beside the order-wide epoch, not riding it).");
+            sb.Append($"key={Key} (per plugin, path+mtime+size — beside the order-wide epoch, not riding it).");
             if (Unreadable.Count > 0)
                 sb.Append($" {Unreadable.Count} plugin(s) contributed nothing because the walk could not read them: ")
                   .Append(string.Join(", ", Unreadable))
@@ -224,15 +224,15 @@ public sealed class ReverseReferenceIndex
             var path = paths[i];
             if (next.ByPath.ContainsKey(path)) continue;           // the same file twice in the order is one partition
             next.Order.Add(path);
-            var mtime = SafeMtime(path);
-            if (prev.ByPath.TryGetValue(path, out var have) && have.Mtime == mtime)
+            var stamp = FileStamp.Of(path);
+            if (prev.ByPath.TryGetValue(path, out var have) && have.Stamp == stamp)
             {
                 next.ByPath[path] = have;                          // this plugin's bytes are the ones it was built from
                 if (have.Unreadable is not null) unreadable.Add(have.Name);
                 continue;
             }
             int pos = i;
-            var built = BuildPartition(path, names[i], mtime, () => open(pos), next);
+            var built = BuildPartition(path, names[i], stamp, () => open(pos), next);
             next.ByPath[path] = built;
             rebuilt++;
             if (built.Unreadable is not null) unreadable.Add(built.Name);
@@ -247,12 +247,12 @@ public sealed class ReverseReferenceIndex
     }
 
     /// <summary>One plugin's reverse edges, staged whole and committed only if the enumeration finished.</summary>
-    Partition BuildPartition(string path, string name, DateTime mtime, Func<ISkyrimModGetter> open, Generation into)
+    Partition BuildPartition(string path, string name, FileStamp stamp, Func<ISkyrimModGetter> open, Generation into)
     {
-        var part = new Partition { Path = path, Name = name, Mtime = mtime };
+        var part = new Partition { Path = path, Name = name, Stamp = stamp };
         ISkyrimModGetter ov;
         try { ov = open(); }
-        catch (Exception ex) { part.Unreadable = ex.GetType().Name; return part; }
+        catch (Exception ex) when (ex is not LoadOrderChangedMidCallException) { part.Unreadable = ex.GetType().Name; return part; }
         var acc = new Dictionary<ulong, List<ulong>>();
         int unscannable = 0, lenient = 0;
         var edges = new EdgeVisitor(acc, into);
@@ -314,20 +314,15 @@ public sealed class ReverseReferenceIndex
         }
     }
 
-    /// <summary>The index's own freshness key: a digest over every partition's (plugin, mtime), distinct from the order-wide epoch by construction.</summary>
+    /// <summary>The index's own freshness key: a digest over every partition's (plugin, mtime, size), distinct from the order-wide epoch by construction.</summary>
     static string FreshnessKey(Generation g)
     {
         var sb = new StringBuilder();
         foreach (var path in g.Order)
             if (g.ByPath.TryGetValue(path, out var p))
-                sb.Append(p.Path).Append('|').Append(p.Mtime.Ticks).Append('\n');
+                sb.Append(p.Path).Append('|').Append(p.Stamp.Mtime.Ticks).Append('|').Append(p.Stamp.Size).Append('\n');
         var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexString(hash.AsSpan(0, 4)).ToLowerInvariant();
-    }
-
-    static DateTime SafeMtime(string path)
-    {
-        try { return File.GetLastWriteTimeUtc(path); } catch { return DateTime.MinValue; }
     }
 
     // Interning happens only on the generation being built, which no reader can see yet.

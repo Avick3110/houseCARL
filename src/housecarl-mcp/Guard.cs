@@ -1,3 +1,4 @@
+using HousecarlCore;
 namespace HousecarlMcp;
 
 /// <summary>The last-line tool-body guard: every MCP tool body runs inside
@@ -8,8 +9,10 @@ internal static class Guard
     /// <summary>Rethrow only a real request cancellation; a cancel with a live request token is named as a body failure.</summary>
     public static string Tool(string tool, Func<string> body, CancellationToken ct = default)
     {
-        try { return body(); }
+        using var mark = MidCallChange.Begin();   // ruling F: a plugin changed mid-call refuses the whole call
+        try { var answer = body(); return Changed(mark) ?? answer; }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception) when (Changed(mark) is { } refusal) { return refusal; }
         catch (ProfileUnreadableException ex) { return Transient(ex); }
         catch (Exception ex) { return Named(tool, ex); }
     }
@@ -17,11 +20,16 @@ internal static class Guard
     /// <summary>The async twin, for tool bodies that await.</summary>
     public static async Task<string> Tool(string tool, Func<Task<string>> body, CancellationToken ct = default)
     {
-        try { return await body(); }
+        using var mark = MidCallChange.Begin();
+        try { var answer = await body(); return Changed(mark) ?? answer; }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception) when (Changed(mark) is { } refusal) { return refusal; }
         catch (ProfileUnreadableException ex) { return Transient(ex); }
         catch (Exception ex) { return Named(tool, ex); }
     }
+
+    /// <summary>The call's refusal when a plugin it relied on changed on disk mid-call, else null.</summary>
+    static string? Changed(MidCallChange.Scope mark) => mark.Settle() is { } why ? "error: " + why : null;
 
     /// <summary>A profile file locked by MO2 mid-re-sort is a named transient, not an internal failure.</summary>
     static string Transient(ProfileUnreadableException ex) => "error: " + ex.Message;

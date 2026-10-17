@@ -115,6 +115,7 @@ internal sealed partial class RecordWrites
             }
 
             ISkyrimModGetter ov;
+            MidCallChange.PinOffOrder(loc.Path!); // ruling F
             try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(roots.DataDir) ? null : roots.DataDir); }
             catch (Exception ex)
             {

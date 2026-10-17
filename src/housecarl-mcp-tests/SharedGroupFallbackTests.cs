@@ -24,11 +24,13 @@ public sealed class SharedGroupFallbackTests : IDisposable
 
     public void Dispose() => _mo2.Delete();
 
-    void Write(bool asWeapon)
+    string PluginPath => _mo2.InMod("SharedFallback", _key);
+
+    void Write(bool asWeapon, int pad = 0)
     {
         var m = new SkyrimMod(_key, SkyrimRelease.SkyrimSE);
         var cell = new Cell(_cell, SkyrimRelease.SkyrimSE) { EditorID = "HcSfCell", Flags = Cell.Flag.IsInteriorCell };
-        if (asWeapon) m.Weapons.Add(new Weapon(_ref, SkyrimRelease.SkyrimSE) { EditorID = "HcSfWeapon" });
+        if (asWeapon) m.Weapons.Add(new Weapon(_ref, SkyrimRelease.SkyrimSE) { EditorID = "HcSfWeapon" + new string('x', pad) });
         else cell.Temporary.Add(new PlacedObject(_ref, SkyrimRelease.SkyrimSE) { EditorID = "HcSfRef" });
         var block = new CellBlock { BlockNumber = 1, GroupType = GroupTypeEnum.InteriorCellBlock };
         var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
@@ -37,19 +39,24 @@ public sealed class SharedGroupFallbackTests : IDisposable
     }
 
     // Fails when a shared-group miss is dropped instead of joining the flat walk: the weapon is then not found.
+    // The rewrite keeps the file's size and last-write time, the one change ruling F cannot see.
     [Fact]
     public void AReferenceThatMissesItsSharedGroupWalkComesBackThroughTheFlatWalk()
     {
         using var svc = _mo2.Open();
         var pin = svc.CapturePin();
-        Write(asWeapon: true);
+        var (length, time) = (new FileInfo(PluginPath).Length, File.GetLastWriteTimeUtc(PluginPath));
+        int pad = 0;
+        do Write(asWeapon: true, pad++); while (new FileInfo(PluginPath).Length < length && pad < 400);
+        Assert.Equal(length, new FileInfo(PluginPath).Length);
+        File.SetLastWriteTimeUtc(PluginPath, time);
         using var session = pin.Resolver.OpenSession();
         var sink = new Dictionary<FormKey, IMajorRecordGetter>();
         var c = svc.Counters;
         long passes = c.CollectPasses, typed = c.TypedCollectPasses;
         pin.View.CollectRecords(session, _key.FileName, new[] { _cell, _ref }, sink);
         Assert.Equal("HcSfCell", Assert.IsAssignableFrom<ICellGetter>(sink[_cell]).EditorID);
-        Assert.Equal("HcSfWeapon", Assert.IsAssignableFrom<IWeaponGetter>(sink[_ref]).EditorID);
+        Assert.StartsWith("HcSfWeapon", Assert.IsAssignableFrom<IWeaponGetter>(sink[_ref]).EditorID);
         Assert.Equal(1, c.CollectPasses - passes);
         Assert.Equal(0, c.TypedCollectPasses - typed);
     }

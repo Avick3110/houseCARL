@@ -222,7 +222,8 @@ public sealed class WinnerSourceScanTests : IClassFixture<WinnerSourceFixture>
     /// <summary>A winner plugin that OPENS but cannot be walked to the end is a different fault from one another
     /// program is holding open, and the gather says so: it isolates the plugin, names the file as changed, and never
     /// tells the user to close a program that is holding nothing. Nor does the fault escape the gather: a walk that
-    /// throws is one plugin's coverage gap, not the end of the scan.</summary>
+    /// throws is one plugin's coverage gap, not the end of the scan. The damage is first seen as a changed file,
+    /// which refuses the call (ruling F); with its stamp put back, only the walk fault is left to name.</summary>
     [Fact]
     public void AWinnerPluginThatFaultsMidWalkNamesTheChangedFile_NotAHeldOpenOne()
     {
@@ -231,7 +232,12 @@ public sealed class WinnerSourceScanTests : IClassFixture<WinnerSourceFixture>
         {
             using var resolver = LoadOrderResolver.Build(new[] { _w.MasterPath, _w.LowPath, _w.MidPath });
             var view = resolver.Capture();
+            var stamp = File.GetLastWriteTimeUtc(_w.MidPath);
             OverstateFirstRecordLength(_w.MidPath);                                  // opens; the walk dies part-way
+            using (var first = resolver.OpenSession())
+                Assert.Equal(_w.MidName, Assert.Throws<LoadOrderChangedMidCallException>(
+                    () => WinnerBodies.For(view, first, new[] { _w.Keys[7] }, out _)).Plugin);
+            File.SetLastWriteTimeUtc(_w.MidPath, stamp);                             // same length, same time: unseen
             using var session = resolver.OpenSession();
             var bodies = WinnerBodies.For(view, session, new[] { _w.Keys[7] }, out var faults);
             Assert.Empty(bodies);

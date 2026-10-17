@@ -98,6 +98,9 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly OrderStamp Stamp;
         public readonly ContainmentIndex Containment;                         // child → parent, off the same one-pass walk
 
+        /// <summary>Per plugin index: the file stamp this build read the plugin at; a call refuses when the file no longer carries it (ruling F).</summary>
+        public FileStamp[] BuiltStamps = Array.Empty<FileStamp>();
+
         /// <summary>Per plugin index: is it a LIGHT plugin? Read off the header while the build had the overlay open, and the .esl extension counts too.</summary>
         public readonly bool[] Light;
 
@@ -208,7 +211,8 @@ public sealed class LoadOrderResolver : IDisposable
     {
         readonly LoadOrderResolver _r;
         readonly Dictionary<int, OpenPlugin> _open = new();
-        internal OverlaySession(LoadOrderResolver r) => _r = r;
+        readonly IndexSnapshot _s;                                    // the build this session's own opens are checked against
+        internal OverlaySession(LoadOrderResolver r) { _r = r; _s = r._snap; }
 
         /// <summary>One opened plugin: its overlay and the link cache built over it, if any, released together.</summary>
         sealed class OpenPlugin(ISkyrimModGetter overlay)
@@ -220,12 +224,16 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>The counters of the resolver this session reads through.</summary>
         public CostCounters Counters => _r.Counters;
 
-        internal ISkyrimModGetter Overlay(int idx) => Opened(idx).Overlay;
+        internal ISkyrimModGetter Overlay(int idx) => Opened(idx, _s).Overlay;
 
-        OpenPlugin Opened(int idx)
+        /// <summary>The plugin's overlay, opened once; before the open its file must still carry the stamp build <paramref name="s"/> read.</summary>
+        internal ISkyrimModGetter Overlay(int idx, IndexSnapshot s) => Opened(idx, s).Overlay;
+
+        OpenPlugin Opened(int idx, IndexSnapshot s)
         {
             if (!_open.TryGetValue(idx, out var op))
             {
+                _r.CheckUnchanged(idx, s);
                 System.Threading.Interlocked.Increment(ref _r.Counters.SessionOverlayOpens);
                 _open[idx] = op = new OpenPlugin(OpenOverlay(_r._paths[idx], _r._dataDir));
             }
@@ -294,7 +302,7 @@ public sealed class LoadOrderResolver : IDisposable
         public ILinkCache? LinkCacheFor(string pluginName)
         {
             if (!_r._nameToIdx.TryGetValue(pluginName, out int idx)) return null;
-            var op = Opened(idx);
+            var op = Opened(idx, _s);
             if (op.Cache is not null) return op.Cache;
             System.Threading.Interlocked.Increment(ref _r.Counters.LinkCacheBuilds);
             return op.Cache = op.Overlay.ToImmutableLinkCache();
@@ -485,7 +493,8 @@ public sealed class LoadOrderResolver : IDisposable
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
             types, mixed.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),
             failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
-            light, firstUnknownKind, firstUnknownKindName, containment, masterBlock);
+            light, firstUnknownKind, firstUnknownKindName, containment, masterBlock)
+            { BuiltStamps = (FileStamp[])_stamps.Clone() };
 
         // The code a key carries once one more provider joins: the one class while every provider shares it, else Mixed.
         byte MergeType(FormKey fk, byte held, int count, byte next)
@@ -544,10 +553,15 @@ public sealed class LoadOrderResolver : IDisposable
     // ---- Snapshot-scoped reads: one build per logical operation --------------------
 
     /// <summary>Capture the CURRENT build as a pinned read view for one logical operation; it carries that call's absence cache, so it must not outlive the call.</summary>
-    public IndexView Capture() => new(this, _snap, new AbsenceCache());
+    public IndexView Capture() => Capture(new AbsenceCache());
 
     /// <summary>The same view sharing <paramref name="absences"/> across a call's per-row captures, or with no cache when null, which allocates nothing.</summary>
-    public IndexView Capture(AbsenceCache? absences) => new(this, _snap, absences);
+    public IndexView Capture(AbsenceCache? absences)
+    {
+        var s = _snap;
+        MidCallChange.Relied(_names, _paths, s.BuiltStamps);   // ruling F: re-statted before the call answers
+        return new(this, s, absences);
+    }
 
     // ---- runtime FormIDs: the eight-hex form the game, the console and the logs print --------------------
 
@@ -731,6 +745,20 @@ public sealed class LoadOrderResolver : IDisposable
 
         public ReverseReferenceIndex? ReverseIndex => _r.ReverseIndex;
 
+        /// <summary>Before a call parses a file by path outside the resolver: an active plugin must carry this build's
+        /// stamp, any other file is pinned for the call (ruling F).</summary>
+        public void CheckFile(string path)
+        {
+            if (_r._nameToIdx.TryGetValue(Path.GetFileName(path), out int idx) && SamePath(_r._paths[idx], path)) _r.CheckUnchanged(idx, _s);
+            else MidCallChange.PinOffOrder(path);
+        }
+
+        static bool SamePath(string a, string b)
+        {
+            try { return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase); }
+            catch { return false; }
+        }
+
         public IEnumerable<FormKey> ConflictKeys() => _s.Overriders.Keys;
 
         /// <summary>Whether the named plugin holds a version of the record in this build, without allocating.</summary>
@@ -839,6 +867,7 @@ public sealed class LoadOrderResolver : IDisposable
             throw new ArgumentException($"plugin not in the load order: {pluginName}.{AbsenceClause(pluginName)}");
         if (s.Excluded.Contains(idx))
             throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {s.ExcludedPlugins[pluginName]}");
+        CheckUnchanged(idx, s);
         var ov = OpenOverlay(_paths[idx], _dataDir);
         try
         {
@@ -873,7 +902,7 @@ public sealed class LoadOrderResolver : IDisposable
     {
         var type = s.CopyType(fk, idx, out bool known);
         if (known && type is null) return null;
-        var ov = session.Overlay(idx);
+        var ov = session.Overlay(idx, s);
         System.Threading.Interlocked.Increment(ref Counters.BodySeeks);
         if (type is not null)
             foreach (var rec in Walk(ov, idx, type))
@@ -912,6 +941,7 @@ public sealed class LoadOrderResolver : IDisposable
         if (s.Excluded.Contains(idx))
             throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {s.ExcludedPlugins[pluginName]}");
         ISkyrimModGetter ov;
+        CheckUnchanged(idx, s);
         // Named as unopenable, exactly as RecordsIn names it: one held-open file must reach both callers as one fault.
         try { ov = OpenOverlay(_paths[idx], _dataDir); }
         catch (Exception ex) { throw new PluginUnreadableException(_names[idx], ex); }
@@ -946,8 +976,8 @@ public sealed class LoadOrderResolver : IDisposable
         if (byType.Count == 0 && flat.Count == 0) return;
         ISkyrimModGetter ov;
         // Only the OPEN is named as unopenable; a fault from the walk below is a different problem.
-        try { ov = session.Overlay(idx); }
-        catch (Exception ex) { throw new PluginUnreadableException(_names[idx], ex); }
+        try { ov = session.Overlay(idx, s); }
+        catch (Exception ex) when (ex is not LoadOrderChangedMidCallException) { throw new PluginUnreadableException(_names[idx], ex); }
         System.Threading.Interlocked.Increment(ref Counters.CollectPasses);         // past here the plugin is actually walked
         if (byType.Count > 1)
             foreach (var shared in MutagenGroups.SharedGroups(byType.Keys))
@@ -1025,6 +1055,7 @@ public sealed class LoadOrderResolver : IDisposable
         {
             if (s.Excluded.Contains(i)) continue;                          // excluded at build (unparseable/unopenable) — wins nothing; never re-touch (would re-throw)
             ISkyrimModGetter ov;
+            CheckUnchanged(i, s);
             try { ov = OpenOverlay(_paths[i], _dataDir); }
             catch (Exception ex)
             {
@@ -1073,6 +1104,7 @@ public sealed class LoadOrderResolver : IDisposable
         foreach (int i in scope)
         {
             ISkyrimModGetter ov;
+            CheckUnchanged(i, s);
             // A plugin that opened at build time but not now became unreadable after it; surfaced with the name.
             try { ov = OpenOverlay(_paths[i], _dataDir); }
             catch (Exception ex) { throw new PluginUnreadableException(_names[i], ex); }
@@ -1117,6 +1149,15 @@ public sealed class LoadOrderResolver : IDisposable
 
     // ---- Freshness -----------------------------------------------------
 
+    /// <summary>Ruling F: before a call opens plugin <paramref name="idx"/>, its file must still carry the stamp build <paramref name="s"/> read it at;
+    /// else the whole call refuses, naming the plugin. One stat per open, never per record.</summary>
+    internal void CheckUnchanged(int idx, IndexSnapshot s)
+    {
+        if (idx >= s.BuiltStamps.Length) return;
+        MidCallChange.Relied(_names, _paths, s.BuiltStamps);
+        MidCallChange.Check(_names[idx], _paths[idx], s.BuiltStamps[idx]);
+    }
+
     /// <summary>Re-stat the plugin files and rebuild the index if any last-write OR length differs from the baseline, then return true. A changed plugin SET is a new order; the caller re-Builds.</summary>
     public bool RefreshIfStale()
     {
@@ -1138,7 +1179,7 @@ public sealed class LoadOrderResolver : IDisposable
         lock (_reverseGate)
         {
             _reverse ??= new ReverseReferenceIndex();
-            return _reverse.Refresh(_names, _paths, i => OpenOverlay(_paths[i], _dataDir), s.Excluded);
+            return _reverse.Refresh(_names, _paths, i => { CheckUnchanged(i, s); return OpenOverlay(_paths[i], _dataDir); }, s.Excluded);
         }
     }
 

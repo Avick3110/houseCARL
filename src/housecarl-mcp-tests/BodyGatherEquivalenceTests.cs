@@ -94,22 +94,36 @@ public sealed class BodyGatherEquivalenceTests : IDisposable
         Assert.NotEqual("(absent)", Describe(gather.Body(_replName, _keys[10])));
     }
 
-    /// <summary>Run <paramref name="body"/> with the override plugin moved out from under the index — the file that
+    /// <summary>Run <paramref name="body"/> with the override plugin held open by another program — the file that
     /// opened when the load order was built and cannot be opened now, which is the fault every option here is a
-    /// different answer to. The view is captured BEFORE the move, so the plugin is still a member of the build the
-    /// gather walks rather than one the index dropped.</summary>
+    /// different answer to. The hold keeps the file's stamp, so the open fails as unreadable rather than as a
+    /// changed file (ruling F).</summary>
     void WithUnreadableRepl(Action<LoadOrderResolver.IndexView, LoadOrderResolver.OverlaySession> body)
     {
         var view = _resolver.Capture();
-        var repl = Path.Combine(_root, _replName);
-        var away = repl + ".away";
-        File.Move(repl, away);
-        try
+        using (HeldOpen.Hold(Path.Combine(_root, _replName)))
         {
             using var session = _resolver.OpenSession();
             body(view, session);
         }
-        finally { File.Move(away, repl); }
+    }
+
+    /// <summary>A plugin moved away under the gather is a changed file: the gather refuses, naming it (ruling F),
+    /// rather than record it as one plugin's coverage gap.</summary>
+    [Fact]
+    public void APluginMovedAwayUnderTheGatherRefuses()
+    {
+        var view = _resolver.Capture();
+        var repl = Path.Combine(_root, _replName);
+        File.Move(repl, repl + ".away");
+        try
+        {
+            using var session = _resolver.OpenSession();
+            var gather = new BodyGather(view, session);
+            gather.Want(_replName, _keys[0]);
+            Assert.Equal(_replName, Assert.Throws<LoadOrderChangedMidCallException>(() => gather.Gather()).Plugin);
+        }
+        finally { File.Move(repl + ".away", repl); }
     }
 
     [Fact]
@@ -178,9 +192,7 @@ public sealed class BodyGatherEquivalenceTests : IDisposable
     public void AFaultedPluginIsNotWalkedAgainBySecondGather()
     {
         var view = _resolver.Capture();
-        var repl = Path.Combine(_root, _replName);
-        var away = repl + ".away";
-        File.Move(repl, away);
+        var held = HeldOpen.Hold(Path.Combine(_root, _replName));
         try
         {
             using var session = _resolver.OpenSession();
@@ -192,11 +204,11 @@ public sealed class BodyGatherEquivalenceTests : IDisposable
             // The plugin is readable again, and a second Gather() still does not walk it: a plugin is attempted
             // ONCE per gather. Every caller declares, gathers, and reads once, so nothing observes this — it is
             // asserted because it is a contract point on a public class, not because a lane depends on it.
-            File.Move(away, repl);
+            held.Dispose();
             gather.Gather();
             Assert.Null(gather.Body(_replName, _keys[0]));
         }
-        finally { if (File.Exists(away)) File.Move(away, repl); }
+        finally { held.Dispose(); }
     }
 
     [Fact]

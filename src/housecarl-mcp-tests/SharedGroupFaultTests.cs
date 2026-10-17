@@ -53,7 +53,13 @@ public sealed class SharedGroupFaultTests : IDisposable
     {
         using var svc = _mo2.Open();
         var pin = svc.CapturePin();
+        var stamp = File.GetLastWriteTimeUtc(_path);
         BreakFirstCellBlock();
+        // Seen first as a changed file, which refuses (ruling F); with its stamp put back, only the read fault is left.
+        using (var first = pin.Resolver.OpenSession())
+            Assert.Equal(_key.FileName.String, Assert.Throws<LoadOrderChangedMidCallException>(() => BodyGather.WalkOnce(
+                pin.View, first, _key.FileName, new[] { _cell, _ref }, new Dictionary<FormKey, IMajorRecordGetter>())).Plugin);
+        File.SetLastWriteTimeUtc(_path, stamp);
         using var session = pin.Resolver.OpenSession();
         var fault = BodyGather.WalkOnce(pin.View, session, _key.FileName, new[] { _cell, _ref }, new Dictionary<FormKey, IMajorRecordGetter>());
         var scan = Assert.IsType<PluginUnscannableException>(fault);

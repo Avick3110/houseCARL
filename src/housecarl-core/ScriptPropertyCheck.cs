@@ -275,6 +275,7 @@ public static class ScriptPropertyCheck
         {
             offOrderScanned.Add(name);
             ISkyrimModGetter ov;
+            MidCallChange.PinOffOrder(path); // ruling F
             try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path)); }
             catch (Exception ex)
             {
