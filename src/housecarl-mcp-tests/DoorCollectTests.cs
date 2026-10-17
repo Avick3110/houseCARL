@@ -1,6 +1,7 @@
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
+using Noggog;
 using HousecarlMcp;
 using Xunit;
 
@@ -39,6 +40,18 @@ public sealed class DoorCollectTests : IClassFixture<DoorCollectWorld>
         }, Reads("Npc", "Template->editorid = HcColTemplate2", "HcColTemplated2"));
     }
 
+    /// <summary>A fold under a fold reaches the links in each inner element: Top's Armors, which wins every item, is read once.</summary>
+    [Fact]
+    public void AFoldUnderAFoldReadsTheTargetGroupOnce()
+    {
+        string B = _c.BaseName, T = _c.TopName;
+        Assert.Equal(new Dictionary<(string, string), int>
+        {
+            [(B, "Quests")] = 2,
+            [(T, "Armors")] = 1,
+        }, Reads("Quest", "Aliases[*any].Items[*any].Item.Item->editorid = HcColItem3", "HcColQuest1"));
+    }
+
     /// <summary>A list whose last element cannot be read is named unscannable, as the scan names it; the other list matches.</summary>
     [Fact]
     public void AnUnreadableElementIsAnUnscannableRowNotAnError()
@@ -49,7 +62,7 @@ public sealed class DoorCollectTests : IClassFixture<DoorCollectWorld>
     }
 }
 
-/// <summary>Base defines factions, NPCs, armors and a FLST; Top re-states the factions and templates; Cut adds a FLST whose last LNAM is cut.</summary>
+/// <summary>Base defines factions, NPCs, armors, quests and a FLST; Top re-states the factions, templates and quest items; Cut adds a FLST whose last LNAM is cut.</summary>
 public sealed class DoorCollectWorld : IDisposable
 {
     readonly ScratchMo2 _mo2 = new("hc-door-collect-");
@@ -78,11 +91,23 @@ public sealed class DoorCollectWorld : IDisposable
         var armors = Enumerable.Range(1, 2).Select(i => { var a = b.Armors.AddNew(); a.EditorID = "HcColArmor" + i; return a; }).ToList();
         var good = b.FormLists.AddNew(); good.EditorID = "HcColGoodList";
         good.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(armors[0].FormKey));
+        var items = Enumerable.Range(1, 3).Select(i => { var a = b.Armors.AddNew(); a.EditorID = "HcColItem" + i; return a; }).ToList();
+        foreach (var (name, aliases) in new[] { ("HcColQuest1", new[] { new[] { 0 }, new[] { 1, 2 } }), ("HcColQuest2", new[] { new[] { 0, 1 } }) })
+        {
+            var q = b.Quests.AddNew(); q.EditorID = name;
+            foreach (var held in aliases)
+                q.Aliases.Add(new QuestAlias
+                {
+                    Items = held.Select(i => new ContainerEntry { Item = new ContainerItem { Item = new FormLink<IItemGetter>(items[i].FormKey), Count = 1 } })
+                                .ToExtendedList(),
+                });
+        }
         b.BeginWrite.ToPath(_mo2.InMod("ColBase", baseKey)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         var top = new SkyrimMod(topKey, SkyrimRelease.SkyrimSE);
         foreach (var f in factions) top.Factions.Add(new Faction(f.FormKey, SkyrimRelease.SkyrimSE) { EditorID = f.EditorID });
         foreach (var n in templates) top.Npcs.Add(new Npc(n.FormKey, SkyrimRelease.SkyrimSE) { EditorID = n.EditorID });
+        foreach (var a in items) top.Armors.Add(new Armor(a.FormKey, SkyrimRelease.SkyrimSE) { EditorID = a.EditorID });
         top.BeginWrite.ToPath(_mo2.InMod("ColTop", topKey)).WithLoadOrder(new ISkyrimModGetter[] { b }).Write();
 
         var cut = new SkyrimMod(cutKey, SkyrimRelease.SkyrimSE);
