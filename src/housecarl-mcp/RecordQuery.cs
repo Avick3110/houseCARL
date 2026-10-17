@@ -307,7 +307,7 @@ internal sealed partial class RecordReads
                     => Unscannable(f is not null ? $"{FormIdToken.Of(fk)} — {f.GetType().Name}: {f.Message}"
                                                  : $"{FormIdToken.Of(fk)} — winner '{winner}' did not yield the record on fetch");
 
-                // Count one kept row: bump its group_by key, or land it on the page.
+                // Count one kept row: bump its group_by key, or land it on the page if its summary builds.
                 void LandRow(FormKey fk, string winner, Type bodyType, List<FormKey>? hit, Func<RecordSummary> summary)
                 {
                     total++;
@@ -320,11 +320,13 @@ internal sealed partial class RecordReads
                     }
                     else if (total > offset && keys.Count < limit)
                     {
+                        RecordSummary shown;
+                        try { shown = summary(); }
+                        catch (Exception ex) { Unscannable($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}"); return; }
                         keys.Add(fk);
                         sources.Add(null);                            // the winner body is what matched and displays
                         matched?.Add(hit is not null ? string.Join(", ", hit) : null);
-                        try { prefilled?.Add(summary()); }
-                        catch (Exception ex) { Unscannable($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}"); }
+                        prefilled?.Add(shown);
                     }
                 }
 
