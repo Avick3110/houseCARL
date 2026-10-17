@@ -87,14 +87,20 @@ public static class MidCallChange
         if (FileStamp.Of(paths[idx]) != stamps[idx]) throw new LoadOrderChangedMidCallException(Changed(m, names[idx]));
     }
 
-    /// <summary>A file outside the index: the call's first sight of it sets its stamp, which every later open and check must find.</summary>
+    /// <summary>A file opened by path: an active plugin of the call's build is checked against its build stamp; a file
+    /// outside the index is pinned at first sight, and every later open and check must find that stamp.</summary>
     public static void PinOffOrder(string path)
     {
         if (Current.Value is not { } m || WroteIt(m, path)) return;
-        var name = Path.GetFileName(path);
+        var (name, full) = (Path.GetFileName(path), Key(path));
+        Build? b = null; int i = -1;
+        lock (m) for (int k = m.Relied.Count - 1; k >= 0 && b is null; k--)
+            if ((i = Array.FindIndex(m.Relied[k].Paths, p => p.EndsWith(name, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(Key(p), full, StringComparison.OrdinalIgnoreCase))) >= 0) b = m.Relied[k];
+        if (b is not null) { Check(b, b.Names, b.Paths, b.Stamps, i); return; }
         BeforeCheck.Value?.Invoke(name);
-        var (now, key) = (FileStamp.Of(path), Key(path));
-        lock (m) if (m.Pinned.TryAdd(key, now) || m.Pinned[key] == now) return;
+        var now = FileStamp.Of(path);
+        lock (m) if (m.Pinned.TryAdd(full, now) || m.Pinned[full] == now) return;
         throw new LoadOrderChangedMidCallException(Changed(m, name));
     }
 

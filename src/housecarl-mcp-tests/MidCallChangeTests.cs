@@ -188,6 +188,25 @@ public sealed class MidCallChangeTests : IDisposable
         Assert.Equal("HcMcRev.esm", ex.Plugin);
     }
 
+    /// <summary>An active plugin a write opens by path (a compact source, a merge donor) is checked against the call's
+    /// build, not pinned at first sight: a save between the call's door and that open refuses, naming it.</summary>
+    [Fact]
+    public void AnInOrderCompactSourceSavedBeforeItsOpenRefuses()
+    {
+        using var resolver = LoadOrderResolver.Build(new[] { _master, _a, _b });
+        var outPath = Path.Combine(_dir, "out", AName);
+        Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+        bool saved = false;
+        using var mark = MidCallChange.Begin();         // the tool guard's call mark
+        resolver.Capture();                             // the call's door
+        var r = During(name => { if (!saved && name == AName) { Save(_aNew, _a); saved = true; } },
+                       () => WritePatchBuilder.CompactBuild(_a, ModKey.FromFileName(AName), new Dictionary<FormKey, FormKey>(),
+                                                            n => n == MasterName ? _master : null, outPath, esl: false, floor: 0x800, dataDir: null));
+        Assert.True(saved);
+        Assert.False(r.Success);
+        Assert.Contains($"'{AName}' changed on disk during this call", mark.Settle());
+    }
+
     /// <summary>An answer read off the index alone opens no plugin, so the open check never sees it: the dialogue
     /// check judges a right-typed LinkTo target by the index (#1173). The target's plugin is saved mid-call, and the
     /// call's last check refuses, naming it.</summary>
