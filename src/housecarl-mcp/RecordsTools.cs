@@ -1693,6 +1693,11 @@ public static partial class RecordsTools
             }
 
             // ---- summary / fields / aggregate: the scan renders, envelope-stamped. ----
+            // Summary rows the scan left unfilled are filled once here, for the render and the spill alike.
+            if (outcome.Prefilled is null && outcome.Error is null && outcome.Groups is null
+                && !(projFields is { Length: > 0 } && readPaths is { Length: > 0 })
+                && svc.FillSummaries(outcome, ct) is { } fill)
+                outcome = outcome with { Prefilled = fill };
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {

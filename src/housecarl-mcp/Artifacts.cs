@@ -208,7 +208,7 @@ internal static class Artifacts
             {
                 var fk = q.Keys[i];
                 string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
-                var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk, ct);   // pinned to the scan's build
+                var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // pinned to the scan's build
                 writer.WriteRow((w, _) => JsonWire.WriteSummaryRow(w, m, matches), m.Error is null ? m.Type : null);
             }
         }

@@ -335,33 +335,28 @@ internal sealed partial class RecordReads
               with { Stamp = p.View.Stamp, Pin = p }
             : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, countFields);
 
-    /// <summary>The summary twin of <see cref="ResolveReadOn"/> — the conflicts-only fill: the first row asked fills
-    /// every kept key through the door, one pass per outcome; a key the pass did not answer is read alone.</summary>
-    internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk, CancellationToken ct)
-    {
-        if (q.Pin is not { } p) return ResolveSummary(fk);
-        var filled = SummaryFills.GetValue(q, _ => FillSummaries(p, q.Keys, ct));
-        return filled.TryGetValue(fk, out var s) ? s : ResolveSummary(p.Resolver, p.View, fk) with { Pin = p };
-    }
+    /// <summary>The summary twin of <see cref="ResolveReadOn"/>, one key read alone.</summary>
+    internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk)
+        => q.Pin is { } p ? ResolveSummary(p.Resolver, p.View, fk) with { Pin = p } : ResolveSummary(fk);
 
-    /// <summary>Each outcome's filled summaries, dropped with the outcome.</summary>
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CrossQueryOutcome, Dictionary<FormKey, RecordSummary>> SummaryFills = new();
-
-    static Dictionary<FormKey, RecordSummary> FillSummaries(LoadOrderService.ViewPin p, IReadOnlyList<FormKey> keys, CancellationToken ct)
+    /// <summary>Every key's summary off one door pass, parallel to the keys, a missed key read alone; null when unpinned.</summary>
+    internal IReadOnlyList<RecordSummary>? FillSummaries(CrossQueryOutcome q, CancellationToken ct)
     {
+        if (q.Pin is not { } p) return null;
         var filled = new Dictionary<FormKey, RecordSummary>();
-        using var session = p.Resolver.OpenSession();
-        OrderedGather.ForEachGroup(p.View, session, keys, (bodies, _) =>
-        {
-            foreach (var (fk, body) in bodies)
-                try
-                {
-                    var w = p.View.ResolveWinner(fk)!.Value;
-                    filled[fk] = RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth).WithRuntime(p.View.RuntimeAddressOf(fk)) with { Pin = p };
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { }   // its row's own read raises it
-        }, ct: ct);
-        return filled;
+        var unreadable = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
+        using (var session = p.Resolver.OpenSession())
+            OrderedGather.ForEachGroup(p.View, session, q.Keys, (bodies, _) =>
+            {
+                foreach (var (fk, body) in bodies)
+                    try
+                    {
+                        var w = p.View.ResolveWinner(fk)!.Value;
+                        filled[fk] = RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth).WithRuntime(p.View.RuntimeAddressOf(fk)) with { Pin = p };
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { }   // its row's own read raises it
+            }, unreadable, ct);
+        return q.Keys.Select(fk => filled.TryGetValue(fk, out var s) ? s : ResolveSummaryOn(q, fk)).ToList();
     }
 
     /// <summary>What a folded tree carries besides its nodes: the winner's identity, and the precise owned-child
