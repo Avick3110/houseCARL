@@ -663,6 +663,7 @@ internal sealed partial class AssetLayers
                 int c = string.Compare(x.File, y.File, StringComparison.OrdinalIgnoreCase);
                 if (c != 0) return c;
                 c = x.Line.CompareTo(y.Line);
+                if (c != 0) return c;
                 c = string.Compare(x.FormKey, y.FormKey, StringComparison.OrdinalIgnoreCase);
                 return c != 0 ? c : string.Compare(x.FieldPath, y.FieldPath, StringComparison.Ordinal);
             });
