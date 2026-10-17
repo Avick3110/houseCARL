@@ -138,6 +138,104 @@ public sealed class FieldPredicateSet
     /// <summary>Drop the chunk's containing records; the verdicts they decided stay memoized.</summary>
     public void ReleaseParents() { _heldParents = null; _heldAsked = null; }
 
+    // The read door's collect pass records the '->' targets it meets here instead of judging them.
+    HashSet<(int K, FormKey Fk)>? _collectPairs;
+    // One door group's target bodies, and the keys it yielded, while that group is judged.
+    IReadOnlyDictionary<FormKey, IMajorRecordGetter>? _heldTargets;
+    HashSet<FormKey>? _heldTargetsAsked;
+
+    /// <summary>Whether any term follows a '->' link, so a candidate's body must be read to learn its targets.</summary>
+    public bool NeedsLinkStep => _predicates.Any(p => p.LinkPath is not null);
+
+    /// <summary>Collect every '->' target, own-side container and dead-end record the scan will ask for, from
+    /// <paramref name="candidates"/>' bodies or, for containment alone, <paramref name="candidateKeys"/> on the index;
+    /// then judge them one group at a time through <paramref name="forEachGroup"/>, keeping only verdicts. A key its
+    /// group did not yield, and every key after a typed error, is left for the scan to read and raise in its own order.</summary>
+    public void PrimeOrdered(IEnumerable<IMajorRecordGetter>? candidates, IEnumerable<FormKey>? candidateKeys,
+                             Action<IEnumerable<FormKey>, Action<IReadOnlyDictionary<FormKey, IMajorRecordGetter>, IReadOnlyCollection<FormKey>>> forEachGroup,
+                             CancellationToken ct = default)
+    {
+        if (_parentOf is null && _predicates.All(p => p.LinkPath is null)) return;
+        var pairs = new HashSet<(int K, FormKey Fk)>();
+        var parents = new HashSet<(int K, bool LinkSide, FormKey At)>();
+        var deadEnds = new HashSet<FormKey>();
+        void Climb(FormKey from, int k, bool linkSide, int hops)
+        {
+            var at = from; int climbed = 0;
+            while (climbed < hops && _parentOf!(at) is { } up) { at = up; climbed++; }
+            if (climbed == hops) { if (!_parentVerdicts.ContainsKey((k, linkSide, at))) parents.Add((k, linkSide, at)); }
+            else if (climbed > 0 && !_noParentTypes.ContainsKey(at)) deadEnds.Add(at);   // the rollup names the record a chain stops on
+        }
+        var fatal = _fatal; int evalIndex = _evalIndex;
+        _collectPairs = pairs;
+        try
+        {
+            if (candidateKeys is not null && _parentOf is not null)
+                foreach (var key in candidateKeys)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    for (int k = 0; k < _predicates.Count; k++)
+                        if (_predicates[k] is { LinkPath: null, ParentHops: > 0 } p) Climb(key, k, false, p.ParentHops);
+                }
+            foreach (var child in candidates ?? Enumerable.Empty<IMajorRecordGetter>())
+            {
+                ct.ThrowIfCancellationRequested();
+                if (_walk is not null && !CanMatch(child.GetType())) continue;
+                for (int k = 0; k < _predicates.Count; k++)
+                {
+                    var p = _predicates[k];
+                    bool linkSide = p.LinkPath is not null;
+                    int hops = linkSide ? p.LinkParentHops : p.ParentHops;
+                    if (hops > 0) { if (_parentOf is not null) Climb(child.FormKey, k, linkSide, hops); continue; }
+                    if (!linkSide) continue;
+                    _evalIndex = k;
+                    // Collecting judges nothing; a fault here is the scan's to raise on the same record.
+                    try { EvalLinkPath(p, child, 0); }
+                    catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { }
+                }
+            }
+        }
+        finally { _collectPairs = null; _fatal = fatal; _evalIndex = evalIndex; }
+        var byKey = new Dictionary<FormKey, List<(int K, bool Parent, bool LinkSide)>>();
+        void Add(FormKey fk, (int, bool, bool) v) { if (!byKey.TryGetValue(fk, out var l)) byKey[fk] = l = new(); l.Add(v); }
+        foreach (var (k, fk) in pairs) Add(fk, (k, false, false));
+        foreach (var (k, ls, at) in parents) Add(at, (k, true, ls));
+        foreach (var at in deadEnds) Add(at, (-1, true, false));
+        if (byKey.Count == 0) return;
+        forEachGroup(byKey.Keys, (bodies, asked) =>
+        {
+            var present = new HashSet<FormKey>(asked.Where(bodies.ContainsKey));
+            var heldParents = _heldParents; var heldAsked = _heldAsked;
+            _heldTargets = bodies; _heldTargetsAsked = present;
+            _heldParents = bodies; _heldAsked = present;
+            try
+            {
+                foreach (var fk in present)
+                    foreach (var (k, isParent, linkSide) in byKey[fk])
+                    {
+                        if (_fatal is not null) return;
+                        if (k < 0) { NoParentTypeOf(fk); continue; }
+                        _evalIndex = k;
+                        var p = _predicates[k];
+                        if (!isParent) { TargetVerdict(p, fk); continue; }
+                        if (_parentVerdicts.ContainsKey((k, linkSide, fk))) continue;
+                        var parent = bodies[fk];
+                        ParentBodyFetches++;
+                        if (++_parentsInFlight > ParentBodyHighWater) ParentBodyHighWater = _parentsInFlight;
+                        (bool, EvalKind) verdict;
+                        try { verdict = linkSide ? EvalLinkPath(p, parent, 0) : EvalTerms(p, parent); }
+                        finally { _parentsInFlight--; }
+                        if (_fatal is not null) return;                 // never memoized: the scan meets it again
+                        _parentVerdicts[(k, linkSide, fk)] = verdict;
+                    }
+            }
+            finally { _heldTargets = null; _heldTargetsAsked = null; _heldParents = heldParents; _heldAsked = heldAsked; _evalIndex = evalIndex; }
+        });
+        // A typed error met in group order is not reported here: the scan meets it again in candidate order, so it
+        // names the same record it names without the door.
+        _fatal = fatal;
+    }
+
     FieldPredicateSet(IReadOnlyList<Predicate> predicates)
     {
         _predicates = predicates;
@@ -1033,7 +1131,8 @@ public sealed class FieldPredicateSet
     (bool Satisfied, EvalKind Kind) TargetVerdict(Predicate p, FormKey fk)
     {
         if (_targetVerdicts.TryGetValue((_evalIndex, fk), out var memo)) return memo;
-        var target = _fetchWinnerBody!(fk);
+        if (_collectPairs is not null) { _collectPairs.Add((_evalIndex, fk)); return (false, EvalKind.Unset); }
+        var target = _heldTargetsAsked is not null && _heldTargetsAsked.Contains(fk) ? _heldTargets![fk] : _fetchWinnerBody!(fk);
         var verdict = target is null ? (false, EvalKind.UnresolvedTarget) : EvalCore(p, target);
         if (_fatal is null) _targetVerdicts[(_evalIndex, fk)] = verdict;
         return verdict;
