@@ -14,7 +14,7 @@ public sealed class LoadOrderChangedMidCallException(string plugin) : Exception(
 /// folded the throw into a row.</summary>
 public static class MidCallChange
 {
-    /// <summary>One index build a call relied on. Answered and Opened are per plugin index, set without a lock: a set only ever writes true.</summary>
+    /// <summary>One index build a call relied on; Answered and Opened are per plugin index and only ever set to true, so they need no lock.</summary>
     internal sealed class Build(string[] names, string[] paths, FileStamp[] stamps)
     {
         public readonly string[] Names = names, Paths = paths;
@@ -49,9 +49,7 @@ public static class MidCallChange
         public string? Settle()
         {
             if (Current.Value is not { } m) return null;
-            bool wrote;
-            lock (m) wrote = m.Written.Count > 0;
-            return (wrote ? m.Plugin : Moved(m, commit: false)) is { } p ? new LoadOrderChangedMidCallException(p).Message : null;
+            lock (m) return (m.Written.Count > 0 ? m.Plugin : Moved(m, commit: false)) is { } p ? new LoadOrderChangedMidCallException(p).Message : null;
         }
 
         public void Dispose() { if (owns) Current.Value = null; }
@@ -65,12 +63,7 @@ public static class MidCallChange
         return plugin;
     }
 
-    static bool WroteIt(Mark m, string path)
-    {
-        lock (m) if (m.Written.Count == 0) return false;
-        var key = Key(path);
-        lock (m) return m.Written.Contains(key);
-    }
+    static bool WroteIt(Mark m, string path) { lock (m) return m.Written.Count > 0 && m.Written.Contains(Key(path)); }
 
     /// <summary>The call relies on one index build; null outside a call.</summary>
     internal static Build? Relied(string[] names, string[] paths, FileStamp[] stamps)
@@ -79,9 +72,8 @@ public static class MidCallChange
         lock (m)
         {
             foreach (var b in m.Relied) if (ReferenceEquals(b.Stamps, stamps)) return b;
-            var made = new Build(names, paths, stamps);
-            m.Relied.Add(made);
-            return made;
+            m.Relied.Add(new Build(names, paths, stamps));
+            return m.Relied[^1];
         }
     }
 
@@ -101,8 +93,7 @@ public static class MidCallChange
         if (Current.Value is not { } m || WroteIt(m, path)) return;
         var name = Path.GetFileName(path);
         BeforeCheck.Value?.Invoke(name);
-        var now = FileStamp.Of(path);
-        var key = Key(path);
+        var (now, key) = (FileStamp.Of(path), Key(path));
         lock (m) if (m.Pinned.TryAdd(key, now) || m.Pinned[key] == now) return;
         throw new LoadOrderChangedMidCallException(Changed(m, name));
     }
@@ -110,39 +101,34 @@ public static class MidCallChange
     /// <summary>A write's last check before it commits: no read found a change, and every file the call read or answered from still carries its stamp.</summary>
     public static void BeforeCommit()
     {
-        if (Current.Value is { } m && Moved(m, commit: true) is { } p) throw new LoadOrderChangedMidCallException(p);
+        if (Current.Value is not { } m) return;
+        string? p;
+        lock (m) p = Moved(m, commit: true);
+        if (p is not null) throw new LoadOrderChangedMidCallException(p);
     }
 
     /// <summary>The call wrote <paramref name="path"/>; its own change is not a change under it.</summary>
     public static void AfterCommit(string path)
     {
-        if (Current.Value is { } m) { var key = Key(path); lock (m) m.Written.Add(key); }
+        if (Current.Value is { } m) lock (m) m.Written.Add(Key(path));
     }
 
-    /// <summary>The first change a read found, else the first pinned file, or plugin the call answered from (and at a
-    /// commit, opened), whose stamp moved; the call's own writes excepted.</summary>
+    /// <summary>Under the mark's lock: the first change a read found, else the first pinned file, or plugin the call
+    /// answered from (and at a commit, opened), whose stamp moved; the call's own writes excepted.</summary>
     static string? Moved(Mark m, bool commit)
     {
-        KeyValuePair<string, FileStamp>[] pinned;
-        Build[] relied;
-        HashSet<string>? written;
-        lock (m)
+        if (m.Plugin is not null) return m.Plugin;
+        foreach (var (path, stamp) in m.Pinned)
         {
-            if (m.Plugin is { } p) return p;
-            written = m.Written.Count > 0 ? new HashSet<string>(m.Written, StringComparer.OrdinalIgnoreCase) : null;
-            pinned = m.Pinned.Where(w => written is null || !written.Contains(w.Key)).ToArray();
-            relied = m.Relied.ToArray();
-        }
-        foreach (var (path, stamp) in pinned)
-        {
+            if (m.Written.Contains(path)) continue;
             if (commit) BeforeCheck.Value?.Invoke(Path.GetFileName(path));
-            if (FileStamp.Of(path) != stamp) return Changed(m, Path.GetFileName(path));
+            if (FileStamp.Of(path) != stamp) return m.Plugin = Path.GetFileName(path);
         }
-        foreach (var b in relied)
+        foreach (var b in m.Relied)
             for (int i = 0; i < b.Stamps.Length; i++)
                 if ((b.Answered[i] || commit && b.Opened[i]) && FileStamp.Of(b.Paths[i]) != b.Stamps[i]
-                    && (written is null || !written.Contains(Key(b.Paths[i]))))
-                    return Changed(m, b.Names[i]);
+                    && (m.Written.Count == 0 || !m.Written.Contains(Key(b.Paths[i]))))
+                    return m.Plugin = b.Names[i];
         return null;
     }
 }
