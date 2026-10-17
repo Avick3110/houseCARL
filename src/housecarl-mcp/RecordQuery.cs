@@ -241,20 +241,20 @@ internal sealed partial class RecordReads
                 // With no where=, judge the universe a group at a time through the door, then count rows in universe order.
                 void JudgeSetByGroup()
                 {
-                    var all = new List<FormKey>();
+                    var all = new List<(FormKey Key, WinnerInfo W)>();
                     foreach (var fk in formidSet!)
                     {
                         ct.ThrowIfCancellationRequested();
-                        if (seenSet.Add(fk) && view.ResolveWinner(fk) is not null) all.Add(fk);
+                        if (seenSet.Add(fk) && view.ResolveWinner(fk) is { } w) all.Add((fk, w));
                     }
                     var at = new Dictionary<FormKey, int>(all.Count);
-                    for (int i = 0; i < all.Count; i++) at[all[i]] = i;
+                    for (int i = 0; i < all.Count; i++) at[all[i].Key] = i;
                     var judged = new SetVerdict[all.Count];
                     // A kept row's summary, held while at most offset+limit kept rows precede it in the universe.
                     long cap = groups is null && limit > 0 ? (long)offset + limit : 0;
                     var rows = new SortedList<int, (List<FormKey>? Hit, RecordSummary? Summary, Exception? Fault)>();
                     var faults = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
-                    OrderedGather.ForEachGroup(view, sess, all, (bodies, asked) =>
+                    OrderedGather.ForEachGroup(view, sess, all.Select(x => (x.W.WinnerPlugin, x.Key)), (_, bodies, asked) =>
                     {
                         foreach (var fk in asked)
                         {
@@ -275,7 +275,7 @@ internal sealed partial class RecordReads
                                 RecordSummary? summary = null; Exception? fault = null;
                                 try
                                 {
-                                    var w = view.ResolveWinner(fk)!.Value;
+                                    var w = all[i].W;
                                     summary = RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth).WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin };
                                 }
                                 catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { fault = ex; }
@@ -288,8 +288,7 @@ internal sealed partial class RecordReads
                     }, faults, ct);
                     for (int i = 0; i < all.Count; i++)
                     {
-                        var fk = all[i];
-                        var w = view.ResolveWinner(fk)!.Value;
+                        var (fk, w) = all[i];
                         var j = judged[i];
                         if (faults.TryGetValue(w.WinnerPlugin, out var f) && !unreadablePlugins.Contains(f)) unreadablePlugins.Add(f);
                         if (j.Kind == SetKind.Missing || f is not null) { NoteMissing(fk, w.WinnerPlugin, f); continue; }
