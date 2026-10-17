@@ -1,0 +1,1 @@
+- **A `formids=` read of many records, with or without `source=` or `resolve_names`, is faster: each plugin group it needs is read once.** A 200-armor `fields` read with `resolve_names` on ARR answers in about 0.12 s instead of 0.3 s.
