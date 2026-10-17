@@ -1,0 +1,1 @@
+- **A `project.form='delta'` over many records is faster: each plugin group it needs is read once per window of rows.** On ARR, the 13,275-NPC face delta against `previous_provider` answers in about 6 s instead of 18 s.
