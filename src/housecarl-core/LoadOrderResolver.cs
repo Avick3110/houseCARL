@@ -752,14 +752,9 @@ public sealed class LoadOrderResolver : IDisposable
         /// stamp, any other file is pinned for the call (ruling F).</summary>
         public void CheckFile(string path)
         {
-            if (_r._nameToIdx.TryGetValue(Path.GetFileName(path), out int idx) && SamePath(_r._paths[idx], path)) _r.CheckUnchanged(idx, _s);
+            if (_r._nameToIdx.TryGetValue(Path.GetFileName(path), out int idx)
+                && string.Equals(Path.GetFullPath(_r._paths[idx]), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase)) _r.CheckUnchanged(idx, _s);
             else MidCallChange.PinOffOrder(path);
-        }
-
-        static bool SamePath(string a, string b)
-        {
-            try { return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase); }
-            catch { return false; }
         }
 
         public IEnumerable<FormKey> ConflictKeys() => _s.Overriders.Keys;
