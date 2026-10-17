@@ -7,8 +7,8 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// What #723 actually claims: a bulk write reads its record bodies with ONE walk of each source plugin, not one
-/// walk per record. The resolver counts both halves — <c>CollectPasses</c> is a plugin walked for a whole set of
+/// What #723 actually claims: a bulk write reads its record bodies with ONE walk of each (source plugin, group), not one
+/// walk per record. The resolver counts both halves — <c>CollectPasses</c> is a (plugin, group) walked for a whole set of
 /// wanted keys, <c>BodySeeks</c> is the per-record whole-plugin seek — so the claim is a number, not a shape.
 ///
 /// <para>This is the test that FAILS if the gather stops working. The equivalence and written-bytes tests cannot:
@@ -78,7 +78,7 @@ public sealed class BulkWriteCostTests : IDisposable
         var seeks = _resolver.Counters.BodySeeks - seeksBefore;
 
         Assert.True(outcome.Success, outcome.Error);
-        Assert.True(passes == 1, $"{Ops} edits out of one plugin walked it {passes} times.");
+        Assert.True(passes == 1, $"{Ops} edits out of one plugin group walked it {passes} times.");
         Assert.True(seeks == 0, $"{Ops} edits cost {seeks} per-record whole-plugin seeks; the gather answered none of them.");
     }
 
@@ -97,7 +97,7 @@ public sealed class BulkWriteCostTests : IDisposable
         var seeks = _resolver.Counters.BodySeeks - seeksBefore;
 
         Assert.True(outcome.Success, outcome.Error);
-        Assert.True(passes == 1, $"{Ops} forwards out of one plugin walked it {passes} times.");
+        Assert.True(passes == 1, $"{Ops} forwards out of one plugin group walked it {passes} times.");
         Assert.True(seeks == 0, $"{Ops} forwards cost {seeks} per-record whole-plugin seeks; the gather answered none of them.");
     }
 
@@ -123,7 +123,7 @@ public sealed class BulkWriteCostTests : IDisposable
 
         Assert.True(outcome.Success, outcome.Error);
         Assert.Equal(Ops, outcome.Created.Count);
-        Assert.True(passes == 1, $"{Ops} children under {Ops} distinct parents of one plugin walked it {passes} times.");
+        Assert.True(passes == 1, $"{Ops} children under {Ops} distinct parents of one plugin group walked it {passes} times.");
         Assert.True(seeks == 0, $"{Ops} distinct parents cost {seeks} per-record whole-plugin seeks; the gather answered none of them.");
     }
 
@@ -162,7 +162,7 @@ public sealed class BulkWriteCostTests : IDisposable
             }).ToList(), patch, extend: true);
         var carriedPasses = _resolver.Counters.CollectPasses - passesBefore;
         Assert.True(carried.Success, carried.Error);
-        Assert.True(carriedPasses == 0, $"a parent the artifact already carries cost {carriedPasses} plugin walk(s); the declare pass should skip it.");
+        Assert.True(carriedPasses == 0, $"a parent the artifact already carries cost {carriedPasses} group walk(s); the declare pass should skip it.");
 
         // Not in the load order at all: the loop refuses before any fetch, so the declare pass must too.
         passesBefore = _resolver.Counters.CollectPasses;
@@ -174,7 +174,7 @@ public sealed class BulkWriteCostTests : IDisposable
             }).ToList(), Path.Combine(_root, "HcBulkCostAbsent.esp"), extend: false);
         var absentPasses = _resolver.Counters.CollectPasses - passesBefore;
         Assert.False(absent.Success);
-        Assert.True(absentPasses == 0, $"a parent the order does not hold cost {absentPasses} plugin walk(s); a refusal must stay free.");
+        Assert.True(absentPasses == 0, $"a parent the order does not hold cost {absentPasses} group walk(s); a refusal must stay free.");
     }
 
     /// <summary>The create lane's cost must not scale with the parent count either.</summary>

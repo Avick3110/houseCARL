@@ -15,7 +15,7 @@ public sealed class CostCounters
     /// <summary>Per-record seeks answered by walking only the record type's groups.</summary>
     public long TypedSeeks;
 
-    /// <summary>Plugins a gather actually walked.</summary>
+    /// <summary>(plugin, group) walks a gather made.</summary>
     public long CollectPasses;
 
     /// <summary>Gather walks answered by reading only the wanted record types' groups.</summary>
