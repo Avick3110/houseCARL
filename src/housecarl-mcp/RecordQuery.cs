@@ -958,9 +958,11 @@ internal sealed partial class RecordReads
     // ---- effect-chain resolver -------------------------------------------------------------------------
 
     /// <summary>Resolve which SPEL/ENCH/ALCH/SCRL/INGR apply a MagicEffect, with each effect entry's magnitude, area
-    /// and duration.</summary>
-    public EffectChainResult ResolveEffectChain(FormKey mgef, IReadOnlyList<string>? typesNarrow, int limit)
+    /// and duration, for each of <paramref name="mgefs"/> off one pass over the carriers.</summary>
+    public IReadOnlyList<EffectChainResult> ResolveEffectChains(IReadOnlyList<FormKey> mgefs, IReadOnlyList<string>? typesNarrow,
+                                                                int limit, CancellationToken ct = default)
     {
+        IReadOnlyList<EffectChainResult> All(string error) => mgefs.Select(_ => EffectChainResult.Fail(error)).ToList();
         IReadOnlyList<Type> scope;
         if (typesNarrow is { Count: > 0 })
         {
@@ -969,11 +971,11 @@ internal sealed partial class RecordReads
             {
                 IReadOnlyList<Type> resolved;
                 try { resolved = _host.Types.Resolve(ts.Trim()); }         // unknown type → named error, as on the scan
-                catch (ArgumentException ex) { return EffectChainResult.Fail(ex.Message); }
+                catch (ArgumentException ex) { return All(ex.Message); }
                 foreach (var t in resolved)
                 {
                     if (!EffectChain.CarrierTypes.Contains(t))
-                        return EffectChainResult.Fail(
+                        return All(
                             $"type '{ts}' is not effect-bearing — the chain form scans only Spell/ObjectEffect/Ingestible/Scroll/Ingredient " +
                             "(SPEL/ENCH/ALCH/SCRL/INGR), the records that carry an Effects list. Drop it or pass one of those.");
                     if (!picked.Contains(t)) picked.Add(t);
@@ -983,7 +985,7 @@ internal sealed partial class RecordReads
         }
         else scope = EffectChain.CarrierTypes;
 
-        return EffectChain.Resolve(_host.Resolver, mgef, scope, limit);
+        return EffectChain.ResolveMany(_host.Resolver, mgefs, scope, limit, ct);
     }
 
     /// <summary><paramref name="source"/> up to the first fault, which ends it quietly; cancellation and out-of-memory still throw.</summary>
