@@ -880,19 +880,18 @@ public static partial class RecordsTools
             if (reverseCarrier)
             {
                 // The typed MGEF lane: a non-MGEF seed fails loud per item rather than reading as '0 carriers'.
-                var results = new List<(string Seed, EffectChainResult Result)>(ids.Length);
-                var seedAt = new List<(int Row, FormKey Fk)>();
+                var parsed = new List<(string Raw, FormKey? Fk, string? Error)>(ids.Length);
                 foreach (var raw in ids)
                 {
-                    FormKey fk;
-                    try { fk = door.Parse(raw); }
-                    catch (Exception ex) { results.Add((raw?.Trim() ?? "", EffectChainResult.Fail($"bad FormID '{raw}': {ex.Message}"))); continue; }
-                    seedAt.Add((results.Count, fk));
-                    results.Add((FormIdToken.Of(fk), null!));
+                    try { parsed.Add((raw, door.Parse(raw), null)); }
+                    catch (Exception ex) { parsed.Add((raw, null, $"bad FormID '{raw}': {ex.Message}")); }
                 }
                 // Every seed off one capture and one carrier pass; the per-seed carrier bound is the walk's reach budget.
-                var chains = svc.ResolveEffectChains(seedAt.Select(s => s.Fk).ToList(), types, walkMaxNodes, ct);
-                for (int i = 0; i < seedAt.Count; i++) results[seedAt[i].Row] = (results[seedAt[i].Row].Seed, chains[i]);
+                var chains = svc.ResolveEffectChains(parsed.Where(p => p.Fk is not null).Select(p => p.Fk!.Value).ToList(), types, walkMaxNodes, ct);
+                int next = 0;
+                var results = parsed.Select(p => p.Fk is { } fk
+                    ? (Seed: FormIdToken.Of(fk), Result: chains[next++])
+                    : (Seed: p.Raw?.Trim() ?? "", Result: EffectChainResult.Fail(p.Error!))).ToList();
                 // An @artifact seed list's epoch demand must match the one build the batch read.
                 var epochR = results.Select(r => r.Result.Stamp).FirstOrDefault(e => e is not null);
                 if (demand is not null && (epochR is null || demand.Epoch != epochR.Epoch))
