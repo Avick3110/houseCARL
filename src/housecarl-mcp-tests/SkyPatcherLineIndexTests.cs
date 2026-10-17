@@ -3,13 +3,11 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The replay checks a record only against the lines that can touch it; a line not indexed by the records it
-/// names (a connective, a second filter, a value that is not a plain FormID) still reaches every record it matches.</summary>
+/// <summary>A line the index skips (a connective, a second filter, a non-FormID value) still reaches every record it matches.</summary>
 [Trait("tier", "integration")]
 public sealed class SkyPatcherLineIndexTests : IDisposable
 {
-    // :1 every armor but HcHeelBoots; :2 HcBothBoots only (it alone of the two named carries HcKw2, 0x802);
-    // :3 HcPlainCuirass by EditorID, beside a 0x-prefixed value that neither side reads as a FormID.
+    // :1 all but HcHeelBoots; :2 HcBothBoots only (HcKw2); :3 HcPlainCuirass by EditorID beside an unread 0x value.
     readonly SkyPatcherRelevanceWorld _w = new(new[]
     {
         ("HcIndex.ini", "filterByArmorsExcluded=HcSpRel.esp|000810:weight=7\r\n"
@@ -45,8 +43,35 @@ public sealed class SkyPatcherLineIndexTests : IDisposable
     }
 }
 
-/// <summary>The layer's no-op scan reads its targets through the read door: one read of the plugin's Armors group for
-/// the three armors its lines name.</summary>
+/// <summary>The merged line list keeps file order, and only a primary filter's FormIDs index a line.</summary>
+[Trait("tier", "integration")]
+public sealed class SkyPatcherLineIndexOrderTests : IDisposable
+{
+    // :1 indexed under HcBothBoots; :2 unindexed, same field, later; :3 a lone keyword filter naming HcKw2 by FormID.
+    readonly SkyPatcherRelevanceWorld _w = new(new[]
+    {
+        ("HcOrder.ini", "filterByArmors=HcSpRel.esp|000812:weight=5\r\n"
+                        + "filterByArmorsExcluded=HcSpRel.esp|000810:weight=7\r\n"
+                        + "filterByKeywords=HcSpRel.esp|000802:value=11\r\n"),
+    });
+
+    public void Dispose() => _w.Dispose();
+
+    string Post(string fid) => RecordsTools.Records(_w.Svc, formids: new[] { fid }, source: SkyPatcherRelevanceWorld.Post(),
+        project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Weight", "Value" } });
+
+    [Fact]
+    public void ALaterUnindexedLineWinsOverAnEarlierIndexedOne() => Assert.Contains("Weight = 7", Post(_w.Both));
+
+    [Fact]
+    public void ALoneKeywordFilterReachesTheRecordCarryingIt()
+    {
+        Assert.Contains("Value = 11", Post(_w.Both));
+        Assert.Contains("Value = 0", Post(_w.Heel));
+    }
+}
+
+/// <summary>The layer's no-op scan reads the Armors group once for the three armors its lines name.</summary>
 [Trait("tier", "integration")]
 public sealed class SkyPatcherLayerGroupReadTests : IDisposable
 {
