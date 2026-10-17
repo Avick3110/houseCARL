@@ -1,4 +1,5 @@
 using HousecarlCore;
+using HousecarlMcp;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -35,18 +36,23 @@ public sealed class BodyGatherDoorTests : IDisposable
 
     string Name(int i) => _mods[i].FileName.String;
 
-    /// <summary>0xFF over the first record header inside the plugin's WEAP group, so walking that group throws.</summary>
-    void BreakWeapons(int i)
+    /// <summary>0xFF over the first record header inside the plugin's <paramref name="sig"/> group, size and write time kept, so walking that group throws.</summary>
+    void Break(int i, string sig)
     {
         var path = Path.Combine(_mo2.ModsDir, _mods[i].Name, Name(i));
+        var mtime = File.GetLastWriteTimeUtc(path);
         var bytes = File.ReadAllBytes(path);
+        var tag = System.Text.Encoding.ASCII.GetBytes(sig);
         int at = -1;
         for (int j = 0; j + 12 <= bytes.Length && at < 0; j++)
-            if (bytes.AsSpan(j, 4).SequenceEqual("GRUP"u8) && bytes.AsSpan(j + 8, 4).SequenceEqual("WEAP"u8)) at = j;
-        Assert.True(at >= 0, "the plugin has no WEAP group");
+            if (bytes.AsSpan(j, 4).SequenceEqual("GRUP"u8) && bytes.AsSpan(j + 8, 4).SequenceEqual(tag)) at = j;
+        Assert.True(at >= 0, $"the plugin has no {sig} group");
         bytes.AsSpan(at + 24, 24).Fill(0xFF);
         File.WriteAllBytes(path, bytes);
+        File.SetLastWriteTimeUtc(path, mtime);
     }
+
+    void BreakWeapons(int i) => Break(i, "WEAP");
 
     static string Answer(Func<IMajorRecordGetter?> read)
     {
@@ -103,5 +109,32 @@ public sealed class BodyGatherDoorTests : IDisposable
         {
             [(Name(0), "Npcs")] = 1, [(Name(0), "Weapons")] = 1, [(Name(1), "Npcs")] = 1, [(Name(1), "Weapons")] = 1,
         }, reads);
+    }
+
+    /// <summary>A broken NPC_ group sorts before WEAP by group name; the plugin's weapons still come back and the plugin is named.</summary>
+    [Fact]
+    public void WinnerBodiesKeepTheGroupsAfterABrokenOne()
+    {
+        using var svc = _mo2.Open();
+        var pin = svc.CapturePin();
+        Break(1, "NPC_");
+        using var session = pin.Resolver.OpenSession();
+        var (npcs, weapons) = _keys[_mods[1]];
+        var bodies = WinnerBodies.For(pin.View, session, weapons.Concat(npcs).ToList(), out var faults);
+        Assert.Equal(new[] { Name(1) }, faults.Keys);
+        Assert.Equal(weapons.Order(), bodies.Keys.Order());
+    }
+
+    /// <summary>A where= scan over a plugin with a broken NPC_ group still matches its weapons and names the plugin.</summary>
+    [Fact]
+    public void AWhereScanMatchesTheHealthyGroupsOfAPluginWithABrokenOne()
+    {
+        using var svc = _mo2.Open();
+        var (npcs, weapons) = _keys[_mods[1]];
+        var ids = npcs.Concat(weapons).Select(ScratchMo2.Fid).ToArray();
+        Assert.Contains("scan: 2 matches", RecordsTools.Records(svc, formids: ids, where: new[] { "editorid startswith HcGdW" }));
+        Break(1, "NPC_");
+        var r = RecordsTools.Records(svc, formids: ids, where: new[] { "editorid startswith HcGdW" });
+        Assert.True(r.Contains("scan: 2 matches") && r.Contains("HcGdWHcGdB0") && r.Contains("HcGdWHcGdB1") && r.Contains(Name(1)), r);
     }
 }

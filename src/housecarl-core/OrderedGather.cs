@@ -32,7 +32,8 @@ public static class OrderedGather
             if (stop is not null && stop()) return;
             var asked = new HashSet<FormKey>(items.Select(p => p.Key));
             var bodies = new Dictionary<FormKey, IMajorRecordGetter>(asked.Count);
-            if (unreadable is null || !unreadable.ContainsKey(plugin))
+            // A plugin that will not open is skipped from then on; a broken group leaves its other groups to be walked.
+            if (unreadable is null || !unreadable.TryGetValue(plugin, out var prior) || prior is PluginUnscannableException)
                 if (BodyGather.WalkOnce(view, session, plugin, asked, bodies) is { } fault) unreadable?.TryAdd(plugin, fault);
             perGroup(plugin, bodies, asked);
         }
