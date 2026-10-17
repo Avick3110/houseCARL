@@ -123,13 +123,13 @@ internal sealed partial class AssetLayers
         internal IReadOnlyList<PluginUnreadableException> Unreadable => _formResolver.Unreadable;
 
         /// <summary>Replay one record's winner through the layer: the patched copy, the winner itself for a type the layer cannot touch, or the named reason it cannot be replayed.</summary>
-        internal SkyPatcherReplayResult Replay(FormKey fk)
+        internal SkyPatcherReplayResult Replay(FormKey fk, IMajorRecordGetter? read = null)
         {
             var winner = _view.ResolveWinner(fk);
             if (winner is null)
                 return SkyPatcherReplayResult.Fail(RecordReads.UnresolvedFormId(_view, fk));
 
-            var body = _view.GetRecord(_session, winner.Value.WinnerPlugin, fk);
+            var body = read ?? _view.GetRecord(_session, winner.Value.WinnerPlugin, fk);   // read: the winner's body, already read through the door
             if (body is null)
                 return SkyPatcherReplayResult.Fail($"Winner '{winner.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch — a load-order inconsistency.",
                                                    winnerPlugin: winner.Value.WinnerPlugin);

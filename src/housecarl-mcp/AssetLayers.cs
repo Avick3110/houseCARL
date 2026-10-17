@@ -582,7 +582,7 @@ internal sealed partial class AssetLayers
     public SkyPatcherLayerData SkyPatcherLayer() => SkyPatcherLayer(d => d, lint: false);
 
     /// <summary>The layer scan handed to <paramref name="use"/> while its replay is open, so <see cref="SkyPatcherLayerData.Lint"/> resolves a line only when <paramref name="use"/> asks; the lookup is valid only inside it.</summary>
-    public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, bool lint = true)
+    public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, bool lint = true, CancellationToken ct = default)
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
         // One hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself.
@@ -638,21 +638,25 @@ internal sealed partial class AssetLayers
                     if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
                 }
             }
-            foreach (var fk in targets)
+            failedReplays += targets.Count(t => view.ResolveWinner(t) is null);   // not in the order: the door skips them
+            OrderedGather.ForEachGroup(view, session, targets, (bodies, asked) =>
             {
-                var r = replay.Replay(fk);
-                // An unpatchable type has nothing to replay, so it counts with the failures as it always has.
-                if (r.Error is not null || r.IsUnpatchable) { failedReplays++; continue; }
-                foreach (var fo in r.Folders)
+                foreach (var fk in asked)
                 {
-                    if (fo.Result is not { } res) continue;
-                    var map = fieldMap.For(fo.Subfolder, r.TypeName!);
-                    foreach (var a in res.Applied)
-                        if (SkyPatcherConflicts.IsNoOpWrite(a, map))
-                            noOps.Add(new SkyPatcherNoOpWrite(fo.Subfolder, FormIdToken.Of(fk), r.EditorId,
-                                a.FieldPath, a.File, a.LineNumber, a.Op, a.RawValue, a.Before!));
+                    var r = replay.Replay(fk, bodies.GetValueOrDefault(fk));
+                    // An unpatchable type has nothing to replay, so it counts with the failures as it always has.
+                    if (r.Error is not null || r.IsUnpatchable) { failedReplays++; continue; }
+                    foreach (var fo in r.Folders)
+                    {
+                        if (fo.Result is not { } res) continue;
+                        var map = fieldMap.For(fo.Subfolder, r.TypeName!);
+                        foreach (var a in res.Applied)
+                            if (SkyPatcherConflicts.IsNoOpWrite(a, map))
+                                noOps.Add(new SkyPatcherNoOpWrite(fo.Subfolder, FormIdToken.Of(fk), r.EditorId,
+                                    a.FieldPath, a.File, a.LineNumber, a.Op, a.RawValue, a.Before!));
+                    }
                 }
-            }
+            }, ct: ct);
             // Stable output: targets is a hash set, so without this a re-run cannot be diffed against the previous one.
             noOps.Sort((x, y) =>
             {
