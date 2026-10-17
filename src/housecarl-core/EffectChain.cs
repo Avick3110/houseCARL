@@ -92,7 +92,7 @@ public static class EffectChain
                     $"no record with FormID {mgef} in the load order. The chain form needs a MagicEffect (MGEF) the active order defines.");
             else if (!seeds.TryGetValue(mgef, out var seed))
                 results[i] = FailStamped(gateUnread.TryGetValue(w.Value.WinnerPlugin, out var fault)
-                    ? $"winner '{w.Value.WinnerPlugin}' could not be read ({fault.Message}) — cannot confirm {mgef} is a MagicEffect."
+                    ? $"{mgef} could not be read: {fault.Message}"
                     : $"winner '{w.Value.WinnerPlugin}' did not yield {mgef} on fetch — cannot confirm it is a MagicEffect.");
             else if (!seed.Mgef)
                 results[i] = FailStamped(
