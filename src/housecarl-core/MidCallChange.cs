@@ -9,16 +9,25 @@ public sealed class LoadOrderChangedMidCallException(string plugin) : Exception(
     public string Plugin { get; } = plugin;
 }
 
-/// <summary>The call-wide mark of ruling F: the index builds a call relied on, the off-order files it opened, and the
-/// first change found, so the tool guard refuses the whole call even where a lane folded the throw into a row.</summary>
+/// <summary>The call-wide mark of ruling F: per index build, the plugins the call answered from and opened; the
+/// off-order files it opened; and the first change found, so the tool guard refuses the whole call even where a lane
+/// folded the throw into a row.</summary>
 public static class MidCallChange
 {
+    /// <summary>One index build a call relied on. Answered and Opened are per plugin index, set without a lock: a set only ever writes true.</summary>
+    internal sealed class Build(string[] names, string[] paths, FileStamp[] stamps)
+    {
+        public readonly string[] Names = names, Paths = paths;
+        public readonly FileStamp[] Stamps = stamps;
+        public readonly bool[] Answered = new bool[stamps.Length], Opened = new bool[stamps.Length];
+    }
+
     sealed class Mark
     {
         public string? Plugin;
         public readonly Dictionary<string, FileStamp> Pinned = new(StringComparer.OrdinalIgnoreCase);
         public readonly HashSet<string> Written = new(StringComparer.OrdinalIgnoreCase);
-        public readonly List<(string[] Names, string[] Paths, FileStamp[] Built)> Relied = new();
+        public readonly List<Build> Relied = new();
     }
 
     static readonly AsyncLocal<Mark?> Current = new();
@@ -42,7 +51,7 @@ public static class MidCallChange
             if (Current.Value is not { } m) return null;
             bool wrote;
             lock (m) wrote = m.Written.Count > 0;
-            return (wrote ? m.Plugin : Moved(m, seam: false)) is { } p ? new LoadOrderChangedMidCallException(p).Message : null;
+            return (wrote ? m.Plugin : Moved(m, commit: false)) is { } p ? new LoadOrderChangedMidCallException(p).Message : null;
         }
 
         public void Dispose() { if (owns) Current.Value = null; }
@@ -63,24 +72,27 @@ public static class MidCallChange
         lock (m) return m.Written.Contains(key);
     }
 
-    /// <summary>The call relies on one index build: its plugins are re-statted against <paramref name="built"/> before it answers or commits.</summary>
-    internal static void Relied(string[] names, string[] paths, FileStamp[] built)
+    /// <summary>The call relies on one index build; null outside a call.</summary>
+    internal static Build? Relied(string[] names, string[] paths, FileStamp[] stamps)
     {
-        if (Current.Value is not { } m) return;
+        if (Current.Value is not { } m) return null;
         lock (m)
         {
-            foreach (var r in m.Relied) if (ReferenceEquals(r.Built, built)) return;
-            m.Relied.Add((names, paths, built));
+            foreach (var b in m.Relied) if (ReferenceEquals(b.Stamps, stamps)) return b;
+            var made = new Build(names, paths, stamps);
+            m.Relied.Add(made);
+            return made;
         }
     }
 
-    /// <summary>An active plugin about to be opened: its file must still carry <paramref name="built"/>, the stamp its build read.</summary>
-    internal static void Check(string plugin, string path, FileStamp built)
+    /// <summary>Plugin <paramref name="idx"/> is about to be opened: its file must still carry the stamp its build read.</summary>
+    internal static void Check(Build? build, string[] names, string[] paths, FileStamp[] stamps, int idx)
     {
         var m = Current.Value;
-        if (m is not null && WroteIt(m, path)) return;
-        BeforeCheck.Value?.Invoke(plugin);
-        if (FileStamp.Of(path) != built) throw new LoadOrderChangedMidCallException(Changed(m, plugin));
+        if (m is not null && WroteIt(m, paths[idx])) return;
+        if (build is not null) build.Opened[idx] = true;
+        BeforeCheck.Value?.Invoke(names[idx]);
+        if (FileStamp.Of(paths[idx]) != stamps[idx]) throw new LoadOrderChangedMidCallException(Changed(m, names[idx]));
     }
 
     /// <summary>A file outside the index: the call's first sight of it sets its stamp, which every later open and check must find.</summary>
@@ -95,10 +107,10 @@ public static class MidCallChange
         throw new LoadOrderChangedMidCallException(Changed(m, name));
     }
 
-    /// <summary>A write's last check before it commits: no read found a change, and every file the call relied on still carries its stamp.</summary>
+    /// <summary>A write's last check before it commits: no read found a change, and every file the call read or answered from still carries its stamp.</summary>
     public static void BeforeCommit()
     {
-        if (Current.Value is { } m && Moved(m, seam: true) is { } p) throw new LoadOrderChangedMidCallException(p);
+        if (Current.Value is { } m && Moved(m, commit: true) is { } p) throw new LoadOrderChangedMidCallException(p);
     }
 
     /// <summary>The call wrote <paramref name="path"/>; its own change is not a change under it.</summary>
@@ -107,11 +119,12 @@ public static class MidCallChange
         if (Current.Value is { } m) { var key = Key(path); lock (m) m.Written.Add(key); }
     }
 
-    /// <summary>The first change a read found, else the first pinned or relied-on file whose stamp moved, the call's own writes excepted.</summary>
-    static string? Moved(Mark m, bool seam)
+    /// <summary>The first change a read found, else the first pinned file, or plugin the call answered from (and at a
+    /// commit, opened), whose stamp moved; the call's own writes excepted.</summary>
+    static string? Moved(Mark m, bool commit)
     {
         KeyValuePair<string, FileStamp>[] pinned;
-        (string[] Names, string[] Paths, FileStamp[] Built)[] relied;
+        Build[] relied;
         HashSet<string>? written;
         lock (m)
         {
@@ -122,13 +135,14 @@ public static class MidCallChange
         }
         foreach (var (path, stamp) in pinned)
         {
-            if (seam) BeforeCheck.Value?.Invoke(Path.GetFileName(path));
+            if (commit) BeforeCheck.Value?.Invoke(Path.GetFileName(path));
             if (FileStamp.Of(path) != stamp) return Changed(m, Path.GetFileName(path));
         }
-        foreach (var (names, paths, built) in relied)
-            for (int i = 0; i < built.Length; i++)
-                if (FileStamp.Of(paths[i]) != built[i] && (written is null || !written.Contains(Key(paths[i]))))
-                    return Changed(m, names[i]);
+        foreach (var b in relied)
+            for (int i = 0; i < b.Stamps.Length; i++)
+                if ((b.Answered[i] || commit && b.Opened[i]) && FileStamp.Of(b.Paths[i]) != b.Stamps[i]
+                    && (written is null || !written.Contains(Key(b.Paths[i]))))
+                    return Changed(m, b.Names[i]);
         return null;
     }
 }
