@@ -99,7 +99,7 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly ContainmentIndex Containment;                         // child → parent, off the same one-pass walk
 
         /// <summary>Per plugin index: the file stamp this build read the plugin at; a call refuses when the file no longer carries it (ruling F).</summary>
-        public FileStamp[] BuiltStamps = Array.Empty<FileStamp>();
+        public readonly FileStamp[] BuiltStamps;
 
         /// <summary>Per plugin index: is it a LIGHT plugin? Read off the header while the build had the overlay open, and the .esl extension counts too.</summary>
         public readonly bool[] Light;
@@ -118,11 +118,11 @@ public sealed class LoadOrderResolver : IDisposable
                              IndexTypes types, Dictionary<FormKey, byte[]> mixedTypes, List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
                              Dictionary<string, string> excludedPlugins, int maxDepth, string epoch,
                              bool[] light, int firstUnknownKind, string? firstUnknownKindName,
-                             ContainmentIndex containment, bool[] masterBlock)
+                             ContainmentIndex containment, bool[] masterBlock, FileStamp[] builtStamps)
         {
             Index = index; Overriders = overriders; Types = types; MixedTypes = mixedTypes; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
             ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; Light = light; Containment = containment;
-            MasterBlock = masterBlock;
+            MasterBlock = masterBlock; BuiltStamps = builtStamps;
             FirstUnknownKind = firstUnknownKind; FirstUnknownKindName = firstUnknownKindName;
             Slots = new Lazy<RuntimeSlots>(() => RuntimeSlots.Build(light));
             Stamp = OrderStamp.For(epoch, excludedPlugins.Keys);
@@ -493,8 +493,7 @@ public sealed class LoadOrderResolver : IDisposable
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
             types, mixed.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),
             failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
-            light, firstUnknownKind, firstUnknownKindName, containment, masterBlock)
-            { BuiltStamps = (FileStamp[])_stamps.Clone() };
+            light, firstUnknownKind, firstUnknownKindName, containment, masterBlock, (FileStamp[])_stamps.Clone());
 
         // The code a key carries once one more provider joins: the one class while every provider shares it, else Mixed.
         byte MergeType(FormKey fk, byte held, int count, byte next)
@@ -1158,7 +1157,6 @@ public sealed class LoadOrderResolver : IDisposable
     /// else the whole call refuses, naming the plugin. One stat per open, never per record.</summary>
     internal void CheckUnchanged(int idx, IndexSnapshot s)
     {
-        if (idx >= s.BuiltStamps.Length) return;
         MidCallChange.Check(MidCallChange.Relied(_names, _paths, s.BuiltStamps), _names, _paths, s.BuiltStamps, idx);
     }
 
