@@ -1,4 +1,5 @@
 using HousecarlCore;
+using HousecarlGenerator;
 using HousecarlMcp;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -205,6 +206,35 @@ public sealed class MidCallChangeTests : IDisposable
         Assert.True(saved);
         Assert.False(r.Success);
         Assert.Contains($"'{AName}' changed on disk during this call", mark.Settle());
+    }
+
+    /// <summary>A compact that repoints its referencers commits the target in place first; a referencer saved after that
+    /// commit refuses the rest, and the refusal names the file already written instead of saying nothing was.</summary>
+    [Fact]
+    public void ARefusalAfterACommitNamesTheFileAlreadyWritten()
+    {
+        var tgt = new LocalizedStringsFixture.Spec("McTgt", new ModKey("HcMcCmpTgt", ModType.Plugin), "TGT NAME", "TGT DESC", Localized: false);
+        var rf = new LocalizedStringsFixture.Spec("McRef", new ModKey("HcMcCmpRef", ModType.Plugin), "REF NAME", "REF DESC",
+                                                  LinksTo: LocalizedStringsFixture.WeaponKey(tgt), Localized: false);
+        using var w = new LocalizedCompactWorld(tgt, rf);
+        string tgtPath = w.PluginPath(tgt), refPath = w.PluginPath(rf);
+        var tgtBefore = File.ReadAllBytes(tgtPath);
+        bool saved = false;
+        using var mark = MidCallChange.Begin();
+        try
+        {
+            During(name =>
+                {
+                    if (saved || name != rf.Key.FileName.String || LocalizedCompactWorld.Same(tgtPath, tgtBefore)) return;
+                    File.SetLastWriteTimeUtc(refPath, DateTime.UtcNow.AddSeconds(5)); saved = true;
+                },
+                () => w.Svc.CompactPlugin(tgt.Key.FileName.String, inPlace: true, repointExternals: true, acknowledge: true));
+        }
+        catch (LoadOrderChangedMidCallException) { /* the guard returns Settle's sentence */ }
+        Assert.True(saved);
+        var refusal = mark.Settle();
+        Assert.Contains($"'{rf.Key.FileName}' changed on disk during this call, after houseCARL had written {tgt.Key.FileName}", refusal);
+        Assert.DoesNotContain("nothing was answered or written", refusal);
     }
 
     /// <summary>An answer read off the index alone opens no plugin, so the open check never sees it: the dialogue
