@@ -96,13 +96,13 @@ public sealed class RenderDoorTests : IClassFixture<RenderDoorWorld>
         Assert.Equal("window: rows 1–5 of 54 (limit=5, offset=0)", WindowNote(text));
     }
 
-    // A cut window spills every row, so the receipt counts every body, and the window note and the file match the
-    // same list read whole on the formids= lane, where no window read applies.
+    // A cut window spills every row, so the receipt counts the window's bodies and the whole read's, and the window
+    // note and the file match the same list read whole on the formids= lane, where no window read applies.
     [Fact]
     public void ACutWalkWindowSpillsTheWholeListAsTheWholeReadDoes()
     {
         var walked = RecordsTools.Records(_w.Svc, formids: new[] { Seed }, walk: Reverse(), limit: 40, max_chars: 3000, project: Kw());
-        Assert.Equal($"read {Reached} record bodies", Receipt(walked));
+        Assert.Equal($"read {40 + Reached} record bodies", Receipt(walked));
         var listed = RecordsTools.Records(_w.Svc, formids: _w.WeaponIds.Skip(RenderDoorWorld.FirstChunk).Prepend(Seed).ToArray(), limit: 40, max_chars: 3000, project: Kw());
         Assert.Equal(WindowNote(listed), WindowNote(walked));
         Assert.Equal(SpillFile(listed).Split('\n').Skip(1), SpillFile(walked).Split('\n').Skip(1));
