@@ -9,7 +9,7 @@ internal static class Guard
     /// <summary>Rethrow only a real request cancellation; a cancel with a live request token is named as a body failure.</summary>
     public static string Tool(string tool, Func<string> body, CancellationToken ct = default)
     {
-        using var mark = MidCallChange.Begin();   // ruling F: a plugin changed mid-call refuses the whole call
+        using var mark = MidCallChange.Begin();   // a plugin changed mid-call refuses the whole call
         try { var answer = body(); return Changed(mark) ?? answer; }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception) when (Changed(mark) is { } refusal) { return refusal; }

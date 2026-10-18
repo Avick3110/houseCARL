@@ -98,7 +98,7 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly OrderStamp Stamp;
         public readonly ContainmentIndex Containment;                         // child → parent, off the same one-pass walk
 
-        /// <summary>Per plugin index: the file stamp this build read the plugin at; a call refuses when the file no longer carries it (ruling F).</summary>
+        /// <summary>Per plugin index: the file stamp this build read the plugin at; a call refuses when the file no longer carries it.</summary>
         public readonly FileStamp[] BuiltStamps;
 
         /// <summary>Per plugin index: is it a LIGHT plugin? Read off the header while the build had the overlay open, and the .esl extension counts too.</summary>
@@ -560,7 +560,7 @@ public sealed class LoadOrderResolver : IDisposable
     public IndexView Capture(AbsenceCache? absences)
     {
         var s = _snap;
-        return new(this, s, absences, MidCallChange.Relied(_names, _paths, s.BuiltStamps, _nameToIdx));   // ruling F: what the call answers from
+        return new(this, s, absences, MidCallChange.Relied(_names, _paths, s.BuiltStamps, _nameToIdx));   // what the call answers from
     }
 
     // ---- runtime FormIDs: the eight-hex form the game, the console and the logs print --------------------
@@ -655,7 +655,7 @@ public sealed class LoadOrderResolver : IDisposable
         readonly LoadOrderResolver _r;
         readonly IndexSnapshot _s;
         readonly AbsenceCache? _absences;   // null on a single-shot view, which explains each absence afresh
-        readonly MidCallChange.Build? _relied;   // the plugins this call answered from, re-statted before it answers (ruling F)
+        readonly MidCallChange.Build? _relied;   // the plugins this call answered from, re-statted before it answers
         internal IndexView(LoadOrderResolver r, IndexSnapshot s, AbsenceCache? absences, MidCallChange.Build? relied)
         { _r = r; _s = s; _absences = absences; _relied = relied; }   // only Capture() constructs
 
@@ -1146,7 +1146,7 @@ public sealed class LoadOrderResolver : IDisposable
 
     // ---- Freshness -----------------------------------------------------
 
-    /// <summary>Ruling F: before a call opens plugin <paramref name="idx"/>, its file must still carry the stamp build <paramref name="s"/> read it at;
+    /// <summary>Before a call opens plugin <paramref name="idx"/>, its file must still carry the stamp build <paramref name="s"/> read it at;
     /// else the whole call refuses, naming the plugin. One stat per open, never per record.</summary>
     internal void CheckUnchanged(int idx, IndexSnapshot s)
         => MidCallChange.Check(MidCallChange.Relied(_names, _paths, s.BuiltStamps, _nameToIdx) ?? new(_names, _paths, s.BuiltStamps, _nameToIdx), idx);

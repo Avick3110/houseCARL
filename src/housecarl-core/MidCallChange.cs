@@ -1,6 +1,6 @@
 namespace HousecarlCore;
 
-/// <summary>A plugin changed on disk after the call's index was built, so the call refuses whole (ruling F);
+/// <summary>A plugin changed on disk after the call's index was built, so the call refuses whole;
 /// contract in docs/architecture/load-order-resolver.md.</summary>
 public sealed class LoadOrderChangedMidCallException(string plugin) : Exception(
     $"'{plugin}' changed on disk during this call, after houseCARL indexed it, so the answer would mix two states " +
@@ -9,7 +9,7 @@ public sealed class LoadOrderChangedMidCallException(string plugin) : Exception(
     public string Plugin { get; } = plugin;
 }
 
-/// <summary>The call-wide mark of ruling F: per index build, the plugins the call answered from and opened; the
+/// <summary>The call-wide mark of files changed on disk mid-call: per index build, the plugins the call answered from and opened; the
 /// off-order files it opened; and the first change found, so the tool guard refuses the whole call even where a lane
 /// folded the throw into a row.</summary>
 public static class MidCallChange
