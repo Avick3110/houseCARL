@@ -116,6 +116,20 @@ public sealed class RenderDoorTests : IClassFixture<RenderDoorWorld>
         Assert.Equal($"window: no rows — offset=600 is past the end of the {Reached}-row list", WindowNote(text));
     }
 
+    // A cut named scan: only the spill file reads (and names) the whole chunk; each inline pass reads the rows it asks
+    // for, as on main (2,000 for the file plus the rows the two inline passes render).
+    [Fact]
+    public void ACutNamedScanReadsTheWholeChunkOnlyForItsSpillFile()
+    {
+        long before = _w.Svc.Counters.ScanRowReads;
+        var text = RecordsTools.Records(_w.Svc, types: new[] { "WEAP" }, limit: RenderDoorWorld.FirstChunk, max_chars: 3000,
+                                        project: new() { form = "fields", fields = new[] { "Keywords", "EditorID", "Name", "Data" }, depth = 2, resolve_names = true });
+        Assert.Contains(".jsonl", text);
+        Assert.Equal(CutNamedScanRows, _w.Svc.Counters.ScanRowReads - before);
+    }
+
+    const long CutNamedScanRows = 2011;
+
     [Fact]
     public void CountsOnlyOnAWalkReadsEveryRow()
     {

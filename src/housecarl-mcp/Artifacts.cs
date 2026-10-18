@@ -176,7 +176,7 @@ internal static class Artifacts
             var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
             // The same reader the inline renders use; a cancel throws before Save, so no half artifact reaches disk.
             using var reader = new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields,
-                                                    (levers ?? LeverNames.Legacy).ContainerHint, foldDepths, ct);
+                                                    (levers ?? LeverNames.Legacy).ContainerHint, foldDepths, ct, wholePass: true);
             for (int i = 0; i < q.Keys.Count; i++)
             {
                 var fk = q.Keys[i];
