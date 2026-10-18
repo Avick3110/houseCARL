@@ -1181,7 +1181,7 @@ public sealed class LoadOrderResolver : IDisposable
         lock (_reverseGate)
         {
             _reverse ??= new ReverseReferenceIndex();
-            return _reverse.Refresh(_names, _paths, s.BuiltStamps, i => { CheckUnchanged(i, s); return OpenOverlay(_paths[i], _dataDir); }, s.Excluded);
+            return _reverse.Refresh(_names, _paths, s.BuiltStamps, i => CheckUnchanged(i, s), i => { CheckUnchanged(i, s); return OpenOverlay(_paths[i], _dataDir); }, s.Excluded);
         }
     }
 
