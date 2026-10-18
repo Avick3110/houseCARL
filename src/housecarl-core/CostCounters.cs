@@ -37,6 +37,9 @@ public sealed class CostCounters
     /// <summary>Record bodies the chunk gather was asked for.</summary>
     public long KeysWanted;
 
+    /// <summary>Rows the scan detail reader read.</summary>
+    public long ScanRowReads;
+
     /// <summary>SkyPatcher layers an overlay read opened for replay.</summary>
     public long ReplayOpens;
 
