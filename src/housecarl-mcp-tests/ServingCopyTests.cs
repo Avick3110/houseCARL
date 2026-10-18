@@ -95,6 +95,24 @@ public sealed class ServingCopyTests
         Assert.NotEqual(low, Md5(w.LowPath));
     }
 
+    /// <summary>Compacting the master in place with repoint_externals refuses when a referencer's higher copy appears; no file changes.</summary>
+    [Fact]
+    public void ACompactRepointRefusesWhenAReferencerHasAHigherCopy()
+    {
+        using var w = new ServingCopyWorld(highFirst: false);
+        w.Svc.Stats();
+        w.AddHighCopy();
+        string low = Md5(w.LowPath), high = Md5(w.HighPath), master = Md5(w.MasterPath);
+
+        var refused = w.Svc.CompactPlugin("HcServeBase.esm", inPlace: true, repointExternals: true, acknowledge: true);
+
+        Assert.False(refused.Success);
+        Assert.Contains("HighMod", refused.Error);
+        Assert.Equal(low, Md5(w.LowPath));
+        Assert.Equal(high, Md5(w.HighPath));
+        Assert.Equal(master, Md5(w.MasterPath));
+    }
+
     /// <summary>Nothing moved: the write, the named read and the status call run no re-resolve and refuse nothing.</summary>
     [Fact]
     public void WhenTheServingCopyIsUnchangedNothingReResolves()
@@ -124,6 +142,7 @@ public sealed class ServingCopyWorld : IDisposable
     public ToolPathResolver Tools { get; }
     public string LowPath { get; }
     public string HighPath { get; }
+    public string MasterPath { get; }
     public FormKey Weapon { get; }
     public FormKey Keep { get; }
     readonly SkyrimMod _master;
@@ -145,7 +164,8 @@ public sealed class ServingCopyWorld : IDisposable
         _master = new SkyrimMod(new ModKey("HcServeBase", ModType.Master), SkyrimRelease.SkyrimSE);
         _master.ModHeader.Flags |= SkyrimModHeader.HeaderFlag.Master;
         _master.Weapons.Add(new Weapon(new FormKey(_master.ModKey, 0x801), SkyrimRelease.SkyrimSE) { EditorID = "HcServeBaseWeap" });
-        _master.BeginWrite.ToPath(Path.Combine(data, "HcServeBase.esm")).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        MasterPath = Path.Combine(data, "HcServeBase.esm");
+        _master.BeginWrite.ToPath(MasterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         Weapon = new FormKey(ModKey.FromFileName(Target), 0x801);
         Keep = new FormKey(ModKey.FromFileName(Target), 0x802);
 
@@ -169,7 +189,8 @@ public sealed class ServingCopyWorld : IDisposable
     void Write(string path, string edid)
     {
         var m = new SkyrimMod(ModKey.FromFileName(Target), SkyrimRelease.SkyrimSE);
-        m.Weapons.Add(new Weapon(Weapon, SkyrimRelease.SkyrimSE) { EditorID = edid });
+        m.Weapons.Add(new Weapon(Weapon, SkyrimRelease.SkyrimSE)
+            { EditorID = edid, Template = new FormLinkNullable<IWeaponGetter>(new FormKey(_master.ModKey, 0x801)) });   // a reference into the master
         m.Weapons.Add(new Weapon(Keep, SkyrimRelease.SkyrimSE) { EditorID = edid + "Keep" });
         m.Weapons.Add(new Weapon(new FormKey(_master.ModKey, 0x801), SkyrimRelease.SkyrimSE) { EditorID = "HcServeBaseWeap" });
         m.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { _master }).Write();
