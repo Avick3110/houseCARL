@@ -70,7 +70,7 @@ public sealed class ServingCopyTests
 
         var status = StatusTools.LoadOrderStatus(w.Svc, w.Tools, filter: ServingCopyWorld.Target);
 
-        Assert.Contains("refreshed", status);
+        Assert.Contains("refreshed now", status);
         Assert.Contains(ServingCopyWorld.HighEdid, Read(w));
     }
 
@@ -187,6 +187,26 @@ public sealed class ServingCopyTests
         Assert.Contains("another write is running", read);
         Assert.DoesNotContain(ServingCopyWorld.LowEdid, read);
         Assert.Equal(0, w.Svc.ServingCopyReResolves);
+    }
+
+    /// <summary>A read pinned before a concurrent refresh passes the old copy: it refuses, and neither the order nor the asset resolver is rebuilt.</summary>
+    [Fact]
+    public void AReadPinnedBeforeARefreshRefusesWithoutAnotherRebuild()
+    {
+        using var w = new ServingCopyWorld(highFirst: false);
+        w.Svc.Stats();
+        w.AddHighCopy();
+        StatusTools.LoadOrderStatus(w.Svc, w.Tools, filter: ServingCopyWorld.Target);   // the refresh: the index now holds the high copy
+        var host = (ILoadOrderHost)w.Svc;
+        var assets = host.Assets;
+        int reResolves = w.Svc.ServingCopyReResolves;
+
+        var moved = host.ServingCopyMoved([(ServingCopyWorld.Target, w.LowPath)]);
+
+        Assert.NotNull(moved);
+        Assert.Contains("now refreshed", moved!.Refusal("nothing was read"));
+        Assert.Equal(reResolves, w.Svc.ServingCopyReResolves);
+        Assert.Same(assets, host.Assets);
     }
 
     /// <summary>Nothing moved: the write, the named read and the status call run no re-resolve and refuse nothing.</summary>

@@ -257,8 +257,7 @@ static class StatusWire
         AppendCopies(sb, facts.Copies);
         if (facts.Moved is { } m)
             sb.Append("  index:       had the copy in ").Append(m.Indexed)
-              .Append(m.Refresh == ServingCopyRefresh.Refreshed ? "; refreshed now, so later calls read the served copy\n"
-                      : $"; not refreshed: {m.NotRefreshed.Why}; run status again {m.NotRefreshed.Then}\n");
+              .Append(m.NotRefreshed is { } held ? $"; not refreshed: {held}\n" : "; refreshed now, so later calls read the served copy\n");
         if (facts.Header is { } h)
         {
             var inv = System.Globalization.CultureInfo.InvariantCulture;

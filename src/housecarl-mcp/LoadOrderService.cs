@@ -727,41 +727,53 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         // No copy serves the name: a lone copy still has a header to read, and several leave none established.
         var from = copies.FirstOrDefault(c => c.Served == OutputLocations.ServedStanding.Serves) ?? (copies.Count == 1 ? copies[0] : null);
         string? indexed;
-        lock (_gate) indexed = _resolver?.Capture().PluginPath(pluginName);
-        var moved = indexed is null ? null : ServingCopyMoved(pluginName, indexed, hits);
+        Mo2Roots roots;
+        lock (_gate) { indexed = _resolver?.Capture().PluginPath(pluginName); roots = RootsLocked(); }
+        var moved = indexed is null || roots.ProfileDir.Length == 0 ? null : ServingCopyMoved(pluginName, indexed, comp, roots, hits);
         return new PluginFacts(copies, from, from is null ? null : PluginFile.ReadHeader(from.Path), moved);
 
         static long? SizeOf(string path) { try { return new FileInfo(path).Length; } catch { return null; } }
     }
 
-    ServingCopyMove? ILoadOrderHost.ServingCopyMoved(string plugin, string indexedPath) => ServingCopyMoved(plugin, indexedPath, null);
-
-    /// <summary>The live serving-copy check (#1196), the locate load_order_status runs: null when MO2 still serves
-    /// <paramref name="indexedPath"/>, else the order is re-resolved through the profile-change path, deferred while
-    /// another thread writes. <paramref name="hits"/> is a locate the caller already ran.</summary>
-    ServingCopyMove? ServingCopyMoved(string plugin, string indexedPath, IReadOnlyList<PluginFileHit>? hits)
+    ServingCopyMove? ILoadOrderHost.ServingCopyMoved(IEnumerable<(string Plugin, string? IndexedPath)> plugins)
     {
         Mo2Roots roots;
         lock (_gate) roots = RootsLocked();
         if (roots.ProfileDir.Length == 0) return null;          // an order handed in, not read from a profile: no MO2 copy to compare
-        hits ??= Mo2LoadOrder.LocatePlugin(Mo2LoadOrder.ReadComposition(roots.ProfileDir), roots.ModsDir, roots.DataDir, roots.OverwriteDir, plugin);
-        var live = hits.FirstOrDefault(h => h.Enabled);
-        if (live is not null && PluginPaths.SamePluginFile(live.Path, indexedPath)) return null;
-        var why = ServingCopyRefresh.WriteRunning;
-        lock (_gate)
-        {
-            if (Monitor.TryEnter(_writeGate))
+        var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);   // parsed once for every plugin checked
+        return plugins.Where(p => p.IndexedPath is not null)
+                      .Select(p => ServingCopyMoved(p.Plugin, p.IndexedPath!, comp, roots, null)).FirstOrDefault(m => m is not null);
+    }
+
+    /// <summary>The live serving-copy check (#1196): null when the first enabled copy, judged by JudgeServed, is
+    /// <paramref name="indexedPath"/>, else the order is re-resolved through the profile-change path, deferred while
+    /// another thread writes, and skipped when the index already holds the live copy. <paramref name="hits"/> is a full locate the caller already ran.</summary>
+    ServingCopyMove? ServingCopyMoved(string plugin, string indexedPath, Mo2Composition comp, Mo2Roots roots, IReadOnlyList<PluginFileHit>? hits)
+    {
+        IReadOnlyList<PluginFileHit> located = hits
+            ?? (Mo2LoadOrder.ServingCopy(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, plugin) is { } s ? [s] : []);
+        bool Serves(string? path) => path is not null && OutputLocations.JudgeServed(comp, located, path).Served == OutputLocations.ServedStanding.Serves;
+        if (Serves(indexedPath)) return null;
+        var live = located.FirstOrDefault(h => h.Enabled);
+        string? current;
+        lock (_gate) current = _resolver?.Capture().PluginPath(plugin);
+        string? why = null;                                       // the index already holds the live copy: only this call's view is old
+        if (current is null ? live is not null : !Serves(current))
+            lock (_gate)
             {
-                try
-                {
-                    var before = _resolvedPaths;
-                    why = ReResolve(RootsLocked()) ? ServingCopyRefresh.Refreshed
-                        : _profileHeld is not null ? ServingCopyRefresh.ProfileHeld : ServingCopyRefresh.EmptyRead;
-                    if (!ReferenceEquals(before, _resolvedPaths)) Interlocked.Increment(ref ServingCopyReResolves);   // a rebuild was published
-                }
-                finally { Monitor.Exit(_writeGate); }
+                why = "another write is running; run this again once it finishes";
+                if (Monitor.TryEnter(_writeGate))
+                    try
+                    {
+                        var before = _resolvedPaths;
+                        why = ReResolve(RootsLocked()) ? null : _profileHeld is not null
+                            ? "MO2 is holding its profile files; run this again once MO2 has saved them"
+                            : "the profile's load order read back empty; run this again once MO2 has rewritten loadorder.txt";
+                        if (!ReferenceEquals(before, _resolvedPaths)) Interlocked.Increment(ref ServingCopyReResolves);   // a rebuild was published
+                    }
+                    finally { Monitor.Exit(_writeGate); }
             }
-        }
+        hits ??= Mo2LoadOrder.LocatePlugin(comp, roots.ModsDir, roots.DataDir, roots.OverwriteDir, plugin);   // the refuse path only: label the index's copy
         var had = hits.FirstOrDefault(h => PluginPaths.SamePluginFile(h.Path, indexedPath))?.Where ?? ServingCopyMove.FolderOf(indexedPath);
         return new ServingCopyMove(Path.GetFileName(indexedPath), live?.Where, had, why);
     }

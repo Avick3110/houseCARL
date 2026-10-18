@@ -211,28 +211,35 @@ public static class Mo2LoadOrder
     /// <summary>As the profileDir overload, but reusing a <see cref="Mo2Composition"/> the caller already parsed, so a scan pays the modlist parse once.</summary>
     public static IReadOnlyList<PluginFileHit> LocatePlugin(
         Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string filename)
-    {
-        var hits = new List<PluginFileHit>();
-        var fn = Path.GetFileName(filename?.Trim() ?? "");
-        if (fn.Length == 0) return hits;
+        => Hits(comp, modsDir, dataDir, overwriteDir, filename, enabledOnly: false).ToList();
 
-        foreach (var (dir, where, enabled) in CandidateFolders(comp, modsDir, dataDir, overwriteDir))
+    /// <summary>The copy the game loads: the first hit from an enabled layer, walking only enabled layers; null when none holds it.</summary>
+    public static PluginFileHit? ServingCopy(Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string filename)
+        => Hits(comp, modsDir, dataDir, overwriteDir, filename, enabledOnly: true).FirstOrDefault();
+
+    static IEnumerable<PluginFileHit> Hits(Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string? filename, bool enabledOnly)
+    {
+        var fn = Path.GetFileName(filename?.Trim() ?? "");
+        if (fn.Length == 0) yield break;
+
+        foreach (var (dir, where, enabled) in CandidateFolders(comp, modsDir, dataDir, overwriteDir, enabledOnly))
         {
             if (string.IsNullOrWhiteSpace(dir)) continue;
-            try { var p = Path.Combine(dir, fn); if (File.Exists(p)) hits.Add(new PluginFileHit(p, where, enabled)); }
+            PluginFileHit? hit = null;
+            try { var p = Path.Combine(dir, fn); if (File.Exists(p)) hit = new PluginFileHit(p, where, enabled); }
             catch { /* an inaccessible candidate folder is simply not a hit — never a false 'found' */ }
+            if (hit is not null) yield return hit;
         }
-        return hits;
     }
 
     /// <summary>THE layer sequence a filename is searched across, in precedence order; written once because <see cref="LocatePlugin"/> and <see cref="AllPluginFileNames"/> must draw on the same set of places. The label identifies the layer and its state, never a remedy.</summary>
     static IEnumerable<(string dir, string where, bool enabled)> CandidateFolders(
-        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir)
+        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, bool enabledOnly = false)
     {
         yield return (overwriteDir, "overwrite", true);
         foreach (var mod in comp.EnabledMods) yield return (Path.Combine(modsDir, mod), $"mod '{mod}' (enabled)", true);
-        foreach (var mod in comp.DisabledMods) yield return (Path.Combine(modsDir, mod), $"mod '{mod}' (DISABLED)", false);
-        foreach (var dir in UnlistedModFolders(comp, modsDir))
+        foreach (var mod in enabledOnly ? [] : comp.DisabledMods) yield return (Path.Combine(modsDir, mod), $"mod '{mod}' (DISABLED)", false);
+        foreach (var dir in enabledOnly ? [] : UnlistedModFolders(comp, modsDir))
             yield return (dir, $"mod '{Path.GetFileName(dir)}' (UNLISTED)", false);
         yield return (dataDir, "game Data", true);
     }

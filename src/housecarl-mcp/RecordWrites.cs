@@ -339,7 +339,7 @@ internal sealed partial class RecordWrites
     string? InPlaceTarget(LoadOrderResolver.IndexView view, string target, out string targetName, out string? moved)
     {
         var path = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out targetName);
-        moved = path is null ? null : _host.ServingCopyMoved(targetName, path)?.Refusal("nothing was written");
+        moved = path is null ? null : _host.ServingCopyMoved([(targetName, path)])?.Refusal("nothing was written");
         return path;
     }
 

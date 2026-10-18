@@ -642,7 +642,7 @@ internal sealed partial class RecordReads
         // A copy the build did not index serves now: refuse rather than answer off the index's other copy.
         // A second locate that agrees with the index again still refuses: this call already saw the named copy serve.
         if (activeFilename && loc.Enabled && view.PluginPath(plugin) is { } indexed && !PluginPaths.SamePluginFile(indexed, loc.Path!))
-            return (null, (_host.ServingCopyMoved(plugin, indexed) ?? new ServingCopyMove(plugin, loc.Where, ServingCopyMove.FolderOf(indexed), ServingCopyRefresh.ChangedMidCall))
+            return (null, (_host.ServingCopyMoved([(plugin, indexed)]) ?? new ServingCopyMove(plugin, loc.Where, ServingCopyMove.FolderOf(indexed), "the served copy changed again during this call; run this again"))
                           .Refusal("nothing was read"));
         if (activeFilename && loc.Enabled)
             return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
