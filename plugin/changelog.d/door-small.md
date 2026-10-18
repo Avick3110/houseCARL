@@ -1,1 +1,0 @@
-- **Conflicts-only scans and multi-seed MGEF chains are faster: a 30,000-row `conflicts_only` spill took 4.8 s instead of 672 s.** An `info_order` or MGEF seed whose plugin will not open is now a row error naming it, not a failed call.

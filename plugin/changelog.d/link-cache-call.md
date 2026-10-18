@@ -1,1 +1,0 @@
-- **SkyPatcher post-state reads over many cells are about 4× faster (150 s to 35 s on a real install); nested apply, in-place and forward writes gain more.** On a test plugin, 2,000 placed-reference edits took 1 s, not 13 s.

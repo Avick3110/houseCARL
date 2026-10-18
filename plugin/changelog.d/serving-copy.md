@@ -1,1 +1,0 @@
-- **A plugin copied into a higher-priority mod is never missed by an in-place edit (it refreshes, asks for a rerun) or a read naming that mod; plain reads follow after a write or status call.** Check: copy one up, edit in place twice; the higher copy's md5 changes.

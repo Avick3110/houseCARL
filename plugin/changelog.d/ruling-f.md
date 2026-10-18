@@ -1,1 +1,0 @@
-- **A plugin saved by another program (xEdit, say) while a call runs now refuses that call, naming the plugin, and a write no longer overwrites the other program's save; rerun the call.** There is no way to check it on a live install without racing a save against a call.
