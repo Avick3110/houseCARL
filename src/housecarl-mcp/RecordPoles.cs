@@ -438,8 +438,7 @@ internal sealed partial class RecordReads
         {
             Interlocked.Increment(ref _counters.OffOrderSweeps);
             ISkyrimModGetter ov;
-            MidCallChange.PinOffOrder(_arm.Path!); // ruling F
-            try { ov = LoadOrderResolver.OpenOverlay(_arm.Path!, string.IsNullOrEmpty(_arm.DataDir) ? null : _arm.DataDir); }
+            try { ov = MidCallChange.Open(_arm.Path!, () => LoadOrderResolver.OpenOverlay(_arm.Path!, string.IsNullOrEmpty(_arm.DataDir) ? null : _arm.DataDir)); }
             catch (Exception ex) { return $"could not open '{_arm.Path}' as a Skyrim plugin: {ex.Message}"; }
             try
             {

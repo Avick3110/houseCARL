@@ -250,8 +250,7 @@ public static class ErrorCheck
                 ISkyrimModGetter? ov = null;
                 try
                 {
-                    MidCallChange.PinOffOrder(path); // ruling F
-                    ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path));
+                    ov = MidCallChange.Open(path, () => SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path)));
 
                     if (wantMasters)
                     {

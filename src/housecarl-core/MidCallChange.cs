@@ -94,7 +94,7 @@ public static class MidCallChange
 
     /// <summary>A file opened by path: an active plugin of the call's build is checked against its build stamp; a file
     /// outside the index is pinned at first sight, and every later open and check must find that stamp.</summary>
-    public static void PinOffOrder(string path)
+    static void PinOffOrder(string path)
     {
         if (Current.Value is not { } m || WroteIt(m, path)) return;
         var (name, full) = (Path.GetFileName(path), Key(path));
@@ -108,6 +108,9 @@ public static class MidCallChange
         lock (m) if (m.Pinned.TryAdd(full, now) || m.Pinned[full] == now) return;
         throw new LoadOrderChangedMidCallException(Changed(m, name));
     }
+
+    /// <summary>Check or pin <paramref name="path"/> as <see cref="PinOffOrder"/> does, then open it.</summary>
+    public static T Open<T>(string path, Func<T> open) { PinOffOrder(path); return open(); }
 
     /// <summary>A write's last check before it commits: no read found a change, and every file the call read or answered from still carries its stamp.</summary>
     public static void BeforeCommit()
