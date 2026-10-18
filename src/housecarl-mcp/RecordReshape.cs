@@ -89,6 +89,8 @@ internal sealed partial class RecordWrites
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"cannot compact '{name}': it was EXCLUDED from this session ({excluded}) — houseCARL won't renumber a plugin it can't fully parse. The file is untouched.");
                 srcPath = view.PluginPath(name);
+                if (inPlace && srcPath is not null && _host.ServingCopyMoved(name, srcPath) is { } moved)
+                    return WritePatchBuilder.CompactOutcome.Fail(moved.Refusal("nothing was written"));
                 if (srcPath is null || !File.Exists(srcPath))
                     return WritePatchBuilder.CompactOutcome.Fail($"'{name}' not found on disk at {srcPath ?? "<unresolved>"} — nothing to compact.");
             }

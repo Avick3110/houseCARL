@@ -279,12 +279,13 @@ internal sealed partial class RecordWrites
         IReadOnlyDictionary<WritePatchBuilder.PatchEdit, IMajorRecordGetter>? copyFromSources = null)
     {
         var view = resolver.Capture();
-        var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
+        var targetPath = InPlaceTarget(view, target, out var targetName, out var moved);
         if (targetPath is null)
             return WritePatchBuilder.PatchOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place edits the file the game actually loads. Nothing was written.")
                 with { Stamp = view.Stamp };
+        if (moved is not null) return WritePatchBuilder.PatchOutcome.Fail(moved) with { Stamp = view.Stamp };
 
         // The shared in-place pre-flight, BEFORE the dry-run branch and the consent prompt below.
         if (InPlacePreflight(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } refusal)
@@ -332,6 +333,14 @@ internal sealed partial class RecordWrites
             if (note is not null) return outcome with { Note = note };
         }
         return outcome;
+    }
+
+    /// <summary>An in-place target's index path, or null; <paramref name="moved"/> is the refusal when MO2 now serves another copy.</summary>
+    string? InPlaceTarget(LoadOrderResolver.IndexView view, string target, out string targetName, out string? moved)
+    {
+        var path = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out targetName);
+        moved = path is null ? null : _host.ServingCopyMoved(targetName, path)?.Refusal("nothing was written");
+        return path;
     }
 
     /// <summary>Resolve an active plugin's on-disk path by filename — exact match, then a lenient retry adding each plugin extension; null means no such active plugin.</summary>
@@ -511,12 +520,13 @@ internal sealed partial class RecordWrites
         LoadOrderResolver resolver, Mo2Roots roots, IReadOnlyList<FormKey> keys, string target, bool acknowledge)
     {
         var view = resolver.Capture();
-        var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
+        var targetPath = InPlaceTarget(view, target, out var targetName, out var moved);
         if (targetPath is null)
             return WritePatchBuilder.RemovalOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place removes from the file the game actually loads. Nothing was written.")
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
+        if (moved is not null) return WritePatchBuilder.RemovalOutcome.Fail(moved) with { Stamp = view.Stamp };
 
         // The shared in-place pre-flight, before the consent prompt, with remove's own remedy clauses.
         if (InPlacePreflight(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemoveNoEquivalent,
@@ -632,12 +642,13 @@ internal sealed partial class RecordWrites
         bool dryRun = false, WritePatchBuilder.OffOrderForwardSource? offOrder = null)
     {
         var view = resolver.Capture();
-        var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
+        var targetPath = InPlaceTarget(view, target, out var targetName, out var moved);
         if (targetPath is null)
             return WritePatchBuilder.ForwardOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place forwards into the file the game actually loads. Nothing was written.")
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
+        if (moved is not null) return WritePatchBuilder.ForwardOutcome.Fail(moved) with { Stamp = view.Stamp };
 
         // The shared in-place pre-flight, BEFORE the dry-run branch and the consent prompt below.
         if (InPlacePreflight(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } refusal)

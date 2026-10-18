@@ -237,9 +237,19 @@ public sealed record ClassParents(
     Dictionary<string, string> Edges, string? BaselineNote, string? TopUpMissing, string? SiblingPexMissing = null);
 
 /// <summary>One plugin's facts for the status verdict: every same-named copy on disk, the copy whose header was read (the served one, else a lone unserved one; null when no read was tried), and that header (null when unreadable).</summary>
-internal sealed record PluginFacts(IReadOnlyList<PluginCopy> Copies, PluginCopy? HeaderFrom, HousecarlCore.PluginHeaderFacts? Header)
+internal sealed record PluginFacts(IReadOnlyList<PluginCopy> Copies, PluginCopy? HeaderFrom, HousecarlCore.PluginHeaderFacts? Header,
+                                   ServingCopyMove? Moved = null)
 {
     public HousecarlCore.LocalizedFlagRead Localized => HousecarlCore.WriteEngine.LocalizedFlag(Header);
+}
+
+/// <summary>The copy MO2 serves for a plugin is no longer the one the index read: where each sits, and whether the order was re-resolved.</summary>
+internal sealed record ServingCopyMove(string Plugin, string Served, string Indexed, bool Refreshed)
+{
+    /// <summary>The one-sentence refusal; <paramref name="nothingDone"/> says what the call did not do.</summary>
+    public string Refusal(string nothingDone) =>
+        $"the game now loads '{Plugin}' from {Served}, but houseCARL's index still had the copy in {Indexed}; " +
+        (Refreshed ? "the index is now refreshed and " : "the index refreshes on the next call and ") + nothingDone + ". Run it again.";
 }
 
 /// <summary>One on-disk copy of a plugin filename: where it sits (the label carries the layer state), its served standing, and its size.</summary>
