@@ -15,10 +15,11 @@ public sealed class LoadOrderChangedMidCallException(string plugin) : Exception(
 public static class MidCallChange
 {
     /// <summary>One index build a call relied on; Answered and Opened are per plugin index and only ever set to true, so they need no lock.</summary>
-    internal sealed class Build(string[] names, string[] paths, FileStamp[] stamps)
+    internal sealed class Build(string[] names, string[] paths, FileStamp[] stamps, IReadOnlyDictionary<string, int> byName)
     {
         public readonly string[] Names = names, Paths = paths;
         public readonly FileStamp[] Stamps = stamps;
+        public readonly IReadOnlyDictionary<string, int> ByName = byName;   // plugin filename to index
         public readonly bool[] Answered = new bool[stamps.Length], Opened = new bool[stamps.Length];
     }
 
@@ -70,13 +71,13 @@ public static class MidCallChange
     static bool WroteIt(Mark m, string path) { lock (m) return m.Written.Count > 0 && m.Written.Contains(Key(path)); }
 
     /// <summary>The call relies on one index build; null outside a call.</summary>
-    internal static Build? Relied(string[] names, string[] paths, FileStamp[] stamps)
+    internal static Build? Relied(string[] names, string[] paths, FileStamp[] stamps, IReadOnlyDictionary<string, int> byName)
     {
         if (Current.Value is not { } m) return null;
         lock (m)
         {
             foreach (var b in m.Relied) if (ReferenceEquals(b.Stamps, stamps)) return b;
-            m.Relied.Add(new Build(names, paths, stamps));
+            m.Relied.Add(new Build(names, paths, stamps, byName));
             return m.Relied[^1];
         }
     }
@@ -99,8 +100,8 @@ public static class MidCallChange
         var (name, full) = (Path.GetFileName(path), Key(path));
         Build? b = null; int i = -1;
         lock (m) for (int k = m.Relied.Count - 1; k >= 0 && b is null; k--)
-            if ((i = Array.FindIndex(m.Relied[k].Paths, p => p.EndsWith(name, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(Key(p), full, StringComparison.OrdinalIgnoreCase))) >= 0) b = m.Relied[k];
+            if (m.Relied[k].ByName.TryGetValue(name, out i)
+                && string.Equals(Key(m.Relied[k].Paths[i]), full, StringComparison.OrdinalIgnoreCase)) b = m.Relied[k];
         if (b is not null) { Check(b, b.Names, b.Paths, b.Stamps, i); return; }
         BeforeCheck.Value?.Invoke(name);
         var now = FileStamp.Of(path);
