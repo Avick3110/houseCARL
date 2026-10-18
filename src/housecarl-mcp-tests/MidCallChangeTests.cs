@@ -189,6 +189,30 @@ public sealed class MidCallChangeTests : IDisposable
         Assert.Equal("HcMcRev.esm", ex.Plugin);
     }
 
+    /// <summary>The reverse index is warm; a referencing plugin is saved after the call's build and before its refresh,
+    /// so its held partition still matches the build stamp but not the file: the refresh refuses rather than answer
+    /// the old edges.</summary>
+    [Fact]
+    public void AHeldPartitionWhosePluginIsSavedMidCallRefuses()
+    {
+        var path = Path.Combine(_dir, "HcMcHeld.esm");
+        void World(bool linked)
+        {
+            var m = new SkyrimMod(ModKey.FromFileName("HcMcHeld.esm"), SkyrimRelease.SkyrimSE);
+            var e = m.MagicEffects.AddNew(); e.EditorID = "HcMcHeldMgef";
+            var spel = m.Spells.AddNew(); spel.EditorID = "HcMcHeldSpell";
+            if (linked) spel.Effects.Add(new Effect { BaseEffect = e.ToNullableLink(), Data = new EffectData { Magnitude = 1 } });
+            m.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        }
+        World(true);
+        using var resolver = LoadOrderResolver.Build(new[] { path });
+        resolver.Capture().EnsureReverseIndex();         // an earlier call warmed the index
+        var call = resolver.Capture();                   // this call's build
+        World(false); File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(5));
+        var ex = Assert.Throws<LoadOrderChangedMidCallException>(() => call.EnsureReverseIndex());
+        Assert.Equal("HcMcHeld.esm", ex.Plugin);
+    }
+
     /// <summary>An active plugin a write opens by path (a compact source, a merge donor) is checked against the call's
     /// build, not pinned at first sight: a save between the call's door and that open refuses, naming it.</summary>
     [Fact]
