@@ -747,17 +747,23 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         hits ??= Mo2LoadOrder.LocatePlugin(Mo2LoadOrder.ReadComposition(roots.ProfileDir), roots.ModsDir, roots.DataDir, roots.OverwriteDir, plugin);
         var live = hits.FirstOrDefault(h => h.Enabled);
         if (live is not null && PluginPaths.SamePluginFile(live.Path, indexedPath)) return null;
-        bool refreshed = false;
+        var why = ServingCopyRefresh.WriteRunning;
         lock (_gate)
         {
             if (Monitor.TryEnter(_writeGate))
             {
-                try { refreshed = ReResolve(RootsLocked()); Interlocked.Increment(ref ServingCopyReResolves); }
+                try
+                {
+                    var before = _resolvedPaths;
+                    why = ReResolve(RootsLocked()) ? ServingCopyRefresh.Refreshed
+                        : _profileHeld is not null ? ServingCopyRefresh.ProfileHeld : ServingCopyRefresh.EmptyRead;
+                    if (!ReferenceEquals(before, _resolvedPaths)) Interlocked.Increment(ref ServingCopyReResolves);   // a rebuild was published
+                }
                 finally { Monitor.Exit(_writeGate); }
             }
         }
-        var had = hits.FirstOrDefault(h => PluginPaths.SamePluginFile(h.Path, indexedPath))?.Where ?? indexedPath;
-        return new ServingCopyMove(Path.GetFileName(indexedPath), live?.Where, had, refreshed);
+        var had = hits.FirstOrDefault(h => PluginPaths.SamePluginFile(h.Path, indexedPath))?.Where ?? ServingCopyMove.FolderOf(indexedPath);
+        return new ServingCopyMove(Path.GetFileName(indexedPath), live?.Where, had, why);
     }
 
     /// <summary>Read MO2's OWN local Nexus update cache — every managed mod's meta.ini Nexus fields — with NO network; only Nexus-linked mods become entries, and a missing mods folder is named.</summary>
