@@ -575,16 +575,18 @@ public static partial class RecordsTools
         bool cmpPrewindowed = false;
         string? cmpWindowNote = null;
         int cmpSelected = 0;
-        IReadOnlyList<T> Windowed<T>(IReadOnlyList<T> rows)
+        // A total given means the rows are already the window, read alone out of a list of that many.
+        IReadOnlyList<T> Windowed<T>(IReadOnlyList<T> rows, int total = -1)
         {
             if (cmpPrewindowed) return rows;
             // Under to_file= the rows are the file and the render is manifest-only, so no window applies.
             if (wantFile) return rows;
-            if (offset == 0 && rows.Count <= lim) return rows;
-            var w = rows.Skip(offset).Take(lim).ToList();
+            int n = total < 0 ? rows.Count : total;
+            if (offset == 0 && n <= lim) return rows;
+            var w = total < 0 ? rows.Skip(offset).Take(lim).ToList() : rows;
             var note = w.Count == 0
-                ? $"window: no rows — offset={offset} is past the end of the {rows.Count}-row list"
-                : $"window: rows {offset + 1}–{offset + w.Count} of {rows.Count} (limit={lim}, offset={offset})";
+                ? $"window: no rows — offset={offset} is past the end of the {n}-row list"
+                : $"window: rows {offset + 1}–{offset + w.Count} of {n} (limit={lim}, offset={offset})";
             envelope.Add(new("window", note));
             headerLine += "\n" + note;
             return w;
@@ -694,6 +696,9 @@ public static partial class RecordsTools
             var readFieldCounts = ReferenceEquals(readFields, readPaths) ? countFields : null;
             IReadOnlyList<ReadOutcome> outcomes;
             RecordReads.PoleInfo? pole = null;
+            bool windowRead = false;
+            IReadOnlyList<ReadOutcome> ReadWinners(string[] which, out string? refusal, out OrderStamp? refusalEpoch)
+                => svc.ResolveBatch(which, readFields, false, depth, resolveNames, null, demand, out refusal, out refusalEpoch, containerHint, readFieldDepths, ct, countFields: readFieldCounts, summary: form == "summary");
             // Clocked like the scan's body lane, over the BODIES READ; docs/architecture/records-tool-front.md.
             var listClock = System.Diagnostics.Stopwatch.StartNew();
             if (srcSpec.ReplaysOverlay)
@@ -712,7 +717,11 @@ public static partial class RecordsTools
             else if (srcName is null)
             {
                 if (srcOverlay) Arm(srcSpec.OverlayStatement!);
-                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, containerHint, readFieldDepths, ct, countFields: readFieldCounts, summary: form == "summary");
+                // A walk's reached set is read only over the window it shows; a census, an aggregate, a file or an
+                // offset past the end reads it whole.
+                windowRead = walkDerived && !wantFile && !counts_only && form != "aggregate" && offset < ids.Length
+                             && !(offset == 0 && ids.Length <= lim);
+                outcomes = ReadWinners(windowRead ? ids.Skip(offset).Take(lim).ToArray() : ids, out var refusal, out var refusalEpoch);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + Wire.EpochLine(refusalEpoch);
@@ -757,7 +766,7 @@ public static partial class RecordsTools
                     : Census($"{Head(null)}\ncount={outcomes.Count} ok={ok} errors={err}" + Wire.EpochLine(epoch2));
             }
 
-            var winOutcomes = Windowed(dense ? unfolded : outcomes);   // render window; census/aggregate/artifacts stay complete
+            var winOutcomes = Windowed(dense ? unfolded : outcomes, windowRead ? ids.Length : -1);   // render window; census/aggregate/artifacts stay complete
             SpillState? spill2 = null;
             if (wantFile)
             {
@@ -774,6 +783,17 @@ public static partial class RecordsTools
             var rendered2 = Render2(spill2, out var truncated2);
             if (spill2 is null && truncated2)
             {
+                if (windowRead)
+                {
+                    // A cut window spills the whole list, so it is read whole here and the receipt counts every body.
+                    listClock.Start();
+                    var all = ReadWinners(ids, out var allRefusal, out var allEpoch);
+                    listClock.Stop();
+                    if ((allRefusal ?? SeamTear(all.FirstOrDefault(o => o.Stamp is not null)?.Stamp)) is { } allTear)
+                        return Wire.Refuse(json, allTear, allEpoch ?? epoch2);
+                    listCost = (all.Count(o => o.Record is not null && !o.FromEngine), listClock.ElapsedMilliseconds);
+                    outcomes = FoldRows(all);
+                }
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch2?.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteBatch(outcomes, reservation, "ceiling", Echo(), formLevers, summary: form == "summary", scan: owed);
                 rendered2 = Render2(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
