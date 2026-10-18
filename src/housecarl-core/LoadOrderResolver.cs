@@ -749,15 +749,6 @@ public sealed class LoadOrderResolver : IDisposable
 
         public ReverseReferenceIndex? ReverseIndex => _r.ReverseIndex;
 
-        /// <summary>Before a call parses a file by path outside the resolver: an active plugin must carry this build's
-        /// stamp, any other file is pinned for the call (ruling F).</summary>
-        public void CheckFile(string path)
-        {
-            if (_r._nameToIdx.TryGetValue(Path.GetFileName(path), out int idx)
-                && string.Equals(Path.GetFullPath(_r._paths[idx]), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase)) _r.CheckUnchanged(idx, _s);
-            else MidCallChange.PinOffOrder(path);
-        }
-
         public IEnumerable<FormKey> ConflictKeys() => _s.Overriders.Keys;
 
         /// <summary>Whether the named plugin holds a version of the record in this build, without allocating.</summary>
