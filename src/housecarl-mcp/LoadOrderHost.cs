@@ -48,6 +48,6 @@ internal interface ILoadOrderHost
     /// <summary>The in-place consent over the user config store, one per service.</summary>
     InPlaceConsent InPlaceConsent { get; }
 
-    /// <summary>The live serving-copy check: null when MO2 still serves the index's copy, else the move, the order re-resolved.</summary>
-    ServingCopyMove? ServingCopyMoved(string plugin, string indexedPath);
+    /// <summary>The live serving-copy check over the profile parsed once: null when MO2 still serves each index copy, else the first move.</summary>
+    ServingCopyMove? ServingCopyMoved(IEnumerable<(string Plugin, string? IndexedPath)> plugins);
 }

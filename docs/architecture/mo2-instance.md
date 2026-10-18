@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-08
+updated: 2026-10-18
 covers: [src/housecarl-core/Mo2Instance.cs, src/housecarl-core/Mo2LoadOrder.cs, src/housecarl-core/QtIniEscapes.cs, src/housecarl-core/Mo2ModMeta.cs, src/housecarl-core/UserConfig.cs, src/housecarl-mcp/SetupTools.cs, src/housecarl-mcp/StatusTools.cs, src/housecarl-mcp/UpdateStatusTools.cs]
 ---
 # The MO2 instance
@@ -32,7 +32,8 @@ overwrite → enabled → **disabled** → **unlisted** (a folder on disk `modli
 neither list, the state of a patch houseCARL just wrote) → Data — and return *all* hits rather than
 the first, so a filename several folders provide is reported instead of silently picked. The two
 share one `CandidateFolders` sequence: a "not found" and the "did you mean" that follows it must be
-drawn from the same set of places.
+drawn from the same set of places. `ServingCopy` walks the same sequence with the disabled and unlisted
+layers skipped and stops at the first hit: the copy the game loads, for the serving-copy check.
 
 A plugin the load order lists that no searched place provides goes into `Warnings`, never a silent
 drop, and the warning names only the places actually searched.
