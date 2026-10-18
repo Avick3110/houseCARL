@@ -757,7 +757,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             }
         }
         var had = hits.FirstOrDefault(h => PluginPaths.SamePluginFile(h.Path, indexedPath))?.Where ?? indexedPath;
-        return new ServingCopyMove(Path.GetFileName(indexedPath), live?.Where ?? "no enabled folder", had, refreshed);
+        return new ServingCopyMove(Path.GetFileName(indexedPath), live?.Where, had, refreshed);
     }
 
     /// <summary>Read MO2's OWN local Nexus update cache — every managed mod's meta.ini Nexus fields — with NO network; only Nexus-linked mods become entries, and a missing mods folder is named.</summary>
