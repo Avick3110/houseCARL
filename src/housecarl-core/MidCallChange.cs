@@ -83,13 +83,13 @@ public static class MidCallChange
     }
 
     /// <summary>Plugin <paramref name="idx"/> is about to be opened: its file must still carry the stamp its build read.</summary>
-    internal static void Check(Build? build, string[] names, string[] paths, FileStamp[] stamps, int idx)
+    internal static void Check(Build b, int idx)
     {
         var m = Current.Value;
-        if (m is not null && WroteIt(m, paths[idx])) return;
-        if (build is not null) build.Opened[idx] = true;
-        BeforeCheck.Value?.Invoke(names[idx]);
-        if (FileStamp.Of(paths[idx]) != stamps[idx]) throw new LoadOrderChangedMidCallException(Changed(m, names[idx]));
+        if (m is not null && WroteIt(m, b.Paths[idx])) return;
+        b.Opened[idx] = true;
+        BeforeCheck.Value?.Invoke(b.Names[idx]);
+        if (FileStamp.Of(b.Paths[idx]) != b.Stamps[idx]) throw new LoadOrderChangedMidCallException(Changed(m, b.Names[idx]));
     }
 
     /// <summary>A file opened by path: an active plugin of the call's build is checked against its build stamp; a file
@@ -102,7 +102,7 @@ public static class MidCallChange
         lock (m) for (int k = m.Relied.Count - 1; k >= 0 && b is null; k--)
             if (m.Relied[k].ByName.TryGetValue(name, out i)
                 && string.Equals(Key(m.Relied[k].Paths[i]), full, StringComparison.OrdinalIgnoreCase)) b = m.Relied[k];
-        if (b is not null) { Check(b, b.Names, b.Paths, b.Stamps, i); return; }
+        if (b is not null) { Check(b, i); return; }
         BeforeCheck.Value?.Invoke(name);
         var now = FileStamp.Of(path);
         lock (m) if (m.Pinned.TryAdd(full, now) || m.Pinned[full] == now) return;

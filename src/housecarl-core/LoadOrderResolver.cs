@@ -1149,9 +1149,7 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>Ruling F: before a call opens plugin <paramref name="idx"/>, its file must still carry the stamp build <paramref name="s"/> read it at;
     /// else the whole call refuses, naming the plugin. One stat per open, never per record.</summary>
     internal void CheckUnchanged(int idx, IndexSnapshot s)
-    {
-        MidCallChange.Check(MidCallChange.Relied(_names, _paths, s.BuiltStamps, _nameToIdx), _names, _paths, s.BuiltStamps, idx);
-    }
+        => MidCallChange.Check(MidCallChange.Relied(_names, _paths, s.BuiltStamps, _nameToIdx) ?? new(_names, _paths, s.BuiltStamps, _nameToIdx), idx);
 
     /// <summary>Re-stat the plugin files and rebuild the index if any last-write OR length differs from the baseline, then return true. A changed plugin SET is a new order; the caller re-Builds.</summary>
     public bool RefreshIfStale()
