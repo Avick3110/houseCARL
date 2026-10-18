@@ -278,6 +278,21 @@ public sealed class MidCallChangeTests : IDisposable
         Assert.Contains($"'{MasterName}' changed on disk during this call", mark.Settle());
     }
 
+    /// <summary>A session opened after a refresh checks its open against the new build; a view still on the old build
+    /// reading the same plugin through that session checks the cached open against its own build and refuses.</summary>
+    [Fact]
+    public void ASessionsCachedOpenIsCheckedAgainstAViewOnAnotherBuild()
+    {
+        using var resolver = LoadOrderResolver.Build(new[] { _master, _a, _b });
+        var older = resolver.Capture();
+        Save(_aNew, _a);
+        Assert.True(resolver.RefreshIfStale());
+        using var session = resolver.OpenSession();
+        Assert.NotNull(session.LinkCacheFor(AName));
+        var ex = Assert.Throws<LoadOrderChangedMidCallException>(() => older.GetRecord(session, AName, _weapons[0]));
+        Assert.Equal(AName, ex.Plugin);
+    }
+
     /// <summary>An answer read off the index alone opens no plugin, so the open check never sees it: the dialogue
     /// check judges a right-typed LinkTo target by the index (#1173). The target's plugin is saved mid-call, and the
     /// call's last check refuses, naming it.</summary>

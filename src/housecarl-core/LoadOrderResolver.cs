@@ -219,6 +219,7 @@ public sealed class LoadOrderResolver : IDisposable
         {
             public ISkyrimModGetter Overlay { get; } = overlay;
             public ILinkCache? Cache;
+            public IndexSnapshot? Checked;                            // the build its file was last checked against
         }
 
         /// <summary>The counters of the resolver this session reads through.</summary>
@@ -235,8 +236,9 @@ public sealed class LoadOrderResolver : IDisposable
             {
                 _r.CheckUnchanged(idx, s);
                 System.Threading.Interlocked.Increment(ref _r.Counters.SessionOverlayOpens);
-                _open[idx] = op = new OpenPlugin(OpenOverlay(_r._paths[idx], _r._dataDir));
+                _open[idx] = op = new OpenPlugin(OpenOverlay(_r._paths[idx], _r._dataDir)) { Checked = s };
             }
+            else if (op.Checked != s) { _r.CheckUnchanged(idx, s); op.Checked = s; }   // a reader on another build checks its own stamp
             return op;
         }
 
