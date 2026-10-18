@@ -66,7 +66,8 @@ internal sealed class ScanDetailReader : IDisposable
         int start = BodyPrefetch.ChunkStart(i);
         if (start == _chunkStart) return;
         _chunkStart = start;
-        _chunk = BodyPrefetch.Gather(view, _session, _q.Pin!.Resolver.Counters, _q.Keys, start,
+        _named = null;
+        _chunk =BodyPrefetch.Gather(view, _session, _q.Pin!.Resolver.Counters, _q.Keys, start,
                                      Math.Min(start + BodyPrefetch.ChunkRows, _q.Keys.Count),
                                      SourceAt, _ct);
         _named = _resolveNames && _wholePass ? NameChunk(start, Math.Min(start + BodyPrefetch.ChunkRows, _q.Keys.Count)) : null;
