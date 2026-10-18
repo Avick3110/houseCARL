@@ -21,6 +21,8 @@ public static partial class RecordsTools
     /// expression across both (#810, Aaron 2026-09-22).</summary>
     internal static int TableRowLimit(int limit) => limit <= 0 ? DefaultLimit : limit;
 
+    internal static Action? BeforeCutWindowWholeRead;
+
     /// <summary>The plugins= SELECT scope: which records are considered, as against source=, which decides whose version is read.</summary>
     public sealed class RecordsScope
     {
@@ -786,11 +788,13 @@ public static partial class RecordsTools
                 if (windowRead)
                 {
                     // A cut window spills the whole list, so it is read whole here and the receipt counts both reads' bodies.
+                    BeforeCutWindowWholeRead?.Invoke();                           // test seam; null in the product
                     listClock.Start();
                     var all = ReadWinners(ids, out var allRefusal, out var allEpoch);
                     listClock.Stop();
-                    if ((allRefusal ?? SeamTear(all.FirstOrDefault(o => o.Stamp is not null)?.Stamp)) is { } allTear)
-                        return Wire.Refuse(json, allTear, allEpoch ?? epoch2);
+                    var allStamp = allEpoch ?? all.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
+                    if ((allRefusal ?? SeamTear(allStamp)) is { } allTear)
+                        return json ? JsonWire.RenderError(allTear, allStamp) : "error: " + allTear + Wire.EpochLine(allStamp);
                     listCost = (listCost.Item1 + all.Count(o => o.Record is not null && !o.FromEngine), listClock.ElapsedMilliseconds);
                     outcomes = FoldRows(all);
                 }

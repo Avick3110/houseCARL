@@ -20,6 +20,15 @@ public sealed class RenderDoorWorld : IDisposable
     public IReadOnlyList<string> WeaponIds { get; }
     public string Scratch => Path.Combine(_mo2.Root, "out");
 
+    /// <summary>Add a third plugin to the profile without touching the other two, so the next read sees a new epoch.</summary>
+    public void AddLate()
+    {
+        var late = new ModKey("HcRdLate", ModType.Plugin);
+        new SkyrimMod(late, SkyrimRelease.SkyrimSE).BeginWrite.ToPath(_mo2.InMod("RdLate", late)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        var names = new[] { Base, Extra, late }.Select(k => k.FileName.String).ToList();
+        _mo2.Profile(string.Join("\r\n", names) + "\r\n", string.Join("", names.Select(n => "*" + n + "\r\n")), "+RdLate\r\n+RdExtra\r\n+RdBase\r\n");
+    }
+
     public RenderDoorWorld()
     {
         var b = new SkyrimMod(Base, SkyrimRelease.SkyrimSE);
@@ -142,5 +151,39 @@ public sealed class RenderDoorTests : IClassFixture<RenderDoorWorld>
     {
         var text = RecordsTools.Records(_w.Svc, formids: new[] { Seed }, walk: Reverse(), counts_only: true, limit: 10);
         Assert.Contains($"count={Reached} ok={Reached} errors=0", text);
+    }
+}
+
+/// <summary>A load-order change between a cut walk window's read and its whole re-read.</summary>
+[Collection(SerialCollection.Name)]   // sets the process-wide cut-window seam
+[Trait("tier", "integration")]
+public sealed class RenderDoorSeamTests
+{
+    // Refused like the window read's own tear: "error: " and the build the tear was found on, in text and json.
+    [Theory]
+    [InlineData("text")]
+    [InlineData("json")]
+    public void ACutWindowsWholeReadRefusesOnTheBuildItFoundTheTearOn(string format)
+    {
+        using var w = new RenderDoorWorld();
+        RecordsTools.BeforeCutWindowWholeRead = w.AddLate;
+        string answer;
+        try
+        {
+            answer = RecordsTools.Records(w.Svc, formids: new[] { ScratchMo2.Fid(w.KwB1) }, walk: new() { direction = "reverse", max_nodes = 5000 },
+                                          limit: 40, max_chars: 3000, format: format,
+                                          project: new() { form = "fields", fields = new[] { "Keywords" }, depth = 2 });
+        }
+        finally { RecordsTools.BeforeCutWindowWholeRead = null; }
+        var tear = Regex.Match(answer, @"deriving the selection \(epoch=([^)]+)\) and reading it \(epoch=([^)]+)\)");
+        Assert.True(tear.Success, answer);
+        Assert.NotEqual(tear.Groups[1].Value, tear.Groups[2].Value);
+        if (format == "json")
+            Assert.Equal(tear.Groups[2].Value, JsonDocument.Parse(answer).RootElement.GetProperty("epoch").GetString());
+        else
+        {
+            Assert.StartsWith("error: the load order changed", answer);
+            Assert.Contains("\nepoch=" + tear.Groups[2].Value, answer);
+        }
     }
 }
