@@ -560,7 +560,7 @@ public sealed class LoadOrderResolver : IDisposable
     public IndexView Capture(AbsenceCache? absences)
     {
         var s = _snap;
-        return new(this, s, absences, MidCallChange.Relied(_names, _paths, s.BuiltStamps));   // ruling F: what the call answers from
+        return new(this, s, absences, MidCallChange.Relied(_names, _paths, s.BuiltStamps, _nameToIdx));   // ruling F: what the call answers from
     }
 
     // ---- runtime FormIDs: the eight-hex form the game, the console and the logs print --------------------
@@ -1159,7 +1159,7 @@ public sealed class LoadOrderResolver : IDisposable
     /// else the whole call refuses, naming the plugin. One stat per open, never per record.</summary>
     internal void CheckUnchanged(int idx, IndexSnapshot s)
     {
-        MidCallChange.Check(MidCallChange.Relied(_names, _paths, s.BuiltStamps), _names, _paths, s.BuiltStamps, idx);
+        MidCallChange.Check(MidCallChange.Relied(_names, _paths, s.BuiltStamps, _nameToIdx), _names, _paths, s.BuiltStamps, idx);
     }
 
     /// <summary>Re-stat the plugin files and rebuild the index if any last-write OR length differs from the baseline, then return true. A changed plugin SET is a new order; the caller re-Builds.</summary>
