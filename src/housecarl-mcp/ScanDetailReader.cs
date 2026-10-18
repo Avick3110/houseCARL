@@ -23,6 +23,7 @@ internal sealed class ScanDetailReader : IDisposable
 
     BodyPrefetch.Chunk? _chunk;
     int _chunkStart = -1;
+    List<ReadOutcome>? _named;   // resolve_names: the chunk's rows, read and then named in one pass through the door
 
     internal ScanDetailReader(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int depth,
                               bool resolveNames, bool winnerFields, string? containerHint,
@@ -47,6 +48,7 @@ internal sealed class ScanDetailReader : IDisposable
         var fk = _q.Keys[i];
         var plugin = SourceAt(i);
         FillChunk(i);
+        if (_named is not null) return _named[i - _chunkStart];
         var body = _chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
         return _svc.ResolveReadOn(_q, fk, plugin, _fields, false, _depth, _resolveNames, _linkMemo,
                                   _containerHint, _depths, _session, body, heldParent: _chunk is null ? null : _chunk.Parent);
@@ -66,6 +68,22 @@ internal sealed class ScanDetailReader : IDisposable
         _chunk = BodyPrefetch.Gather(view, _session, _q.Pin!.Resolver.Counters, _q.Keys, start,
                                      Math.Min(start + BodyPrefetch.ChunkRows, _q.Keys.Count),
                                      SourceAt, _ct);
+        _named = _resolveNames ? NameChunk(start, Math.Min(start + BodyPrefetch.ChunkRows, _q.Keys.Count)) : null;
+    }
+
+    /// <summary>A chunk's rows read without names, then every link target they render that the render-wide memo
+    /// does not hold read a group at a time through the door.</summary>
+    List<ReadOutcome> NameChunk(int start, int end)
+    {
+        var rows = new List<ReadOutcome>(end - start);
+        for (int r = start; r < end; r++)
+        {
+            _ct.ThrowIfCancellationRequested();
+            rows.Add(_svc.ResolveReadOn(_q, _q.Keys[r], SourceAt(r), _fields, false, _depth, false, null,
+                                        _containerHint, _depths, _session, _chunk!.Body(_q.Keys[r]), heldParent: _chunk.Parent));
+        }
+        RecordReads.NameLinks(rows, _view!.Value, _session!, _linkMemo!, _ct);
+        return rows;
     }
 
     public void Dispose() => _session?.Dispose();
