@@ -196,6 +196,10 @@ internal sealed partial class RecordWrites
             // The consent gate: any in-place overwrite — the target, the external referencers, or both — needs acknowledge.
             bool willOverwriteTarget = inPlace;
             bool willRepoint = id.HasExternalReferencers && repointExternals;
+            // Each referencer rewritten in place must still be the copy MO2 serves; the first that moved refuses.
+            if (willRepoint && id.ExternalPlugins.Select(p => view.PluginPath(p) is { } pp ? _host.ServingCopyMoved(p, pp) : null)
+                                                 .FirstOrDefault(m => m is not null) is { } extMoved)
+                return WritePatchBuilder.CompactOutcome.Fail(extMoved.Refusal("nothing was written"));
 
             // A plugin the identify pass could not read through REFUSES the in-place lane, before anything is written.
             // The new-plugin lane keeps the note — its output is reviewed before it replaces anything.
