@@ -737,7 +737,7 @@ public static class RemapEngine
             return RepointResult.Fail($"repoint target '{pluginName}' not found on disk at {path ?? "<unresolved>"} — the file is untouched.");
 
         SkyrimMod targetMod;
-        view.CheckFile(path); // ruling F
+        MidCallChange.PinOffOrder(path); // ruling F
         try { targetMod = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path)); }
         catch (Exception ex)
         {

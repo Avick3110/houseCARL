@@ -271,7 +271,7 @@ public static class WritePatchBuilder
         {
             if (!File.Exists(outPath))
                 return PatchOutcome.Fail($"cannot extend: no existing patch at {outPath}. Omit into= to create it fresh.");
-            resolver.Capture(null).CheckFile(outPath); // ruling F
+            MidCallChange.PinOffOrder(outPath); // ruling F
             try { patchMod = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath)); }
             catch (Exception ex) { return PatchOutcome.Fail($"cannot open patch to extend ({fileName}): {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -729,7 +729,7 @@ public static class WritePatchBuilder
         if (!File.Exists(targetPath))
             return PatchOutcome.Fail($"in-place target '{fileName}' not found on disk at {targetPath} — the file is untouched.");
         SkyrimMod targetMod;
-        resolver.Capture(null).CheckFile(targetPath); // ruling F
+        MidCallChange.PinOffOrder(targetPath); // ruling F
         try { targetMod = SkyrimMod.CreateFromBinary(targetPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(targetPath)); }
         catch (Exception ex)
             { return PatchOutcome.Fail($"cannot open '{fileName}' to edit in place ({WriteEngine.Describe(ex)}) — a plugin Mutagen can't parse is refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED."); }
@@ -1018,7 +1018,7 @@ public static class WritePatchBuilder
             return RemovalOutcome.Fail($"cannot remove: no existing patch at {outPath}. Removal targets a patch houseCARL already created.");
 
         SkyrimMod patchMod;
-        resolver.Capture(null).CheckFile(outPath); // ruling F
+        MidCallChange.PinOffOrder(outPath); // ruling F
         try { patchMod = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath)); }
         catch (Exception ex) { return RemovalOutcome.Fail($"cannot open patch to remove from ({fileName}): {ex.GetType().Name}: {ex.Message}"); }
 
@@ -1159,7 +1159,7 @@ public static class WritePatchBuilder
         if (!File.Exists(targetPath))
             return RemovalOutcome.Fail($"in-place target '{fileName}' not found on disk at {targetPath} — the file is untouched.");
         SkyrimMod targetMod;
-        resolver.Capture(null).CheckFile(targetPath); // ruling F
+        MidCallChange.PinOffOrder(targetPath); // ruling F
         try { targetMod = SkyrimMod.CreateFromBinary(targetPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(targetPath)); }
         catch (Exception ex)
             { return RemovalOutcome.Fail($"cannot open '{fileName}' to remove from in place ({WriteEngine.Describe(ex)}) — a plugin Mutagen can't parse is refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED."); }
@@ -1398,7 +1398,7 @@ public static class WritePatchBuilder
         if (!File.Exists(targetPath))
             return ForwardOutcome.Fail($"in-place target '{fileName}' not found on disk at {targetPath} — the file is untouched.");
         SkyrimMod targetMod;
-        resolver.Capture(null).CheckFile(targetPath); // ruling F
+        MidCallChange.PinOffOrder(targetPath); // ruling F
         try { targetMod = SkyrimMod.CreateFromBinary(targetPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(targetPath)); }
         catch (Exception ex)
             { return ForwardOutcome.Fail($"cannot open '{fileName}' to forward into in place ({WriteEngine.Describe(ex)}) — a plugin Mutagen can't parse is refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED."); }
@@ -1783,7 +1783,7 @@ public static class WritePatchBuilder
         {
             if (!File.Exists(outPath))
                 return ForwardOutcome.Fail($"cannot extend: no existing patch at {outPath}. Omit into= to create it fresh.");
-            resolver.Capture(null).CheckFile(outPath); // ruling F
+            MidCallChange.PinOffOrder(outPath); // ruling F
             try { patchMod = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath)); }
             catch (Exception ex) { return ForwardOutcome.Fail($"cannot open patch to extend ({fileName}): {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -2050,7 +2050,7 @@ public static class WritePatchBuilder
     public static string? RoundTripRefusalAt(LoadOrderResolver.IndexView view, string path, SubrecordInventory.Remedy remedy)
     {
         SkyrimMod parsed;
-        view.CheckFile(path); // ruling F
+        MidCallChange.PinOffOrder(path); // ruling F
         try { parsed = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path)); }
         catch (Exception ex)
             { return SubrecordInventory.CouldNotRun(Path.GetFileName(path), $"it does not parse: {WriteEngine.Describe(ex)}"); }
@@ -2326,7 +2326,7 @@ public static class WritePatchBuilder
                     "re-serialize a plugin it can't fully parse (that would risk dropping a record it couldn't read, Q3). The file is UNTOUCHED.");
             if (!File.Exists(outPath))
                 return CreateOutcome.Fail($"in-place target '{fileName}' not found on disk at {outPath} — the file is untouched.");
-            resolver.Capture(null).CheckFile(outPath); // ruling F
+            MidCallChange.PinOffOrder(outPath); // ruling F
             try { patchMod = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath)); }
             catch (Exception ex)
                 { return CreateOutcome.Fail($"cannot open '{fileName}' to create into it in place ({WriteEngine.Describe(ex)}) — a plugin Mutagen can't parse is refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED."); }
@@ -2335,7 +2335,7 @@ public static class WritePatchBuilder
         {
             if (!File.Exists(outPath))
                 return CreateOutcome.Fail($"cannot extend: no existing patch at {outPath}. Omit into= to create it fresh.");
-            resolver.Capture(null).CheckFile(outPath); // ruling F
+            MidCallChange.PinOffOrder(outPath); // ruling F
             try { patchMod = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath)); }
             catch (Exception ex) { return CreateOutcome.Fail($"cannot open patch to extend ({fileName}): {ex.GetType().Name}: {ex.Message}"); }
         }
