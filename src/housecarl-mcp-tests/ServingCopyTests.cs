@@ -95,6 +95,41 @@ public sealed class ServingCopyTests
         Assert.NotEqual(low, Md5(w.LowPath));
     }
 
+    /// <summary>Each in-place lane refuses once a higher copy appears, and neither copy changes.</summary>
+    [Theory]
+    [InlineData("apply")]
+    [InlineData("create")]
+    [InlineData("remove")]
+    [InlineData("forward")]
+    [InlineData("compact")]
+    public void EachInPlaceLaneRefusesWhenAHigherCopyAppears(string lane)
+    {
+        using var w = new ServingCopyWorld(highFirst: false);
+        w.Svc.Stats();
+        w.AddHighCopy();
+        string low = Md5(w.LowPath), high = Md5(w.HighPath);
+        const string T = ServingCopyWorld.Target;
+
+        (bool Success, string? Error) r = lane switch
+        {
+            "apply" => Out(w.Svc.ApplyEdits(new[] { new BulkOp { Formid = ServingCopyWorld.Fid(w.Weapon), FieldPath = "EditorID", Value = "HcServeEdited" } },
+                                            null, null, target: T, inPlace: true, acknowledge: true)),
+            "create" => Out(w.Svc.CreateRecordsBatch(new[] { new CreateOp { RecordType = "Keyword", Editorid = "HcServeNewKw" } },
+                                                     null, null, target: T, inPlace: true, acknowledge: true)),
+            "remove" => Out(RemoveInPlace(w)),
+            "forward" => Out(w.Svc.ForwardRecords(new[] { "000801:HcServeBase.esm" }, "HcServeBase.esm", null, null,
+                                                  target: T, inPlace: true, acknowledge: true)),
+            _ => Out(w.Svc.CompactPlugin(T, inPlace: true, acknowledge: true)),
+        };
+
+        Assert.False(r.Success);
+        Assert.Contains("HighMod", r.Error);
+        Assert.Equal(low, Md5(w.LowPath));
+        Assert.Equal(high, Md5(w.HighPath));
+
+        static (bool, string?) Out(dynamic o) => (o.Success, o.Error);
+    }
+
     /// <summary>Compacting the master in place with repoint_externals refuses when a referencer's higher copy appears; no file changes.</summary>
     [Fact]
     public void ACompactRepointRefusesWhenAReferencerHasAHigherCopy()
