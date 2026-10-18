@@ -244,13 +244,15 @@ internal sealed record PluginFacts(IReadOnlyList<PluginCopy> Copies, PluginCopy?
 }
 
 /// <summary>The copy MO2 serves for a plugin is no longer the one the index read: where each sits, and whether the order was re-resolved.</summary>
-internal sealed record ServingCopyMove(string Plugin, string Served, string Indexed, bool Refreshed)
+internal sealed record ServingCopyMove(string Plugin, string? Served, string Indexed, bool Refreshed)
 {
-    /// <summary>The one-sentence refusal; <paramref name="nothingDone"/> says what the call did not do.</summary>
+    /// <summary>The one-sentence refusal; <paramref name="nothingDone"/> says what the call did not do. A null
+    /// <see cref="Served"/> means no enabled folder holds the file.</summary>
     public string Refusal(string nothingDone) =>
-        $"the game now loads '{Plugin}' from {Served}, but houseCARL's index still had the copy in {Indexed}; " +
-        (Refreshed ? $"the index is now refreshed and {nothingDone}. Run it again."
-                   : $"another write is running, so the index was not refreshed and {nothingDone}. Run this again once it finishes.");
+        (Served is null ? $"no enabled folder holds '{Plugin}' now, so the game does not load it" : $"the game now loads '{Plugin}' from {Served}") +
+        $", but houseCARL's index still had the copy in {Indexed}; " +
+        (Refreshed ? $"the index is now refreshed and {nothingDone}; run it again."
+                   : $"another write is running, so the index was not refreshed and {nothingDone}; run this again once it finishes.");
 }
 
 /// <summary>One on-disk copy of a plugin filename: where it sits (the label carries the layer state), its served standing, and its size.</summary>
