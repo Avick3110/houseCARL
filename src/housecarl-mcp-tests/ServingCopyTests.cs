@@ -148,6 +148,47 @@ public sealed class ServingCopyTests
         Assert.Equal(master, Md5(w.MasterPath));
     }
 
+    /// <summary>The profile's load order reads back empty: the in-place remove refuses naming the empty read, no rebuild is counted, no file changes.</summary>
+    [Fact]
+    public void AnEmptyLoadOrderReadRefusesNamingTheEmptyRead()
+    {
+        using var w = new ServingCopyWorld(highFirst: false);
+        w.Svc.Stats();
+        w.AddHighCopy();
+        File.WriteAllText(Path.Combine(w.Root, "instance", "profiles", "Default", "loadorder.txt"), "# header\r\n");
+        string low = Md5(w.LowPath), high = Md5(w.HighPath);
+
+        var refused = RemoveInPlace(w);
+
+        Assert.False(refused.Success);
+        Assert.Contains("load order read back empty", refused.Error);
+        Assert.Equal(0, w.Svc.ServingCopyReResolves);
+        Assert.Equal(low, Md5(w.LowPath));
+        Assert.Equal(high, Md5(w.HighPath));
+    }
+
+    /// <summary>Another thread holds the write gate: the mod-named read refuses naming the running write and rebuilds nothing.</summary>
+    [Fact]
+    public void AReadWhileAnotherWriteRunsRefusesNamingTheWrite()
+    {
+        using var w = new ServingCopyWorld(highFirst: false);
+        w.Svc.Stats();
+        w.AddHighCopy();
+        using var held = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var gate = ((ILoadOrderHost)w.Svc).WriteGate;
+        var writer = new Thread(() => { lock (gate) { held.Set(); release.Wait(); } });
+        writer.Start();
+        held.Wait();
+        string read;
+        try { read = Read(w, Je($"{{\"file\": \"{ServingCopyWorld.Target}\", \"mod\": \"HighMod\"}}")); }
+        finally { release.Set(); writer.Join(); }
+
+        Assert.Contains("another write is running", read);
+        Assert.DoesNotContain(ServingCopyWorld.LowEdid, read);
+        Assert.Equal(0, w.Svc.ServingCopyReResolves);
+    }
+
     /// <summary>Nothing moved: the write, the named read and the status call run no re-resolve and refuse nothing.</summary>
     [Fact]
     public void WhenTheServingCopyIsUnchangedNothingReResolves()
