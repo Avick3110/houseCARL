@@ -1355,7 +1355,7 @@ public static class WriteEngine
     {
         try
         {
-            MidCallChange.BeforeCommit();                     // ruling F: every file this call relied on is still the one it read
+            MidCallChange.BeforeCommit();                     // every file this call relied on is still the one it read
             AtomicFile.Commit(tmpPath, outputPath);
             MidCallChange.AfterCommit(outputPath);
         }
