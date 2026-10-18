@@ -130,6 +130,15 @@ public sealed class RenderDoorTests : IClassFixture<RenderDoorWorld>
 
     const long CutNamedScanRows = 2011;
 
+    // The aggregate counts the whole reached set, never the window.
+    [Fact]
+    public void AnAggregateOverAWalkCountsEveryReachedRow()
+    {
+        var text = RecordsTools.Records(_w.Svc, formids: new[] { Seed }, walk: Reverse(), limit: 10,
+                                        project: new() { form = "aggregate", group_by = "type" });
+        Assert.Contains($"\n{Reached} record(s)", text);
+    }
+
     [Fact]
     public void CountsOnlyOnAWalkReadsEveryRow()
     {
