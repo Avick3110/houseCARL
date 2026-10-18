@@ -785,13 +785,13 @@ public static partial class RecordsTools
             {
                 if (windowRead)
                 {
-                    // A cut window spills the whole list, so it is read whole here and the receipt counts every body.
+                    // A cut window spills the whole list, so it is read whole here and the receipt counts both reads' bodies.
                     listClock.Start();
                     var all = ReadWinners(ids, out var allRefusal, out var allEpoch);
                     listClock.Stop();
                     if ((allRefusal ?? SeamTear(all.FirstOrDefault(o => o.Stamp is not null)?.Stamp)) is { } allTear)
                         return Wire.Refuse(json, allTear, allEpoch ?? epoch2);
-                    listCost = (all.Count(o => o.Record is not null && !o.FromEngine), listClock.ElapsedMilliseconds);
+                    listCost = (listCost.Item1 + all.Count(o => o.Record is not null && !o.FromEngine), listClock.ElapsedMilliseconds);
                     outcomes = FoldRows(all);
                 }
                 using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.Records, epoch2?.Epoch ?? "none");
