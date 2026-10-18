@@ -1,1 +1,0 @@
-- **A walk whose window fits reads only the rows it shows, and its receipt (`read N record bodies`) counts them.** On ARR the 50,001-record iron-cuirass reverse walk answers in 1.3 s instead of 5.3 s.

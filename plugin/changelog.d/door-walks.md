@@ -1,1 +1,0 @@
-- **Reverse and forward walks are faster on large orders.** Check: a reverse walk from a widely used record lists the same referrers, and the same dropped-candidate counts, as before.

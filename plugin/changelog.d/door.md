@@ -1,1 +1,0 @@
-- **`where=` scans that follow a `->` link or a `*parent` step are much faster: on a large modlist a FLST `Items[*any]->` scan took 3.9 s instead of 290 s, and an NPC `Template->` scan 3.4 s instead of 124 s.** Time one on your order.

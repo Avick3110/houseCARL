@@ -1,1 +1,0 @@
-- **A plugin with one unreadable record group still answers from its other groups instead of hiding all its records.** A `housecarl_records` read over such a plugin names only the broken group's records as unscannable.
