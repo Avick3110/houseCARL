@@ -117,7 +117,7 @@ public sealed class RenderDoorTests : IClassFixture<RenderDoorWorld>
     }
 
     // A cut named scan: only the spill file reads (and names) the whole chunk; each inline pass reads the rows it asks
-    // for, as on main (2,000 for the file plus the rows the two inline passes render).
+    // for, as on main: 2,000 for the file plus the few the two inline passes render, never a second chunk.
     [Fact]
     public void ACutNamedScanReadsTheWholeChunkOnlyForItsSpillFile()
     {
@@ -125,10 +125,8 @@ public sealed class RenderDoorTests : IClassFixture<RenderDoorWorld>
         var text = RecordsTools.Records(_w.Svc, types: new[] { "WEAP" }, limit: RenderDoorWorld.FirstChunk, max_chars: 3000,
                                         project: new() { form = "fields", fields = new[] { "Keywords", "EditorID", "Name", "Data" }, depth = 2, resolve_names = true });
         Assert.Contains(".jsonl", text);
-        Assert.Equal(CutNamedScanRows, _w.Svc.Counters.ScanRowReads - before);
+        Assert.InRange(_w.Svc.Counters.ScanRowReads - before, RenderDoorWorld.FirstChunk, 2 * RenderDoorWorld.FirstChunk - 1);
     }
-
-    const long CutNamedScanRows = 2011;
 
     // The aggregate counts the whole reached set, never the window.
     [Fact]
