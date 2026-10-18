@@ -249,7 +249,8 @@ internal sealed record ServingCopyMove(string Plugin, string Served, string Inde
     /// <summary>The one-sentence refusal; <paramref name="nothingDone"/> says what the call did not do.</summary>
     public string Refusal(string nothingDone) =>
         $"the game now loads '{Plugin}' from {Served}, but houseCARL's index still had the copy in {Indexed}; " +
-        (Refreshed ? "the index is now refreshed and " : "the index refreshes on the next call and ") + nothingDone + ". Run it again.";
+        (Refreshed ? $"the index is now refreshed and {nothingDone}. Run it again."
+                   : $"another write is running, so the index was not refreshed and {nothingDone}. Run this again once it finishes.");
 }
 
 /// <summary>One on-disk copy of a plugin filename: where it sits (the label carries the layer state), its served standing, and its size.</summary>
