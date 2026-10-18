@@ -639,6 +639,10 @@ internal sealed partial class RecordReads
                           $"folders on disk: {string.Join(", ", loc.Ambiguous.Select(h => $"'{h.Where}'"))} — disambiguate " +
                           "with source={\"file\": \"" + plugin + "\", \"mod\": \"<mod folder>\"}.");
         // The named copy IS the copy the game loads, so it is read out of the order like any other active pole.
+        // A copy the build did not index serves now: refuse rather than answer off the index's other copy.
+        if (activeFilename && loc.Enabled && view.PluginPath(plugin) is { } indexed && !PluginPaths.SamePluginFile(indexed, loc.Path!)
+            && _host.ServingCopyMoved(plugin, indexed) is { } moved)
+            return (null, moved.Refusal("nothing was read"));
         if (activeFilename && loc.Enabled)
             return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
         var poleWhere = $"OUT-OF-LOAD-ORDER ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";

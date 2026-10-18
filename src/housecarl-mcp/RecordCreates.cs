@@ -129,12 +129,13 @@ internal sealed partial class RecordWrites
         string target, bool acknowledge, bool replace = false)
     {
         var view = resolver.Capture();
-        var targetPath = ResolveActivePluginPath(view, Path.GetFileName(target.Trim()), out var targetName);
+        var targetPath = InPlaceTarget(view, target, out var targetName, out var moved);
         if (targetPath is null)
             return WritePatchBuilder.CreateOutcome.Fail(
                 $"in-place target '{target}' is not an active plugin in the load order — name a plugin enabled in MO2, by its " +
                 "plugin filename (e.g. 'CoolWeapons.esp'). in-place creates into the file the game actually loads. Nothing was written.")
                 with { Stamp = view.Stamp };   // decided off the capture above — stamped like every post-capture outcome
+        if (moved is not null) return WritePatchBuilder.CreateOutcome.Fail(moved) with { Stamp = view.Stamp };
 
         // The shared in-place pre-flight, before the consent prompt.
         if (InPlacePreflight(targetPath, targetName, view.DataDir, LocalizedTargetUnsupportedException.RemedyDefaultLane) is { } refusal)

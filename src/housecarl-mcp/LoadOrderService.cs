@@ -474,6 +474,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     internal bool GateHeldByThisThread => Monitor.IsEntered(_gate);   // for a test seam that must know whether it runs inside the hold
 
     internal int AbsenceExplanations;   // how many times the explainer has parsed the profile, for the cost tests
+    internal int ServingCopyReResolves;   // how many times a moved serving copy re-resolved the order, for the tests
 
     /// <summary>MO2's mods root as this service currently has it, or null when it has none yet; taken under the gate.</summary>
     internal string? ModsRootOrNull
@@ -725,9 +726,38 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var copies = hits.Select(h => new PluginCopy(h.Path, h.Where, OutputLocations.JudgeServed(comp, hits, h.Path).Served, SizeOf(h.Path))).ToList();
         // No copy serves the name: a lone copy still has a header to read, and several leave none established.
         var from = copies.FirstOrDefault(c => c.Served == OutputLocations.ServedStanding.Serves) ?? (copies.Count == 1 ? copies[0] : null);
-        return new PluginFacts(copies, from, from is null ? null : PluginFile.ReadHeader(from.Path));
+        string? indexed;
+        lock (_gate) indexed = _resolver?.Capture().PluginPath(pluginName);
+        var moved = indexed is null ? null : ServingCopyMoved(pluginName, indexed, hits);
+        return new PluginFacts(copies, from, from is null ? null : PluginFile.ReadHeader(from.Path), moved);
 
         static long? SizeOf(string path) { try { return new FileInfo(path).Length; } catch { return null; } }
+    }
+
+    ServingCopyMove? ILoadOrderHost.ServingCopyMoved(string plugin, string indexedPath) => ServingCopyMoved(plugin, indexedPath, null);
+
+    /// <summary>The live serving-copy check (#1196), the locate load_order_status runs: null when MO2 still serves
+    /// <paramref name="indexedPath"/>, else the order is re-resolved through the profile-change path, deferred while
+    /// another thread writes. <paramref name="hits"/> is a locate the caller already ran.</summary>
+    ServingCopyMove? ServingCopyMoved(string plugin, string indexedPath, IReadOnlyList<PluginFileHit>? hits)
+    {
+        Mo2Roots roots;
+        lock (_gate) roots = RootsLocked();
+        if (roots.ProfileDir.Length == 0) return null;          // an order handed in, not read from a profile: no MO2 copy to compare
+        hits ??= Mo2LoadOrder.LocatePlugin(Mo2LoadOrder.ReadComposition(roots.ProfileDir), roots.ModsDir, roots.DataDir, roots.OverwriteDir, plugin);
+        var live = hits.FirstOrDefault(h => h.Enabled);
+        if (live is not null && PluginPaths.SamePluginFile(live.Path, indexedPath)) return null;
+        bool refreshed = false;
+        lock (_gate)
+        {
+            if (Monitor.TryEnter(_writeGate))
+            {
+                try { refreshed = ReResolve(RootsLocked()); Interlocked.Increment(ref ServingCopyReResolves); }
+                finally { Monitor.Exit(_writeGate); }
+            }
+        }
+        var had = hits.FirstOrDefault(h => PluginPaths.SamePluginFile(h.Path, indexedPath))?.Where ?? indexedPath;
+        return new ServingCopyMove(Path.GetFileName(indexedPath), live?.Where ?? "no enabled folder", had, refreshed);
     }
 
     /// <summary>Read MO2's OWN local Nexus update cache — every managed mod's meta.ini Nexus fields — with NO network; only Nexus-linked mods become entries, and a missing mods folder is named.</summary>

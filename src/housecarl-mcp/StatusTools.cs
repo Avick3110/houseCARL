@@ -255,6 +255,9 @@ static class StatusWire
         // A name the profile lists as a plugin: its copies, then the header facts and the LOCALIZED flag the in-place write lanes refuse on.
         if (facts is null) return;
         AppendCopies(sb, facts.Copies);
+        if (facts.Moved is { } m)
+            sb.Append("  index:       had the copy in ").Append(m.Indexed)
+              .Append(m.Refreshed ? "; refreshed now, so later calls read the served copy\n" : "; it refreshes on the next call\n");
         if (facts.Header is { } h)
         {
             var inv = System.Globalization.CultureInfo.InvariantCulture;
