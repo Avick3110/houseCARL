@@ -124,7 +124,7 @@ public static class MidCallChange
     }
 
     /// <summary>Under the mark's lock: the first change a read found, else the first pinned file, or plugin the call
-    /// answered from (and at a commit, opened), whose stamp moved; the call's own writes excepted.</summary>
+    /// answered from (and at a commit or across two builds, opened), whose stamp moved; the call's own writes excepted.</summary>
     static string? Moved(Mark m, bool commit)
     {
         if (m.Plugin is not null) return m.Plugin;
@@ -136,7 +136,7 @@ public static class MidCallChange
         }
         foreach (var b in m.Relied)
             for (int i = 0; i < b.Stamps.Length; i++)
-                if ((b.Answered[i] || commit && b.Opened[i]) && FileStamp.Of(b.Paths[i]) != b.Stamps[i]
+                if ((b.Answered[i] || (commit || m.Relied.Count > 1) && b.Opened[i]) &&FileStamp.Of(b.Paths[i]) != b.Stamps[i]
                     && (m.Written.Count == 0 || !m.Written.Contains(Key(b.Paths[i]))))
                     return m.Plugin = b.Names[i];
         return null;

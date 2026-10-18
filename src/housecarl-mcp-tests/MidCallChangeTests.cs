@@ -261,6 +261,23 @@ public sealed class MidCallChangeTests : IDisposable
         Assert.DoesNotContain("nothing was answered or written", refusal);
     }
 
+    /// <summary>A call opens the master's losing copy under one build; the master is saved and a refresh swaps the
+    /// build, so a later open under the new build passes. The call's last check re-stats what it opened under the
+    /// first build and refuses, naming the master.</summary>
+    [Fact]
+    public void AnOpenUnderAnEarlierBuildIsReCheckedWhenTheCallSpansTwoBuilds()
+    {
+        using var resolver = LoadOrderResolver.Build(new[] { _master, _a, _b });
+        using var mark = MidCallChange.Begin();
+        using (var first = resolver.OpenSession())
+            Assert.NotNull(resolver.Capture().GetRecord(first, MasterName, _weapons[0]));
+        File.SetLastWriteTimeUtc(_master, DateTime.UtcNow.AddSeconds(5));
+        Assert.True(resolver.RefreshIfStale());
+        using (var second = resolver.OpenSession())
+            Assert.NotNull(resolver.Capture().GetRecord(second, MasterName, _weapons[0]));
+        Assert.Contains($"'{MasterName}' changed on disk during this call", mark.Settle());
+    }
+
     /// <summary>An answer read off the index alone opens no plugin, so the open check never sees it: the dialogue
     /// check judges a right-typed LinkTo target by the index (#1173). The target's plugin is saved mid-call, and the
     /// call's last check refuses, naming it.</summary>
