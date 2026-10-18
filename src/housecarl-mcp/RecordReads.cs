@@ -550,7 +550,7 @@ internal sealed partial class RecordReads
     }
 
     /// <summary>resolve_names over read rows: every link target primed through the door, then each row annotated off the memo.</summary>
-    static void NameLinks(IList<ReadOutcome> outcomes, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+    internal static void NameLinks(IList<ReadOutcome> outcomes, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                           LinkMemo memo, CancellationToken ct)
     {
         PrimeNames(outcomes.Select(o => o.Record), view, session, memo, ct);
