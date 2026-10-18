@@ -115,8 +115,7 @@ internal sealed partial class RecordWrites
             }
 
             ISkyrimModGetter ov;
-            MidCallChange.PinOffOrder(loc.Path!); // ruling F
-            try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(roots.DataDir) ? null : roots.DataDir); }
+            try { ov = MidCallChange.Open(loc.Path!, () => LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(roots.DataDir) ? null : roots.DataDir)); }
             catch (Exception ex)
             {
                 error = Fail($"{at}: source file '{spelling}' ({loc.Path}) could not be opened as a Skyrim plugin ({ex.Message}).");
