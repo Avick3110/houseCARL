@@ -460,7 +460,8 @@ public sealed class LoadOrderResolver : IDisposable
                         by.Add(i);
                     }
                     touched = "a record it overrides after that record's winner is read without its version, marked on summary, fields, tree, delta, dense and to_file reads, " +
-                              "and default-lane apply and forward on either lane refuse to write it";
+                              "default-lane apply and forward on either lane refuse to write it, CopyFrom refuses it as a source, " +
+                              "and an in-place compaction or merge of a plugin it masters is refused";
                 }
                 catch (Exception walk)
                 {
