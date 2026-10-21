@@ -26,14 +26,21 @@ public sealed class InstanceText
     { Language = language; _tables = tables; _dataDir = dataDir; _served = served; }
 
     internal static InstanceText Of(Language language, Tables tables, string dataDir, IEnumerable<string> served)
-        => new(language, tables, dataDir, new HashSet<string>(served, StringComparer.OrdinalIgnoreCase));
+        => new(language, tables, dataDir, new HashSet<string>(served.Select(Spelled), StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>One spelling of a plugin path, so an order path and the same file named another way match.</summary>
+    static string Spelled(string path)
+    {
+        try { return Path.GetFullPath(path); }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return path; }
+    }
 
     /// <summary>The winning sources of the plugin's tables in this language when it is the order's own copy: the loose
     /// Strings folder that wins, and the archive that wins where no loose copy does; null when no layer carries them,
     /// or when its kinds win from more than one folder, which Mutagen cannot read as one.</summary>
     internal ((string Dir, string Layer)? Loose, (string Path, string Layer)? Archive)? WinnersFor(string pluginPath)
     {
-        if (_tables is null || _served?.Contains(pluginPath) != true) return null;
+        if (_tables is null || _served?.Contains(Spelled(pluginPath)) != true) return null;
         var w = Combined(Path.GetFileNameWithoutExtension(pluginPath));
         return w.Split is not null || w.Loose is null && w.Archive is null ? null : (w.Loose, w.Archive);
     }
