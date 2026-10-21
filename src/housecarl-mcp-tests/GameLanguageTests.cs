@@ -484,11 +484,7 @@ public sealed class GameLanguageTests : IDisposable
         File.WriteAllText(Path.Combine(myGames, "Skyrim.ini"), "[General]\r\nsLanguage=FRENCH\r\n");
         File.WriteAllText(Path.Combine(myGames, "SkyrimCustom.ini"), "[General]\r\nsLanguage=GERMAN\r\n");
 
-        // The product's one My Games seam, pointed here for this test only; the class runs alone, so no other reads it.
-        var isolated = Environment.GetEnvironmentVariable("HOUSECARL_MY_GAMES");
-        Environment.SetEnvironmentVariable("HOUSECARL_MY_GAMES", myGames);
-        try { Assert.Contains(GermanName, ReadName(svc, weapon)); }
-        finally { Environment.SetEnvironmentVariable("HOUSECARL_MY_GAMES", isolated); }
+        Assert.Contains(GermanName, MyGamesIsolation.Pointed(myGames, () => ReadName(svc, weapon)));
     }
 
     // ---- where a plugin's tables come from -----------------------------------------------------------
@@ -602,7 +598,7 @@ public sealed class GameLanguageTests : IDisposable
         var svc = Open("GERMAN", new[] { "Fix" }, Array.Empty<string>(), new[] { "Skyrim.esm" });
 
         var r = ReadName(svc, weapon);
-        Assert.Contains("Skyrim.esm's German string tables win from more than one folder (.STRINGS loose in the mod folder 'Fix', .DLSTRINGS loose in the game Data", r);
+        Assert.Contains("Skyrim.esm's German string tables win from more than one folder (.STRINGS loose in the mod folder 'Fix', .DLSTRINGS loose in your game's Data folder", r);
 
         var plugin = Path.Combine(ModDir("SwordMod"), "HcSp.esp");
         WriteLocalized(plugin, Language.English, "Big Iron Sword");

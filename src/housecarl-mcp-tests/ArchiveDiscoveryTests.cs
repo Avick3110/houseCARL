@@ -8,6 +8,7 @@ namespace HousecarlMcpTests;
 /// base archives rank below every plugin archive, a later plugin outranks an earlier one, a duplicate archive name
 /// resolves to the higher-priority mod's copy, and a missing Skyrim.ini is a warning rather than a silent gap.</summary>
 [Trait("tier", "unit")]
+[Collection(MyGamesIsolation.Serial)]
 public sealed class ArchiveDiscoveryTests : IDisposable
 {
     readonly string _root, _mods, _data, _prof;
@@ -134,7 +135,7 @@ public sealed class ArchiveDiscoveryTests : IDisposable
         Directory.CreateDirectory(myGames);
         File.WriteAllText(Path.Combine(myGames, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=MyGames.bsa\r\n");
 
-        var res = ArchiveDiscovery.Discover(Mo2LoadOrder.ReadComposition(_prof), GameIni.For(_prof, myGames), _mods, _data, "");
+        var res = ArchiveDiscovery.Discover(Mo2LoadOrder.ReadComposition(_prof), MyGamesIsolation.Pointed(myGames, () => GameIni.For(_prof)), _mods, _data, "");
 
         var baseArc = Assert.Single(res.Archives, x => x.OwningPlugin == ArchiveDiscovery.IniArchiveOwner);
         Assert.Equal("MyGames.bsa", Path.GetFileName(baseArc.Path));
@@ -147,12 +148,12 @@ public sealed class ArchiveDiscoveryTests : IDisposable
     {
         var myGames = Path.Combine(_root, "MyGames");
         File.WriteAllText(Path.Combine(_prof, "settings.ini"), "[General]\r\nLocalSettings=true\r\n");
-        var flagged = GameIni.For(_prof, myGames);
+        var flagged = MyGamesIsolation.Pointed(myGames, () => GameIni.For(_prof));
         Assert.Equal(_prof, flagged.Folder);
         Assert.True(flagged.ProfileLocal);
 
         File.Delete(Path.Combine(_prof, "settings.ini"));
-        var unflagged = GameIni.For(_prof, myGames);
+        var unflagged = MyGamesIsolation.Pointed(myGames, () => GameIni.For(_prof));
         Assert.Equal(myGames, unflagged.Folder);
         Assert.False(unflagged.ProfileLocal);
     }

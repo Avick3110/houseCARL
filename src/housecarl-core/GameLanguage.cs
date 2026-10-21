@@ -55,27 +55,29 @@ public sealed class InstanceText
         bool split = loose.Select(l => l.Dir).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1
                   || archived.Select(a => Path.GetDirectoryName(a.Path)).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
         var words = kinds.Where(x => x.W.Loose is not null || x.W.Archive is not null)
-                         .Select(x => x.W.Loose is { } l ? $".{x.Kind} loose {GameLanguage.LayerPlace(l.Layer)}"
-                                                         : $".{x.Kind} in {Path.GetFileName(x.W.Archive!.Value.Path)} {GameLanguage.LayerPlace(x.W.Archive.Value.Layer)}");
+                         .Select(x => x.W.Loose is { } l ? $".{x.Kind} loose {AssetResolver.LayerPlace(l.Layer)}"
+                                                         : $".{x.Kind} in {Path.GetFileName(x.W.Archive!.Value.Path)} {AssetResolver.LayerPlace(x.W.Archive.Value.Layer)}");
         return (loose.Count > 0 ? loose[0] : null, archived.Count > 0 ? archived[0] : null, split ? string.Join(", ", words) : null);
     }
 
     /// <summary>One table kind's winner: the loose copy, else the highest-ranked archive Mutagen opens for the plugin
-    /// (one the INI lists, or one named for it); and the archives carrying it that Mutagen would not open for it.</summary>
-    internal ((string Dir, string Layer)? Loose, (string Path, string Layer)? Archive, List<(string Path, string Layer)> Passed) Winner(string stem, string kind)
+    /// (one the INI lists, or one named for it).</summary>
+    internal ((string Dir, string Layer)? Loose, (string Path, string Layer)? Archive) Winner(string stem, string kind)
     {
         var file = $"{stem}_{Language}.{kind}";
-        var passed = new List<(string, string)>();
-        if (_tables is null) return (null, null, passed);
-        if (_tables.Loose.TryGetValue(file, out var dir)) return (dir, null, passed);
+        if (_tables is null) return (null, null);
+        if (_tables.Loose.TryGetValue(file, out var dir)) return (dir, null);
         if (_tables.Archives.TryGetValue(file, out var ranked))
             foreach (var a in ranked)
-            {
-                if (a.IniListed || NamedFor(stem, a.Path)) return (null, (a.Path, a.Layer), passed);
-                passed.Add((a.Path, a.Layer));
-            }
-        return (null, null, passed);
+                if (a.IniListed || NamedFor(stem, a.Path)) return (null, (a.Path, a.Layer));
+        return (null, null);
     }
+
+    /// <summary>The loaded archives carrying one table kind of the plugin, highest rank first; for a kind with no winner,
+    /// every one of them is an archive Mutagen would not open for it.</summary>
+    internal IEnumerable<(string Path, string Layer)> Carrying(string stem, string kind)
+        => _tables?.Archives.TryGetValue($"{stem}_{Language}.{kind}", out var ranked) == true
+            ? ranked.Select(a => (a.Path, a.Layer)) : Enumerable.Empty<(string, string)>();
 
     /// <summary>The Strings folder and archive folder Mutagen reads the plugin's tables from, or null to leave them
     /// beside the plugin. Winners first; a plugin no layer carries tables for, or a copy the order does not serve,
@@ -139,8 +141,8 @@ public static class GameLanguage
                 + $"{language} string tables win from more than one folder ({split}), but a plugin's tables are read from "
                 + "one folder, so the rest would read blank; put all three in one mod or archive.");
         }
-        var passed = missing.SelectMany(x => x.W.Passed).DistinctBy(p => p.Path, StringComparer.OrdinalIgnoreCase)
-                            .Select(p => $"{Path.GetFileName(p.Path)} {LayerPlace(p.Layer)}").ToList();
+        var passed = missing.SelectMany(x => text.Carrying("Skyrim", x.Kind)).DistinctBy(p => p.Path, StringComparer.OrdinalIgnoreCase)
+                            .Select(p => $"{Path.GetFileName(p.Path)} {AssetResolver.LayerPlace(p.Layer)}").ToList();
         throw new GameLanguageRefusedException(
             $"houseCARL cannot read this load order in {language}: {file} sets sLanguage={raw}, and Skyrim.esm's "
             + $"{language} .{string.Join("/.", missing.Select(x => x.Kind))} string tables were not found loose in a Strings folder or in an "
@@ -151,14 +153,6 @@ public static class GameLanguage
             + "; install that language's files or set sLanguage to the language your game is installed in."
             + (discovery.Warnings.Count == 0 ? "" : " Also, " + string.Join(" ", discovery.Warnings)));
     }
-
-    /// <summary>Where an MO2 layer is, as a refusal names it.</summary>
-    internal static string LayerPlace(string layer) => layer switch
-    {
-        AssetResolver.DataLayerName => "in the game Data",
-        AssetResolver.OverwriteLayerName => "in MO2's overwrite folder",
-        _ => $"in the mod folder '{layer}'",
-    };
 
     /// <summary>Every table file in a loose Strings folder (overwrite, enabled mods by priority, game Data: first wins)
     /// and in a loaded archive (highest plugin rank first, archive name breaking a tie), the asset layer's precedence; the order's language only.</summary>
