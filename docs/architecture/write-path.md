@@ -5,7 +5,7 @@ covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/RecordCopy.cs, src
   src/housecarl-mcp/WriteSentences.cs, src/housecarl-core/WriteEngine.cs,
   src/housecarl-core/WriteVerbs.cs, src/housecarl-core/RemapEngine.cs, src/housecarl-core/ClosureCopy.cs,
   src/housecarl-core/MergeInjection.cs, src/housecarl-core/MergeLoadPosition.cs,
-  src/housecarl-core/WritePatchBuilder.cs,
+  src/housecarl-core/WritePatchBuilder.cs, src/housecarl-core/OwnerRanks.cs,
   src/housecarl-mcp/ApplyTools.cs, src/housecarl-mcp/CreateTools.cs, src/housecarl-mcp/ForwardTools.cs,
   src/housecarl-mcp/RemoveTools.cs, src/housecarl-mcp/CopyTools.cs, src/housecarl-mcp/WriteTools.cs,
   src/housecarl-mcp/WriteTextRender.cs, src/housecarl-core/LocalizedStrings.cs, src/housecarl-core/SubrecordInventory.cs]
@@ -138,6 +138,13 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - A patch write is handed the whole load order to resolve and sort masters while Mutagen derives the lean list from
   the records' own links, and force-includes Skyrim.esm + Update.esm filtered to the ones that order carries; an
   in-place write force-includes nothing and declares only the target's own masters.
+- Both serializes, and the dry-run master preview, first retype every `UntypedOwner` whose owner is a faction into a
+  `FactionOwner` (`OwnerRanks.Settle`). Plugins open with no link cache, so an owner in another plugin reads untyped
+  and its rank word as a FormID; written as one, -1 is remapped and the plugin it seems to point into becomes a master
+  (#1204). The rank is the word's low 24 bits sign-extended, exact for any rank within ±2^23. The faction test is the
+  write's own master overlays (the preview: the index). An NPC owner, an owner the order cannot name and the check's
+  no-order retry stay untyped. A load-order link cache on the open was measured instead and rejected: on ARR its first
+  owner lookup cost 13 s and 4 GB. Merge's donor-dangling check runs before any serialize and still sees the word.
 - Every write stages into a `.housecarl-tmp` sibling of the target and commits through `AtomicFile.Commit`, so the
   target only ever holds the old or the new complete file; the caller must release every handle it holds on the
   target first, and a failed stage leaves nothing behind.

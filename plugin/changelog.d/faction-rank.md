@@ -1,0 +1,1 @@
+- **"Any rank" faction ownership on container items and leveled entries is written back as it was, with no extra master.** Patches made earlier from such records carry an unattainable rank and should be re-made.
