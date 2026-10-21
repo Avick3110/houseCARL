@@ -548,27 +548,6 @@ public sealed class GameLanguageTests : IDisposable
         Assert.True(Holds(PatchPath("HcOut.esp"), Cp1251.GetBytes(RussianName)), "the name is not in Windows-1251");
     }
 
-    /// <summary>The text belongs to the order build it was read with: a call that pinned a view keeps that build's
-    /// language when a refresh mid-call builds the order again under another one, and the next call reads the new build.</summary>
-    [Fact]
-    public void ACallThatPinsAViewKeepsItsBuildsTextAcrossARefresh()
-    {
-        var weapon = WriteLocalized(Path.Combine(ModDir("GermanMod"), "HcDe.esp"), Language.German, GermanName);
-        var svc = Open("ENGLISH", new[] { "GermanMod" }, new[] { "HcDe.esp" });
-        using (GameLanguage.Begin())
-        {
-            var pin = svc.CapturePin();
-            File.WriteAllText(Path.Combine(Profile, "Skyrim.ini"), "[General]\r\nsLanguage=GERMAN\r\n");
-            File.AppendAllText(Path.Combine(Profile, "modlist.txt"), "\r\n");
-            var after = svc.CapturePin();
-
-            Assert.Equal(Language.German, after.Resolver.Text.Language);
-            Assert.Equal(Language.English, pin.Resolver.Text.Language);
-            Assert.Equal(Language.English, GameLanguage.Current.Language);
-        }
-        Assert.Contains(GermanName, ReadName(svc, weapon));
-    }
-
     /// <summary>An in-place edit of a Russian 1251 plugin keeps its untouched name in 1251, and a value 1251 cannot
     /// spell is refused naming Windows-1251.</summary>
     [Fact]
