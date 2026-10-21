@@ -282,14 +282,18 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - Allocation into an id window refuses LOUD when the source overflows it and never truncates; for an ESL compaction
   that is the light-master ceiling, the usable window being 0x800–0xFFF INCLUSIVE, 2048 ids.
 - A compaction is the same plugin renumbered, so `CompactBuild` deep-copies the source's whole header onto the output
-  in both lanes (#1215): flags, HEDR version, author (CNAM), description (SNAM), overridden forms (ONAM, mapped by the
-  renumber's `RemapLinks`), INTV and INCC. It then clears LOCALIZED (the output carries its strings inline) and sets
-  LIGHT from `esl`; the write sets the masters and the counts. Merge does not do this: it names each donor header it
-  drops instead.
-- A compaction reports the records it MOVED, the map entries whose id changed, not the size of the map. A run where
-  every originating record already sits at its compacted id (a re-run after a failed repoint) says that nothing
-  moved and that it does not repair the earlier run, and does not call its referencer rewrites a repoint (#1205). The
-  referencer refusal says a link left on an old id may resolve to a different record of the plugin, not only dangle,
+  in both lanes (#1215): flags, the HEDR version as-is (an old 0.94 or 1.70 header stays at it), author (CNAM),
+  description (SNAM), overridden forms (ONAM, mapped by the renumber's `RemapLinks`), INTV and INCC. It then clears
+  LOCALIZED (the output carries its strings inline), sets LIGHT from `esl` and sets NextObjectID to the floor plus the
+  renumbered count; the write sets the masters and the record count. Merge does not do this: it names each donor
+  header it drops instead.
+- The plugin itself is renumbered and serialised whole, but everything downstream of the renumber gets only the
+  records it MOVES, the map entries whose id changes (#1205): the identify pass, the referencer repoint, the facegen
+  and voice carries and the report's count. A run where every originating record already sits at its compacted id
+  (a re-run, or a first compaction of an already-contiguous plugin) therefore finds no referencer to refuse or
+  rewrite and carries nothing; it says that no id moved and, conditionally, that it does not repair an earlier
+  failed repoint, and does not call itself a clean compaction. A partial move repoints only a referencer of a moved
+  record. The referencer refusal says a link left on an old id may resolve to a different record of the plugin, not only dangle,
   because the renumber starts at 0x800 where the plugin's records usually already sit.
 - A merge KEEPS an object id wherever it is in-window and unclaimed, donors claiming in load order, and allocates a
   fresh id only for a collision or an id below the write floor.
@@ -528,9 +532,11 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   load-order winner and reported with winner and loser named, and the losing donor's un-relisted INFO grafted into the
   winning topic; `MergeServiceRenameTests` (arm HEADER) — the light, master and header-text notes keyed on what the
   donors carried; `MergeServiceDeclarerTests` (arm DECLARER) — a declarer-only dependent reaching the rendered report.
-- `CompactHeaderTests` — an ESM-flagged plugin with author, description, ONAM, INTV and INCC keeps all of them,
-  compacted in place and into a new plugin; a second in-place compaction moves nothing and its report says so, with no
-  renumber count or clean repoint line; the referencer refusal no longer claims the old ids cease to exist.
+- `CompactHeaderTests` — an ESM-flagged plugin with author, description, ONAM (a self entry mapped), INTV, INCC and
+  HEDR 1.70 keeps all of them and gets the compaction's own NextObjectID, in place and into a new plugin; a second
+  compaction moves nothing, neither refuses nor rewrites the referencer, and its report says so with no renumber count
+  or clean line; a partial move repoints only a referencer of a moved record; the referencer refusal no longer claims
+  the old ids cease to exist.
 - `CompactOverriderDetectTests` — an overrider is a warn that lets the compaction succeed
   while a referencer is refused and named, the contrast that holds the two apart.
 - `MasterDeclarerScanTests.ADeclarerOnlyDependentIsFoundAndNamed`, `AReferencerIsNotAlsoListedAsADeclarer`,
