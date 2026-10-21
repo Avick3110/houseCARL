@@ -198,8 +198,8 @@ public static class Mo2LoadOrder
     /// <summary>modlist.txt's and loadorder.txt's lines, as UTF-8.</summary>
     static string[] ReadProfileLines(string path) => ReadProfile(path, File.ReadAllLines);
 
-    /// <summary>The system ANSI code page, which MO2 writes plugins.txt in (<c>QStringEncoder(System)</c>).</summary>
-    static readonly Encoding SystemAnsi = CodePagesEncodingProvider.Instance.GetEncoding(0)!;
+    /// <summary>The system ANSI code page, which MO2 writes plugins.txt in (<c>QStringEncoder(System)</c>); UTF-8 where Windows reports none, the UTF-8 system locale.</summary>
+    static readonly Encoding SystemAnsi = CodePagesEncodingProvider.Instance.GetEncoding(0) ?? Encoding.UTF8;
 
     /// <summary>plugins.txt's lines: valid UTF-8 stays UTF-8, so a file that read before still does; anything else is decoded in <paramref name="ansi"/>, the system ANSI code page unless a test names one.</summary>
     static List<string> ReadPluginsLines(string path, Encoding ansi)
