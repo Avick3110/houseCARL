@@ -53,7 +53,7 @@ public sealed class PluginsTxtEncodingTests : IDisposable
         Assert.DoesNotContain(unticked, comp.ImplicitPluginNames);
     }
 
-    // Written in the host's ANSI page (UTF-8 where Windows reports none) with names it can spell, so it passes on any host.
+    // Written in the host's ANSI page (UTF-8 where the system page is UTF-8, 65001, which the provider leaves to the built-in UTF-8) with names it can spell, so it passes on any host.
     [Fact]
     public void HostAnsiPluginsTxtKeepsTicks()
     {
