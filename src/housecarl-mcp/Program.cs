@@ -1,13 +1,10 @@
 using HousecarlMcp;
 using ModelContextProtocol.Protocol;
 
-// houseCARL MCP server. Stdio by default, --http for the localhost HTTP transport; either way it reads the active
-// load order statically from the configured MO2 instance, and an empty config still boots.
+// houseCARL MCP server over stdio. It reads the active load order statically from the configured MO2 instance, and an
+// empty config still boots.
 
-bool useHttp = args.Contains("--http");
-var hostArgs = args.Where(a => a != "--http").ToArray();   // strip our own flag so the config provider doesn't choke on it
-
-// The optional cut on the published schemas, read before either host is built; a bad value stops the start here.
+// The optional cut on the published schemas, read before the host is built; a bad value stops the start here.
 int? maxSchemaDepth;
 try
 {
@@ -19,54 +16,30 @@ catch (ArgumentException bad)
     return 1;
 }
 
-if (useHttp)
-{
-    var builder = WebApplication.CreateBuilder(hostArgs);
-    var (svc, explicitMode, instanceDir, instanceSource, configNote) = SetupHouseCarl(builder.Configuration, builder.Services);
-    AddMcp(builder.Services, stdio: false, maxSchemaDepth);
+var builder = Host.CreateApplicationBuilder(args);
+// STDIO GOTCHA: stdout IS the JSON-RPC channel — route ALL logs to stderr or they corrupt the protocol stream.
+builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
-    var app = builder.Build();
-    app.MapMcp();
+var (svc, explicitMode, instanceDir, instanceSource, configNote) = SetupHouseCarl(builder.Configuration, builder.Services);
+AddMcp(builder.Services, maxSchemaDepth);
 
-    var url = builder.Configuration.GetSection("HouseCarl")["Url"] is { Length: > 0 } u ? u : "http://127.0.0.1:7345";
-    if (configNote is not null)
-        app.Logger.LogWarning("houseCARL user config recovered: {Note}", configNote);   // corrupt file — backed up, never silent
-    if (!svc.IsConfigured)
-        app.Logger.LogWarning(
-            "houseCARL listening on {Url} — NOT configured yet. The first tool call will ask for your MO2 instance folder (or call " + ToolNames.SetMo2Instance + " with it).", url);
-    else
-        app.Logger.LogInformation(
-            "houseCARL listening on {Url} — reading {Source} STANDALONE (MO2 need not be running); load order resolves lazily on the first tool call.",
-            url, explicitMode ? "explicit configured paths" : $"MO2 instance '{instanceDir}' [{instanceSource}]");
-    app.Run(url);
-}
+var app = builder.Build();
+
+var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("houseCARL");
+if (configNote is not null)
+    logger.LogWarning("houseCARL user config recovered: {Note}", configNote);   // corrupt file — backed up, never silent
+if (!svc.IsConfigured)
+    logger.LogWarning(
+        "houseCARL stdio server — NOT configured yet. The first tool call will ask for your MO2 instance folder (or call " + ToolNames.SetMo2Instance + " with it).");
 else
-{
-    var builder = Host.CreateApplicationBuilder(hostArgs);
-    // STDIO GOTCHA: stdout IS the JSON-RPC channel — route ALL logs to stderr or they corrupt the protocol stream.
-    builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
-
-    var (svc, explicitMode, instanceDir, instanceSource, configNote) = SetupHouseCarl(builder.Configuration, builder.Services);
-    AddMcp(builder.Services, stdio: true, maxSchemaDepth);
-
-    var app = builder.Build();
-
-    var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("houseCARL");
-    if (configNote is not null)
-        logger.LogWarning("houseCARL user config recovered: {Note}", configNote);   // corrupt file — backed up, never silent
-    if (!svc.IsConfigured)
-        logger.LogWarning(
-            "houseCARL stdio server — NOT configured yet. The first tool call will ask for your MO2 instance folder (or call " + ToolNames.SetMo2Instance + " with it).");
-    else
-        logger.LogInformation(
-            "houseCARL stdio server — reading {Source} STANDALONE (MO2 need not be running); load order resolves lazily on the first tool call.",
-            explicitMode ? "explicit configured paths" : $"MO2 instance '{instanceDir}' [{instanceSource}]");
-    await app.RunAsync();
-}
+    logger.LogInformation(
+        "houseCARL stdio server — reading {Source} STANDALONE (MO2 need not be running); load order resolves lazily on the first tool call.",
+        explicitMode ? "explicit configured paths" : $"MO2 instance '{instanceDir}' [{instanceSource}]");
+await app.RunAsync();
 
 return 0;   // the refusal above returns 1, so the exit code is spelled on both paths
 
-// Shared setup — both transports call these, so the load order resolves identically either way.
+// Setup, split out of the top-level flow.
 
 // Loads the rulebook and applies the MO2-instance precedence: saved user config > explicit DataDir+ModsDir+ProfileDir
 // > Mo2InstanceDir > unconfigured; builds and registers the LoadOrderService.
@@ -121,7 +94,7 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
 }
 
 // The MCP server registration: identity, instructions, and the attribute-registered tools.
-static void AddMcp(IServiceCollection services, bool stdio, int? maxSchemaDepth)
+static void AddMcp(IServiceCollection services, int? maxSchemaDepth)
 {
     var mcp = services.AddMcpServer(options =>
     {
@@ -155,9 +128,7 @@ static void AddMcp(IServiceCollection services, bool stdio, int? maxSchemaDepth)
             "NEXUS, keyless, instead of a browser: search, files, requirements, changelogs, MD5 identify, update " +
             "checks (start with " + ToolNames.UpdateStatus + ", offline).";
     });
-    // Stateless HTTP: each request is independent; the singletons persist across requests regardless.
-    if (stdio) mcp.WithStdioServerTransport();
-    else mcp.WithHttpTransport(o => o.Stateless = true);
+    mcp.WithStdioServerTransport();
     // Named, not implicit: the parameterless overload registers from the calling assembly.
     mcp.WithToolsFromAssembly(ToolSurface.Assembly);
     // The published-schema layer; see ToolSchemas.
