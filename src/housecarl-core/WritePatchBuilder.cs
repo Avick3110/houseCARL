@@ -1011,7 +1011,8 @@ public static class WritePatchBuilder
         // Per-call overlay session: the known-master set for the re-serialize is opened through it and disposed on return.
         using var session = resolver.OpenSession();
         // This lane resolves no winner but is not build-free: the re-serialize's master context is the session's.
-        epoch = resolver.Capture().Stamp;
+        var view = resolver.Capture();
+        epoch = view.Stamp;
 
         var fileName = Path.GetFileName(outPath);
         if (!File.Exists(outPath))
@@ -1070,7 +1071,7 @@ public static class WritePatchBuilder
 
         // Serialize ONCE with the full known-master set, behind the two-part self-lock; an orphaned master drops from the lean header.
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
-        try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath, isFaction: OwnerRanks.FactionIn(resolver.Capture(null))); }
+        try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath, isFaction: OwnerRanks.FactionIn(view)); }
         catch (Exception ex) { return RemovalOutcome.Fail(SerializeFailure("writing the patch after removal failed (serialize or commit; the existing file is untouched): ", ex, session)); }
 
         // Re-open: report the master header and how many records remain (0 ⇒ an inert plugin). Dispose the overlay.
