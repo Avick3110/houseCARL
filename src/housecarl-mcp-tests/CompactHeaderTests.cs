@@ -26,14 +26,17 @@ public sealed class CompactHeaderTests
         m.ModHeader.Flags |= SkyrimModHeader.HeaderFlag.Master;
         m.ModHeader.Author = "Hc Author";
         m.ModHeader.Description = "Hc description";
-        m.ModHeader.OverriddenForms = new() { CompactServiceWorld.BaseCell };
+        // ONAM names a master record and one of the plugin's own, which the renumber must map.
+        m.ModHeader.OverriddenForms = new() { CompactServiceWorld.BaseCell, new FormKey(HeadKey, 0x1A01) };
+        m.ModHeader.Stats.Version = 1.7f;
+        m.ModHeader.Stats.NextFormID = 0x1A06;
         m.ModHeader.INTV = 7;
         m.ModHeader.INCC = 3;
         var dir = Path.Combine(w.Mods, "HeadMod"); Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, HeadKey.FileName.String);
         using var baseOv = SkyrimMod.CreateFromBinaryOverlay(
             Path.Combine(w.Mods, "BaseMod", CompactServiceWorld.BaseKey.FileName.String), SkyrimRelease.SkyrimSE);
-        m.BeginWrite.ToPath(path).WithLoadOrder(new[] { baseOv }).Write();
+        m.BeginWrite.ToPath(path).WithLoadOrder(new[] { baseOv }).NoNextFormIDProcessing().Write();
         return path;
     }
 
@@ -45,9 +48,13 @@ public sealed class CompactHeaderTests
         Assert.True(pp.IsSmallMaster);
         Assert.Equal("Hc Author", h.Author);
         Assert.Equal("Hc description", h.Description);
-        Assert.Equal(CompactServiceWorld.BaseCell, Assert.Single(h.OverriddenForms!).FormKey);
+        Assert.Equal(new[] { CompactServiceWorld.BaseCell, new FormKey(HeadKey, 0x800) }.OrderBy(k => k.ToString()),
+                     h.OverriddenForms!.Select(l => l.FormKey).OrderBy(k => k.ToString()));
         Assert.Equal(7, h.INTV);
         Assert.Equal(3, h.INCC);
+        Assert.Equal(1.7f, h.Stats.Version);
+        // The source's NextObjectID is above the window; the compaction's own is the floor plus its two records.
+        Assert.Equal(0x802u, h.Stats.NextFormID);
     }
 
     [Fact]
