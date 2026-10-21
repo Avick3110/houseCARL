@@ -819,7 +819,7 @@ public static class WritePatchBuilder
 
         // --- Phase 4: re-serialize the WHOLE target over itself via WriteInPlace, self-lock first, against the WHOLE known-master set. ---
         session.ReleaseOverlay(fileName);
-        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir, isFaction: OwnerRanks.FactionIn(view)); }
+        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir, isFaction: OwnerRanks.FactionIn(view), edited: resolved.Select(r => r.edit.Target)); }
         catch (MissingModException ex)
         {
             // This arm fires FIRST, so an unopenable-but-ACTIVE master lands here and prefers the named cause over "NOT active".
@@ -1222,6 +1222,7 @@ public static class WritePatchBuilder
             try { WriteEngine.WriteInPlace(targetMod, ownMasters, targetPath, resolver.DataDir, isFaction: OwnerRanks.FactionIn(view)); }
             // The localized-target refusal names its own whole sentence, which this lane's lead would contradict.
             catch (LocalizedTargetUnsupportedException ex) { return RemovalOutcome.Fail(ex.Message); }
+            catch (PartialFormException ex) { return RemovalOutcome.Fail(ex.Message); }
             catch (Exception ex)
                 { return RemovalOutcome.Fail($"writing '{fileName}' in place after removal failed (serialize or commit; the existing file is untouched): {WriteEngine.Describe(ex)}"); }
         }
@@ -1465,7 +1466,7 @@ public static class WritePatchBuilder
 
         // --- Phase 4: re-serialize over the original (WriteInPlace, whole known-master set; the self-lock first, atomic swap). ---
         session.ReleaseOverlay(fileName);
-        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir, isFaction: OwnerRanks.FactionIn(view)); }
+        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir, isFaction: OwnerRanks.FactionIn(view), edited: resolved.Select(r => r.spec.Target)); }
         catch (MissingModException ex)
         {
             // Same shadowing as the apply twin — see there.
@@ -2129,7 +2130,8 @@ public static class WritePatchBuilder
                 overlays.Add((IDisposable)mov); resolved.Add(mov);
             }
             // P′ has LOCALIZED cleared, so its serialize emits no string tables.
-            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir, isFaction: null); }
+            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir, isFaction: null, sources: new[] { srcPath }); }
+            catch (PartialFormException ex) { return CompactBuildResult.Fail(ex.Message); }
             catch (Exception ex)
             {
                 return CompactBuildResult.Fail(
@@ -2243,7 +2245,8 @@ public static class WritePatchBuilder
                 }
                 masterOverlays.Add((IDisposable)mov); resolved.Add(mov);
             }
-            try { WriteEngine.WriteInPlace(m, resolved, outPath, dataDir, isFaction: null); }
+            try { WriteEngine.WriteInPlace(m, resolved, outPath, dataDir, isFaction: null, sources: donorsByLoadOrder.Select(d => d.Path).ToList()); }
+            catch (PartialFormException ex) { return MergeBuildResult.Fail(ex.Message); }
             catch (Exception ex)
             {
                 return MergeBuildResult.Fail(

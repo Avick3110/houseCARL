@@ -45,7 +45,6 @@ public static class SubrecordInventory
         public string Signature { get; init; } = "";
         public int FormVersion { get; init; }
         public bool Deleted { get; init; }
-        public bool Partial { get; init; }
         public Dictionary<(string Sig, int Length), (int Count, bool Zero)> Subs { get; } = new();
         public List<(string Sig, int Length)> Order { get; } = new();
         readonly List<Func<ReadOnlyMemorySlice<byte>>> _bodies = new();
@@ -136,9 +135,7 @@ public static class SubrecordInventory
         {
             var file = Walk(File.ReadAllBytes(path), parsed.ModKey);
             if (dropped is not null) foreach (var k in dropped) file.Remove(k);
-            var diffs = Diff(file, Walk(written.Value, parsed.ModKey));
-            if (PartialForms.AddedTo(diffs, fileName) is { } added) return added;
-            losses = Losses(diffs, Renames, InformationFree);
+            losses = Losses(Diff(file, Walk(written.Value, parsed.ModKey)), Renames, InformationFree);
         }
         catch (Exception ex) { return CouldNotRun(fileName, WriteEngine.Describe(ex)); }
         if (losses.Count == 0) return null;
@@ -165,16 +162,7 @@ public static class SubrecordInventory
     {
         var capture = new CaptureFileSystem();
         WriteEngine.SerializeInPlace(parsed, ordered, path, path, capture);
-        if (capture.Bytes is not { } b || !PartialForms.In(parsed)) return capture.Bytes;
-        return PartialForms.Restore(b.ToArray(), Path.GetFileName(path));
-    }
-
-    /// <summary>A plugin as Mutagen writes it with no load order, held in memory.</summary>
-    internal static byte[] CaptureWrite(SkyrimMod mod)
-    {
-        var capture = new CaptureFileSystem();
-        mod.BeginWrite.ToPath(Path.GetFullPath(mod.ModKey.FileName.String), capture).WithNoLoadOrder().Write();
-        return capture.Bytes!.Value.ToArray();
+        return capture.Bytes;
     }
 
     static T? Find<T>(Exception? ex) where T : Exception
@@ -187,43 +175,43 @@ public static class SubrecordInventory
     /// <summary>Every major record in a plugin's bytes, keyed by FormKey through that file's own master list; compressed records inflated.</summary>
     public static Dictionary<FormKey, RecordEntry> Walk(ReadOnlyMemorySlice<byte> all, ModKey self)
     {
-        var meta = GameConstants.SkyrimSE;
         var into = new Dictionary<FormKey, RecordEntry>();
-        var header = new MajorRecordFrame(meta, all);
-        var masters = new List<ModKey>();
-        foreach (var (sig, data) in Subrecords(header.Content))
-            if (sig == "MAST") masters.Add(ModKey.FromFileName(Encoding.Latin1.GetString(data.Span).TrimEnd('\0')));
-        long pos = header.TotalLength;
-        while (pos < all.Length) pos += WalkGroup(meta, all.Slice(checked((int)pos)), masters, self, into);
-        return into;
-    }
-
-    static long WalkGroup(GameConstants meta, ReadOnlyMemorySlice<byte> at, List<ModKey> masters, ModKey self,
-                          Dictionary<FormKey, RecordEntry> into)
-    {
-        var group = new GroupFrame(meta, at);
-        long end = group.TotalLength;
-        long p = group.HeaderLength;
-        while (p < end)
+        foreach (var (key, _, rec) in Records(all, self))
         {
-            var here = at.Slice(checked((int)p));
-            if (Sig(here.Span) == "GRUP") { p += WalkGroup(meta, here, masters, self, into); continue; }
-            var rec = new MajorRecordFrame(meta, here);
-            var raw = rec.FormID.Raw;
-            int index = (int)(raw >> 24);
-            var key = new FormKey(index < masters.Count ? masters[index] : self, raw & 0xFFFFFF);
             if (!into.TryGetValue(key, out var entry))
                 into[key] = entry = new RecordEntry
                 {
                     Signature = rec.RecordType.Type, FormVersion = rec.FormVersion ?? 0,
                     Deleted = (rec.MajorRecordFlags & DeletedFlag) != 0,
-                    Partial = PartialForms.Is(rec.RecordType.Type, (uint)rec.MajorRecordFlags),
                 };
             entry.AddRecord(rec);
-            p += rec.TotalLength;
         }
-        return end;
+        return into;
     }
+
+    /// <summary>Every major record (never a GRUP) in a plugin's bytes: its FormKey through that file's own master list, its offset, its frame.</summary>
+    public static IEnumerable<(FormKey Key, int At, MajorRecordFrame Rec)> Records(ReadOnlyMemorySlice<byte> all, ModKey self)
+    {
+        var meta = GameConstants.SkyrimSE;
+        var header = new MajorRecordFrame(meta, all);
+        var masters = new List<ModKey>();
+        foreach (var (sig, data) in Subrecords(header.Content))
+            if (sig == "MAST") masters.Add(ModKey.FromFileName(Encoding.Latin1.GetString(data.Span).TrimEnd('\0')));
+        // A group's records follow its header directly, so stepping into each GRUP visits every record once.
+        for (int p = checked((int)header.TotalLength); p < all.Length;)
+        {
+            var here = all.Slice(p);
+            if (Sig(here.Span) == "GRUP") { p += new GroupFrame(meta, here).HeaderLength; continue; }
+            var rec = new MajorRecordFrame(meta, here);
+            var raw = rec.FormID.Raw;
+            int index = (int)(raw >> 24);
+            yield return (new FormKey(index < masters.Count ? masters[index] : self, raw & 0xFFFFFF), p, rec);
+            p += checked((int)rec.TotalLength);
+        }
+    }
+
+    /// <summary>A record's subrecords, decompressed when the record is compressed.</summary>
+    internal static IEnumerable<(string Sig, ReadOnlyMemorySlice<byte> Data)> Contents(MajorRecordFrame rec) => Subrecords(Body(rec));
 
     /// <summary>A record's subrecords in order through Mutagen's framing: signature and payload, an XXXX carrier folded in.</summary>
     static IEnumerable<(string Sig, ReadOnlyMemorySlice<byte> Data)> Subrecords(ReadOnlyMemorySlice<byte> body) =>

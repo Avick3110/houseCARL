@@ -792,6 +792,7 @@ public static class RemapEngine
             try { WriteEngine.WriteInPlace(targetMod, resolved, path, resolver.DataDir, isFaction: null); }
             // The localized-target refusal is its own sentence, and the generic arm below would misattribute it.
             catch (LocalizedTargetUnsupportedException ex) { return RepointResult.Fail(ex.Message); }
+            catch (PartialFormException ex) { return RepointResult.Fail(ex.Message); }
             catch (Exception ex)
             {
                 return RepointResult.Fail(

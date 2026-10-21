@@ -1378,9 +1378,11 @@ public static class WriteEngine
 
     /// <summary>Serialize a plugin edited IN PLACE back over ITSELF. DELIBERATELY NOT <see cref="WritePatch"/>: no
     /// baseline force-include and no floor, because this re-emits an EXISTING authored plugin. The caller MUST have
-    /// released every overlay it holds on the target; see docs/architecture/write-path.md.</summary>
+    /// released every overlay it holds on the target; see docs/architecture/write-path.md. A partial form goes back as
+    /// <paramref name="sources"/> (default: the output itself) held it, and refuses if <paramref name="edited"/> names it.</summary>
     public static void WriteInPlace(SkyrimMod targetMod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath,
-                                    string? dataDir, Func<FormKey, bool>? isFaction)
+                                    string? dataDir, Func<FormKey, bool>? isFaction,
+                                    IReadOnlyList<string>? sources = null, IEnumerable<FormKey>? edited = null)
     {
         var expected = targetMod.ModKey.FileName.String;
         var actual = Path.GetFileName(outputPath);
@@ -1400,7 +1402,7 @@ public static class WriteEngine
         // Same composed-null-arm serialize guard as WritePatch — an in-place edit can compose a record too.
         if (isFaction is not null) OwnerRanks.Settle(targetMod, isFaction);   // the lane's faction test, for every owner its records brought in; null only where the caller settled already or has no owners
         string staged;
-        try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath); }
+        try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath, sources ?? new[] { outputPath }, edited?.ToHashSet() ?? new()); }
         // A value this file's own encoding cannot spell: in place there is no second pass, so this is a refusal.
         catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is { } bad)
         {
@@ -1426,7 +1428,8 @@ public static class WriteEngine
     };
 
     /// <summary>Stage 1 of the in-place write: own declared masters, the counter verbatim with NO floor, no baseline, staged in the sibling temp.</summary>
-    static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath)
+    static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath,
+                                     IReadOnlyList<string> sources, IReadOnlySet<FormKey> edited)
     {
         var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
         var tmpPath = Path.Combine(tmpDir, Path.GetFileName(outputPath));
@@ -1434,8 +1437,7 @@ public static class WriteEngine
         try
         {
             SerializeInPlace(targetMod, ordered, outputPath, tmpPath, fileSystem: null);
-            if (PartialForms.In(targetMod))
-                File.WriteAllBytes(tmpPath, PartialForms.Restore(File.ReadAllBytes(tmpPath), Path.GetFileName(outputPath)));
+            PartialForms.WriteBack(tmpPath, sources, edited);
             return tmpPath;
         }
         catch

@@ -182,9 +182,10 @@ public sealed class InPlaceRoundTripTests
         Assert.False(HasSubrecord(path, "BODT"));
     }
 
-    /// <summary>Rewrite the first record of that signature, its body and header, with its size and every enclosing group's grown to fit.</summary>
+    /// <summary>Rewrite the first record of that signature (and EDID, if named), its body and header, with its size and every enclosing group's grown to fit.</summary>
     internal static void EditRecord(string path, string recordSig,
-        Func<List<(string Sig, byte[] Raw)>, List<(string Sig, byte[] Raw)>>? edit = null, Action<byte[]>? header = null)
+        Func<List<(string Sig, byte[] Raw)>, List<(string Sig, byte[] Raw)>>? edit = null, Action<byte[]>? header = null,
+        string? edid = null)
     {
         var b = File.ReadAllBytes(path);
         var groups = new List<(int Start, int End)>();
@@ -203,6 +204,8 @@ public sealed class InPlaceRoundTripTests
                 subs.Add((Encoding.ASCII.GetString(b, q, 4), b[q..(q + 6 + len)]));
                 q += 6 + len;
             }
+            if (edid is not null && !subs.Any(s => s.Sig == "EDID" && Encoding.ASCII.GetString(s.Raw, 6, s.Raw.Length - 6).TrimEnd('\0') == edid))
+                { p += 24 + size; continue; }
             var body = (edit is null ? subs : edit(subs)).SelectMany(s => s.Raw).ToArray();
             int grow = body.Length - size;
             var head = b[p..(p + 24)];
@@ -286,23 +289,40 @@ public sealed class InPlaceRoundTripTests
         Assert.True(o.Success, o.Error);
     }
 
-    /// <summary>The ARMA plus two interior CELLs in one block: a partial form (record flag 0x4000) first, then a plain one.</summary>
-    (string Path, FormKey Arma) StagePartialCell(bool edidOnly)
+    /// <summary>The partial forms the fixture stages, by signature and EDID: interior CELL, exterior CELL under a plain WRLD, WRLD, DIAL.</summary>
+    static readonly (string Sig, string Edid)[] Partials =
+        { ("CELL", "HcPF_Partial"), ("CELL", "HcPF_Exterior"), ("WRLD", "HcPF_PartialWorld"), ("DIAL", "HcPF_Topic") };
+
+    /// <summary>The ARMA, a plain interior CELL and each partial form (record flag 0x4000), every one cut to its EDID (a DIAL keeps
+    /// its TIFC) except, with <paramref name="cellData"/>, the interior one, which keeps what Mutagen wrote.</summary>
+    (string Path, FormKey Arma) StagePartialForms(bool cellData = false)
     {
         var (path, arma) = StagePluginWith(m =>
         {
+            Cell New(string edid, uint flags) =>
+                new(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = edid, Flags = Cell.Flag.HasWater, MajorRecordFlagsRaw = (int)flags };
             var sub = new CellSubBlock { GroupType = GroupTypeEnum.InteriorCellSubBlock };
-            sub.Cells.Add(new Cell(m.GetNextFormKey(), SkyrimRelease.SkyrimSE)
-                { EditorID = "HcPF_Partial", Flags = Cell.Flag.HasWater, MajorRecordFlagsRaw = 0x4000 });
-            sub.Cells.Add(new Cell(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcPF_Plain", Flags = Cell.Flag.HasWater });
+            sub.Cells.Add(New("HcPF_Partial", 0x4000));
+            sub.Cells.Add(New("HcPF_Plain", 0));
             m.Cells.Records.Add(new CellBlock { GroupType = GroupTypeEnum.InteriorCellBlock, SubBlocks = { sub } });
+            var world = new Worldspace(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcPF_World" };
+            world.SubCells.Add(new WorldspaceBlock
+            {
+                GroupType = GroupTypeEnum.ExteriorCellBlock,
+                Items = { new WorldspaceSubBlock { GroupType = GroupTypeEnum.ExteriorCellSubBlock, Items = { New("HcPF_Exterior", 0x4000) } } },
+            });
+            m.Worldspaces.Add(world);
+            m.Worldspaces.Add(new Worldspace(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcPF_PartialWorld", MajorRecordFlagsRaw = 0x4000 });
+            m.DialogTopics.Add(new DialogTopic(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcPF_Topic", MajorRecordFlagsRaw = 0x4000 });
         });
-        if (edidOnly) EditRecord(path, "CELL", subs => subs.Where(s => s.Sig == "EDID").ToList());
+        foreach (var (sig, edid) in Partials)
+            if (!(cellData && edid == "HcPF_Partial"))
+                EditRecord(path, sig, subs => subs.Where(s => s.Sig is "EDID" or "TIFC").ToList(), edid: edid);
         return (path, arma);
     }
 
-    /// <summary>The whole record, header and body, of the CELL with that EDID.</summary>
-    static byte[] CellBytes(string path, string edid)
+    /// <summary>The whole record, header and body, of the one with that signature and EDID.</summary>
+    static byte[] RecordBytes(string path, string recordSig, string edid)
     {
         var b = File.ReadAllBytes(path);
         int p = 24 + (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(4));
@@ -311,51 +331,114 @@ public sealed class InPlaceRoundTripTests
             var sig = Encoding.ASCII.GetString(b, p, 4);
             int size = (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p + 4));
             if (sig == "GRUP") { p += 24; continue; }
-            if (sig == "CELL" && Encoding.ASCII.GetString(b, p + 24, 6 + edid.Length).EndsWith(edid)) return b[p..(p + 24 + size)];
+            if (sig == recordSig && Encoding.ASCII.GetString(b, p + 24, 6 + edid.Length).EndsWith(edid)) return b[p..(p + 24 + size)];
             p += 24 + size;
         }
-        throw new InvalidOperationException($"no CELL {edid} in the file");
+        throw new InvalidOperationException($"no {recordSig} {edid} in the file");
     }
 
-    // #1209: Mutagen 0.54.4 adds DATA and LTMP to an EDID-only partial CELL; the in-place write keeps it as it was and the plain one as today.
-    [Fact]
-    public void AnInPlaceWriteLeavesAnEdidOnlyPartialCellByteIdentical()
+    static FormKey KeyOf(string path, string edid)
     {
-        var (path, arma) = StagePartialCell(edidOnly: true);
-        var partial = CellBytes(path, "HcPF_Partial");
-        var plain = CellBytes(path, "HcPF_Plain");
-        Assert.Equal(24 + 6 + "HcPF_Partial\0".Length, partial.Length);
+        using var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+        return ov.EnumerateMajorRecords().Single(r => r.EditorID == edid).FormKey;
+    }
+
+    static void AssertRefusedUntouched(WritePatchBuilder.PatchOutcome o, string path, byte[] before)
+    {
+        Assert.False(o.Success);
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.False(Directory.Exists(Path.Combine(Path.GetDirectoryName(path)!, ".housecarl-tmp")));
+    }
+
+    // #1209: Mutagen 0.54.4 adds its defaults to a partial form; the in-place write puts each back as the file held it.
+    [Fact]
+    public void AnInPlaceWriteLeavesEveryEdidOnlyPartialFormByteIdentical()
+    {
+        var (path, arma) = StagePartialForms();
+        var before = Partials.Select(p => RecordBytes(path, p.Sig, p.Edid)).ToList();
+        Assert.Contains("TIFC", Encoding.ASCII.GetString(before[3]));
+        var plain = RecordBytes(path, "CELL", "HcPF_Plain");
         var o = SetWeaponAdjust(path, arma);
         Assert.True(o.Success, o.Error);
-        Assert.Equal(partial, CellBytes(path, "HcPF_Partial"));
-        Assert.Equal(plain, CellBytes(path, "HcPF_Plain"));
-        Assert.Contains("DATA", Encoding.ASCII.GetString(plain));
+        Assert.Equal(before, Partials.Select(p => RecordBytes(path, p.Sig, p.Edid)).ToList());
+        Assert.Equal(plain, RecordBytes(path, "CELL", "HcPF_Plain"));
+        // Every group size still holds: the written file opens with all of them.
+        using var back = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+        Assert.Equal(new[] { "HcPF_Exterior", "HcPF_Partial", "HcPF_PartialWorld", "HcPF_Plain", "HcPF_Topic", "HcPF_World" },
+            back.EnumerateMajorRecords().Select(r => r.EditorID).Where(e => e?.StartsWith("HcPF_") == true).Order());
     }
 
-    // #1209: a partial CELL carrying more than an EDID cannot come out as it went in, so the write is refused.
+    // #1209: a partial CELL whose file holds more than an EDID cannot go back as a partial form, so the write refuses.
     [Fact]
-    public void AnInPlaceWriteToAPartialCellCarryingDataIsRefusedWithTheFileUntouched()
+    public void AnInPlaceWriteToAPluginWhosePartialCellCarriesDataIsRefusedWithTheFileUntouched()
     {
-        var (path, arma) = StagePartialCell(edidOnly: false);
+        var (path, arma) = StagePartialForms(cellData: true);
         var before = File.ReadAllBytes(path);
         var o = SetWeaponAdjust(path, arma);
-        Assert.False(o.Success);
-        Assert.StartsWith("refused: CELL ", o.Error);
-        Assert.Contains("is a partial form (record flag 0x4000", o.Error);
-        Assert.Contains("would be written with DATA", o.Error);
-        Assert.Equal(before, File.ReadAllBytes(path));
+        AssertRefusedUntouched(o, path, before);
+        Assert.StartsWith($"refused: CELL 'HcPF_Partial' {FormIdToken.Of(KeyOf(path, "HcPF_Partial"))} in '{PluginName}' is a partial form", o.Error);
+        Assert.Contains("its file already holds DATA", o.Error);
+        Assert.Contains("in xEdit remove that data or clear its Partial Form flag", o.Error);
     }
 
-    // #1209: the round-trip check names a subrecord the write adds to a partial form as a failure.
+    // #1209: an edit to a partial form cannot be written as one, so the write refuses.
     [Fact]
-    public void TheRoundTripCheckNamesASubrecordAddedToAPartialForm()
+    public void AnInPlaceEditOfAPartialFormIsRefusedWithTheFileUntouched()
     {
-        var key = new FormKey(ModKey.FromFileName(PluginName), 0x800);
-        var file = new SubrecordInventory.RecordEntry { Signature = "CELL", Partial = true };
-        var gained = new[] { new SubrecordInventory.Sub("LTMP", 4, 1, true) };
-        var d = new SubrecordInventory.RecordDiff(key, "CELL", 44, false, Array.Empty<SubrecordInventory.Sub>(), gained, file);
-        Assert.Contains("would add LTMP to CELL", PartialForms.AddedTo(new[] { d }, PluginName));
-        Assert.Null(PartialForms.AddedTo(new[] { d with { File = new SubrecordInventory.RecordEntry { Signature = "CELL" } } }, PluginName));
+        var (path, _) = StagePartialForms();
+        var cell = KeyOf(path, "HcPF_Exterior");
+        var before = File.ReadAllBytes(path);
+        WritePatchBuilder.PatchOutcome o;
+        using (var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path }))
+            o = WritePatchBuilder.ApplyInPlace(r, TestCorpus.Rulebook,
+                new[] { new WritePatchBuilder.PatchEdit { Target = cell, Path = new[] { "EditorID" }, Verb = "Set", Value = "HcPF_Renamed" } },
+                path, PluginName);
+        AssertRefusedUntouched(o, path, before);
+        Assert.StartsWith($"refused: CELL 'HcPF_Exterior' {FormIdToken.Of(cell)} in '{PluginName}' is a partial form", o.Error);
+        Assert.Contains("and this call edits it", o.Error);
+    }
+
+    // #1209: an into= write goes through WritePatch (#1246), which this fix leaves as it was: no new refusal.
+    [Fact]
+    public void AnApplyIntoAPatchHoldingAPartialFormIsWrittenAsBefore()
+    {
+        var (path, arma) = StagePartialForms(cellData: true);
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        var o = WritePatchBuilder.Apply(r, TestCorpus.Rulebook,
+            new[] { new WritePatchBuilder.PatchEdit { Target = arma, Path = new[] { "WeaponAdjust" }, Verb = "Set", Value = "1.5" } },
+            path, extend: true);
+        Assert.True(o.Success, o.Error);
+        Assert.Contains("DATA", Encoding.ASCII.GetString(RecordBytes(path, "CELL", "HcPF_Partial")));
+    }
+
+    // #1209: a merge writes a donor's partial override back as the donor held it.
+    [Fact]
+    public void AMergeWritesADonorsPartialFormBackByteIdentical()
+    {
+        var dir = _w.NewDir();
+        var master = new SkyrimMod(ModKey.FromFileName("HcPF_Master.esm"), SkyrimRelease.SkyrimSE);
+        var cell = WriteEngine.AddInteriorCell(master, "HcPF_MasterCell");
+        var masterPath = Path.Combine(dir, "HcPF_Master.esm");
+        master.BeginWrite.ToPath(masterPath).WithNoLoadOrder().Write();
+        var donorKey = ModKey.FromFileName("HcPF_Donor.esp");
+        var donor = new SkyrimMod(donorKey, SkyrimRelease.SkyrimSE);
+        var over = cell.DeepCopy();
+        over.MajorRecordFlagsRaw = 0x4000;
+        donor.Cells.Records.Add(new CellBlock
+        {
+            GroupType = GroupTypeEnum.InteriorCellBlock, BlockNumber = master.Cells.Records[0].BlockNumber,
+            SubBlocks = { new CellSubBlock { GroupType = GroupTypeEnum.InteriorCellSubBlock, BlockNumber = master.Cells.Records[0].SubBlocks[0].BlockNumber, Cells = { over } } },
+        });
+        var donorPath = Path.Combine(dir, "HcPF_Donor.esp");
+        donor.BeginWrite.ToPath(donorPath).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+        EditRecord(donorPath, "CELL", subs => subs.Where(s => s.Sig == "EDID").ToList());
+        var held = RecordBytes(donorPath, "CELL", "HcPF_MasterCell");
+        var outKey = ModKey.FromFileName("HcPF_Merged.esp");
+        var outPath = Path.Combine(dir, outKey.FileName.String);
+        var m = WritePatchBuilder.MergeBuild(new[] { ("HcPF_Donor.esp", donorPath, donorKey) }, outKey, new Dictionary<FormKey, FormKey>(),
+            new[] { "HcPF_Master.esm" }, n => n == "HcPF_Master.esm" ? masterPath : null, outPath, dataDir: null, isFaction: _ => false);
+        Assert.True(m.Success, m.Error);
+        Assert.Equal(held, RecordBytes(outPath, "CELL", "HcPF_MasterCell"));
     }
 
     // A subrecord over 64 KB, carried by XXXX, counts at its real length and XXXX itself is not counted.

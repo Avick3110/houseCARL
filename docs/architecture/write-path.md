@@ -103,17 +103,19 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   the four measured losses allowed, values not compared; the `into=` renders claim nothing about it.
 - A partial form (#1209) is a CELL, WRLD or DIAL with record flag `0x4000`, xEdit's placeholder override that holds at
   most an EDID. Mutagen 0.54.4's Skyrim writer has no such flag (upstream Mutagen#731) and writes its default fields
-  into each: CELL `DATA`, `LTMP`; WRLD `ONAM`, `DATA`, `NAM0`, `NAM9`; DIAL `PNAM` (50.0), `DATA`, `SNAM`, `TIFC`.
-  `PartialForms.Restore` runs on every in-place serialize (`WriteInPlace`, so merge and compaction too, and the
-  round-trip check's capture): each partial form is cut back to its EDID, the dropped subrecords being exactly what
-  Mutagen writes for a fresh record of that type (derived at runtime, not listed) plus a DIAL's `TIFC`, the INFO count
-  Mutagen derives. Anything else there, from the file or the call's own edit, or a compressed partial form, refuses
-  the call in one sentence with nothing written (`PartialFormException`, whose message `SerializeFailure` passes
-  through). A default subrecord the file held explicitly is dropped by the cut and so refused by the round-trip check
-  as a loss. The check also refuses, as its own failure, any subrecord the write would add to a partial form. Group
-  sizes are recomputed; no other record's bytes change. Not covered: `WritePatch` (fresh patches and `into=`), so an
-  override copy of a partial form into a patch is unchanged; and reads, where winner resolution does not yet skip
-  partial forms as xEdit does.
+  into each: CELL `DATA`, `LTMP`; WRLD `ONAM`, `DATA`, `NAM0`, `NAM9`; DIAL `PNAM`, `DATA`, `SNAM`, `TIFC`. Every write
+  through `WriteInPlace` (in-place apply, remove, forward and create, compaction in place or into a new plugin, the
+  referencers compaction repoints, merge) runs `PartialForms.WriteBack` on the staged file: the partial forms are found
+  by `SubrecordInventory.Records`, the byte walk the round-trip check uses, and each is replaced by its record's own
+  bytes from its source (the output itself, the compacted plugin, or the merge donors, the last donor winning), keeping
+  only the FormID as the write spells it; group sizes are recomputed and no other record's bytes change. No subrecord is
+  judged by its value. The write refuses, in one sentence naming the record by EDID and FormID token with nothing
+  written, when the call edits that record (the lane passes its targets), when its source holds anything but an EDID (a
+  DIAL's `TIFC`, its INFO count, excepted), or when no source holds it (a renumbered record of the plugin's own); merge,
+  compaction, repoint and remove render that sentence as it is. The round-trip check is unchanged: it compares the
+  unedited Mutagen rewrite, whose gains on a partial form are allowed like any gain. Not covered: `WritePatch` (fresh
+  patches and `into=`, #1246), which rewrites a whole existing patch, so every partial form in an `into=` target still
+  gains Mutagen's defaults; and reads, where winner resolution does not yet skip partial forms as xEdit does.
 - A read-back proves what is in the file, never what wins in the ORDER.
 - A walk's source universe is the caller's pole list in order, resolved first-hit-wins, with no separate single-pole
   path: a length-1 list is the same loop running once.
@@ -475,9 +477,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   the standard order writes, keeps the male models and renders `RoundTripChecked`; a `BODT` record writes (the rename);
   each of the four allowed losses writes, and a loss outside their conditions (an `INAM` with IsSnow set, a `PHWT` tail with a value) still refuses; a subrecord grown past
   its length refuses; a file the check cannot read or parse is refused in the check's own words; a target linking an
-  inactive plugin still gets the lane's "NOT active" sentence; an EDID-only partial CELL comes back byte-identical
-  beside a plain CELL written as before, a partial CELL carrying `DATA` refuses with the file untouched, and the check
-  names a subrecord added to a partial form; and
+  inactive plugin still gets the lane's "NOT active" sentence; an EDID-only partial interior CELL, exterior CELL under a
+  plain WRLD, WRLD and DIAL with `TIFC` come back byte-identical beside a plain CELL written as before; a partial CELL
+  carrying `DATA`, and an edit to a partial form, refuse with the file untouched and no temp left; an `into=` write over a
+  partial form carrying `DATA` writes as before; a merge writes a donor's partial override back byte-identical; and
   `TheParserStillReadsTheReproductionWithoutTheMaleModels` pins Mutagen 0.54.4's read of that order.
   `CompactRoundTripTests` — an in-place compact of such a target, and a repoint of such a referencer, refused with
   every file byte-identical; the unacknowledged compact asks for consent without the check; a copy `into=` such a

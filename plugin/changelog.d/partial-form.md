@@ -1,1 +1,1 @@
-- **In-place edits no longer add data to placeholder (partial-form) cell, worldspace and topic records; one that holds more than an EditorID is refused instead of rewritten.** Check: edit a plugin with such a cell in place, then compare that cell's bytes in xEdit.
+- **In-place edits, compaction and merge keep placeholder (partial-form) cell, worldspace and topic records exactly as they were; one holding data, or edited by the call, is refused.** Check: edit such a plugin in place; compare in xEdit.
