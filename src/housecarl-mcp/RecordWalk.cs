@@ -478,7 +478,7 @@ internal sealed partial class RecordReads
                     if (!fact.Resolved)
                     {
                         st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), null, null, hop, pulledBy, "kept",
-                                                     DefinerExcluded(view, key) ? "unresolved — " + UnresolvedFormId(view, key)
+                                                     view.ExcludedTouchers(key).Count > 0 ? "unresolved — " + UnresolvedFormId(view, key)
                                                          : "unresolved — no active plugin defines this target (a missing endpoint)"));
                         continue;
                     }

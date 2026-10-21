@@ -261,10 +261,6 @@ internal sealed partial class RecordReads
         }
     }
 
-    /// <summary>Was the plugin that defines <paramref name="fk"/> excluded this session? Then <see cref="UnresolvedFormId"/> names it.</summary>
-    internal static bool DefinerExcluded(LoadOrderResolver.IndexView view, FormKey fk) =>
-        view.ExcludedPlugins.ContainsKey(FormIdToken.Plugin(fk.ModKey.FileName.String));
-
     /// <summary>Why a FormID resolved to nothing, naming which of the three causes it is: the defining plugin was
     /// excluded, it is not in the order, or it IS in the order and defines no such record. The ESL-compaction
     /// clause is stated only where the index says that plugin is light-flagged — pinned by
@@ -412,7 +408,7 @@ internal sealed partial class RecordReads
                 ? new ResolvedRef(FormIdToken.Of(fk), Resolved: true, Type: eiType, EditorId: eiEditorId, Winner: EngineImplicit.Winner)   // engine-implicit: hardcoded, real, defined by no plugin
                 // Valid FormKey, no active plugin defines it; the reason is the three-cause sentence every other
                 // lane states.
-                : new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Error: UnresolvedFormId(view, fk)) { IntoExcluded = DefinerExcluded(view, fk) };
+                : new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Error: UnresolvedFormId(view, fk));
         else
         {
             var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
@@ -449,6 +445,9 @@ internal sealed partial class RecordReads
         /// <summary>What tells this pole apart from a same-named one on the other arm — the mod folder it was read
         /// out of, or "off-order". Set on the off-order arm only.</summary>
         internal string? Qualifier { get; init; }
+
+        /// <summary>The located file the off-order arm was read from; null in order.</summary>
+        internal string? Path { get; init; }
 
         /// <summary>The pole's label for a render that shows both sides, qualified only when the other side
         /// carries the same filename.</summary>

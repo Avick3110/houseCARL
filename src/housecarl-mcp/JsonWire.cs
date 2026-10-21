@@ -258,7 +258,7 @@ static class JsonWire
                 WriteNullable(w, "editorid", link.EditorId);
                 WriteNullable(w, "name", link.Name);
             }
-            else if (link.IntoExcluded) w.WriteString("error", link.Error);
+            else if (link.Error is not null) w.WriteString("error", link.Error);
             w.WriteEndObject();
         }
     }
@@ -1268,11 +1268,11 @@ static class JsonWire
         w.WriteEndArray();
 
         List<(string Formid, string Error, string? Matches)>? errors = null;
-        List<(string Formid, string Note)>? sharedNotes = null;   // a rendered record's shared-EditorID note, beside the rows like errors
+        List<(string Formid, string Note, string Member)>? sharedNotes = null;   // a rendered record's shared-EditorID or excluded-plugin note, beside the rows like errors
         int notesChars = 0;                                       // what the notes trailer will cost, charged against the cap as rows are
-        void AddNote(string formid, string note)
+        void AddNote(string formid, string note, string member = "editorid_note")
         {
-            (sharedNotes ??= new()).Add((formid, note));
+            (sharedNotes ??= new()).Add((formid, note, member));
             notesChars += note.Length + formid.Length + NoteEntryFraming;
         }
         int rendered = 0; bool rowsTruncated = false;
@@ -1348,7 +1348,7 @@ static class JsonWire
                     }
                     if (cut) break;                                   // a half-written record is not a rendered one
                     if (sharedNote is not null) AddNote(FormIdToken.Of(fk), sharedNote);
-                    if (Wire.ExcludedNote(o.Pin, fk) is { } foldExcluded) AddNote(FormIdToken.Of(fk), foldExcluded);
+                    if (Wire.ExcludedNote(o.Pin, fk) is { } foldExcluded) AddNote(FormIdToken.Of(fk), foldExcluded, "excluded_note");
                     rendered++;
                     continue;
                 }
@@ -1366,7 +1366,7 @@ static class JsonWire
                 if (hasMatches) WriteCell(w, matches);
                 w.WriteEndArray();
                 if (sharedNote is not null) AddNote(FormIdToken.Of(fk), sharedNote);
-                if (Wire.ExcludedNote(o.Pin, fk) is { } excludedNote) AddNote(FormIdToken.Of(fk), excludedNote);
+                if (Wire.ExcludedNote(o.Pin, fk) is { } excludedNote) AddNote(FormIdToken.Of(fk), excludedNote, "excluded_note");
             }
             else
             {
@@ -1383,7 +1383,7 @@ static class JsonWire
                 if (hasMatches) WriteCell(w, matches);
                 w.WriteEndArray();
                 if (SharedEditorIds.Note(m.Pin, m.FormKey, m.Type, m.Source) is { } note) AddNote(FormIdToken.Of(m.FormKey), note);
-                if (Wire.ExcludedNote(m.Pin, m.FormKey) is { } excludedNote) AddNote(FormIdToken.Of(m.FormKey), excludedNote);
+                if (Wire.ExcludedNote(m.Pin, m.FormKey) is { } excludedNote) AddNote(FormIdToken.Of(m.FormKey), excludedNote, "excluded_note");
             }
             rendered++;
         }
@@ -1402,9 +1402,9 @@ static class JsonWire
         if (sharedNotes is not null)
         {
             w.WriteStartArray("editorid_notes");
-            foreach (var (nfk, note) in sharedNotes)
+            foreach (var (nfk, note, member) in sharedNotes)
             {
-                w.WriteStartObject(); w.WriteString("formid", nfk); w.WriteString("editorid_note", note); w.WriteEndObject();
+                w.WriteStartObject(); w.WriteString("formid", nfk); w.WriteString(member, note); w.WriteEndObject();
             }
             w.WriteEndArray();
         }

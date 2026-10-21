@@ -691,9 +691,10 @@ public sealed class LoadOrderResolver : IDisposable
         public IReadOnlyList<string> ExcludedTouchers(FormKey fk)
         {
             if (!_s.ExcludedTouches.TryGetValue(fk, out var by)) return Array.Empty<string>();
-            int winner = _s.Index.TryGetValue(fk, out var e) ? e.winner : -1;   // one loading before the winner is overridden by it
-            var names = _r._names;
-            return by.Where(i => i > winner).Select(i => names[i]).ToArray();
+            int winner = _s.Index.TryGetValue(fk, out var e) ? Rely(e.winner) : -1;   // one loading before the winner is overridden by it
+            var touchers = new List<string>();
+            foreach (int i in by) if (i > winner) touchers.Add(_r._names[Rely(i)]);
+            return touchers;
         }
 
         /// <summary>The write refusal for a target an excluded plugin also touches, or null; one sentence every authoring lane asks.</summary>
