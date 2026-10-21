@@ -41,8 +41,9 @@ public static class PluginTextEncoding
     static readonly ConcurrentDictionary<int, EncodingBundle> LegacyBundles = new();
 
     /// <summary>Mutagen's answer for a language, its code-page half and that page's number. Mutagen's non-English
-    /// answer tries a lenient UTF-8 first, which never fails, so the code page under it is taken here; UTF-8 where
-    /// Mutagen has no code page (Chinese, Korean, Thai).</summary>
+    /// answer tries a lenient UTF-8 first, which never fails, so the code page under it is taken here. Where Mutagen
+    /// has no code page (Chinese, Korean, Thai…) the legacy lane is Windows-1252, which decodes every byte, so a
+    /// non-UTF-8 file's bytes are written back as read; a new file with text 1252 cannot spell goes out UTF-8.</summary>
     static readonly (IMutagenEncoding Answer, IMutagenEncoding Legacy, int CodePage)[] MutagenPages =
     {
         (MutagenEncoding._1252, MutagenEncoding._1252, 1252),
@@ -53,7 +54,7 @@ public static class PluginTextEncoding
         (MutagenEncoding._utf8_1254, MutagenEncoding._1254, 1254),
         (MutagenEncoding._utf8_1256, MutagenEncoding._1256, 1256),
         (MutagenEncoding._utf8_932, MutagenEncoding._932, 932),
-        (MutagenEncoding._utf8, MutagenEncoding._utf8, 65001),
+        (MutagenEncoding._utf8, MutagenEncoding._1252, 1252),
     };
 
     /// <summary>What a non-UTF-8 string decodes as in that language, and the code page a new legacy-lane file is written in: Mutagen's own, for every language.</summary>
@@ -71,7 +72,7 @@ public static class PluginTextEncoding
         get
         {
             var cp = Legacy(GameLanguage.Current.Language).CodePage;
-            return cp == 65001 ? Utf8Bundle : LegacyBundles.GetOrAdd(cp, c =>
+            return LegacyBundles.GetOrAdd(cp, c =>
             {
                 // The language default that THROWS on a character it cannot spell instead of substituting '?', so the question is the encoder's own answer at the moment it writes.
                 var strict = new SpellCheck(CodePagesEncodingProvider.Instance.GetEncoding(
@@ -83,7 +84,7 @@ public static class PluginTextEncoding
 
     /// <summary>The name a refusal gives this call's legacy code page.</summary>
     static string CodePageName()
-        => Legacy(GameLanguage.Current.Language).CodePage switch { 932 => "Shift-JIS", 65001 => "UTF-8", var cp => $"Windows-{cp}" };
+        => Legacy(GameLanguage.Current.Language).CodePage switch { 932 => "Shift-JIS", var cp => $"Windows-{cp}" };
 
     /// <summary>What each plugin's own strings decoded as, by filename, against the file version it was resolved from. Written by the read, read by the write.</summary>
     static readonly ConcurrentDictionary<string, (string Stamp, LaneSink Sink)> Lanes =
@@ -100,7 +101,9 @@ public static class PluginTextEncoding
         var sink = SinkFor(pluginPath);
         var strings = new StringsReadParameters
         {
-            EncodingProvider = new LanguageProvider(sink),
+            // A plugin's lane is its own bytes'; its string tables count toward it only in English, so an English write
+            // stays the bytes it always was.
+            EncodingProvider = new LanguageProvider(text.Language == Language.English ? sink : new LaneSink()),
             NonTranslatedEncodingOverride = new Utf8First(Legacy(text.Language).Decoder, sink),
         };
         if (text.FoldersFor(pluginPath, dataDir) is { } folders)
