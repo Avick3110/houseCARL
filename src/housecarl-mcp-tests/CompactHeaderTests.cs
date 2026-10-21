@@ -104,6 +104,7 @@ public sealed class CompactHeaderTests
         Assert.DoesNotContain("1/1 succeeded", text);
         Assert.DoesNotContain("clean compaction", text);
         Assert.Contains("external referencers: none to repoint, since no id moved.\n", text);
+        Assert.Contains("yes — 1 originating record already at its compacted id.\n", text);
         Assert.Contains(WriteSentences.CompactMovedNothing, text);
     }
 
@@ -117,7 +118,7 @@ public sealed class CompactHeaderTests
 
         Assert.True(again.Success, again.Error);
         var text = WriteTools.RenderCompact(again);
-        Assert.Contains("not light-flagged.\n" + WriteSentences.CompactMovedNothing, text);
+        Assert.Contains("not light-flagged — 1 originating record already at its compacted id.\n" + WriteSentences.CompactMovedNothing, text);
         Assert.DoesNotContain("renumbered (not light-flagged)", text);
     }
 
@@ -168,7 +169,7 @@ public sealed class CompactHeaderTests
         Assert.True(Assert.Single(c.Repointed).Success);
         Assert.Equal(overBefore, File.ReadAllBytes(overPath));
         var text = WriteTools.RenderCompact(c);
-        Assert.Contains("yes — 1 originating record renumbered into the light range 0x800–0xFFF.\n", text);
+        Assert.Contains("yes — 1 originating record renumbered into the light range 0x800–0xFFF; 1 already at its compacted id.\n", text);
         Assert.Contains("external referencers repointed in place: 1/1 succeeded\n  OK   HcCsDep.esp\n", text);
         Assert.DoesNotContain(WriteSentences.CompactMovedNothing, text);
     }

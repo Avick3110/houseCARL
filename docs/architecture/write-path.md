@@ -285,7 +285,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   in both lanes (#1215): flags, the HEDR version as-is (an old 0.94 or 1.70 header stays at it), author (CNAM),
   description (SNAM), overridden forms (ONAM, mapped by the renumber's `RemapLinks`), INTV and INCC. It then clears
   LOCALIZED (the output carries its strings inline), sets LIGHT from `esl` and sets NextObjectID to the floor plus the
-  renumbered count; the write sets the masters and the record count. Merge does not do this: it names each donor
+  originating record count, moved or not; the write sets the masters and the record count. Merge does not do this: it names each donor
   header it drops instead.
 - The plugin itself is renumbered and serialised whole, but everything downstream of the renumber gets only the
   records it MOVES, the map entries whose id changes (#1205): the identify pass, the referencer repoint and the
