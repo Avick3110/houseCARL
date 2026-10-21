@@ -25,6 +25,7 @@ missing one.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import subprocess
@@ -69,10 +70,15 @@ def main():
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    exe = os.path.join(args.root, "src", "housecarl-mcp", "bin", args.config,
-                       "net10.0", "housecarl-mcp.exe")
-    if not os.path.exists(exe):
-        raise SystemExit(f"housecarl-mcp.exe not found at '{exe}' -- build the solution first")
+    pattern = os.path.join(args.root, "src", "housecarl-mcp", "bin", args.config,
+                           "net*", "housecarl-mcp.exe")
+    found = glob.glob(pattern)
+    if not found:
+        raise SystemExit(f"housecarl-mcp.exe not found at '{pattern}' -- build the solution first")
+    if len(found) > 1:
+        raise SystemExit(f"more than one housecarl-mcp.exe matches '{pattern}' ({', '.join(found)}) "
+                         "-- delete the stale target-framework folder")
+    exe = found[0]
 
     data_dir = os.path.join(tempfile.gettempdir(), "housecarl-toolslist-" + uuid.uuid4().hex)
     os.makedirs(data_dir, exist_ok=True)
