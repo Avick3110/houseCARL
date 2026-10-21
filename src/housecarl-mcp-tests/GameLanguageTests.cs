@@ -57,8 +57,10 @@ public sealed class GameLanguageTests : IDisposable
         return d;
     }
 
+    string Profile => Path.Combine(Instance, "profiles", "Default");
+
     /// <summary>The MO2 files: <paramref name="mods"/> highest priority first, <paramref name="plugins"/> in load order, and the profile's Skyrim.ini when a language is given.</summary>
-    LoadOrderService Open(string? sLanguage, string[] mods, string[] plugins, string[]? implicitMasters = null)
+    LoadOrderService Open(string? sLanguage, string[] mods, string[] plugins, string[]? implicitMasters = null, string? archives = null)
     {
         Directory.CreateDirectory(DataDir);
         Directory.CreateDirectory(Mods);
@@ -73,20 +75,22 @@ public sealed class GameLanguageTests : IDisposable
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), string.Concat(plugins.Select(n => "*" + n + "\r\n")));
         File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n" + string.Concat(mods.Select(m => "+" + m + "\r\n")));
         if (sLanguage is not null)
-            File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), $"[General]\r\nsLanguage={sLanguage}\r\n\r\n[Display]\r\n");
+            File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), $"[General]\r\nsLanguage={sLanguage}\r\n\r\n[Display]\r\n"
+                + (archives is null ? "" : $"\r\n[Archive]\r\nsResourceArchiveList={archives}\r\n"));
         var svc = LoadOrderService.WithInstance(Instance, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
         _services.Add(svc);
         return svc;
     }
 
     /// <summary>A LOCALIZED plugin whose one weapon is named only in <paramref name="language"/>; its tables go into <c>Strings\</c> beside it, in Windows-1252 as the game's own Western tables are.</summary>
-    static FormKey WriteLocalized(string path, Language language, string name, ModType type = ModType.Plugin)
+    static FormKey WriteLocalized(string path, Language language, string name, ModType type = ModType.Plugin, string? english = null)
     {
         var key = new ModKey(Path.GetFileNameWithoutExtension(path), type);
         var mod = new SkyrimMod(key, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
         var w = mod.Weapons.AddNew();
         w.EditorID = key.Name + "Weap";
         w.Name = new TranslatedString(language, name);
+        if (english is not null) w.Name.Set(Language.English, english);
         w.BasicStats = new WeaponBasicStats { Damage = 7, Weight = 1 };
         using (var sw = new StringsWriter(GameRelease.SkyrimSE, key, Path.Combine(Path.GetDirectoryName(path)!, "Strings"),
                                           new Always(new MutagenEncodingWrapper(Cp1252)), new System.IO.Abstractions.FileSystem()))
@@ -198,9 +202,227 @@ public sealed class GameLanguageTests : IDisposable
 
         var r = ReadName(svc, skyrim);
         Assert.Contains("sLanguage=GERMAN", r);
-        Assert.Contains("no German string tables for Skyrim.esm", r);
-        Assert.Contains(Path.Combine(DataDir, "Strings"), r);
+        Assert.Contains("no German string tables for Skyrim.esm were found loose in a Strings folder or in a loaded archive", r);
     }
+
+    /// <summary>The same refusal reached by a profile switch that keeps the plugin order: the next call answers with
+    /// the one sentence, not a plugin "held open by another program".</summary>
+    [Fact]
+    public void ALanguageChangeWithTheSameOrderRefusesInOneSentence()
+    {
+        Directory.CreateDirectory(DataDir);
+        var skyrim = WriteLocalized(Path.Combine(DataDir, "Skyrim.esm"), Language.English, "Iron Sword", ModType.Master);
+        var svc = Open("ENGLISH", Array.Empty<string>(), Array.Empty<string>(), new[] { "Skyrim.esm" });
+        Assert.Contains("Iron Sword", ReadName(svc, skyrim));
+
+        File.WriteAllText(Path.Combine(Profile, "Skyrim.ini"), "[General]\r\nsLanguage=GERMAN\r\n");
+        File.AppendAllText(Path.Combine(Profile, "modlist.txt"), "\r\n");   // a profile touch that keeps the order
+
+        var r = ReadName(svc, skyrim);
+        Assert.StartsWith("error: houseCARL cannot read this load order in German", r);
+        Assert.DoesNotContain("held open", r);
+    }
+
+    /// <summary>A localized Skyrim.esm whose German tables ship in a Data archive the INI loads, as a real German
+    /// install's do: the order reads, in German, with no refusal.</summary>
+    [Fact]
+    public void AGermanInstallWithSkyrimTablesInAnArchiveReads()
+    {
+        var staging = Path.Combine(_root, "staging");
+        Directory.CreateDirectory(staging);
+        var weapon = WriteLocalized(Path.Combine(staging, "Skyrim.esm"), Language.German, GermanName, ModType.Master);
+        Directory.CreateDirectory(DataDir);
+        File.Copy(Path.Combine(staging, "Skyrim.esm"), Path.Combine(DataDir, "Skyrim.esm"));
+        File.WriteAllBytes(Path.Combine(DataDir, "Skyrim - Interface.bsa"), Archive(staging));
+        var svc = Open("GERMAN", Array.Empty<string>(), Array.Empty<string>(), new[] { "Skyrim.esm" }, archives: "Skyrim - Interface.bsa");
+
+        var read = ReadName(svc, weapon);
+        Assert.DoesNotContain("error:", read);
+        Assert.Contains(GermanName, read);
+    }
+
+    /// <summary>English and German tables both ship: a German install reads and carries the German name, not the English one.</summary>
+    [Fact]
+    public void WithEnglishTablesAlsoPresentAGermanInstallReadsGerman()
+    {
+        var weapon = WriteLocalized(Path.Combine(ModDir("BothMod"), "HcBoth.esp"), Language.German, GermanName, english: "Big Iron Sword");
+        Assert.True(File.Exists(Path.Combine(Mods, "BothMod", "Strings", "HcBoth_English.STRINGS")), "the fixture has no English tables");
+        var svc = Open("GERMAN", new[] { "BothMod" }, new[] { "HcBoth.esp" });
+
+        var read = ReadName(svc, weapon);
+        Assert.Contains(GermanName, read);
+        Assert.DoesNotContain("Big Iron Sword", read);
+    }
+
+    /// <summary>A mod shipping only English tables, on a German install: the game shows no German name, and neither does houseCARL.</summary>
+    [Fact]
+    public void AnEnglishOnlyModOnAGermanInstallDoesNotReadEnglish()
+    {
+        var weapon = WriteLocalized(Path.Combine(ModDir("EnglishMod"), "HcEn.esp"), Language.English, "Big Iron Sword");
+        var svc = Open("GERMAN", new[] { "EnglishMod" }, new[] { "HcEn.esp" });
+
+        Assert.DoesNotContain("Big Iron Sword", ReadName(svc, weapon));
+    }
+
+    /// <summary>sLanguage that names no game language, or a number, refuses in one sentence naming the INI and the value.</summary>
+    [Theory]
+    [InlineData("KLINGON")]
+    [InlineData("1")]
+    public void AnSLanguageThatNamesNoLanguageIsRefused(string value)
+    {
+        var weapon = WriteLocalized(Path.Combine(ModDir("GermanMod"), "HcDe.esp"), Language.German, GermanName);
+        var svc = Open(value, new[] { "GermanMod" }, new[] { "HcDe.esp" });
+
+        var r = ReadName(svc, weapon);
+        Assert.Contains($"sets sLanguage={value}, which is not a game language it knows", r);
+        Assert.Contains(Path.Combine(Profile, "Skyrim.ini"), r);
+    }
+
+    /// <summary>JAPANESE with UTF-8 <c>_Japanese</c> tables: the #740 UTF-8-first read holds under a non-English language too.</summary>
+    [Fact]
+    public void AJapaneseInstallReadsUtf8JapaneseTables()
+    {
+        const string japanese = "炎の剣";
+        var dir = ModDir("JapaneseMod");
+        var key = new ModKey("HcJp", ModType.Plugin);
+        var mod = new SkyrimMod(key, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
+        var w = mod.Weapons.AddNew();
+        w.EditorID = "HcJpWeap";
+        w.Name = new TranslatedString(Language.Japanese, japanese);
+        w.BasicStats = new WeaponBasicStats { Damage = 7, Weight = 1 };
+        using (var sw = new StringsWriter(GameRelease.SkyrimSE, key, Path.Combine(dir, "Strings"),
+                                          new Always(new MutagenEncodingWrapper(Encoding.UTF8)), new System.IO.Abstractions.FileSystem()))
+            mod.BeginWrite.ToPath(Path.Combine(dir, "HcJp.esp")).WithLoadOrder(Array.Empty<ISkyrimModGetter>())
+               .WithStringsWriter(sw).Write();
+        var svc = Open("JAPANESE", new[] { "JapaneseMod" }, new[] { "HcJp.esp" });
+
+        Assert.Contains(japanese, ReadName(svc, w.FormKey));
+    }
+
+    /// <summary>A Korean install reads a plugin whose name is not UTF-8 (a Western mod's Windows-1252 "é") the way
+    /// Mutagen does, with a replacement character, instead of failing to open it.</summary>
+    [Fact]
+    public void AKoreanInstallReadsAPluginWithANonUtf8Name()
+    {
+        var path = Path.Combine(ModDir("WesternMod"), "HcWe.esp");
+        var mod = new SkyrimMod(new ModKey("HcWe", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var w = mod.Weapons.AddNew();
+        w.EditorID = "HcWeWeap";
+        w.Name = "Epée longue";
+        w.BasicStats = new WeaponBasicStats { Damage = 7, Weight = 1 };
+        var cp1252 = new MutagenEncodingWrapper(Cp1252);
+        mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).WithEmbeddedEncodings(new EncodingBundle(cp1252, cp1252)).Write();
+        var svc = Open("KOREAN", new[] { "WesternMod" }, new[] { "HcWe.esp" });
+
+        var read = ReadName(svc, w.FormKey);
+        Assert.DoesNotContain("error:", read);
+        Assert.Contains("p�e longue", read);
+    }
+
+    // ---- which INI ----------------------------------------------------------------------------------
+
+    /// <summary>A profile MO2 runs on the My Games INIs (LocalSettings=false) reads the language from there, not from a
+    /// stale Skyrim.ini left in the profile; SkyrimCustom.ini's value wins over Skyrim.ini's.</summary>
+    [Fact]
+    public void AProfileWithoutLocalInisReadsTheLanguageFromMyGames()
+    {
+        var weapon = WriteLocalized(Path.Combine(ModDir("GermanMod"), "HcDe.esp"), Language.German, GermanName);
+        var svc = Open("ENGLISH", new[] { "GermanMod" }, new[] { "HcDe.esp" });
+        File.WriteAllText(Path.Combine(Profile, "settings.ini"), "[General]\r\nLocalSettings=false\r\n");
+        var myGames = Path.Combine(_root, "MyGames");
+        Directory.CreateDirectory(myGames);
+        File.WriteAllText(Path.Combine(myGames, "Skyrim.ini"), "[General]\r\nsLanguage=FRENCH\r\n");
+        File.WriteAllText(Path.Combine(myGames, "SkyrimCustom.ini"), "[General]\r\nsLanguage=GERMAN\r\n");
+        svc.MyGamesDir = myGames;
+
+        Assert.Contains(GermanName, ReadName(svc, weapon));
+    }
+
+    // ---- where a plugin's tables come from -----------------------------------------------------------
+
+    /// <summary>A translation mod above a plugin's own mod ships loose tables for it: the game shows the translation,
+    /// and so does houseCARL.</summary>
+    [Fact]
+    public void ATranslationModsLooseTablesWinOverThePluginsOwn()
+    {
+        var weapon = WriteLocalized(Path.Combine(ModDir("SwordMod"), "HcTr.esp"), Language.English, "Big Iron Sword");
+        var staging = Path.Combine(_root, "staging");
+        Directory.CreateDirectory(staging);
+        WriteLocalized(Path.Combine(staging, "HcTr.esp"), Language.English, "Translated Sword");
+        var strings = Path.Combine(ModDir("SwordMod Translation"), "Strings");
+        Directory.CreateDirectory(strings);
+        foreach (var f in Directory.GetFiles(Path.Combine(staging, "Strings"))) File.Copy(f, Path.Combine(strings, Path.GetFileName(f)));
+        var svc = Open(null, new[] { "SwordMod Translation", "SwordMod" }, new[] { "HcTr.esp" });
+
+        var read = ReadName(svc, weapon);
+        Assert.Contains("Translated Sword", read);
+        Assert.DoesNotContain("Big Iron Sword", read);
+    }
+
+    // ---- where the language lives ---------------------------------------------------------------------
+
+    /// <summary>The write's code page is the call's language and nothing else: a new file written outside any MO2
+    /// folder under a Russian order goes out in Windows-1251.</summary>
+    [Fact]
+    public void ANewFileOutsideTheInstanceUnderARussianOrderIsWindows1251()
+    {
+        var prof = Path.Combine(_root, "profile");
+        Directory.CreateDirectory(prof);
+        File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[General]\r\nsLanguage=RUSSIAN\r\n");
+        var russian = GameLanguage.Read(GameIni.For(prof), Mo2LoadOrder.ReadComposition(prof), Array.Empty<ActiveArchive>(), "", "", "", null);
+        var outside = Path.Combine(_root, "elsewhere", "HcOut.esp");
+        Directory.CreateDirectory(Path.GetDirectoryName(outside)!);
+        var mod = new SkyrimMod(new ModKey("HcOut", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var w = mod.Weapons.AddNew();
+        w.EditorID = "HcOutWeap";
+        w.Name = RussianName;
+
+        using (GameLanguage.Begin())
+        {
+            GameLanguage.Bind(russian);
+            mod.BeginWrite.ToPath(outside).WithLoadOrder(Array.Empty<ISkyrimModGetter>())
+               .WithEmbeddedEncodings(PluginTextEncoding.LegacyBundle).Write();
+        }
+        Assert.True(Holds(outside, Cp1251.GetBytes(RussianName)), "the name is not in Windows-1251");
+    }
+
+    /// <summary>An in-place edit of a Russian 1251 plugin keeps its untouched name in 1251, and a value 1251 cannot
+    /// spell is refused naming Windows-1251.</summary>
+    [Fact]
+    public void AnInPlaceEditOfARussianPluginStaysWindows1251()
+    {
+        var path = Path.Combine(ModDir("RussianMod"), "HcRu.esp");
+        var mod = new SkyrimMod(new ModKey("HcRu", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var w = mod.Weapons.AddNew();
+        w.EditorID = "HcRuWeap";
+        w.Name = RussianName;
+        w.BasicStats = new WeaponBasicStats { Damage = 7, Weight = 1 };
+        var cp1251 = new MutagenEncodingWrapper(Cp1251);
+        mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>())
+           .WithEmbeddedEncodings(new EncodingBundle(cp1251, cp1251)).Write();
+        var svc = Open("RUSSIAN", new[] { "RussianMod" }, new[] { "HcRu.esp" });
+        Assert.Contains(RussianName, ReadName(svc, w.FormKey));
+
+        var r = InPlace(svc, w.FormKey, "BasicStats.Damage", "20", "HcRu.esp");
+        Assert.DoesNotContain("error:", r);
+        Assert.True(Holds(path, Cp1251.GetBytes(RussianName)), "the untouched name left Windows-1251");
+
+        var bad = InPlace(svc, w.FormKey, "Name", "Ελληνικά", "HcRu.esp");
+        Assert.Contains("Windows-1251", bad);
+        Assert.Contains("has no spelling for", bad);
+    }
+
+    string InPlace(LoadOrderService svc, FormKey fk, string field, string value, string plugin)
+    {
+        var ops = Je($@"[{{""formid"":""{Fid(fk)}"",""field_path"":""{field}"",""op"":""Set"",""value"":{JsonSerializer.Serialize(value)}}}]");
+        ApplyTools.Apply(svc, ops: ops, in_place: plugin);   // the first touch asks for consent
+        return ApplyTools.Apply(svc, ops: ops, in_place: plugin, acknowledge: true);
+    }
+
+    /// <summary>A BSA holding every table file in <paramref name="staging"/>'s Strings folder.</summary>
+    static byte[] Archive(string staging)
+        => BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, new[] { ("strings",
+            Directory.GetFiles(Path.Combine(staging, "Strings")).Select(f => (Path.GetFileName(f).ToLowerInvariant(), File.ReadAllBytes(f))).ToArray()) });
 
     /// <summary>One encoding for every table, spelled here rather than borrowed from the code under test.</summary>
     sealed class Always(IMutagenEncoding encoding) : IMutagenEncodingProvider
@@ -237,8 +459,7 @@ public sealed class GameLanguageTests : IDisposable
         Assert.Contains(CcName, read);
         Assert.DoesNotContain("unresolved", read);
 
-        var shape = LocalizedStrings.Assess(Path.Combine(Mods, "Cleaned", "HcCc.esm"), DataDir);
-        Assert.Equal(LocalizedShape.BsaEmbedded, shape.Shape);
-        Assert.Equal("Fishing", shape.BsaModFolder);
+        // The in-place census names the archive the read used.
+        Assert.Contains("in the mod folder 'Fishing'", InPlace(svc, weapon, "BasicStats.Damage", "20", "HcCc.esm"));
     }
 }
