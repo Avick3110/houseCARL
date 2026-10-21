@@ -63,6 +63,11 @@ public sealed class PluginsTxtEncodingTests : IDisposable
     public void Utf8PluginsTxtKeepsTicks()
         => AssertTicks(Compose(new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), Ticked, Unticked), Ticked, Unticked);
 
+    // A UTF-16 BOM names the file's encoding, as Notepad's "Unicode" save writes it.
+    [Fact]
+    public void Utf16PluginsTxtKeepsTicks()
+        => AssertTicks(Compose(Encoding.Unicode, Ticked, Unticked), Ticked, Unticked);
+
     // cp1251 is forced by handing the parse the code page a Russian Windows reports.
     [Fact]
     public void Cp1251PluginsTxtKeepsTicks()
