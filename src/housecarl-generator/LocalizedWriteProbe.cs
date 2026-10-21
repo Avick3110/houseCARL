@@ -395,7 +395,7 @@ public static class LocalizedWriteProbe
                 // be measuring is what the record copy does to a TranslatedString.
                 var dict = src.EnumerateMajorRecords().ToDictionary(r => r.FormKey, r => r.FormKey);
                 var pPrime = new SkyrimMod(f.Key, SkyrimRelease.SkyrimSE);
-                var ren = RemapEngine.RenumberModInto(pPrime, src, dict);
+                var ren = RemapEngine.RenumberModInto(pPrime, src, dict, _ => false);
                 if (!ren.Success) { Row("M4-copy", false, "the renumber failed: " + ren.Error); return; }
                 var copiedLangs = pPrime.Weapons.First(w => w.EditorID == "ZRefWeap0").Name!.NumLanguages;
                 Row("M4-copy", null, $"source carries {srcLangs} languages in memory; the copy into P′ carries {copiedLangs}");

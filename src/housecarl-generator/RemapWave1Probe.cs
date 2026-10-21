@@ -246,7 +246,7 @@ public static class RemapWave1Probe
                 var pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE) { IsSmallMaster = true };
                 // Wave 2: the STRUCTURAL renumber (flat + nested — cells/placed/INFO), so a cell-bearing real mod compacts
                 // too (the flat RenumberRecordsInto would refuse it loud). Same path the housecarl_compact_plugin tool uses.
-                var ren = RemapEngine.RenumberModInto(pPrime, ov, plan.Dict);
+                var ren = RemapEngine.RenumberModInto(pPrime, ov, plan.Dict, _ => false);
                 if (!ren.Success) { Console.WriteLine($"   REFUSE (Q3): {ren.Error}"); }
                 else
                 {

@@ -74,7 +74,7 @@ public sealed class RemapNestedCompactTests : IDisposable
             var srcKeys = donorOv.EnumerateMajorRecords().Where(r => r.FormKey.ModKey == DonorKey).Select(r => r.FormKey).ToList();
             _plan = RemapEngine.BuildSequentialRemap(srcKeys, DonorKey, RemapEngine.EslFloor, RemapEngine.EslCeiling);
             var pPrime = new SkyrimMod(DonorKey, SkyrimRelease.SkyrimSE) { IsSmallMaster = true };
-            _ren = RemapEngine.RenumberModInto(pPrime, donorOv, _plan.Dict);
+            _ren = RemapEngine.RenumberModInto(pPrime, donorOv, _plan.Dict, _ => false);
             pPrime.ModHeader.Stats.NextFormID = (uint)(RemapEngine.EslFloor + _plan.Dict.Count);
             Directory.CreateDirectory(Path.GetDirectoryName(_pPrimePath)!);
             if (_ren.Success) WriteEngine.WriteInPlace(pPrime, Array.Empty<ISkyrimModGetter>(), _pPrimePath, dataDir: null);

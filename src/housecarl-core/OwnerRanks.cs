@@ -7,7 +7,7 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-// OwnerRanks — a faction owner Mutagen could not type is retyped before a serialize, so its rank word goes back out as the int it is. Contract in docs/architecture/write-path.md.
+// OwnerRanks — a faction owner Mutagen could not type is retyped where a write lane takes its records, so its rank word goes back out as the int it is. Contract in docs/architecture/write-path.md.
 public static class OwnerRanks
 {
     /// <summary>Retype every <see cref="UntypedOwner"/> in <paramref name="mod"/> whose owner <paramref name="isFaction"/>
@@ -17,15 +17,29 @@ public static class OwnerRanks
     /// is a real Global link and stays untyped; an owner the order cannot name is left as read.</summary>
     public static void Settle(IMod mod, Func<FormKey, bool> isFaction)
     {
-        foreach (var rec in mod.EnumerateMajorRecords())
-            foreach (var ed in ExtraDataIn(rec))
-                if (ed.Owner is UntypedOwner uo && isFaction(uo.OwnerData.FormKey))
-                    ed.Owner = new FactionOwner
-                    {
-                        Faction = new FormLink<IFactionGetter>(uo.OwnerData.FormKey),
-                        RequiredRank = (int)(uo.VariableData.FormKey.ID << 8) >> 8,   // the rank's low 24 bits, sign-extended: -1 read as id FFFFFF in whatever plugin index FF mapped to
-                    };
+        foreach (var rec in mod.EnumerateMajorRecords()) Settle(rec, isFaction);
     }
+
+    /// <summary>The same retype on one record; true when it changed an owner.</summary>
+    public static bool Settle(object rec, Func<FormKey, bool> isFaction)
+    {
+        bool changed = false;
+        foreach (var ed in ExtraDataIn(rec))
+            if (ed.Owner is UntypedOwner uo && isFaction(uo.OwnerData.FormKey))
+            {
+                ed.Owner = new FactionOwner
+                {
+                    Faction = new FormLink<IFactionGetter>(uo.OwnerData.FormKey),
+                    RequiredRank = (int)(uo.VariableData.FormKey.ID << 8) >> 8,   // the rank's low 24 bits, sign-extended: -1 read as id FFFFFF in whatever plugin index FF mapped to
+                };
+                changed = true;
+            }
+        return changed;
+    }
+
+    /// <summary>A source record as a getter walk takes it: a settled deep copy when it holds a faction owner Mutagen left untyped, else the record itself.</summary>
+    public static IMajorRecordGetter? Settled(IMajorRecordGetter? rec, Func<FormKey, bool> isFaction) =>
+        rec is not null && WriteEngine.TryDeepCopyRecord(rec) is { } copy && Settle(copy, isFaction) ? copy : rec;
 
     /// <summary>The one faction test, for the write and the dry-run preview alike: the order's winning record for the key is a FACT, wherever it lives.</summary>
     public static Func<FormKey, bool> FactionIn(LoadOrderResolver.IndexView view) =>

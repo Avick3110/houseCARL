@@ -272,7 +272,8 @@ internal sealed partial class RecordWrites
             }
 
             // Build and write the compacted plugin.
-            var build = WritePatchBuilder.CompactBuild(srcPath, modKey, remapDict, view.PluginPath, outPath, esl, floor, view.DataDir);
+            var build = WritePatchBuilder.CompactBuild(srcPath, modKey, remapDict, view.PluginPath, outPath, esl, floor, view.DataDir,
+                OwnerRanks.FactionIn(view));
             if (!build.Success)
             {
                 if (!inPlace && createdFresh) OutputLocations.RemoveOrNameRiderResidue(rf);   // a refused build leaves no orphan folder
@@ -632,7 +633,8 @@ internal sealed partial class RecordWrites
 
             // ---- build and write the merged plugin ----
             var build = WritePatchBuilder.MergeBuild(
-                donorInfos.Select(d => (d.Name, d.Path, d.Key)).ToList(), outKey, plan.Dict, masterSet, view.PluginPath, outPath, view.DataDir);
+                donorInfos.Select(d => (d.Name, d.Path, d.Key)).ToList(), outKey, plan.Dict, masterSet, view.PluginPath, outPath, view.DataDir,
+                OwnerRanks.FactionIn(view));
             if (!build.Success)
             {
                 return FailAfterFolder(build.Error!);                      // a refused build leaves no orphan folder

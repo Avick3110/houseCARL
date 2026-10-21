@@ -226,7 +226,7 @@ public sealed class MidCallChangeTests : IDisposable
         resolver.Capture();                             // the call's door
         var r = During(name => { if (!saved && name == AName) { Save(_aNew, _a); saved = true; } },
                        () => WritePatchBuilder.CompactBuild(_a, ModKey.FromFileName(AName), new Dictionary<FormKey, FormKey>(),
-                                                            n => n == MasterName ? _master : null, outPath, esl: false, floor: 0x800, dataDir: null));
+                                                            n => n == MasterName ? _master : null, outPath, esl: false, floor: 0x800, dataDir: null, isFaction: _ => false));
         Assert.True(saved);
         Assert.False(r.Success);
         Assert.Contains($"'{AName}' changed on disk during this call", mark.Settle());

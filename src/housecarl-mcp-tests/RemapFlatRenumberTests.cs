@@ -76,7 +76,7 @@ public sealed class RemapFlatRenumberTests : IDisposable
         using (var donorOv = SkyrimMod.CreateFromBinaryOverlay(_donorPath, SkyrimRelease.SkyrimSE))
         {
             var pPrime = new SkyrimMod(DonorKey, SkyrimRelease.SkyrimSE);
-            var ren = RemapEngine.RenumberRecordsInto(pPrime, donorOv.EnumerateMajorRecords().Where(r => r.FormKey.ModKey == DonorKey), plan.Dict);
+            var ren = RemapEngine.RenumberRecordsInto(pPrime, donorOv.EnumerateMajorRecords().Where(r => r.FormKey.ModKey == DonorKey), plan.Dict, _ => false);
             Assert.True(ren.Success, ren.Error);
             pPrime.ModHeader.Stats.NextFormID = 0x802;
             WriteEngine.WriteInPlace(pPrime, Array.Empty<ISkyrimModGetter>(), pPrimePath, dataDir: null);
@@ -135,7 +135,7 @@ public sealed class RemapFlatRenumberTests : IDisposable
         var cellKey = new FormKey(DonorKey, 0xD00);
         var cell = new Cell(cellKey, SkyrimRelease.SkyrimSE) { EditorID = "HcCell" };
         var ren = RemapEngine.RenumberRecordsInto(new SkyrimMod(DonorKey, SkyrimRelease.SkyrimSE),
-            new IMajorRecordGetter[] { cell }, new Dictionary<FormKey, FormKey> { [cellKey] = new FormKey(DonorKey, 0x800) });
+            new IMajorRecordGetter[] { cell }, new Dictionary<FormKey, FormKey> { [cellKey] = new FormKey(DonorKey, 0x800) }, _ => false);
         Assert.False(ren.Success);
         Assert.Contains("NESTED", ren.Error, StringComparison.OrdinalIgnoreCase);
     }
@@ -149,7 +149,7 @@ public sealed class RemapFlatRenumberTests : IDisposable
         var target = new SkyrimMod(DonorKey, SkyrimRelease.SkyrimSE);
         var ren = RemapEngine.RenumberRecordsInto(target,
             new IMajorRecordGetter[] { new GlobalFloat(gOld, SkyrimRelease.SkyrimSE) { EditorID = "HcGlobalF", Data = 2.5f } },
-            new Dictionary<FormKey, FormKey> { [gOld] = gNew });
+            new Dictionary<FormKey, FormKey> { [gOld] = gNew }, _ => false);
         Assert.True(ren.Success, ren.Error);
         Assert.Equal(1, ren.RecordsRenumbered);
         Assert.True(target.Globals.ContainsKey(gNew));
@@ -186,7 +186,7 @@ public sealed class RemapFlatRenumberTests : IDisposable
         var plan = RemapEngine.BuildSequentialRemap(origKeys, overKey, RemapEngine.EslFloor, RemapEngine.EslCeiling);
         Assert.True(plan.Success, plan.Error);
         var pPrime = new SkyrimMod(overKey, SkyrimRelease.SkyrimSE);
-        var ren = RemapEngine.RenumberRecordsInto(pPrime, overOv.EnumerateMajorRecords(), plan.Dict);
+        var ren = RemapEngine.RenumberRecordsInto(pPrime, overOv.EnumerateMajorRecords(), plan.Dict, _ => false);
 
         Assert.True(ren.Success, ren.Error);
         Assert.Equal(2, ren.RecordsCopied);

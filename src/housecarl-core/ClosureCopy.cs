@@ -74,7 +74,7 @@ public static class ClosureCopy
     public const string ExclusionLeakMarker = "<pruned-by-exclusion>";
 
     /// <summary>Internalize a walk's reached set into <paramref name="patch"/> under fresh local keys.</summary>
-    public static CopyResult Internalize(SkyrimMod patch, IReadOnlyList<WalkNode> nodes)
+    public static CopyResult Internalize(SkyrimMod patch, IReadOnlyList<WalkNode> nodes, Func<FormKey, bool> isFaction)
     {
         WriteEngine.EnsureFormIdFloor(patch);
 
@@ -91,7 +91,7 @@ public static class ClosureCopy
 
         // Duplicate + remap in a SCRATCH mod sharing the patch's ModKey, then transplant.
         var scratch = new SkyrimMod(patch.ModKey, SkyrimRelease.SkyrimSE);
-        var ren = RemapEngine.RenumberRecordsInto(scratch, nodes.Select(n => n.Body), map);
+        var ren = RemapEngine.RenumberRecordsInto(scratch, nodes.Select(n => n.Body), map, isFaction);
         if (!ren.Success)
             return CopyResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant, ren.Error!));
 
@@ -350,6 +350,7 @@ public static class ClosureCopy
         Func<ModKey, bool> isOnOrder,
         Func<string, IReadOnlyList<ISkyrimModGetter>> mastersFor,
         IReadOnlyList<SourceArmRef> consulted,
+        Func<FormKey, bool> isFaction,
         Func<Exception, string>? serializeFailure = null,
         Func<SkyrimMod, string?>? roundTripRefusal = null)
     {
@@ -362,6 +363,7 @@ public static class ClosureCopy
             catch (Exception ex) { return ClosureCopyOutcome.Fail(engine: ex.Message, sources: consulted); }
             // The whole existing patch is re-serialized, so it runs the round-trip check before anything is copied in.
             if (roundTripRefusal?.Invoke(patch) is { } lost) return ClosureCopyOutcome.Fail(engine: lost, sources: consulted);
+            OwnerRanks.Settle(patch, isFaction);   // before the walks below see the patch's own owners
         }
         else patch = new SkyrimMod(patchModKey, SkyrimRelease.SkyrimSE);
 
@@ -374,7 +376,7 @@ public static class ClosureCopy
                     offOrder.Key.ModKey.FileName.String, Key: offOrder.Key),
                 sources: consulted);
 
-        var copy = Internalize(patch, walk.Reached);
+        var copy = Internalize(patch, walk.Reached, isFaction);
         if (!copy.Success) return ClosureCopyOutcome.Fail(copy: copy.Refusal, sources: consulted);
 
         string mode; FormKey newKey;
@@ -437,7 +439,7 @@ public static class ClosureCopy
                 var selfNode = new WalkNode(sourceKey, srcHit.Body,
                     RecordNaming.StripOverlay(srcHit.Body.GetType().Name), srcHit.Body.EditorID,
                     srcHit.ArmIndex, srcHit.Arm.Spelling, new[] { sourceKey }, "from", 0);
-                var selfCopy = Internalize(patch, new[] { selfNode });
+                var selfCopy = Internalize(patch, new[] { selfNode }, isFaction);
                 if (!selfCopy.Success) return ClosureCopyOutcome.Fail(copy: selfCopy.Refusal, sources: consulted);
                 newKey = selfCopy.Map[sourceKey];
             }
@@ -494,6 +496,7 @@ public static class ClosureCopy
         }
         catch { /* an unreadable asset link is not a reason to fail a written copy; the list is a report */ }
 
+        OwnerRanks.Settle(patch, isFaction);   // the attach target came in as an override of its active body
         try { WriteEngine.WritePatch(patch, mastersFor(patchFileName), outPath); }
         catch (Exception ex)
         {

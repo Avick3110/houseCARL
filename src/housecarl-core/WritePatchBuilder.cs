@@ -2076,7 +2076,8 @@ public static class WritePatchBuilder
     /// <summary>Build the compacted plugin P′ and write it to <paramref name="outPath"/>, which in place is <paramref name="srcPath"/> itself.</summary>
     public static CompactBuildResult CompactBuild(
         string srcPath, ModKey modKey, IReadOnlyDictionary<FormKey, FormKey> dict,
-        Func<string, string?> resolveMasterPath, string outPath, bool esl, uint floor, string? dataDir)
+        Func<string, string?> resolveMasterPath, string outPath, bool esl, uint floor, string? dataDir,
+        Func<FormKey, bool> isFaction)
     {
         // 1. Build P′ in memory, then DISPOSE the source overlay, whose handle the in-place swap must not hold.
         SkyrimMod pPrime;
@@ -2094,7 +2095,7 @@ public static class WritePatchBuilder
             pPrime.ModHeader.DeepCopyIn(srcOv.ModHeader);
             pPrime.ModHeader.Flags &= ~SkyrimModHeader.HeaderFlag.Localized;
             pPrime.IsSmallMaster = esl;
-            ren = RemapEngine.RenumberModInto(pPrime, srcOv, dict);
+            ren = RemapEngine.RenumberModInto(pPrime, srcOv, dict, isFaction);
         }
         catch (Exception ex)
         {
@@ -2161,7 +2162,7 @@ public static class WritePatchBuilder
     public static MergeBuildResult MergeBuild(
         IReadOnlyList<(string Name, string Path, ModKey Key)> donorsByLoadOrder, ModKey outKey,
         IReadOnlyDictionary<FormKey, FormKey> dict, IReadOnlyList<string> masters,
-        Func<string, string?> resolveMasterPath, string outPath, string? dataDir)
+        Func<string, string?> resolveMasterPath, string outPath, string? dataDir, Func<FormKey, bool> isFaction)
     {
         // 1. Open every donor overlay, build M in memory, dispose the donors before the write — no handle held at rest.
         var m = new SkyrimMod(outKey, SkyrimRelease.SkyrimSE);
@@ -2192,7 +2193,7 @@ public static class WritePatchBuilder
                 if (!string.IsNullOrWhiteSpace(ov.ModHeader.Author) || !string.IsNullOrWhiteSpace(ov.ModHeader.Description))
                     headerMetaDonors.Add(name);
             }
-            mr = RemapEngine.MergeModsInto(m, mods, dict);
+            mr = RemapEngine.MergeModsInto(m, mods, dict, isFaction);
         }
         finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* best-effort */ } } }
         if (!mr.Success) return MergeBuildResult.Fail(mr.Error!);

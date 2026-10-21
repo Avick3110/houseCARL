@@ -75,7 +75,7 @@ public sealed class ClosureCopyInternalizeTests
             FileArm("Other.esp", fk => fk == Txst ? src[Txst] : null),
         });
         var patch = new SkyrimMod(PatchKey, SkyrimRelease.SkyrimSE);
-        var copy = ClosureCopy.Internalize(patch, Run(chain).Reached);
+        var copy = ClosureCopy.Internalize(patch, Run(chain).Reached, _ => false);
 
         var tex = copy.Copied.Single(c => c.OldKey == Txst);
         Assert.Equal((1, "Other.esp"), (tex.ArmIndex, tex.ArmSpelling));

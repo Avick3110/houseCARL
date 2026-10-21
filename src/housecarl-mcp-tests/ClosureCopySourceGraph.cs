@@ -44,7 +44,7 @@ sealed class ClosureCopySourceGraph
         Patch.HeadParts.Add(prior);
         Patch.ModHeader.Stats.NextFormID = counter;
 
-        Copy = ClosureCopy.Internalize(Patch, Walk.Reached);
+        Copy = ClosureCopy.Internalize(Patch, Walk.Reached, _ => false);
     }
 
     /// <summary>Walk the graph from the NPC's HeadParts seed, expanding Source and keeping Keep as a link.</summary>
