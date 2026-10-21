@@ -547,6 +547,75 @@ public sealed class GameLanguageTests : IDisposable
         Assert.Equal(Path.GetDirectoryName(listed), text.FoldersFor(plugin, DataDir)?.Archives);
     }
 
+    /// <summary>The refusal names only archives carrying a missing kind: one passed over for a kind that did find a
+    /// winner is not said to carry the missing tables.</summary>
+    [Fact]
+    public void ASkyrimRefusalNamesOnlyTheMissingKindsArchives()
+    {
+        var staging = Path.Combine(_root, "staging");
+        Directory.CreateDirectory(staging);
+        WriteLocalized(Path.Combine(staging, "Skyrim.esm"), Language.German, GermanName, ModType.Master);
+        Directory.CreateDirectory(DataDir);
+        var skyrim = Path.Combine(DataDir, "Skyrim.esm");
+        File.Copy(Path.Combine(staging, "Skyrim.esm"), skyrim);
+        byte[] Only(params string[] kinds) => BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, new[] { ("strings",
+            kinds.Select(k => ($"skyrim_german.{k}", File.ReadAllBytes(Path.Combine(staging, "Strings", $"Skyrim_German.{k}")))).ToArray()) });
+        var listed = Path.Combine(DataDir, "Skyrim - Interface.bsa");
+        var other = Path.Combine(ModDir("Other"), "Other.bsa");
+        var extra = Path.Combine(ModDir("Extra"), "Extra.bsa");
+        File.WriteAllBytes(listed, Only("strings", "ilstrings"));
+        File.WriteAllBytes(other, Only("strings"));
+        File.WriteAllBytes(extra, Only("dlstrings"));
+        var prof = Path.Combine(_root, "profile");
+        Directory.CreateDirectory(prof);
+        File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[General]\r\nsLanguage=GERMAN\r\n");
+        var archives = new[]
+        {
+            new ActiveArchive(listed, ArchiveDiscovery.IniArchiveOwner, 0, null),
+            new ActiveArchive(other, "Other.esp", 5, "Other"),
+            new ActiveArchive(extra, "Extra.esp", 3, "Extra"),
+        };
+
+        var ex = Assert.Throws<GameLanguageRefusedException>(() => GameLanguage.Read(GameIni.For(prof), Mo2LoadOrder.ReadComposition(prof),
+            new ArchiveDiscoveryResult(archives, Array.Empty<string>()), Mods, DataDir, "", new[] { skyrim }));
+        Assert.Contains("Skyrim.esm's German .DLSTRINGS string tables were not found", ex.Message);
+        Assert.Contains("Extra.bsa in the mod folder 'Extra' carries them, but it is named for another plugin and the INI does not list it", ex.Message);
+        Assert.DoesNotContain("Other.bsa", ex.Message);
+    }
+
+    /// <summary>Mutagen reads a plugin's tables from one folder: Skyrim.esm's kinds winning from two folders is refused,
+    /// naming the split, and another plugin's split keeps the read beside it rather than reading one folder for all.</summary>
+    [Fact]
+    public void TableKindsThatWinFromTwoFoldersAreNotReadFromOne()
+    {
+        var staging = Path.Combine(_root, "staging");
+        Directory.CreateDirectory(staging);
+        var weapon = WriteLocalized(Path.Combine(staging, "Skyrim.esm"), Language.German, GermanName, ModType.Master);
+        Directory.CreateDirectory(Path.Combine(DataDir, "Strings"));
+        var skyrim = Path.Combine(DataDir, "Skyrim.esm");
+        File.Copy(Path.Combine(staging, "Skyrim.esm"), skyrim);
+        foreach (var k in new[] { "DLSTRINGS", "ILSTRINGS" })
+            File.Copy(Path.Combine(staging, "Strings", $"Skyrim_German.{k}"), Path.Combine(DataDir, "Strings", $"Skyrim_German.{k}"));
+        var fix = Path.Combine(ModDir("Fix"), "Strings");
+        Directory.CreateDirectory(fix);
+        File.Copy(Path.Combine(staging, "Strings", "Skyrim_German.STRINGS"), Path.Combine(fix, "Skyrim_German.STRINGS"));
+        var svc = Open("GERMAN", new[] { "Fix" }, Array.Empty<string>(), new[] { "Skyrim.esm" });
+
+        var r = ReadName(svc, weapon);
+        Assert.Contains("Skyrim.esm's German string tables win from more than one folder (.STRINGS loose in the mod folder 'Fix', .DLSTRINGS loose in the game Data", r);
+
+        var plugin = Path.Combine(ModDir("SwordMod"), "HcSp.esp");
+        WriteLocalized(plugin, Language.English, "Big Iron Sword");
+        var part = Path.Combine(ModDir("SwordMod Fix"), "Strings");
+        Directory.CreateDirectory(part);
+        File.Copy(Path.Combine(ModDir("SwordMod"), "Strings", "HcSp_English.STRINGS"), Path.Combine(part, "HcSp_English.STRINGS"));
+        File.WriteAllText(Path.Combine(Profile, "Skyrim.ini"), "[General]\r\nsLanguage=ENGLISH\r\n");
+        File.WriteAllText(Path.Combine(Profile, "modlist.txt"), "# header\r\n+SwordMod Fix\r\n+SwordMod\r\n");
+        var text = GameLanguage.Read(GameIni.For(Profile), Mo2LoadOrder.ReadComposition(Profile), new ArchiveDiscoveryResult(Array.Empty<ActiveArchive>(), Array.Empty<string>()),
+                                     Mods, DataDir, "", new[] { plugin });
+        Assert.Null(text.FoldersFor(plugin, DataDir));
+    }
+
     /// <summary>A copy of a plugin the order does not serve (an older version in a disabled mod) reads the tables
     /// beside it, not the enabled copy's.</summary>
     [Fact]
