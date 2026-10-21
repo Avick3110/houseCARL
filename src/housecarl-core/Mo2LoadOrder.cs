@@ -201,12 +201,13 @@ public static class Mo2LoadOrder
     /// <summary>The system ANSI code page, which MO2 writes plugins.txt in (<c>QStringEncoder(System)</c>); UTF-8 where Windows reports none, the UTF-8 system locale.</summary>
     static readonly Encoding SystemAnsi = CodePagesEncodingProvider.Instance.GetEncoding(0) ?? Encoding.UTF8;
 
-    /// <summary>plugins.txt's lines: valid UTF-8 stays UTF-8, so a file that read before still does; anything else is decoded in <paramref name="ansi"/>, the system ANSI code page unless a test names one.</summary>
+    /// <summary>plugins.txt's lines past any UTF-8 BOM: valid UTF-8 stays UTF-8, so a file that read before still does; anything else is decoded in <paramref name="ansi"/>, the system ANSI code page unless a test names one.</summary>
     static List<string> ReadPluginsLines(string path, Encoding ansi)
     {
         var bytes = ReadProfile(path, File.ReadAllBytes);
-        var encoding = Utf8.IsValid(bytes) ? Encoding.UTF8 : ansi;
-        using var reader = new StreamReader(new MemoryStream(bytes), encoding, detectEncodingFromByteOrderMarks: true);
+        var start = bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble) ? Encoding.UTF8.Preamble.Length : 0;
+        var encoding = Utf8.IsValid(bytes.AsSpan(start)) ? Encoding.UTF8 : ansi;
+        using var reader = new StreamReader(new MemoryStream(bytes, start, bytes.Length - start), encoding, detectEncodingFromByteOrderMarks: false);
         var lines = new List<string>();
         while (reader.ReadLine() is { } line) lines.Add(line);
         return lines;

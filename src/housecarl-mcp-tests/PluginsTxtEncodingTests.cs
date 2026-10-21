@@ -66,4 +66,19 @@ public sealed class PluginsTxtEncodingTests : IDisposable
         Assert.Contains(UntickedCyrillic, inactive);
         Assert.DoesNotContain(UntickedCyrillic, active);
     }
+
+    // A UTF-8 BOM ahead of ANSI bytes is skipped, not taken as the file's encoding.
+    [Fact]
+    public void BomBeforeAnsiBytesKeepsAnsi()
+    {
+        var path = Path.Combine(profileDir, "plugins.txt");
+        File.WriteAllBytes(path, [.. Encoding.UTF8.Preamble, .. CodePage(1252).GetBytes($"# header\r\n*{Ticked}\r\n{Unticked}\r\n")]);
+        var active = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var inactive = new List<string>();
+
+        Mo2LoadOrder.ParsePlugins(path, active, inactive, CodePage(1252));
+
+        Assert.Equal([Ticked], active);
+        Assert.Equal([Unticked], inactive);
+    }
 }
