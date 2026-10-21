@@ -164,7 +164,7 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping, and the 
 4. Read the plan. Setup prints what it found on the machine and then every path it is about to write, and writes nothing until Enter; `q` quits.
 5. Restart the host. The closing block says what was written and what to do next. On first use, houseCARL asks for the MO2 instance folder, the one containing `ModOrganizer.ini`. The instance can be changed at any time by asking.
 
-Flags, for an unattended run: `--claude` / `--codex` / `--both` pick the host, `--yes` skips the confirm at the plan, `--uninstall` removes instead of installing, `--skip-runtime-check` skips the .NET check. A run whose input is redirected has nobody to answer a question, so it stops and names the flag that answers it rather than assuming one.
+Flags, for an unattended run: `--claude` / `--codex` / `--both` pick the host, `--yes` skips the confirm at the plan, and `--uninstall` removes instead of installing. A run whose input is redirected has nobody to answer a question, so it stops and names the flag that answers it rather than assuming one.
 
 Updating: quit Claude Code and Codex first. Setup cannot replace a server a session is running; if one is, it stops and says so.
 
