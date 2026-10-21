@@ -195,10 +195,11 @@ public static class GameLanguage
         public void Dispose() { if (owns) Call.Value = null; }
     }
 
-    /// <summary>Bind the service's current order build to this call, so every open and write in it takes that language and those winners.</summary>
-    public static void Bind(InstanceText? text)
+    /// <summary>Bind the first order build this call reads to the call, so every open and write in it takes that
+    /// language and those winners; a later build, after a refresh mid-call, does not replace it.</summary>
+    public static void Bind(InstanceText text)
     {
-        if (text is not null && Call.Value is { } call) call.Text = text;
+        if (Call.Value is { Text: null } call) call.Text = text;
     }
 
     /// <summary>This call's language and table winners, read once per open; <see cref="InstanceText.English"/> outside a bound call.</summary>

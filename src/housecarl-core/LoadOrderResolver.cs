@@ -70,11 +70,15 @@ public sealed class LoadOrderResolver : IDisposable
     readonly Dictionary<string, int> _nameToIdx;       // plugin filename → index (last copy of a duplicate name wins = priority)
     FileStamp[] _stamps;                               // last-write AND length at the last index build, per path (freshness baseline)
     readonly string? _dataDir;                         // real game-Data folder (Skyrim.esm's dir) — localized-strings fallback source (OpenOverlay)
+    readonly InstanceText _text;                       // the game language and string winners this order was read with; every open of this build takes them
     ReverseReferenceIndex? _reverse;                   // lazy, held BESIDE the snapshot so a snapshot swap does not drop it
     readonly object _reverseGate = new();              // one build at a time; a second caller waits rather than walking the order twice
 
     /// <summary>The real game-Data folder this order resolved, for callers OUTSIDE the session that open a plugin through <see cref="OpenOverlay"/> and need the same strings resolution.</summary>
     internal string? DataDir => _dataDir;
+
+    /// <summary>The game language and string-table winners this build was read with, so a call binds the build it reads.</summary>
+    public InstanceText Text => _text;
 
     /// <summary>Optional: why a plugin filename this index does NOT contain isn't in the active order, or null. Injected, because the resolver knows nothing of MO2;
     /// contract in docs/architecture/load-order-resolver.md.</summary>
@@ -236,7 +240,7 @@ public sealed class LoadOrderResolver : IDisposable
             {
                 _r.CheckUnchanged(idx, s);
                 System.Threading.Interlocked.Increment(ref _r.Counters.SessionOverlayOpens);
-                _open[idx] = op = new OpenPlugin(OpenOverlay(_r._paths[idx], _r._dataDir)) { Checked = s };
+                _open[idx] = op = new OpenPlugin(OpenOverlay(_r._paths[idx], _r._dataDir, _r._text)) { Checked = s };
             }
             else if (op.Checked != s) { _r.CheckUnchanged(idx, s); op.Checked = s; }   // a reader on another build checks its own stamp
             return op;
@@ -318,9 +322,9 @@ public sealed class LoadOrderResolver : IDisposable
     }
 
     LoadOrderResolver(string[] paths, string[] names, Dictionary<string, int> nameToIdx, FileStamp[] stamps,
-                      Func<string, string?>? explainAbsence, CostCounters counters)
+                      Func<string, string?>? explainAbsence, CostCounters counters, InstanceText text)
     {
-        _paths = paths; _names = names; _nameToIdx = nameToIdx; _stamps = stamps;
+        _paths = paths; _names = names; _nameToIdx = nameToIdx; _stamps = stamps; _text = text;
         _explainAbsence = explainAbsence;
         Counters = counters;
         _dataDir = ComputeDataDir(nameToIdx, paths);
@@ -358,8 +362,8 @@ public sealed class LoadOrderResolver : IDisposable
 
     /// <summary>Open one plugin as a lazy binary overlay — THE single overlay-open choke point, wiring localized-string resolution; contract in docs/architecture/load-order-resolver.md.
     /// Public because the off-order and donor read lanes reuse it as a pure (path, dataDir) factory that touches no resolver index.</summary>
-    public static ISkyrimModGetter OpenOverlay(string path, string? dataDir)
-        => SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path, dataDir));
+    public static ISkyrimModGetter OpenOverlay(string path, string? dataDir, InstanceText? text = null)
+        => SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path, dataDir, text));
 
     /// <summary>True if the plugin's OWN folder carries a strings source FOR THIS PLUGIN: the read's rule for a plugin no MO2 layer carries tables for.</summary>
     internal static bool FolderHasOwnStrings(string path) => LocalizedStrings.OwnFolderCarriesStringsFor(path);
@@ -367,7 +371,8 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>Take the plugin paths already in priority order and build the index without holding any plugin open; the order is INJECTED, and open failures land in <see cref="LoadFailures"/>.</summary>
     public static LoadOrderResolver Build(IReadOnlyList<string> orderedPluginPaths,
                                           Func<string, string?>? explainAbsence = null,
-                                          CostCounters? counters = null)
+                                          CostCounters? counters = null,
+                                          InstanceText? text = null)
     {
         if (orderedPluginPaths.Count > ushort.MaxValue)
             throw new ArgumentException(
@@ -392,7 +397,7 @@ public sealed class LoadOrderResolver : IDisposable
         // These names are the canonical spelling of every plugin in the order — every FormID token prints through them.
         FormIdToken.Publish(names);
 
-        return new LoadOrderResolver(paths, names, nameToIdx, stamps, explainAbsence, counters ?? new CostCounters());
+        return new LoadOrderResolver(paths, names, nameToIdx, stamps, explainAbsence, counters ?? new CostCounters(), text ?? InstanceText.English);
     }
 
     /// <summary>Enumerate every plugin once (low→high), ONE AT A TIME, building the winner/count index for all keys and the ordered overrider list for multi-override keys only, and
@@ -417,7 +422,7 @@ public sealed class LoadOrderResolver : IDisposable
         for (int i = 0; i < _paths.Length; i++)
         {
             ISkyrimModGetter ov;
-            try { ov = OpenOverlay(_paths[i], _dataDir); }
+            try { ov = OpenOverlay(_paths[i], _dataDir, _text); }
             catch (Exception ex)
             {
                 Exclude(i, $"could not be opened — {Concise(ex)}", failures, excluded, excludedPlugins);
@@ -854,7 +859,7 @@ public sealed class LoadOrderResolver : IDisposable
         if (s.Excluded.Contains(idx))
             throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {s.ExcludedPlugins[pluginName]}");
         CheckUnchanged(idx, s);
-        var ov = OpenOverlay(_paths[idx], _dataDir);
+        var ov = OpenOverlay(_paths[idx], _dataDir, _text);
         try
         {
             foreach (var rec in Walk(ov, idx, null))
@@ -929,7 +934,7 @@ public sealed class LoadOrderResolver : IDisposable
         ISkyrimModGetter ov;
         CheckUnchanged(idx, s);
         // Named as unopenable, exactly as RecordsIn names it: one held-open file must reach both callers as one fault.
-        try { ov = OpenOverlay(_paths[idx], _dataDir); }
+        try { ov = OpenOverlay(_paths[idx], _dataDir, _text); }
         catch (Exception ex) { throw new PluginUnreadableException(_names[idx], ex); }
         try { return ov.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList(); }
         finally { (ov as IDisposable)?.Dispose(); }
@@ -1042,7 +1047,7 @@ public sealed class LoadOrderResolver : IDisposable
             if (s.Excluded.Contains(i)) continue;                          // excluded at build (unparseable/unopenable) — wins nothing; never re-touch (would re-throw)
             ISkyrimModGetter ov;
             CheckUnchanged(i, s);
-            try { ov = OpenOverlay(_paths[i], _dataDir); }
+            try { ov = OpenOverlay(_paths[i], _dataDir, _text); }
             catch (Exception ex)
             {
                 // It opened when the index was built, so it became unreadable after that: collected and skipped, or thrown.
@@ -1092,7 +1097,7 @@ public sealed class LoadOrderResolver : IDisposable
             ISkyrimModGetter ov;
             CheckUnchanged(i, s);
             // A plugin that opened at build time but not now became unreadable after it; surfaced with the name.
-            try { ov = OpenOverlay(_paths[i], _dataDir); }
+            try { ov = OpenOverlay(_paths[i], _dataDir, _text); }
             catch (Exception ex) { throw new PluginUnreadableException(_names[i], ex); }
             try
             {
@@ -1161,7 +1166,7 @@ public sealed class LoadOrderResolver : IDisposable
         lock (_reverseGate)
         {
             _reverse ??= new ReverseReferenceIndex();
-            return _reverse.Refresh(_names, _paths, s.BuiltStamps, i => CheckUnchanged(i, s), i => { CheckUnchanged(i, s); return OpenOverlay(_paths[i], _dataDir); }, s.Excluded);
+            return _reverse.Refresh(_names, _paths, s.BuiltStamps, i => CheckUnchanged(i, s), i => { CheckUnchanged(i, s); return OpenOverlay(_paths[i], _dataDir, _text); }, s.Excluded);
         }
     }
 

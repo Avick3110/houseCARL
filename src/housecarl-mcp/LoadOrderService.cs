@@ -15,7 +15,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     string _profileName;                           // the active profile (instance mode: from selected_profile)
     string _overwriteDir = "";                     // MO2's overwrite layer (instance mode: derived; explicit mode: none)
     bool _configured;                              // false ⇒ tools return the trained prompt instead of resolving
-    InstanceText? _text;                           // the order build's game language and string-table winners; bound to each call that reads this order
     internal string? MyGamesDir;                   // test seam: the My Games folder a profile without its own INIs reads; null in the product
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
     readonly InPlaceConsent _inPlaceConsent;       // the in-place consent over _store; writes and assets take it through the door
@@ -194,9 +193,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     // contract in docs/architecture/load-order-service.md.
                     bool assetBuildIsBehind = _profileHeld is not null || _resolvedPaths.Count == 0;
                     var text = ReadInstanceText(RootsLocked(), order);
-                    GameLanguage.Bind(text);
-                    _resolver = LoadOrderResolver.Build(paths, ExplainPluginAbsence, Counters);
-                    _text = text;
+                    _resolver = LoadOrderResolver.Build(paths, ExplainPluginAbsence, Counters, text);
                     _resolvedPaths = paths;
                     _profileStamps = profileStamps;
                     if (assetBuildIsBehind) { InvalidateAssetResolver(); _profileHeld = null; }
@@ -214,7 +211,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     }
                     finally { Monitor.Exit(_writeGate); }
                 }
-                GameLanguage.Bind(_text);
+                GameLanguage.Bind(_resolver.Text);
                 return _resolver;
             }
         }
@@ -943,34 +940,24 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var paths = order.OrderedPaths;
         if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
 
-        if (paths.Count > 0 && !paths.SequenceEqual(_resolvedPaths, StringComparer.OrdinalIgnoreCase))
+        if (paths.Count > 0)
         {
-            // The set or order genuinely changed: read the language and build FIRST so the old snapshot survives a throw, then dispose and swap.
+            // The set or order changed, or what the text is read from did: read the language and build FIRST so the old
+            // snapshot survives a throw, then dispose and swap; the text is the build's, so a new text is a new build.
+            // A touch that moved neither keeps the index; either way the asset resolver drops and the baseline advances.
+            bool orderChanged = !paths.SequenceEqual(_resolvedPaths, StringComparer.OrdinalIgnoreCase);
             var text = ReadInstanceText(roots, order);
-            InvalidateAssetResolver();   // the active mod/archive set changed → the asset resolver rebuilds lazily
-            GameLanguage.Bind(text);
+            InvalidateAssetResolver();   // the active mod/archive set may have changed → the asset resolver rebuilds lazily
             if (_resolver is not null)
             {
                 // The rebuild carries the explainer too, or a profile change would drop every refusal to the flat not-found.
-                var rebuilt = LoadOrderResolver.Build(paths, ExplainPluginAbsence, Counters);
+                var rebuilt = LoadOrderResolver.Build(paths, ExplainPluginAbsence, Counters, text);
                 // The reverse-reference index is derived from plugin bytes, not from this snapshot, so it carries over.
                 rebuilt.AdoptReverseIndexFrom(_resolver);
                 _resolver.Dispose();
                 _resolver = rebuilt;
             }
-            _text = text;
-            _resolvedPaths = paths;
-            _orderWarnings = order.Warnings;
-            _profileStamps = profileStamps;
-            return true;
-        }
-        if (paths.Count > 0)
-        {
-            // The profile was touched but the resolved order is identical, so no deep re-index; the language is re-read
-            // (a refusal throws before anything moves), the asset resolver drops and the baseline advances.
-            var text = ReadInstanceText(roots, order);
-            InvalidateAssetResolver();
-            GameLanguage.Bind(_text = text);
+            if (orderChanged) _resolvedPaths = paths;
             _orderWarnings = order.Warnings;
             _profileStamps = profileStamps;
             return true;
@@ -993,7 +980,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     Mo2Roots ILoadOrderHost.CaptureRoots()
     {
-        lock (_gate) { EnsurePathsDerived(); GameLanguage.Bind(_text); return RootsLocked(); }
+        lock (_gate) { EnsurePathsDerived(); return RootsLocked(); }
     }
 
     /// <summary>One <c>_gate</c> hold: the configured check, the roots and the built plugin names; throws the unconfigured prompt when there is no instance.</summary>
@@ -1003,7 +990,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         {
             if (!_configured) throw NotConfigured();
             EnsurePathsDerived();
-            GameLanguage.Bind(_text);
             return new OutputRoots(RootsLocked(), _resolver?.PluginNames);
         }
     }
