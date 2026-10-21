@@ -343,6 +343,14 @@ public sealed class AssetResolver : IDisposable
 
     public const string DataLayerName = "Data";
 
+    /// <summary>Where a layer is, as a sentence names it.</summary>
+    public static string LayerPlace(string layer) => layer switch
+    {
+        DataLayerName => "in your game's Data folder",
+        OverwriteLayerName => "in MO2's overwrite folder",
+        _ => $"in the mod folder '{layer}'",
+    };
+
     /// <summary>Is <paramref name="name"/> one of the two LAYER names — the half of the reserved set that needs no built resolver? Stated once, here.</summary>
     public static bool IsReservedLayerName(string name) =>
         string.Equals(OverwriteLayerName, name, StringComparison.OrdinalIgnoreCase)

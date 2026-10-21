@@ -17,12 +17,12 @@ public sealed class GameIni
     GameIni(string folder, bool profileLocal) { Folder = folder; ProfileLocal = profileLocal; }
 
     /// <summary>The INIs for <paramref name="profileDir"/>: its own when settings.ini sets LocalSettings=true, My Games when it sets false; a profile with no such flag (not one MO2 wrote) uses its own Skyrim.ini when it has one.</summary>
-    public static GameIni For(string profileDir, string? myGamesDir = null)
+    public static GameIni For(string profileDir)
     {
         var local = profileDir.Length > 0 && (ReadFile(Path.Combine(profileDir, "settings.ini"), "General", "LocalSettings") is { } flag
             ? flag.Equals("true", StringComparison.OrdinalIgnoreCase)
             : File.Exists(Path.Combine(profileDir, "Skyrim.ini")));
-        return local ? new GameIni(profileDir, true) : new GameIni(myGamesDir ?? MyGamesFolder(), false);
+        return local ? new GameIni(profileDir, true) : new GameIni(MyGamesFolder(), false);
     }
 
     /// <summary>Documents\My Games\Skyrim Special Edition, where the game keeps its INIs when MO2 does not redirect them; HOUSECARL_MY_GAMES overrides it so tests never read the machine's own.</summary>

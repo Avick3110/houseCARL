@@ -2980,17 +2980,12 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
 
     /// <summary>Where the archive naming this plugin's tables was found — beside the plugin, in another mod folder, or in the game folder.</summary>
     static string BsaWhere(LocalizedAssessment a)
-        => a.BsaModFolder is { } mod
-            ? mod == AssetResolver.OverwriteLayerName ? "in MO2's overwrite folder" : $"in the mod folder '{mod}'"
-            : a.BsaInGameData ? "in your game's Data folder" : "beside the plugin";
+        => a.BsaModFolder is { } mod ? AssetResolver.LayerPlace(mod)
+         : a.BsaInGameData ? "in your game's Data folder" : "beside the plugin";
 
     /// <summary>The loose Strings folder a GameDataOnly plugin's text resolves from: another MO2 layer's, or the game's Data.</summary>
-    static string StringsHome(LocalizedAssessment a) => a.StringsModFolder switch
-    {
-        null => "your game's Data\\Strings folder",
-        AssetResolver.OverwriteLayerName => "the Strings folder in MO2's overwrite folder",
-        var mod => $"the Strings folder in the mod folder '{mod}'",
-    };
+    static string StringsHome(LocalizedAssessment a)
+        => a.StringsModFolder is { } mod ? "the Strings folder " + AssetResolver.LayerPlace(mod) : "your game's Data\\Strings folder";
 
     /// <summary>What the <c>Strings\</c> folder beside the plugin holds, for a plugin nothing in it matched; it asserts no unchecked absence.</summary>
     static string NothingMatched(LocalizedAssessment a)
