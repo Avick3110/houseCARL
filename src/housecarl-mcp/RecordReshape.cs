@@ -348,9 +348,9 @@ internal sealed partial class RecordWrites
 
             return new WritePatchBuilder.CompactOutcome(
                 true, null, false, outPath, name, inPlace, esl, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
-                build.Bytes, id.ExternalPlugins, repointed, id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples,
+                movedMap.Count, build.Bytes, id.ExternalPlugins, repointed, id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples,
                 markerNotes.Count > 0 ? string.Join(" ", markerNotes) : null, assetRename, id.ExternalOverriders, voiceRename, seqRegen,
-                id.UnscannablePlugins, movedMap.Count);
+                id.UnscannablePlugins);
         }
     }
 

@@ -77,12 +77,12 @@ internal static class WriteSentences
         "addresses a record by an object id this compaction moved no longer reaches that record once the compacted " +
         "plugin is the one loading.\n";
 
-    /// <summary>A compaction whose map moved no id (#1205): a re-run after a failed repoint is not a repair.</summary>
+    /// <summary>A compaction whose map moved no id (#1205): it renumbers nothing, and repairs no earlier run.</summary>
     [MustState("no object id moved", "does not repair")]
     internal const string CompactMovedNothing =
-        "no object id moved: every originating record already sat at its compacted id, so this run changed no FormIDs. " +
-        "It does not repair an earlier compaction whose referencer repoint failed: a link that run left on an old id " +
-        "is not detected here, and it may now resolve to a different record of this plugin.\n";
+        "no object id moved: every originating record already sits at its compacted id, so this run changed no FormIDs. " +
+        "If an earlier compaction's referencer repoint failed, this run does not repair it: a link that run left on an " +
+        "old id is not detected here, and it may now resolve to a different record of this plugin.\n";
 
     /// <summary>What the in-place round-trip check proved before the write (#961), on every in-place render that ran it.</summary>
     [MustState("kept every subrecord at its length", "values not compared")]

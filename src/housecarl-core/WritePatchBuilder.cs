@@ -1696,18 +1696,18 @@ public static class WritePatchBuilder
     /// <summary>The outcome of a <see cref="LoadOrderService.CompactPlugin"/> call; <see cref="NeedsAcknowledge"/> is a consent prompt, not an error.</summary>
     public sealed record CompactOutcome(
         bool Success, string? Error, bool NeedsAcknowledge, string OutputPath, string PluginName, bool InPlace, bool Esl,
-        IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered, long Bytes,
+        IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered, int RecordsMoved, long Bytes,
         IReadOnlyList<string> ExternalPlugins, IReadOnlyList<RepointReport> Repointed,
         int PluginsScanned, int UnscannableRecords, IReadOnlyList<string> UnscannableSamples, string? Note = null,
         AssetRenameOutcome? AssetRename = null, IReadOnlyList<string>? ExternalOverriders = null,
         VoiceCarryOutcome? VoiceRename = null, SeqRegenOutcome? SeqRegen = null,
-        IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null, int RecordsMoved = 0)
+        IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null)
     {
         public static CompactOutcome Fail(string error) =>
-            new(false, error, false, "", "", false, false, Array.Empty<string>(), 0, 0, 0,
+            new(false, error, false, "", "", false, false, Array.Empty<string>(), 0, 0, 0, 0,
                 Array.Empty<string>(), Array.Empty<RepointReport>(), 0, 0, Array.Empty<string>());
         public static CompactOutcome Confirm(string prompt) =>
-            new(false, prompt, true, "", "", false, false, Array.Empty<string>(), 0, 0, 0,
+            new(false, prompt, true, "", "", false, false, Array.Empty<string>(), 0, 0, 0, 0,
                 Array.Empty<string>(), Array.Empty<RepointReport>(), 0, 0, Array.Empty<string>());
     }
 
