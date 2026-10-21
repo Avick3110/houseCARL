@@ -301,7 +301,7 @@ public static class WritePatchBuilder
         var gather = new BodyGather(view, session);
         foreach (var e in edits)
         {
-            if (view.ResolveWinner(e.Target) is { } gw) gather.Want(gw.WinnerPlugin, e.Target);
+            if (view.ResolveWinner(e.Target) is { } gw && TouchRefusalUpChain(view, e.Target) is null) gather.Want(gw.WinnerPlugin, e.Target);
             if (!string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal)) continue;
             if (TryOffOrderCopyBody(copyFromSources, e, view, out _)) continue;       // pre-fetched by the service
             var srcPole = ResolveCopyPole(e, view, out var poleErr);
