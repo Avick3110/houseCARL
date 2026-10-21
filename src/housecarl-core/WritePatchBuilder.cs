@@ -1466,7 +1466,9 @@ public static class WritePatchBuilder
 
         // --- Phase 4: re-serialize over the original (WriteInPlace, whole known-master set; the self-lock first, atomic swap). ---
         session.ReleaseOverlay(fileName);
-        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir, isFaction: OwnerRanks.FactionIn(view), edited: resolved.Select(r => r.spec.Target)); }
+        // A parent the copy dragged in is read back from its source plugin; the target, last, wins for its own records.
+        var sources = resolved.Select(r => r.offOrderBody ? offOrder!.Path : view.PluginPath(r.spec.FromPlugin)).OfType<string>().Append(targetPath).ToList();
+        try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir, isFaction: OwnerRanks.FactionIn(view), sources: sources, edited: resolved.Select(r => r.spec.Target)); }
         catch (MissingModException ex)
         {
             // Same shadowing as the apply twin — see there.
@@ -2750,7 +2752,8 @@ public static class WritePatchBuilder
         {
             if (inPlace)
                 // Re-emit the WHOLE target over itself, counter preserved and no baseline force-include, against the same whole-master set.
-                WriteEngine.WriteInPlace(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath, resolver.DataDir, isFaction: OwnerRanks.FactionIn(view));
+                WriteEngine.WriteInPlace(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath, resolver.DataDir, isFaction: OwnerRanks.FactionIn(view),
+                    sources: parentPlans.Where(p => p?.body is not null).Select(p => view.PluginPath(p!.Value.sourcePlugin!)).OfType<string>().Append(outPath).ToList());
             else
                 WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath, isFaction: OwnerRanks.FactionIn(view));
         }

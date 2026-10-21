@@ -405,13 +405,14 @@ public sealed class InPlaceRoundTripTests
     }
 
     /// <summary>A plugin in <paramref name="dir"/> holding one partial override of <paramref name="owner"/>'s interior
-    /// <paramref name="cell"/>, its body cut to what <paramref name="keep"/> leaves (default: the EDID).</summary>
+    /// <paramref name="cell"/>, its body cut to what <paramref name="keep"/> leaves (default: the EDID), with whatever <paramref name="fill"/> adds.</summary>
     static string PartialOverride(string dir, string name, SkyrimMod owner, Cell cell,
-        Func<List<(string Sig, byte[] Raw)>, List<(string Sig, byte[] Raw)>>? keep = null)
+        Func<List<(string Sig, byte[] Raw)>, List<(string Sig, byte[] Raw)>>? keep = null, Action<SkyrimMod, Cell>? fill = null)
     {
         var donor = new SkyrimMod(ModKey.FromFileName(name), SkyrimRelease.SkyrimSE);
         var over = cell.DeepCopy();
         over.MajorRecordFlagsRaw = 0x4000;
+        fill?.Invoke(donor, over);
         donor.Cells.Records.Add(new CellBlock
         {
             GroupType = GroupTypeEnum.InteriorCellBlock, BlockNumber = owner.Cells.Records[0].BlockNumber,
@@ -441,6 +442,35 @@ public sealed class InPlaceRoundTripTests
             new[] { "HcPF_Master.esm" }, n => n == "HcPF_Master.esm" ? masterPath : null, outPath, dataDir: null, isFaction: _ => false);
         Assert.True(m.Success, m.Error);
         Assert.Equal(held, RecordBytes(outPath, "CELL", "HcPF_MasterCell"));
+    }
+
+    // #1209 r1 #4: a forward in place drags in the source plugin's partial parent CELL, which is written back from that plugin.
+    [Fact]
+    public void AnInPlaceForwardOfARefWhosePartialParentItDragsInWritesThatParentBackFromItsSource()
+    {
+        var dir = _w.NewDir();
+        var master = new SkyrimMod(ModKey.FromFileName("HcPF_Master.esm"), SkyrimRelease.SkyrimSE);
+        var cell = WriteEngine.AddInteriorCell(master, "HcPF_MasterCell");
+        var stat = master.Statics.AddNew("HcPF_Static");
+        var masterPath = Path.Combine(dir, "HcPF_Master.esm");
+        master.BeginWrite.ToPath(masterPath).WithNoLoadOrder().Write();
+        var refKey = default(FormKey);
+        var srcPath = PartialOverride(dir, "HcPF_Src.esp", master, cell, fill: (m, c) =>
+        {
+            var placed = new PlacedObject(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { Base = stat.ToNullableLink(), Placement = new Placement() };
+            c.Temporary.Add(placed);
+            refKey = placed.FormKey;
+        });
+        var targetPath = Path.Combine(dir, PluginName);
+        var target = new SkyrimMod(ModKey.FromFileName(PluginName), SkyrimRelease.SkyrimSE);
+        target.Keywords.AddNew().EditorID = "HcRT_Kw";
+        target.BeginWrite.ToPath(targetPath).WithNoLoadOrder().Write();
+        var held = RecordBytes(srcPath, "CELL", "HcPF_MasterCell");
+        using var r = LoadOrderResolver.Build(new[] { masterPath, srcPath, targetPath });
+        var o = WritePatchBuilder.ForwardRecordsInPlace(r,
+            new[] { new WritePatchBuilder.ForwardSpec { Target = refKey, FromPlugin = "HcPF_Src.esp" } }, targetPath, PluginName, "source=");
+        Assert.True(o.Success, o.Error);
+        Assert.Equal(held, RecordBytes(targetPath, "CELL", "HcPF_MasterCell"));
     }
 
     // #1209 r1 #1: an addon's partial override of the base's own CELL is keyed through the merge's key map, so it is found.
