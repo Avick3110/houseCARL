@@ -83,6 +83,9 @@ public sealed class CompactHeaderTests
         var first = w.Svc.CompactPlugin("HcCsLib.esp", repointExternals: true, inPlace: true, acknowledge: true);
         Assert.True(first.Success, first.Error);
         Assert.Equal(1, first.RecordsMoved);
+        var firstText = WriteTools.RenderCompact(first);
+        Assert.Contains("1 originating record renumbered into the light range", firstText);
+        Assert.Contains("external referencers repointed in place: 1/1 succeeded", firstText);
 
         var again = w.Svc.CompactPlugin("HcCsLib.esp", repointExternals: true, inPlace: true, acknowledge: true);
 
@@ -157,6 +160,10 @@ public sealed class CompactHeaderTests
         Assert.Equal("HcCsDep.esp", Assert.Single(c.ExternalPlugins), ignoreCase: true);
         Assert.True(Assert.Single(c.Repointed).Success);
         Assert.Equal(overBefore, File.ReadAllBytes(overPath));
+        var text = WriteTools.RenderCompact(c);
+        Assert.Contains("yes — 1 originating record renumbered into the light range 0x800–0xFFF.\n", text);
+        Assert.Contains("external referencers repointed in place: 1/1 succeeded\n  OK   HcCsDep.esp\n", text);
+        Assert.DoesNotContain(WriteSentences.CompactMovedNothing, text);
     }
 
     [Fact]
