@@ -25,21 +25,6 @@ public sealed class GameIni
         return local ? new GameIni(profileDir, true) : new GameIni(myGamesDir ?? MyGamesFolder(), false);
     }
 
-    /// <summary>Every file <see cref="For"/> and <see cref="Value"/> can read for <paramref name="profileDir"/>, so a
-    /// change to any of them is seen: the profile's settings.ini and INIs, and My Games' INIs.</summary>
-    public static IEnumerable<string> Files(string profileDir, string? myGamesDir = null)
-    {
-        var folders = new List<string> { myGamesDir ?? MyGamesFolder() };
-        if (profileDir.Length > 0)
-        {
-            yield return Path.Combine(profileDir, "settings.ini");
-            folders.Insert(0, profileDir);
-        }
-        foreach (var folder in folders)
-            foreach (var name in new[] { "Skyrim.ini", "SkyrimCustom.ini" })
-                yield return Path.Combine(folder, name);
-    }
-
     /// <summary>Documents\My Games\Skyrim Special Edition, where the game keeps its INIs when MO2 does not redirect them; HOUSECARL_MY_GAMES overrides it so tests never read the machine's own.</summary>
     static string MyGamesFolder()
         => Environment.GetEnvironmentVariable("HOUSECARL_MY_GAMES") is { Length: > 0 } over ? over
