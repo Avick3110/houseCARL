@@ -10,7 +10,7 @@ public sealed record ArchiveDiscoveryResult(IReadOnlyList<ActiveArchive> Archive
 public static class ArchiveDiscovery
 {
     /// <summary>The <see cref="ActiveArchive.OwningPlugin"/> marker for a BASE archive. Single-sourced: consumers that discriminate official base archives key on THIS const.</summary>
-    public const string IniArchiveOwner = "Skyrim.ini [Archive]";
+    public const string IniArchiveOwner = "the game INI [Archive]";
 
     /// <summary>Discover the active BSAs for the MO2 profile at <paramref name="profileDir"/>; the base list comes from the INI the game reads (<see cref="GameIni"/>).</summary>
     public static ArchiveDiscoveryResult Discover(string profileDir, string modsDir, string dataDir, string overwriteDir)
@@ -37,7 +37,7 @@ public static class ArchiveDiscovery
         var archives = new List<ActiveArchive>();
         int rank = 0;
 
-        // (1) base archives — Skyrim.ini [Archive] sResourceArchiveList/2; loaded first → the LOW rank block.
+        // (1) base archives — the game INI's [Archive] sResourceArchiveList/2; loaded first → the LOW rank block.
         foreach (var fn in ReadBaseArchiveNames(ini, warnings))
         {
             if (archiveMap.TryGetValue(fn, out var found))
@@ -102,11 +102,11 @@ public static class ArchiveDiscovery
         if (names.Count > 0) return names;
 
         warnings.Add(
-            "could not read the [Archive] sResourceArchiveList from a Skyrim.ini (looked in the " +
-            (ini.ProfileLocal ? "profile folder" : "My Games folder, as the profile does not use its own INIs") +
-            ") — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY " +
-            "in a vanilla archive may read as absent. If your MO2 uses profile-specific INIs, make sure the active " +
-            "profile has a Skyrim.ini.");
+            $"could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini in {ini.Folder}" +
+            (ini.ProfileLocal ? ", the profile's own INIs" : "") +
+            " — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY " +
+            "in a vanilla archive may read as absent." +
+            (ini.ProfileLocal ? " Make sure the active profile's Skyrim.ini lists them." : ""));
         return Array.Empty<string>();
     }
 }

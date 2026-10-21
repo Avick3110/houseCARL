@@ -2931,6 +2931,12 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             + "houseCARL could put matching files is beside the plugin — where they would SHADOW the archive's rather "
             + "than replace them, leaving the archive carrying a table that no longer describes the plugin." + Settled,
 
+        LocalizedShape.GameDataOnly when a.StringsModFolder is not null =>
+            "A localized plugin's text is not in the plugin, and a plugin write does not reach " + StringsHome(a) + ". "
+            + "Rewriting the plugin renumbers the indices its text is looked up by, and the only place houseCARL could "
+            + "put matching files is beside the plugin, which leaves that set on disk describing a plugin that has "
+            + "changed underneath it." + Settled,
+
         LocalizedShape.GameDataOnly =>
             "A localized plugin's text is not in the plugin, and a plugin write does not reach your game's Data folder. "
             + "Rewriting the plugin renumbers the indices its text is looked up by, and the only place houseCARL could "
@@ -2978,9 +2984,20 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             ? mod == AssetResolver.OverwriteLayerName ? "in MO2's overwrite folder" : $"in the mod folder '{mod}'"
             : a.BsaInGameData ? "in your game's Data folder" : "beside the plugin";
 
+    /// <summary>The loose Strings folder a GameDataOnly plugin's text resolves from: another MO2 layer's, or the game's Data.</summary>
+    static string StringsHome(LocalizedAssessment a) => a.StringsModFolder switch
+    {
+        null => "your game's Data\\Strings folder",
+        AssetResolver.OverwriteLayerName => "the Strings folder in MO2's overwrite folder",
+        var mod => $"the Strings folder in the mod folder '{mod}'",
+    };
+
     /// <summary>What the <c>Strings\</c> folder beside the plugin holds, for a plugin nothing in it matched; it asserts no unchecked absence.</summary>
     static string NothingMatched(LocalizedAssessment a)
     {
+        // Tables in another language than the game's read nothing, as in the game.
+        if (a.OrderLanguage is { } language && a.Languages.Count > 0)
+            return $".STRINGS files beside it in {string.Join(", ", a.Languages)} only, none in {language}, the game's language";
         var u = a.UnmatchedTables;
         // A CHECKED absence: an unlistable folder classifies as StringsFolderUnreadable and never arrives here.
         if (u.Total == 0)
@@ -3033,8 +3050,8 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
                 + BsaWhere(a) + AlsoLoose(a) + ".",
 
             LocalizedShape.GameDataOnly =>
-                "It is flagged LOCALIZED and its text is not beside it — it resolves from your game's Data\\Strings "
-                + "folder (" + string.Join(", ", a.GameDataLanguages) + ").",
+                "It is flagged LOCALIZED and its text is not beside it — it resolves from " + StringsHome(a) + " ("
+                + string.Join(", ", a.GameDataLanguages) + ").",
 
             // The folder is THERE, and nothing is claimed about its contents, so it is not described as empty.
             LocalizedShape.StringsFolderUnreadable =>

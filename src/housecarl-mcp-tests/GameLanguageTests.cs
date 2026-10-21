@@ -202,7 +202,42 @@ public sealed class GameLanguageTests : IDisposable
 
         var r = ReadName(svc, skyrim);
         Assert.Contains("sLanguage=GERMAN", r);
-        Assert.Contains("no German string tables for Skyrim.esm were found loose in a Strings folder or in a loaded archive", r);
+        Assert.Contains("Skyrim.esm's German .STRINGS/.DLSTRINGS/.ILSTRINGS string tables were not found loose in a Strings folder or in an archive the game loads", r);
+        // The archive list that would have named the vanilla archives could not be read, and the refusal says where it looked.
+        Assert.Contains($"Also, could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini in {Profile}", r);
+    }
+
+    /// <summary>Skyrim.esm needs all three of its tables in the language: one kind missing refuses, naming it.</summary>
+    [Fact]
+    public void ASkyrimWithOneTableKindMissingIsRefused()
+    {
+        Directory.CreateDirectory(DataDir);
+        var skyrim = WriteLocalized(Path.Combine(DataDir, "Skyrim.esm"), Language.German, GermanName, ModType.Master);
+        File.Delete(Path.Combine(DataDir, "Strings", "Skyrim_German.DLSTRINGS"));
+        var svc = Open("GERMAN", Array.Empty<string>(), Array.Empty<string>(), new[] { "Skyrim.esm" });
+
+        var r = ReadName(svc, skyrim);
+        Assert.StartsWith("error: houseCARL cannot read this load order in German", r);
+        Assert.Contains("Skyrim.esm's German .DLSTRINGS string tables were not found", r);
+    }
+
+    /// <summary>A German order whose plugin's tables come only from a translation mod's loose Strings: the census
+    /// finds them where the read does, so a compact goes ahead instead of refusing tables the read uses.</summary>
+    [Fact]
+    public void AGermanOrderWithTablesOnlyInATranslationModPassesTheCensus()
+    {
+        var staging = Path.Combine(_root, "staging");
+        Directory.CreateDirectory(staging);
+        WriteLocalized(Path.Combine(staging, "HcTm.esp"), Language.German, GermanName);
+        File.Copy(Path.Combine(staging, "HcTm.esp"), Path.Combine(ModDir("SwordMod"), "HcTm.esp"));
+        var strings = Path.Combine(ModDir("SwordMod German"), "Strings");
+        Directory.CreateDirectory(strings);
+        foreach (var f in Directory.GetFiles(Path.Combine(staging, "Strings"))) File.Copy(f, Path.Combine(strings, Path.GetFileName(f)));
+        var svc = Open("GERMAN", new[] { "SwordMod German", "SwordMod" }, new[] { "HcTm.esp" });
+
+        var r = WriteTools.CompactPlugin(svc, "HcTm.esp");
+        Assert.DoesNotContain("error:", r);
+        Assert.DoesNotContain("refused", r);
     }
 
     /// <summary>The same refusal reached by a profile switch that keeps the plugin order: the next call answers with
@@ -384,7 +419,7 @@ public sealed class GameLanguageTests : IDisposable
             new ActiveArchive(other, "HcUp - Extra.esp", 5, "Other"),
         };
 
-        var text = GameLanguage.Read(GameIni.For(prof), Mo2LoadOrder.ReadComposition(prof), archives, Mods, DataDir, "", new[] { plugin });
+        var text = GameLanguage.Read(GameIni.For(prof), Mo2LoadOrder.ReadComposition(prof), new ArchiveDiscoveryResult(archives, Array.Empty<string>()), Mods, DataDir, "", new[] { plugin });
 
         Assert.Equal(Path.GetDirectoryName(listed), text.FoldersFor(plugin, DataDir)?.Archives);
     }
@@ -415,7 +450,7 @@ public sealed class GameLanguageTests : IDisposable
         var prof = Path.Combine(_root, "profile");
         Directory.CreateDirectory(prof);
         File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[General]\r\nsLanguage=RUSSIAN\r\n");
-        var russian = GameLanguage.Read(GameIni.For(prof), Mo2LoadOrder.ReadComposition(prof), Array.Empty<ActiveArchive>(), "", "", "", Array.Empty<string>());
+        var russian = GameLanguage.Read(GameIni.For(prof), Mo2LoadOrder.ReadComposition(prof), new ArchiveDiscoveryResult(Array.Empty<ActiveArchive>(), Array.Empty<string>()), "", "", "", Array.Empty<string>());
         var outside = Path.Combine(_root, "elsewhere", "HcOut.esp");
         Directory.CreateDirectory(Path.GetDirectoryName(outside)!);
         var mod = new SkyrimMod(new ModKey("HcOut", ModType.Plugin), SkyrimRelease.SkyrimSE);

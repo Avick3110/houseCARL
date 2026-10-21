@@ -58,6 +58,8 @@ public sealed record UnmatchedTableFiles(IReadOnlyList<string> Names, int Total)
 /// <param name="BsaUnreadable">The archive could not be parsed, so whether it embeds this plugin's strings is unknown; classified as embedded rather than assumed harmless.</param>
 /// <param name="GameDataUnknown">No game-Data folder was supplied, so a competing set there could not be checked — not the same as having checked and found none.</param>
 /// <param name="UnmatchedTables">Table-extension files in the <c>Strings\</c> folder beside the plugin that houseCARL did NOT match to it in a language Mutagen models.</param>
+/// <param name="StringsModFolder">For <see cref="LocalizedShape.GameDataOnly"/>: the MO2 layer whose loose Strings folder the read takes the tables from, or null for the game's Data folder.</param>
+/// <param name="OrderLanguage">The order's language when it is not English: only its tables count, and a <see cref="LocalizedShape.Nowhere"/> shape's <paramref name="Languages"/> are the other languages found beside the plugin.</param>
 public sealed record LocalizedAssessment(
     LocalizedShape Shape,
     IReadOnlyList<string> Languages,
@@ -68,7 +70,9 @@ public sealed record LocalizedAssessment(
     bool GameDataUnknown,
     bool BsaInGameData = false,
     UnmatchedTableFiles? UnmatchedTables = null,
-    string? BsaModFolder = null)
+    string? BsaModFolder = null,
+    string? StringsModFolder = null,
+    string? OrderLanguage = null)
 {
     public UnmatchedTableFiles UnmatchedTables { get; init; } = UnmatchedTables ?? UnmatchedTableFiles.None;
 }
@@ -93,16 +97,19 @@ public static class LocalizedStrings
         if (folder is null) return Plain(LocalizedShape.Nowhere);
         var stem = Path.GetFileNameWithoutExtension(pluginPath);
 
+        // The read's answer: the order's language (any language counts for English, as before #1212) and its winners.
+        var text = GameLanguage.Current;
+        var only = text.Language == Language.English ? null : text.Language.ToString();
         var ownFolder = ReadStringsFolder(Path.Combine(folder, "Strings"), stem);
-        var own = ownFolder.Languages;
+        var own = InLanguage(ownFolder.Languages, only);
         var unmatched = ownFolder.Unmatched;
         // The game-Data side stays two-answer on purpose: nothing rendered off it asserts an absence.
         var gameData = dataDir is null
             ? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
-            : ReadStringsFolder(Path.Combine(dataDir, "Strings"), stem).Languages;
+            : InLanguage(ReadStringsFolder(Path.Combine(dataDir, "Strings"), stem).Languages, only);
 
         // An archive the write cannot rewrite decides the shape whatever else is on disk; the folder's third answer is carried, not dropped.
-        var (bsaPath, bsaUnreadable, folderUnlistable) = BsaEmbedding(folder, stem);
+        var (bsaPath, bsaUnreadable, folderUnlistable) = BsaEmbedding(folder, stem, only);
         if (bsaPath is not null)
             return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Names(own), Incomplete(own), Names(gameData),
                                            bsaPath, bsaUnreadable, dataDir is null, UnmatchedTables: unmatched);
@@ -122,6 +129,13 @@ public static class LocalizedStrings
             return new LocalizedAssessment(LocalizedShape.LooseComplete, Names(own), incomplete, Names(gameData), null, false, dataDir is null, UnmatchedTables: unmatched);
         }
 
+        // A translation mod's or the overwrite folder's loose Strings, when the read takes the tables from there.
+        if (text.WinnersFor(pluginPath)?.Loose is { } lw && lw.Layer != AssetResolver.DataLayerName
+            && !string.Equals(lw.Dir, Path.Combine(folder, "Strings"), StringComparison.OrdinalIgnoreCase)
+            && InLanguage(ReadStringsFolder(lw.Dir, stem).Languages, only) is { Count: > 0 } there)
+            return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), NoneIncomplete, Names(there), null, false, false,
+                                           UnmatchedTables: unmatched, StringsModFolder: lw.Layer);
+
         if (gameData.Count > 0)
             return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), NoneIncomplete, Names(gameData), null, false, false, UnmatchedTables: unmatched);
 
@@ -130,7 +144,7 @@ public static class LocalizedStrings
         if (dataDir is not null)
         {
             var home = ArchiveHomeFor(pluginPath, dataDir);
-            var (gdBsa, gdUnreadable, _) = BsaEmbedding(home.Folder, stem);
+            var (gdBsa, gdUnreadable, _) = BsaEmbedding(home.Folder, stem, only);
             if (gdBsa is not null)
                 return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Array.Empty<string>(), NoneIncomplete,
                                                Array.Empty<string>(), gdBsa, gdUnreadable, false, BsaInGameData: true,
@@ -141,8 +155,19 @@ public static class LocalizedStrings
         if (folderUnlistable)
             return Plain(LocalizedShape.ModFolderUnreadable, dataDir is null) with { UnmatchedTables = unmatched };
 
-        return Plain(LocalizedShape.Nowhere, dataDir is null) with { UnmatchedTables = unmatched };
+        return Plain(LocalizedShape.Nowhere, dataDir is null) with
+        {
+            UnmatchedTables = unmatched,
+            Languages = only is null ? Array.Empty<string>() : Names(ownFolder.Languages),
+            OrderLanguage = only,
+        };
     }
+
+    /// <summary>Only <paramref name="language"/>'s tables, or every language's when it is null.</summary>
+    static Dictionary<string, List<string>> InLanguage(Dictionary<string, List<string>> languages, string? language)
+        => language is null ? languages
+         : languages.Where(kv => kv.Key.Equals(language, StringComparison.OrdinalIgnoreCase))
+                    .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Should an in-place write of <paramref name="pluginPath"/> be refused, and with what sentence? Null is returned for exactly one answer, "read the header, the flag is clear".</summary>
     /// <param name="laneClause">The calling lane's own remedy clause, appended to the shape's explanation.</param>

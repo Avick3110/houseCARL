@@ -527,7 +527,7 @@ internal sealed partial class AssetLayers
             view.BsaFailures, view.RootFailures, view.ReadIncomplete, warnings, profileName);
     }
 
-    /// <summary>An archive is OFFICIAL — its scripts' natives are the engine's own — when it loads from Skyrim.ini's base block or is owned by a base master (Mutagen's implicit list, never a name list).</summary>
+    /// <summary>An archive is OFFICIAL — its scripts' natives are the engine's own — when it loads from the game INI's base block or is owned by a base master (Mutagen's implicit list, never a name list).</summary>
     internal static bool IsOfficialArchive(ActiveArchive a, IReadOnlyList<ModKey> baseMasters) =>
         a.OwningPlugin.Equals(ArchiveDiscovery.IniArchiveOwner, StringComparison.OrdinalIgnoreCase)   // ignore-case like every other archive compare — this must not hinge on the marker's casing
         || (ModKey.TryFromNameAndExtension(a.OwningPlugin, out var mk) && baseMasters.Contains(mk));
