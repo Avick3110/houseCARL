@@ -290,9 +290,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - The plugin itself is renumbered and serialised whole, but everything downstream of the renumber gets only the
   records it MOVES, the map entries whose id changes (#1205): the identify pass, the referencer repoint and the
   report's count. The facegen and voice carries go by lane: in place they take the moved records only, since an
-  unmoved record's files already sit in its own mod folder; into a new file they take every originating record,
-  since the new mod folder starts empty and an unmoved NPC or voiced line would otherwise lose its face or voice once
-  the original mod is disabled. A run where every originating record already sits at its compacted id
+  unmoved record keeps its id and so its file paths, and whatever wins them still applies; into a new file they take
+  every record the plugin defines, since the new mod folder starts empty and an unmoved NPC or voiced line would
+  otherwise lose its face or voice once the original mod is disabled. A new-file copy takes the face or voice winning
+  at compaction time, so a later change to the mod that won it no longer reaches the compacted plugin. A run where every originating record already sits at its compacted id
   (a re-run, or a first compaction of an already-contiguous plugin) therefore finds no referencer to refuse or
   rewrite, and in place carries nothing; it says that no id moved and, conditionally, that it does not repair an earlier
   failed repoint, and does not call itself a clean compaction. A partial move repoints only a referencer of a moved
