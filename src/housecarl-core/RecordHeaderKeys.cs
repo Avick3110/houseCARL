@@ -33,7 +33,7 @@ public static class RecordHeaderKeys
         for (long p = group.HeaderLength; p < group.TotalLength;)
         {
             var here = at.Slice(checked((int)p));
-            if (Encoding.Latin1.GetString(here.Span.Slice(0, 4)) == "GRUP") { p += Group(meta, here, masters, self, keys); continue; }
+            if (here.Span.Slice(0, 4).SequenceEqual("GRUP"u8)) { p += Group(meta, here, masters, self, keys); continue; }
             var rec = new MajorRecordFrame(meta, here);
             uint raw = rec.FormID.Raw;
             int index = (int)(raw >> 24);

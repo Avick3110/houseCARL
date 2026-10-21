@@ -44,12 +44,15 @@ public static class OrderDegraded
 
     /// <summary>The per-row note on a record an excluded plugin also defines or overrides: the answer lacks its version, so the winner is unknown.</summary>
     public static string TouchNote(IReadOnlyList<string> excluded) =>
-        $"also touched by {string.Join(", ", excluded)}, excluded this session as unreadable — its version is not in this answer, so this record's real winner is unknown.";
+        $"{TouchedBy(excluded)} — its version is not in this answer, so this record's real winner is unknown.";
 
     /// <summary>The write refusal on a record an excluded plugin also touches: a patch built without that plugin's version could undo its change.</summary>
     public static string TouchRefusal(string formId, IReadOnlyList<string> excluded) =>
-        $"{formId}: also touched by {string.Join(", ", excluded)}, which houseCARL excluded this session as unreadable, so the record's real " +
-        "winner is unknown and this write could undo that plugin's change. Fix or remove that plugin (housecarl_load_order_status gives the reason) and retry.";
+        $"{formId}: {TouchedBy(excluded)}, so the record's real winner is unknown and this write could undo that plugin's change. " +
+        "Fix or remove that plugin (housecarl_load_order_status gives the reason) and retry.";
+
+    static string TouchedBy(IReadOnlyList<string> excluded) =>
+        $"also touched by {string.Join(", ", excluded)}, excluded this session as unreadable";
 
     /// <summary>The first <paramref name="cap"/> names of a roster, then <paramref name="more"/> of how many are left.</summary>
     internal static string Shown(IReadOnlyList<string> names, int cap, Func<int, string> more) =>
