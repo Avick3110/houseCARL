@@ -23,11 +23,8 @@ The SDK's `WithToolsFromAssembly` has no overload carrying
 `McpServerToolCreateOptions.SchemaCreateOptions`, so the per-node `TransformSchemaNode` hook
 cannot reach an assembly-scanned tool. `Tool.InputSchema` is settable (and validates what it is
 given), so the schema is rewritten instead — as a post-configure over `McpServerOptions`, which
-is the one place the final tool collection exists whichever transport built the host. The
-assembly scan registers each tool as a *factory*, so no instance exists while the service
-collection is being built, and stdio and HTTP build their hosts separately: a post-configure
-keeps this on one line inside the shared registration rather than a call site per transport
-that could drift apart.
+is the one place the final tool collection exists. The assembly scan registers each tool as a
+*factory*, so no instance exists while the service collection is being built.
 
 ### Pass 1 — the `@file` union
 
