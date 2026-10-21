@@ -91,6 +91,9 @@ public sealed class CompactFacegenCarryTests
         Assert.True(CompactCarryInstance.Holds(Path.Combine(root, FaceGenPath.For(nk, FaceGenSlot.Mesh)), Mesh));
         Assert.True(CompactCarryInstance.Holds(Path.Combine(root, FaceGenPath.For(nk, FaceGenSlot.Tint)), Tint));
         Assert.Equal(2, o.AssetRename?.FacegenFilesCarried);
+        var text = HousecarlMcp.WriteTools.RenderCompact(o);
+        Assert.Contains("facegen: copied 2 files for 1 NPC into the new mod folder", text);
+        Assert.DoesNotContain("to the new FormIDs", text);
     }
 
     // IN-PLACE, UNMOVED: an NPC already at its compacted id keeps its face where it is and nothing is re-copied
