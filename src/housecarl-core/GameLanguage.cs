@@ -96,10 +96,11 @@ public static class GameLanguage
 {
     /// <summary>Read the order's language from the INI the game reads and its string-table winners from the same
     /// composition and archive list the build uses; throws <see cref="GameLanguageRefusedException"/> when the
-    /// language is not one the game has, or when no layer carries Skyrim.esm's tables in it.</summary>
-    public static InstanceText Read(GameIni ini, Mo2Composition comp, IReadOnlyList<ActiveArchive> archives,
+    /// language is not one the game has, or when Skyrim.esm lacks any of its three tables in it.</summary>
+    public static InstanceText Read(GameIni ini, Mo2Composition comp, ArchiveDiscoveryResult discovery,
                                     string modsDir, string dataDir, string overwriteDir, IReadOnlyList<string> orderedPaths)
     {
+        var archives = discovery.Archives;
         var (raw, file) = ini.Value("General", "sLanguage");
         var language = Language.English;
         if (raw is not null && (!raw.All(char.IsLetter) || !Enum.TryParse(raw, ignoreCase: true, out language)))
@@ -110,15 +111,31 @@ public static class GameLanguage
         var text = InstanceText.Of(language, ReadTables(language, comp.EnabledMods, modsDir, dataDir, overwriteDir, archives), dataDir, orderedPaths);
         var skyrimPath = orderedPaths.FirstOrDefault(p => Path.GetFileName(p).Equals("Skyrim.esm", StringComparison.OrdinalIgnoreCase));
         // English is what houseCARL always read, so only another language is held to having its tables.
-        if (language != Language.English && skyrimPath is not null
-            && WriteEngine.PluginIsLocalized(skyrimPath) == LocalizedFlagRead.Localized && text.WinnersFor(skyrimPath) is null)
-            throw new GameLanguageRefusedException(
-                $"houseCARL cannot read this load order in {language}: {file} sets sLanguage={raw}, and no {language} "
-                + "string tables for Skyrim.esm were found loose in a Strings folder or in a loaded archive of the game "
-                + "Data, an enabled mod or the overwrite folder; install that language's files or set sLanguage to the "
-                + "language your game is installed in.");
-        return text;
+        if (language == Language.English || skyrimPath is null
+            || WriteEngine.PluginIsLocalized(skyrimPath) != LocalizedFlagRead.Localized) return text;
+        var winners = LocalizedStrings.Kinds.Select(k => (Kind: k, W: text.Winner("Skyrim", k))).ToList();
+        var missing = winners.Where(x => x.W.Loose is null && x.W.Archive is null).Select(x => x.Kind).ToList();
+        if (missing.Count == 0) return text;
+        var passed = winners.SelectMany(x => x.W.Passed).DistinctBy(p => p.Path, StringComparer.OrdinalIgnoreCase)
+                            .Select(p => $"{Path.GetFileName(p.Path)} {LayerPlace(p.Layer)}").ToList();
+        throw new GameLanguageRefusedException(
+            $"houseCARL cannot read this load order in {language}: {file} sets sLanguage={raw}, and Skyrim.esm's "
+            + $"{language} .{string.Join("/.", missing)} string tables were not found loose in a Strings folder or in an "
+            + "archive the game loads for Skyrim.esm (one the INI lists, or one named for it) in the game Data, an enabled "
+            + "mod or the overwrite folder"
+            + (passed.Count == 0 ? "" : $"; {string.Join(", ", passed)} carries them, but it is named for another plugin "
+                                        + "and the INI does not list it, so houseCARL cannot read them from it")
+            + "; install that language's files or set sLanguage to the language your game is installed in."
+            + (discovery.Warnings.Count == 0 ? "" : " Also, " + string.Join(" ", discovery.Warnings)));
     }
+
+    /// <summary>Where an MO2 layer is, as a refusal names it.</summary>
+    static string LayerPlace(string layer) => layer switch
+    {
+        AssetResolver.DataLayerName => "in the game Data",
+        AssetResolver.OverwriteLayerName => "in MO2's overwrite folder",
+        _ => $"in the mod folder '{layer}'",
+    };
 
     /// <summary>Every table file in a loose Strings folder (overwrite, enabled mods by priority, game Data: first wins)
     /// and in a loaded archive (highest plugin rank first, archive name breaking a tie), the asset layer's precedence; the order's language only.</summary>

@@ -417,8 +417,9 @@ internal sealed partial class RecordWrites
         var remedy = unlistable
             ? $"Let houseCARL read {folder} — close whatever is holding it open, or fix its permissions — and run "
               + "this again."
-            : "Put this plugin's .STRINGS where houseCARL can see them — enable the mod that provides them, or place "
-              + "them in a Strings folder beside the plugin — and run this again.";
+            : $"Put this plugin's {(a.OrderLanguage is { } language ? language + " " : "")}.STRINGS where houseCARL can "
+              + "see them — enable the mod that provides them, or place them in a Strings folder beside the plugin — and "
+              + "run this again.";
         return $"refused — houseCARL did not {verb} '{name}'. "
              + LocalizedTargetUnsupportedException.WhereTheTextIs(a) + " "
              + $"So {consequence}, and a {verb} writes whatever this read produced into a NEW plugin you keep, with "

@@ -98,8 +98,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     InstanceText ReadInstanceText(Mo2Roots r, Mo2OrderResult order)
     {
         var ini = GameIni.For(r.ProfileDir, MyGamesDir);
-        var archives = ArchiveDiscovery.Discover(order.Composition, ini, r.ModsDir, r.DataDir, r.OverwriteDir).Archives;
-        return GameLanguage.Read(ini, order.Composition, archives, r.ModsDir, r.DataDir, r.OverwriteDir, order.OrderedPaths);
+        var discovery = ArchiveDiscovery.Discover(order.Composition, ini, r.ModsDir, r.DataDir, r.OverwriteDir);
+        return GameLanguage.Read(ini, order.Composition, discovery, r.ModsDir, r.DataDir, r.OverwriteDir, order.OrderedPaths);
     }
 
     /// <summary>The corpus rulebook (corpus.json), loaded from the absolute CorpusPath on first use; the write pre-flight and the read scan's quantifier check share it.</summary>
