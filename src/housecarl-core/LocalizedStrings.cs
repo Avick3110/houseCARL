@@ -53,7 +53,8 @@ public sealed record UnmatchedTableFiles(IReadOnlyList<string> Names, int Total)
 }
 
 /// <param name="IncompleteLanguages">Those of <paramref name="Languages"/> missing at least one table kind, with the kinds they are missing.</param>
-/// <param name="BsaInGameData">The archive was found in the game's Data folder rather than beside the plugin, which the refusal has to say.</param>
+/// <param name="BsaInGameData">The archive was found away from the plugin (the game's Data folder, or <paramref name="BsaModFolder"/>), which the refusal has to say.</param>
+/// <param name="BsaModFolder">The MO2 mod folder that away-from-the-plugin archive was found in, or null for the game's Data folder.</param>
 /// <param name="BsaUnreadable">The archive could not be parsed, so whether it embeds this plugin's strings is unknown; classified as embedded rather than assumed harmless.</param>
 /// <param name="GameDataUnknown">No game-Data folder was supplied, so a competing set there could not be checked — not the same as having checked and found none.</param>
 /// <param name="UnmatchedTables">Table-extension files in the <c>Strings\</c> folder beside the plugin that houseCARL did NOT match to it in a language Mutagen models.</param>
@@ -66,7 +67,8 @@ public sealed record LocalizedAssessment(
     bool BsaUnreadable,
     bool GameDataUnknown,
     bool BsaInGameData = false,
-    UnmatchedTableFiles? UnmatchedTables = null)
+    UnmatchedTableFiles? UnmatchedTables = null,
+    string? BsaModFolder = null)
 {
     public UnmatchedTableFiles UnmatchedTables { get; init; } = UnmatchedTables ?? UnmatchedTableFiles.None;
 }
@@ -123,14 +125,16 @@ public static class LocalizedStrings
         if (gameData.Count > 0)
             return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), NoneIncomplete, Names(gameData), null, false, false, UnmatchedTables: unmatched);
 
-        // The vanilla masters' strings live in the game-Data ARCHIVES, searched LAST so an ordinary plugin never pays for it.
+        // The vanilla masters' strings live in the game-Data ARCHIVES and a Creation Club plugin's in its archive's mod
+        // folder: the same home the read opens, searched LAST so an ordinary plugin never pays for it.
         if (dataDir is not null)
         {
-            var (gdBsa, gdUnreadable, _) = BsaEmbedding(dataDir, stem);
+            var home = ArchiveHomeFor(pluginPath, dataDir);
+            var (gdBsa, gdUnreadable, _) = BsaEmbedding(home.Folder, stem);
             if (gdBsa is not null)
                 return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Array.Empty<string>(), NoneIncomplete,
                                                Array.Empty<string>(), gdBsa, gdUnreadable, false, BsaInGameData: true,
-                                               UnmatchedTables: unmatched);
+                                               UnmatchedTables: unmatched, BsaModFolder: home.Mod);
         }
 
         // NOTHING FOUND ANYWHERE, and the mod folder itself would not list — it still refuses, but it claims no absence.
@@ -175,8 +179,36 @@ public static class LocalizedStrings
         return (a.Shape, LocalizedTargetUnsupportedException.ShapeBody(a));
     }
 
-    /// <summary>Does the plugin's OWN folder carry a strings source FOR THIS PLUGIN? The read side's redirect gate; it answers for the NAMED plugin, and any IO fault answers TRUE (#369).</summary>
+    /// <summary>Does the plugin's OWN folder carry a strings source FOR THIS PLUGIN in the game's language? The read side's redirect gate; it answers for the NAMED plugin, and any IO fault answers TRUE (#369).</summary>
     public static bool OwnFolderCarriesStringsFor(string pluginPath)
+        => OwnFolderCarries(pluginPath, LanguageOf(pluginPath));
+
+    /// <summary>Where a plugin whose tables are not beside it reads them from: the folder of the winning archive named for it when that archive carries its tables in the game's language (#1075), else the game Data. One home for the read and the shape census.</summary>
+    public static (string Folder, string? Mod) ArchiveHomeFor(string pluginPath, string dataDir)
+    {
+        var stem = Path.GetFileNameWithoutExtension(pluginPath);
+        if (GameLanguage.For(pluginPath) is { } text && text.WinningArchive(stem) is { } win && win.OwningMod != "Data"
+            && Path.GetDirectoryName(win.Path) is { } folder
+            && BsaEmbedding(folder, stem, text.Language.ToString()).Path is not null)
+            return (folder, win.OwningMod);
+        return (dataDir, null);
+    }
+
+    /// <summary>Does the read of this plugin find string tables in the instance's language, beside it or at its archive home? The language refusal's question.</summary>
+    internal static bool HasTablesFor(string pluginPath, InstanceText text)
+    {
+        var language = text.Language.ToString();
+        if (OwnFolderCarries(pluginPath, language)) return true;
+        var stem = Path.GetFileNameWithoutExtension(pluginPath);
+        if (ReadStringsFolder(Path.Combine(text.DataDir, "Strings"), stem).Languages.ContainsKey(language)) return true;
+        var home = text.WinningArchive(stem) is { } win && Path.GetDirectoryName(win.Path) is { } f ? f : text.DataDir;
+        return BsaEmbedding(home, stem, language).Path is not null;
+    }
+
+    /// <summary>The game language a plugin is read in, as the token its table file names carry.</summary>
+    static string LanguageOf(string pluginPath) => (GameLanguage.For(pluginPath)?.Language ?? Language.English).ToString();
+
+    static bool OwnFolderCarries(string pluginPath, string language)
     {
         try
         {
@@ -186,9 +218,9 @@ public static class LocalizedStrings
             var stem = Path.GetFileNameWithoutExtension(pluginPath);
             var loose = ReadStringsFolder(Path.Combine(folder, "Strings"), stem);
             if (loose.Read == StringsFolderRead.Unlistable) return true;
-            if (loose.Languages.Count > 0) return true;
+            if (loose.Languages.ContainsKey(language)) return true;
             // BsaEmbedding answers non-null both when the archive embeds this plugin's tables and when it could not be parsed.
-            var bsa = BsaEmbedding(folder, stem);
+            var bsa = BsaEmbedding(folder, stem, language);
             if (bsa.FolderUnlistable) return true;
             return bsa.Path is not null;
         }
@@ -281,8 +313,8 @@ public static class LocalizedStrings
         return LanguageNames.Contains(lang) ? (lang, ext.ToUpperInvariant()) : null;
     }
 
-    /// <summary>Does a <c>.bsa</c> beside the plugin embed strings for it? Returns the archive's path when it does, or when the archive could not be parsed at all.</summary>
-    static (string? Path, bool Unreadable, bool FolderUnlistable) BsaEmbedding(string folder, string stem)
+    /// <summary>Does a <c>.bsa</c> in <paramref name="folder"/> embed strings for the plugin, in <paramref name="language"/> when one is named? Returns the archive's path when it does, or when the archive could not be parsed at all.</summary>
+    static (string? Path, bool Unreadable, bool FolderUnlistable) BsaEmbedding(string folder, string stem, string? language = null)
     {
         var (folderUnlistable, entries) = ArchiveStrings(folder);
         // The folder would not list, so which archives are in it was never established — its own answer, not "no archive".
@@ -293,7 +325,7 @@ public static class LocalizedStrings
         foreach (var e in entries)
         {
             if (e.Unreadable) { unreadable ??= e.Archive; continue; }
-            if (e.Stems.Contains(stem)) return (e.Archive, false, false);
+            if (language is null ? e.Stems.Contains(stem) : e.Tables.Contains(stem + "_" + language)) return (e.Archive, false, false);
         }
         return unreadable is null ? (null, false, false) : (unreadable, true, false);
     }
@@ -303,7 +335,8 @@ public static class LocalizedStrings
     static readonly Dictionary<string, (string Stamp, List<ArchiveEntry> Entries)> ArchiveCache =
         new(StringComparer.OrdinalIgnoreCase);
 
-    readonly record struct ArchiveEntry(string Archive, HashSet<string> Stems, bool Unreadable);
+    /// <param name="Tables">Every "<c>stem_Language</c>" the archive carries a table for.</param>
+    readonly record struct ArchiveEntry(string Archive, HashSet<string> Stems, HashSet<string> Tables, bool Unreadable);
 
     static readonly List<ArchiveEntry> NoArchives = new();
 
@@ -342,6 +375,7 @@ public static class LocalizedStrings
         foreach (var a in archives)
         {
             var stems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             bool unreadable = false;
             try
             {
@@ -353,11 +387,11 @@ public static class LocalizedStrings
                     var bare = System.IO.Path.GetFileNameWithoutExtension(p);
                     // "<stem>_<Language>" — split at the LAST underscore, so a stem that itself contains underscores survives intact.
                     var cut = bare.LastIndexOf('_');
-                    if (cut > 0 && LanguageNames.Contains(bare[(cut + 1)..])) stems.Add(bare[..cut]);
+                    if (cut > 0 && LanguageNames.Contains(bare[(cut + 1)..])) { stems.Add(bare[..cut]); tables.Add(bare); }
                 }
             }
             catch (Exception) { unreadable = true; }
-            entries.Add(new ArchiveEntry(a, stems, unreadable));
+            entries.Add(new ArchiveEntry(a, stems, tables, unreadable));
         }
 
         lock (ArchiveCache) ArchiveCache[folder] = (stamp, entries);

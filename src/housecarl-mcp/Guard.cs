@@ -14,6 +14,7 @@ internal static class Guard
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception) when (Changed(mark) is { } refusal) { return refusal; }
         catch (ProfileUnreadableException ex) { return Transient(ex); }
+        catch (GameLanguageRefusedException ex) { return "error: " + ex.Message; }
         catch (Exception ex) { return Named(tool, ex); }
     }
 
@@ -25,6 +26,7 @@ internal static class Guard
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception) when (Changed(mark) is { } refusal) { return refusal; }
         catch (ProfileUnreadableException ex) { return Transient(ex); }
+        catch (GameLanguageRefusedException ex) { return "error: " + ex.Message; }
         catch (Exception ex) { return Named(tool, ex); }
     }
 

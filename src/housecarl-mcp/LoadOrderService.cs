@@ -15,6 +15,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     string _profileName;                           // the active profile (instance mode: from selected_profile)
     string _overwriteDir = "";                     // MO2's overwrite layer (instance mode: derived; explicit mode: none)
     bool _configured;                              // false ⇒ tools return the trained prompt instead of resolving
+    InstanceText? _text;                           // the game language and archive winners every plugin open under these roots takes
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
     readonly InPlaceConsent _inPlaceConsent;       // the in-place consent over _store; writes and assets take it through the door
     InPlaceConsent ILoadOrderHost.InPlaceConsent => _inPlaceConsent;
@@ -89,7 +90,16 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     public void Dispose()
     {
-        lock (_gate) { _resolver?.Dispose(); _resolver = null; _assetResolver?.Dispose(); _assetResolver = null; }
+        lock (_gate) { _resolver?.Dispose(); _resolver = null; _assetResolver?.Dispose(); _assetResolver = null; GameLanguage.Forget(_text); }
+    }
+
+    /// <summary>Read the game language and archive winners for the roots a build is about to use, and publish them to every plugin open under those roots. Caller holds the gate.</summary>
+    void ReadGameLanguage(Mo2Roots r)
+    {
+        var old = _text;
+        GameLanguage.Use(_text = GameLanguage.Read(r.ProfileDir, r.ModsDir, r.DataDir, r.OverwriteDir,
+                                                   () => Mo2LoadOrder.ReadComposition(r.ProfileDir).EnabledMods));
+        GameLanguage.Forget(old);   // a no-op when the new text replaced it under the same roots
     }
 
     /// <summary>The corpus rulebook (corpus.json), loaded from the absolute CorpusPath on first use; the write pre-flight and the read scan's quantifier check share it.</summary>
@@ -183,6 +193,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     // A kept asset build must not be stranded by advancing the baseline here;
                     // contract in docs/architecture/load-order-service.md.
                     bool assetBuildIsBehind = _profileHeld is not null || _resolvedPaths.Count == 0;
+                    ReadGameLanguage(RootsLocked());
                     _resolver = LoadOrderResolver.Build(paths, ExplainPluginAbsence, Counters);
                     _resolvedPaths = paths;
                     _profileStamps = profileStamps;
@@ -934,6 +945,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         {
             // The set or order genuinely changed: build FIRST so the old snapshot survives a throw, then dispose and swap.
             InvalidateAssetResolver();   // the active mod/archive set changed → the asset resolver rebuilds lazily
+            ReadGameLanguage(roots);     // and so may the archive winners a plugin's strings come from
             if (_resolver is not null)
             {
                 // The rebuild carries the explainer too, or a profile change would drop every refusal to the flat not-found.
@@ -952,6 +964,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         {
             // The profile was touched but the resolved order is identical, so no deep re-index; the asset resolver still drops and the baseline advances.
             InvalidateAssetResolver();
+            ReadGameLanguage(roots);
             _orderWarnings = order.Warnings;
             _profileStamps = profileStamps;
             return true;
