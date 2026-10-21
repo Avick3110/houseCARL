@@ -1,3 +1,5 @@
+using Mutagen.Bethesda;
+using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
 using HousecarlMcp;
 using Xunit;
@@ -168,5 +170,22 @@ public sealed class CopyServiceLaneTests : IDisposable
         Assert.False(o.Success);
         Assert.Equal(before, Directory.GetDirectories(_w.ModsDir).Length);
         Assert.False(_w.AnyFolderNamed("OrphanCheck"));
+    }
+
+    // #1204: a walked record owned by another plugin's faction is read untyped; the walk must not follow its rank word
+    [Fact]
+    public void ACloneWalkingAListOwnedByAnotherPluginsFactionKeepsRanksMinusOneAndSeven()
+    {
+        var o = _w.Copy(_w.OwnedNpc, new[] { "Src.esp" }, new[] { "DeathItem" }, CopyServiceWorld.NoExclusions,
+            null, "OwnedClone", "OwnedPatch", null);
+
+        CopyServiceWorld.Succeeded(o);
+        using var baseOv = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(_w.ModsDir, "BaseMod", "HcBase.esm"), SkyrimRelease.SkyrimSE);
+        using var patchOv = SkyrimMod.CreateFromBinaryOverlay(o.OutPath!, SkyrimRelease.SkyrimSE);
+        var cache = new ISkyrimModGetter[] { baseOv, patchOv }.ToImmutableLinkCache();
+        using var typed = SkyrimMod.CreateFromBinaryOverlay(o.OutPath!, SkyrimRelease.SkyrimSE, new() { LinkCache = cache });
+        var owners = typed.LeveledItems.Single().Entries!.Select(e => Assert.IsAssignableFrom<IFactionOwnerGetter>(e.ExtraData!.Owner)).ToList();
+        Assert.Equal(new[] { -1, 7 }, owners.Select(f => f.RequiredRank));
+        Assert.All(owners, f => Assert.Equal(_w.BaseFaction, f.Faction.FormKey));
     }
 }
