@@ -106,6 +106,8 @@ public sealed class CompactHeaderTests
         Assert.Contains("external referencers: none to repoint, since no id moved.\n", text);
         Assert.Contains("yes — 1 originating record already at its compacted id.\n", text);
         Assert.Contains(WriteSentences.CompactMovedNothing, text);
+        Assert.Contains("identify-pass scanned", firstText);
+        Assert.DoesNotContain("identify-pass scanned", text);
     }
 
     [Fact]

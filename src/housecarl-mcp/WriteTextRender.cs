@@ -465,7 +465,7 @@ static partial class WriteTools
               .Append("'external referencers: none' may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
         }
         AppendUnscannablePlugins(sb, o.UnscannablePlugins);
-        sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
+        if (!movedNothing) sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
         // The plugin NAME survives a compaction, so what moves is the object id, and only the ids this run moved.
         sb.Append(WriteSentences.CompactRuntimeConfigs);
 
