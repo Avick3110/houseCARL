@@ -333,6 +333,11 @@ public sealed class GameLanguageTests : IDisposable
         Assert.DoesNotContain("error:", read);
         Assert.Contains("HcEnWeap", read);
         Assert.DoesNotContain("Big Iron Sword", read);
+
+        // The census agrees: no German text found, so a compact refuses, naming the language it looked for.
+        var r = WriteTools.CompactPlugin(svc, "HcEn.esp");
+        Assert.Contains(".STRINGS files beside it in English only, none in German, the game's language", r);
+        Assert.Contains("Put this plugin's German .STRINGS where houseCARL can see them", r);
     }
 
     /// <summary>sLanguage that names no game language, or a number, refuses in one sentence naming the INI and the value.</summary>
@@ -510,6 +515,7 @@ public sealed class GameLanguageTests : IDisposable
         // The census takes the same winner: the in-place refusal names the translation's folder, not the plugin's own.
         var r = InPlace(svc, weapon, "BasicStats.Damage", "20", "HcTr.esp");
         Assert.Contains("it resolves from the Strings folder in the mod folder 'SwordMod Translation'", r);
+        Assert.Contains("a plugin write does not reach the Strings folder in the mod folder 'SwordMod Translation'", r);
         Assert.DoesNotContain("beside it (", r);
     }
 

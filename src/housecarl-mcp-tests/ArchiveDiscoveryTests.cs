@@ -141,6 +141,23 @@ public sealed class ArchiveDiscoveryTests : IDisposable
         Assert.Equal("MyGames.bsa", Path.GetFileName(baseArc.Path));
     }
 
+    /// <summary>A My Games list that cannot be read names that folder, and does not tell the user to fix the profile's
+    /// Skyrim.ini, which the game does not read.</summary>
+    [Fact]
+    public void AnUnreadableMyGamesListNamesMyGames()
+    {
+        Profile(Array.Empty<string>(), Array.Empty<string>(), "Profile.bsa");
+        File.WriteAllText(Path.Combine(_prof, "settings.ini"), "[General]\r\nLocalSettings=false\r\n");
+        var myGames = Path.Combine(_root, "MyGames");
+        Directory.CreateDirectory(myGames);
+
+        var res = ArchiveDiscovery.Discover(Mo2LoadOrder.ReadComposition(_prof), MyGamesIsolation.Pointed(myGames, () => GameIni.For(_prof)), _mods, _data, "");
+
+        var warning = Assert.Single(res.Warnings);
+        Assert.Contains($"(looked in {myGames})", warning);
+        Assert.DoesNotContain("Make sure the active profile", warning);
+    }
+
     /// <summary>Which folder answers: LocalSettings=true is the profile even with no Skyrim.ini in it; a profile with no
     /// flag and no Skyrim.ini (not one MO2 wrote) falls to My Games.</summary>
     [Fact]
