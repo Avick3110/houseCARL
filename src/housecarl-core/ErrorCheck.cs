@@ -52,6 +52,7 @@ public static class ErrorCheck
         // counts_only=: the dangling-by-target-plugin tally, over every dangling ref in scope, never limit-capped.
         // Built only when the walk that fills it runs, so null means "not computed", never "empty".
         var histogram = countsOnly && wantDangling ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
+        var histogramInto = histogram is null ? null : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);   // of those, refs into an excluded plugin's record
         // The SOURCE axis, tallied on every sweep the walk runs on, and uncapped by limit= like the totals it decomposes.
         var bySource = wantDangling ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
         // Which plugins the link walk actually EXAMINED a record in, under the scope in force — not which it opened.
@@ -189,8 +190,9 @@ public static class ErrorCheck
                             if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                             totalDangling++;
                             Bump(bySource, plugin);                                                   // the SOURCE axis, on every mode
-                            if (view.ExcludedTouchers(target).Count > 0) intoExcluded++;
-                            if (histogram is not null) { BumpTarget(histogram, target, view); continue; }   // counts_only=: tally, list nothing
+                            bool into = view.ExcludedTouchers(target).Count > 0;
+                            if (into) intoExcluded++;
+                            if (histogram is not null) { BumpTarget(histogram, target); if (into) BumpTarget(histogramInto!, target); continue; }   // counts_only=: tally, list nothing
                             if (danglingBudget > 0)
                             {
                                 dangling.Add(new DanglingRef(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, target)
@@ -294,8 +296,9 @@ public static class ErrorCheck
                                     if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                                     totalDangling++;
                                     Bump(bySource, name);                                                     // the SOURCE axis, keyed by the off-order FILE (which can itself be a base master — see BaseMastersSwept below)
-                                    if (view.ExcludedTouchers(target).Count > 0) intoExcluded++;
-                                    if (histogram is not null) { BumpTarget(histogram, target, view); continue; }   // counts_only=
+                                    bool into = view.ExcludedTouchers(target).Count > 0;
+                                    if (into) intoExcluded++;
+                                    if (histogram is not null) { BumpTarget(histogram, target); if (into) BumpTarget(histogramInto!, target); continue; }   // counts_only=
                                     if (danglingBudget > 0)
                                     {
                                         dangling.Add(new DanglingRef(rec.FormKey, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID, target)
@@ -368,7 +371,7 @@ public static class ErrorCheck
 
         return new ErrorCheckResult(reports, targets.Count + offOrderScanned.Count, totalDangling, totalMissing,
                                     totalUnscannable, view.ExcludedPlugins, null, offOrderScanned,
-                                    filterNote, classes, histogram is null ? null : SweepFindings.Histogram(histogram),
+                                    filterNote, classes, histogram is null ? null : SweepFindings.Histogram(histogram, histogramInto),
                                     countsOnly, view.Epoch,
                                     bySource is null ? null : SweepFindings.Histogram(bySource),
                                     baselineDangling, baseSwept, nonBaseInScope, limit,
@@ -376,10 +379,9 @@ public static class ErrorCheck
     }
 
     /// <summary>Bump the <c>counts_only=</c> dangling histogram for one broken target, keyed by the PLUGIN the target
-    /// form lives in — the diagnostic the per-source-plugin grouping never gave; a target an excluded plugin touches is tallied apart.</summary>
-    static void BumpTarget(Dictionary<string, int> acc, FormKey target, LoadOrderResolver.IndexView view)
-        => Bump(acc, target.ModKey.FileName.String
-                     + (view.ExcludedTouchers(target) is { Count: > 0 } by ? $" (into excluded plugin {string.Join(", ", by)}, which houseCARL could not read)" : ""));
+    /// form lives in — the diagnostic the per-source-plugin grouping never gave.</summary>
+    static void BumpTarget(Dictionary<string, int> acc, FormKey target)
+        => Bump(acc, target.ModKey.FileName.String);
 
     /// <summary>Bump one plugin-keyed tally; a null accumulator means that axis is not being collected, so the call is
     /// a no-op rather than the caller's problem at every bump site.</summary>
