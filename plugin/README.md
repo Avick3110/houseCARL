@@ -94,7 +94,7 @@ Uninstalling: `[4] Uninstall`, or `--uninstall` with a host flag. It removes the
 
 ### From source
 
-Requires the .NET 10 SDK, 10.0.400 or newer, Windows and PowerShell.
+Requires a .NET 10.0 SDK, feature band 400 or later, Windows and PowerShell.
 
 ```powershell
 git clone https://github.com/Avick3110/houseCARL.git
