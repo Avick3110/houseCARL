@@ -29,29 +29,41 @@ public sealed class PluginsTxtEncodingTests : IDisposable
         try { Directory.Delete(profileDir, recursive: true); } catch (IOException) { }
     }
 
-    Mo2Composition Compose(Encoding pluginsEncoding)
+    // Names for the host's own ANSI page, first ones first: Œ is 0x8C in cp1252 and a control character in Latin-1.
+    static readonly string[] HostNames = ["Œuvre.esp", "Épée.esp", "Rüstung.esp", TickedCyrillic, UntickedCyrillic, "鎧.esp", "剣.esp"];
+
+    Mo2Composition Compose(Encoding pluginsEncoding, string ticked, string unticked)
     {
         File.WriteAllText(Path.Combine(profileDir, "modlist.txt"), "# header\r\n");
-        File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), $"# header\r\n{Ticked}\r\n{Unticked}\r\n");
-        File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), $"# header\r\n*{Ticked}\r\n{Unticked}\r\n", pluginsEncoding);
+        File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), $"# header\r\n{ticked}\r\n{unticked}\r\n");
+        File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), $"# header\r\n*{ticked}\r\n{unticked}\r\n", pluginsEncoding);
         return Mo2LoadOrder.ReadComposition(profileDir);
     }
 
-    // cp1252 is read in the machine's own ANSI code page, which is 1252 on this machine and on the CI runner.
-    [Theory]
-    [InlineData("cp1252")]
-    [InlineData("utf-8")]
-    public void PluginsTxtKeepsTicks(string written)
+    static void AssertTicks(Mo2Composition comp, string ticked, string unticked)
     {
-        var comp = Compose(written == "cp1252" ? CodePage(1252) : new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-
-        Assert.Contains(Ticked, comp.ActivePluginNames);
-        Assert.Contains(Unticked, comp.InactivePluginNames);
-        Assert.DoesNotContain(Unticked, comp.ActivePluginNames);
-        Assert.DoesNotContain(Unticked, comp.ImplicitPluginNames);
+        Assert.Contains(ticked, comp.ActivePluginNames);
+        Assert.Contains(unticked, comp.InactivePluginNames);
+        Assert.DoesNotContain(unticked, comp.ActivePluginNames);
+        Assert.DoesNotContain(unticked, comp.ImplicitPluginNames);
     }
 
-    // This machine's ANSI code page is 1252, so cp1251 is forced by handing the parse the code page a Russian Windows reports.
+    // Written in the host's ANSI page (UTF-8 where Windows reports none) with names it can spell, so it passes on any host.
+    [Fact]
+    public void HostAnsiPluginsTxtKeepsTicks()
+    {
+        var host = CodePagesEncodingProvider.Instance.GetEncoding(0) ?? new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        var names = HostNames.Where(n => host.GetString(host.GetBytes(n)) == n).ToArray();
+        Assert.True(names.Length >= 2, $"no two test names fit code page {host.CodePage}");
+
+        AssertTicks(Compose(host, names[0], names[1]), names[0], names[1]);
+    }
+
+    [Fact]
+    public void Utf8PluginsTxtKeepsTicks()
+        => AssertTicks(Compose(new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), Ticked, Unticked), Ticked, Unticked);
+
+    // cp1251 is forced by handing the parse the code page a Russian Windows reports.
     [Fact]
     public void Cp1251PluginsTxtKeepsTicks()
     {
