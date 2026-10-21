@@ -250,7 +250,7 @@ public static class PluginTextEncoding
         public int GetBytes(ReadOnlySpan<char> chars, Span<byte> bytes) => throw Unsupported();
 
         static NotSupportedException Unsupported() =>
-            new("read encoding; a write picks its encoding per file through PluginTextEncoding.WriteInPlace/LegacyBundleFor");
+            new("read encoding; a write picks its encoding per file through PluginTextEncoding.WriteInPlace/LegacyBundle");
 
         static bool HasNonAscii(ReadOnlySpan<byte> bytes)
         {
