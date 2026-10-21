@@ -1,0 +1,6 @@
+<Project>
+  <!-- The one target framework every project in the solution builds for; a retarget is this line. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+</Project>
