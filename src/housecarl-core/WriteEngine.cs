@@ -1247,7 +1247,8 @@ public static class WriteEngine
 
     /// <summary>Multi-master WritePatch: the FULL known-master set goes to the serializer so cross-plugin references
     /// resolve, while Mutagen keeps the header list lean; a referenced master absent from it still fails loud.</summary>
-    internal static void WritePatch(SkyrimMod patchMod, IReadOnlyList<ISkyrimModGetter> knownMasters, string outputPath)
+    internal static void WritePatch(SkyrimMod patchMod, IReadOnlyList<ISkyrimModGetter> knownMasters, string outputPath,
+                                    Func<FormKey, bool>? isFaction = null)
     {
         var expected = patchMod.ModKey.FileName.String;
         var actual = Path.GetFileName(outputPath);
@@ -1278,7 +1279,7 @@ public static class WriteEngine
         // SERIALIZE-BOUNDARY NULL-ARM CATCH: a composed record missing a REQUIRED sub-arm is a bare, field-nameless
         // NRE in Mutagen's writer that pre-flight has no by-construction signal to gate on, so only that is named.
         string staged;
-        try { staged = WritePatchStaged(patchMod, ordered, baseline, outputPath); }
+        try { staged = WritePatchStaged(patchMod, ordered, baseline, outputPath, isFaction); }
         catch (Exception ex) when (RootNullArm(ex) is { } nre) { throw new NullArmSerializeException(nre); }
         CommitStagedPatch(staged, outputPath);
     }
@@ -1313,8 +1314,10 @@ public static class WriteEngine
     }
 
     /// <summary>Stage 1 of the atomic write: serialize into a temp SUBDIRECTORY beside the target, so the stage-2 rename is atomic; temp cleaned on failure.</summary>
-    static string WritePatchStaged(SkyrimMod patchMod, ISkyrimModGetter[] ordered, ModKey[] baseline, string outputPath)
+    static string WritePatchStaged(SkyrimMod patchMod, ISkyrimModGetter[] ordered, ModKey[] baseline, string outputPath,
+                                   Func<FormKey, bool>? isFaction)
     {
+        if (isFaction is not null) OwnerRanks.Settle(patchMod, isFaction);   // the lane's faction test, for every owner its records brought in
         var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
         var tmpPath = Path.Combine(tmpDir, Path.GetFileName(outputPath));
         Directory.CreateDirectory(tmpDir);
@@ -1378,7 +1381,7 @@ public static class WriteEngine
     /// baseline force-include and no floor, because this re-emits an EXISTING authored plugin. The caller MUST have
     /// released every overlay it holds on the target; see docs/architecture/write-path.md.</summary>
     public static void WriteInPlace(SkyrimMod targetMod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath,
-                                    string? dataDir)
+                                    string? dataDir, Func<FormKey, bool>? isFaction = null)
     {
         var expected = targetMod.ModKey.FileName.String;
         var actual = Path.GetFileName(outputPath);
@@ -1397,7 +1400,7 @@ public static class WriteEngine
         var ordered = ownMasters as ISkyrimModGetter[] ?? ownMasters.ToArray();
         // Same composed-null-arm serialize guard as WritePatch — an in-place edit can compose a record too.
         string staged;
-        try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath); }
+        try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath, isFaction); }
         // A value this file's own encoding cannot spell: in place there is no second pass, so this is a refusal.
         catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is { } bad)
         {
@@ -1423,14 +1426,15 @@ public static class WriteEngine
     };
 
     /// <summary>Stage 1 of the in-place write: own declared masters, the counter verbatim with NO floor, no baseline, staged in the sibling temp.</summary>
-    static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath)
+    static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath,
+                                     Func<FormKey, bool>? isFaction)
     {
         var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
         var tmpPath = Path.Combine(tmpDir, Path.GetFileName(outputPath));
         Directory.CreateDirectory(tmpDir);
         try
         {
-            SerializeInPlace(targetMod, ordered, outputPath, tmpPath, fileSystem: null);
+            SerializeInPlace(targetMod, ordered, outputPath, tmpPath, fileSystem: null, isFaction);
             return tmpPath;
         }
         catch
@@ -1442,8 +1446,10 @@ public static class WriteEngine
 
     /// <summary>The one in-place serialize, shared by the staged write and the round-trip check; a null order is the check's missing-master retry.</summary>
     internal static void SerializeInPlace(SkyrimMod targetMod, ISkyrimModGetter[]? ordered, string outputPath,
-                                          string writePath, System.IO.Abstractions.IFileSystem? fileSystem)
+                                          string writePath, System.IO.Abstractions.IFileSystem? fileSystem,
+                                          Func<FormKey, bool>? isFaction = null)
     {
+        if (isFaction is not null) OwnerRanks.Settle(targetMod, isFaction);   // the lane's faction test, for every owner its records brought in
         var target = targetMod.BeginWrite.ToPath(writePath, fileSystem);
         (ordered is null ? target.WithNoLoadOrder() : target.WithLoadOrder(ordered))   // the target's OWN masters — no whole-order, no baseline
             .NoNextFormIDProcessing()          // persist the author's NextObjectID verbatim (no EnsureFormIdFloor)

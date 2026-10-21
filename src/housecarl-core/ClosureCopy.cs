@@ -496,8 +496,7 @@ public static class ClosureCopy
         }
         catch { /* an unreadable asset link is not a reason to fail a written copy; the list is a report */ }
 
-        OwnerRanks.Settle(patch, isFaction);   // the attach target came in as an override of its active body
-        try { WriteEngine.WritePatch(patch, mastersFor(patchFileName), outPath); }
+        try { WriteEngine.WritePatch(patch, mastersFor(patchFileName), outPath, isFaction: isFaction); }
         catch (Exception ex)
         {
             return ClosureCopyOutcome.Fail(
