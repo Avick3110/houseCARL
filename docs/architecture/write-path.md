@@ -138,13 +138,19 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - A patch write is handed the whole load order to resolve and sort masters while Mutagen derives the lean list from
   the records' own links, and force-includes Skyrim.esm + Update.esm filtered to the ones that order carries; an
   in-place write force-includes nothing and declares only the target's own masters.
-- Both serializes, and the dry-run master preview, first retype every `UntypedOwner` whose owner is a faction into a
-  `FactionOwner` (`OwnerRanks.Settle`). Plugins open with no link cache, so an owner in another plugin reads untyped
-  and its rank word as a FormID; written as one, -1 is remapped and the plugin it seems to point into becomes a master
-  (#1204). The rank is the word's low 24 bits sign-extended, exact for any rank within ±2^23. The faction test is the
-  write's own master overlays (the preview: the index). An NPC owner, an owner the order cannot name and the check's
-  no-order retry stay untyped. A load-order link cache on the open was measured instead and rejected: on ARR its first
-  owner lookup cost 13 s and 4 GB. Merge's donor-dangling check runs before any serialize and still sees the word.
+- Every write lane retypes each `UntypedOwner` whose owner is a faction into a `FactionOwner` (`OwnerRanks.Settle`).
+  Plugins open with no link cache, so an owner in another plugin reads untyped and its rank word as a FormID; written,
+  remapped or walked as one, -1 is a link into a record that does not exist and the plugin it seems to point into
+  becomes a master (#1204). The rank is the word's low 24 bits sign-extended, exact for any rank within ±2^23. The
+  faction test is one lookup, `OwnerRanks.FactionIn(view)`: the order's winning record for the owner's key is a FACT,
+  wherever it lives, so an injected faction counts; the dry-run master preview uses the same lookup. It runs where a
+  lane takes its records: the renumber, merge and repoint lanes on their copies before the remap, so merge's
+  donor-dangling check sees a typed owner; closure copy on each record its source chain fetches, so the walk never
+  follows the word, and on the patch it extends; and every lane once more just before its serialize, for the owners an
+  opened file, an override or a field copy brought in. The round-trip check does not retype. An NPC owner and an owner
+  the order cannot name stay untyped. A load-order link cache on the open was measured instead and rejected: on ARR its
+  first owner lookup cost 13 s and 4 GB. The getter-side walks still see the word: records reads, the reverse-reference
+  index and `references=`, the compaction and merge referencer scans and the errors check (#1235).
 - Every write stages into a `.housecarl-tmp` sibling of the target and commits through `AtomicFile.Commit`, so the
   target only ever holds the old or the new complete file; the caller must release every handle it holds on the
   target first, and a failed stage leaves nothing behind.
