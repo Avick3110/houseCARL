@@ -254,11 +254,10 @@ Copy-Item (Join-Path $PackagingSrc 'marketplace.json') (Join-Path $MpDir 'market
 # ~/.claude.json (desktop spawns it per session). It ships in the PACKAGE ROOT (dist\), beside - not
 # inside - the housecarl/ plugin tree, so a Claude install (which copies that tree wholesale) never
 # picks it up. Single-file and FRAMEWORK-DEPENDENT, matching the server: a self-contained apphost
-# aborts in CLR startup on some CET / hardware-shadow-stack machines (#734), and .NET 9 is already a
+# aborts in CLR startup on some CET / hardware-shadow-stack machines (#734), and .NET 10 is already a
 # requirement for the server, so embedding a runtime bought nothing and cost those users the
-# installer. Setup still preflights the ASP.NET Core Runtime the server needs separately; a machine
-# missing the base .NET Runtime never reaches app code: hostfxr writes its missing-framework message to
-# stderr, which a double-clicked console window destroys on exit, so the docs name the flash-and-close
+# installer. A machine missing the .NET Runtime never reaches setup's app code: hostfxr writes its
+# missing-framework message to stderr, which a double-clicked console window destroys on exit, so the docs name the flash-and-close
 # as the diagnosis rather than promising a message. Trimming is self-contained only, so it is gone.
 Step '9/12' 'Publish the setup utility (houseCARL-Setup.exe) into dist/'
 # -p:Version stamps the plugin.json version into the exe, which the setup banner reads back off its own

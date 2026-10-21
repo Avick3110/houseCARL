@@ -79,24 +79,16 @@ COMMAND-LINE FLAGS  (you don't need these to install)
 REQUIREMENTS
 ------------------------------------------------------------------------
   - Windows (x64).
-  - .NET 9 -- BOTH of these runtimes, x64, from the same download page:
-        1)  .NET Runtime 9.0            (x64)
-        2)  ASP.NET Core Runtime 9.0    (x64)
-    They are two separate installers, and the ASP.NET Core one does
-    NOT include the base .NET Runtime -- install both. (The runtimes,
-    not the SDK.)  Take the x64 builds: the page offers arm64 by
-    default on an ARM machine, and an arm64 runtime runs neither the
-    server nor setup.
-        https://dotnet.microsoft.com/download/dotnet/9.0
-        or:  winget install Microsoft.DotNet.Runtime.9
-             winget install Microsoft.DotNet.AspNetCore.9
-    houseCARL-Setup.exe needs the base .NET Runtime itself, so if its
-    window opens and closes at once with nothing in it, that runtime
-    is what is missing -- install it from the page above and run setup
-    again. Run it from an open terminal instead and you get the
-    message the closing window takes with it. Once setup starts, it
-    checks the ASP.NET Core one and tells you if that is what you are
-    missing. When in doubt just run it.
+  - .NET Runtime 10.0 (x64). The runtime, not the SDK. Take the x64
+    build: the page offers arm64 by default on an ARM machine, and an
+    arm64 runtime runs neither the server nor setup.
+        https://dotnet.microsoft.com/download/dotnet/10.0
+        or:  winget install Microsoft.DotNet.Runtime.10
+    houseCARL-Setup.exe needs that runtime itself, so if its window
+    opens and closes at once with nothing in it, the runtime is what
+    is missing -- install it from the page above and run setup again.
+    Run it from an open terminal instead and you get the message the
+    closing window takes with it. When in doubt just run it.
 
     If setup will not run at all, houseCARL can be installed by hand:
     the "By hand" part of the Install section in

@@ -6,7 +6,7 @@ A write produces a new plugin in a new MO2 mod folder. Editing an existing plugi
 
 | | |
 |---|---|
-| Process | One C#/.NET 9 executable, MCP over stdio |
+| Process | One C#/.NET 10 executable, MCP over stdio |
 | Substrate | Mutagen.Bethesda.Skyrim 0.54.4 |
 | Tools | 31 |
 | Skills | 7 |
@@ -50,7 +50,7 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping: `check f
 ## Requirements
 
 - Windows, x64.
-- .NET Runtime 9.0 and ASP.NET Core Runtime 9.0, from the [.NET 9 download page](https://dotnet.microsoft.com/download/dotnet/9.0). Both are required, both x64, and the ASP.NET Core installer does not include the base runtime. Take the x64 builds: the download page offers arm64 by default on an ARM machine, and an arm64 runtime does not run the x64 server or the x64 setup utility. houseCARL ships framework-dependent — the server and the setup utility both — so setup needs the base runtime to start at all: if its window opens and closes with nothing in it, that is the missing runtime, so install it and run setup again. Running it from an open terminal instead shows the message, which the double-clicked window closes over. Once setup starts it checks the ASP.NET Core one and names it if that is what is missing.
+- .NET Runtime 10.0, x64, from the [.NET 10 download page](https://dotnet.microsoft.com/download/dotnet/10.0). Take the x64 build: the download page offers arm64 by default on an ARM machine, and an arm64 runtime does not run the x64 server or the x64 setup utility. houseCARL ships framework-dependent — the server and the setup utility both — so setup needs the base runtime to start at all: if its window opens and closes with nothing in it, that is the missing runtime, so install it and run setup again. Running it from an open terminal instead shows the message, which the double-clicked window closes over.
 - [Mod Organizer 2](https://www.modorganizer.org/) with a profile. MO2 does not need to be running.
 - Claude Code v2.1.143 or newer (the terminal CLI, or the Claude desktop app's Code tab), or OpenAI Codex.
 
@@ -94,7 +94,7 @@ Uninstalling: `[4] Uninstall`, or `--uninstall` with a host flag. It removes the
 
 ### From source
 
-Requires the .NET 9 SDK, Windows and PowerShell.
+Requires the .NET 10 SDK, Windows and PowerShell.
 
 ```powershell
 git clone https://github.com/Avick3110/houseCARL.git
