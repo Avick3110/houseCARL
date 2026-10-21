@@ -190,13 +190,14 @@ public static class ErrorCheck
                             if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                             totalDangling++;
                             Bump(bySource, plugin);                                                   // the SOURCE axis, on every mode
-                            bool into = view.ExcludedTouchers(target).Count > 0;
+                            var by = view.ExcludedTouchers(target);
+                            bool into = by.Count > 0;
                             if (into) intoExcluded++;
                             if (histogram is not null) { BumpTarget(histogram, target); if (into) BumpTarget(histogramInto!, target); continue; }   // counts_only=: tally, list nothing
                             if (danglingBudget > 0)
                             {
                                 dangling.Add(new DanglingRef(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, target)
-                                    { ExcludedBy = view.ExcludedTouchers(target) });
+                                    { ExcludedBy = by });
                                 danglingBudget--;
                             }
                         }
@@ -296,13 +297,14 @@ public static class ErrorCheck
                                     if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                                     totalDangling++;
                                     Bump(bySource, name);                                                     // the SOURCE axis, keyed by the off-order FILE (which can itself be a base master — see BaseMastersSwept below)
-                                    bool into = view.ExcludedTouchers(target).Count > 0;
+                                    var by = view.ExcludedTouchers(target);
+                                    bool into = by.Count > 0;
                                     if (into) intoExcluded++;
                                     if (histogram is not null) { BumpTarget(histogram, target); if (into) BumpTarget(histogramInto!, target); continue; }   // counts_only=
                                     if (danglingBudget > 0)
                                     {
                                         dangling.Add(new DanglingRef(rec.FormKey, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID, target)
-                                            { ExcludedBy = view.ExcludedTouchers(target) });
+                                            { ExcludedBy = by });
                                         danglingBudget--;
                                     }
                                 }
