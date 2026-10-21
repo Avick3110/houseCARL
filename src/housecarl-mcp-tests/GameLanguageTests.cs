@@ -815,6 +815,7 @@ public sealed class GameLanguageTests : IDisposable
 
         var bad = InPlace(svc, w.FormKey, "Name", KoreanName, "HcWe.esp");
         Assert.Contains("Its text is not UTF-8", bad);
+        Assert.Contains("which only UTF-8 can spell, because your game's language has no code page of its own", bad);
         Assert.DoesNotContain("Windows-1252", bad);
         Assert.True(Holds(path, Cp1252.GetBytes("Epée longue")), "the refused write changed the file");
     }

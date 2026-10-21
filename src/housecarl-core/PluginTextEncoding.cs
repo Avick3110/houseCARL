@@ -43,7 +43,8 @@ public static class PluginTextEncoding
     /// <summary>Mutagen's answer for a language, its code-page half and that page's number. Mutagen's non-English
     /// answer tries a lenient UTF-8 first, which never fails, so the code page under it is taken here. Where Mutagen
     /// has no code page (Chinese, Korean, Thai…) the legacy lane is Windows-1252, which decodes every byte, so a
-    /// non-UTF-8 file's bytes are written back as read; a new file with text 1252 cannot spell goes out UTF-8.</summary>
+    /// non-UTF-8 file's bytes are written back as read; a new file with text 1252 cannot spell goes out UTF-8, and so
+    /// does an ASCII-only file written in place.</summary>
     static readonly (IMutagenEncoding Answer, IMutagenEncoding Legacy, int CodePage)[] MutagenPages =
     {
         (MutagenEncoding._1252, MutagenEncoding._1252, 1252),
@@ -189,11 +190,11 @@ public static class PluginTextEncoding
     public static string UnspellableRefusal(UnspellableTextException ex, string pluginFileName)
     {
         var (its, which) = NoCodePage
-            ? ("not UTF-8", "its bytes have")
-            : ("in " + CodePageName(), CodePageName() + " has");
+            ? ("not UTF-8", "only UTF-8 can spell, because your game's language has no code page of its own")
+            : ("in " + CodePageName(), CodePageName() + " has no spelling for");
         return $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. Its text is "
              + $"{its} (that is what reading it resolved to), and the value \"{ex.Text}\" contains "
-             + $"'{ex.Character}' (U+{(int)ex.Character:X4}), which {which} no spelling for — writing it here "
+             + $"'{ex.Character}' (U+{(int)ex.Character:X4}), which {which} — writing it here "
              + "would either store a '?' in place of the character or convert every other name in the file to UTF-8. "
              + "Write this value into a new patch instead (drop in_place=), which is free to be a UTF-8 file.";
     }
