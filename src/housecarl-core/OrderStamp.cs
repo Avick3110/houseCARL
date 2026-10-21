@@ -46,9 +46,11 @@ public static class OrderDegraded
     public static string TouchNote(IReadOnlyList<string> excluded) =>
         $"{TouchedBy(excluded)} — {(excluded.Count == 1 ? "its version is" : "their versions are")} not in this answer.";
 
-    /// <summary>The write refusal on such a record: a patch built without that plugin's version could undo its change.</summary>
-    public static string TouchRefusal(string formId, IReadOnlyList<string> excluded) =>
-        $"{formId}: {TouchedBy(excluded)}, so this write could undo that plugin's change. " +
+    /// <summary>The write refusal on such a record: a patch built without that plugin's version could undo its change; with no indexed winner, there is no readable version at all.</summary>
+    public static string TouchRefusal(string formId, IReadOnlyList<string> excluded, bool hasWinner) =>
+        (hasWinner
+            ? $"{formId}: {TouchedBy(excluded)}, so this write could undo that plugin's change. "
+            : $"{formId}: defined only by {string.Join(", ", excluded)}, excluded this session as unreadable, so it has no readable version to write. ") +
         "Fix or remove that plugin (housecarl_load_order_status gives the reason) and retry.";
 
     static string TouchedBy(IReadOnlyList<string> excluded) =>

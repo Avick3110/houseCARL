@@ -230,6 +230,19 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     }
 
     [Fact]
+    public void AWriteToAKeyOnlyTheExcludedPluginDefinesSaysItHasNoReadableVersion()
+    {
+        foreach (var fk in new[] { _badOwn, _injected })
+        {
+            var refused = Apply(fk, "EditorID", "HcExRenamed");
+            Assert.Contains(Fid(fk) + ": defined only by " + BadName + ", excluded this session as unreadable, so it has no readable version to write.", refused);
+            Assert.DoesNotContain("winner", refused);
+        }
+        var forward = ForwardTools.Forward(_svc, formids: new[] { Fid(_injected) }, source: "HcExMaster.esm", dry_run: true);
+        Assert.DoesNotContain("loads after this record's winner", forward);
+    }
+
+    [Fact]
     public void ACopyFromSourceThatIsTheWinnerOfATouchedRecordIsRefused()
     {
         var r = ApplyTools.Apply(_svc, dry_run: true, ops: JsonDocument.Parse(
