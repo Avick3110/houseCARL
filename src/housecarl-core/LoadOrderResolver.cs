@@ -696,12 +696,6 @@ public sealed class LoadOrderResolver : IDisposable
             return by.Where(i => i > winner).Select(i => names[i]).ToArray();
         }
 
-        /// <summary>Every key <see cref="ExcludedTouchers"/> answers non-empty for; nothing on an order with no parse-excluded plugin.</summary>
-        public IEnumerable<FormKey> ExcludedTouchedKeys()
-        {
-            foreach (var fk in _s.ExcludedTouches.Keys) if (ExcludedTouchers(fk).Count > 0) yield return fk;
-        }
-
         /// <summary>The write refusal for a target an excluded plugin also touches, or null; one sentence every authoring lane asks.</summary>
         public string? ExcludedTouchRefusal(FormKey fk) =>
             ExcludedTouchers(fk) is { Count: > 0 } by ? OrderDegraded.TouchRefusal(FormIdToken.Of(fk), by) : null;

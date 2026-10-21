@@ -313,7 +313,7 @@ internal sealed partial class RecordReads
         if (body is null)
             return new RecordSummary(fk, "?", null, w.Value.WinnerPlugin, w.Value.OverrideDepth,
                 $"winner '{w.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch");
-        return RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth + view.ExcludedTouchers(fk).Count)
+        return RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth)
                .WithRuntime(view.RuntimeAddressOf(fk));
     }
 
@@ -356,7 +356,7 @@ internal sealed partial class RecordReads
                     try
                     {
                         var w = p.View.ResolveWinner(fk)!.Value;
-                        filled[fk] = RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth + p.View.ExcludedTouchers(fk).Count).WithRuntime(p.View.RuntimeAddressOf(fk)) with { Pin = p };
+                        filled[fk] = RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth).WithRuntime(p.View.RuntimeAddressOf(fk)) with { Pin = p };
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { }   // its row's own read raises it
             }, unreadable, ct);

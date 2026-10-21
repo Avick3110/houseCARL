@@ -51,8 +51,7 @@ public static class OrderDegraded
         $"{formId}: {TouchedBy(excluded)}, so the record's real winner is unknown and this write could undo that plugin's change. " +
         "Fix or remove that plugin (housecarl_load_order_status gives the reason) and retry.";
 
-    /// <summary>"also touched by X, excluded this session as unreadable": the clause every excluded-touch sentence opens with.</summary>
-    public static string TouchedBy(IReadOnlyList<string> excluded) =>
+    static string TouchedBy(IReadOnlyList<string> excluded) =>
         $"also touched by {string.Join(", ", excluded)}, excluded this session as unreadable";
 
     /// <summary>The first <paramref name="cap"/> names of a roster, then <paramref name="more"/> of how many are left.</summary>
