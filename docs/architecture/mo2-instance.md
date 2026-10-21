@@ -80,8 +80,11 @@ it until a tool writes there.
   from the order. Absent from the file entirely = an implicit force-loaded base/CC master.
 
 MO2 writes `plugins.txt` in the system ANSI code page (`QStringEncoder(System)`), so it is read in
-that code page unless its bytes are valid UTF-8, which is kept so a file that read before still does.
-`loadorder.txt` (MO2 writes it as UTF-8) and `modlist.txt` are read as UTF-8.
+that code page unless its bytes are valid UTF-8, which is kept so a file that read before still does;
+a leading UTF-8 BOM is skipped before that choice, and where Windows reports no ANSI page (the UTF-8
+system locale) the file is read as UTF-8. The one miss: an ANSI file whose every non-ASCII byte happens
+to form valid UTF-8 (cp1252 `Ã©`, bytes `C3 A9`) is read as UTF-8, so that name matches nothing in
+`loadorder.txt`. `loadorder.txt` (MO2 writes it as UTF-8) and `modlist.txt` are read as UTF-8.
 
 MO2 holds `loadorder.txt` and `plugins.txt` open while it re-sorts, so a read landing in that
 window is a transient, not a failure: only the Win32 sharing and lock violations become
@@ -152,6 +155,10 @@ swallows the note turns a recoverable state into a silent loss.
   half-derived.
 - *The profile files*: `ProfileRewriteTests.AColdAssetCallOnAHeldProfileNamesTheHoldInsteadOfAnInternalFailure` — a
   held profile file is a named transient, not an internal failure.
+- *The profile files*: `PluginsTxtEncodingTests` — `plugins.txt` in the host's ANSI page and in UTF-8 keeps its ticks
+  through `ReadComposition` (`HostAnsiPluginsTxtKeepsTicks`, `Utf8PluginsTxtKeepsTicks`), a cp1251 file through
+  `ParsePlugins` (`Cp1251PluginsTxtKeepsTicks`), and a UTF-8 BOM ahead of ANSI bytes keeps the ANSI page
+  (`BomBeforeAnsiBytesKeepsAnsi`).
 - *The Qt/QSettings value grammar*: `Mo2IniEscapeTests` — the quoted wrapper, the greedy hex runs, the named escapes,
   and a value with a lone backslash left as it stands (`HandWrittenPathsAreLeftAlone`).
 - *The Qt/QSettings value grammar*: `Mo2ModMetaReadTests` — the `[General]` Nexus cache fields read
