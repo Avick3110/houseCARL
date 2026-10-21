@@ -134,6 +134,7 @@ public static class ErrorCheck
 
         var reports = new List<PluginErrors>();
         int totalDangling = 0, totalMissing = 0, totalUnscannable = 0;
+        int intoExcluded = 0;   // of totalDangling, refs into a record an excluded plugin touches
         int danglingBudget = limit;
 
         // The per-plugin sweep, called in two phases below so the vanilla baseline cannot consume limit= before any
@@ -188,7 +189,8 @@ public static class ErrorCheck
                             if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                             totalDangling++;
                             Bump(bySource, plugin);                                                   // the SOURCE axis, on every mode
-                            if (histogram is not null) { BumpTarget(histogram, target); continue; }   // counts_only=: tally, list nothing
+                            if (view.ExcludedTouchers(target).Count > 0) intoExcluded++;
+                            if (histogram is not null) { BumpTarget(histogram, target, view); continue; }   // counts_only=: tally, list nothing
                             if (danglingBudget > 0)
                             {
                                 dangling.Add(new DanglingRef(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, target)
@@ -292,7 +294,8 @@ public static class ErrorCheck
                                     if (ownerVarExempt.TryGetValue(target, out int rank) && rank > 0) { ownerVarExempt[target] = rank - 1; continue; }
                                     totalDangling++;
                                     Bump(bySource, name);                                                     // the SOURCE axis, keyed by the off-order FILE (which can itself be a base master — see BaseMastersSwept below)
-                                    if (histogram is not null) { BumpTarget(histogram, target); continue; }   // counts_only=
+                                    if (view.ExcludedTouchers(target).Count > 0) intoExcluded++;
+                                    if (histogram is not null) { BumpTarget(histogram, target, view); continue; }   // counts_only=
                                     if (danglingBudget > 0)
                                     {
                                         dangling.Add(new DanglingRef(rec.FormKey, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID, target)
@@ -369,13 +372,14 @@ public static class ErrorCheck
                                     countsOnly, view.Epoch,
                                     bySource is null ? null : SweepFindings.Histogram(bySource),
                                     baselineDangling, baseSwept, nonBaseInScope, limit,
-                                    recordScope?.TypeScopeLabel);
+                                    recordScope?.TypeScopeLabel) { DanglingIntoExcluded = intoExcluded };
     }
 
     /// <summary>Bump the <c>counts_only=</c> dangling histogram for one broken target, keyed by the PLUGIN the target
-    /// form lives in — the diagnostic the per-source-plugin grouping never gave.</summary>
-    static void BumpTarget(Dictionary<string, int> acc, FormKey target)
-        => Bump(acc, target.ModKey.FileName.String);
+    /// form lives in — the diagnostic the per-source-plugin grouping never gave; a target an excluded plugin touches is tallied apart.</summary>
+    static void BumpTarget(Dictionary<string, int> acc, FormKey target, LoadOrderResolver.IndexView view)
+        => Bump(acc, target.ModKey.FileName.String
+                     + (view.ExcludedTouchers(target) is { Count: > 0 } by ? $" (into excluded plugin {string.Join(", ", by)}, which houseCARL could not read)" : ""));
 
     /// <summary>Bump one plugin-keyed tally; a null accumulator means that axis is not being collected, so the call is
     /// a no-op rather than the caller's problem at every bump site.</summary>
@@ -410,8 +414,8 @@ public static class ErrorCheck
     }
 }
 
-/// <summary>One broken reference: the SOURCE record (FormKey, catalog type, editorid) and the TARGET FormKey no active
-/// plugin defines.</summary>
+/// <summary>One broken reference: the SOURCE record (FormKey, catalog type, editorid) and the TARGET FormKey the index
+/// resolves to nothing — no active plugin defines it, or only an excluded one does (<see cref="DanglingRef.ExcludedBy"/>).</summary>
 public sealed record DanglingRef(FormKey Source, string SourceType, string? SourceEditorId, FormKey Target)
 {
     /// <summary>The excluded plugins that touch the target: a reference into a plugin houseCARL could not read, not one nothing defines. Empty otherwise.</summary>
@@ -464,6 +468,10 @@ public sealed record ErrorCheckResult(
 
 {
     public bool Success => Error is null;
+
+    /// <summary>Of <see cref="TotalDangling"/>, the references into a record an excluded plugin touches: unread, not undefined.</summary>
+    public int DanglingIntoExcluded { get; init; }
+
     public static ErrorCheckResult Fail(string error) =>
         new(Array.Empty<PluginErrors>(), 0, 0, 0, 0,
             new Dictionary<string, string>(), error);

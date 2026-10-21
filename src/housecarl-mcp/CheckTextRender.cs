@@ -14,7 +14,8 @@ static class CheckTextRender
         bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
         bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
         sb.Append("scanned ").Append(r.PluginsScanned).Append(r.PluginsScanned == 1 ? " plugin · " : " plugins · ")
-          .Append(didDangling ? $"{r.TotalDangling} dangling ref(s)" : "dangling refs NOT CHECKED (findings= excluded 'dangling')").Append(" · ")
+          .Append(didDangling ? $"{r.TotalDangling} dangling ref(s)" + (r.DanglingIntoExcluded > 0 ? $" ({r.DanglingIntoExcluded} of them into an excluded plugin houseCARL could not read)" : "")
+                              : "dangling refs NOT CHECKED (findings= excluded 'dangling')").Append(" · ")
           .Append(didMasters ? $"{r.TotalMissingMasters} missing master(s)" : "missing masters NOT CHECKED (findings= excluded 'missing_masters')").Append(" · ")
           .Append(didDangling ? $"{r.TotalUnscannableRecords} unscannable record(s)" : "unscannable records NOT COUNTED (the record walk was skipped)");
         // The excluded roster is on the result, so the head line names what it is holding.
