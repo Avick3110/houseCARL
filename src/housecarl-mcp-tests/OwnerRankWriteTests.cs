@@ -217,7 +217,12 @@ public sealed class OwnerRankWriteTests : IDisposable
     }
 
     /// <summary>A plugin holding a weapon (no owner) and an override of the -1 chest, each with a script block whose count claims 65535 scripts.</summary>
-    ISkyrimModDisposableGetter BadScripts()
+    ISkyrimModDisposableGetter BadScripts() => Corrupted("VMAD", (bytes, i) => { bytes[i + 10] = 0xFF; bytes[i + 11] = 0xFF; });
+
+    /// <summary>The same plugin with its scripts intact and the chest entry's owner data claiming 40 bytes.</summary>
+    ISkyrimModDisposableGetter BadOwnerData() => Corrupted("COED", (bytes, i) => { bytes[i + 4] = 40; bytes[i + 5] = 0; });
+
+    ISkyrimModDisposableGetter Corrupted(string signature, Action<byte[], int> corrupt)
     {
         var bad = new SkyrimMod(ModKey.FromNameAndExtension("HcOrBad.esp"), SkyrimRelease.SkyrimSE);
         static VirtualMachineAdapter Vmad() => new() { Scripts = new() { new ScriptEntry { Name = "HcOrScript" } } };
@@ -235,9 +240,18 @@ public sealed class OwnerRankWriteTests : IDisposable
             bad.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
         var bytes = File.ReadAllBytes(path);
         for (int i = 0; i <= bytes.Length - 4; i++)
-            if (bytes.AsSpan(i, 4).SequenceEqual("VMAD"u8)) { bytes[i + 10] = 0xFF; bytes[i + 11] = 0xFF; }
+            if (bytes.AsSpan(i, 4).SequenceEqual(System.Text.Encoding.ASCII.GetBytes(signature))) corrupt(bytes, i);
         File.WriteAllBytes(path, bytes);
         return SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+    }
+
+    /// <summary>The cause a source chain over <paramref name="mod"/> reports for <paramref name="key"/>, its fetch settled the way the copy lane's is.</summary>
+    string FetchFault(ISkyrimModGetter mod, FormKey key)
+    {
+        var cache = mod.ToImmutableLinkCache();
+        IMajorRecordGetter? Raw(FormKey fk) => cache.TryResolve(fk, out var body) ? body : null;
+        var chain = SourceChain.Single(new SourceArm(mod.ModKey.FileName, SourceArmKind.File, "test", fk => OwnerRanks.Settled(Raw(fk), f => f == _faction)));
+        return Assert.IsType<SourceFault>(chain.Fetch(key).Fault).Cause;
     }
 
     [Fact]
@@ -253,9 +267,17 @@ public sealed class OwnerRankWriteTests : IDisposable
     {
         using var bad = BadScripts();
         var chest = bad.Containers.Single();
-        var ex = Record.Exception(() => OwnerRanks.Settled(chest, fk => fk == _faction));
-        Assert.NotNull(ex);
-        Assert.IsNotType<System.Reflection.TargetInvocationException>(ex);
+        var fault = Assert.IsAssignableFrom<Exception>(Record.Exception(() => chest.DeepCopy()));
+        Assert.Equal(fault.Message, FetchFault(bad, chest.FormKey));
+    }
+
+    [Fact]
+    public void ASourceFetchThatCannotReadAnOwnedEntrysOwnerReportsTheParseFaultItself()
+    {
+        using var bad = BadOwnerData();
+        var chest = bad.Containers.Single();
+        var fault = Assert.IsAssignableFrom<Exception>(Record.Exception(() => chest.DeepCopy()));
+        Assert.Equal(fault.Message, FetchFault(bad, chest.FormKey));
     }
 
     [Fact]
