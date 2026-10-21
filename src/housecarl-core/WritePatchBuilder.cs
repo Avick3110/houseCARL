@@ -1701,7 +1701,7 @@ public static class WritePatchBuilder
         int PluginsScanned, int UnscannableRecords, IReadOnlyList<string> UnscannableSamples, string? Note = null,
         AssetRenameOutcome? AssetRename = null, IReadOnlyList<string>? ExternalOverriders = null,
         VoiceCarryOutcome? VoiceRename = null, SeqRegenOutcome? SeqRegen = null,
-        IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null)
+        IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null, int RecordsMoved = 0)
     {
         public static CompactOutcome Fail(string error) =>
             new(false, error, false, "", "", false, false, Array.Empty<string>(), 0, 0, 0,
@@ -2079,8 +2079,12 @@ public static class WritePatchBuilder
             // The strings-aware factory: a LOCALIZED source opened bare reads every string EMPTY and the renumber bakes it in.
             srcOv = MidCallChange.Open(srcPath, () => LoadOrderResolver.OpenOverlay(srcPath, dataDir));
             declaredMasters = srcOv.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList();
-            // A compaction builds a FRESH mod with no header flags, so a compacted localized plugin comes out DE-LOCALIZED.
-            pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE) { IsSmallMaster = esl };
+            pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE);
+            // The same plugin renumbered keeps its whole header (#1215); the renumber's RemapLinks maps ONAM, the write sets
+            // masters and the counts. LOCALIZED is dropped: P′ carries its strings inline, so it comes out DE-LOCALIZED.
+            pPrime.ModHeader.DeepCopyIn(srcOv.ModHeader);
+            pPrime.ModHeader.Flags &= ~SkyrimModHeader.HeaderFlag.Localized;
+            pPrime.IsSmallMaster = esl;
             ren = RemapEngine.RenumberModInto(pPrime, srcOv, dict);
         }
         catch (Exception ex)

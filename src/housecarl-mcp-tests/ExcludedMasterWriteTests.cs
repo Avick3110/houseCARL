@@ -240,7 +240,7 @@ public sealed class ExcludedMasterWriteTests :
     [Fact]
     public void ARepointFailureIsAReportedResultNotAnInternalFailure()
     {
-        Assert.Contains("repointed in place", _repoint.Render, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("external referencers", _repoint.Render, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("internal houseCARL failure", _repoint.Render, StringComparison.OrdinalIgnoreCase);
     }
 

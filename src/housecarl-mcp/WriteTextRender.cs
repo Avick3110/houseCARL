@@ -413,11 +413,19 @@ static partial class WriteTools
               .Append("' mod in MO2 (same basename — MO2 serves one). Review in xEdit first.\n");
 
         int overrides = o.RecordsCopied - o.RecordsRenumbered;
+        bool movedNothing = o.RecordsMoved == 0 && o.RecordsRenumbered > 0;
         sb.Append(o.Esl ? "light master (ESPFE): yes — " : "renumbered (not light-flagged): ");
-        sb.Append(o.RecordsRenumbered).Append(o.RecordsRenumbered == 1 ? " originating record renumbered " : " originating records renumbered ");
-        sb.Append(o.Esl ? "into the light range 0x800–0xFFF" : "contiguously from 0x800");
+        int shown = movedNothing ? o.RecordsRenumbered : o.RecordsMoved;
+        sb.Append(shown).Append(shown == 1 ? " originating record" : " originating records");
+        if (!movedNothing)
+        {
+            sb.Append(" renumbered ").Append(o.Esl ? "into the light range 0x800–0xFFF" : "contiguously from 0x800");
+            int stayed = o.RecordsRenumbered - o.RecordsMoved;
+            if (stayed > 0) sb.Append("; ").Append(stayed).Append(" already at its compacted id");
+        }
         if (overrides > 0) sb.Append("; ").Append(overrides).Append(overrides == 1 ? " override kept at its master FormID" : " overrides kept at their master FormIDs");
         sb.Append(".\n");
+        if (movedNothing) sb.Append(WriteSentences.CompactMovedNothing);
         sb.Append(WriteSentences.Masters(o.Masters));
 
         if (o.ExternalPlugins.Count == 0)
@@ -425,7 +433,11 @@ static partial class WriteTools
         else if (o.Repointed.Count > 0)
         {
             int ok = o.Repointed.Count(r => r.Success);
-            sb.Append("external referencers repointed in place: ").Append(ok).Append('/').Append(o.Repointed.Count).Append(" succeeded\n");
+            if (movedNothing)
+                sb.Append("external referencers rewritten in place: ").Append(ok).Append(" of ").Append(o.Repointed.Count)
+                  .Append(", with nothing to repoint (no id moved)\n");
+            else
+                sb.Append("external referencers repointed in place: ").Append(ok).Append('/').Append(o.Repointed.Count).Append(" succeeded\n");
             foreach (var rep in o.Repointed)
                 sb.Append("  ").Append(rep.Success ? "OK   " : "FAIL ").Append(rep.Plugin)
                   .Append(rep.Success ? "" : "  — " + rep.Error).Append('\n');

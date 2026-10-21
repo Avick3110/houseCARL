@@ -181,7 +181,7 @@ internal sealed partial class RecordWrites
                           + " Until that is resolved, handle the references yourself instead.";
                     return WritePatchBuilder.CompactOutcome.Fail(
                         $"refused — {id.ExternalPlugins.Count} plugin(s) outside '{name}' reference records it is about to renumber; compacting it " +
-                        $"WOULD BREAK those references (they would point at FormIDs that no longer exist). Referencers: {refList}. " +
+                        $"WOULD BREAK those references (each keeps its old id, which after the renumber may name a different record of this plugin, or nothing). Referencers: {refList}. " +
                         repointClause + " Nothing was written.");
                 }
                 // Repointing is only coherent paired with in_place.
@@ -348,7 +348,7 @@ internal sealed partial class RecordWrites
                 true, null, false, outPath, name, inPlace, esl, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
                 build.Bytes, id.ExternalPlugins, repointed, id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples,
                 markerNotes.Count > 0 ? string.Join(" ", markerNotes) : null, assetRename, id.ExternalOverriders, voiceRename, seqRegen,
-                id.UnscannablePlugins);
+                id.UnscannablePlugins, remapDict.Count(kv => kv.Key != kv.Value));
         }
     }
 

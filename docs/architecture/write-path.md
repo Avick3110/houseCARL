@@ -281,6 +281,15 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   that RENAMES the set has anything to report.
 - Allocation into an id window refuses LOUD when the source overflows it and never truncates; for an ESL compaction
   that is the light-master ceiling, the usable window being 0x800–0xFFF INCLUSIVE, 2048 ids.
+- A compaction is the same plugin renumbered, so `CompactBuild` copies the source's header onto the output in both
+  lanes (#1215): every flag but LOCALIZED (the output carries its strings inline) and LIGHT (set by `esl`), the
+  author (CNAM), description (SNAM), overridden forms (ONAM, through the map), INTV and INCC. Masters and the next
+  object id are the write's. Merge does not do this: it names each donor header it drops instead.
+- A compaction reports the records it MOVED, the map entries whose id changed, not the size of the map. A run where
+  every originating record already sits at its compacted id (a re-run after a failed repoint) says that nothing
+  moved and that it does not repair the earlier run, and does not call its referencer rewrites a repoint (#1205). The
+  referencer refusal says a link left on an old id may resolve to a different record of the plugin, not only dangle,
+  because the renumber starts at 0x800 where the plugin's records usually already sit.
 - A merge KEEPS an object id wherever it is in-window and unclaimed, donors claiming in load order, and allocates a
   fresh id only for a collision or an id below the write floor.
 - A record living only in a NESTED group has no flat top-level group, so the flat renumber refuses it by name rather
@@ -518,6 +527,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   load-order winner and reported with winner and loser named, and the losing donor's un-relisted INFO grafted into the
   winning topic; `MergeServiceRenameTests` (arm HEADER) — the light, master and header-text notes keyed on what the
   donors carried; `MergeServiceDeclarerTests` (arm DECLARER) — a declarer-only dependent reaching the rendered report.
+- `CompactHeaderTests` — an ESM-flagged plugin with author, description, ONAM, INTV and INCC keeps all of them,
+  compacted in place and into a new plugin; a second in-place compaction moves nothing and its report says so, with no
+  renumber count or clean repoint line; the referencer refusal no longer claims the old ids cease to exist.
 - `CompactOverriderDetectTests` — an overrider is a warn that lets the compaction succeed
   while a referencer is refused and named, the contrast that holds the two apart.
 - `MasterDeclarerScanTests.ADeclarerOnlyDependentIsFoundAndNamed`, `AReferencerIsNotAlsoListedAsADeclarer`,
