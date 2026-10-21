@@ -187,6 +187,48 @@ public sealed class OwnerRankWriteTests : IDisposable
         Assert.Equal(new[] { ExtraName, BaseName }, masters);
     }
 
+    /// <summary>A plugin holding a weapon (no owner) and an override of the -1 chest, each with a script block whose count claims 65535 scripts.</summary>
+    ISkyrimModDisposableGetter BadScripts()
+    {
+        var bad = new SkyrimMod(ModKey.FromNameAndExtension("HcOrBad.esp"), SkyrimRelease.SkyrimSE);
+        static VirtualMachineAdapter Vmad() => new() { Scripts = new() { new ScriptEntry { Name = "HcOrScript" } } };
+        var w = bad.Weapons.AddNew("HcOrBadWeapon");
+        w.VirtualMachineAdapter = Vmad();
+        var c = new Container(_minusOne, SkyrimRelease.SkyrimSE) { EditorID = "HcOrBadChest", VirtualMachineAdapter = Vmad() };
+        c.Items = new() { new ContainerEntry
+        {
+            Item = new ContainerItem { Count = 1, Item = new FormLink<IItemGetter>(FormKey.Null) },
+            Data = new ExtraData { ItemCondition = 1f, Owner = new FactionOwner { Faction = new FormLink<IFactionGetter>(_faction), RequiredRank = -1 } },
+        } };
+        bad.Containers.Add(c);
+        var path = Path.Combine(_root, "HcOrBad.esp");
+        using (var baseOv = SkyrimMod.CreateFromBinaryOverlay(_basePath, SkyrimRelease.SkyrimSE))
+            bad.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
+        var bytes = File.ReadAllBytes(path);
+        for (int i = 0; i <= bytes.Length - 4; i++)
+            if (bytes.AsSpan(i, 4).SequenceEqual("VMAD"u8)) { bytes[i + 10] = 0xFF; bytes[i + 11] = 0xFF; }
+        File.WriteAllBytes(path, bytes);
+        return SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+    }
+
+    [Fact]
+    public void ASourceFetchPassesARecordWithNoUntypedFactionOwnerThroughUncopied()
+    {
+        using var bad = BadScripts();
+        var weapon = bad.Weapons.Single();
+        Assert.Same(weapon, OwnerRanks.Settled(weapon, _ => true));   // a deep copy would read the broken script block
+    }
+
+    [Fact]
+    public void ASourceFetchThatCannotCopyAnOwnedRecordReportsTheParseFaultItself()
+    {
+        using var bad = BadScripts();
+        var chest = bad.Containers.Single();
+        var ex = Record.Exception(() => OwnerRanks.Settled(chest, fk => fk == _faction));
+        Assert.NotNull(ex);
+        Assert.IsNotType<System.Reflection.TargetInvocationException>(ex);
+    }
+
     [Fact]
     public void AMergeOfADonorWithCrossPluginFactionOwnersKeepsTheirRanks()
     {

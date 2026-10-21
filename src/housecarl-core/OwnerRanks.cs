@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -24,7 +25,7 @@ public static class OwnerRanks
     public static bool Settle(object rec, Func<FormKey, bool> isFaction)
     {
         bool changed = false;
-        foreach (var ed in ExtraDataIn(rec))
+        foreach (var ed in ExtraDataIn(rec).OfType<IExtraData>())
             if (ed.Owner is UntypedOwner uo && isFaction(uo.OwnerData.FormKey))
             {
                 ed.Owner = new FactionOwner
@@ -37,21 +38,27 @@ public static class OwnerRanks
         return changed;
     }
 
-    /// <summary>A source record as a getter walk takes it: a settled deep copy when it holds a faction owner Mutagen left untyped, else the record itself.</summary>
-    public static IMajorRecordGetter? Settled(IMajorRecordGetter? rec, Func<FormKey, bool> isFaction) =>
-        rec is not null && WriteEngine.TryDeepCopyRecord(rec) is { } copy && Settle(copy, isFaction) ? copy : rec;
+    /// <summary>A source record as a getter walk takes it: a settled deep copy when it holds a faction owner Mutagen left untyped, else the record itself, uncopied.</summary>
+    public static IMajorRecordGetter? Settled(IMajorRecordGetter? rec, Func<FormKey, bool> isFaction)
+    {
+        if (rec is null || !ExtraDataIn(rec).Any(ed => ed.Owner is IUntypedOwnerGetter uo && isFaction(uo.OwnerData.FormKey))) return rec;
+        IMajorRecordGetter? copy;
+        try { copy = WriteEngine.TryDeepCopyRecord(rec); }
+        catch (TargetInvocationException ex) when (ex.InnerException is { } inner) { ExceptionDispatchInfo.Throw(inner); throw; }   // the parse fault's own message, not the reflection wrapper's
+        return copy is not null && Settle(copy, isFaction) ? copy : rec;
+    }
 
     /// <summary>The one faction test, for the write and the dry-run preview alike: the order's winning record for the key is a FACT, wherever it lives.</summary>
     public static Func<FormKey, bool> FactionIn(LoadOrderResolver.IndexView view) =>
         fk => !fk.IsNull && view.WinnerClassOf(fk) is { } cls && typeof(IFactionGetter).IsAssignableFrom(cls);
 
-    /// <summary>Every <see cref="IExtraData"/> reachable from <paramref name="node"/>, by the properties whose declared type can lead to one.</summary>
-    static IEnumerable<IExtraData> ExtraDataIn(object? node)
+    /// <summary>Every <see cref="IExtraDataGetter"/> reachable from <paramref name="node"/>, by the properties whose declared type can lead to one.</summary>
+    static IEnumerable<IExtraDataGetter> ExtraDataIn(object? node)
     {
         switch (node)
         {
             case null: yield break;
-            case IExtraData ed: yield return ed; yield break;
+            case IExtraDataGetter ed: yield return ed; yield break;
             case IEnumerable list:
                 foreach (var e in list) foreach (var ed in ExtraDataIn(e)) yield return ed;
                 yield break;
