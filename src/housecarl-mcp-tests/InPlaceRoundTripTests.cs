@@ -362,17 +362,16 @@ public sealed class InPlaceRoundTripTests
             back.EnumerateMajorRecords().Select(r => r.EditorID).Where(e => e?.StartsWith("HcPF_") == true).Order());
     }
 
-    // #1209: a partial CELL whose file holds more than an EDID cannot go back as a partial form, so the write refuses.
+    // #1209: a partial CELL an earlier Mutagen save padded with DATA and LTMP goes back as read, padding included.
     [Fact]
-    public void AnInPlaceWriteToAPluginWhosePartialCellCarriesDataIsRefusedWithTheFileUntouched()
+    public void AnInPlaceWriteLeavesAPaddedPartialCellByteIdentical()
     {
         var (path, arma) = StagePartialForms(cellData: true);
-        var before = File.ReadAllBytes(path);
+        var before = RecordBytes(path, "CELL", "HcPF_Partial");
+        Assert.Contains("DATA", Encoding.ASCII.GetString(before));
         var o = SetWeaponAdjust(path, arma);
-        AssertRefusedUntouched(o, path, before);
-        Assert.StartsWith($"refused: CELL 'HcPF_Partial' {FormIdToken.Of(KeyOf(path, "HcPF_Partial"))} in '{PluginName}' is a partial form", o.Error);
-        Assert.Contains("its file already holds DATA", o.Error);
-        Assert.Contains("in xEdit remove that data or clear its Partial Form flag", o.Error);
+        Assert.True(o.Success, o.Error);
+        Assert.Equal(before, RecordBytes(path, "CELL", "HcPF_Partial"));
     }
 
     // #1209: an edit to a partial form cannot be written as one, so the write refuses.

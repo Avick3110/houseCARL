@@ -17,7 +17,7 @@ public static class PartialForms
     public static bool Is(MajorRecordFrame rec) =>
         ((uint)rec.MajorRecordFlags & PartialFlag) != 0 && rec.RecordType.Type is "CELL" or "WRLD" or "DIAL";
 
-    /// <summary>Puts each partial form of the staged write back byte for byte as its source held it; one the call edits, or whose source holds data, refuses.</summary>
+    /// <summary>Puts each partial form of the staged write back byte for byte as its source held it, whatever it holds; one the call edits refuses.</summary>
     public static void WriteBack(string staged, IReadOnlyList<string> sources, IReadOnlySet<FormKey> edited)
     {
         var all = File.ReadAllBytes(staged);
@@ -27,18 +27,16 @@ public static class PartialForms
         if (partial.Count == 0) return;
         var wanted = partial.Select(r => r.Key).ToHashSet();
         // A later source wins, as a later donor does in a merge.
-        var source = new Dictionary<FormKey, (byte[] Bytes, string? Edid, List<string> Data)>();
+        var source = new Dictionary<FormKey, (byte[] Bytes, string? Edid)>();
         foreach (var path in sources.Where(File.Exists))
         {
             var bytes = File.ReadAllBytes(path);
             foreach (var (key, at, rec) in SubrecordInventory.Records(bytes, ModKey.FromFileName(Path.GetFileName(path))))
             {
                 if (!wanted.Contains(key) || !Is(rec)) continue;
-                var subs = SubrecordInventory.Contents(rec).ToList();
-                var edid = subs.Where(s => s.Sig == "EDID").Select(s => Encoding.Latin1.GetString(s.Data.Span).TrimEnd('\0')).FirstOrDefault();
-                // TIFC is a topic's INFO count, which the CK writes on a partial DIAL too; the write's own count replaces it below.
-                var data = subs.Select(s => s.Sig).Where(s => s != "EDID" && !(s == "TIFC" && rec.RecordType.Type == "DIAL")).Distinct().ToList();
-                source[key] = (bytes[at..(at + checked((int)rec.TotalLength))], edid, data);
+                var edid = SubrecordInventory.Contents(rec).Where(s => s.Sig == "EDID")
+                    .Select(s => Encoding.Latin1.GetString(s.Data.Span).TrimEnd('\0')).FirstOrDefault();
+                source[key] = (bytes[at..(at + checked((int)rec.TotalLength))], edid);
             }
         }
         var put = new Dictionary<int, byte[]>();
@@ -52,12 +50,9 @@ public static class PartialForms
                 throw new PartialFormException(Refusal(sig, was.Edid, key, fileName,
                     "and this call edits it, which houseCARL cannot write as a partial form",
                     "leave it out of the change, or clear its Partial Form flag in xEdit first, then retry"));
-            if (was.Data.Count > 0)
-                throw new PartialFormException(Refusal(sig, was.Edid, key, fileName,
-                    $"but its file already holds {string.Join(", ", was.Data)} on it, which houseCARL cannot write back as a partial form",
-                    "in xEdit remove that data or clear its Partial Form flag, then retry"));
             var back = (byte[])was.Bytes.Clone();
             Buffer.BlockCopy(all, at + 12, back, 12, 4);   // the FormID as this write spells it through its own masters
+            // A DIAL's TIFC is its INFO count, which the write's own count replaces.
             if (Tifc(back, 0) is { } had && Tifc(all, at) is { } now) Buffer.BlockCopy(all, now, back, had, 4);
             put[at] = back;
         }
@@ -100,7 +95,7 @@ public static class PartialForms
 
     static string Refusal(string sig, string? edid, FormKey key, string fileName, string why, string remedy) =>
         $"refused: {sig} {(edid is null ? "" : $"'{edid}' ")}{FormIdToken.Of(key)} in '{fileName}' is a partial form " +
-        $"(record flag 0x4000, a placeholder that holds at most an EDID) {why}; nothing was written — {remedy}.";
+        $"(record flag 0x4000, a placeholder override) {why}; nothing was written — {remedy}.";
 
     static int I32(byte[] all, int at) => BinaryPrimitives.ReadInt32LittleEndian(all.AsSpan(at));
 }
