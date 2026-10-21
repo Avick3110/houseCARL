@@ -104,7 +104,7 @@ public sealed class RecordsBulkSelectTests : BulkRecordsTestBase
     {
         var r = AnnotatedText();
         Served(r, $"Keywords[1] = {Fid(W.Ghost)}");
-        Assert.Contains("(unresolved: no active plugin defines this target)", r);
+        Assert.Contains($"(unresolved: Plugin '{W.Ghost.ModKey.FileName}' IS in the load order, but defines no record 000FFF", r);
     }
 
     [Fact]
@@ -256,6 +256,6 @@ public sealed class RecordsEngineImplicitLinkTests : IDisposable
     {
         var r = Annotated();
         Assert.Contains($"Keywords[1] = {EngineImplicitLinkWorld.ControlToken}", r);
-        Assert.Contains("(unresolved: no active plugin defines this target)", r);
+        Assert.Contains("(unresolved: FormID 000015:Skyrim.esm is not ", r);
     }
 }
