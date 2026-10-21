@@ -261,6 +261,10 @@ internal sealed partial class RecordReads
         }
     }
 
+    /// <summary>Was the plugin that defines <paramref name="fk"/> excluded this session? Then <see cref="UnresolvedFormId"/> names it.</summary>
+    internal static bool DefinerExcluded(LoadOrderResolver.IndexView view, FormKey fk) =>
+        view.ExcludedPlugins.ContainsKey(FormIdToken.Plugin(fk.ModKey.FileName.String));
+
     /// <summary>Why a FormID resolved to nothing, naming which of the three causes it is: the defining plugin was
     /// excluded, it is not in the order, or it IS in the order and defines no such record. The ESL-compaction
     /// clause is stated only where the index says that plugin is light-flagged — pinned by
@@ -309,7 +313,7 @@ internal sealed partial class RecordReads
         if (body is null)
             return new RecordSummary(fk, "?", null, w.Value.WinnerPlugin, w.Value.OverrideDepth,
                 $"winner '{w.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch");
-        return RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth)
+        return RecordSummary.Of(fk, body, w.Value.WinnerPlugin, w.Value.OverrideDepth + view.ExcludedTouchers(fk).Count)
                .WithRuntime(view.RuntimeAddressOf(fk));
     }
 
@@ -352,7 +356,7 @@ internal sealed partial class RecordReads
                     try
                     {
                         var w = p.View.ResolveWinner(fk)!.Value;
-                        filled[fk] = RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth).WithRuntime(p.View.RuntimeAddressOf(fk)) with { Pin = p };
+                        filled[fk] = RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth + p.View.ExcludedTouchers(fk).Count).WithRuntime(p.View.RuntimeAddressOf(fk)) with { Pin = p };
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException) { }   // its row's own read raises it
             }, unreadable, ct);
@@ -408,7 +412,7 @@ internal sealed partial class RecordReads
                 ? new ResolvedRef(FormIdToken.Of(fk), Resolved: true, Type: eiType, EditorId: eiEditorId, Winner: EngineImplicit.Winner)   // engine-implicit: hardcoded, real, defined by no plugin
                 // Valid FormKey, no active plugin defines it; the reason is the three-cause sentence every other
                 // lane states.
-                : new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Error: UnresolvedFormId(view, fk));
+                : new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Error: UnresolvedFormId(view, fk)) { IntoExcluded = DefinerExcluded(view, fk) };
         else
         {
             var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);

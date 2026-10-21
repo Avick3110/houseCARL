@@ -258,6 +258,7 @@ static class JsonWire
                 WriteNullable(w, "editorid", link.EditorId);
                 WriteNullable(w, "name", link.Name);
             }
+            else if (link.IntoExcluded) w.WriteString("error", link.Error);
             w.WriteEndObject();
         }
     }
@@ -1347,6 +1348,7 @@ static class JsonWire
                     }
                     if (cut) break;                                   // a half-written record is not a rendered one
                     if (sharedNote is not null) AddNote(FormIdToken.Of(fk), sharedNote);
+                    if (Wire.ExcludedNote(o.Pin, fk) is { } foldExcluded) AddNote(FormIdToken.Of(fk), foldExcluded);
                     rendered++;
                     continue;
                 }
@@ -1364,6 +1366,7 @@ static class JsonWire
                 if (hasMatches) WriteCell(w, matches);
                 w.WriteEndArray();
                 if (sharedNote is not null) AddNote(FormIdToken.Of(fk), sharedNote);
+                if (Wire.ExcludedNote(o.Pin, fk) is { } excludedNote) AddNote(FormIdToken.Of(fk), excludedNote);
             }
             else
             {
@@ -1380,6 +1383,7 @@ static class JsonWire
                 if (hasMatches) WriteCell(w, matches);
                 w.WriteEndArray();
                 if (SharedEditorIds.Note(m.Pin, m.FormKey, m.Type, m.Source) is { } note) AddNote(FormIdToken.Of(m.FormKey), note);
+                if (Wire.ExcludedNote(m.Pin, m.FormKey) is { } excludedNote) AddNote(FormIdToken.Of(m.FormKey), excludedNote);
             }
             rendered++;
         }
@@ -1493,6 +1497,7 @@ static class JsonWire
         // null (not 0) for a class nobody looked for — see the summary.
         if (didDangling) { w.WriteNumber("dangling", r.TotalDangling); w.WriteNumber("unscannable_records", r.TotalUnscannableRecords); }
         else { w.WriteNull("dangling"); w.WriteNull("unscannable_records"); }
+        if (didDangling && r.DanglingIntoExcluded > 0) w.WriteNumber("dangling_into_excluded", r.DanglingIntoExcluded);
         if (didMasters) w.WriteNumber("missing_masters", r.TotalMissingMasters); else w.WriteNull("missing_masters");
         WriteStringArray(w, "classes_checked", ClassNames(r.Classes));
         WriteNullable(w, "filter_note", r.FilterNote);

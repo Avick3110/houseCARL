@@ -120,7 +120,10 @@ internal sealed partial class RecordReads
             var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.LabelVersus(s.Pole.Plugin));
             return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null)
                    { SharedNote = s.Pole.InOrder ? SharedEditorIds.Note(pin, fk, s.Pole.RecordType, s.Pole.Plugin) : null,
-                     ExcludedNote = Wire.ExcludedNote(pin, fk) };
+                     // A subject read off the excluded plugin's own file carries its version, so that row owes no note.
+                     ExcludedNote = !s.Pole.InOrder && pin?.View.PluginPath(Path.GetFileName(s.Pole.Plugin)) is { } served
+                                    && pin.View.ExcludedPlugins.ContainsKey(Path.GetFileName(s.Pole.Plugin)) && PluginPaths.SamePluginFile(served, s.Pole.Plugin)
+                         ? null : Wire.ExcludedNote(pin, fk) };
         }
 
         // An off-order subject is swept first: the sweep is what says which ids it holds.

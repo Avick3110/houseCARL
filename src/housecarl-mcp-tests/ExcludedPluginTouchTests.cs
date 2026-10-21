@@ -26,6 +26,7 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     readonly FormKey _cell;         // the master's interior cell the bad plugin overrides
     readonly FormKey _badRef;       // a placed object in that cell the bad plugin overrides
     readonly FormKey _cleanRef;     // a placed object in that cell the bad plugin does not touch
+    readonly FormKey _cleanWeapon;  // the clean plugin's weapon, keyworded with the bad plugin's own keyword
 
     public ExcludedPluginTouchTests()
     {
@@ -57,6 +58,7 @@ public sealed class ExcludedPluginTouchTests : IDisposable
 
         var clean = new SkyrimMod(ModKey.FromNameAndExtension(CleanName), SkyrimRelease.SkyrimSE);
         var cw = clean.Weapons.AddNew(); cw.EditorID = "HcExCleanWeapon";
+        _cleanWeapon = cw.FormKey;
         cw.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { badKw.ToLink() };
         clean.Keywords.Add(new Keyword(new FormKey(clean.ModKey, 0x1A00), SkyrimRelease.SkyrimSE) { EditorID = "HcExFarKeyword" });   // past the light range, so a compaction renumbers
 
@@ -212,6 +214,70 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         var r = WriteTools.CompactPlugin(_svc, source: CleanName, esl: true, in_place: true, acknowledge: true);
         Assert.Contains("could not fully read " + BadName, r);
         Assert.Contains("refused — this is an IN-PLACE rewrite", r);
+    }
+
+    string Excluded => $"FormID {Fid(_badOwn)} is not resolvable: its plugin '{BadName}' was excluded from this session";
+
+    [Fact]
+    public void ResolveNamesSaysALinkIsIntoTheExcludedPlugin()
+    {
+        var text = RecordsTools.Records(_svc, formids: new[] { Fid(_cleanWeapon) },
+                                        project: new() { form = "fields", fields = new[] { "Keywords" }, depth = 2, resolve_names = true });
+        Assert.Contains("unresolved: " + Excluded, text);
+        var json = RecordsTools.Records(_svc, formids: new[] { Fid(_cleanWeapon) },
+                                        project: new() { form = "fields", fields = new[] { "Keywords" }, depth = 2, resolve_names = true }, format: "json");
+        Assert.Contains(Excluded, json.Replace("\\u0027", "'"));
+    }
+
+    [Fact]
+    public void AWalkSaysAnEndpointIsInTheExcludedPlugin()
+    {
+        var text = RecordsTools.Records(_svc, formids: new[] { Fid(_cleanWeapon) }, walk: new() { seed_paths = new[] { "Keywords" } },
+                                        project: new() { form = "chain" });
+        Assert.Contains("unresolved — " + Excluded, text);
+        Assert.DoesNotContain("a missing endpoint", text);
+    }
+
+    [Fact]
+    public void ConflictsOnlyAndOverrideDepthCountTheExcludedPlugin()
+    {
+        var text = RecordsTools.Records(_svc, types: new[] { "WEAP" }, conflicts_only: true, format: "json");
+        var rows = JsonDocument.Parse(text).RootElement.GetProperty("matches").EnumerateArray().ToList();
+        var row = Assert.Single(rows, x => x.GetProperty("formid").GetString() == Fid(_overridden));
+        Assert.Equal(2, row.GetProperty("override_depth").GetInt32());
+
+        var index = RecordsTools.Records(_svc, conflicts_only: true);
+        Assert.Contains(Fid(_overridden), index);
+    }
+
+    [Fact]
+    public void ADenseRowCarriesTheExcludedNote()
+    {
+        var dense = RecordsTools.Records(_svc, formids: new[] { Fid(_overridden), Fid(_untouched) }, format: "dense",
+                                         project: new() { form = "fields", fields = new[] { "EditorID" } });
+        Assert.Contains("also touched by " + BadName + ", excluded this session as unreadable", dense);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(dense, "also touched by"));   // the untouched keyword's row owes none
+    }
+
+    [Fact]
+    public void TheErrorsHeadlineAndCountsOnlyTallyRefsIntoTheExcludedPluginApart()
+    {
+        var text = CheckTools.CheckTool(_svc, plugins: new[] { CleanName }, findings: new[] { "errors" });
+        Assert.Contains("1 dangling ref(s) (1 of them into an excluded plugin houseCARL could not read)", text);
+        var counts = CheckTools.CheckTool(_svc, plugins: new[] { CleanName }, findings: new[] { "errors" }, counts_only: true);
+        Assert.Contains(BadName + " (into excluded plugin " + BadName + ", which houseCARL could not read)", counts);
+    }
+
+    [Fact]
+    public void ADeltaWhoseSubjectIsTheExcludedPluginsOwnFileOwesNoNote()
+    {
+        var badPath = Path.Combine(_root, "inst", "mods", "BadMod", BadName);
+        var own = RecordsTools.Records(_svc, formids: new[] { Fid(_overridden) },
+            source: JsonDocument.Parse(JsonSerializer.Serialize(new { file = badPath })).RootElement.Clone(),
+            versus: JsonDocument.Parse("\"winner\"").RootElement.Clone(),
+            project: new() { form = "delta", fields = new[] { "BasicStats.Damage" } });
+        Assert.Contains("99", own);
+        Assert.DoesNotContain("also touched by", own);
     }
 
     string Apply(FormKey fk, string path, string value) => ApplyTools.Apply(_svc, dry_run: true,

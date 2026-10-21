@@ -183,10 +183,13 @@ internal sealed partial class RecordReads
         // Plugins the winner scan could not open at all — a whole-plugin coverage gap, named in the response.
         var unreadablePlugins = new List<PluginUnreadableException>();
 
+        // An excluded plugin that loads after the winner is one more toucher: it counts toward override_depth and conflicts_only.
+        int Depth(FormKey fk, int depth) => depth + view.ExcludedTouchers(fk).Count;
+
         // The filters before where=: conflicts_only by touching plugins (when asked), editorid_contains, and a body with nothing live to test.
         PreWhere BeforeWhere(IMajorRecordGetter body, bool touching)
         {
-            if (touching && conflictsOnly && (view.TouchingPlugins(body.FormKey)?.Count ?? 0) <= 1) return PreWhere.Filtered;
+            if (touching && conflictsOnly && Depth(body.FormKey, view.TouchingPlugins(body.FormKey)?.Count ?? 0) <= 1) return PreWhere.Filtered;
             if (!string.IsNullOrEmpty(editoridContains)
                 && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                 return PreWhere.Filtered;
@@ -312,7 +315,7 @@ internal sealed partial class RecordReads
                 }
 
                 RecordSummary Summarize(FormKey fk, IMajorRecordGetter body, WinnerInfo w)
-                    => RecordSummary.Of(fk, body, w.WinnerPlugin, w.OverrideDepth).WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin };
+                    => RecordSummary.Of(fk, body, w.WinnerPlugin, Depth(fk, w.OverrideDepth)).WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = pin };
 
                 void Unscannable(string sample) { unscannable++; if (unscannableSamples.Count < 3) unscannableSamples.Add(sample); }
 
@@ -442,7 +445,7 @@ internal sealed partial class RecordReads
                     var doorFaults = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
                     void Door(IEnumerable<FormKey> wanted, Action<IReadOnlyDictionary<FormKey, IMajorRecordGetter>, IReadOnlyCollection<FormKey>> judge)
                         => OrderedGather.ForEachGroup(view, winnerSession!, wanted, judge, doorFaults, ct, () => predicate.FatalError is not null);
-                    bool Kept(FormKey fk, int depth) => (setFilter is null || setFilter.Contains(fk)) && !(conflictsOnly && depth <= 1)
+                    bool Kept(FormKey fk, int depth) => (setFilter is null || setFilter.Contains(fk)) && !(conflictsOnly && Depth(fk, depth) <= 1)
                                                         && !(definedIn && !scopedModKeys!.Contains(fk.ModKey));
                     if (!hasPlugins && !predicate.NeedsLinkStep && string.IsNullOrEmpty(editoridContains) && refSet is null)
                     {
@@ -470,7 +473,7 @@ internal sealed partial class RecordReads
                     ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
                     if (!seen.Add(fk)) continue;   // one row per key, judged on the copy shown, even if a plugin changed since the build
                     if (setFilter is not null && !setFilter.Contains(fk)) continue;   // the identity intersection, cheapest first
-                    if (conflictsOnly && depth <= 1) continue;
+                    if (conflictsOnly && Depth(fk, depth) <= 1) continue;
                     // defined_in= keeps only records whose origin FormKey is a scoped plugin — a definition, not an
                     // override this plugin merely touches. A FormKey test needing no body, so it runs before the try.
                     if (definedIn && !scopedModKeys!.Contains(fk.ModKey)) continue;
@@ -582,7 +585,7 @@ internal sealed partial class RecordReads
                             var rowWinner = view.ResolveWinner(fk)?.WinnerPlugin;
                             // A scoped body that is not the winner's owes no shared-EditorID note, so it carries no pin.
                             bool winnerBody = source is null || string.Equals(source, rowWinner, StringComparison.OrdinalIgnoreCase);
-                            prefilled!.Add(RecordSummary.Of(fk, filterBody, rowWinner ?? "?", depth)
+                            prefilled!.Add(RecordSummary.Of(fk, filterBody, rowWinner ?? "?", Depth(fk, depth))
                                            .WithRuntime(view.RuntimeAddressOf(fk)) with { Pin = winnerBody ? pin : null });
                         }
                     }
@@ -607,7 +610,8 @@ internal sealed partial class RecordReads
         else                                                                  // conflicts_only alone — index keys only, no body fetch
         {
             // The render lane fills the summaries through the door, once, before it renders.
-            foreach (var fk in view.ConflictKeys())
+            // A key one active plugin defines and an excluded plugin overrides after it is contested too.
+            foreach (var fk in view.ConflictKeys().Concat(view.ExcludedTouchedKeys().Where(k => view.ResolveWinner(k) is { OverrideDepth: 1 })))
             {
                 ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
                 if (setFilter is not null && !setFilter.Contains(fk)) continue;   // the identity intersection on the index-only branch
