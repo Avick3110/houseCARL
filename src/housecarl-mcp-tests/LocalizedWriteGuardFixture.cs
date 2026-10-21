@@ -166,7 +166,7 @@ public sealed class LocalizedWriteGuardFixture : IDisposable
         string? refusal = null;
         WithSkyrim(sky =>
         {
-            try { WriteEngine.WriteInPlace(mod, new[] { sky }, outPath, DataDir); }
+            try { WriteEngine.WriteInPlace(mod, new[] { sky }, outPath, DataDir, isFaction: null); }
             catch (LocalizedTargetUnsupportedException ex) { refusal = ex.Message; }
         });
         return refusal;

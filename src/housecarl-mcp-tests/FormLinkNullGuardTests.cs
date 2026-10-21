@@ -90,7 +90,7 @@ public sealed class FormLinkNullGuardApplyTests
             npc.Race.SetTo(FormKey.Factory("012345:Skyrim.esm"));
             WriteEngine.ApplyVerb(npc, SetReq("Race", "00000000"));
 
-            WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, outPath);
+            WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, outPath, isFaction: null);
 
             using var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
             Assert.True(back.Npcs.Single().Race.IsNull);

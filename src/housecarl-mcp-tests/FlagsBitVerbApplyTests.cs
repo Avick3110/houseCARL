@@ -70,7 +70,7 @@ public sealed class FlagsBitVerbApplyTests
             Apply(q, "Set", A.ToString());
             Apply(q, "Add", B.ToString());
 
-            WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, outPath);
+            WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, outPath, isFaction: null);
 
             using var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
             Assert.Equal(A | B, back.Quests.Single().Flags);

@@ -90,7 +90,7 @@ public sealed class NullableLinkRemoveVerbTests : IDisposable
         topic.Responses.Add(info);
         WriteEngine.ApplyVerb(info, req);
         var path = Path.Combine(_dir, "HcRemove.esp");
-        WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path);
+        WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path, isFaction: null);
         return InfoPnamBytes.Of(path, info.FormKey.ID);
     }
 
@@ -127,7 +127,7 @@ public sealed class NullableLinkCopyTests : IDisposable
         topic.Responses.Add(info);
         WriteEngine.CopyField(overlay.DialogTopics.First().Responses.First(), info, new[] { "PreviousDialog" });
         var path = Path.Combine(_dir, "HcCopyTgt.esp");
-        WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path);
+        WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path, isFaction: null);
         return InfoPnamBytes.Of(path, info.FormKey.ID);
     }
 
@@ -167,7 +167,7 @@ public sealed class NullableLinkSeedCopyTests : IDisposable
         var r = ClosureCopy.AttachSeedFields(target, overlay.Npcs.First(), new[] { seed },
                                              map ?? new Dictionary<FormKey, FormKey>(), _ => false);
         var path = Path.Combine(_dir, "HcSeedTgt.esp");
-        WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path);
+        WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path, isFaction: null);
         return (r, path, target.FormKey.ID);
     }
 
