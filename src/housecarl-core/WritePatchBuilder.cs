@@ -890,7 +890,8 @@ public static class WritePatchBuilder
         for (int i = 0; i < resolver.PluginNames.Count; i++) priority[resolver.PluginNames[i]] = i;
 
         // The serialize retypes faction owners first, so the preview does too, off the index rather than opened overlays.
-        OwnerRanks.Settle(mod, fk => resolver.Capture(null).WinnerClassOf(fk) is { } cls && typeof(IFactionGetter).IsAssignableFrom(cls));
+        var v = resolver.Capture(null);
+        OwnerRanks.Settle(mod, fk => v.WinnerClassOf(fk) is { } cls && typeof(IFactionGetter).IsAssignableFrom(cls));
 
         var referenced = new Dictionary<ModKey, FormKey>();   // referenced plugin -> first record referencing it (for the refusal)
         foreach (var rec in mod.EnumerateMajorRecords())
