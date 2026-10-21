@@ -288,7 +288,7 @@ internal sealed partial class RecordWrites
                     repointed.Add(new WritePatchBuilder.RepointReport(ext, rep.Success, rep.Error));
                 }
 
-            // Carry the FormID-keyed assets a renumber moves — FaceGen head mesh and tint, voice .fuz/.lip — into the P′
+            // Carry the FormID-keyed assets the output folder must hold — FaceGen head mesh and tint, voice .fuz/.lip — into the P′
             // mod-folder root. Best-effort and reported, since the records are already written. One captured asset view feeds
             // both carries and the SEQ gate, which asks the VFS whether the source SHIPPED a .seq rather than one folder.
             AssetRenameOutcome assetRename;
@@ -300,7 +300,8 @@ internal sealed partial class RecordWrites
                 var assetView = _host.Assets.Capture();
                 seqGate = assetView.ResolveForPlacement(srcSeqRel).Sources.Count > 0;   // VFS-aware (loose roots + active BSAs)
                 var outDir = Path.GetDirectoryName(outPath)!;
-                // In place the files of an unmoved record already sit where they belong; a new mod folder starts empty.
+                // In place an unmoved record keeps its id and so its file paths, and whatever wins them still applies; a new
+                // mod folder starts empty, so it takes every defined record, copying the face or voice winning now.
                 var carryMap = inPlace ? movedMap : remapDict;
                 assetRename = AssetRenameService.CarryFaceGen(outPath, carryMap, assetView, outDir);
                 voiceRename = AssetRenameService.CarryVoice(outPath, carryMap, assetView, outDir);

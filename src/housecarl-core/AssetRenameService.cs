@@ -9,7 +9,7 @@ namespace HousecarlCore;
 // not a rename. The two-phase carry, the non-destructive rule, the disk-scan voice discovery and the refresh-only
 // .seq are contracts in docs/architecture/assets.md; pinned by CompactFacegenCarryTests and CompactVoiceCarryTests.
 
-/// <summary>The accounting of one facegen pass: renumbered NPCs considered, those with ≥1 file carried, files
+/// <summary>The accounting of one facegen pass: NPCs in the carry map considered, those with ≥1 file carried, files
 /// written, FOUND-but-unwritable failures, and whether a BSA failed to read (so "no facegen" may be incomplete).</summary>
 public sealed record AssetRenameOutcome(
     int NpcCount, int FacegenNpcsCarried, int FacegenFilesCarried,
@@ -47,9 +47,11 @@ public sealed record SeqRegenOutcome(
 
 public static class AssetRenameService
 {
-    /// <summary>Carry the FaceGen assets of every RENUMBERED NPC in <paramref name="pPrimePath"/> to their new-FormID
-    /// path under <paramref name="outDir"/> (the output mod-folder root in both lanes). Only NPCs whose new key is a
-    /// <paramref name="map"/> VALUE are carried; best-effort, so this never throws and never fails the compact.</summary>
+    /// <summary>Carry the FaceGen assets of every NPC in <paramref name="map"/> in <paramref name="pPrimePath"/> to their
+    /// new-FormID path under <paramref name="outDir"/> (the output mod-folder root in both lanes). The map is what the
+    /// output folder must hold: on a compact, the moved records in place, every defined record into a new file. Only
+    /// NPCs whose new key is a <paramref name="map"/> VALUE are carried; best-effort, so this never throws and never
+    /// fails the compact.</summary>
     public static AssetRenameOutcome CarryFaceGen(
         string pPrimePath, IReadOnlyDictionary<FormKey, FormKey> map, AssetResolver.AssetView assets, string outDir)
     {
@@ -87,7 +89,8 @@ public static class AssetRenameService
                { RootFailures = assets.RootFailures };
     }
 
-    /// <summary>Carry the VOICE files of every RENUMBERED dialogue line to their new-FormID name under
+    /// <summary>Carry the VOICE files of every dialogue line in <paramref name="map"/> (same lane rule as
+    /// <see cref="CarryFaceGen"/>) to their new-FormID name under
     /// <paramref name="outDir"/>, DISCOVERING by scanning the plugin's voice prefix. Two lanes: on a compact only the
     /// id segment moves; on a merge the caller passes each donor as <paramref name="sourcePlugin"/> and the folder
     /// segment is rewritten alongside it. Rides the same two-phase carry; never throws.</summary>

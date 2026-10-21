@@ -184,8 +184,11 @@ voiced but not computable here. It runs after a create that already succeeded, s
 
 ### Carrying assets across a renumber
 
-A renumber moves every record while the files the engine looks up *by* FormID keep their old names.
-`AssetRenameService` carries them, composing existing primitives. Four contracts:
+A renumber changes record ids while the files the engine looks up *by* FormID keep their old names.
+`AssetRenameService` carries them, composing existing primitives. What it carries goes by lane: in place, the moved
+records only, since an unmoved record keeps its id and so its file paths; into a new file, every record the plugin
+defines, since the new mod folder starts empty. A new-file copy takes the face or voice winning at compaction time
+(see [write-path.md](write-path.md)). Four contracts:
 
 - **Two phases, one helper.** Facegen and voice both ride `CarryItems`: every read stages to a `.houseCARL-tmp`
   sibling, and only once every read is done are the temps committed. A renumber packs the new ids into the window
