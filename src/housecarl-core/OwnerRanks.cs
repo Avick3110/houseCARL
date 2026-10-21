@@ -40,7 +40,7 @@ public static class OwnerRanks
     {
         switch (node)
         {
-            case null or string: yield break;
+            case null: yield break;
             case IExtraData ed: yield return ed; yield break;
             case IEnumerable list:
                 foreach (var e in list) foreach (var ed in ExtraDataIn(e)) yield return ed;
@@ -65,7 +65,6 @@ public static class OwnerRanks
 
     static bool CanLead(Type t, HashSet<Type> visiting)
     {
-        t = Nullable.GetUnderlyingType(t) ?? t;
         if (typeof(IExtraDataGetter).IsAssignableFrom(t)) return true;
         if (t != typeof(string) && t.GetInterfaces().Append(t).FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>)) is { } seq)
             return CanLead(seq.GetGenericArguments()[0], visiting);

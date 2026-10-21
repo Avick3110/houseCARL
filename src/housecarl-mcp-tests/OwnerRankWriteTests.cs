@@ -47,11 +47,12 @@ public sealed class OwnerRankWriteTests : IDisposable
             c.Items = new() { new ContainerEntry { Item = new ContainerItem { Count = 1 }, Data = new ExtraData { ItemCondition = 1f, Owner = owner } } };
             o.Containers.Add(c);
         }
-        Owned(_minusOne, new FactionOwner { Faction = new FormLink<IFactionGetter>(_faction), RequiredRank = -1 });
-        Owned(_minusTwo, new FactionOwner { Faction = new FormLink<IFactionGetter>(_faction), RequiredRank = -2 });
-        Owned(_rankThree, new FactionOwner { Faction = new FormLink<IFactionGetter>(_faction), RequiredRank = 3 });
+        static FactionOwner At(FormKey faction, int rank) => new() { Faction = new FormLink<IFactionGetter>(faction), RequiredRank = rank };
+        Owned(_minusOne, At(_faction, -1));
+        Owned(_minusTwo, At(_faction, -2));
+        Owned(_rankThree, At(_faction, 3));
         Owned(_npcOwned, new NpcOwner { Npc = new FormLink<INpcGetter>(_npc), Global = new FormLink<IGlobalGetter>(_global) });
-        Owned(_ownFaction, new FactionOwner { Faction = new FormLink<IFactionGetter>(own), RequiredRank = -1 });
+        Owned(_ownFaction, At(own, -1));
         _overPath = Path.Combine(_root, OverName);
         using var baseOv = SkyrimMod.CreateFromBinaryOverlay(_basePath, SkyrimRelease.SkyrimSE);
         o.BeginWrite.ToPath(_overPath).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
