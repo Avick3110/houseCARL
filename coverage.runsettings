@@ -7,7 +7,7 @@
 
   READ THIS BEFORE TRUSTING A NUMBER FROM IT. coverlet instruments the assemblies in the TEST
   project's output directory and records hits inside the test process. Part of this suite drives
-  the built src/housecarl-mcp/bin/Release/net9.0/housecarl-mcp.exe as a separate process, and that
+  the built src/housecarl-mcp/bin/Release/net10.0/housecarl-mcp.exe as a separate process, and that
   copy is not instrumented, so nothing the server executes is counted. Measured on the 316
   tier=stdio tests: coverlet reported Program.cs 0 of 125 lines and RecordsTools.cs 0 of 2340,
   where the built-in "Code Coverage" collector reported 99 of 125 and 732 of 2340 for that run.

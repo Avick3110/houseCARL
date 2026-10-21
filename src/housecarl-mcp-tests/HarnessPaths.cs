@@ -8,8 +8,13 @@ static class HarnessPaths
     /// <summary>The repo root — the directory holding housecarl.sln, found by walking up from this assembly.</summary>
     public static string RepoRoot { get; } = FindRepoRoot();
 
-    /// <summary>Release or Debug — read off this assembly's own bin/&lt;config&gt;/net9.0 path.</summary>
-    public static string Configuration { get; } = FindConfiguration();
+    /// <summary>Release or Debug — read off this assembly's own bin/&lt;config&gt;/&lt;tfm&gt; path.</summary>
+    public static string Configuration => BuildFolder.Configuration;
+
+    /// <summary>The target framework folder — read off the same path; the server is built for the same one.</summary>
+    public static string TargetFramework => BuildFolder.TargetFramework;
+
+    static readonly (string Configuration, string TargetFramework) BuildFolder = FindBuildFolder();
 
     static string FindRepoRoot()
     {
@@ -22,14 +27,16 @@ static class HarnessPaths
             "must fail loud rather than measure nothing.");
     }
 
-    static string FindConfiguration()
+    static (string, string) FindBuildFolder()
     {
-        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d?.Parent != null; d = d.Parent)
-            if (string.Equals(d.Parent.Name, "bin", StringComparison.OrdinalIgnoreCase)) return d.Name;
+        DirectoryInfo? below = null;
+        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d?.Parent != null; below = d, d = d.Parent)
+            if (below != null && string.Equals(d.Parent.Name, "bin", StringComparison.OrdinalIgnoreCase))
+                return (d.Name, below.Name);
 
         throw new InvalidOperationException(
             $"Could not read a build configuration out of '{AppContext.BaseDirectory}' (expected " +
-            "…/bin/<Configuration>/net9.0/). The stdio tests need it to find the server built alongside " +
+            "…/bin/<Configuration>/<TargetFramework>/). The stdio tests need it to find the server built alongside " +
             "these tests — guessing 'Release' would run a stale or absent binary.");
     }
 }

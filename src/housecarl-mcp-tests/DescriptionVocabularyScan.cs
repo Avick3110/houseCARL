@@ -2164,8 +2164,8 @@ static class DescriptionVocabularyScan
                 && ManifestMismatch(new[] { "src/a/A.cs" }, new[] { "src/a/B.cs" }).Count == 2
                 && ManifestMismatch(new[] { "src/a/A.cs" }, new[] { "src/a/a.cs" }).Count == 0
                 && ManifestMismatch(new[] { "src/a/A.cs" }, new[] { "src/a/A.cs" }).Count == 0
-                && IsBuildOutput("src/a/obj/Release/net9.0/a.AssemblyInfo.cs")
-                && IsBuildOutput("src/a/bin/Release/net9.0/x.cs")
+                && IsBuildOutput($"src/a/obj/Release/{HarnessPaths.TargetFramework}/a.AssemblyInfo.cs")
+                && IsBuildOutput($"src/a/bin/Release/{HarnessPaths.TargetFramework}/x.cs")
                 && !IsBuildOutput("src/a/Objects.cs")
                 && !IsBuildOutput("src/binder/Thing.cs"),
             new() { "the membership comparison does not notice a compiled file outside the net, does not notice a scanned file "

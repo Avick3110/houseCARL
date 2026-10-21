@@ -27,7 +27,7 @@ public sealed class RepoProjectsTests
         var name = "hcfold-locate-" + Guid.NewGuid().ToString("N");
         var beside = Path.Combine(AppContext.BaseDirectory, name + ".dll");
         var projectDir = Path.Combine(Path.GetTempPath(), name);
-        var decoy = Path.Combine(projectDir, "bin", "Debug", "net9.0", name + ".dll");
+        var decoy = Path.Combine(projectDir, "bin", "Debug", HarnessPaths.TargetFramework, name + ".dll");
 
         try
         {
@@ -56,7 +56,7 @@ public sealed class RepoProjectsTests
     {
         var name = "hcfold-fallback-" + Guid.NewGuid().ToString("N");
         var projectDir = Path.Combine(Path.GetTempPath(), name);
-        var built = Path.Combine(projectDir, "bin", "Release", "net9.0", name + ".dll");
+        var built = Path.Combine(projectDir, "bin", "Release", HarnessPaths.TargetFramework, name + ".dll");
 
         try
         {

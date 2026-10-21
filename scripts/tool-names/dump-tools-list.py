@@ -70,7 +70,7 @@ def main():
     args = ap.parse_args()
 
     exe = os.path.join(args.root, "src", "housecarl-mcp", "bin", args.config,
-                       "net9.0", "housecarl-mcp.exe")
+                       "net10.0", "housecarl-mcp.exe")
     if not os.path.exists(exe):
         raise SystemExit(f"housecarl-mcp.exe not found at '{exe}' -- build the solution first")
 

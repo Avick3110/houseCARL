@@ -16,7 +16,6 @@
     real consumer that shapes the API); the proven cores it cleaves from already exist here.
   -->
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
