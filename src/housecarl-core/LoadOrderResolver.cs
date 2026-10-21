@@ -699,7 +699,7 @@ public sealed class LoadOrderResolver : IDisposable
 
         /// <summary>The write refusal for a target an excluded plugin also touches, or null; one sentence every authoring lane asks.</summary>
         public string? ExcludedTouchRefusal(FormKey fk) =>
-            ExcludedTouchers(fk) is { Count: > 0 } by ? OrderDegraded.TouchRefusal(FormIdToken.Of(fk), by) : null;
+            ExcludedTouchers(fk) is { Count: > 0 } by ? OrderDegraded.TouchRefusal(FormIdToken.Of(fk), by, _s.Index.ContainsKey(fk)) : null;
 
         public bool IsUnopenable(string pluginName)
             => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.Unopenable.Contains(i);
