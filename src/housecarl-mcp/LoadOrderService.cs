@@ -99,8 +99,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     {
         var ini = GameIni.For(r.ProfileDir, MyGamesDir);
         var archives = ArchiveDiscovery.Discover(order.Composition, ini, r.ModsDir, r.DataDir, r.OverwriteDir).Archives;
-        var skyrim = order.OrderedPaths.FirstOrDefault(p => Path.GetFileName(p).Equals("Skyrim.esm", StringComparison.OrdinalIgnoreCase));
-        return GameLanguage.Read(ini, order.Composition, archives, r.ModsDir, r.DataDir, r.OverwriteDir, skyrim);
+        return GameLanguage.Read(ini, order.Composition, archives, r.ModsDir, r.DataDir, r.OverwriteDir, order.OrderedPaths);
     }
 
     /// <summary>The corpus rulebook (corpus.json), loaded from the absolute CorpusPath on first use; the write pre-flight and the read scan's quantifier check share it.</summary>

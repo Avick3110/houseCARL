@@ -181,7 +181,7 @@ public static class LocalizedStrings
 
     /// <summary>Where a plugin whose tables are not beside it finds its archive: the folder of the archive that wins its tables in the game's language when that is another MO2 layer (#1075), else the game Data. The read's own winner (<see cref="InstanceText.WinnersFor"/>), so census and read cannot disagree.</summary>
     public static (string Folder, string? Mod) ArchiveHomeFor(string pluginPath, string dataDir)
-        => GameLanguage.Current.WinnersFor(Path.GetFileNameWithoutExtension(pluginPath)) is { Archive: { } a }
+        => GameLanguage.Current.WinnersFor(pluginPath) is { Archive: { } a }
            && a.Layer != AssetResolver.DataLayerName && Path.GetDirectoryName(a.Path) is { } folder
            && !string.Equals(folder, Path.GetDirectoryName(pluginPath), StringComparison.OrdinalIgnoreCase)
             ? (folder, a.Layer) : (dataDir, null);
