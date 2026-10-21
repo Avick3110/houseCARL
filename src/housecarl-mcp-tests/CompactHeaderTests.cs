@@ -133,7 +133,7 @@ public sealed class CompactHeaderTests
         var depPath = Path.Combine(w.Mods, "DepMod", CompactServiceWorld.DepKey.FileName.String);
         var depBefore = File.ReadAllBytes(depPath);
 
-        var again = w.Svc.CompactPlugin("HcCsLib.esp", inPlace: true, acknowledge: true);
+        var again = w.Svc.CompactPlugin("HcCsLib.esp", repointExternals: true, inPlace: true, acknowledge: true);
 
         Assert.True(again.Success, again.Error);
         Assert.Empty(again.ExternalPlugins);
