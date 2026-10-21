@@ -92,7 +92,23 @@ public sealed class CompactHeaderTests
         Assert.DoesNotContain("records renumbered", text);
         Assert.DoesNotContain("record renumbered", text);
         Assert.DoesNotContain("1/1 succeeded", text);
+        Assert.DoesNotContain("clean compaction", text);
+        Assert.Contains("external referencers: none to repoint, since no id moved.\n", text);
         Assert.Contains(WriteSentences.CompactMovedNothing, text);
+    }
+
+    [Fact]
+    public void ANotLightRunThatMovesNothingDoesNotLeadWithRenumbered()
+    {
+        using var w = new CompactServiceWorld();
+        Assert.True(w.Svc.CompactPlugin("HcCsLib.esp", repointExternals: true, inPlace: true, acknowledge: true).Success);
+
+        var again = w.Svc.CompactPlugin("HcCsLib.esp", esl: false, inPlace: true, acknowledge: true);
+
+        Assert.True(again.Success, again.Error);
+        var text = WriteTools.RenderCompact(again);
+        Assert.Contains("not light-flagged.\n" + WriteSentences.CompactMovedNothing, text);
+        Assert.DoesNotContain("renumbered (not light-flagged)", text);
     }
 
     // After a repointed compaction, Dep links Lib's record at its compacted id: a re-run moves nothing, so nothing references a move.

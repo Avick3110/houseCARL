@@ -414,30 +414,24 @@ static partial class WriteTools
 
         int overrides = o.RecordsCopied - o.RecordsRenumbered;
         bool movedNothing = o.RecordsMoved == 0 && o.RecordsRenumbered > 0;
-        sb.Append(o.Esl ? "light master (ESPFE): yes — " : "renumbered (not light-flagged): ");
-        int shown = movedNothing ? o.RecordsRenumbered : o.RecordsMoved;
-        sb.Append(shown).Append(shown == 1 ? " originating record" : " originating records");
-        if (!movedNothing)
-        {
-            sb.Append(" renumbered ").Append(o.Esl ? "into the light range 0x800–0xFFF" : "contiguously from 0x800");
-            int stayed = o.RecordsRenumbered - o.RecordsMoved;
-            if (stayed > 0) sb.Append("; ").Append(stayed).Append(" already at its compacted id");
-        }
+        if (movedNothing) sb.Append(o.Esl ? "light master (ESPFE): yes" : "not light-flagged");
+        else
+            sb.Append(o.Esl ? "light master (ESPFE): yes — " : "renumbered (not light-flagged): ")
+              .Append(o.RecordsMoved).Append(o.RecordsMoved == 1 ? " originating record renumbered " : " originating records renumbered ")
+              .Append(o.Esl ? "into the light range 0x800–0xFFF" : "contiguously from 0x800");
         if (overrides > 0) sb.Append("; ").Append(overrides).Append(overrides == 1 ? " override kept at its master FormID" : " overrides kept at their master FormIDs");
         sb.Append(".\n");
         if (movedNothing) sb.Append(WriteSentences.CompactMovedNothing);
         sb.Append(WriteSentences.Masters(o.Masters));
 
-        if (o.ExternalPlugins.Count == 0)
+        if (movedNothing)
+            sb.Append("external referencers: none to repoint, since no id moved.\n");
+        else if (o.ExternalPlugins.Count == 0)
             sb.Append("external referencers: none — clean compaction (nothing outside this plugin pointed at a renumbered record).\n");
         else if (o.Repointed.Count > 0)
         {
             int ok = o.Repointed.Count(r => r.Success);
-            if (movedNothing)
-                sb.Append("external referencers rewritten in place: ").Append(ok).Append(" of ").Append(o.Repointed.Count)
-                  .Append(", with nothing to repoint (no id moved)\n");
-            else
-                sb.Append("external referencers repointed in place: ").Append(ok).Append('/').Append(o.Repointed.Count).Append(" succeeded\n");
+            sb.Append("external referencers repointed in place: ").Append(ok).Append('/').Append(o.Repointed.Count).Append(" succeeded\n");
             foreach (var rep in o.Repointed)
                 sb.Append("  ").Append(rep.Success ? "OK   " : "FAIL ").Append(rep.Plugin)
                   .Append(rep.Success ? "" : "  — " + rep.Error).Append('\n');
