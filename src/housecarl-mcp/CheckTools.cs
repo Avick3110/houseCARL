@@ -75,7 +75,8 @@ public static class CheckTools
              // ---- family: errors ---------------------------------------------------------------------------
              "Errors family — the data-layer counterpart of the Creation Kit's 'Check For Errors' and xEdit's error check. For each plugin " +
              "in scope it walks every record's links and reports: dangling references (a non-null link whose target " +
-             "no plugin in the active order defines); missing masters (a declared master absent from the active " +
+             "no plugin in the active order defines, or only a plugin excluded as unparseable does: such a link is labelled as into that " +
+             "plugin, json target_in_excluded); missing masters (a declared master absent from the active " +
              "order); parse failures (records that could not be read, and plugins excluded as unparseable). It does " +
              "not check navmesh or terrain integrity, flag a required field left null (a null link is a legal " +
              "optional), list unused masters, or link-check an owned item's ownership variable (a rank or global). " +

@@ -435,7 +435,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   unlistable — because "enumerated it and found nothing" and "could not enumerate it" are different
   facts, and collapsing them makes an absence claim nothing checked.
 
-- A target record a parse-excluded plugin also defines or overrides is refused by apply (default and in-place) and forward (default and in-place), per edit, with `IndexView.ExcludedTouchRefusal`'s sentence: the patch would be built without that plugin's version and could undo its change. Contract in docs/architecture/load-order-resolver.md, Exclusion.
+- A target record a parse-excluded plugin overrides after its winner (or whose containing parent it does) is refused by default-lane apply, per edit, with `IndexView.ExcludedTouchRefusal`'s sentence: the patch would be built without that plugin's version and could undo its change. Default-lane forward refuses it unless the source is that plugin's own file; the in-place lanes do not refuse. Contract in docs/architecture/load-order-resolver.md, Exclusion.
 
 ## Pinned by
 - `InPlaceGuardContractTests` — the `in_place`⇔`target=` contract and the `into=` / `patch=` exclusion on the edit,

@@ -140,7 +140,8 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     {
         var status = Status(BadName);
         Assert.Contains("EXCLUDED this session", status);
-        Assert.Contains("a record it also overrides is read without its version, marked as such, and apply and forward refuse it", status);
+        Assert.Contains("a record it overrides after that record's winner is read without its version, marked on summary, fields, tree, delta and dense reads, " +
+                        "and apply, forward and housecarl_copy refuse it", status);
         Assert.Contains("houseCARL does NOT read this plugin, so any record it overrides is answered without its version.", status);
         Assert.DoesNotContain("every other plugin is unaffected", status);
 
