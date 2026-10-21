@@ -115,9 +115,10 @@ public sealed class OwnerRankWriteTests : IDisposable
         {
             var cache = opened.ToImmutableLinkCache();
             using var typed = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, new() { LinkCache = cache });
-            var owners = typed.Containers.ToDictionary(c => c.FormKey, c => c.Items![0].Data!.Owner!);
-            foreach (var n in typed.Npcs) owners[n.FormKey] = n.Items![0].Data!.Owner!;
-            foreach (var l in typed.LeveledNpcs) owners[l.FormKey] = l.Entries![0].ExtraData!.Owner!;
+            var owners = new Dictionary<FormKey, IOwnerTargetGetter>();
+            foreach (var c in typed.Containers) if (c.Items?.FirstOrDefault()?.Data?.Owner is { } co) owners[c.FormKey] = co;
+            foreach (var n in typed.Npcs) if (n.Items?.FirstOrDefault()?.Data?.Owner is { } no) owners[n.FormKey] = no;
+            foreach (var l in typed.LeveledNpcs) if (l.Entries?.FirstOrDefault()?.ExtraData?.Owner is { } lo) owners[l.FormKey] = lo;
             return (owners, typed.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToArray());
         }
         finally { foreach (var m in opened) m.Dispose(); }
@@ -125,14 +126,13 @@ public sealed class OwnerRankWriteTests : IDisposable
 
     static int Rank(IOwnerTargetGetter owner) => Assert.IsAssignableFrom<IFactionOwnerGetter>(owner).RequiredRank;
 
-    void AssertCrossPluginRanks(Dictionary<FormKey, IOwnerTargetGetter> owners)
+    /// <summary>Every cross-plugin owner keeps its rank, but <paramref name="except"/>'s, which the call replaced or removed.</summary>
+    void AssertCrossPluginRanks(Dictionary<FormKey, IOwnerTargetGetter> owners, FormKey? except = null)
     {
-        Assert.Equal(-1, Rank(owners[_minusOne]));
-        Assert.Equal(-2, Rank(owners[_minusTwo]));
-        Assert.Equal(3, Rank(owners[_rankThree]));
-        Assert.Equal(-1, Rank(owners[_injectedOwned]));
-        Assert.Equal(-1, Rank(owners[_npcInventory]));
-        Assert.Equal(-1, Rank(owners[_leveled]));
+        var ranks = new Dictionary<FormKey, int> { [_minusOne] = -1, [_minusTwo] = -2, [_rankThree] = 3, [_injectedOwned] = -1, [_npcInventory] = -1, [_leveled] = -1 };
+        foreach (var (key, rank) in ranks)
+            if (key == except) Assert.DoesNotContain(key, owners.Keys);
+            else Assert.Equal(rank, Rank(owners[key]));
         Assert.Equal(_global, Assert.IsAssignableFrom<INpcOwnerGetter>(owners[_npcOwned]).Global.FormKey);   // an NPC owner's second word stays a link
     }
 
@@ -216,11 +216,93 @@ public sealed class OwnerRankWriteTests : IDisposable
         Assert.Equal(new[] { ExtraName, BaseName }, masters);
     }
 
-    /// <summary>A plugin holding a weapon (no owner) and an override of the -1 chest, each with a script block whose count claims 65535 scripts.</summary>
+    /// <summary>The default-lane patch every patch-extending test starts from.</summary>
+    string WritePatch(string name)
+    {
+        var outPath = Path.Combine(_root, name);
+        using var r = LoadOrderResolver.Build(Order);
+        var o = WritePatchBuilder.Apply(r, TestCorpus.Rulebook, Overrides, outPath, extend: false);
+        Assert.True(o.Success, o.Error);
+        return outPath;
+    }
+
+    static WritePatchBuilder.CreateSpec AKeyword => new() { RecordType = "Keyword", EditorId = "HcOrNewKeyword", Edits = Array.Empty<WriteRequest>() };
+
+    [Fact]
+    public void ARemovalFromAPatchKeepsRanksOnTheRecordsItReserializes()
+    {
+        var outPath = WritePatch("HcOrRemove.esp");
+        using (var r = LoadOrderResolver.Build(Order))
+        {
+            var o = WritePatchBuilder.RemoveRecords(r, new[] { _rankThree }, outPath);
+            Assert.True(o.Success, o.Error);
+        }
+        var (owners, masters) = ReadBack(outPath);
+        AssertCrossPluginRanks(owners, except: _rankThree);
+        Assert.Equal(new[] { BaseName }, masters);
+    }
+
+    [Fact]
+    public void AForwardIntoAPatchKeepsCrossPluginRanks()
+    {
+        var outPath = Path.Combine(_root, "HcOrForward.esp");
+        using (var r = LoadOrderResolver.Build(Order))
+        {
+            var specs = Overrides.Select(e => new WritePatchBuilder.ForwardSpec { Target = e.Target, FromPlugin = OverName }).ToList();
+            var o = WritePatchBuilder.ForwardRecords(r, specs, outPath, extend: false, sourceParam: "source");
+            Assert.True(o.Success, o.Error);
+        }
+        var (owners, masters) = ReadBack(outPath);
+        AssertCrossPluginRanks(owners);
+        Assert.Equal(new[] { BaseName }, masters);
+    }
+
+    [Fact]
+    public void AForwardInPlaceKeepsRanksOnTheRecordsItReserializes()
+    {
+        using (var r = LoadOrderResolver.Build(Order))
+        {
+            var o = WritePatchBuilder.ForwardRecordsInPlace(r, new[] { new WritePatchBuilder.ForwardSpec { Target = _rankThree, FromPlugin = BaseName } },
+                _overPath, OverName, sourceParam: "source");
+            Assert.True(o.Success, o.Error);
+        }
+        var (owners, masters) = ReadBack(_overPath);
+        AssertCrossPluginRanks(owners, except: _rankThree);   // forwarded from the base, which owns nothing
+        Assert.Equal(new[] { ExtraName, BaseName }, masters);
+    }
+
+    [Fact]
+    public void ACreateIntoAnExtendedPatchKeepsTheRanksItReserializes()
+    {
+        var outPath = WritePatch("HcOrCreate.esp");
+        using (var r = LoadOrderResolver.Build(Order))
+        {
+            var o = WritePatchBuilder.CreateRecords(r, TestCorpus.Rulebook, new[] { AKeyword }, outPath, extend: true);
+            Assert.True(o.Success, o.Error);
+        }
+        var (owners, masters) = ReadBack(outPath);
+        AssertCrossPluginRanks(owners);
+        Assert.Equal(new[] { BaseName }, masters);
+    }
+
+    [Fact]
+    public void ACreateInPlaceKeepsRanksOnTheRecordsItReserializes()
+    {
+        using (var r = LoadOrderResolver.Build(Order))
+        {
+            var o = WritePatchBuilder.CreateRecordsInPlace(r, TestCorpus.Rulebook, new[] { AKeyword }, _overPath, OverName);
+            Assert.True(o.Success, o.Error);
+        }
+        var (owners, masters) = ReadBack(_overPath);
+        AssertCrossPluginRanks(owners);
+        Assert.Equal(new[] { ExtraName, BaseName }, masters);
+    }
+
+    /// <summary>A plugin holding a weapon (no owner), an override of the -1 chest, and chests owned by its own faction and by an NPC, each with a script block whose count claims 65535 scripts.</summary>
     ISkyrimModDisposableGetter BadScripts() => Corrupted("VMAD", (bytes, i) => { bytes[i + 10] = 0xFF; bytes[i + 11] = 0xFF; });
 
-    /// <summary>The same plugin with its scripts intact and the chest entry's owner data claiming 40 bytes.</summary>
-    ISkyrimModDisposableGetter BadOwnerData() => Corrupted("COED", (bytes, i) => { bytes[i + 4] = 40; bytes[i + 5] = 0; });
+    /// <summary>The same plugin with its scripts intact and each chest entry's owner data claiming 65535 bytes.</summary>
+    ISkyrimModDisposableGetter BadOwnerData() => Corrupted("COED", (bytes, i) => { bytes[i + 4] = 0xFF; bytes[i + 5] = 0xFF; });
 
     ISkyrimModDisposableGetter Corrupted(string signature, Action<byte[], int> corrupt)
     {
@@ -235,6 +317,20 @@ public sealed class OwnerRankWriteTests : IDisposable
             Data = new ExtraData { ItemCondition = 1f, Owner = new FactionOwner { Faction = new FormLink<IFactionGetter>(_faction), RequiredRank = -1 } },
         } };
         bad.Containers.Add(c);
+        // Owned by a faction in this same file, so read typed, and by an NPC: neither is copied.
+        var own = bad.Factions.AddNew("HcOrBadFaction");
+        void Chest(string edid, OwnerTarget owner)
+        {
+            var o = bad.Containers.AddNew(edid);
+            o.VirtualMachineAdapter = Vmad();
+            o.Items = new() { new ContainerEntry
+            {
+                Item = new ContainerItem { Count = 1, Item = new FormLink<IItemGetter>(FormKey.Null) },
+                Data = new ExtraData { ItemCondition = 1f, Owner = owner },
+            } };
+        }
+        Chest("HcOrBadTyped", new FactionOwner { Faction = new FormLink<IFactionGetter>(own.FormKey), RequiredRank = -1 });
+        Chest("HcOrBadNpcOwned", new NpcOwner { Npc = new FormLink<INpcGetter>(_npc), Global = new FormLink<IGlobalGetter>(_global) });
         var path = Path.Combine(_root, "HcOrBad.esp");
         using (var baseOv = SkyrimMod.CreateFromBinaryOverlay(_basePath, SkyrimRelease.SkyrimSE))
             bad.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
@@ -263,10 +359,21 @@ public sealed class OwnerRankWriteTests : IDisposable
     }
 
     [Fact]
+    public void ASourceFetchPassesATypedFactionOwnerAndAnNpcOwnerThroughUncopied()
+    {
+        using var bad = BadScripts();
+        foreach (var edid in new[] { "HcOrBadTyped", "HcOrBadNpcOwned" })
+        {
+            var chest = bad.Containers.Single(c => c.EditorID == edid);
+            Assert.Same(chest, OwnerRanks.Settled(chest, fk => fk == _faction));   // a deep copy would read the broken script block
+        }
+    }
+
+    [Fact]
     public void ASourceFetchThatCannotCopyAnOwnedRecordReportsTheParseFaultItself()
     {
         using var bad = BadScripts();
-        var chest = bad.Containers.Single();
+        var chest = bad.Containers.Single(c => c.FormKey == _minusOne);
         var fault = Assert.IsAssignableFrom<Exception>(Record.Exception(() => chest.DeepCopy()));
         Assert.Equal(fault.Message, FetchFault(bad, chest.FormKey));
     }
@@ -275,7 +382,7 @@ public sealed class OwnerRankWriteTests : IDisposable
     public void ASourceFetchThatCannotReadAnOwnedEntrysOwnerReportsTheParseFaultItself()
     {
         using var bad = BadOwnerData();
-        var chest = bad.Containers.Single();
+        var chest = bad.Containers.Single(c => c.FormKey == _minusOne);
         var fault = Assert.IsAssignableFrom<Exception>(Record.Exception(() => chest.DeepCopy()));
         Assert.Equal(fault.Message, FetchFault(bad, chest.FormKey));
     }
