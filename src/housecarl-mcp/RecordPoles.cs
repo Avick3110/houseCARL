@@ -45,6 +45,9 @@ internal sealed partial class RecordReads
     {
         /// <summary>The shared-EditorID note the record's FormID owes, read off the batch's pin.</summary>
         public string? SharedNote { get; init; }
+
+        /// <summary>The note a record an excluded plugin also touches owes, read off the batch's pin.</summary>
+        public string? ExcludedNote { get; init; }
     }
 
     /// <summary>The project=delta batch: every pole of every record resolves against ONE captured build, so a
@@ -116,7 +119,8 @@ internal sealed partial class RecordReads
             // Two copies of one filename on opposite arms: the delta line names the off-order side's mod folder.
             var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.LabelVersus(s.Pole.Plugin));
             return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null)
-                   { SharedNote = s.Pole.InOrder ? SharedEditorIds.Note(pin, fk, s.Pole.RecordType, s.Pole.Plugin) : null };
+                   { SharedNote = s.Pole.InOrder ? SharedEditorIds.Note(pin, fk, s.Pole.RecordType, s.Pole.Plugin) : null,
+                     ExcludedNote = Wire.ExcludedNote(pin, fk) };
         }
 
         // An off-order subject is swept first: the sweep is what says which ids it holds.
@@ -559,6 +563,9 @@ internal sealed partial class RecordReads
     {
         /// <summary>The shared-EditorID note the record's FormID owes, read off the batch's pin.</summary>
         public string? SharedNote { get; init; }
+
+        /// <summary>The note a record an excluded plugin also touches owes, read off the batch's pin.</summary>
+        public string? ExcludedNote { get; init; }
     }
 
     /// <summary>The project=tree batch: per record, the full provider stack (touching list, winner last) with each
@@ -713,7 +720,7 @@ internal sealed partial class RecordReads
                 }
                 rows[i] = new TreeRow(FormIdToken.Of(fk), fills[j]!.Type, fills[j]!.EditorId,
                                       touchers, refLabel[j], ordered, null, fills[j]!.ChildDeclarers)
-                          { SharedNote = SharedEditorIds.Note(pin, fk, fills[j]!.Type, null) };
+                          { SharedNote = SharedEditorIds.Note(pin, fk, fills[j]!.Type, null), ExcludedNote = Wire.ExcludedNote(pin, fk) };
             }
             // Past the budget the rows are dropped and nothing further is read.
             if (meter.Check(end, liveRow.Count) is { } tooDear)

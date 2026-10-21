@@ -83,7 +83,10 @@ static class CheckTextRender
     {
             return "    " + d.Source + " (" + d.SourceType
                      + (string.IsNullOrEmpty(d.SourceEditorId) ? "" : " '" + d.SourceEditorId + "'")
-                     + ") -> " + d.Target + "   [target not defined by any active plugin]\n";
+                     + ") -> " + d.Target
+                     + (d.ExcludedBy.Count > 0
+                         ? "   [target in excluded plugin " + string.Join(", ", d.ExcludedBy) + ", which houseCARL could not read]\n"
+                         : "   [target not defined by any active plugin]\n");
     }
 
     /// <summary>One unread-plugin row, the <c>counts_only</c> lane's honesty layer, shared for the same reason.</summary>

@@ -320,6 +320,7 @@ static class JsonWire
         w.WriteString("type", r.Type);
         WriteNullable(w, "editorid", r.EditorId);
         WriteSharedName(w, SharedEditorIds.Note(o.Pin, o.FormKey, r.Type, o.SourcePlugin));
+        WriteExcludedNote(w, Wire.ExcludedNote(o.Pin, o.FormKey));
         WriteNullable(w, "winner", o.WinnerPlugin);
         w.WriteNumber("override_depth", o.OverrideDepth);
         WriteNullable(w, "source", o.SourcePlugin);   // the body these field VALUES came from (scoped plugin vs winner)
@@ -559,6 +560,7 @@ static class JsonWire
         WriteNullable(w, "type", s.RecordType);
         WriteNullable(w, "editorid", s.EditorId);
         WriteSharedName(w, row.SharedNote);
+        WriteExcludedNote(w, row.ExcludedNote);
         WriteDiffPole(w, "subject", s);
         WriteDiffPole(w, "reference", r);
         if (row.StackAbove is { Count: > 0 }) WriteStringArray(w, "stack_above", row.StackAbove);
@@ -642,6 +644,7 @@ static class JsonWire
         WriteNullable(w, "type", row.Type);
         WriteNullable(w, "editorid", row.EditorId);
         WriteSharedName(w, row.SharedNote);
+        WriteExcludedNote(w, row.ExcludedNote);
         WriteNullable(w, "reference", row.ReferencePlugin);
         WriteStringArray(w, "touchers", row.Touchers);   // priority order, winner LAST
         // The precise owned-child answer, from the same TreeRow the text lane renders.
@@ -1431,6 +1434,11 @@ static class JsonWire
         if (note is not null) w.WriteString("editorid_note", note);
     }
 
+    static void WriteExcludedNote(Utf8JsonWriter w, string? note)
+    {
+        if (note is not null) w.WriteString("excluded_note", note);
+    }
+
     /// <summary>The runtime-FormID cell in a dense row: the eight-hex form, else the reason in parentheses, else null.</summary>
     static string? RuntimeCell(string? runtime, string? note) => runtime ?? (note is null ? null : $"({note})");
 
@@ -1450,6 +1458,7 @@ static class JsonWire
             w.WriteString("type", m.Type);
             WriteNullable(w, "editorid", m.EditorId);
             WriteSharedName(w, SharedEditorIds.Note(m.Pin, m.FormKey, m.Type, m.Source));
+            WriteExcludedNote(w, Wire.ExcludedNote(m.Pin, m.FormKey));
             if (m.Name is not null) w.WriteString("name", m.Name);
             if (m.Source is not null) w.WriteString("source", m.Source);
             if (m.Winner is not null) w.WriteString("winner", m.Winner);   // an off-order pole's row has no winner in the order
@@ -1569,6 +1578,7 @@ static class JsonWire
         w.WriteString("source_type", d.SourceType);
         WriteNullable(w, "source_editorid", d.SourceEditorId);
         w.WriteString("target", FormIdToken.Of(d.Target));
+        if (d.ExcludedBy.Count > 0) WriteStringArray(w, "target_in_excluded", d.ExcludedBy);
         w.WriteEndObject();
     }
 

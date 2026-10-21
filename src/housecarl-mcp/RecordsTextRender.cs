@@ -58,6 +58,7 @@ static partial class RecordsTools
             var s = row.Subject!; var r = row.Reference!; var d = row.Diff!;
             sb.Append("  ").Append(s.RecordType ?? "?").Append("  ").Append(s.EditorId ?? "<no editorid>").Append('\n');
             Wire.AppendSharedName(sb, "  ", row.SharedNote);
+            Wire.AppendSharedName(sb, "  ", row.ExcludedNote);
             sb.Append("  subject:   ").Append(s.Plugin).Append(" [").Append(s.Where).Append("]\n");
             sb.Append("  reference: ").Append(r.Plugin).Append(" [").Append(r.Where).Append("]\n");
             if (row.StackAbove is { Count: > 0 })
@@ -195,6 +196,7 @@ static partial class RecordsTools
             }
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>").Append('\n');
             Wire.AppendSharedName(sb, "  ", row.SharedNote);
+            Wire.AppendSharedName(sb, "  ", row.ExcludedNote);
             sb.Append("  ").Append(row.Touchers.Count).Append(" plugin(s) touch this record (load order, winner last):\n");
             for (int i = 0; i < row.Touchers.Count; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
@@ -588,6 +590,7 @@ static partial class RecordsTools
             if (matches is { } mt && i < mt.Count && mt[i] is { } hit) sb.Append("  matches=").Append(hit);
             sb.Append('\n');
             if (o.Error is null) Wire.AppendSharedName(sb, "    ", SharedEditorIds.Note(o.Pin, o.FormKey, o.Record!.Type, o.SourcePlugin));
+            if (o.Error is null) Wire.AppendSharedName(sb, "    ", Wire.ExcludedNote(o.Pin, o.FormKey));
             if (sb.Length > budget)
             {
                 sb.Length = mark;
