@@ -37,9 +37,9 @@ public static class Program
     private const string McpServerName    = "housecarl"; // server key under mcpServers / [mcp_servers.*]
 
     // Major version of the runtimes the bundled SERVER needs (keep in sync with housecarl-mcp's
-    // TargetFramework). The default roll-forward policy stays within a major, so "10.x installed"
-    // does not satisfy a net9.0 framework-dependent server.
-    private const string ServerRuntimeMajor = "9";
+    // TargetFramework). The default roll-forward policy stays within a major, so "11.x installed"
+    // does not satisfy a net10.0 framework-dependent server.
+    private const string ServerRuntimeMajor = "10";
 
     public enum Target { Claude, Codex, Both }
 
@@ -112,17 +112,14 @@ public static class Program
             // and the runtimes the bundled server needs. Reading only, so a run cancelled at the plan below
             // leaves everything as it found it.
             //
-            // The bundled server is framework-dependent net9.0 + ASP.NET Core: it needs BOTH the
-            // base .NET Runtime (Microsoft.NETCore.App) and the ASP.NET Core Runtime
-            // (Microsoft.AspNetCore.App). On Windows those are TWO separate installers, and the
-            // ASP.NET Core one does NOT include the base runtime -- a real-world install trap.
-            // This exe is framework-dependent too (#734: a self-contained apphost aborts in CLR
-            // startup on some CET / shadow-stack machines), so it needs the base runtime just to
-            // start; on a machine without it hostfxr's message goes to stderr and a double-clicked
-            // window closes over it, so the docs name that flash-and-close as the diagnosis instead
-            // of promising a message. The check below catches the trap that stays silent even here: the
-            // base runtime present and ASP.NET Core missing, which would install a server that
-            // never starts.
+            // The bundled server is framework-dependent net10.0: it needs the .NET Runtime
+            // (Microsoft.NETCore.App) at that major. This exe is framework-dependent too (#734: a
+            // self-contained apphost aborts in CLR startup on some CET / shadow-stack machines), so it
+            // needs the same runtime just to start; on a machine without it hostfxr's message goes to
+            // stderr and a double-clicked window closes over it, so the docs name that flash-and-close
+            // as the diagnosis instead of promising a message. The check below still catches a runtime
+            // only this process can see (a DOTNET_ROOT the agent will not inherit) and, on
+            // Windows-on-ARM, an x64 runtime missing where the x64 server looks.
             bool skipRuntimeCheck = args.Contains("--skip-runtime-check");
             (List<string> missingRuntimes, string? runtimeOwnRoot) = skipRuntimeCheck
                 ? (new List<string>(), null)
@@ -144,7 +141,7 @@ public static class Program
             // want to remove houseCARL from, and refusing at the detection block would leave no way to.
             if (mode == Mode.Install && missingRuntimes.Count > 0)
             {
-                ReportMissingRuntimes(missingRuntimes);
+                ReportMissingRuntimes();
                 return Finish(1);
             }
 
@@ -222,10 +219,7 @@ public static class Program
         string? runtimeOwnRoot)
     {
         Ui.Heading("Checking your machine");
-        string baseName = ".NET Runtime " + ServerRuntimeMajor;
-        string aspName  = "ASP.NET Core Runtime " + ServerRuntimeMajor;
-        Ui.Row(baseName, RuntimeStatus(skipped, missingRuntimes.Contains("Microsoft.NETCore.App")));
-        Ui.Row(aspName,  RuntimeStatus(skipped, missingRuntimes.Contains("Microsoft.AspNetCore.App")));
+        Ui.Row(".NET Runtime " + ServerRuntimeMajor, RuntimeStatus(skipped, missingRuntimes.Count > 0));
         Ui.Row(claude.Name, HostStatus(claude));
         Ui.Row(codex.Name,  HostStatus(codex));
 
@@ -296,11 +290,6 @@ public static class Program
         }
     }
 
-    /// <summary>
-    /// The runtime refusal, sentence-first and naming only the runtime that is actually missing. The
-    /// two-installer trap is the hard-won part and stays, but below the sentence: the ASP.NET Core installer
-    /// does NOT carry the base .NET Runtime, so a machine can have one and not the other.
-    /// </summary>
     /// <summary>Said when the package beside this exe cannot be installed from: either the plugin folder is not
     /// there at all, or it is there and missing a piece, which is a partial unzip and names the piece.</summary>
     private static void ReportBrokenPackage(string pluginSrc, string srcManifest, string srcExe, string srcSkills)
@@ -328,43 +317,21 @@ public static class Program
             "Missing:    " + missingPath);
     }
 
-    private static void ReportMissingRuntimes(List<string> missing)
+    /// <summary>The runtime refusal, sentence-first, with where to get the runtime below it.</summary>
+    private static void ReportMissingRuntimes()
     {
-        bool baseMissing = missing.Contains("Microsoft.NETCore.App");
-        bool aspMissing  = missing.Contains("Microsoft.AspNetCore.App");
-        string dotnetName = ".NET Runtime " + ServerRuntimeMajor;
-        string aspName    = "ASP.NET Core Runtime " + ServerRuntimeMajor;
+        string sentence = "houseCARL needs the .NET Runtime " + ServerRuntimeMajor + ", which is not installed on "
+            + "this machine — install it and run this setup again.";
 
-        string sentence = baseMissing && aspMissing
-            ? "houseCARL needs the " + dotnetName + " and the " + aspName + ", and neither is installed on this "
-              + "machine — install them and run this setup again."
-            : "houseCARL needs the " + (baseMissing ? dotnetName : aspName) + ", which is not installed on this "
-              + "machine — install it and run this setup again.";
-
-        List<string> detail = new()
+        string[] detail =
         {
             "https://dotnet.microsoft.com/download/dotnet/" + ServerRuntimeMajor + ".0",
+            "or:  winget install Microsoft.DotNet.Runtime." + ServerRuntimeMajor,
+            "",
+            "(Custom dotnet location? Re-run with --skip-runtime-check.)",
         };
-        if (baseMissing) detail.Add("or:  winget install Microsoft.DotNet.Runtime." + ServerRuntimeMajor);
-        if (aspMissing)  detail.Add("or:  winget install Microsoft.DotNet.AspNetCore." + ServerRuntimeMajor);
-        detail.Add("");
 
-        if (baseMissing && aspMissing)
-        {
-            detail.Add("They are two separate installers, and the ASP.NET Core one does not include");
-            detail.Add("the base .NET Runtime, so you need both.");
-        }
-        else
-        {
-            detail.Add("The " + (baseMissing ? aspName : dotnetName) + " is already here. They are two separate");
-            detail.Add("installers and the ASP.NET Core one does not include the base .NET Runtime,");
-            detail.Add("so this is the only piece missing.");
-        }
-
-        detail.Add("");
-        detail.Add("(Custom dotnet location? Re-run with --skip-runtime-check.)");
-
-        Ui.Problem(sentence, detail.ToArray());
+        Ui.Problem(sentence, detail);
     }
 
     // ---- non-interactive install (the probeable seam under the prompt) -----
@@ -531,7 +498,7 @@ public static class Program
     /// </summary>
     private static (List<string> Missing, string? OwnRoot) MissingServerRuntimes()
     {
-        string[] required = { "Microsoft.NETCore.App", "Microsoft.AspNetCore.App" };
+        string[] required = { "Microsoft.NETCore.App" };
         string machineWide = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "shared");
         string? ownRoot = OwnSharedFrameworkRoot();
@@ -606,7 +573,7 @@ public static class Program
     }
 
     /// <summary>The required frameworks present under one shared-framework root at the required major
-    /// version. A version folder must actually contain assemblies - an empty 9.x dir left behind by an
+    /// version. A version folder must actually contain assemblies - an empty 10.x dir left behind by an
     /// aborted install/uninstall must not count as "installed".</summary>
     private static HashSet<string> ScanSharedRoot(string sharedDir, string[] required)
     {
