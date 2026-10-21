@@ -71,8 +71,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   file was read in, while `WritePatch` goes to UTF-8 when `NewFileIsUtf8` holds, so a non-ASCII string in a patch read
   in the legacy encoding can come back at another length on the real write. The legacy encoding is the code page
   Mutagen gives the call's game language (`PluginTextEncoding.LegacyBundle`: Windows-1252 for English and Western
-  languages, 1250, 1251, 1253, 1254, 1256 and 932 for the others, UTF-8 for Chinese, Korean and Thai, as Mutagen does),
-  wherever the file lands, and the unspellable-value refusal names it. That is a re-encode, not a loss; the check
+  languages, 1250, 1251, 1253, 1254, 1256 and 932 for the others, and Windows-1252 for every language Mutagen gives no
+  code page, so a legacy file's bytes round-trip there and a new file needing more goes out UTF-8), wherever the file
+  lands, and the unspellable-value refusal names it. That is a re-encode, not a loss; the check
   models the in-place encoding on purpose, since modelling the write's would refuse every such re-encode as a length
   change, and the `into=` renders claim nothing about the check. The file's bytes and those bytes are walked the same way — per FormKey through each side's
   own master list, a multiset of (signature, payload length), through Mutagen's record and subrecord framing

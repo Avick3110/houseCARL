@@ -30,7 +30,7 @@ public sealed class StringsDecisionGuardTests : IDisposable
     {
         var plugin = Plugin("loose-empty", "Mod.esp");
         Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(plugin)!, "Strings"));
-        Assert.False(LoadOrderResolver.FolderHasOwnStrings(plugin));
+        Assert.False(LocalizedStrings.OwnFolderCarriesStringsFor(plugin));
     }
 
     // Strings folder + .bsa -> has own strings (no redirect). The archive is unreadable, so it is what answers.
@@ -42,13 +42,13 @@ public sealed class StringsDecisionGuardTests : IDisposable
         Directory.CreateDirectory(Path.Combine(dir, "Strings"));
         File.WriteAllText(Path.Combine(dir, "Strings", "M_English.STRINGS"), "x");
         File.WriteAllText(Path.Combine(dir, "M.bsa"), "x");
-        Assert.True(LoadOrderResolver.FolderHasOwnStrings(plugin));
+        Assert.True(LocalizedStrings.OwnFolderCarriesStringsFor(plugin));
     }
 
     // nonexistent folder -> defensive 'has own' (no redirect on a bad read).
     [Fact]
     public void AMissingFolderKeepsTheUnchangedOpen()
-        => Assert.True(LoadOrderResolver.FolderHasOwnStrings(Path.Combine(_root, "does-not-exist", "X.esp")));
+        => Assert.True(LocalizedStrings.OwnFolderCarriesStringsFor(Path.Combine(_root, "does-not-exist", "X.esp")));
 
     // ComputeDataDir -> resolved Skyrim.esm's dir.
     [Fact]

@@ -15,7 +15,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     string _profileName;                           // the active profile (instance mode: from selected_profile)
     string _overwriteDir = "";                     // MO2's overwrite layer (instance mode: derived; explicit mode: none)
     bool _configured;                              // false ⇒ tools return the trained prompt instead of resolving
-    internal string? MyGamesDir;                   // test seam: the My Games folder a profile without its own INIs reads; null in the product
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
     readonly InPlaceConsent _inPlaceConsent;       // the in-place consent over _store; writes and assets take it through the door
     InPlaceConsent ILoadOrderHost.InPlaceConsent => _inPlaceConsent;
@@ -97,7 +96,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>The order's game language and string-table winners, from the profile read the build just made; a language houseCARL cannot read throws here, before anything is published.</summary>
     InstanceText ReadInstanceText(Mo2Roots r, Mo2OrderResult order)
     {
-        var ini = GameIni.For(r.ProfileDir, MyGamesDir);
+        var ini = GameIni.For(r.ProfileDir);
         var discovery = ArchiveDiscovery.Discover(order.Composition, ini, r.ModsDir, r.DataDir, r.OverwriteDir);
         var text = GameLanguage.Read(ini, order.Composition, discovery, r.ModsDir, r.DataDir, r.OverwriteDir, order.OrderedPaths);
         _orderArchives = (order.Composition, discovery);
@@ -565,7 +564,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     {
         // The order build's own profile read and archive list when it made one since the profile last moved, else a fresh one.
         var comp = _orderArchives?.Composition ?? Mo2LoadOrder.ReadComposition(_profileDir);   // EnabledMods (priority) — cheap text parse
-        var discovery = _orderArchives?.Discovery ?? ArchiveDiscovery.Discover(comp, GameIni.For(_profileDir, MyGamesDir), _modsDir, _dataDir, _overwriteDir);
+        var discovery = _orderArchives?.Discovery ?? ArchiveDiscovery.Discover(comp, GameIni.For(_profileDir), _modsDir, _dataDir, _overwriteDir);
         _assetWarnings = discovery.Warnings;
         _activeArchives = discovery.Archives;   // kept alongside the resolver: archive filename → owning plugin (native-pairing provenance)
         _enabledModsAtBuild = comp.EnabledMods; // same build: the mod set behind this resolver (native-pairing loader scan)
@@ -895,7 +894,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>The three profile files' stamps in <see cref="ProfileFileNames"/> order, then the game INIs' the text is
     /// read from (<see cref="GameIni.Files"/>) — a build's baseline, statted before the read it baselines. Caller holds <see cref="_gate"/>.</summary>
     FileStamp[] StatProfileFiles(string profileDir)
-        => ProfileFileNames.Select(n => Path.Combine(profileDir, n)).Concat(GameIni.Files(profileDir, MyGamesDir))
+        => ProfileFileNames.Select(n => Path.Combine(profileDir, n)).Concat(GameIni.Files(profileDir))
                            .Select(FileStamp.Of).ToArray();
 
     /// <summary>Whether a game INI moved between two baselines, so the order's text must be read again.</summary>

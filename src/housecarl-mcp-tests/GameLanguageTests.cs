@@ -19,6 +19,7 @@ namespace HousecarlMcpTests;
 /// folder (ARR's cleaned Creation Club masters) read every name as unresolved. Each test builds its own MO2 instance.
 /// </summary>
 [Trait("tier", "integration")]
+[Collection(MyGamesIsolation.Serial)]
 public sealed class GameLanguageTests : IDisposable
 {
     const string GermanName = "Großes Eisenschwert";
@@ -455,9 +456,12 @@ public sealed class GameLanguageTests : IDisposable
         Directory.CreateDirectory(myGames);
         File.WriteAllText(Path.Combine(myGames, "Skyrim.ini"), "[General]\r\nsLanguage=FRENCH\r\n");
         File.WriteAllText(Path.Combine(myGames, "SkyrimCustom.ini"), "[General]\r\nsLanguage=GERMAN\r\n");
-        svc.MyGamesDir = myGames;
 
-        Assert.Contains(GermanName, ReadName(svc, weapon));
+        // The product's one My Games seam, pointed here for this test only; the class runs alone, so no other reads it.
+        var isolated = Environment.GetEnvironmentVariable("HOUSECARL_MY_GAMES");
+        Environment.SetEnvironmentVariable("HOUSECARL_MY_GAMES", myGames);
+        try { Assert.Contains(GermanName, ReadName(svc, weapon)); }
+        finally { Environment.SetEnvironmentVariable("HOUSECARL_MY_GAMES", isolated); }
     }
 
     // ---- where a plugin's tables come from -----------------------------------------------------------

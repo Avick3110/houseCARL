@@ -306,7 +306,7 @@ public static class LocalizedWriteProbe
                 var without = ReadBack(g.PluginPath, g.DataDir);
                 var blank = without.Values.Count(v => string.IsNullOrEmpty(v));
                 Row("M3-369", null,
-                    $"a .bsa beside a game-Data-strings plugin: FolderHasOwnStrings={LoadOrderResolver.FolderHasOwnStrings(g.PluginPath)}, "
+                    $"a .bsa beside a game-Data-strings plugin: OwnFolderCarriesStringsFor={LocalizedStrings.OwnFolderCarriesStringsFor(g.PluginPath)}, "
                     + $"{blank}/{without.Count} values read BLANK through OpenOverlay (#369, fixed)");
             }
             finally { Nuke(Path.GetDirectoryName(Path.GetDirectoryName(g.DataDir)!)!); }
@@ -532,7 +532,7 @@ public static class LocalizedWriteProbe
                 if (File.Exists(victim)) File.Delete(victim);
             }
 
-        // A REAL .bsa beside the plugin that embeds no strings for THIS ModKey — enough for FolderHasOwnStrings, which
+        // A REAL .bsa beside the plugin that embeds no strings for THIS ModKey — enough for OwnFolderCarriesStringsFor, which
         // tests presence only. That is #369's mechanism, and the arm's point is that presence alone suppresses the
         // redirect. Real rather than fabricated: a malformed .bsa throws out of the open instead, which is a different
         // fact (measured separately in M3-bsa-malformed) and would make this arm about the wrong thing.

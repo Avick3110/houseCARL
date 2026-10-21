@@ -365,9 +365,6 @@ public sealed class LoadOrderResolver : IDisposable
     public static ISkyrimModGetter OpenOverlay(string path, string? dataDir, InstanceText? text = null)
         => SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path, dataDir, text));
 
-    /// <summary>True if the plugin's OWN folder carries a strings source FOR THIS PLUGIN: the read's rule for a plugin no MO2 layer carries tables for.</summary>
-    internal static bool FolderHasOwnStrings(string path) => LocalizedStrings.OwnFolderCarriesStringsFor(path);
-
     /// <summary>Take the plugin paths already in priority order and build the index without holding any plugin open; the order is INJECTED, and open failures land in <see cref="LoadFailures"/>.</summary>
     public static LoadOrderResolver Build(IReadOnlyList<string> orderedPluginPaths,
                                           Func<string, string?>? explainAbsence = null,
