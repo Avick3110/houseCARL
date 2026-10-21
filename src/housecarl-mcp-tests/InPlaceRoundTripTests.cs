@@ -404,6 +404,25 @@ public sealed class InPlaceRoundTripTests
         Assert.Contains("DATA", Encoding.ASCII.GetString(RecordBytes(path, "CELL", "HcPF_Partial")));
     }
 
+    /// <summary>A plugin in <paramref name="dir"/> holding one partial override of <paramref name="owner"/>'s interior
+    /// <paramref name="cell"/>, its body cut to what <paramref name="keep"/> leaves (default: the EDID).</summary>
+    static string PartialOverride(string dir, string name, SkyrimMod owner, Cell cell,
+        Func<List<(string Sig, byte[] Raw)>, List<(string Sig, byte[] Raw)>>? keep = null)
+    {
+        var donor = new SkyrimMod(ModKey.FromFileName(name), SkyrimRelease.SkyrimSE);
+        var over = cell.DeepCopy();
+        over.MajorRecordFlagsRaw = 0x4000;
+        donor.Cells.Records.Add(new CellBlock
+        {
+            GroupType = GroupTypeEnum.InteriorCellBlock, BlockNumber = owner.Cells.Records[0].BlockNumber,
+            SubBlocks = { new CellSubBlock { GroupType = GroupTypeEnum.InteriorCellSubBlock, BlockNumber = owner.Cells.Records[0].SubBlocks[0].BlockNumber, Cells = { over } } },
+        });
+        var path = Path.Combine(dir, name);
+        donor.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { owner }).Write();
+        EditRecord(path, "CELL", keep ?? (subs => subs.Where(s => s.Sig == "EDID").ToList()));
+        return path;
+    }
+
     // #1209: a merge writes a donor's partial override back as the donor held it.
     [Fact]
     public void AMergeWritesADonorsPartialFormBackByteIdentical()
@@ -414,17 +433,7 @@ public sealed class InPlaceRoundTripTests
         var masterPath = Path.Combine(dir, "HcPF_Master.esm");
         master.BeginWrite.ToPath(masterPath).WithNoLoadOrder().Write();
         var donorKey = ModKey.FromFileName("HcPF_Donor.esp");
-        var donor = new SkyrimMod(donorKey, SkyrimRelease.SkyrimSE);
-        var over = cell.DeepCopy();
-        over.MajorRecordFlagsRaw = 0x4000;
-        donor.Cells.Records.Add(new CellBlock
-        {
-            GroupType = GroupTypeEnum.InteriorCellBlock, BlockNumber = master.Cells.Records[0].BlockNumber,
-            SubBlocks = { new CellSubBlock { GroupType = GroupTypeEnum.InteriorCellSubBlock, BlockNumber = master.Cells.Records[0].SubBlocks[0].BlockNumber, Cells = { over } } },
-        });
-        var donorPath = Path.Combine(dir, "HcPF_Donor.esp");
-        donor.BeginWrite.ToPath(donorPath).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
-        EditRecord(donorPath, "CELL", subs => subs.Where(s => s.Sig == "EDID").ToList());
+        var donorPath = PartialOverride(dir, "HcPF_Donor.esp", master, cell);
         var held = RecordBytes(donorPath, "CELL", "HcPF_MasterCell");
         var outKey = ModKey.FromFileName("HcPF_Merged.esp");
         var outPath = Path.Combine(dir, outKey.FileName.String);
@@ -432,6 +441,28 @@ public sealed class InPlaceRoundTripTests
             new[] { "HcPF_Master.esm" }, n => n == "HcPF_Master.esm" ? masterPath : null, outPath, dataDir: null, isFaction: _ => false);
         Assert.True(m.Success, m.Error);
         Assert.Equal(held, RecordBytes(outPath, "CELL", "HcPF_MasterCell"));
+    }
+
+    // #1209 r1 #1: an addon's partial override of the base's own CELL is keyed through the merge's key map, so it is found.
+    [Fact]
+    public void AMergeOfABaseAndAnAddonWritesTheAddonsPartialOverrideOfTheBaseBack()
+    {
+        var dir = _w.NewDir();
+        var baseKey = ModKey.FromFileName("HcPF_Base.esp");
+        var baseMod = new SkyrimMod(baseKey, SkyrimRelease.SkyrimSE);
+        var cell = WriteEngine.AddInteriorCell(baseMod, "HcPF_BaseCell");
+        var basePath = Path.Combine(dir, baseKey.FileName.String);
+        baseMod.BeginWrite.ToPath(basePath).WithNoLoadOrder().Write();
+        var addonPath = PartialOverride(dir, "HcPF_Addon.esp", baseMod, cell);
+        var held = RecordBytes(addonPath, "CELL", "HcPF_BaseCell");
+        var outKey = ModKey.FromFileName("HcPF_Merged.esp");
+        var outPath = Path.Combine(dir, outKey.FileName.String);
+        var m = WritePatchBuilder.MergeBuild(
+            new[] { ("HcPF_Base.esp", basePath, baseKey), ("HcPF_Addon.esp", addonPath, ModKey.FromFileName("HcPF_Addon.esp")) },
+            outKey, new Dictionary<FormKey, FormKey> { [cell.FormKey] = new FormKey(outKey, cell.FormKey.ID) },
+            Array.Empty<string>(), _ => null, outPath, dataDir: null, isFaction: _ => false);
+        Assert.True(m.Success, m.Error);
+        Assert.Equal(held, RecordBytes(outPath, "CELL", "HcPF_BaseCell"));
     }
 
     // A subrecord over 64 KB, carried by XXXX, counts at its real length and XXXX itself is not counted.

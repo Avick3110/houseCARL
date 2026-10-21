@@ -2245,7 +2245,7 @@ public static class WritePatchBuilder
                 }
                 masterOverlays.Add((IDisposable)mov); resolved.Add(mov);
             }
-            try { WriteEngine.WriteInPlace(m, resolved, outPath, dataDir, isFaction: null, sources: donorsByLoadOrder.Select(d => d.Path).ToList()); }
+            try { WriteEngine.WriteInPlace(m, resolved, outPath, dataDir, isFaction: null, sources: donorsByLoadOrder.Select(d => d.Path).ToList(), renamed: dict); }
             catch (PartialFormException ex) { return MergeBuildResult.Fail(ex.Message); }
             catch (Exception ex)
             {

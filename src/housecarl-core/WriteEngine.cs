@@ -1382,7 +1382,8 @@ public static class WriteEngine
     /// <paramref name="sources"/> (default: the output itself) held it, and refuses if <paramref name="edited"/> names it.</summary>
     public static void WriteInPlace(SkyrimMod targetMod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath,
                                     string? dataDir, Func<FormKey, bool>? isFaction,
-                                    IReadOnlyList<string>? sources = null, IEnumerable<FormKey>? edited = null)
+                                    IReadOnlyList<string>? sources = null, IEnumerable<FormKey>? edited = null,
+                                    IReadOnlyDictionary<FormKey, FormKey>? renamed = null)
     {
         var expected = targetMod.ModKey.FileName.String;
         var actual = Path.GetFileName(outputPath);
@@ -1402,7 +1403,7 @@ public static class WriteEngine
         // Same composed-null-arm serialize guard as WritePatch — an in-place edit can compose a record too.
         if (isFaction is not null) OwnerRanks.Settle(targetMod, isFaction);   // the lane's faction test, for every owner its records brought in; null only where the caller settled already or has no owners
         string staged;
-        try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath, sources ?? new[] { outputPath }, edited?.ToHashSet() ?? new()); }
+        try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath, sources ?? new[] { outputPath }, edited?.ToHashSet() ?? new(), renamed); }
         // A value this file's own encoding cannot spell: in place there is no second pass, so this is a refusal.
         catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is { } bad)
         {
@@ -1429,7 +1430,8 @@ public static class WriteEngine
 
     /// <summary>Stage 1 of the in-place write: own declared masters, the counter verbatim with NO floor, no baseline, staged in the sibling temp.</summary>
     static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath,
-                                     IReadOnlyList<string> sources, IReadOnlySet<FormKey> edited)
+                                     IReadOnlyList<string> sources, IReadOnlySet<FormKey> edited,
+                                     IReadOnlyDictionary<FormKey, FormKey>? renamed)
     {
         var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
         var tmpPath = Path.Combine(tmpDir, Path.GetFileName(outputPath));
@@ -1437,7 +1439,7 @@ public static class WriteEngine
         try
         {
             SerializeInPlace(targetMod, ordered, outputPath, tmpPath, fileSystem: null);
-            PartialForms.WriteBack(tmpPath, sources, edited);
+            PartialForms.WriteBack(tmpPath, sources, edited, renamed);
             return tmpPath;
         }
         catch

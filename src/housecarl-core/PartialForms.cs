@@ -18,7 +18,8 @@ public static class PartialForms
         ((uint)rec.MajorRecordFlags & PartialFlag) != 0 && rec.RecordType.Type is "CELL" or "WRLD" or "DIAL";
 
     /// <summary>Puts each partial form of the staged write back byte for byte as its source held it, whatever it holds; one the call edits refuses.</summary>
-    public static void WriteBack(string staged, IReadOnlyList<string> sources, IReadOnlySet<FormKey> edited)
+    public static void WriteBack(string staged, IReadOnlyList<string> sources, IReadOnlySet<FormKey> edited,
+                                 IReadOnlyDictionary<FormKey, FormKey>? renamed = null)
     {
         var all = File.ReadAllBytes(staged);
         var fileName = Path.GetFileName(staged);
@@ -27,27 +28,31 @@ public static class PartialForms
         if (partial.Count == 0) return;
         var wanted = partial.Select(r => r.Key).ToHashSet();
         // A later source wins, as a later donor does in a merge.
-        var source = new Dictionary<FormKey, (byte[] Bytes, string? Edid)>();
-        foreach (var path in sources.Where(File.Exists))
+        var source = new Dictionary<FormKey, (byte[] Bytes, string? Edid, string File)>();
+        var read = sources.Where(File.Exists).ToList();
+        foreach (var path in read)
         {
             var bytes = File.ReadAllBytes(path);
-            foreach (var (key, at, rec) in SubrecordInventory.Records(bytes, ModKey.FromFileName(Path.GetFileName(path))))
+            var name = Path.GetFileName(path);
+            foreach (var (held, at, rec) in SubrecordInventory.Records(bytes, ModKey.FromFileName(name)))
             {
+                // A merge keys a donor's record by the FormKey it takes in the output.
+                var key = renamed is not null && renamed.TryGetValue(held, out var to) ? to : held;
                 if (!wanted.Contains(key) || !Is(rec)) continue;
                 var edid = SubrecordInventory.Contents(rec).Where(s => s.Sig == "EDID")
                     .Select(s => Encoding.Latin1.GetString(s.Data.Span).TrimEnd('\0')).FirstOrDefault();
-                source[key] = (bytes[at..(at + checked((int)rec.TotalLength))], edid);
+                source[key] = (bytes[at..(at + checked((int)rec.TotalLength))], edid, name);
             }
         }
         var put = new Dictionary<int, byte[]>();
         foreach (var (key, at, sig) in partial)
         {
             if (!source.TryGetValue(key, out var was))
-                throw new PartialFormException(Refusal(sig, null, key, fileName,
-                    "but houseCARL cannot find it in the plugin it came from to write it back unchanged",
-                    "clear its Partial Form flag in xEdit, then retry"));
+                throw new PartialFormException(Refusal(sig, null, key, $"bound for '{fileName}'",
+                    $"but houseCARL cannot find it in any plugin this call read ({string.Join(", ", read.Select(p => $"'{Path.GetFileName(p)}'"))}) to write it back unchanged",
+                    "clear its Partial Form flag in xEdit in the plugin that holds it, then retry"));
             if (edited.Contains(key))
-                throw new PartialFormException(Refusal(sig, was.Edid, key, fileName,
+                throw new PartialFormException(Refusal(sig, was.Edid, key, $"in '{was.File}'",
                     "and this call edits it, which houseCARL cannot write as a partial form",
                     "leave it out of the change, or clear its Partial Form flag in xEdit first, then retry"));
             var back = (byte[])was.Bytes.Clone();
@@ -93,8 +98,8 @@ public static class PartialForms
         return null;
     }
 
-    static string Refusal(string sig, string? edid, FormKey key, string fileName, string why, string remedy) =>
-        $"refused: {sig} {(edid is null ? "" : $"'{edid}' ")}{FormIdToken.Of(key)} in '{fileName}' is a partial form " +
+    static string Refusal(string sig, string? edid, FormKey key, string where, string why, string remedy) =>
+        $"refused: {sig} {(edid is null ? "" : $"'{edid}' ")}{FormIdToken.Of(key)} {where} is a partial form " +
         $"(record flag 0x4000, a placeholder override) {why}; nothing was written — {remedy}.";
 
     static int I32(byte[] all, int at) => BinaryPrimitives.ReadInt32LittleEndian(all.AsSpan(at));
