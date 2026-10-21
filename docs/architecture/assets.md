@@ -18,10 +18,13 @@ FaceGen's own contracts — the FormID→path transform, the check's classes, wh
   sighting wins, the same walk `Mo2LoadOrder.BuildFilenameMap` does for plugins.
 - **Among BSAs:** the higher plugin load-order rank, with the archive filename as a deterministic tie-break.
 
-`ArchiveDiscovery` ranks the archives off the same static profile the load order reads: Skyrim.ini's `[Archive]` set
-takes the low block, each active plugin's `X.bsa` and `X - Textures.bsa` rank above it in load order, and each
-archive *filename* resolves through the same overwrite > mods > Data map. A Skyrim.ini that cannot be found is a
-surfaced warning, never a silent omission.
+`ArchiveDiscovery` ranks the archives off the same static profile the load order reads: the `[Archive]` set of the
+INI the game reads (`GameIni`, see [`load-order-resolver.md`](load-order-resolver.md): the profile's own INIs or My
+Games, SkyrimCustom.ini over Skyrim.ini per key) takes the low block, each active plugin's `X.bsa` and
+`X - Textures.bsa` rank above it in load order, and each archive *filename* resolves through the same overwrite > mods
+> Data map. An archive list that cannot be found is a surfaced warning, never a silent omission. The order build's
+string-table winners (`GameLanguage.Read`) take the same archive list and ranks, so a change to the winner rule here
+moves where plugin names are read from too.
 
 **The order is injected.** `AssetResolver.Build` takes the roots, the enabled-mod priority list and the resolved
 archives with their ranks. The BSA winner is only as correct as those ranks, which the service computes; the
