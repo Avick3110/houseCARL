@@ -239,7 +239,7 @@ public sealed class ExcludedMasterRepointOutcome : ExcludedMasterOrder
         var brkPath = WriteMod("RpBroken", brkKey, brk, true);
 
         var tgt = new SkyrimMod(tgtKey, SkyrimRelease.SkyrimSE);
-        if (tgt.ModHeader.Stats.NextFormID < 0x800) tgt.ModHeader.Stats.NextFormID = 0x800;
+        tgt.ModHeader.Stats.NextFormID = 0x1A01;                                  // above the window, so the compaction moves it
         var tgtOwn = tgt.Weapons.AddNew(); tgtOwn.EditorID = "RpTargetOwn";
         tgtOwn.BasicStats = new WeaponBasicStats { Damage = 15 };
         var tgtPath = WriteMod("RpTarget", tgtKey, tgt, true);
