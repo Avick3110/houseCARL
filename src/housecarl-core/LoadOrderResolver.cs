@@ -420,7 +420,7 @@ public sealed class LoadOrderResolver : IDisposable
             try { ov = OpenOverlay(_paths[i], _dataDir); }
             catch (Exception ex)
             {
-                Exclude(i, $"could not be opened — {Concise(ex)}; the records it overrides cannot be listed, so reads of them are not marked",
+                Exclude(i, $"could not be opened — {Concise(ex)}; the records it overrides cannot be listed, so reads of them are not marked and writes to them are not refused",
                         failures, excluded, excludedPlugins);
                 unopenable.Add(i);   // cannot serve as a master overlay either; the write path must skip it
                 // The header is unreadable, so only the extension can settle whether this one loads into the light block.
@@ -459,12 +459,12 @@ public sealed class LoadOrderResolver : IDisposable
                         if (!excludedTouches.TryGetValue(fk, out var by)) excludedTouches[fk] = by = new List<int>();
                         by.Add(i);
                     }
-                    touched = "a record it overrides after that record's winner is read without its version, marked on summary, fields, tree, delta and dense reads, " +
-                              "and apply, forward and housecarl_copy refuse it";
+                    touched = "a record it overrides after that record's winner is read without its version, marked on summary, fields, tree, delta, dense and to_file reads, " +
+                              "and default-lane apply and forward on either lane refuse to write it";
                 }
                 catch (Exception walk)
                 {
-                    touched = $"the records it overrides could not be listed either ({Concise(walk)}), so reads of them are not marked";
+                    touched = $"the records it overrides could not be listed either ({Concise(walk)}), so reads of them are not marked and writes to them are not refused";
                 }
                 Exclude(i, $"contains a record Mutagen cannot parse, so the whole plugin is excluded from this " +
                            $"session (its records are not resolvable; {touched}) — read " +
