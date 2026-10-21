@@ -174,6 +174,35 @@ public sealed class OwnerRankWriteTests : IDisposable
     }
 
     [Fact]
+    public void AnInPlaceEditRepairsARankWordAnEarlierWriteRemapped()
+    {
+        // The word an earlier version wrote for -1: id FFFFFF in the plugin's own index (01FFFFFF here, one master).
+        var d = new SkyrimMod(ModKey.FromNameAndExtension("HcOrDamaged.esp"), SkyrimRelease.SkyrimSE);
+        var owner = new UntypedOwner();
+        owner.OwnerData.SetTo(_faction);
+        owner.VariableData.SetTo(new FormKey(d.ModKey, 0xFFFFFF));
+        var c = new Container(_rankThree, SkyrimRelease.SkyrimSE) { EditorID = "HcOrDamagedChest" };
+        c.Items = new() { new ContainerEntry
+        {
+            Item = new ContainerItem { Count = 1, Item = new FormLink<IItemGetter>(FormKey.Null) },
+            Data = new ExtraData { ItemCondition = 1f, Owner = owner },
+        } };
+        d.Containers.Add(c);
+        var path = Path.Combine(_root, d.ModKey.FileName.String);
+        using (var baseOv = SkyrimMod.CreateFromBinaryOverlay(_basePath, SkyrimRelease.SkyrimSE))
+            d.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
+
+        using (var r = LoadOrderResolver.Build(Order.Append(path).ToArray()))
+        {
+            var o = WritePatchBuilder.ApplyInPlace(r, TestCorpus.Rulebook, new[] { NoOp(_rankThree) }, path, d.ModKey.FileName.String);
+            Assert.True(o.Success, o.Error);
+        }
+        var (owners, masters) = ReadBack(path);
+        Assert.Equal(-1, Rank(owners[_rankThree]));
+        Assert.Equal(new[] { BaseName }, masters);
+    }
+
+    [Fact]
     public void AnInPlaceRemovalKeepsRanksOnTheRecordsItReserializes()
     {
         using (var r = LoadOrderResolver.Build(Order))
