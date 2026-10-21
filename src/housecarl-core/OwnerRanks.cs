@@ -41,10 +41,14 @@ public static class OwnerRanks
     /// <summary>A source record as a getter walk takes it: a settled deep copy when it holds a faction owner Mutagen left untyped, else the record itself, uncopied.</summary>
     public static IMajorRecordGetter? Settled(IMajorRecordGetter? rec, Func<FormKey, bool> isFaction)
     {
-        if (rec is null || !ExtraDataIn(rec).Any(ed => ed.Owner is IUntypedOwnerGetter uo && isFaction(uo.OwnerData.FormKey))) return rec;
         IMajorRecordGetter? copy;
-        try { copy = WriteEngine.TryDeepCopyRecord(rec); }
-        catch (TargetInvocationException ex) when (ex.InnerException is { } inner) { ExceptionDispatchInfo.Throw(inner); throw; }   // the parse fault's own message, not the reflection wrapper's
+        // Both the pre-check's property reads and the deep copy are reflection: a parse fault reports its own message, not the wrapper's.
+        try
+        {
+            if (rec is null || !ExtraDataIn(rec).Any(ed => ed.Owner is IUntypedOwnerGetter uo && isFaction(uo.OwnerData.FormKey))) return rec;
+            copy = WriteEngine.TryDeepCopyRecord(rec);
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is { } inner) { ExceptionDispatchInfo.Throw(inner); throw; }
         return copy is not null && Settle(copy, isFaction) ? copy : rec;
     }
 
