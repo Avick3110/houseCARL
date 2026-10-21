@@ -352,6 +352,8 @@ public sealed class ReadPinTests : IDisposable
     {
         _svc.CaptureView();                                                     // warms the index; the asset build is not taken yet
         var modlist = Path.Combine(_instance, "profiles", "Default", "modlist.txt");
+        // A touch that keeps the order: the asset build reads the profile itself rather than taking the order build's read.
+        File.AppendAllText(modlist, "\r\n");
         FileStream? held = null;
         // MO2 holding modlist.txt between the pin and the asset build makes the build throw.
         void HoldModlist() { _svc.ReadArea.AfterReadPinForGuard = null; held = new FileStream(modlist, FileMode.Open, FileAccess.Read, FileShare.None); }
@@ -380,6 +382,7 @@ public sealed class ReadPinTests : IDisposable
     {
         _svc.CaptureView();
         var modlist = Path.Combine(_instance, "profiles", "Default", "modlist.txt");
+        File.AppendAllText(modlist, "\r\n");   // the asset build reads the profile itself, as above
         FileStream? held = null;
         void HoldModlist() { _svc.ReadArea.AfterReadPinForGuard = null; held = new FileStream(modlist, FileMode.Open, FileAccess.Read, FileShare.None); }
         var bad = $"000FFE:{BaseName}";
