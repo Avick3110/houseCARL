@@ -391,6 +391,40 @@ public sealed class InPlaceRoundTripTests
         Assert.Contains("and this call edits it", o.Error);
     }
 
+    WritePatchBuilder.PatchOutcome SetFlags(string path, FormKey target, int flags)
+    {
+        using var r = LoadOrderResolver.Build(new[] { _w.MasterPath, path });
+        return WritePatchBuilder.ApplyInPlace(r, TestCorpus.Rulebook,
+            new[] { new WritePatchBuilder.PatchEdit { Target = target, Path = new[] { "MajorRecordFlagsRaw" }, Verb = "Set", Value = flags.ToString() } },
+            path, PluginName);
+    }
+
+    // #1209 r1 #11: setting the flag on a record is refused as an edit, not as a record houseCARL cannot find.
+    [Fact]
+    public void AnInPlaceApplySettingThePartialFlagIsRefusedAsAnEdit()
+    {
+        var (path, _) = StagePartialForms();
+        var plain = KeyOf(path, "HcPF_Plain");
+        var before = File.ReadAllBytes(path);
+        var o = SetFlags(path, plain, 0x4000);
+        AssertRefusedUntouched(o, path, before);
+        Assert.StartsWith($"refused: CELL {FormIdToken.Of(plain)} in '{PluginName}' is a partial form", o.Error);
+        Assert.Contains("and this call edits it", o.Error);
+        Assert.Contains("clear 0x4000 in its MajorRecordFlagsRaw in this same call", o.Error);
+    }
+
+    // #1209 r1 #40: the edit remedy's same-call route works: clearing the flag writes the record as a plain one.
+    [Fact]
+    public void AnInPlaceApplyClearingThePartialFlagWritesTheRecord()
+    {
+        var (path, _) = StagePartialForms();
+        var cell = KeyOf(path, "HcPF_Exterior");
+        var o = SetFlags(path, cell, 0);
+        Assert.True(o.Success, o.Error);
+        using var back = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+        Assert.Equal(0, back.EnumerateMajorRecords().Single(r => r.FormKey == cell).MajorRecordFlagsRaw & 0x4000);
+    }
+
     // #1209: an into= write goes through WritePatch (#1246), which this fix leaves as it was: no new refusal.
     [Fact]
     public void AnApplyIntoAPatchHoldingAPartialFormIsWrittenAsBefore()

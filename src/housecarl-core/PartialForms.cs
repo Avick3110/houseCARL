@@ -47,14 +47,16 @@ public static class PartialForms
         var put = new Dictionary<int, byte[]>();
         foreach (var (key, at, sig) in partial)
         {
-            if (!source.TryGetValue(key, out var was))
+            // An edit refuses first: a call that sets the flag makes a partial form no source holds.
+            var found = source.TryGetValue(key, out var was);
+            if (edited.Contains(key))
+                throw new PartialFormException(Refusal(sig, found ? was.Edid : null, key, $"in '{(found ? was.File : fileName)}'",
+                    "and this call edits it, which houseCARL cannot write as a partial form",
+                    "leave it out of the change, clear 0x4000 in its MajorRecordFlagsRaw in this same call, or clear its Partial Form flag in xEdit first, then retry"));
+            if (!found)
                 throw new PartialFormException(Refusal(sig, null, key, $"bound for '{fileName}'",
                     $"but houseCARL cannot find it in any plugin this call read ({string.Join(", ", read.Select(p => $"'{Path.GetFileName(p)}'"))}) to write it back unchanged",
                     "clear its Partial Form flag in xEdit in the plugin that holds it, then retry"));
-            if (edited.Contains(key))
-                throw new PartialFormException(Refusal(sig, was.Edid, key, $"in '{was.File}'",
-                    "and this call edits it, which houseCARL cannot write as a partial form",
-                    "leave it out of the change, or clear its Partial Form flag in xEdit first, then retry"));
             var back = (byte[])was.Bytes.Clone();
             Buffer.BlockCopy(all, at + 12, back, 12, 4);   // the FormID as this write spells it through its own masters
             // A DIAL's TIFC is its INFO count, which the write's own count replaces.
