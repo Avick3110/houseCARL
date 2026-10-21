@@ -2080,8 +2080,8 @@ public static class WritePatchBuilder
             srcOv = MidCallChange.Open(srcPath, () => LoadOrderResolver.OpenOverlay(srcPath, dataDir));
             declaredMasters = srcOv.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList();
             pPrime = new SkyrimMod(modKey, SkyrimRelease.SkyrimSE);
-            // The same plugin renumbered keeps its whole header (#1215); the renumber's RemapLinks maps ONAM, the write sets
-            // masters and the counts. LOCALIZED is dropped: P′ carries its strings inline, so it comes out DE-LOCALIZED.
+            // The same plugin renumbered keeps its whole header (#1215); the renumber's RemapLinks maps ONAM, NextObjectID is
+            // set below, the write sets masters and the record count. LOCALIZED is dropped: P′ carries its strings inline.
             pPrime.ModHeader.DeepCopyIn(srcOv.ModHeader);
             pPrime.ModHeader.Flags &= ~SkyrimModHeader.HeaderFlag.Localized;
             pPrime.IsSmallMaster = esl;
@@ -2122,7 +2122,7 @@ public static class WritePatchBuilder
                 }
                 overlays.Add((IDisposable)mov); resolved.Add(mov);
             }
-            // P′ is a fresh mod and never flagged localized, so its serialize emits no string tables.
+            // P′ has LOCALIZED cleared, so its serialize emits no string tables.
             try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir); }
             catch (Exception ex)
             {
