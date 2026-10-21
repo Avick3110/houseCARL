@@ -92,8 +92,8 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>The SUBSET of <see cref="Excluded"/> whose file could not be OPENED at all; its own set, not derived from the reason string — prose can be reworded, membership is a fact.</summary>
         public readonly HashSet<int> Unopenable;
         public readonly Dictionary<string, string> ExcludedPlugins;           // excluded plugin name → reason
-        /// <summary>Per key an excluded plugin defines or overrides, the excluded plugins touching it in load order, read off record headers; empty when nothing was excluded for a parse failure.</summary>
-        public readonly Dictionary<FormKey, string[]> ExcludedTouches;
+        /// <summary>Per key an excluded plugin defines or overrides, the load positions of the excluded plugins touching it, read off record headers; empty when nothing was excluded for a parse failure.</summary>
+        public readonly Dictionary<FormKey, int[]> ExcludedTouches;
         public readonly int MaxDepth;
         public readonly string Epoch;                                         // this build's fingerprint — immutable with the snapshot
 
@@ -118,7 +118,7 @@ public sealed class LoadOrderResolver : IDisposable
 
         public IndexSnapshot(Dictionary<FormKey, (ushort winner, ushort count, byte type)> index, Dictionary<FormKey, int[]> overriders,
                              IndexTypes types, Dictionary<FormKey, byte[]> mixedTypes, List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
-                             Dictionary<string, string> excludedPlugins, Dictionary<FormKey, string[]> excludedTouches, int maxDepth, string epoch,
+                             Dictionary<string, string> excludedPlugins, Dictionary<FormKey, int[]> excludedTouches, int maxDepth, string epoch,
                              bool[] light, int firstUnknownKind, string? firstUnknownKindName,
                              ContainmentIndex containment, bool[] masterBlock, FileStamp[] builtStamps)
         {
@@ -406,7 +406,7 @@ public sealed class LoadOrderResolver : IDisposable
         var excluded = new HashSet<int>();
         var unopenable = new HashSet<int>();                          // the could-not-be-OPENED subset
         var excludedPlugins = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var excludedTouches = new Dictionary<FormKey, List<string>>();   // keys an excluded plugin touches, off its record headers
+        var excludedTouches = new Dictionary<FormKey, List<int>>();      // keys an excluded plugin touches, off its record headers
         var light = new bool[_paths.Length];
         var masterBlock = new bool[_paths.Length];
         var containment = new ContainmentIndex();                     // child → parent, off the same walk
@@ -455,8 +455,8 @@ public sealed class LoadOrderResolver : IDisposable
                 {
                     foreach (var fk in RecordHeaderKeys.Read(_paths[i]).Distinct())
                     {
-                        if (!excludedTouches.TryGetValue(fk, out var by)) excludedTouches[fk] = by = new List<string>();
-                        by.Add(_names[i]);
+                        if (!excludedTouches.TryGetValue(fk, out var by)) excludedTouches[fk] = by = new List<int>();
+                        by.Add(i);
                     }
                     touched = "a record it also overrides is read without its version, marked as such, and apply and forward refuse it";
                 }
@@ -685,9 +685,14 @@ public sealed class LoadOrderResolver : IDisposable
         public IReadOnlyList<string> LoadFailures => _s.LoadFailures;
         public IReadOnlyDictionary<string, string> ExcludedPlugins => _s.ExcludedPlugins;
 
-        /// <summary>The excluded plugins that also define or override <paramref name="fk"/>, in load order; empty for every key on an order with no parse-excluded plugin.</summary>
+        /// <summary>The excluded plugins that define or override <paramref name="fk"/> and load after its indexed winner (or it has none), in load order; empty for every key on an order with no parse-excluded plugin.</summary>
         public IReadOnlyList<string> ExcludedTouchers(FormKey fk)
-            => _s.ExcludedTouches.TryGetValue(fk, out var by) ? by : Array.Empty<string>();
+        {
+            if (!_s.ExcludedTouches.TryGetValue(fk, out var by)) return Array.Empty<string>();
+            int winner = _s.Index.TryGetValue(fk, out var e) ? e.winner : -1;   // one loading before the winner is overridden by it
+            var names = _r._names;
+            return by.Where(i => i > winner).Select(i => names[i]).ToArray();
+        }
 
         /// <summary>The write refusal for a target an excluded plugin also touches, or null; one sentence every authoring lane asks.</summary>
         public string? ExcludedTouchRefusal(FormKey fk) =>
