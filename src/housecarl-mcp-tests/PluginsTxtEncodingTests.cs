@@ -30,7 +30,12 @@ public sealed class PluginsTxtEncodingTests : IDisposable
     }
 
     // Names for the host's own ANSI page, first ones first: Œ is 0x8C in cp1252 and a control character in Latin-1.
-    static readonly string[] HostNames = ["Œuvre.esp", "Épée.esp", "Rüstung.esp", TickedCyrillic, UntickedCyrillic, "鎧.esp", "剣.esp"];
+    // Every Windows ANSI page (874, 932, 936, 949, 950, 1250-1258) spells at least two of them.
+    static readonly string[] HostNames =
+    [
+        "Œuvre.esp", "Épée.esp", "Rüstung.esp", TickedCyrillic, UntickedCyrillic, "鎧.esp", "剣.esp", "劍.esp",
+        "Ξίφος.esp", "Ασπίδα.esp", "חרב.esp", "מגן.esp", "ดาบ.esp", "โล่.esp",
+    ];
 
     Mo2Composition Compose(Encoding pluginsEncoding, string ticked, string unticked)
     {
