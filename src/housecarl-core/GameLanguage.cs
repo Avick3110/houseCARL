@@ -32,7 +32,7 @@ public sealed class InstanceText
         if (_tables is null) return null;
         string? loose = null;
         (string, string)? archive = null;
-        foreach (var kind in new[] { "strings", "dlstrings", "ilstrings" })
+        foreach (var kind in LocalizedStrings.Kinds)
         {
             var file = $"{stem}_{Language}.{kind}";
             if (_tables.Loose.TryGetValue(file, out var dir)) loose ??= dir;
@@ -86,7 +86,7 @@ public static class GameLanguage
                 $"houseCARL cannot read this load order: {file} sets sLanguage={raw}, which is not a game language it "
                 + "knows; set it to the language your game is installed in (ENGLISH, GERMAN, FRENCH, RUSSIAN, …).");
 
-        var text = InstanceText.Of(language, ReadTables(comp.EnabledMods, modsDir, dataDir, overwriteDir, archives), dataDir);
+        var text = InstanceText.Of(language, ReadTables(language, comp.EnabledMods, modsDir, dataDir, overwriteDir, archives), dataDir);
         // English is what houseCARL always read, so only another language is held to having its tables.
         if (language != Language.English && skyrimPath is not null
             && WriteEngine.PluginIsLocalized(skyrimPath) == LocalizedFlagRead.Localized && text.WinnersFor("Skyrim") is null)
@@ -99,8 +99,8 @@ public static class GameLanguage
     }
 
     /// <summary>Every table file in a loose Strings folder (overwrite, enabled mods by priority, game Data: first wins)
-    /// and in a loaded archive (highest plugin rank first, archive name breaking a tie), the asset layer's precedence.</summary>
-    static InstanceText.Tables ReadTables(IReadOnlyList<string> enabledMods, string modsDir, string dataDir, string overwriteDir,
+    /// and in a loaded archive (highest plugin rank first, archive name breaking a tie), the asset layer's precedence; the order's language only.</summary>
+    static InstanceText.Tables ReadTables(Language language, IReadOnlyList<string> enabledMods, string modsDir, string dataDir, string overwriteDir,
                                           IReadOnlyList<ActiveArchive> archives)
     {
         var loose = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -114,7 +114,7 @@ public static class GameLanguage
             if (!Directory.Exists(dir)) continue;
             try
             {
-                foreach (var f in Directory.EnumerateFiles(dir, "*strings"))
+                foreach (var f in Directory.EnumerateFiles(dir, $"*_{language}.*strings"))
                     loose.TryAdd(Path.GetFileName(f), dir);
             }
             catch (IOException) { }                     // a Strings folder that will not list adds nothing, as the game sees none
@@ -123,7 +123,7 @@ public static class GameLanguage
 
         var byFile = new Dictionary<string, List<(string Path, string Layer, int Rank)>>(StringComparer.OrdinalIgnoreCase);
         foreach (var a in archives.GroupBy(a => a.Path, StringComparer.OrdinalIgnoreCase).Select(g => g.MaxBy(a => a.PluginRank)!))
-            foreach (var entry in LocalizedStrings.ArchiveTableFiles(a.Path))
+            foreach (var entry in LocalizedStrings.ArchiveTableFiles(a.Path).Where(e => e.Contains($"_{language}.", StringComparison.OrdinalIgnoreCase)))
             {
                 if (!byFile.TryGetValue(entry, out var list)) byFile[entry] = list = new();
                 list.Add((a.Path, a.OwningMod ?? AssetResolver.DataLayerName, a.PluginRank));

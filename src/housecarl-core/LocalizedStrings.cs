@@ -77,7 +77,7 @@ public sealed record LocalizedAssessment(
 public static class LocalizedStrings
 {
     /// <summary>The three table kinds a localized plugin's text is split across; a language is COMPLETE only with all three.</summary>
-    static readonly string[] Kinds = { "STRINGS", "DLSTRINGS", "ILSTRINGS" };
+    internal static readonly string[] Kinds = { "STRINGS", "DLSTRINGS", "ILSTRINGS" };
 
     /// <summary>Classify the plugin at <paramref name="pluginPath"/>; a null <paramref name="dataDir"/> means no game-Data set can be seen and the game-Data shapes are unreachable.</summary>
     public static LocalizedAssessment Assess(string pluginPath, string? dataDir)
