@@ -16,6 +16,7 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     const string BadName = "HcExBad.esp";
     const string CleanName = "HcExClean.esp";
     const string LateName = "HcExLate.esp";
+    const string BrokenName = "HcExBroken.esp";   // the bad plugin cut short, so its record headers cannot be walked either
 
     readonly string _root = Path.Combine(Path.GetTempPath(), "hc-excluded-touch-" + Guid.NewGuid().ToString("N"));
     readonly LoadOrderService _svc;
@@ -74,7 +75,10 @@ public sealed class ExcludedPluginTouchTests : IDisposable
             return path;
         }
         Place("MasterMod", master);
-        OverstatePkcuLength(Place("BadMod", bad, master));
+        var badPath = Place("BadMod", bad, master);
+        OverstatePkcuLength(badPath);
+        Directory.CreateDirectory(Path.Combine(mods, "BrokenMod"));
+        File.WriteAllBytes(Path.Combine(mods, "BrokenMod", BrokenName), OverstateNestedGroup(File.ReadAllBytes(badPath)));
         Place("CleanMod", clean, master, bad);
         Place("LateMod", late, master);
 
@@ -84,10 +88,10 @@ public sealed class ExcludedPluginTouchTests : IDisposable
             + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(inst, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        var names = new[] { master.ModKey.FileName.String, BadName, CleanName, LateName };
+        var names = new[] { master.ModKey.FileName.String, BadName, BrokenName, CleanName, LateName };
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", names) + "\r\n");
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), string.Join("", names.Select(n => "*" + n + "\r\n")));
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+LateMod\r\n+CleanMod\r\n+BadMod\r\n+MasterMod\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+LateMod\r\n+CleanMod\r\n+BrokenMod\r\n+BadMod\r\n+MasterMod\r\n");
         _svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
     }
 
@@ -111,42 +115,96 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         Assert.Fail("Mutagen wrote no PKCU subrecord for the package");
     }
 
+    /// <summary>Overstate the cell's temporary-children GRUP (type 9) so a header walk runs off the end; the top-level groups stay intact, so the file still opens.</summary>
+    static byte[] OverstateNestedGroup(byte[] b)
+    {
+        for (int i = 0; i < b.Length - 16; i++)
+        {
+            if (b[i] != (byte)'G' || b[i + 1] != (byte)'R' || b[i + 2] != (byte)'U' || b[i + 3] != (byte)'P' || BitConverter.ToInt32(b, i + 12) != 9) continue;
+            BitConverter.GetBytes(0x7FFFFFFF).CopyTo(b, i + 4);
+            return b;
+        }
+        Assert.Fail("Mutagen wrote no temporary-children group for the cell");
+        return b;
+    }
+
     static string Fid(FormKey fk) => FormIdToken.Of(fk);
 
-    string Note => OrderDegraded.TouchNote(new[] { BadName });
+    const string Note = "also touched by " + BadName + ", excluded this session as unreadable — its version is not in this answer, so this record's real winner is unknown.";
+
+    string Status(string? filter) =>
+        StatusTools.LoadOrderStatus(_svc, new ToolPathResolver(new UserConfigStore(Path.Combine(_root, "user.json"))), filter: filter);
 
     [Fact]
     public void TheBadPluginIsExcludedForAParseFailure()
     {
-        var status = StatusTools.LoadOrderStatus(_svc, new ToolPathResolver(new UserConfigStore(Path.Combine(_root, "user.json"))), filter: BadName);
+        var status = Status(BadName);
         Assert.Contains("EXCLUDED this session", status);
+        Assert.Contains("a record it also overrides is read without its version, marked as such, and apply and forward refuse it", status);
+        Assert.Contains("houseCARL does NOT read this plugin, so any record it overrides is answered without its version.", status);
         Assert.DoesNotContain("every other plugin is unaffected", status);
+
+        var all = Status(null);
+        Assert.Contains("houseCARL does NOT read these, so any record they override is answered without their version:", all);
+        Assert.DoesNotContain("every OTHER plugin works", all);
     }
 
     [Fact]
-    public void AReadOfARecordTheExcludedPluginOverridesIsMarked()
+    public void APluginWhoseHeadersCannotBeWalkedSaysItsTouchesAreNotMarked()
     {
-        var tree = RecordsTools.Records(_svc, formids: new[] { Fid(_overridden) }, project: new() { form = "tree" });
-        Assert.Contains("note: " + Note, tree);
-        var fields = RecordsTools.Records(_svc, formids: new[] { Fid(_overridden) },
-                                          project: new() { form = "fields", fields = new[] { "BasicStats.Damage" } }, format: "json");
-        var row = JsonDocument.Parse(fields).RootElement.GetProperty("records")[0];
-        Assert.Equal(Note, row.GetProperty("excluded_note").GetString());
+        var status = Status(BrokenName);
+        Assert.Contains("EXCLUDED this session", status);
+        Assert.Contains("the records it overrides could not be listed either (", status);
+        Assert.Contains("so reads of them are not marked", status);
+    }
+
+    public static TheoryData<string, string?> MarkedForms => new()
+    {
+        { "tree", null }, { "fields", null }, { "summary", null }, { "delta", null },
+        { "tree", "json" }, { "fields", "json" }, { "summary", "json" }, { "delta", "json" },
+    };
+
+    [Theory, MemberData(nameof(MarkedForms))]
+    public void AReadOfARecordTheExcludedPluginOverridesIsMarked(string form, string? format)
+    {
+        RecordsTools.RecordsProject Project() => new() { form = form, fields = form is "fields" or "delta" ? new[] { "BasicStats.Damage" } : null };
+        JsonElement? versus = form == "delta"
+            ? JsonDocument.Parse(JsonSerializer.Serialize(new { file = Path.Combine(_root, "inst", "mods", "BadMod", BadName) })).RootElement.Clone() : null;
+        var read = RecordsTools.Records(_svc, formids: new[] { Fid(_overridden) }, project: Project(), versus: versus, format: format);
+        if (format == "json") Assert.Contains("\"excluded_note\": \"" + Note.Replace("'", "\\u0027") + "\"", read);
+        else Assert.Contains("note: " + Note, read);
 
         var control = RecordsTools.Records(_svc, formids: new[] { Fid(_untouched) }, project: new() { form = "tree" });
+        Assert.Contains("HcExKeyword", control);
         Assert.DoesNotContain("also touched by", control);
+    }
+
+    [Fact]
+    public void ARecordInACellTheExcludedPluginOverridesIsMarked()
+    {
+        var tree = RecordsTools.Records(_svc, formids: new[] { Fid(_badRef), Fid(_cell) }, project: new() { form = "tree" });
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(tree, "note: " + System.Text.RegularExpressions.Regex.Escape(Note)).Count);
     }
 
     [Fact]
     public void ADefaultLaneWriteToARecordTheExcludedPluginOverridesIsRefused()
     {
-        string Set(FormKey fk, string path) => ApplyTools.Apply(_svc, dry_run: true,
-            ops: JsonDocument.Parse("[{\"formid\":\"" + Fid(fk) + "\",\"field_path\":\"" + path + "\",\"op\":\"Set\",\"value\":\"12\"}]").RootElement);
+        var refused = Apply(_overridden, "BasicStats.Damage", "12");
+        Assert.Contains(Fid(_overridden) + ": also touched by " + BadName + ", excluded this session as unreadable, so the record's real winner is unknown " +
+                        "and this write could undo that plugin's change.", refused);
 
-        var refused = Set(_overridden, "BasicStats.Damage");
-        Assert.Contains(OrderDegraded.TouchRefusal(Fid(_overridden), new[] { BadName }), refused);
+        var control = Apply(_untouched, "EditorID", "HcExKeywordRenamed");
+        Assert.False(control.StartsWith("error:", StringComparison.Ordinal), control);
+        Assert.Contains("HcExKeywordRenamed", control);
+        Assert.DoesNotContain("also touched by", control);
+    }
 
-        Assert.DoesNotContain("also touched by", Set(_untouched, "EditorID"));
+    [Fact]
+    public void ACopyFromSourceThatIsTheWinnerOfATouchedRecordIsRefused()
+    {
+        var r = ApplyTools.Apply(_svc, dry_run: true, ops: JsonDocument.Parse(
+            "[{\"formid\":\"" + Fid(_cleanWeapon) + "\",\"field_path\":\"BasicStats\",\"op\":\"CopyFrom\",\"from\":\"" + Fid(_overridden) + "\"}]").RootElement);
+        Assert.Contains(Fid(_overridden) + ": also touched by " + BadName, r);
     }
 
     [Fact]
@@ -289,5 +347,15 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         var text = CheckTools.CheckTool(_svc, plugins: new[] { CleanName }, findings: new[] { "errors" });
         Assert.Contains($"-> {_badOwn}   [target in excluded plugin {BadName}, which houseCARL could not read]", text);
         Assert.DoesNotContain("[target not defined by any active plugin]", text);
+
+        var json = JsonDocument.Parse(CheckTools.CheckTool(_svc, plugins: new[] { CleanName }, findings: new[] { "errors" }, format: "json"));
+        Assert.Contains("\"target_in_excluded\":[\"" + BadName + "\"]", json.RootElement.GetRawText().Replace(" ", "").Replace("\r", "").Replace("\n", ""));
+
+        // A copy outside the order is swept by the off-order branch, which classifies the same way.
+        var loose = Path.Combine(_root, "loose", "HcExCleanCopy.esp");
+        Directory.CreateDirectory(Path.GetDirectoryName(loose)!);
+        File.Copy(Path.Combine(_root, "inst", "mods", "CleanMod", CleanName), loose);
+        var offOrder = CheckTools.CheckTool(_svc, plugins: new[] { loose }, findings: new[] { "errors" });
+        Assert.Contains($"-> {_badOwn}   [target in excluded plugin {BadName}, which houseCARL could not read]", offOrder);
     }
 }
