@@ -25,13 +25,13 @@ missing one.
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import uuid
+import xml.etree.ElementTree as ET
 
 PROTOCOL = "2025-06-18"
 
@@ -70,15 +70,16 @@ def main():
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    pattern = os.path.join(args.root, "src", "housecarl-mcp", "bin", args.config,
-                           "net*", "housecarl-mcp.exe")
-    found = glob.glob(pattern)
-    if not found:
-        raise SystemExit(f"housecarl-mcp.exe not found at '{pattern}' -- build the solution first")
-    if len(found) > 1:
-        raise SystemExit(f"more than one housecarl-mcp.exe matches '{pattern}' ({', '.join(found)}) "
-                         "-- delete the stale target-framework folder")
-    exe = found[0]
+    props = os.path.join(args.root, "Directory.Build.props")
+    try:
+        tfm = ET.parse(props).getroot().findtext("./PropertyGroup/TargetFramework")
+    except (OSError, ET.ParseError) as e:
+        raise SystemExit(f"cannot read '{props}' ({e}) -- run from the repo root or pass --root")
+    if not tfm:
+        raise SystemExit(f"no TargetFramework in '{props}' -- run from the repo root or pass --root")
+    exe = os.path.join(args.root, "src", "housecarl-mcp", "bin", args.config, tfm.strip(), "housecarl-mcp.exe")
+    if not os.path.isfile(exe):
+        raise SystemExit(f"housecarl-mcp.exe not found at '{exe}' -- build the solution first")
 
     data_dir = os.path.join(tempfile.gettempdir(), "housecarl-toolslist-" + uuid.uuid4().hex)
     os.makedirs(data_dir, exist_ok=True)
