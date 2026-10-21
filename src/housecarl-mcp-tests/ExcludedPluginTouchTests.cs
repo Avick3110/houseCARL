@@ -243,6 +243,14 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     }
 
     [Fact]
+    public void ARefusalNamingTwoExcludedPluginsSpeaksOfBoth()
+    {
+        var r = OrderDegraded.TouchRefusal("000800:A.esm", new[] { "B.esp", "C.esp" }, hasWinner: true);
+        Assert.Contains("could undo those plugins' changes. Fix or remove those plugins", r);
+        Assert.DoesNotContain("that plugin", r);
+    }
+
+    [Fact]
     public void ACopyFromSourceThatIsTheWinnerOfATouchedRecordIsRefused()
     {
         var r = ApplyTools.Apply(_svc, dry_run: true, ops: JsonDocument.Parse(
