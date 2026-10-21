@@ -171,6 +171,9 @@ public sealed class CompactServicePolicyTests
         Assert.True(o.Success, o.Error);
         Assert.Equal(0, o.RecordsRenumbered);
         Assert.Contains("no originating records", o.Note);
+        var text = WriteTools.RenderCompact(o);
+        Assert.DoesNotContain("identify-pass scanned", text);
+        Assert.DoesNotContain(WriteSentences.CompactRuntimeConfigs, text);
         using var pp = SkyrimMod.CreateFromBinaryOverlay(o.OutputPath, SkyrimRelease.SkyrimSE);
         Assert.True(pp.IsSmallMaster);
         var weap = pp.EnumerateMajorRecords<IWeaponGetter>().Single();
