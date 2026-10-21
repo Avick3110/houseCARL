@@ -5,8 +5,9 @@ namespace HousecarlMcpTests;
 
 /// <summary>
 /// The built server needs the base .NET runtime and nothing else. Setup does not check for a runtime of its own:
-/// it shares the server's target framework, so setup starting proves the runtime, and that holds only while the
-/// server asks for no second shared framework (the ASP.NET Core one it dropped with .NET 10).
+/// it shares the server's target framework, so setup starting proves the runtime (unless roll-forward
+/// (DOTNET_ROLL_FORWARD) moves setup to a later major), and that holds only while the server asks for no second
+/// shared framework (the ASP.NET Core one it dropped with .NET 10).
 /// </summary>
 [Trait("tier", "unit")]
 public sealed class ServerRuntimeConfigTests
