@@ -101,6 +101,19 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   approximates that write rather than repeating it. Every in-place render that ran the check carries
   `WriteSentences.RoundTripChecked`, which claims only that: every subrecord kept at its length, gains, the rename and
   the four measured losses allowed, values not compared; the `into=` renders claim nothing about it.
+- A partial form (#1209) is a CELL, WRLD or DIAL with record flag `0x4000`, xEdit's placeholder override that holds at
+  most an EDID. Mutagen 0.54.4's Skyrim writer has no such flag (upstream Mutagen#731) and writes its default fields
+  into each: CELL `DATA`, `LTMP`; WRLD `ONAM`, `DATA`, `NAM0`, `NAM9`; DIAL `PNAM` (50.0), `DATA`, `SNAM`, `TIFC`.
+  `PartialForms.Restore` runs on every in-place serialize (`WriteInPlace`, so merge and compaction too, and the
+  round-trip check's capture): each partial form is cut back to its EDID, the dropped subrecords being exactly what
+  Mutagen writes for a fresh record of that type (derived at runtime, not listed) plus a DIAL's `TIFC`, the INFO count
+  Mutagen derives. Anything else there, from the file or the call's own edit, or a compressed partial form, refuses
+  the call in one sentence with nothing written (`PartialFormException`, whose message `SerializeFailure` passes
+  through). A default subrecord the file held explicitly is dropped by the cut and so refused by the round-trip check
+  as a loss. The check also refuses, as its own failure, any subrecord the write would add to a partial form. Group
+  sizes are recomputed; no other record's bytes change. Not covered: `WritePatch` (fresh patches and `into=`), so an
+  override copy of a partial form into a patch is unchanged; and reads, where winner resolution does not yet skip
+  partial forms as xEdit does.
 - A read-back proves what is in the file, never what wins in the ORDER.
 - A walk's source universe is the caller's pole list in order, resolved first-hit-wins, with no separate single-pole
   path: a length-1 list is the same loop running once.
@@ -462,7 +475,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   the standard order writes, keeps the male models and renders `RoundTripChecked`; a `BODT` record writes (the rename);
   each of the four allowed losses writes, and a loss outside their conditions (an `INAM` with IsSnow set, a `PHWT` tail with a value) still refuses; a subrecord grown past
   its length refuses; a file the check cannot read or parse is refused in the check's own words; a target linking an
-  inactive plugin still gets the lane's "NOT active" sentence; and
+  inactive plugin still gets the lane's "NOT active" sentence; an EDID-only partial CELL comes back byte-identical
+  beside a plain CELL written as before, a partial CELL carrying `DATA` refuses with the file untouched, and the check
+  names a subrecord added to a partial form; and
   `TheParserStillReadsTheReproductionWithoutTheMaleModels` pins Mutagen 0.54.4's read of that order.
   `CompactRoundTripTests` — an in-place compact of such a target, and a repoint of such a referencer, refused with
   every file byte-identical; the unacknowledged compact asks for consent without the check; a copy `into=` such a

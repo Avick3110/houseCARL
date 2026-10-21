@@ -1,0 +1,1 @@
+- **In-place edits no longer add data to placeholder (partial-form) cell, worldspace and topic records; one that holds more than an EditorID is refused instead of rewritten.** Check: edit a plugin with such a cell in place, then compare that cell's bytes in xEdit.
