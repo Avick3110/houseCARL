@@ -152,9 +152,11 @@ internal sealed partial class RecordWrites
                 if (!plan.Success) return WritePatchBuilder.CompactOutcome.Fail(plan.Error!);
                 remapDict = plan.Dict;
             }
+            // The records this run moves; an entry already at its compacted id changes no link, file or count (#1205).
+            var movedMap = remapDict.Where(kv => kv.Key != kv.Value).ToDictionary(kv => kv.Key, kv => kv.Value);
 
-            // The identify pass: which plugins outside the target reference a record being renumbered.
-            var targets = remapDict.Keys.ToHashSet();
+            // The identify pass: which plugins outside the target reference a record this run moves.
+            var targets = movedMap.Keys.ToHashSet();
             var transformSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { name };
             var id = targets.Count == 0
                 ? new RemapEngine.IdentifyResult(Array.Empty<RemapEngine.ExternalRef>(), Array.Empty<string>(), 0, 0,
@@ -282,7 +284,7 @@ internal sealed partial class RecordWrites
             if (willRepoint)
                 foreach (var ext in id.ExternalPlugins)
                 {
-                    var rep = RemapEngine.RepointInPlace(resolver, ext, remapDict);
+                    var rep = RemapEngine.RepointInPlace(resolver, ext, movedMap);
                     repointed.Add(new WritePatchBuilder.RepointReport(ext, rep.Success, rep.Error));
                 }
 
@@ -298,8 +300,8 @@ internal sealed partial class RecordWrites
                 var assetView = _host.Assets.Capture();
                 seqGate = assetView.ResolveForPlacement(srcSeqRel).Sources.Count > 0;   // VFS-aware (loose roots + active BSAs)
                 var outDir = Path.GetDirectoryName(outPath)!;
-                assetRename = AssetRenameService.CarryFaceGen(outPath, remapDict, assetView, outDir);
-                voiceRename = AssetRenameService.CarryVoice(outPath, remapDict, assetView, outDir);
+                assetRename = AssetRenameService.CarryFaceGen(outPath, movedMap, assetView, outDir);
+                voiceRename = AssetRenameService.CarryVoice(outPath, movedMap, assetView, outDir);
             }
             catch (Exception ex)
             {
@@ -348,7 +350,7 @@ internal sealed partial class RecordWrites
                 true, null, false, outPath, name, inPlace, esl, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
                 build.Bytes, id.ExternalPlugins, repointed, id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples,
                 markerNotes.Count > 0 ? string.Join(" ", markerNotes) : null, assetRename, id.ExternalOverriders, voiceRename, seqRegen,
-                id.UnscannablePlugins, remapDict.Count(kv => kv.Key != kv.Value));
+                id.UnscannablePlugins, movedMap.Count);
         }
     }
 

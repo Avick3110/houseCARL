@@ -116,10 +116,10 @@ public sealed class CompactUnscannableReferencerTests
             Directory.CreateDirectory(Path.Combine(modsDir, "TargetMod"));
             Directory.CreateDirectory(Path.Combine(modsDir, "RefMod"));
 
-            var weaponKey = new FormKey(TargetKey, 0x800);
+            var weaponKey = new FormKey(TargetKey, 0x1A01);                 // above the window, so the compaction moves it
             var target = new SkyrimMod(TargetKey, SkyrimRelease.SkyrimSE);
             target.Weapons.Add(new Weapon(weaponKey, SkyrimRelease.SkyrimSE) { EditorID = "HcCompactWeapon" });
-            target.ModHeader.Stats.NextFormID = 0x801;
+            target.ModHeader.Stats.NextFormID = 0x1A02;
             TargetPath = Path.Combine(modsDir, "TargetMod", TargetName);
             target.BeginWrite.ToPath(TargetPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).NoNextFormIDProcessing().Write();
 

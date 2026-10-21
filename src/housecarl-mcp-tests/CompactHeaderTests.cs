@@ -95,6 +95,54 @@ public sealed class CompactHeaderTests
         Assert.Contains(WriteSentences.CompactMovedNothing, text);
     }
 
+    // After a repointed compaction, Dep links Lib's record at its compacted id: a re-run moves nothing, so nothing references a move.
+    [Fact]
+    public void ARunThatMovesNothingNeitherRefusesNorRewritesAReferencer()
+    {
+        using var w = new CompactServiceWorld();
+        Assert.True(w.Svc.CompactPlugin("HcCsLib.esp", repointExternals: true, inPlace: true, acknowledge: true).Success);
+        var depPath = Path.Combine(w.Mods, "DepMod", CompactServiceWorld.DepKey.FileName.String);
+        var depBefore = File.ReadAllBytes(depPath);
+
+        var again = w.Svc.CompactPlugin("HcCsLib.esp", inPlace: true, acknowledge: true);
+
+        Assert.True(again.Success, again.Error);
+        Assert.Empty(again.ExternalPlugins);
+        Assert.Empty(again.Repointed);
+        Assert.Equal(depBefore, File.ReadAllBytes(depPath));
+    }
+
+    // Lib holds 0x800 (already at its compacted id) and 0x1A01 (moves): Dep links the moved one, Over the unmoved one.
+    [Fact]
+    public void APartialMoveRepointsOnlyAReferencerOfAMovedRecord()
+    {
+        using var w = new CompactServiceWorld();
+        var stays = new FormKey(CompactServiceWorld.LibKey, 0x800);
+        w.WriteMod("LibMod", CompactServiceWorld.LibKey, m =>
+        {
+            m.Weapons.Add(new Weapon(stays, SkyrimRelease.SkyrimSE) { EditorID = "HcCsLibStays" });
+            m.Weapons.Add(new Weapon(CompactServiceWorld.LibWeapon, SkyrimRelease.SkyrimSE) { EditorID = "HcCsLibWeap" });
+        });
+        var overPath = Path.Combine(w.Mods, "OverMod", CompactServiceWorld.OverKey.FileName.String);
+        using (var libOv = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(w.Mods, "LibMod", CompactServiceWorld.LibKey.FileName.String), SkyrimRelease.SkyrimSE))
+        {
+            var o = new SkyrimMod(CompactServiceWorld.OverKey, SkyrimRelease.SkyrimSE);
+            var fl = new FormList(new FormKey(CompactServiceWorld.OverKey, 0xA01), SkyrimRelease.SkyrimSE) { EditorID = "HcCsOverList" };
+            fl.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(stays));
+            o.FormLists.Add(fl);
+            o.BeginWrite.ToPath(overPath).WithLoadOrder(new[] { libOv }).Write();
+        }
+        var overBefore = File.ReadAllBytes(overPath);
+
+        var c = w.Svc.CompactPlugin("HcCsLib.esp", repointExternals: true, inPlace: true, acknowledge: true);
+
+        Assert.True(c.Success, c.Error);
+        Assert.Equal(1, c.RecordsMoved);
+        Assert.Equal("HcCsDep.esp", Assert.Single(c.ExternalPlugins), ignoreCase: true);
+        Assert.True(Assert.Single(c.Repointed).Success);
+        Assert.Equal(overBefore, File.ReadAllBytes(overPath));
+    }
+
     [Fact]
     public void TheReferencerRefusalSaysTheLinksMayResolveToOtherRecords()
     {
