@@ -28,6 +28,9 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     readonly FormKey _badRef;       // a placed object in that cell the bad plugin overrides
     readonly FormKey _cleanRef;     // a placed object in that cell the bad plugin does not touch
     readonly FormKey _cleanWeapon;  // the clean plugin's weapon, keyworded with the bad plugin's own keyword
+    readonly FormKey _injected;     // a keyword the bad plugin injects under the master's FormID space
+    readonly FormKey _missing;      // a master FormID no plugin defines
+    readonly FormKey _lateWeapon;   // the late plugin's weapon, keyworded with the injected and the missing keyword
 
     public ExcludedPluginTouchTests()
     {
@@ -57,6 +60,9 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         var badKw = bad.Keywords.AddNew(); badKw.EditorID = "HcExBadKeyword";
         _badOwn = badKw.FormKey;
         bad.Packages.AddNew().EditorID = "HcExBadPackage";
+        _injected = new FormKey(master.ModKey, 0xA00);
+        bad.Keywords.Add(new Keyword(_injected, SkyrimRelease.SkyrimSE) { EditorID = "HcExInjectedKeyword" });
+        _missing = new FormKey(master.ModKey, 0xA01);
 
         var clean = new SkyrimMod(ModKey.FromNameAndExtension(CleanName), SkyrimRelease.SkyrimSE);
         var cw = clean.Weapons.AddNew(); cw.EditorID = "HcExCleanWeapon";
@@ -66,6 +72,9 @@ public sealed class ExcludedPluginTouchTests : IDisposable
 
         var late = new SkyrimMod(ModKey.FromNameAndExtension(LateName), SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(late, weapon2)).BasicStats = new WeaponBasicStats { Damage = 50, Weight = 1 };
+        var lw = late.Weapons.AddNew(); lw.EditorID = "HcExLateWeapon";
+        _lateWeapon = lw.FormKey;
+        lw.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { _injected.ToLink<IKeywordGetter>(), _missing.ToLink<IKeywordGetter>() };
 
         var mods = Path.Combine(_root, "inst", "mods");
         string Place(string mod, SkyrimMod m, params ISkyrimModGetter[] order)
@@ -273,6 +282,26 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     }
 
     [Fact]
+    public void ResolveNamesGivesTheUnresolvedSentenceForEveryCause()
+    {
+        var project = new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Keywords" }, depth = 2, resolve_names = true };
+        var text = RecordsTools.Records(_svc, formids: new[] { Fid(_lateWeapon) }, project: project);
+        Assert.Contains("unresolved: Plugin 'HcExMaster.esm' IS in the load order, but defines no record 000A01", text);
+        Assert.DoesNotContain("unresolved: no active plugin defines this target", text);
+        var json = RecordsTools.Records(_svc, formids: new[] { Fid(_lateWeapon) }, project: project, format: "json");
+        Assert.Contains("\"error\": \"Plugin 'HcExMaster.esm' IS in the load order, but defines no record 000A01", json.Replace("\\u0027", "'"));
+    }
+
+    [Fact]
+    public void AWalkAsksTheFactForAKeyTheExcludedPluginInjects()
+    {
+        var text = RecordsTools.Records(_svc, formids: new[] { Fid(_lateWeapon) }, walk: new() { seed_paths = new[] { "Keywords" } },
+                                        project: new() { form = "chain" });
+        Assert.Contains("unresolved — Plugin 'HcExMaster.esm' IS in the load order, but defines no record 000A00", text);
+        Assert.Contains("a missing endpoint", text);   // the FormID nothing defines keeps the generic sentence
+    }
+
+    [Fact]
     public void AWalkSaysAnEndpointIsInTheExcludedPlugin()
     {
         var text = RecordsTools.Records(_svc, formids: new[] { Fid(_cleanWeapon) }, walk: new() { seed_paths = new[] { "Keywords" } },
@@ -286,7 +315,8 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     {
         var dense = RecordsTools.Records(_svc, formids: new[] { Fid(_overridden), Fid(_untouched) }, format: "dense",
                                          project: new() { form = "fields", fields = new[] { "EditorID" } });
-        Assert.Contains("also touched by " + BadName + ", excluded this session as unreadable", dense);
+        Assert.Contains("\"excluded_note\":\"also touched by " + BadName + ", excluded this session as unreadable", dense.Replace(": ", ":"));
+        Assert.DoesNotContain("\"editorid_note\"", dense);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(dense, "also touched by"));   // the untouched keyword's row owes none
     }
 

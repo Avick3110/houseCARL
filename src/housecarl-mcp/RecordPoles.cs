@@ -121,8 +121,8 @@ internal sealed partial class RecordReads
             return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null)
                    { SharedNote = s.Pole.InOrder ? SharedEditorIds.Note(pin, fk, s.Pole.RecordType, s.Pole.Plugin) : null,
                      // A subject read off the excluded plugin's own file carries its version, so that row owes no note.
-                     ExcludedNote = !s.Pole.InOrder && pin?.View.PluginPath(Path.GetFileName(s.Pole.Plugin)) is { } served
-                                    && pin.View.ExcludedPlugins.ContainsKey(Path.GetFileName(s.Pole.Plugin)) && PluginPaths.SamePluginFile(served, s.Pole.Plugin)
+                     ExcludedNote = !s.Pole.InOrder && s.Pole.Path is { } own && pin?.View.PluginPath(Path.GetFileName(own)) is { } served
+                                    && pin.View.ExcludedPlugins.ContainsKey(Path.GetFileName(own)) && PluginPaths.SamePluginFile(served, own)
                          ? null : Wire.ExcludedNote(pin, fk) };
         }
 
@@ -317,7 +317,7 @@ internal sealed partial class RecordReads
                                 : "No active plugin touches it either."));
                     }
                     return new PoleReading(rec, new DiffPole(arm.Plugin, arm.Where, false, rec.Type, rec.EditorId)
-                                                { Qualifier = arm.Layer ?? "off-order" }, null, null);
+                                                { Qualifier = arm.Layer ?? "off-order", Path = arm.Path }, null, null);
                 };
         }
     }

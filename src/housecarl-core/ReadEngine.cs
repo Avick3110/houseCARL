@@ -18,11 +18,7 @@ public sealed record FieldValue(string Path, bool HasValue, string? Token, strin
 /// <summary>The resolved identity of a form reference, behind the resolve_names annotation.</summary>
 public sealed record ResolvedRef(
     string Token, bool Resolved, string? Type = null, string? EditorId = null,
-    string? Name = null, string? Winner = null, string? Error = null)
-{
-    /// <summary>The target's defining plugin was excluded this session, so <see cref="Error"/> names it; false on every other ref.</summary>
-    public bool IntoExcluded { get; init; }
-}
+    string? Name = null, string? Winner = null, string? Error = null);
 
 /// <summary>A located record read out as structured fields: identity plus the requested (or all modeled) reads.</summary>
 public sealed record RecordFields(string Type, string FormKey, string? EditorId, IReadOnlyList<FieldValue> Fields, string? Name = null);
