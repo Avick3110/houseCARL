@@ -58,6 +58,7 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         var clean = new SkyrimMod(ModKey.FromNameAndExtension(CleanName), SkyrimRelease.SkyrimSE);
         var cw = clean.Weapons.AddNew(); cw.EditorID = "HcExCleanWeapon";
         cw.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { badKw.ToLink() };
+        clean.Keywords.Add(new Keyword(new FormKey(clean.ModKey, 0x1A00), SkyrimRelease.SkyrimSE) { EditorID = "HcExFarKeyword" });   // past the light range, so a compaction renumbers
 
         var late = new SkyrimMod(ModKey.FromNameAndExtension(LateName), SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(late, weapon2)).BasicStats = new WeaponBasicStats { Damage = 50, Weight = 1 };
@@ -158,6 +159,59 @@ public sealed class ExcludedPluginTouchTests : IDisposable
 
         // The excluded plugin loads last for the other weapon, so that one stays marked.
         Assert.Contains("also touched by " + BadName, RecordsTools.Records(_svc, formids: new[] { Fid(_overridden) }, project: new() { form = "tree" }));
+    }
+
+    [Fact]
+    public void AnInPlaceApplyToATouchedRecordIsNotRefused()
+    {
+        var r = ApplyTools.Apply(_svc, dry_run: true, in_place: "HcExMaster.esm", acknowledge: true,
+            ops: JsonDocument.Parse("[{\"formid\":\"" + Fid(_overridden) + "\",\"field_path\":\"BasicStats.Damage\",\"op\":\"Set\",\"value\":\"12\"}]").RootElement);
+        Assert.DoesNotContain("also touched by", r);
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+    }
+
+    [Fact]
+    public void AForwardRefusesUnlessItsSourceIsTheExcludedPluginsOwnFile()
+    {
+        var fromMaster = ForwardTools.Forward(_svc, formids: new[] { Fid(_overridden) }, source: "HcExMaster.esm", dry_run: true);
+        Assert.Contains("also touched by " + BadName + ", excluded this session as unreadable", fromMaster);
+
+        var badPath = Path.Combine(_root, "inst", "mods", "BadMod", BadName);
+        var fromBad = ForwardTools.Forward(_svc, formids: new[] { Fid(_overridden) }, source: badPath, dry_run: true);
+        Assert.DoesNotContain("also touched by", fromBad);
+
+        var inPlace = ForwardTools.Forward(_svc, formids: new[] { Fid(_overridden) }, source: LateName, in_place: CleanName, acknowledge: true, dry_run: true);
+        Assert.DoesNotContain("also touched by", inPlace);
+    }
+
+    [Fact]
+    public void ACopyFromTheWinnerOfATouchedRecordIsRefused()
+    {
+        var r = CopyTools.Copy(_svc, from: Fid(_overridden), seed_paths: new[] { "Keywords" }, new_editorid: "HcExCopy");
+        Assert.Contains("also touched by " + BadName + ", excluded this session as unreadable", r);
+    }
+
+    [Fact]
+    public void AnApplyToAChildWhoseParentTheExcludedPluginTouchesIsRefused()
+    {
+        var r = Apply(_cleanRef, "EditorID", "HcExRefRenamed");
+        Assert.Contains(Fid(_cleanRef) + ": its parent " + Fid(_cell) + ": also touched by " + BadName, r);
+    }
+
+    [Fact]
+    public void ACreateUnderATouchedParentDisclosesItInTheHostLine()
+    {
+        var r = CreateTools.Create(_svc, records: JsonDocument.Parse(
+            "[{\"record_type\":\"PlacedObject\",\"editorid\":\"HcExNewRef\",\"parent\":\"" + Fid(_cell) + "\",\"collection\":\"Temporary\"}]").RootElement);
+        Assert.Contains("it is also touched by " + BadName + ", excluded this session as unreadable, so this copy lacks that plugin's version", r);
+    }
+
+    [Fact]
+    public void AnInPlaceCompactionNamesTheExcludedPluginAsUnreadAndRefuses()
+    {
+        var r = WriteTools.CompactPlugin(_svc, source: CleanName, esl: true, in_place: true, acknowledge: true);
+        Assert.Contains("could not fully read " + BadName, r);
+        Assert.Contains("refused — this is an IN-PLACE rewrite", r);
     }
 
     string Apply(FormKey fk, string path, string value) => ApplyTools.Apply(_svc, dry_run: true,

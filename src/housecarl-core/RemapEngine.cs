@@ -72,8 +72,15 @@ public static class RemapEngine
         foreach (var plugin in resolver.PluginNames)
         {
             if (transformSet.Contains(plugin)) continue;                 // inside the set → its refs are INTERNAL (RemapLinks handles them)
-            if (view.ExcludedPlugins.ContainsKey(plugin)) continue;      // unparseable at build — already surfaced by the resolver
             if (!scannedNames.Add(plugin)) continue;                     // a duplicate name in the order — scan and list it once, never double-count
+            if (view.ExcludedPlugins.TryGetValue(plugin, out var excludedWhy))
+            {
+                if (view.IsUnopenable(plugin)) continue;                 // could not be opened at build — already surfaced by the resolver
+                // Excluded for a parse failure, so its references and overrides are unknown: named as unread, which refuses the in-place lane.
+                unscannable++;
+                unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.EnumerationFault, excludedWhy));
+                continue;
+            }
             bool pluginListed = false;
             bool pluginListedOverride = false;
             // The header read faulted: the record walk still runs, but the plugin is named once and never scanned.

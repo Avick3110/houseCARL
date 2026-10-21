@@ -59,6 +59,8 @@ internal sealed partial class RecordWrites
                 arms.Add(new SourceArm(SourcePoles.Winner, SourceArmKind.ActiveOrder, "the active load order (each record's winning version)",
                     fk =>
                     {
+                        // The winner's body would lack the excluded plugin's version; a throw here is a fault that stops the chain.
+                        if (view.ExcludedTouchRefusal(fk) is { } touched) throw new InvalidOperationException(touched);
                         var w = view.ResolveWinner(fk);
                         return w is null ? null : view.GetRecord(session, w.Value.WinnerPlugin, fk);
                     }));

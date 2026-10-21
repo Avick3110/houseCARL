@@ -317,7 +317,7 @@ public static class WritePatchBuilder
             order++;
             if (order == 1) InsidePhase1ResolveForGuard?.Invoke();         // test seam; null in the product
             IMajorRecordGetter? body = null; string? winnerPlugin = null; IMajorRecord? patchLocal = null;
-            if (view.ExcludedTouchRefusal(e.Target) is { } touched) { Problem(touched); continue; }
+            if (TouchRefusalUpChain(view, e.Target) is { } touched) { Problem(touched); continue; }
             var w = view.ResolveWinner(e.Target);
             if (w is not null)
             {
@@ -658,7 +658,6 @@ public static class WritePatchBuilder
         {
             order++;
             bool selfSource = false;   // the copy source lives in the TARGET's own file — see the lifetime note below
-            if (view.ExcludedTouchRefusal(e.Target) is { } touched) { Problem(touched); continue; }
             var body = gather.Body(targetName, e.Target);
             if (body is null)
             {
@@ -1285,7 +1284,10 @@ public static class WritePatchBuilder
         {
             if (!seen.Add(s.Target))
             { problems.Add($"{FormIdToken.Of(s.Target)}: forwarded more than once in this call — name each target once (one source per record)."); continue; }
-            if (view.ExcludedTouchRefusal(s.Target) is { } touched) { problems.Add(touched); continue; }
+            // In place edits the target's own copy; a source read off the excluded plugin's own file carries its version.
+            if (!selfIsTarget && view.ExcludedTouchRefusal(s.Target) is { } touched
+                && !(IsOffOrderSource(offOrder, s, view) && view.ExcludedTouchers(s.Target).All(x => view.PluginPath(x) is { } p && SameFile(p, offOrder!.Path))))
+            { problems.Add(touched); continue; }
             // Is the source THE FILE THIS CALL IS ABOUT TO WRITE? By NAME in order, by FULL-PATH identity off-order.
             bool sourceIsSelf = IsOffOrderSource(offOrder, s, view)
                 ? SameFile(offOrder!.Path, targetPath)
@@ -1336,6 +1338,15 @@ public static class WritePatchBuilder
         offOrder is not null
         && string.Equals(offOrder.Plugin, s.FromPlugin, StringComparison.OrdinalIgnoreCase)
         && !view.ContainsPlugin(s.FromPlugin);
+
+    /// <summary>The excluded-touch refusal for a target or any parent the override copies into the patch with it (CELL, WRLD, DIAL), or null.</summary>
+    static string? TouchRefusalUpChain(LoadOrderResolver.IndexView view, FormKey target)
+    {
+        if (view.ExcludedTouchRefusal(target) is { } own) return own;
+        for (var p = view.ParentOf(target); p is { } parent; p = view.ParentOf(parent))
+            if (view.ExcludedTouchRefusal(parent) is { } up) return $"{FormIdToken.Of(target)}: its parent {up}";
+        return null;
+    }
 
     /// <summary>Do two paths denote the same file? Full-path compare, never a filename compare.</summary>
     static bool SameFile(string a, string b)
@@ -2511,7 +2522,10 @@ public static class WritePatchBuilder
                                       + $"keep the residual shape, sort above it to assert this host, or inline '{w.WinnerPlugin}'s content deliberately: "
                                       + $"forward '{w.WinnerPlugin}'s version of the parent into a patch and create into THAT patch — the child hosts in the "
                                       + "forwarded body. Either order works: forwarding onto a parent a patch already holds keeps the children under it. "
-                                      + "Whichever way you sort, the new child is carried.)");
+                                      + "Whichever way you sort, the new child is carried.)")
+                            + (view.ExcludedTouchers(parentFk) is { Count: > 0 } ex
+                                ? $"; it is {OrderDegraded.TouchedBy(ex)}, so this copy lacks that plugin's version and can undo its change where this artifact loads after it"
+                                : "");
                     }
                     else
                     {
