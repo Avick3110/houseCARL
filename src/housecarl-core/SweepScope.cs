@@ -94,7 +94,11 @@ public sealed class SweepScope
 }
 
 /// <summary>One row of a <c>counts_only=true</c> histogram: a key and how many findings in the swept scope carry it.</summary>
-public sealed record SweepCount(string Key, int Count);
+public sealed record SweepCount(string Key, int Count)
+{
+    /// <summary>Of <see cref="Count"/>, the errors check's refs into a record an excluded plugin touches; 0 on every other histogram.</summary>
+    public int IntoExcluded { get; init; }
+}
 
 /// <summary>The error classes the errors family can be filtered to (<c>findings=</c>); excluding a class skips the work
 /// that finds it. Parse failures are deliberately not a member.</summary>
@@ -229,8 +233,8 @@ public static class SweepFindings
 
     /// <summary>Order a <c>counts_only=true</c> histogram for display: commonest first, ties broken by key so the
     /// output is stable across runs.</summary>
-    public static List<SweepCount> Histogram(Dictionary<string, int> acc)
-        => acc.Select(kv => new SweepCount(kv.Key, kv.Value))
+    public static List<SweepCount> Histogram(Dictionary<string, int> acc, Dictionary<string, int>? intoExcluded = null)
+        => acc.Select(kv => new SweepCount(kv.Key, kv.Value) { IntoExcluded = intoExcluded?.GetValueOrDefault(kv.Key) ?? 0 })
               .OrderByDescending(c => c.Count)
               .ThenBy(c => c.Key, StringComparer.OrdinalIgnoreCase)
               .ToList();

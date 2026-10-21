@@ -14,7 +14,7 @@ under ADR 0001. The scripts family's own boundary, the dialogue family's seed wo
 
 ### A reference into an excluded plugin
 
-A link `ErrorCheck` cannot resolve whose target a parse-excluded plugin defines or overrides is still listed, but as into that plugin (`DanglingRef.ExcludedBy`, json `target_in_excluded`), not as defined by no active plugin. It still counts as dangling, and the headline (text) and `dangling_into_excluded` (json) say how many of them point into an excluded plugin; the `counts_only=` tally keys them apart, by target plugin plus the excluded plugin's name.
+A link `ErrorCheck` cannot resolve whose target a parse-excluded plugin defines or overrides is still listed, but as into that plugin (`DanglingRef.ExcludedBy`, json `target_in_excluded`), not as defined by no active plugin. It still counts as dangling, and the headline (text) and `dangling_into_excluded` (json) say how many of them point into an excluded plugin; a `counts_only=` target row keeps the plugin name as its key and says how many of its refs point into an excluded plugin (text clause, json `into_excluded`).
 
 ### A DELETED record has no live body
 

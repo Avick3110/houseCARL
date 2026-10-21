@@ -2190,6 +2190,7 @@ static class JsonWire
         w.WriteStartObject();
         w.WriteString("key", row.Key);
         w.WriteNumber("count", row.Count);
+        if (row.IntoExcluded > 0) w.WriteNumber("into_excluded", row.IntoExcluded);
         w.WriteEndObject();
     }
 

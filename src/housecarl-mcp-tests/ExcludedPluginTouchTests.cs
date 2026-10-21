@@ -296,7 +296,11 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         var text = CheckTools.CheckTool(_svc, plugins: new[] { CleanName }, findings: new[] { "errors" });
         Assert.Contains("1 dangling ref(s) (1 of them into an excluded plugin houseCARL could not read)", text);
         var counts = CheckTools.CheckTool(_svc, plugins: new[] { CleanName }, findings: new[] { "errors" }, counts_only: true);
-        Assert.Contains(BadName + " (into excluded plugin " + BadName + ", which houseCARL could not read)", counts);
+        Assert.Contains("  " + BadName + " (1 of them into an excluded plugin houseCARL could not read)", counts);
+        var json = CheckTools.CheckTool(_svc, plugins: new[] { CleanName }, findings: new[] { "errors" }, counts_only: true, format: "json");
+        var row = JsonDocument.Parse(json).RootElement.GetProperty("families").GetProperty("errors").GetProperty("dangling_by_target_plugin").GetProperty("rows")[0];
+        Assert.Equal(BadName, row.GetProperty("key").GetString());
+        Assert.Equal(1, row.GetProperty("into_excluded").GetInt32());
     }
 
     [Fact]

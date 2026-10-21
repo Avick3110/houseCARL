@@ -107,7 +107,8 @@ static class CheckTextRender
     /// <summary>One histogram row; the first row of an axis carries the axis head, so the demand pass must ask with the row index the write will use.</summary>
     internal static string ComposeHistogramRow(HistogramAxis axis, SweepCount row, bool first)
     {
-        var line = "  " + row.Count.ToString().PadLeft(6) + "  " + row.Key + "\n";
+        var line = "  " + row.Count.ToString().PadLeft(6) + "  " + row.Key
+                   + (row.IntoExcluded > 0 ? $" ({row.IntoExcluded} of them into an excluded plugin houseCARL could not read)" : "") + "\n";
         return first ? axis.Head + line : line;
     }
 
