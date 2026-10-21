@@ -55,21 +55,26 @@ public static class OwnerRanks
     /// <summary>The properties of <paramref name="t"/> that can lead to an ExtraData, discovered from Mutagen's model and kept per type.</summary>
     static PropertyInfo[] Leading(Type t) => LeadingCache.GetOrAdd(t, _ => Discover(t, new HashSet<Type>()));
 
-    static PropertyInfo[] Discover(Type t, HashSet<Type> visiting)
+    // The cycle set is the current path: a type reached again through a sibling property is walked again.
+    static PropertyInfo[] Discover(Type t, HashSet<Type> path)
     {
-        if (!visiting.Add(t)) return Array.Empty<PropertyInfo>();
-        return t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Where(p => p.GetIndexParameters().Length == 0 && CanLead(p.PropertyType, visiting))
-                .ToArray();
+        if (!path.Add(t)) return Array.Empty<PropertyInfo>();
+        try
+        {
+            return t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(p => p.GetIndexParameters().Length == 0 && CanLead(p.PropertyType, path))
+                    .ToArray();
+        }
+        finally { path.Remove(t); }
     }
 
-    static bool CanLead(Type t, HashSet<Type> visiting)
+    static bool CanLead(Type t, HashSet<Type> path)
     {
         if (typeof(IExtraDataGetter).IsAssignableFrom(t)) return true;
         if (t != typeof(string) && t.GetInterfaces().Append(t).FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>)) is { } seq)
-            return CanLead(seq.GetGenericArguments()[0], visiting);
+            return CanLead(seq.GetGenericArguments()[0], path);
         // Only Mutagen's own Skyrim model can hold one; a major record nested under another is reached by EnumerateMajorRecords instead.
         if (t.Assembly != typeof(ExtraData).Assembly || typeof(IMajorRecordGetter).IsAssignableFrom(t)) return false;
-        return Discover(t, visiting).Length > 0;
+        return Discover(t, path).Length > 0;
     }
 }
