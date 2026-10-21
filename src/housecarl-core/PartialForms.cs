@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Binary.Headers;
 
 namespace HousecarlCore;
 
@@ -9,10 +10,12 @@ namespace HousecarlCore;
 public static class PartialForms
 {
     const uint PartialFlag = 0x4000;
+    const uint CompressedFlag = 0x40000;
     const int Header = 24;
 
     /// <summary>True for a record xEdit's Skyrim definitions call a partial form.</summary>
-    public static bool Is(string sig, uint flags) => (flags & PartialFlag) != 0 && sig is "CELL" or "WRLD" or "DIAL";
+    public static bool Is(MajorRecordFrame rec) =>
+        ((uint)rec.MajorRecordFlags & PartialFlag) != 0 && rec.RecordType.Type is "CELL" or "WRLD" or "DIAL";
 
     /// <summary>Puts each partial form of the staged write back byte for byte as its source held it; one the call edits, or whose source holds data, refuses.</summary>
     public static void WriteBack(string staged, IReadOnlyList<string> sources, IReadOnlySet<FormKey> edited)
@@ -20,8 +23,9 @@ public static class PartialForms
         var all = File.ReadAllBytes(staged);
         var fileName = Path.GetFileName(staged);
         var partial = SubrecordInventory.Records(all, ModKey.FromFileName(fileName))
-            .Where(r => Is(r.Rec.RecordType.Type, (uint)r.Rec.MajorRecordFlags)).Select(r => (r.Key, r.At)).ToList();
+            .Where(r => Is(r.Rec)).Select(r => (r.Key, r.At, Sig: r.Rec.RecordType.Type)).ToList();
         if (partial.Count == 0) return;
+        var wanted = partial.Select(r => r.Key).ToHashSet();
         // A later source wins, as a later donor does in a merge.
         var source = new Dictionary<FormKey, (byte[] Bytes, string? Edid, List<string> Data)>();
         foreach (var path in sources.Where(File.Exists))
@@ -29,18 +33,17 @@ public static class PartialForms
             var bytes = File.ReadAllBytes(path);
             foreach (var (key, at, rec) in SubrecordInventory.Records(bytes, ModKey.FromFileName(Path.GetFileName(path))))
             {
-                if (!Is(rec.RecordType.Type, (uint)rec.MajorRecordFlags)) continue;
+                if (!wanted.Contains(key) || !Is(rec)) continue;
                 var subs = SubrecordInventory.Contents(rec).ToList();
                 var edid = subs.Where(s => s.Sig == "EDID").Select(s => Encoding.Latin1.GetString(s.Data.Span).TrimEnd('\0')).FirstOrDefault();
-                // TIFC is a topic's INFO count, which the CK writes on a partial DIAL too.
+                // TIFC is a topic's INFO count, which the CK writes on a partial DIAL too; the write's own count replaces it below.
                 var data = subs.Select(s => s.Sig).Where(s => s != "EDID" && !(s == "TIFC" && rec.RecordType.Type == "DIAL")).Distinct().ToList();
                 source[key] = (bytes[at..(at + checked((int)rec.TotalLength))], edid, data);
             }
         }
         var put = new Dictionary<int, byte[]>();
-        foreach (var (key, at) in partial)
+        foreach (var (key, at, sig) in partial)
         {
-            var sig = Encoding.Latin1.GetString(all, at, 4);
             if (!source.TryGetValue(key, out var was))
                 throw new PartialFormException(Refusal(sig, null, key, fileName,
                     "but houseCARL cannot find it in the plugin it came from to write it back unchanged",
@@ -55,12 +58,15 @@ public static class PartialForms
                     "in xEdit remove that data or clear its Partial Form flag, then retry"));
             var back = (byte[])was.Bytes.Clone();
             Buffer.BlockCopy(all, at + 12, back, 12, 4);   // the FormID as this write spells it through its own masters
+            if (Tifc(back, 0) is { } had && Tifc(all, at) is { } now) Buffer.BlockCopy(all, now, back, had, 4);
             put[at] = back;
         }
+        int head = Header + I32(all, 4);
         var o = new MemoryStream(all.Length);
-        o.Write(all, 0, Header + I32(all, 4));
-        Copy(all, Header + I32(all, 4), all.Length, o, put);
-        File.WriteAllBytes(staged, o.ToArray());
+        o.Write(all, 0, head);
+        Copy(all, head, all.Length, o, put);
+        using var file = File.Create(staged);
+        file.Write(o.GetBuffer(), 0, (int)o.Length);
     }
 
     /// <summary>The records between p and end, each put-back one in place of its written bytes, every group size recomputed.</summary>
@@ -69,7 +75,7 @@ public static class PartialForms
         while (p < end)
         {
             int size = I32(all, p + 4);
-            if (Encoding.Latin1.GetString(all, p, 4) == "GRUP")
+            if (all.AsSpan(p, 4).SequenceEqual("GRUP"u8))
             {
                 int start = (int)o.Position;
                 o.Write(all, p, Header);
@@ -81,6 +87,15 @@ public static class PartialForms
             if (put.TryGetValue(p, out var back)) o.Write(back); else o.Write(all, p, Header + size);
             p += Header + size;
         }
+    }
+
+    /// <summary>Where the 4-byte TIFC payload of the uncompressed record at <paramref name="at"/> sits, if it has one.</summary>
+    static int? Tifc(byte[] all, int at)
+    {
+        if ((BinaryPrimitives.ReadUInt32LittleEndian(all.AsSpan(at + 8)) & CompressedFlag) != 0) return null;
+        for (int q = at + Header, end = at + Header + I32(all, at + 4); q < end; q += 6 + BinaryPrimitives.ReadUInt16LittleEndian(all.AsSpan(q + 4)))
+            if (all.AsSpan(q, 4).SequenceEqual("TIFC"u8) && BinaryPrimitives.ReadUInt16LittleEndian(all.AsSpan(q + 4)) == 4) return q + 6;
+        return null;
     }
 
     static string Refusal(string sig, string? edid, FormKey key, string fileName, string why, string remedy) =>

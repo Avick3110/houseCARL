@@ -325,16 +325,10 @@ public sealed class InPlaceRoundTripTests
     static byte[] RecordBytes(string path, string recordSig, string edid)
     {
         var b = File.ReadAllBytes(path);
-        int p = 24 + (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(4));
-        while (p < b.Length)
-        {
-            var sig = Encoding.ASCII.GetString(b, p, 4);
-            int size = (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p + 4));
-            if (sig == "GRUP") { p += 24; continue; }
-            if (sig == recordSig && Encoding.ASCII.GetString(b, p + 24, 6 + edid.Length).EndsWith(edid)) return b[p..(p + 24 + size)];
-            p += 24 + size;
-        }
-        throw new InvalidOperationException($"no {recordSig} {edid} in the file");
+        var (_, at, rec) = SubrecordInventory.Records(b, ModKey.FromFileName(Path.GetFileName(path))).Single(r =>
+            r.Rec.RecordType.Type == recordSig &&
+            SubrecordInventory.Contents(r.Rec).Any(s => s.Sig == "EDID" && Encoding.ASCII.GetString(s.Data.Span).TrimEnd('\0') == edid));
+        return b[at..(at + (int)rec.TotalLength)];
     }
 
     static FormKey KeyOf(string path, string edid)

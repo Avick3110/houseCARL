@@ -111,8 +111,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   only the FormID as the write spells it; group sizes are recomputed and no other record's bytes change. No subrecord is
   judged by its value. The write refuses, in one sentence naming the record by EDID and FormID token with nothing
   written, when the call edits that record (the lane passes its targets), when its source holds anything but an EDID (a
-  DIAL's `TIFC`, its INFO count, excepted), or when no source holds it (a renumbered record of the plugin's own); merge,
-  compaction, repoint and remove render that sentence as it is. The round-trip check is unchanged: it compares the
+  DIAL's `TIFC` excepted: its INFO count, which takes the count the write derives), or when no source holds it (a
+  renumbered record of the plugin's own); merge, compaction, repoint and remove render that sentence as it is. The round-trip check is unchanged: it compares the
   unedited Mutagen rewrite, whose gains on a partial form are allowed like any gain. Not covered: `WritePatch` (fresh
   patches and `into=`, #1246), which rewrites a whole existing patch, so every partial form in an `into=` target still
   gains Mutagen's defaults; and reads, where winner resolution does not yet skip partial forms as xEdit does.
