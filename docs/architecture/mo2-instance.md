@@ -81,9 +81,10 @@ it until a tool writes there.
 
 MO2 writes `plugins.txt` in the system ANSI code page (`QStringEncoder(System)`), so it is read in
 that code page unless its bytes are valid UTF-8, which is kept so a file that read before still does;
-a leading UTF-8 BOM is skipped before that choice, a UTF-16 or UTF-32 BOM names the encoding, and where Windows reports no ANSI page (the UTF-8
-system locale) the file is read as UTF-8. The one miss: an ANSI file whose every non-ASCII byte happens
-to form valid UTF-8 (cp1252 `Ã©`, bytes `C3 A9`) is read as UTF-8, so that name matches nothing in
+a leading UTF-8 BOM is skipped before that choice, a UTF-16 or UTF-32 BOM names the encoding, and
+where the system page is UTF-8 (65001, which .NET's code-page provider leaves to the built-in UTF-8)
+the file is read as UTF-8. The one miss: an ANSI file whose every non-ASCII byte happens to form
+valid UTF-8 (cp1252 `Ã©`, bytes `C3 A9`) is read as UTF-8, so that name matches nothing in
 `loadorder.txt`. `loadorder.txt` (MO2 writes it as UTF-8) and `modlist.txt` are read as UTF-8.
 
 MO2 holds `loadorder.txt` and `plugins.txt` open while it re-sorts, so a read landing in that
