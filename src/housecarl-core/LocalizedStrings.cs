@@ -179,33 +179,18 @@ public static class LocalizedStrings
         return (a.Shape, LocalizedTargetUnsupportedException.ShapeBody(a));
     }
 
-    /// <summary>Does the plugin's OWN folder carry a strings source FOR THIS PLUGIN in the game's language? The read side's redirect gate; it answers for the NAMED plugin, and any IO fault answers TRUE (#369).</summary>
-    public static bool OwnFolderCarriesStringsFor(string pluginPath)
-        => OwnFolderCarries(pluginPath, GameLanguage.LanguageOf(pluginPath).ToString());
-
-    /// <summary>Where a plugin whose tables are not beside it reads them from: the folder of the winning archive named for it when that archive carries its tables in the game's language (#1075), else the game Data. One home for the read and the shape census.</summary>
+    /// <summary>Where a plugin whose tables are not beside it finds its archive: the folder of the archive that wins its tables in the game's language when that is another MO2 layer (#1075), else the game Data. The read's own winner (<see cref="InstanceText.WinnersFor"/>), so census and read cannot disagree.</summary>
     public static (string Folder, string? Mod) ArchiveHomeFor(string pluginPath, string dataDir)
-        => GameLanguage.For(pluginPath) is { } text && ArchiveHomeIn(text, Path.GetFileNameWithoutExtension(pluginPath)) is { } home
-           && !string.Equals(home.Folder, Path.GetDirectoryName(pluginPath), StringComparison.OrdinalIgnoreCase)
-            ? home : (dataDir, null);
+        => GameLanguage.Current.WinnersFor(Path.GetFileNameWithoutExtension(pluginPath)) is { Archive: { } a }
+           && a.Layer != AssetResolver.DataLayerName && Path.GetDirectoryName(a.Path) is { } folder
+           && !string.Equals(folder, Path.GetDirectoryName(pluginPath), StringComparison.OrdinalIgnoreCase)
+            ? (folder, a.Layer) : (dataDir, null);
 
-    /// <summary>The mod folder whose winning archive carries this plugin's tables in the instance's language, or null for the game Data.</summary>
-    static (string Folder, string? Mod)? ArchiveHomeIn(InstanceText text, string stem)
-        => text.WinningArchive(stem) is { } win && win.OwningMod != "Data" && Path.GetDirectoryName(win.Path) is { } folder
-           && BsaEmbedding(folder, stem, text.Language.ToString()).Path is not null
-            ? (folder, win.OwningMod) : null;
+    /// <summary>Does the plugin's OWN folder carry its tables, in <paramref name="language"/>'s when it is not English (any language's for English, as before #1212)? The read's rule for a plugin no MO2 layer carries tables for; any IO fault answers TRUE (#369).</summary>
+    public static bool OwnFolderCarriesStringsFor(string pluginPath, Language language = Language.English)
+        => OwnFolderCarries(pluginPath, language == Language.English ? null : language.ToString());
 
-    /// <summary>Does the read of this plugin find string tables in the instance's language, beside it or at its archive home? The language refusal's question.</summary>
-    internal static bool HasTablesFor(string pluginPath, InstanceText text)
-    {
-        var language = text.Language.ToString();
-        var stem = Path.GetFileNameWithoutExtension(pluginPath);
-        return OwnFolderCarries(pluginPath, language) || ArchiveHomeIn(text, stem) is not null
-            || ReadStringsFolder(Path.Combine(text.DataDir, "Strings"), stem).Languages.ContainsKey(language)
-            || BsaEmbedding(text.DataDir, stem, language).Path is not null;
-    }
-
-    static bool OwnFolderCarries(string pluginPath, string language)
+    static bool OwnFolderCarries(string pluginPath, string? language)
     {
         try
         {
@@ -215,7 +200,7 @@ public static class LocalizedStrings
             var stem = Path.GetFileNameWithoutExtension(pluginPath);
             var loose = ReadStringsFolder(Path.Combine(folder, "Strings"), stem);
             if (loose.Read == StringsFolderRead.Unlistable) return true;
-            if (loose.Languages.ContainsKey(language)) return true;
+            if (language is null ? loose.Languages.Count > 0 : loose.Languages.ContainsKey(language)) return true;
             // BsaEmbedding answers non-null both when the archive embeds this plugin's tables and when it could not be parsed.
             var bsa = BsaEmbedding(folder, stem, language);
             if (bsa.FolderUnlistable) return true;
@@ -354,6 +339,27 @@ public static class LocalizedStrings
         }
         return string.Join(" ", parts);
     }
+
+    /// <summary>The string-table file names one archive carries under <c>strings\</c>, cached against the archive's own stamp; none for an archive that will not parse.</summary>
+    internal static IReadOnlyCollection<string> ArchiveTableFiles(string archivePath)
+    {
+        var stamp = FileStamp.Of(archivePath);
+        lock (TableFileCache)
+            if (TableFileCache.TryGetValue(archivePath, out var hit) && hit.Stamp == stamp) return hit.Files;
+        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (Archive.CreateReader(GameRelease.SkyrimSE, archivePath).TryGetFolder("strings", out var folder))
+                foreach (var f in folder.Files)
+                    if (Kinds.Contains(System.IO.Path.GetExtension(f.Path).TrimStart('.'), StringComparer.OrdinalIgnoreCase))
+                        files.Add(System.IO.Path.GetFileName(f.Path));
+        }
+        catch (Exception) { }   // Mutagen's own read of an unparseable archive throws where it is used; it wins nothing here
+        lock (TableFileCache) TableFileCache[archivePath] = (stamp, files);
+        return files;
+    }
+
+    static readonly Dictionary<string, (FileStamp Stamp, HashSet<string> Files)> TableFileCache = new(StringComparer.OrdinalIgnoreCase);
 
     static (bool Unlistable, List<ArchiveEntry> Entries) ArchiveStrings(string folder)
     {

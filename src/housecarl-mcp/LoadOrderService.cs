@@ -1,4 +1,4 @@
-﻿using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Aspects;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -15,7 +15,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     string _profileName;                           // the active profile (instance mode: from selected_profile)
     string _overwriteDir = "";                     // MO2's overwrite layer (instance mode: derived; explicit mode: none)
     bool _configured;                              // false ⇒ tools return the trained prompt instead of resolving
-    InstanceText? _text;                           // the game language and archive winners every plugin open under these roots takes
+    InstanceText? _text;                           // the order build's game language and string-table winners; bound to each call that reads this order
+    internal string? MyGamesDir;                   // test seam: the My Games folder a profile without its own INIs reads; null in the product
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
     readonly InPlaceConsent _inPlaceConsent;       // the in-place consent over _store; writes and assets take it through the door
     InPlaceConsent ILoadOrderHost.InPlaceConsent => _inPlaceConsent;
@@ -90,16 +91,16 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     public void Dispose()
     {
-        lock (_gate) { _resolver?.Dispose(); _resolver = null; _assetResolver?.Dispose(); _assetResolver = null; GameLanguage.Forget(_text); }
+        lock (_gate) { _resolver?.Dispose(); _resolver = null; _assetResolver?.Dispose(); _assetResolver = null; }
     }
 
-    /// <summary>Read the game language and archive winners for the roots a build is about to use, and publish them to every plugin open under those roots. Caller holds the gate.</summary>
-    void ReadGameLanguage(Mo2Roots r)
+    /// <summary>The order's game language and string-table winners, from the profile read the build just made; a language houseCARL cannot read throws here, before anything is published.</summary>
+    InstanceText ReadInstanceText(Mo2Roots r, Mo2OrderResult order)
     {
-        var old = _text;
-        GameLanguage.Use(_text = GameLanguage.Read(r.ProfileDir, r.ModsDir, r.DataDir, r.OverwriteDir,
-                                                   () => Mo2LoadOrder.ReadComposition(r.ProfileDir).EnabledMods));
-        GameLanguage.Forget(old);   // a no-op when the new text replaced it under the same roots
+        var ini = GameIni.For(r.ProfileDir, MyGamesDir);
+        var archives = ArchiveDiscovery.Discover(order.Composition, ini, r.ModsDir, r.DataDir, r.OverwriteDir).Archives;
+        var skyrim = order.OrderedPaths.FirstOrDefault(p => Path.GetFileName(p).Equals("Skyrim.esm", StringComparison.OrdinalIgnoreCase));
+        return GameLanguage.Read(ini, order.Composition, archives, r.ModsDir, r.DataDir, r.OverwriteDir, skyrim);
     }
 
     /// <summary>The corpus rulebook (corpus.json), loaded from the absolute CorpusPath on first use; the write pre-flight and the read scan's quantifier check share it.</summary>
@@ -193,8 +194,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     // A kept asset build must not be stranded by advancing the baseline here;
                     // contract in docs/architecture/load-order-service.md.
                     bool assetBuildIsBehind = _profileHeld is not null || _resolvedPaths.Count == 0;
-                    ReadGameLanguage(RootsLocked());
+                    var text = ReadInstanceText(RootsLocked(), order);
+                    GameLanguage.Bind(text);
                     _resolver = LoadOrderResolver.Build(paths, ExplainPluginAbsence, Counters);
+                    _text = text;
                     _resolvedPaths = paths;
                     _profileStamps = profileStamps;
                     if (assetBuildIsBehind) { InvalidateAssetResolver(); _profileHeld = null; }
@@ -212,6 +215,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     }
                     finally { Monitor.Exit(_writeGate); }
                 }
+                GameLanguage.Bind(_text);
                 return _resolver;
             }
         }
@@ -561,8 +565,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     AssetResolver BuildAssetResolverLocked()
     {
         var comp = Mo2LoadOrder.ReadComposition(_profileDir);                       // EnabledMods (priority) — cheap text parse
-        var gamePath = _dataDir.Length > 0 ? Path.GetDirectoryName(_dataDir.TrimEnd('\\', '/')) ?? "" : "";
-        var discovery = ArchiveDiscovery.Discover(_profileDir, _modsDir, _dataDir, _overwriteDir, gamePath);
+        var discovery = ArchiveDiscovery.Discover(comp, GameIni.For(_profileDir, MyGamesDir), _modsDir, _dataDir, _overwriteDir);
         _assetWarnings = discovery.Warnings;
         _activeArchives = discovery.Archives;   // kept alongside the resolver: archive filename → owning plugin (native-pairing provenance)
         _enabledModsAtBuild = comp.EnabledMods; // same build: the mod set behind this resolver (native-pairing loader scan)
@@ -943,9 +946,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
         if (paths.Count > 0 && !paths.SequenceEqual(_resolvedPaths, StringComparer.OrdinalIgnoreCase))
         {
-            // The set or order genuinely changed: build FIRST so the old snapshot survives a throw, then dispose and swap.
+            // The set or order genuinely changed: read the language and build FIRST so the old snapshot survives a throw, then dispose and swap.
+            var text = ReadInstanceText(roots, order);
             InvalidateAssetResolver();   // the active mod/archive set changed → the asset resolver rebuilds lazily
-            ReadGameLanguage(roots);     // and so may the archive winners a plugin's strings come from
+            GameLanguage.Bind(text);
             if (_resolver is not null)
             {
                 // The rebuild carries the explainer too, or a profile change would drop every refusal to the flat not-found.
@@ -955,6 +959,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                 _resolver.Dispose();
                 _resolver = rebuilt;
             }
+            _text = text;
             _resolvedPaths = paths;
             _orderWarnings = order.Warnings;
             _profileStamps = profileStamps;
@@ -962,9 +967,11 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         }
         if (paths.Count > 0)
         {
-            // The profile was touched but the resolved order is identical, so no deep re-index; the asset resolver still drops and the baseline advances.
+            // The profile was touched but the resolved order is identical, so no deep re-index; the language is re-read
+            // (a refusal throws before anything moves), the asset resolver drops and the baseline advances.
+            var text = ReadInstanceText(roots, order);
             InvalidateAssetResolver();
-            ReadGameLanguage(roots);
+            GameLanguage.Bind(_text = text);
             _orderWarnings = order.Warnings;
             _profileStamps = profileStamps;
             return true;
@@ -987,7 +994,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     Mo2Roots ILoadOrderHost.CaptureRoots()
     {
-        lock (_gate) { EnsurePathsDerived(); return RootsLocked(); }
+        lock (_gate) { EnsurePathsDerived(); GameLanguage.Bind(_text); return RootsLocked(); }
     }
 
     /// <summary>One <c>_gate</c> hold: the configured check, the roots and the built plugin names; throws the unconfigured prompt when there is no instance.</summary>
@@ -997,6 +1004,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         {
             if (!_configured) throw NotConfigured();
             EnsurePathsDerived();
+            GameLanguage.Bind(_text);
             return new OutputRoots(RootsLocked(), _resolver?.PluginNames);
         }
     }

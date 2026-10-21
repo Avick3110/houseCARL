@@ -1336,7 +1336,7 @@ public static class WriteEngine
             else
                 // The strict encoder is the CHECK: a value the language default cannot spell stops the write rather
                 // than landing as '?'. A new file has no bytes to preserve, so the whole thing goes out as UTF-8.
-                try { Serialize(PluginTextEncoding.LegacyBundleFor(outputPath)); }
+                try { Serialize(PluginTextEncoding.LegacyBundle); }
                 catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is not null)
                 {
                     CleanupStaged(tmpPath);
@@ -1405,7 +1405,7 @@ public static class WriteEngine
         catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is { } bad)
         {
             throw new UnspellableTextException(
-                PluginTextEncoding.UnspellableRefusal(bad, outputPath), bad);
+                PluginTextEncoding.UnspellableRefusal(bad, Path.GetFileName(outputPath)), bad);
         }
         catch (Exception ex) when (RootNullArm(ex) is { } nre) { throw new NullArmSerializeException(nre); }
         // A localized target never reaches here, so the serialize emitted no tables and this is a single-file swap.
@@ -2974,7 +2974,9 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
 
     /// <summary>Where the archive naming this plugin's tables was found — beside the plugin, in another mod folder, or in the game folder.</summary>
     static string BsaWhere(LocalizedAssessment a)
-        => a.BsaModFolder is { } mod ? $"in the mod folder '{mod}'" : a.BsaInGameData ? "in your game's Data folder" : "beside the plugin";
+        => a.BsaModFolder is { } mod
+            ? mod == AssetResolver.OverwriteLayerName ? "in MO2's overwrite folder" : $"in the mod folder '{mod}'"
+            : a.BsaInGameData ? "in your game's Data folder" : "beside the plugin";
 
     /// <summary>What the <c>Strings\</c> folder beside the plugin holds, for a plugin nothing in it matched; it asserts no unchecked absence.</summary>
     static string NothingMatched(LocalizedAssessment a)

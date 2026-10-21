@@ -7,7 +7,7 @@ namespace HousecarlCore;
 
 /// <summary>The resolved active order plus any non-fatal problems — surfaced, not swallowed; <see cref="OrderedPaths"/> is in resolver winner order, highest priority last.</summary>
 public sealed record Mo2OrderResult(
-    IReadOnlyList<string> OrderedPaths, IReadOnlyList<string> Warnings, int ActiveCount)
+    IReadOnlyList<string> OrderedPaths, IReadOnlyList<string> Warnings, int ActiveCount, Mo2Composition Composition)
 {
     public int ResolvedCount => OrderedPaths.Count;
 }
@@ -76,7 +76,7 @@ public static class Mo2LoadOrder
                     "trigger an MO2 refresh / re-sort so it re-writes the profile files).");
         }
 
-        return new Mo2OrderResult(orderedPaths, warnings, active);
+        return new Mo2OrderResult(orderedPaths, warnings, active, comp);
     }
 
     /// <summary>Parse the profile's enabled/disabled composition from the three profile text files; the diagnostic re-reads this fresh each call, and <see cref="Build"/> adds the physical-path resolution on top.</summary>

@@ -359,20 +359,9 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>Open one plugin as a lazy binary overlay — THE single overlay-open choke point, wiring localized-string resolution; contract in docs/architecture/load-order-resolver.md.
     /// Public because the off-order and donor read lanes reuse it as a pure (path, dataDir) factory that touches no resolver index.</summary>
     public static ISkyrimModGetter OpenOverlay(string path, string? dataDir)
-    {
-        if (dataDir is not null && !FolderHasOwnStrings(path))
-        {
-            var prm = PluginTextEncoding.ReadWith(path, new StringsReadParameters
-            {
-                BsaFolderOverride = LocalizedStrings.ArchiveHomeFor(path, dataDir).Folder,
-                StringsFolderOverride = Path.Combine(dataDir, "Strings"),
-            });
-            return SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, prm);
-        }
-        return SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path));
-    }
+        => SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path, dataDir));
 
-    /// <summary>True if the plugin's OWN folder carries a strings source FOR THIS PLUGIN; one home, <see cref="LocalizedStrings.OwnFolderCarriesStringsFor"/>, so read and refusal cannot disagree.</summary>
+    /// <summary>True if the plugin's OWN folder carries a strings source FOR THIS PLUGIN: the read's rule for a plugin no MO2 layer carries tables for.</summary>
     internal static bool FolderHasOwnStrings(string path) => LocalizedStrings.OwnFolderCarriesStringsFor(path);
 
     /// <summary>Take the plugin paths already in priority order and build the index without holding any plugin open; the order is INJECTED, and open failures land in <see cref="LoadFailures"/>.</summary>
@@ -384,8 +373,6 @@ public sealed class LoadOrderResolver : IDisposable
             throw new ArgumentException(
                 $"the load order holds {orderedPluginPaths.Count:N0} plugins, past the {ushort.MaxValue:N0} the order index can number; " +
                 "check the plugin list handed to houseCARL.");
-        // A game language with no string tables refuses the whole order once, rather than every plugin as a load failure.
-        if (orderedPluginPaths.Count > 0) PluginTextEncoding.ThrowIfRefused(orderedPluginPaths[0]);
         var paths = new string[orderedPluginPaths.Count];
         var names = new string[orderedPluginPaths.Count];
         var stamps = new FileStamp[orderedPluginPaths.Count];

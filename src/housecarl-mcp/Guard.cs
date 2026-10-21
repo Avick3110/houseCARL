@@ -10,6 +10,7 @@ internal static class Guard
     public static string Tool(string tool, Func<string> body, CancellationToken ct = default)
     {
         using var mark = MidCallChange.Begin();   // a plugin changed mid-call refuses the whole call
+        using var language = GameLanguage.Begin();   // the service binds its order's language and string winners to this call
         try { var answer = body(); return Changed(mark) ?? answer; }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception) when (Changed(mark) is { } refusal) { return refusal; }
@@ -22,6 +23,7 @@ internal static class Guard
     public static async Task<string> Tool(string tool, Func<Task<string>> body, CancellationToken ct = default)
     {
         using var mark = MidCallChange.Begin();
+        using var language = GameLanguage.Begin();
         try { var answer = await body(); return Changed(mark) ?? answer; }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception) when (Changed(mark) is { } refusal) { return refusal; }
