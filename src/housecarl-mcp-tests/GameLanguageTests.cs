@@ -616,6 +616,23 @@ public sealed class GameLanguageTests : IDisposable
         Assert.Null(text.FoldersFor(plugin, DataDir));
     }
 
+    /// <summary>The order's own copy keeps its winners however its path is spelled: forward slashes find the
+    /// translation's tables as the order's spelling does.</summary>
+    [Fact]
+    public void AServedPluginSpelledAnotherWayKeepsItsWinners()
+    {
+        var plugin = Path.Combine(ModDir("SwordMod"), "HcSw.esp");
+        WriteLocalized(plugin, Language.English, "Big Iron Sword");
+        var strings = Path.Combine(ModDir("SwordMod Translation"), "Strings");
+        Directory.CreateDirectory(strings);
+        foreach (var f in Directory.GetFiles(Path.Combine(ModDir("SwordMod"), "Strings"))) File.Copy(f, Path.Combine(strings, Path.GetFileName(f)));
+        Open(null, new[] { "SwordMod Translation", "SwordMod" }, new[] { "HcSw.esp" });
+
+        var text = GameLanguage.Read(GameIni.For(Profile), Mo2LoadOrder.ReadComposition(Profile), new ArchiveDiscoveryResult(Array.Empty<ActiveArchive>(), Array.Empty<string>()),
+                                     Mods, DataDir, "", new[] { plugin });
+        Assert.Equal(strings, text.FoldersFor(plugin.Replace('\\', '/'), DataDir)?.Strings);
+    }
+
     /// <summary>A copy of a plugin the order does not serve (an older version in a disabled mod) reads the tables
     /// beside it, not the enabled copy's.</summary>
     [Fact]
