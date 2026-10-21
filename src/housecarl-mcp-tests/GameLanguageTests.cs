@@ -420,6 +420,33 @@ public sealed class GameLanguageTests : IDisposable
         Assert.False(Holds(patch, Encoding.UTF8.GetBytes(RussianNewName)), "the master's tables put the patch in UTF-8");
     }
 
+    /// <summary>A lane is recorded per language: a master whose English tables are UTF-8, read under English first, still
+    /// leaves a Russian patch over it in Windows-1251 once the language changes.</summary>
+    [Fact]
+    public void ALaneReadUnderEnglishDoesNotCarryIntoRussian()
+    {
+        var key = new ModKey("HcRe", ModType.Plugin);
+        var dir = ModDir("BilingualMaster");
+        var mod = new SkyrimMod(key, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
+        var w = mod.Weapons.AddNew();
+        w.EditorID = "HcReWeap";
+        w.Name = new TranslatedString(Language.Russian, RussianName);
+        w.Name.Set(Language.English, "Épée de fer");
+        w.BasicStats = new WeaponBasicStats { Damage = 7, Weight = 1 };
+        using (var sw = new StringsWriter(GameRelease.SkyrimSE, key, Path.Combine(dir, "Strings"),
+                                          new Always(new MutagenEncodingWrapper(Encoding.UTF8)), new System.IO.Abstractions.FileSystem()))
+            mod.BeginWrite.ToPath(Path.Combine(dir, "HcRe.esp")).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).WithStringsWriter(sw).Write();
+        var svc = Open("ENGLISH", new[] { "BilingualMaster" }, new[] { "HcRe.esp" });
+        Assert.Contains("Épée de fer", ReadName(svc, w.FormKey));
+
+        File.WriteAllText(Path.Combine(Profile, "Skyrim.ini"), "[General]\r\nsLanguage=RUSSIAN\r\n");
+        File.AppendAllText(Path.Combine(Profile, "modlist.txt"), "\r\n");
+        Assert.Contains(RussianName, ReadName(svc, w.FormKey));
+
+        Assert.DoesNotContain("error:", Set(svc, w.FormKey, "Name", RussianNewName, "HcRePatch.esp"));
+        Assert.True(Holds(PatchPath("HcRePatch.esp"), Cp1251.GetBytes(RussianNewName)), "the English lane put the Russian patch in UTF-8");
+    }
+
     /// <summary>English keeps the rule it always had: a master whose English tables hold UTF-8 text puts a new patch
     /// over it in UTF-8, so an English write is the bytes it was before the language was read.</summary>
     [Fact]
