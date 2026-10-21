@@ -32,7 +32,7 @@ public sealed class ArchiveDiscoveryTests : IDisposable
             File.WriteAllText(Path.Combine(_prof, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=" + archiveList + "\r\n");
     }
 
-    ArchiveDiscoveryResult Discover() => ArchiveDiscovery.Discover(_prof, _mods, _data, "", Path.Combine(_root, "game"));
+    ArchiveDiscoveryResult Discover() => ArchiveDiscovery.Discover(_prof, _mods, _data, "");
 
     /// <summary>PluginA ships PluginA.bsa and its Textures archive, PluginB ships PluginB.bsa, Data holds a base
     /// archive listed in Skyrim.ini; PluginB loads last.</summary>

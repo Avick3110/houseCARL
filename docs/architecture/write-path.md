@@ -69,9 +69,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   so the lane's own write meets it in its own words; one that fails to open mid-call refuses in its own sentence. The `into=` lanes stage through `WritePatch`,
   whose chain differs in the header masters, the FormID floor and the text encoding: the check embeds the encoding the
   file was read in, while `WritePatch` goes to UTF-8 when `NewFileIsUtf8` holds, so a non-ASCII string in a patch read
-  in the legacy encoding can come back at another length on the real write. The legacy encoding is the game language's code
-  page (`PluginTextEncoding.LegacyBundleFor`: Windows-1252 for English and Western languages, 1251 for Russian, 1250 for
-  Polish, 932 for Japanese, UTF-8 where Mutagen has none), and the unspellable-value refusal names it. That is a re-encode, not a loss; the check
+  in the legacy encoding can come back at another length on the real write. That is a re-encode, not a loss; the check
   models the in-place encoding on purpose, since modelling the write's would refuse every such re-encode as a length
   change, and the `into=` renders claim nothing about the check. The file's bytes and those bytes are walked the same way — per FormKey through each side's
   own master list, a multiset of (signature, payload length), through Mutagen's record and subrecord framing
