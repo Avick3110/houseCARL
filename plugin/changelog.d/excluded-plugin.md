@@ -1,0 +1,1 @@
+- **Records a plugin houseCARL could not read also overrides are now marked on reads and refused by apply and forward; errors names references into that plugin instead of calling them undefined.** Check: read a record it overrides.

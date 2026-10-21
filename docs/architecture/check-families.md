@@ -12,6 +12,10 @@ under ADR 0001. The scripts family's own boundary, the dialogue family's seed wo
 
 ## Contracts
 
+### A reference into an excluded plugin
+
+A link `ErrorCheck` cannot resolve whose target a parse-excluded plugin defines or overrides is still listed, but as into that plugin (`DanglingRef.ExcludedBy`, json `target_in_excluded`), not as defined by no active plugin; the counts are unchanged.
+
 ### A DELETED record has no live body
 
 A major record flagged Deleted carries no content by engine rule: the game reads the header, sees the flag, and
