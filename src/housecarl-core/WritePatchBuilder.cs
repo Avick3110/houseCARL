@@ -477,6 +477,7 @@ public static class WritePatchBuilder
 
         // --- Phase 4: serialize ONCE with the FULL known-master set, behind the two-part active-patch self-lock. ---
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
+        OwnerRanks.Settle(patchMod, OwnerRanks.FactionIn(view));   // last, for the owners an opened file or a field copy brought in
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex)
             { return PatchOutcome.Fail(SerializeFailure("writing the patch failed (serialize or commit; the existing file is untouched): ", ex, session)); }
@@ -819,6 +820,7 @@ public static class WritePatchBuilder
 
         // --- Phase 4: re-serialize the WHOLE target over itself via WriteInPlace, self-lock first, against the WHOLE known-master set. ---
         session.ReleaseOverlay(fileName);
+        OwnerRanks.Settle(targetMod, OwnerRanks.FactionIn(view));   // last, for the owners an opened file or a field copy brought in
         try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir); }
         catch (MissingModException ex)
         {
@@ -889,9 +891,8 @@ public static class WritePatchBuilder
         var priority = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < resolver.PluginNames.Count; i++) priority[resolver.PluginNames[i]] = i;
 
-        // The serialize retypes faction owners first, so the preview does too, off the index rather than opened overlays.
-        var v = resolver.Capture(null);
-        OwnerRanks.Settle(mod, fk => v.WinnerClassOf(fk) is { } cls && typeof(IFactionGetter).IsAssignableFrom(cls));
+        // The write retypes faction owners before its serialize, so the preview does too, by the same lookup.
+        OwnerRanks.Settle(mod, OwnerRanks.FactionIn(resolver.Capture(null)));
 
         var referenced = new Dictionary<ModKey, FormKey>();   // referenced plugin -> first record referencing it (for the refusal)
         foreach (var rec in mod.EnumerateMajorRecords())
@@ -1071,6 +1072,7 @@ public static class WritePatchBuilder
 
         // Serialize ONCE with the full known-master set, behind the two-part self-lock; an orphaned master drops from the lean header.
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
+        OwnerRanks.Settle(patchMod, OwnerRanks.FactionIn(resolver.Capture(null)));   // last, for the owners an opened file or a field copy brought in
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (Exception ex) { return RemovalOutcome.Fail(SerializeFailure("writing the patch after removal failed (serialize or commit; the existing file is untouched): ", ex, session)); }
 
@@ -1219,6 +1221,7 @@ public static class WritePatchBuilder
 
             // --- Phase 5: re-serialize the target over itself against its OWN declared masters, self-lock first. ---
             session.ReleaseOverlay(fileName);
+            OwnerRanks.Settle(targetMod, OwnerRanks.FactionIn(view));   // last, for the owners an opened file or a field copy brought in
             try { WriteEngine.WriteInPlace(targetMod, ownMasters, targetPath, resolver.DataDir); }
             // The localized-target refusal names its own whole sentence, which this lane's lead would contradict.
             catch (LocalizedTargetUnsupportedException ex) { return RemovalOutcome.Fail(ex.Message); }
@@ -1465,6 +1468,7 @@ public static class WritePatchBuilder
 
         // --- Phase 4: re-serialize over the original (WriteInPlace, whole known-master set; the self-lock first, atomic swap). ---
         session.ReleaseOverlay(fileName);
+        OwnerRanks.Settle(targetMod, OwnerRanks.FactionIn(view));   // last, for the owners an opened file or a field copy brought in
         try { WriteEngine.WriteInPlace(targetMod, session.AllMastersExcept(fileName), targetPath, resolver.DataDir); }
         catch (MissingModException ex)
         {
@@ -1861,6 +1865,7 @@ public static class WritePatchBuilder
 
         // --- Phase 4: serialize ONCE with the FULL known-master set (Apply Phase 4's two-part self-lock). ---
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
+        OwnerRanks.Settle(patchMod, OwnerRanks.FactionIn(view));   // last, for the owners an opened file or a field copy brought in
         try { WriteEngine.WritePatch(patchMod, session.AllMastersExcept(patchMod.ModKey.FileName.String), outPath); }
         catch (MissingModException ex)
         {
@@ -2741,6 +2746,7 @@ public static class WritePatchBuilder
 
         // --- Phase 4: serialize ONCE with the full known-master set, behind the two-part active-patch self-lock. ---
         session.ReleaseOverlay(patchMod.ModKey.FileName.String);
+        OwnerRanks.Settle(patchMod, OwnerRanks.FactionIn(view));   // last, for the owners an opened file or a field copy brought in
         try
         {
             if (inPlace)
