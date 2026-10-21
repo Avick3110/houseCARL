@@ -52,7 +52,7 @@ public sealed record UnmatchedTableFiles(IReadOnlyList<string> Names, int Total)
     public static readonly UnmatchedTableFiles None = new(Array.Empty<string>(), 0);
 }
 
-/// <param name="IncompleteLanguages">Those of <paramref name="Languages"/> missing at least one table kind, with the kinds they are missing.</param>
+/// <param name="IncompleteLanguages">Those of <paramref name="Languages"/> (for <see cref="LocalizedShape.GameDataOnly"/>, of <paramref name="GameDataLanguages"/>) missing at least one table kind, with the kinds they are missing.</param>
 /// <param name="BsaInGameData">The archive was found away from the plugin (the game's Data folder, or <paramref name="BsaModFolder"/>), which the refusal has to say.</param>
 /// <param name="BsaModFolder">The MO2 mod folder that away-from-the-plugin archive was found in, or null for the game's Data folder.</param>
 /// <param name="BsaUnreadable">The archive could not be parsed, so whether it embeds this plugin's strings is unknown; classified as embedded rather than assumed harmless.</param>
@@ -108,6 +108,17 @@ public static class LocalizedStrings
             ? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
             : InLanguage(ReadStringsFolder(Path.Combine(dataDir, "Strings"), stem).Languages, only);
 
+        // The read takes the loose winner first, so the plugin's own folder counts only when it is the read's folder.
+        var winners = text.WinnersFor(pluginPath);
+        var lw = winners?.Loose;
+        bool ownWins = winners is null || lw is { } w && InstanceText.SameFolder(w.Dir, Path.Combine(folder, "Strings"));
+
+        // Another layer's loose Strings (a translation mod's, the overwrite folder's, the game Data's), when the read takes the tables from there.
+        if (!ownWins && lw is { } elsewhere && InLanguage(ReadStringsFolder(elsewhere.Dir, stem).Languages, only) is { Count: > 0 } there)
+            return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), Incomplete(there), Names(there), null, false, false,
+                                           UnmatchedTables: unmatched,
+                                           StringsModFolder: elsewhere.Layer == AssetResolver.DataLayerName ? null : elsewhere.Layer);
+
         // An archive the write cannot rewrite decides the shape whatever else is on disk; the folder's third answer is carried, not dropped.
         var (bsaPath, bsaUnreadable, folderUnlistable) = BsaEmbedding(folder, stem, only);
         if (bsaPath is not null)
@@ -119,11 +130,6 @@ public static class LocalizedStrings
             return new LocalizedAssessment(LocalizedShape.StringsFolderUnreadable, Array.Empty<string>(), NoneIncomplete,
                                            Names(gameData), null, false, dataDir is null, UnmatchedTables: unmatched);
 
-        // The read takes the loose winner first, so the plugin's own folder counts only when it is the winner.
-        var ownStrings = Path.Combine(folder, "Strings");
-        var lw = text.WinnersFor(pluginPath)?.Loose;
-        bool ownWins = lw is not { } w || w.Layer == AssetResolver.DataLayerName
-                       || string.Equals(w.Dir, ownStrings, StringComparison.OrdinalIgnoreCase);
         if (own.Count > 0 && ownWins)
         {
             var incomplete = Incomplete(own);
@@ -133,11 +139,6 @@ public static class LocalizedStrings
                 return new LocalizedAssessment(LocalizedShape.LooseWithGameDataDuplicate, Names(own), incomplete, Names(gameData), null, false, false, UnmatchedTables: unmatched);
             return new LocalizedAssessment(LocalizedShape.LooseComplete, Names(own), incomplete, Names(gameData), null, false, dataDir is null, UnmatchedTables: unmatched);
         }
-
-        // A translation mod's or the overwrite folder's loose Strings, when the read takes the tables from there.
-        if (!ownWins && InLanguage(ReadStringsFolder(lw!.Value.Dir, stem).Languages, only) is { Count: > 0 } there)
-            return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), NoneIncomplete, Names(there), null, false, false,
-                                           UnmatchedTables: unmatched, StringsModFolder: lw.Value.Layer);
 
         if (gameData.Count > 0)
             return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), NoneIncomplete, Names(gameData), null, false, false, UnmatchedTables: unmatched);

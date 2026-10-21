@@ -61,7 +61,8 @@ public sealed class GameLanguageTests : IDisposable
     string Profile => Path.Combine(Instance, "profiles", "Default");
 
     /// <summary>The MO2 files: <paramref name="mods"/> highest priority first, <paramref name="plugins"/> in load order, and the profile's Skyrim.ini when a language is given.</summary>
-    LoadOrderService Open(string? sLanguage, string[] mods, string[] plugins, string[]? implicitMasters = null, string? archives = null)
+    LoadOrderService Open(string? sLanguage, string[] mods, string[] plugins, string[]? implicitMasters = null, string? archives = null,
+                          string? instance = null)
     {
         Directory.CreateDirectory(DataDir);
         Directory.CreateDirectory(Mods);
@@ -78,7 +79,7 @@ public sealed class GameLanguageTests : IDisposable
         if (sLanguage is not null)
             File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), $"[General]\r\nsLanguage={sLanguage}\r\n\r\n[Display]\r\n"
                 + (archives is null ? "" : $"\r\n[Archive]\r\nsResourceArchiveList={archives}\r\n"));
-        var svc = LoadOrderService.WithInstance(Instance, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
+        var svc = LoadOrderService.WithInstance(instance ?? Instance, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
         _services.Add(svc);
         return svc;
     }
@@ -517,6 +518,87 @@ public sealed class GameLanguageTests : IDisposable
         Assert.Contains("it resolves from the Strings folder in the mod folder 'SwordMod Translation'", r);
         Assert.Contains("a plugin write does not reach the Strings folder in the mod folder 'SwordMod Translation'", r);
         Assert.DoesNotContain("beside it (", r);
+    }
+
+    /// <summary>A plugin's English tables, built in a staging folder: the plugin is copied to <paramref name="pluginDir"/>
+    /// with no tables beside it, and the staging folder holding them is returned.</summary>
+    string StageEnglish(string pluginDir, string file, string name, out FormKey weapon)
+    {
+        var staging = Path.Combine(_root, "staging-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(staging);
+        weapon = WriteLocalized(Path.Combine(staging, file), Language.English, name);
+        File.Copy(Path.Combine(staging, file), Path.Combine(pluginDir, file));
+        return staging;
+    }
+
+    static void CopyTables(string staging, string strings, Func<string, bool>? which = null)
+    {
+        Directory.CreateDirectory(strings);
+        foreach (var f in Directory.GetFiles(Path.Combine(staging, "Strings")).Where(f => which?.Invoke(f) ?? true))
+            File.Copy(f, Path.Combine(strings, Path.GetFileName(f)));
+    }
+
+    /// <summary>The census counts the plugin's own tables only when the read takes them: an English order reads its
+    /// Data\Strings winner, or its archive in another mod folder, not the German set beside the plugin.</summary>
+    [Theory]
+    [InlineData(false, "it resolves from your game's Data\\Strings folder")]
+    [InlineData(true, "inside the archive HcOw.bsa in the mod folder 'Arc'")]
+    public void TheOwnFolderCountsOnlyWhenTheReadTakesIt(bool archive, string where)
+    {
+        var sword = ModDir("SwordMod");
+        WriteLocalized(Path.Combine(sword, "HcOw.esp"), Language.German, GermanName);
+        File.Delete(Path.Combine(sword, "HcOw.esp"));
+        var staging = StageEnglish(sword, "HcOw.esp", "Big Iron Sword", out var weapon);
+        if (archive) File.WriteAllBytes(Path.Combine(ModDir("Arc"), "HcOw.bsa"), Archive(staging));
+        else CopyTables(staging, Path.Combine(DataDir, "Strings"));
+        Directory.CreateDirectory(DataDir);
+        new SkyrimMod(new ModKey("Skyrim", ModType.Master), SkyrimRelease.SkyrimSE)
+            .BeginWrite.ToPath(Path.Combine(DataDir, "Skyrim.esm")).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        var svc = Open(null, new[] { "SwordMod", "Arc" }, new[] { "HcOw.esp" }, new[] { "Skyrim.esm" });
+
+        var r = InPlace(svc, weapon, "BasicStats.Damage", "20", "HcOw.esp");
+        Assert.True(r.Contains(where), r);
+        Assert.DoesNotContain("beside it (", r);
+    }
+
+    /// <summary>A translation mod's loose tables win over the plugin's own archive in the read, and so in the census.</summary>
+    [Fact]
+    public void ATranslationsLooseTablesComeBeforeTheArchiveBesideThePlugin()
+    {
+        var sword = ModDir("SwordMod");
+        var staging = StageEnglish(sword, "HcBs.esp", "Big Iron Sword", out var weapon);
+        File.WriteAllBytes(Path.Combine(sword, "HcBs.bsa"), Archive(staging));
+        CopyTables(staging, Path.Combine(ModDir("SwordMod Translation"), "Strings"));
+        var svc = Open(null, new[] { "SwordMod Translation", "SwordMod" }, new[] { "HcBs.esp" });
+
+        var r = InPlace(svc, weapon, "BasicStats.Damage", "20", "HcBs.esp");
+        Assert.Contains("it resolves from the Strings folder in the mod folder 'SwordMod Translation'", r);
+        Assert.DoesNotContain("HcBs.bsa", r);
+    }
+
+    /// <summary>An instance folder spelled with '/' still finds a plugin's own tables to be the ones it reads.</summary>
+    [Fact]
+    public void AnInstanceSpelledWithForwardSlashesKeepsThePluginsOwnTables()
+    {
+        var weapon = WriteLocalized(Path.Combine(ModDir("SwordMod"), "HcSl.esp"), Language.English, "Big Iron Sword");
+        var svc = Open(null, new[] { "SwordMod" }, new[] { "HcSl.esp" }, instance: Instance.Replace('\\', '/'));
+
+        var r = InPlace(svc, weapon, "BasicStats.Damage", "20", "HcSl.esp");
+        Assert.Contains("in a Strings folder beside it (English)", r);
+        Assert.DoesNotContain("resolves from", r);
+    }
+
+    /// <summary>A translation mod that wins with two of the three kinds is reported partial, naming the missing one.</summary>
+    [Fact]
+    public void APartialLooseWinnerIsReportedPartial()
+    {
+        var staging = StageEnglish(ModDir("SwordMod"), "HcPa.esp", "Big Iron Sword", out var weapon);
+        CopyTables(staging, Path.Combine(ModDir("SwordMod Translation"), "Strings"),
+                   f => !f.EndsWith(".ILSTRINGS", StringComparison.OrdinalIgnoreCase));
+        var svc = Open(null, new[] { "SwordMod Translation", "SwordMod" }, new[] { "HcPa.esp" });
+
+        var r = InPlace(svc, weapon, "BasicStats.Damage", "20", "HcPa.esp");
+        Assert.Contains("in the mod folder 'SwordMod Translation' (English), of which English has no .ILSTRINGS file", r);
     }
 
     /// <summary>The winner rule is Mutagen's: a translation's copy of an INI-listed archive wins from a mod folder

@@ -35,6 +35,9 @@ public sealed class InstanceText
         catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return path; }
     }
 
+    /// <summary>Do two folder paths name the same folder, under the spelling <see cref="WinnersFor"/> matches plugins by?</summary>
+    internal static bool SameFolder(string a, string b) => string.Equals(Spelled(a), Spelled(b), StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The winning sources of the plugin's tables in this language when it is the order's own copy: the loose
     /// Strings folder that wins, and the archive that wins where no loose copy does; null when no layer carries them,
     /// or when its kinds win from more than one folder, which Mutagen cannot read as one.</summary>

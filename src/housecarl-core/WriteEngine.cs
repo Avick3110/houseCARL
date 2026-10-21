@@ -3004,6 +3004,11 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
              + " — but houseCARL matched none of them to this plugin in a language it recognises";
     }
 
+    /// <summary>The kinds missing from a <see cref="LocalizedShape.GameDataOnly"/> set the read takes, when it is partial.</summary>
+    static string MissingThere(LocalizedAssessment a)
+        => a.IncompleteLanguages.Count == 0 ? ""
+         : ", of which " + string.Join("; ", a.IncompleteLanguages.Select(kv => $"{kv.Key} has no .{string.Join("/.", kv.Value)} file"));
+
     /// <summary>The SECOND location, when the archive shape carries one — naming one while two are on disk misleads.</summary>
     static string AlsoLoose(LocalizedAssessment a)
     {
@@ -3046,7 +3051,7 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
 
             LocalizedShape.GameDataOnly =>
                 "It is flagged LOCALIZED and its text is not beside it — it resolves from " + StringsHome(a) + " ("
-                + string.Join(", ", a.GameDataLanguages) + ").",
+                + string.Join(", ", a.GameDataLanguages) + ")" + MissingThere(a) + ".",
 
             // The folder is THERE, and nothing is claimed about its contents, so it is not described as empty.
             LocalizedShape.StringsFolderUnreadable =>
@@ -3119,7 +3124,7 @@ public sealed class LocalizedTargetUnsupportedException : InvalidOperationExcept
             "It is flagged LOCALIZED and its text lives inside " + Path.GetFileName(a.BsaPath) + AlsoLoose(a) + ".",
         LocalizedShape.GameDataOnly =>
             "It is flagged LOCALIZED and its text lives in separate .STRINGS files in your game's Data\\Strings folder, "
-            + "not beside the plugin.",
+            + "not beside the plugin" + MissingThere(a) + ".",
         // The same absence discipline as WhereTheTextIs's arm: it says it could not FIND them, never that none exist.
         LocalizedShape.Nowhere =>
             "It is flagged LOCALIZED and houseCARL cannot find its .STRINGS files: " + NothingMatched(a) + ".",
