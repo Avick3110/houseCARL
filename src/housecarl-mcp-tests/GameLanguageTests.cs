@@ -204,7 +204,7 @@ public sealed class GameLanguageTests : IDisposable
         Assert.Contains("sLanguage=GERMAN", r);
         Assert.Contains("Skyrim.esm's German .STRINGS/.DLSTRINGS/.ILSTRINGS string tables were not found loose in a Strings folder or in an archive the game loads", r);
         // The archive list that would have named the vanilla archives could not be read, and the refusal says where it looked.
-        Assert.Contains($"Also, could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini in {Profile}", r);
+        Assert.Contains("Also, could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder)", r);
     }
 
     /// <summary>Skyrim.esm needs all three of its tables in the language: one kind missing refuses, naming it.</summary>

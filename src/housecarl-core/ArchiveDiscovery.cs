@@ -102,11 +102,11 @@ public static class ArchiveDiscovery
         if (names.Count > 0) return names;
 
         warnings.Add(
-            $"could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini in {ini.Folder}" +
-            (ini.ProfileLocal ? ", the profile's own INIs" : "") +
-            " — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY " +
+            "could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in " +
+            (ini.ProfileLocal ? "the profile folder" : ini.Folder) +
+            ") — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY " +
             "in a vanilla archive may read as absent." +
-            (ini.ProfileLocal ? " Make sure the active profile's Skyrim.ini lists them." : ""));
+            (ini.ProfileLocal ? " Make sure the active profile has a Skyrim.ini that lists the base archives." : ""));
         return Array.Empty<string>();
     }
 }
