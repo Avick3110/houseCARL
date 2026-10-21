@@ -79,7 +79,7 @@ public static class RemapEngine
                 // Excluded for a parse failure: only one that masters the set can reference or override it, and then it is named as unread.
                 bool masters;
                 try { masters = view.DeclaredMasters(plugin, parseExcluded: true).Any(transformSet.Contains); }
-                catch (PluginUnreadableException) { masters = true; }    // the header no longer reads, so it may
+                catch (Exception ex) when (ex is not LoadOrderChangedMidCallException and not OperationCanceledException) { masters = true; }    // the header no longer reads, so it may
                 if (masters) unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.EnumerationFault, excludedWhy));
                 continue;
             }

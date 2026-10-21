@@ -308,6 +308,33 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         Assert.Contains("compacted " + CleanName + " IN PLACE", r);
     }
 
+    [Fact]
+    public void TheReferencerPassNamesAnExcludedPluginThatMastersTheSetAsUnreadWithoutCountingRecords()
+    {
+        var mods = Path.Combine(_root, "inst", "mods");
+        using var resolver = LoadOrderResolver.Build(new[]
+        {
+            Path.Combine(mods, "MasterMod", "HcExMaster.esm"), Path.Combine(mods, "BadMod", BadName), Path.Combine(mods, "CleanMod", CleanName),
+        });
+        var id = RemapEngine.IdentifyExternalReferencers(resolver, new HashSet<FormKey> { _overridden },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "HcExMaster.esm" }, readDeclaredMasters: true);
+        Assert.Contains(id.UnscannablePlugins!, p => p.Plugin == BadName);
+        Assert.Equal(0, id.UnscannableRecords);   // the plugin is named, not counted as records
+    }
+
+    [Fact]
+    public void AnExcludedPluginWhoseHeaderNoLongerReadsIsNamedAsUnread()
+    {
+        bool thrown = false;
+        MidCallChange.BeforeCheck.Value = name => { if (!thrown && name == BadName) { thrown = true; throw new InvalidDataException("master table unreadable"); } };
+        string r;
+        try { r = WriteTools.CompactPlugin(_svc, source: CleanName, esl: true, in_place: true, acknowledge: true); }
+        finally { MidCallChange.BeforeCheck.Value = null; }
+        Assert.True(thrown);
+        Assert.Contains("could not fully read " + BadName, r);
+        Assert.DoesNotContain("record(s) couldn't be scanned", r);
+    }
+
     string Excluded => $"FormID {Fid(_badOwn)} is not resolvable: its plugin '{BadName}' was excluded from this session";
 
     [Fact]
