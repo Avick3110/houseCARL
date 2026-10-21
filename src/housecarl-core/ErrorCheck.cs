@@ -191,7 +191,8 @@ public static class ErrorCheck
                             if (histogram is not null) { BumpTarget(histogram, target); continue; }   // counts_only=: tally, list nothing
                             if (danglingBudget > 0)
                             {
-                                dangling.Add(new DanglingRef(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, target));
+                                dangling.Add(new DanglingRef(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, target)
+                                    { ExcludedBy = view.ExcludedTouchers(target) });
                                 danglingBudget--;
                             }
                         }
@@ -294,7 +295,8 @@ public static class ErrorCheck
                                     if (histogram is not null) { BumpTarget(histogram, target); continue; }   // counts_only=
                                     if (danglingBudget > 0)
                                     {
-                                        dangling.Add(new DanglingRef(rec.FormKey, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID, target));
+                                        dangling.Add(new DanglingRef(rec.FormKey, RecordNaming.StripOverlay(rec.GetType().Name), rec.EditorID, target)
+                                            { ExcludedBy = view.ExcludedTouchers(target) });
                                         danglingBudget--;
                                     }
                                 }
@@ -410,7 +412,11 @@ public static class ErrorCheck
 
 /// <summary>One broken reference: the SOURCE record (FormKey, catalog type, editorid) and the TARGET FormKey no active
 /// plugin defines.</summary>
-public sealed record DanglingRef(FormKey Source, string SourceType, string? SourceEditorId, FormKey Target);
+public sealed record DanglingRef(FormKey Source, string SourceType, string? SourceEditorId, FormKey Target)
+{
+    /// <summary>The excluded plugins that touch the target: a reference into a plugin houseCARL could not read, not one nothing defines. Empty otherwise.</summary>
+    public IReadOnlyList<string> ExcludedBy { get; init; } = Array.Empty<string>();
+}
 
 /// <summary>Every error found in one plugin: its dangling references (capped across the sweep), the masters it declares
 /// that are not present in the active order, the count and samples of records that could not be scanned, and a

@@ -265,6 +265,7 @@ static partial class Wire
                     if (matches is not null) sb.Append("  matches=").Append(matches);
                     sb.Append('\n');
                     AppendSharedName(sb, "    ", SharedEditorIds.Note(m.Pin, m.FormKey, m.Type, m.Source));
+                    AppendSharedName(sb, "    ", ExcludedNote(m.Pin, m.FormKey));
                 }
             }
             // The clause this row earned goes back with the row when the row does.
@@ -545,6 +546,10 @@ static partial class Wire
     }
 
     /// <summary>A row's shared-EditorID note as its own line under the row, only when owed.</summary>
+    /// <summary>The per-row note on a record an excluded plugin also touches, asked of the row's pinned build; null on every other row.</summary>
+    internal static string? ExcludedNote(LoadOrderService.ViewPin? pin, FormKey fk) =>
+        pin?.View.ExcludedTouchers(fk) is { Count: > 0 } by ? OrderDegraded.TouchNote(by) : null;
+
     internal static void AppendSharedName(StringBuilder sb, string indent, string? note)
     {
         if (note is not null) sb.Append(indent).Append("note: ").Append(note).Append('\n');
@@ -578,6 +583,7 @@ static partial class Wire
           .Append("  winner=").Append(o.WinnerPlugin)
           .Append("  override_depth=").Append(o.OverrideDepth).Append('\n');
         AppendSharedName(sb, "", SharedEditorIds.Note(o.Pin, o.FormKey, r.Type, o.SourcePlugin));
+        AppendSharedName(sb, "", ExcludedNote(o.Pin, o.FormKey));
         sb.Append("fields (from ").Append(o.SourcePlugin).Append("):\n");
         // The field loop's cut notice is charged before the first line and quotes the caller's max_chars, never the reduced budget it cuts against.
         string Cut(int i) => "  ... [truncated: showing " + i + " of " + r.Fields.Count +

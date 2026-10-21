@@ -92,6 +92,8 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>The SUBSET of <see cref="Excluded"/> whose file could not be OPENED at all; its own set, not derived from the reason string — prose can be reworded, membership is a fact.</summary>
         public readonly HashSet<int> Unopenable;
         public readonly Dictionary<string, string> ExcludedPlugins;           // excluded plugin name → reason
+        /// <summary>Per key an excluded plugin defines or overrides, the excluded overlay indices touching it, read off record headers; empty when nothing was excluded for a parse failure.</summary>
+        public readonly Dictionary<FormKey, int[]> ExcludedTouches;
         public readonly int MaxDepth;
         public readonly string Epoch;                                         // this build's fingerprint — immutable with the snapshot
 
@@ -116,12 +118,12 @@ public sealed class LoadOrderResolver : IDisposable
 
         public IndexSnapshot(Dictionary<FormKey, (ushort winner, ushort count, byte type)> index, Dictionary<FormKey, int[]> overriders,
                              IndexTypes types, Dictionary<FormKey, byte[]> mixedTypes, List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
-                             Dictionary<string, string> excludedPlugins, int maxDepth, string epoch,
+                             Dictionary<string, string> excludedPlugins, Dictionary<FormKey, int[]> excludedTouches, int maxDepth, string epoch,
                              bool[] light, int firstUnknownKind, string? firstUnknownKindName,
                              ContainmentIndex containment, bool[] masterBlock, FileStamp[] builtStamps)
         {
             Index = index; Overriders = overriders; Types = types; MixedTypes = mixedTypes; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
-            ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; Light = light; Containment = containment;
+            ExcludedPlugins = excludedPlugins; ExcludedTouches = excludedTouches; MaxDepth = maxDepth; Epoch = epoch; Light = light; Containment = containment;
             MasterBlock = masterBlock; BuiltStamps = builtStamps;
             FirstUnknownKind = firstUnknownKind; FirstUnknownKindName = firstUnknownKindName;
             Slots = new Lazy<RuntimeSlots>(() => RuntimeSlots.Build(light));
@@ -404,6 +406,7 @@ public sealed class LoadOrderResolver : IDisposable
         var excluded = new HashSet<int>();
         var unopenable = new HashSet<int>();                          // the could-not-be-OPENED subset
         var excludedPlugins = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var excludedTouches = new Dictionary<FormKey, List<int>>();   // keys an excluded plugin touches, off its record headers
         var light = new bool[_paths.Length];
         var masterBlock = new bool[_paths.Length];
         var containment = new ContainmentIndex();                     // child → parent, off the same walk
@@ -446,8 +449,23 @@ public sealed class LoadOrderResolver : IDisposable
             }
             catch (Exception ex)
             {
+                // The headers still name every key it touches, so lanes can mark what they would otherwise answer without it.
+                string touched;
+                try
+                {
+                    foreach (var fk in RecordHeaderKeys.Read(_paths[i]))
+                    {
+                        if (!excludedTouches.TryGetValue(fk, out var by)) excludedTouches[fk] = by = new List<int>();
+                        if (by.Count == 0 || by[^1] != i) by.Add(i);
+                    }
+                    touched = "a record it also overrides is read without its version, marked as such, and apply and forward refuse it";
+                }
+                catch (Exception walk)
+                {
+                    touched = $"the records it overrides could not be listed either ({Concise(walk)}), so reads of them are not marked";
+                }
                 Exclude(i, $"contains a record Mutagen cannot parse, so the whole plugin is excluded from this " +
-                           $"session (its records are not resolvable; every other plugin is unaffected) — read " +
+                           $"session (its records are not resolvable; {touched}) — read " +
                            $"{keys.Count} record(s) before the failure: {Concise(ex)}. Fix or remove the upstream " +
                            "plugin to restore access to it.",
                         failures, excluded, excludedPlugins);
@@ -480,7 +498,8 @@ public sealed class LoadOrderResolver : IDisposable
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
             types, mixed.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),
-            failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
+            failures, excluded, unopenable, excludedPlugins,
+            excludedTouches.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()), maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
             light, firstUnknownKind, firstUnknownKindName, containment, masterBlock, (FileStamp[])_stamps.Clone());
 
         // The code a key carries once one more provider joins: the one class while every provider shares it, else Mixed.
@@ -665,6 +684,19 @@ public sealed class LoadOrderResolver : IDisposable
         public int MaxDepth => _s.MaxDepth;
         public IReadOnlyList<string> LoadFailures => _s.LoadFailures;
         public IReadOnlyDictionary<string, string> ExcludedPlugins => _s.ExcludedPlugins;
+
+        /// <summary>The excluded plugins that also define or override <paramref name="fk"/>, in load order; empty for every key on an order with no parse-excluded plugin.</summary>
+        public IReadOnlyList<string> ExcludedTouchers(FormKey fk)
+        {
+            if (!_s.ExcludedTouches.TryGetValue(fk, out var by)) return Array.Empty<string>();
+            var names = new string[by.Length];
+            for (int k = 0; k < by.Length; k++) names[k] = _r._names[by[k]];
+            return names;
+        }
+
+        /// <summary>The write refusal for a target an excluded plugin also touches, or null; one sentence every authoring lane asks.</summary>
+        public string? ExcludedTouchRefusal(FormKey fk) =>
+            ExcludedTouchers(fk) is { Count: > 0 } by ? OrderDegraded.TouchRefusal(FormIdToken.Of(fk), by) : null;
 
         public bool IsUnopenable(string pluginName)
             => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.Unopenable.Contains(i);

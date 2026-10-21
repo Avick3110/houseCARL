@@ -317,6 +317,7 @@ public static class WritePatchBuilder
             order++;
             if (order == 1) InsidePhase1ResolveForGuard?.Invoke();         // test seam; null in the product
             IMajorRecordGetter? body = null; string? winnerPlugin = null; IMajorRecord? patchLocal = null;
+            if (view.ExcludedTouchRefusal(e.Target) is { } touched) { Problem(touched); continue; }
             var w = view.ResolveWinner(e.Target);
             if (w is not null)
             {
@@ -656,6 +657,7 @@ public static class WritePatchBuilder
         {
             order++;
             bool selfSource = false;   // the copy source lives in the TARGET's own file — see the lifetime note below
+            if (view.ExcludedTouchRefusal(e.Target) is { } touched) { Problem(touched); continue; }
             var body = gather.Body(targetName, e.Target);
             if (body is null)
             {
@@ -1282,6 +1284,7 @@ public static class WritePatchBuilder
         {
             if (!seen.Add(s.Target))
             { problems.Add($"{FormIdToken.Of(s.Target)}: forwarded more than once in this call — name each target once (one source per record)."); continue; }
+            if (view.ExcludedTouchRefusal(s.Target) is { } touched) { problems.Add(touched); continue; }
             // Is the source THE FILE THIS CALL IS ABOUT TO WRITE? By NAME in order, by FULL-PATH identity off-order.
             bool sourceIsSelf = IsOffOrderSource(offOrder, s, view)
                 ? SameFile(offOrder!.Path, targetPath)
