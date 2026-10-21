@@ -92,10 +92,11 @@ public static class PluginTextEncoding
     /// <summary>The read parameters for opening one plugin, in this call's game language with its string tables from
     /// their winning MO2 layer (<see cref="InstanceText.FoldersFor"/>); per plugin, because the lane it resolves to is
     /// recorded against that plugin's name as its strings are decoded. <paramref name="dataDir"/> is the game Data a
-    /// caller outside any order build redirects to.</summary>
-    public static BinaryReadParameters ReadFor(string pluginPath, string? dataDir = null)
+    /// caller outside any order build redirects to; <paramref name="text"/> is the order build an index open reads
+    /// with, else this call's.</summary>
+    public static BinaryReadParameters ReadFor(string pluginPath, string? dataDir = null, InstanceText? text = null)
     {
-        var text = GameLanguage.Current;   // once per open, so one open never mixes two order builds
+        text ??= GameLanguage.Current;   // once per open, so one open never mixes two order builds
         var sink = SinkFor(pluginPath);
         var strings = new StringsReadParameters
         {
