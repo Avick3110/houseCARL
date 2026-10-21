@@ -536,9 +536,9 @@ static partial class WriteTools
     {
         if (outcome is not { } ar) return;
         if (ar.FacegenFilesCarried > 0)
-            sb.Append("facegen: carried ").Append(ar.FacegenFilesCarried).Append(ar.FacegenFilesCarried == 1 ? " file for " : " files for ")
-              .Append(ar.FacegenNpcsCarried).Append(ar.FacegenNpcsCarried == 1 ? " NPC to the new FormIDs" : " NPCs to the new FormIDs")
-              .Append(inPlace ? " (old-FormID facegen left as harmless orphans).\n" : " (in the new mod folder — enabling it carries the faces).\n");
+            sb.Append(inPlace ? "facegen: carried " : "facegen: copied ").Append(ar.FacegenFilesCarried).Append(ar.FacegenFilesCarried == 1 ? " file for " : " files for ")
+              .Append(ar.FacegenNpcsCarried).Append(ar.FacegenNpcsCarried == 1 ? " NPC" : " NPCs")
+              .Append(inPlace ? " to the new FormIDs (old-FormID facegen left as harmless orphans).\n" : " into the new mod folder (enabling it carries the faces).\n");
         else if (ar.NpcCount > 0 && ar.Failures.Count == 0)
             sb.Append("facegen: none found for ").Append(ar.NpcCount).Append(ar.NpcCount == 1 ? " NPC — nothing to carry.\n" : " NPCs — nothing to carry.\n");
         foreach (var f in ar.Failures.Take(25)) sb.Append("  facegen WARN: ").Append(f).Append('\n');
@@ -554,9 +554,9 @@ static partial class WriteTools
     {
         if (outcome is not { } vr) return;
         if (vr.FilesCarried > 0)
-            sb.Append("voice: carried ").Append(vr.FilesCarried).Append(vr.FilesCarried == 1 ? " file for " : " files for ")
-              .Append(vr.LinesCarried).Append(vr.LinesCarried == 1 ? " dialogue line to the new FormIDs" : " dialogue lines to the new FormIDs")
-              .Append(inPlace ? " (old-FormID voice left as harmless orphans).\n" : " (in the new mod folder — enabling it carries the voice).\n");
+            sb.Append(inPlace ? "voice: carried " : "voice: copied ").Append(vr.FilesCarried).Append(vr.FilesCarried == 1 ? " file for " : " files for ")
+              .Append(vr.LinesCarried).Append(vr.LinesCarried == 1 ? " dialogue line" : " dialogue lines")
+              .Append(inPlace ? " to the new FormIDs (old-FormID voice left as harmless orphans).\n" : " into the new mod folder (enabling it carries the voice).\n");
         else if (vr.FilesScanned > 0 && vr.Failures.Count == 0)
             sb.Append("voice: ").Append(vr.FilesScanned).Append(vr.FilesScanned == 1 ? " voice file found, none keyed to a renumbered line" : " voice files found, none keyed to a renumbered line")
               .Append(" — nothing to carry.\n");
