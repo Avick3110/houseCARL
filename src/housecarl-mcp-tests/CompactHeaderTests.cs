@@ -108,6 +108,8 @@ public sealed class CompactHeaderTests
         Assert.Contains(WriteSentences.CompactMovedNothing, text);
         Assert.Contains("identify-pass scanned", firstText);
         Assert.DoesNotContain("identify-pass scanned", text);
+        Assert.Contains(WriteSentences.CompactRuntimeConfigs, firstText);
+        Assert.DoesNotContain(WriteSentences.CompactRuntimeConfigs, text);
     }
 
     [Fact]

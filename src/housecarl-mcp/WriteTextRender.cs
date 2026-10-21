@@ -465,9 +465,10 @@ static partial class WriteTools
               .Append("'external referencers: none' may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
         }
         AppendUnscannablePlugins(sb, o.UnscannablePlugins);
-        if (!movedNothing) sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
-        // The plugin NAME survives a compaction, so what moves is the object id, and only the ids this run moved.
-        sb.Append(WriteSentences.CompactRuntimeConfigs);
+        // The identify pass runs only when an id moved; the runtime-config sentence names that pass, so both go together.
+        if (o.RecordsMoved > 0)
+            sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n")
+              .Append(WriteSentences.CompactRuntimeConfigs);
 
         AppendFacegenCarry(sb, o.AssetRename, o.InPlace);
         // One asset build backs both passes, so the voice note names only a root the facegen note did not.
