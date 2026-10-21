@@ -281,10 +281,11 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   that RENAMES the set has anything to report.
 - Allocation into an id window refuses LOUD when the source overflows it and never truncates; for an ESL compaction
   that is the light-master ceiling, the usable window being 0x800–0xFFF INCLUSIVE, 2048 ids.
-- A compaction is the same plugin renumbered, so `CompactBuild` copies the source's header onto the output in both
-  lanes (#1215): every flag but LOCALIZED (the output carries its strings inline) and LIGHT (set by `esl`), the
-  author (CNAM), description (SNAM), overridden forms (ONAM, through the map), INTV and INCC. Masters and the next
-  object id are the write's. Merge does not do this: it names each donor header it drops instead.
+- A compaction is the same plugin renumbered, so `CompactBuild` deep-copies the source's whole header onto the output
+  in both lanes (#1215): flags, HEDR version, author (CNAM), description (SNAM), overridden forms (ONAM, mapped by the
+  renumber's `RemapLinks`), INTV and INCC. It then clears LOCALIZED (the output carries its strings inline) and sets
+  LIGHT from `esl`; the write sets the masters and the counts. Merge does not do this: it names each donor header it
+  drops instead.
 - A compaction reports the records it MOVED, the map entries whose id changed, not the size of the map. A run where
   every originating record already sits at its compacted id (a re-run after a failed repoint) says that nothing
   moved and that it does not repair the earlier run, and does not call its referencer rewrites a repoint (#1205). The
