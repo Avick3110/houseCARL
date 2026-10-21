@@ -82,6 +82,11 @@ public static class PluginTextEncoding
         }
     }
 
+    /// <summary>Whether Mutagen gives this call's game language no code page, so its text is UTF-8 and Windows-1252 only
+    /// keeps a legacy file's own bytes as read.</summary>
+    static bool NoCodePage
+        => ReferenceEquals(MutagenEncoding.GetEncoding(GameRelease.SkyrimSE, GameLanguage.Current.Language), MutagenEncoding._utf8);
+
     /// <summary>The name a refusal gives this call's legacy code page.</summary>
     static string CodePageName()
         => Legacy(GameLanguage.Current.Language).CodePage switch { 932 => "Shift-JIS", var cp => $"Windows-{cp}" };
@@ -100,9 +105,9 @@ public static class PluginTextEncoding
         var sink = SinkFor(pluginPath);
         var strings = new StringsReadParameters
         {
-            // A plugin's lane is its own bytes'; its string tables count toward it only in English, so an English write
-            // stays the bytes it always was.
-            EncodingProvider = new LanguageProvider(text.Language == Language.English ? sink : new LaneSink()),
+            // A plugin's lane is its own bytes'; the provider decodes a plain plugin's own text and a localized one's
+            // tables, which count toward it only in English, so an English write stays the bytes it always was.
+            EncodingProvider = new LanguageProvider(text.Language == Language.English || !IsLocalized(pluginPath, sink) ? sink : new LaneSink()),
             NonTranslatedEncodingOverride = new Utf8First(Legacy(text.Language).Decoder, sink),
         };
         if (text.FoldersFor(pluginPath, dataDir) is { } folders)
@@ -131,6 +136,23 @@ public static class PluginTextEncoding
         return fresh;
     }
 
+    /// <summary>Whether the plugin's header sets the localized flag, peeked from its first 12 bytes once per file version;
+    /// an unreadable header counts as localized, so nothing uncertain feeds the lane.</summary>
+    static bool IsLocalized(string pluginPath, LaneSink sink)
+    {
+        if (sink.Localized is { } known) return known;
+        bool localized;
+        try
+        {
+            Span<byte> head = stackalloc byte[12];
+            using (var fs = new FileStream(pluginPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1))
+                localized = fs.ReadAtLeast(head, head.Length, throwOnEndOfStream: false) < head.Length
+                            || (System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(head[8..]) & 0x80) != 0;
+        }
+        catch { localized = true; }
+        return (bool)(sink.Localized = localized);
+    }
+
     /// <summary>What the read resolved that plugin's own bytes to be, or <see cref="PluginTextLane.AsciiOnly"/> for a plugin nothing has read a non-ASCII string out of.</summary>
     public static PluginTextLane LaneOf(string pluginNameOrPath)
         => Lanes.TryGetValue(Path.GetFileName(pluginNameOrPath), out var s) ? s.Sink.Lane : PluginTextLane.AsciiOnly;
@@ -139,8 +161,14 @@ public static class PluginTextEncoding
     public static EncodingBundle WriteInPlace(string targetPath)
         => InPlaceIsUtf8(targetPath) ? Utf8Bundle : LegacyBundle;
 
-    /// <summary>Whether an in-place rewrite of that file goes out as UTF-8 — the lane its own read resolved to.</summary>
-    public static bool InPlaceIsUtf8(string targetPath) => LaneOf(targetPath) == PluginTextLane.Utf8;
+    /// <summary>Whether an in-place rewrite of that file goes out as UTF-8 — the lane its own read resolved to; an
+    /// ASCII-only file takes UTF-8 in a language with no code page.</summary>
+    public static bool InPlaceIsUtf8(string targetPath) => LaneOf(targetPath) switch
+    {
+        PluginTextLane.Utf8 => true,
+        PluginTextLane.AsciiOnly => NoCodePage,
+        _ => false,
+    };
 
 
     /// <summary>Whether a new file's contributing plugins put it in the UTF-8 lane before a single string is written — the provenance half of the new-file encoding choice.</summary>
@@ -156,11 +184,16 @@ public static class PluginTextEncoding
 
     /// <summary>The refusal for an IN-PLACE write whose file is in the language default and whose new value that encoding cannot spell; the staged temp is discarded and nothing is written.</summary>
     public static string UnspellableRefusal(UnspellableTextException ex, string pluginFileName)
-        => $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. Its text is in "
-         + $"{CodePageName()} (that is what reading it resolved to), and the value \"{ex.Text}\" contains "
-         + $"'{ex.Character}' (U+{(int)ex.Character:X4}), which {CodePageName()} has no spelling for — writing it here "
-         + "would either store a '?' in place of the character or convert every other name in the file to UTF-8. "
-         + "Write this value into a new patch instead (drop in_place=), which is free to be a UTF-8 file.";
+    {
+        var (its, which) = NoCodePage
+            ? ("not UTF-8", "its bytes have")
+            : ("in " + CodePageName(), CodePageName() + " has");
+        return $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. Its text is "
+             + $"{its} (that is what reading it resolved to), and the value \"{ex.Text}\" contains "
+             + $"'{ex.Character}' (U+{(int)ex.Character:X4}), which {which} no spelling for — writing it here "
+             + "would either store a '?' in place of the character or convert every other name in the file to UTF-8. "
+             + "Write this value into a new patch instead (drop in_place=), which is free to be a UTF-8 file.";
+    }
 
     /// <summary>Unwrap a serialize-boundary throw to the unspellable-value failure inside it, or null; re-stamped only when EVERY leaf is this failure.</summary>
     public static UnspellableTextException? RootUnspellable(Exception ex)
@@ -217,6 +250,7 @@ public static class PluginTextEncoding
     sealed class LaneSink
     {
         volatile bool _utf8, _legacy;
+        internal bool? Localized;   // the file's localized flag, once peeked
         internal void SawUtf8() => _utf8 = true;
         internal void SawLegacy() => _legacy = true;
         internal PluginTextLane Lane =>
