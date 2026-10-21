@@ -119,7 +119,12 @@ public static class LocalizedStrings
             return new LocalizedAssessment(LocalizedShape.StringsFolderUnreadable, Array.Empty<string>(), NoneIncomplete,
                                            Names(gameData), null, false, dataDir is null, UnmatchedTables: unmatched);
 
-        if (own.Count > 0)
+        // The read takes the loose winner first, so the plugin's own folder counts only when it is the winner.
+        var ownStrings = Path.Combine(folder, "Strings");
+        var lw = text.WinnersFor(pluginPath)?.Loose;
+        bool ownWins = lw is not { } w || w.Layer == AssetResolver.DataLayerName
+                       || string.Equals(w.Dir, ownStrings, StringComparison.OrdinalIgnoreCase);
+        if (own.Count > 0 && ownWins)
         {
             var incomplete = Incomplete(own);
             if (incomplete.Count > 0)
@@ -130,11 +135,9 @@ public static class LocalizedStrings
         }
 
         // A translation mod's or the overwrite folder's loose Strings, when the read takes the tables from there.
-        if (text.WinnersFor(pluginPath)?.Loose is { } lw && lw.Layer != AssetResolver.DataLayerName
-            && !string.Equals(lw.Dir, Path.Combine(folder, "Strings"), StringComparison.OrdinalIgnoreCase)
-            && InLanguage(ReadStringsFolder(lw.Dir, stem).Languages, only) is { Count: > 0 } there)
+        if (!ownWins && InLanguage(ReadStringsFolder(lw!.Value.Dir, stem).Languages, only) is { Count: > 0 } there)
             return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), NoneIncomplete, Names(there), null, false, false,
-                                           UnmatchedTables: unmatched, StringsModFolder: lw.Layer);
+                                           UnmatchedTables: unmatched, StringsModFolder: lw.Value.Layer);
 
         if (gameData.Count > 0)
             return new LocalizedAssessment(LocalizedShape.GameDataOnly, Array.Empty<string>(), NoneIncomplete, Names(gameData), null, false, false, UnmatchedTables: unmatched);

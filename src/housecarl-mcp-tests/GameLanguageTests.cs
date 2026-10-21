@@ -510,6 +510,11 @@ public sealed class GameLanguageTests : IDisposable
         var read = ReadName(svc, weapon);
         Assert.Contains("Translated Sword", read);
         Assert.DoesNotContain("Big Iron Sword", read);
+
+        // The census takes the same winner: the in-place refusal names the translation's folder, not the plugin's own.
+        var r = InPlace(svc, weapon, "BasicStats.Damage", "20", "HcTr.esp");
+        Assert.Contains("it resolves from the Strings folder in the mod folder 'SwordMod Translation'", r);
+        Assert.DoesNotContain("beside it (", r);
     }
 
     /// <summary>The winner rule is Mutagen's: a translation's copy of an INI-listed archive wins from a mod folder
