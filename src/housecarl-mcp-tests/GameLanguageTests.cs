@@ -776,6 +776,28 @@ public sealed class GameLanguageTests : IDisposable
         Assert.Contains("has no spelling for", bad);
     }
 
+    /// <summary>A plain plugin's own names set its lane in every language: under a Russian order, an in-place edit of a
+    /// UTF-8 plugin keeps its untouched name in UTF-8, not Windows-1251.</summary>
+    [Fact]
+    public void AnInPlaceEditOfAUtf8PluginUnderARussianOrderStaysUtf8()
+    {
+        var path = Path.Combine(ModDir("Utf8Mod"), "HcU8.esp");
+        var mod = new SkyrimMod(new ModKey("HcU8", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var w = mod.Weapons.AddNew();
+        w.EditorID = "HcU8Weap";
+        w.Name = RussianName;
+        w.BasicStats = new WeaponBasicStats { Damage = 7, Weight = 1 };
+        var utf8 = new MutagenEncodingWrapper(new UTF8Encoding(false));
+        mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>())
+           .WithEmbeddedEncodings(new EncodingBundle(utf8, utf8)).Write();
+        var svc = Open("RUSSIAN", new[] { "Utf8Mod" }, new[] { "HcU8.esp" });
+        Assert.Contains(RussianName, ReadName(svc, w.FormKey));
+
+        Assert.DoesNotContain("error:", InPlace(svc, w.FormKey, "BasicStats.Damage", "20", "HcU8.esp"));
+        Assert.True(Holds(path, Encoding.UTF8.GetBytes(RussianName)), "the untouched name left UTF-8");
+        Assert.False(Holds(path, Cp1251.GetBytes(RussianName)), "the untouched name went out Windows-1251");
+    }
+
     const string KoreanName = "강철 검";
 
     /// <summary>Korean has no code page in Mutagen, so its text is UTF-8: an in-place Korean name into a plugin whose
