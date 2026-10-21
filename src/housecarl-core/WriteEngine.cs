@@ -1318,7 +1318,6 @@ public static class WriteEngine
         var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
         var tmpPath = Path.Combine(tmpDir, Path.GetFileName(outputPath));
         Directory.CreateDirectory(tmpDir);
-        OwnerRanks.Settle(patchMod, OwnerRanks.FactionIn(ordered));
 
         void Serialize(Mutagen.Bethesda.Plugins.Binary.Streams.EncodingBundle encodings) =>
             patchMod.BeginWrite
@@ -1445,7 +1444,6 @@ public static class WriteEngine
     internal static void SerializeInPlace(SkyrimMod targetMod, ISkyrimModGetter[]? ordered, string outputPath,
                                           string writePath, System.IO.Abstractions.IFileSystem? fileSystem)
     {
-        if (ordered is not null) OwnerRanks.Settle(targetMod, OwnerRanks.FactionIn(ordered));   // no order, no owner types: the check's retry serializes as read
         var target = targetMod.BeginWrite.ToPath(writePath, fileSystem);
         (ordered is null ? target.WithNoLoadOrder() : target.WithLoadOrder(ordered))   // the target's OWN masters — no whole-order, no baseline
             .NoNextFormIDProcessing()          // persist the author's NextObjectID verbatim (no EnsureFormIdFloor)

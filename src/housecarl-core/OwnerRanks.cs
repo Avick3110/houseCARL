@@ -27,13 +27,9 @@ public static class OwnerRanks
                     };
     }
 
-    /// <summary>The faction test off a write's own master overlays: the owner's defining plugin holds a FACT at that key.</summary>
-    public static Func<FormKey, bool> FactionIn(IEnumerable<ISkyrimModGetter> order)
-    {
-        var byKey = new Dictionary<ModKey, ISkyrimModGetter>();
-        foreach (var m in order) byKey.TryAdd(m.ModKey, m);
-        return fk => !fk.IsNull && byKey.TryGetValue(fk.ModKey, out var m) && m.Factions.ContainsKey(fk);
-    }
+    /// <summary>The one faction test, for the write and the dry-run preview alike: the order's winning record for the key is a FACT, wherever it lives.</summary>
+    public static Func<FormKey, bool> FactionIn(LoadOrderResolver.IndexView view) =>
+        fk => !fk.IsNull && view.WinnerClassOf(fk) is { } cls && typeof(IFactionGetter).IsAssignableFrom(cls);
 
     /// <summary>Every <see cref="IExtraData"/> reachable from <paramref name="node"/>, by the properties whose declared type can lead to one.</summary>
     static IEnumerable<IExtraData> ExtraDataIn(object? node)
