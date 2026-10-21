@@ -1,4 +1,5 @@
 using Mutagen.Bethesda;
+using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
 using HousecarlMcp;
@@ -187,5 +188,63 @@ public sealed class CopyServiceLaneTests : IDisposable
         var owners = typed.LeveledItems.Single().Entries!.Select(e => Assert.IsAssignableFrom<IFactionOwnerGetter>(e.ExtraData!.Owner)).ToList();
         Assert.Equal(new[] { -1, 7 }, owners.Select(f => f.RequiredRank));
         Assert.All(owners, f => Assert.Equal(_w.BaseFaction, f.Faction.FormKey));
+    }
+
+    /// <summary>The owners in <paramref name="patchPath"/> typed through a cache over the base master, and its masters.</summary>
+    (List<IFactionOwnerGetter> owners, string[] masters) OwnersIn(string patchPath, Func<ISkyrimModGetter, IEnumerable<IExtraDataGetter?>> extraData)
+    {
+        using var baseOv = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(_w.ModsDir, "BaseMod", "HcBase.esm"), SkyrimRelease.SkyrimSE);
+        using var patchOv = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+        var cache = new ISkyrimModGetter[] { baseOv, patchOv }.ToImmutableLinkCache();
+        using var typed = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE, new() { LinkCache = cache });
+        return (extraData(typed).Select(e => Assert.IsAssignableFrom<IFactionOwnerGetter>(e!.Owner)).ToList(),
+                typed.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToArray());
+    }
+
+    // #1204: a copy that extends a patch already holding another plugin's faction owners keeps their ranks. The patch's
+    // master 0 is off the order, so an unsettled rank 5 would read as a link into it and refuse the copy.
+    [Fact]
+    public void ACopyIntoAPatchHoldingAnotherPluginsFactionOwnersKeepsTheirRanks()
+    {
+        // A patch houseCARL owns, its plugin then replaced by one written elsewhere.
+        var first = Clone("FirstClone", "HandPatch");
+        CopyServiceWorld.Succeeded(first);
+        var handPath = first.OutPath!;
+        var hand = new SkyrimMod(ModKey.FromFileName(Path.GetFileName(handPath)), SkyrimRelease.SkyrimSE);
+        var list = new LeveledItem(hand) { EditorID = "HandOwnedList" };
+        LeveledItemEntry Owned(int rank) => new()
+        {
+            Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = new FormLink<IItemGetter>(FormKey.Null) },
+            ExtraData = new ExtraData { ItemCondition = 1f, Owner = new FactionOwner { Faction = new FormLink<IFactionGetter>(_w.BaseFaction), RequiredRank = rank } },
+        };
+        list.Entries = new() { Owned(-1), Owned(5) };
+        hand.LeveledItems.Add(list);
+        using (var srcOv = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(_w.ModsDir, "SrcMod", "Src.esp"), SkyrimRelease.SkyrimSE))
+        using (var baseOv = SkyrimMod.CreateFromBinaryOverlay(Path.Combine(_w.ModsDir, "BaseMod", "HcBase.esm"), SkyrimRelease.SkyrimSE))
+            hand.BeginWrite.ToPath(handPath).WithLoadOrder(new ISkyrimModGetter[] { srcOv, baseOv }).WithExtraIncludedMasters(srcOv.ModKey).Write();
+        Assert.Equal("Src.esp", CopyServiceWorld.ReadBack(handPath, m => m.ModHeader.MasterReferences[0].Master.FileName.String));
+
+        var o = _w.Copy(_w.SrcNpc, new[] { "Src.esp" }, CopyServiceWorld.HeadParts, CopyServiceWorld.NoExclusions,
+            null, "HandClone", null, Path.GetFileName(handPath));
+
+        CopyServiceWorld.Succeeded(o);
+        Assert.True(o.Extended);
+        var (owners, masters) = OwnersIn(o.OutPath!, m => m.LeveledItems.Single().Entries!.Select(e => e.ExtraData));
+        Assert.Equal(new[] { -1, 5 }, owners.Select(f => f.RequiredRank));
+        Assert.DoesNotContain("Src.esp", masters);
+    }
+
+    // #1204: an attach onto a target owned by another plugin's faction keeps the target's rank
+    [Fact]
+    public void AnAttachOntoATargetOwnedByAnotherPluginsFactionKeepsItsRank()
+    {
+        var o = _w.Copy(_w.SrcNpc, new[] { "Src.esp" }, CopyServiceWorld.HeadParts, CopyServiceWorld.NoExclusions,
+            _w.OwnedTargetNpc, null, "OwnedAttach", null);
+
+        CopyServiceWorld.Succeeded(o);
+        var (owners, masters) = OwnersIn(o.OutPath!, m => m.Npcs.Single(n => n.FormKey == _w.OwnedTargetNpc).Items!.Select(e => e.Data));
+        Assert.Equal(new[] { -1 }, owners.Select(f => f.RequiredRank));
+        Assert.Equal(_w.BaseFaction, owners.Single().Faction.FormKey);
+        Assert.Equal(new[] { "HcBase.esm", "Follower.esp" }, masters);
     }
 }
