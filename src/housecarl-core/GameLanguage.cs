@@ -17,22 +17,21 @@ public sealed class InstanceText
     public string? Refusal { get; }
 
     internal readonly string[] Roots;
-    readonly string _dataDir;
     readonly Lazy<Dictionary<string, (string Path, string OwningMod)>> _archives;
 
     internal InstanceText(Language language, string? refusal, string[] roots, string dataDir,
                           Lazy<Dictionary<string, (string Path, string OwningMod)>> archives)
     {
-        Language = language; Refusal = refusal; Roots = roots; _dataDir = dataDir; _archives = archives;
+        Language = language; Refusal = refusal; Roots = roots; DataDir = dataDir; _archives = archives;
     }
 
     /// <summary>The winning <c>&lt;stem&gt;.bsa</c> across overwrite, enabled mods by priority and the game Data, as the asset layer resolves any archive; null when no layer has one.</summary>
     internal (string Path, string OwningMod)? WinningArchive(string stem)
         => _archives.Value.TryGetValue(stem + ".bsa", out var hit) ? hit : null;
 
-    internal string DataDir => _dataDir;
+    internal string DataDir { get; }
 
-    internal InstanceText WithRefusal(string refusal) => new(Language, refusal, Roots, _dataDir, _archives);
+    internal InstanceText WithRefusal(string refusal) => new(Language, refusal, Roots, DataDir, _archives);
 }
 
 public static class GameLanguage
@@ -116,6 +115,9 @@ public static class GameLanguage
         catch (IOException) { return false; }
         catch (UnauthorizedAccessException) { return false; }
     }
+
+    /// <summary>The game language a plugin at this path is read and written in: its instance's <c>sLanguage</c>, English outside every instance.</summary>
+    public static Language LanguageOf(string pluginPath) => For(pluginPath)?.Language ?? Language.English;
 
     static bool SameRoots(InstanceText a, InstanceText b)
         => a.Roots.SequenceEqual(b.Roots, StringComparer.OrdinalIgnoreCase);

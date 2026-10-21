@@ -181,32 +181,29 @@ public static class LocalizedStrings
 
     /// <summary>Does the plugin's OWN folder carry a strings source FOR THIS PLUGIN in the game's language? The read side's redirect gate; it answers for the NAMED plugin, and any IO fault answers TRUE (#369).</summary>
     public static bool OwnFolderCarriesStringsFor(string pluginPath)
-        => OwnFolderCarries(pluginPath, LanguageOf(pluginPath));
+        => OwnFolderCarries(pluginPath, GameLanguage.LanguageOf(pluginPath).ToString());
 
     /// <summary>Where a plugin whose tables are not beside it reads them from: the folder of the winning archive named for it when that archive carries its tables in the game's language (#1075), else the game Data. One home for the read and the shape census.</summary>
     public static (string Folder, string? Mod) ArchiveHomeFor(string pluginPath, string dataDir)
-    {
-        var stem = Path.GetFileNameWithoutExtension(pluginPath);
-        if (GameLanguage.For(pluginPath) is { } text && text.WinningArchive(stem) is { } win && win.OwningMod != "Data"
-            && Path.GetDirectoryName(win.Path) is { } folder
-            && BsaEmbedding(folder, stem, text.Language.ToString()).Path is not null)
-            return (folder, win.OwningMod);
-        return (dataDir, null);
-    }
+        => GameLanguage.For(pluginPath) is { } text && ArchiveHomeIn(text, Path.GetFileNameWithoutExtension(pluginPath)) is { } home
+           && !string.Equals(home.Folder, Path.GetDirectoryName(pluginPath), StringComparison.OrdinalIgnoreCase)
+            ? home : (dataDir, null);
+
+    /// <summary>The mod folder whose winning archive carries this plugin's tables in the instance's language, or null for the game Data.</summary>
+    static (string Folder, string? Mod)? ArchiveHomeIn(InstanceText text, string stem)
+        => text.WinningArchive(stem) is { } win && win.OwningMod != "Data" && Path.GetDirectoryName(win.Path) is { } folder
+           && BsaEmbedding(folder, stem, text.Language.ToString()).Path is not null
+            ? (folder, win.OwningMod) : null;
 
     /// <summary>Does the read of this plugin find string tables in the instance's language, beside it or at its archive home? The language refusal's question.</summary>
     internal static bool HasTablesFor(string pluginPath, InstanceText text)
     {
         var language = text.Language.ToString();
-        if (OwnFolderCarries(pluginPath, language)) return true;
         var stem = Path.GetFileNameWithoutExtension(pluginPath);
-        if (ReadStringsFolder(Path.Combine(text.DataDir, "Strings"), stem).Languages.ContainsKey(language)) return true;
-        var home = text.WinningArchive(stem) is { } win && Path.GetDirectoryName(win.Path) is { } f ? f : text.DataDir;
-        return BsaEmbedding(home, stem, language).Path is not null;
+        return OwnFolderCarries(pluginPath, language) || ArchiveHomeIn(text, stem) is not null
+            || ReadStringsFolder(Path.Combine(text.DataDir, "Strings"), stem).Languages.ContainsKey(language)
+            || BsaEmbedding(text.DataDir, stem, language).Path is not null;
     }
-
-    /// <summary>The game language a plugin is read in, as the token its table file names carry.</summary>
-    static string LanguageOf(string pluginPath) => (GameLanguage.For(pluginPath)?.Language ?? Language.English).ToString();
 
     static bool OwnFolderCarries(string pluginPath, string language)
     {
