@@ -256,8 +256,12 @@ public sealed class TwinRenderSweep : IDisposable
         var compact = new WritePatchBuilder.CompactOutcome(
             true, null, false, Path.Combine(Path.GetTempPath(), "CompactFolder", "Compacted.esp"), "Compacted.esp", false, true,
             new[] { "Skyrim.esm" }, 1, 1, 1024,
-            Array.Empty<string>(), Array.Empty<WritePatchBuilder.RepointReport>(), 3, 0, Array.Empty<string>());
-        return new List<string> { WriteTools.RenderMerge(merge), WriteTools.RenderCompact(compact) };
+            Array.Empty<string>(), Array.Empty<WritePatchBuilder.RepointReport>(), 3, 0, Array.Empty<string>(), RecordsMoved: 1);
+        return new List<string>
+        {
+            WriteTools.RenderMerge(merge), WriteTools.RenderCompact(compact),
+            WriteTools.RenderCompact(compact with { RecordsMoved = 0 }),
+        };
     }
 
     /// <summary>Copy outcomes covering the sentences no end-to-end fixture reaches, handed to the real render.</summary>

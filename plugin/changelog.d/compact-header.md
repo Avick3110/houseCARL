@@ -1,0 +1,1 @@
+- **Compacting a plugin now keeps its master flag, author and description, and a re-run that moved no FormIDs says so instead of reporting a clean repoint.** Check: compact an ESM-flagged plugin and read its header in xEdit.
