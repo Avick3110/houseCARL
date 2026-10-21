@@ -1960,7 +1960,7 @@ public static class WritePatchBuilder
         ISkyrimModGetter? ov = null;
         try
         {
-            ov = MidCallChange.Open(srcPath, () => SkyrimMod.CreateFromBinaryOverlay(srcPath, SkyrimRelease.SkyrimSE));
+            ov = MidCallChange.Open(srcPath, () => SkyrimMod.CreateFromBinaryOverlay(srcPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(srcPath)));
             var originating = new List<FormKey>();
             var carried = new List<FormKey>();
             var records = new List<FormKey>();
