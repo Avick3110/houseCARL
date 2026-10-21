@@ -414,11 +414,17 @@ static partial class WriteTools
 
         int overrides = o.RecordsCopied - o.RecordsRenumbered;
         bool movedNothing = o.RecordsMoved == 0 && o.RecordsRenumbered > 0;
-        if (movedNothing) sb.Append(o.Esl ? "light master (ESPFE): yes" : "not light-flagged");
+        int stayed = o.RecordsRenumbered - o.RecordsMoved;
+        if (movedNothing)
+            sb.Append(o.Esl ? "light master (ESPFE): yes — " : "not light-flagged — ")
+              .Append(stayed).Append(stayed == 1 ? " originating record already at its compacted id" : " originating records already at their compacted ids");
         else
+        {
             sb.Append(o.Esl ? "light master (ESPFE): yes — " : "renumbered (not light-flagged): ")
               .Append(o.RecordsMoved).Append(o.RecordsMoved == 1 ? " originating record renumbered " : " originating records renumbered ")
               .Append(o.Esl ? "into the light range 0x800–0xFFF" : "contiguously from 0x800");
+            if (stayed > 0) sb.Append("; ").Append(stayed).Append(stayed == 1 ? " already at its compacted id" : " already at their compacted ids");
+        }
         if (overrides > 0) sb.Append("; ").Append(overrides).Append(overrides == 1 ? " override kept at its master FormID" : " overrides kept at their master FormIDs");
         sb.Append(".\n");
         if (movedNothing) sb.Append(WriteSentences.CompactMovedNothing);
