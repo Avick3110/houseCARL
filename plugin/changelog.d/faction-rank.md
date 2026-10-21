@@ -1,1 +1,1 @@
-- **"Any rank" faction ownership on container items and leveled entries is written back as it was, with no extra master.** Patches made earlier from such records carry an unattainable rank and should be re-made.
+- **"Any rank" faction ownership on container, NPC inventory and leveled-list items keeps its rank and adds no master, in patches and in plugins edited in place, and an in-place write repairs ranks an earlier version damaged.** A patch no longer lists the owning faction's plugin as a master.
