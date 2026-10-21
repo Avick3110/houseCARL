@@ -45,6 +45,7 @@ public static class SubrecordInventory
         public string Signature { get; init; } = "";
         public int FormVersion { get; init; }
         public bool Deleted { get; init; }
+        public bool Partial { get; init; }
         public Dictionary<(string Sig, int Length), (int Count, bool Zero)> Subs { get; } = new();
         public List<(string Sig, int Length)> Order { get; } = new();
         readonly List<Func<ReadOnlyMemorySlice<byte>>> _bodies = new();
@@ -135,7 +136,9 @@ public static class SubrecordInventory
         {
             var file = Walk(File.ReadAllBytes(path), parsed.ModKey);
             if (dropped is not null) foreach (var k in dropped) file.Remove(k);
-            losses = Losses(Diff(file, Walk(written.Value, parsed.ModKey)), Renames, InformationFree);
+            var diffs = Diff(file, Walk(written.Value, parsed.ModKey));
+            if (PartialForms.AddedTo(diffs, fileName) is { } added) return added;
+            losses = Losses(diffs, Renames, InformationFree);
         }
         catch (Exception ex) { return CouldNotRun(fileName, WriteEngine.Describe(ex)); }
         if (losses.Count == 0) return null;
@@ -162,7 +165,16 @@ public static class SubrecordInventory
     {
         var capture = new CaptureFileSystem();
         WriteEngine.SerializeInPlace(parsed, ordered, path, path, capture);
-        return capture.Bytes;
+        if (capture.Bytes is not { } b || !PartialForms.In(parsed)) return capture.Bytes;
+        return PartialForms.Restore(b.ToArray(), Path.GetFileName(path));
+    }
+
+    /// <summary>A plugin as Mutagen writes it with no load order, held in memory.</summary>
+    internal static byte[] CaptureWrite(SkyrimMod mod)
+    {
+        var capture = new CaptureFileSystem();
+        mod.BeginWrite.ToPath(Path.GetFullPath(mod.ModKey.FileName.String), capture).WithNoLoadOrder().Write();
+        return capture.Bytes!.Value.ToArray();
     }
 
     static T? Find<T>(Exception? ex) where T : Exception
@@ -205,6 +217,7 @@ public static class SubrecordInventory
                 {
                     Signature = rec.RecordType.Type, FormVersion = rec.FormVersion ?? 0,
                     Deleted = (rec.MajorRecordFlags & DeletedFlag) != 0,
+                    Partial = PartialForms.Is(rec.RecordType.Type, (uint)rec.MajorRecordFlags),
                 };
             entry.AddRecord(rec);
             p += rec.TotalLength;

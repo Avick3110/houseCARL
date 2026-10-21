@@ -1434,6 +1434,8 @@ public static class WriteEngine
         try
         {
             SerializeInPlace(targetMod, ordered, outputPath, tmpPath, fileSystem: null);
+            if (PartialForms.In(targetMod))
+                File.WriteAllBytes(tmpPath, PartialForms.Restore(File.ReadAllBytes(tmpPath), Path.GetFileName(outputPath)));
             return tmpPath;
         }
         catch

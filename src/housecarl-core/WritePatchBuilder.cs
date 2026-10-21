@@ -1584,6 +1584,7 @@ public static class WritePatchBuilder
             if (b is LocalizedTargetUnsupportedException lt) return lt.Message;
             // And the same for a value the target's encoding cannot spell; the exception's message is the whole sentence.
             if (b is UnspellableTextException ut) return ut.Message;
+            if (b is PartialFormException pf) return pf.Message;
         }
         var body = lead + WriteEngine.Describe(ex) + UnopenableMasterClause(ex, session);
         if (trailer.Length == 0) return body;

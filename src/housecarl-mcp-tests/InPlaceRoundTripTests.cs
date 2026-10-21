@@ -286,6 +286,78 @@ public sealed class InPlaceRoundTripTests
         Assert.True(o.Success, o.Error);
     }
 
+    /// <summary>The ARMA plus two interior CELLs in one block: a partial form (record flag 0x4000) first, then a plain one.</summary>
+    (string Path, FormKey Arma) StagePartialCell(bool edidOnly)
+    {
+        var (path, arma) = StagePluginWith(m =>
+        {
+            var sub = new CellSubBlock { GroupType = GroupTypeEnum.InteriorCellSubBlock };
+            sub.Cells.Add(new Cell(m.GetNextFormKey(), SkyrimRelease.SkyrimSE)
+                { EditorID = "HcPF_Partial", Flags = Cell.Flag.HasWater, MajorRecordFlagsRaw = 0x4000 });
+            sub.Cells.Add(new Cell(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcPF_Plain", Flags = Cell.Flag.HasWater });
+            m.Cells.Records.Add(new CellBlock { GroupType = GroupTypeEnum.InteriorCellBlock, SubBlocks = { sub } });
+        });
+        if (edidOnly) EditRecord(path, "CELL", subs => subs.Where(s => s.Sig == "EDID").ToList());
+        return (path, arma);
+    }
+
+    /// <summary>The whole record, header and body, of the CELL with that EDID.</summary>
+    static byte[] CellBytes(string path, string edid)
+    {
+        var b = File.ReadAllBytes(path);
+        int p = 24 + (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(4));
+        while (p < b.Length)
+        {
+            var sig = Encoding.ASCII.GetString(b, p, 4);
+            int size = (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p + 4));
+            if (sig == "GRUP") { p += 24; continue; }
+            if (sig == "CELL" && Encoding.ASCII.GetString(b, p + 24, 6 + edid.Length).EndsWith(edid)) return b[p..(p + 24 + size)];
+            p += 24 + size;
+        }
+        throw new InvalidOperationException($"no CELL {edid} in the file");
+    }
+
+    // #1209: Mutagen 0.54.4 adds DATA and LTMP to an EDID-only partial CELL; the in-place write keeps it as it was and the plain one as today.
+    [Fact]
+    public void AnInPlaceWriteLeavesAnEdidOnlyPartialCellByteIdentical()
+    {
+        var (path, arma) = StagePartialCell(edidOnly: true);
+        var partial = CellBytes(path, "HcPF_Partial");
+        var plain = CellBytes(path, "HcPF_Plain");
+        Assert.Equal(24 + 6 + "HcPF_Partial\0".Length, partial.Length);
+        var o = SetWeaponAdjust(path, arma);
+        Assert.True(o.Success, o.Error);
+        Assert.Equal(partial, CellBytes(path, "HcPF_Partial"));
+        Assert.Equal(plain, CellBytes(path, "HcPF_Plain"));
+        Assert.Contains("DATA", Encoding.ASCII.GetString(plain));
+    }
+
+    // #1209: a partial CELL carrying more than an EDID cannot come out as it went in, so the write is refused.
+    [Fact]
+    public void AnInPlaceWriteToAPartialCellCarryingDataIsRefusedWithTheFileUntouched()
+    {
+        var (path, arma) = StagePartialCell(edidOnly: false);
+        var before = File.ReadAllBytes(path);
+        var o = SetWeaponAdjust(path, arma);
+        Assert.False(o.Success);
+        Assert.StartsWith("refused: CELL ", o.Error);
+        Assert.Contains("is a partial form (record flag 0x4000", o.Error);
+        Assert.Contains("would be written with DATA", o.Error);
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
+    // #1209: the round-trip check names a subrecord the write adds to a partial form as a failure.
+    [Fact]
+    public void TheRoundTripCheckNamesASubrecordAddedToAPartialForm()
+    {
+        var key = new FormKey(ModKey.FromFileName(PluginName), 0x800);
+        var file = new SubrecordInventory.RecordEntry { Signature = "CELL", Partial = true };
+        var gained = new[] { new SubrecordInventory.Sub("LTMP", 4, 1, true) };
+        var d = new SubrecordInventory.RecordDiff(key, "CELL", 44, false, Array.Empty<SubrecordInventory.Sub>(), gained, file);
+        Assert.Contains("would add LTMP to CELL", PartialForms.AddedTo(new[] { d }, PluginName));
+        Assert.Null(PartialForms.AddedTo(new[] { d with { File = new SubrecordInventory.RecordEntry { Signature = "CELL" } } }, PluginName));
+    }
+
     // A subrecord over 64 KB, carried by XXXX, counts at its real length and XXXX itself is not counted.
     [Fact]
     public void AnXxxxCarriedSubrecordCountsAtItsRealLength()
