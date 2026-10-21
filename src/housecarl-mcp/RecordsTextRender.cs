@@ -589,8 +589,11 @@ static partial class RecordsTools
             // The scan summary's multi-target references= un-merge, on the same row.
             if (matches is { } mt && i < mt.Count && mt[i] is { } hit) sb.Append("  matches=").Append(hit);
             sb.Append('\n');
-            if (o.Error is null) Wire.AppendSharedName(sb, "    ", SharedEditorIds.Note(o.Pin, o.FormKey, o.Record!.Type, o.SourcePlugin));
-            if (o.Error is null) Wire.AppendSharedName(sb, "    ", Wire.ExcludedNote(o.Pin, o.FormKey));
+            if (o.Error is null)
+            {
+                Wire.AppendSharedName(sb, "    ", SharedEditorIds.Note(o.Pin, o.FormKey, o.Record!.Type, o.SourcePlugin));
+                Wire.AppendSharedName(sb, "    ", Wire.ExcludedNote(o.Pin, o.FormKey));
+            }
             if (sb.Length > budget)
             {
                 sb.Length = mark;

@@ -555,7 +555,8 @@ public static class WritePatchBuilder
                     "plugin in from_source.";
             return null;
         }
-        return w.Value.WinnerPlugin;
+        error = view.ExcludedTouchRefusal(e.CopySource);   // the winner's body would lack the excluded plugin's version
+        return error is null ? w.Value.WinnerPlugin : null;
     }
 
     /// <summary>The same-runtime-record-type gate for a CROSS-record copy, compared on the OVERLAY-STRIPPED type name.</summary>

@@ -143,7 +143,7 @@ static class StatusWire
     {
         if (excluded.Count == 0) return;
         sb.Append("\n[!] EXCLUDED plugins (").Append(excluded.Count)
-          .Append(") — dropped from the index this session; houseCARL does NOT read these, every OTHER plugin works:\n");
+          .Append(") — dropped from the index this session; houseCARL does NOT read these, so any record they override is answered without their version:\n");
         int shown = 0;
         foreach (var kv in excluded)
         {

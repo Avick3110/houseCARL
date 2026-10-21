@@ -545,10 +545,11 @@ static partial class Wire
         else if (note is not null) sb.Append("  runtime=(").Append(note).Append(')');
     }
 
-    /// <summary>A row's shared-EditorID note as its own line under the row, only when owed.</summary>
     /// <summary>The per-row note on a record an excluded plugin also touches, asked of the row's pinned build; null on every other row.</summary>
     internal static string? ExcludedNote(LoadOrderService.ViewPin? pin, FormKey fk) =>
         pin?.View.ExcludedTouchers(fk) is { Count: > 0 } by ? OrderDegraded.TouchNote(by) : null;
+
+    /// <summary>A row's shared-EditorID note as its own line under the row, only when owed.</summary>
 
     internal static void AppendSharedName(StringBuilder sb, string indent, string? note)
     {
