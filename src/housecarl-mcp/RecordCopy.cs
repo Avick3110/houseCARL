@@ -141,7 +141,9 @@ internal sealed partial class RecordWrites
         }
 
         overlays.AddRange(openedHere);
-        return new SourceChain(arms);
+        // Each record as the copy takes it, faction owners settled, so no walk follows a rank word as a link.
+        var isFaction = OwnerRanks.FactionIn(view);
+        return new SourceChain(arms.Select(a => a with { Fetch = fk => OwnerRanks.Settled(a.Fetch(fk), isFaction) }).ToList());
         }
         catch { foreach (var d in openedHere) { try { d.Dispose(); } catch { } } throw; }
     }
@@ -235,6 +237,7 @@ internal sealed partial class RecordWrites
                     mk => view.ContainsPlugin(mk.FileName.String),
                     pf => { session.ReleaseOverlay(pf); return session.AllMastersExcept(pf); },
                     consulted,
+                    OwnerRanks.FactionIn(view),
                     ex => WritePatchBuilder.SerializeFailure("", ex, session, ""),
                     patch => WritePatchBuilder.ExtendRoundTripRefusal(patch, outPath, session));
 

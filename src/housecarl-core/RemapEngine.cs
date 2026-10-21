@@ -207,7 +207,8 @@ public static class RemapEngine
     /// <summary>Copy <paramref name="sources"/> into the (typically fresh) mod <paramref name="target"/> under their new
     /// keys — a source not in <paramref name="dict"/> at its OWN key — then <c>RemapLinks</c>; flat groups only.</summary>
     public static RenumberResult RenumberRecordsInto(
-        SkyrimMod target, IEnumerable<IMajorRecordGetter> sources, IReadOnlyDictionary<FormKey, FormKey> dict)
+        SkyrimMod target, IEnumerable<IMajorRecordGetter> sources, IReadOnlyDictionary<FormKey, FormKey> dict,
+        Func<FormKey, bool> isFaction)
     {
         int copied = 0, renumbered = 0;
         foreach (var rec in sources)
@@ -235,6 +236,7 @@ public static class RemapEngine
         }
 
         // Repoint every internal reference, flat AND nested; the nested limit above is about PLACING, not repointing.
+        OwnerRanks.Settle(target, isFaction);   // while each owner still names its real plugin
         target.RemapLinks(dict);
         return new RenumberResult(true, null, copied, renumbered);
     }
@@ -268,7 +270,7 @@ public static class RemapEngine
     /// <summary>Copy EVERY record of <paramref name="source"/> into the (fresh) mod <paramref name="target"/> under its
     /// remapped key, rebuilding the FULL nesting and the interior-cell block tree, then <c>RemapLinks</c>.</summary>
     public static RenumberResult RenumberModInto(
-        SkyrimMod target, ISkyrimModGetter source, IReadOnlyDictionary<FormKey, FormKey> dict)
+        SkyrimMod target, ISkyrimModGetter source, IReadOnlyDictionary<FormKey, FormKey> dict, Func<FormKey, bool> isFaction)
     {
         var stats = new RenumberStats();
         try
@@ -300,6 +302,7 @@ public static class RemapEngine
                         }
 
             // 3. Repoint every internal reference, inside the try so a throw is the same structured refusal.
+            OwnerRanks.Settle(target, isFaction);   // while each owner still names its real plugin
             target.RemapLinks(dict);
         }
         catch (Exception ex)
@@ -493,7 +496,7 @@ public static class RemapEngine
     public static MergeResult MergeModsInto(
         SkyrimMod target,
         IReadOnlyList<(string Name, ISkyrimModGetter Mod)> donorsByLoadOrder,
-        IReadOnlyDictionary<FormKey, FormKey> dict)
+        IReadOnlyDictionary<FormKey, FormKey> dict, Func<FormKey, bool> isFaction)
     {
         var stats = new RenumberStats();
         var reg = new MergePlacement();
@@ -547,6 +550,7 @@ public static class RemapEngine
             }
 
             // 3. Repoint every internal reference, cross-donor ones included, inside the try as above.
+            OwnerRanks.Settle(target, isFaction);   // before the remap and the donor-dangling check
             target.RemapLinks(dict);
         }
         catch (Exception ex)
@@ -745,6 +749,8 @@ public static class RemapEngine
                 "refused, not re-emitted minus what it couldn't read (Q3). The file is UNTOUCHED.");
         }
 
+        // The view still names each owner's real plugin here, a compacted one by its original keys.
+        OwnerRanks.Settle(targetMod, OwnerRanks.FactionIn(view));
         try { targetMod.RemapLinks(dict); }
         catch (Exception ex)
         {

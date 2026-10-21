@@ -129,7 +129,7 @@ public sealed class WritePatchHandleTests : IDisposable
         var outPath = _rig.Out("HcWpHoldCompact.esp");
         var dict = new Dictionary<FormKey, FormKey> { [new FormKey(key, 0x900)] = new FormKey(key, 0x800) };
 
-        var r = WritePatchBuilder.CompactBuild(src, key, dict, MasterPath, outPath, esl: false, floor: 0x800, dataDir: null);
+        var r = WritePatchBuilder.CompactBuild(src, key, dict, MasterPath, outPath, esl: false, floor: 0x800, dataDir: null, isFaction: _ => false);
 
         Assert.True(r.Success, r.Error);
         NoneHeld(src, outPath, _masterPath, _secondPath);
@@ -151,7 +151,7 @@ public sealed class WritePatchHandleTests : IDisposable
         };
 
         var r = WritePatchBuilder.MergeBuild(new[] { ("HcWpHoldDonorA.esp", d1, ka), ("HcWpHoldDonorB.esp", d2, kb) },
-            outKey, dict, new[] { "HcWpHoldMaster.esm", "HcWpHoldSecond.esm" }, MasterPath, outPath, dataDir: null);
+            outKey, dict, new[] { "HcWpHoldMaster.esm", "HcWpHoldSecond.esm" }, MasterPath, outPath, dataDir: null, isFaction: _ => false);
 
         Assert.True(r.Success, r.Error);
         NoneHeld(d1, d2, outPath, _masterPath, _secondPath);
