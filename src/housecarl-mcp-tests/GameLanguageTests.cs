@@ -574,6 +574,49 @@ public sealed class GameLanguageTests : IDisposable
         Assert.Contains("has no spelling for", bad);
     }
 
+    const string KoreanName = "강철 검";
+
+    /// <summary>Korean has no code page in Mutagen, so its text is UTF-8: an in-place Korean name into a plugin whose
+    /// own text is all ASCII goes out UTF-8.</summary>
+    [Fact]
+    public void AKoreanInPlaceNameIntoAnAsciiPluginIsUtf8()
+    {
+        var path = Path.Combine(ModDir("PlainMod"), "HcKo.esp");
+        var mod = new SkyrimMod(new ModKey("HcKo", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var w = mod.Weapons.AddNew();
+        w.EditorID = "HcKoWeap";
+        w.Name = "Iron Sword";
+        w.BasicStats = new WeaponBasicStats { Damage = 7, Weight = 1 };
+        mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        var svc = Open("KOREAN", new[] { "PlainMod" }, new[] { "HcKo.esp" });
+        Assert.Contains("Iron Sword", ReadName(svc, w.FormKey));
+
+        Assert.DoesNotContain("error:", InPlace(svc, w.FormKey, "Name", KoreanName, "HcKo.esp"));
+        Assert.True(Holds(path, Encoding.UTF8.GetBytes(KoreanName)), "the Korean name is not UTF-8");
+    }
+
+    /// <summary>A Korean install keeps a legacy file's own bytes, so a Korean name in place there is refused, and the
+    /// refusal says the file's text is not UTF-8 rather than calling it Windows-1252.</summary>
+    [Fact]
+    public void AKoreanInPlaceNameIntoALegacyPluginSaysItIsNotUtf8()
+    {
+        var path = Path.Combine(ModDir("WesternMod"), "HcWe.esp");
+        var mod = new SkyrimMod(new ModKey("HcWe", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var w = mod.Weapons.AddNew();
+        w.EditorID = "HcWeWeap";
+        w.Name = "Epée longue";
+        w.BasicStats = new WeaponBasicStats { Damage = 7, Weight = 1 };
+        var cp1252 = new MutagenEncodingWrapper(Cp1252);
+        mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).WithEmbeddedEncodings(new EncodingBundle(cp1252, cp1252)).Write();
+        var svc = Open("KOREAN", new[] { "WesternMod" }, new[] { "HcWe.esp" });
+        Assert.Contains("Epée longue", ReadName(svc, w.FormKey));
+
+        var bad = InPlace(svc, w.FormKey, "Name", KoreanName, "HcWe.esp");
+        Assert.Contains("Its text is not UTF-8", bad);
+        Assert.DoesNotContain("Windows-1252", bad);
+        Assert.True(Holds(path, Cp1252.GetBytes("Epée longue")), "the refused write changed the file");
+    }
+
     string InPlace(LoadOrderService svc, FormKey fk, string field, string value, string plugin)
     {
         var ops = Je($@"[{{""formid"":""{Fid(fk)}"",""field_path"":""{field}"",""op"":""Set"",""value"":{JsonSerializer.Serialize(value)}}}]");
