@@ -359,6 +359,52 @@ public sealed class GameLanguageTests : IDisposable
         Assert.DoesNotContain("Big Iron Sword", read);
     }
 
+    /// <summary>The winner rule is Mutagen's: a translation's copy of an INI-listed archive wins from a mod folder
+    /// whatever its name, and an archive named for another plugin by the last " - " ("HcUp - Extra - Textures" is
+    /// HcUp - Extra's) does not, though it outranks it.</summary>
+    [Fact]
+    public void ATranslationOfAnIniListedArchiveInAModFolderWins()
+    {
+        var staging = Path.Combine(_root, "staging");
+        Directory.CreateDirectory(staging);
+        WriteLocalized(Path.Combine(staging, "HcUp.esm"), Language.German, GermanName, ModType.Master);
+        Directory.CreateDirectory(DataDir);
+        var plugin = Path.Combine(DataDir, "HcUp.esm");
+        File.Copy(Path.Combine(staging, "HcUp.esm"), plugin);
+        var listed = Path.Combine(ModDir("German Translation"), "Skyrim - Interface.bsa");
+        var other = Path.Combine(ModDir("Other"), "HcUp - Extra - Textures.bsa");
+        File.WriteAllBytes(listed, Archive(staging));
+        File.WriteAllBytes(other, Archive(staging));
+        var prof = Path.Combine(_root, "profile");
+        Directory.CreateDirectory(prof);
+        File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[General]\r\nsLanguage=GERMAN\r\n");
+        var archives = new[]
+        {
+            new ActiveArchive(listed, ArchiveDiscovery.IniArchiveOwner, 0, "German Translation"),
+            new ActiveArchive(other, "HcUp - Extra.esp", 5, "Other"),
+        };
+
+        var text = GameLanguage.Read(GameIni.For(prof), Mo2LoadOrder.ReadComposition(prof), archives, Mods, DataDir, "", new[] { plugin });
+
+        Assert.Equal(Path.GetDirectoryName(listed), text.FoldersFor(plugin, DataDir)?.Archives);
+    }
+
+    /// <summary>A copy of a plugin the order does not serve (an older version in a disabled mod) reads the tables
+    /// beside it, not the enabled copy's.</summary>
+    [Fact]
+    public void AnOffOrderCopyReadsTheTablesBesideIt()
+    {
+        var weapon = WriteLocalized(Path.Combine(ModDir("SwordMod"), "HcOff.esp"), Language.English, "Enabled Sword");
+        WriteLocalized(Path.Combine(ModDir("OldSword"), "HcOff.esp"), Language.English, "Old Sword");
+        var svc = Open(null, new[] { "SwordMod" }, new[] { "HcOff.esp" });
+        File.AppendAllText(Path.Combine(Profile, "modlist.txt"), "-OldSword\r\n");
+
+        var read = ReadName(svc, weapon, source: new { file = "HcOff.esp", mod = "OldSword" });
+        Assert.DoesNotContain("error:", read);
+        Assert.Contains("Old Sword", read);
+        Assert.DoesNotContain("Enabled Sword", read);
+    }
+
     // ---- where the language lives ---------------------------------------------------------------------
 
     /// <summary>The write's code page is the call's language and nothing else: a new file written outside any MO2
@@ -369,7 +415,7 @@ public sealed class GameLanguageTests : IDisposable
         var prof = Path.Combine(_root, "profile");
         Directory.CreateDirectory(prof);
         File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), "[General]\r\nsLanguage=RUSSIAN\r\n");
-        var russian = GameLanguage.Read(GameIni.For(prof), Mo2LoadOrder.ReadComposition(prof), Array.Empty<ActiveArchive>(), "", "", "", null);
+        var russian = GameLanguage.Read(GameIni.For(prof), Mo2LoadOrder.ReadComposition(prof), Array.Empty<ActiveArchive>(), "", "", "", Array.Empty<string>());
         var outside = Path.Combine(_root, "elsewhere", "HcOut.esp");
         Directory.CreateDirectory(Path.GetDirectoryName(outside)!);
         var mod = new SkyrimMod(new ModKey("HcOut", ModType.Plugin), SkyrimRelease.SkyrimSE);
