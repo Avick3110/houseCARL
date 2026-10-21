@@ -248,6 +248,42 @@ public sealed class OwnerRankWriteTests : IDisposable
     }
 
     [Fact]
+    public void AMergeWhoseSecondDonorOwnsViaTheFirstDonorsFactionKeepsTheRankAndMovesTheOwner()
+    {
+        var d1 = new SkyrimMod(ModKey.FromNameAndExtension("HcOrDonorA.esp"), SkyrimRelease.SkyrimSE);
+        var faction = d1.Factions.AddNew("HcOrDonorFaction").FormKey;
+        var d1Path = Path.Combine(_root, d1.ModKey.FileName.String);
+        d1.BeginWrite.ToPath(d1Path).WithNoLoadOrder().Write();
+        var d2 = new SkyrimMod(ModKey.FromNameAndExtension("HcOrDonorB.esp"), SkyrimRelease.SkyrimSE);
+        var chest = new Container(d2) { EditorID = "HcOrDonorChest" };
+        chest.Items = new() { new ContainerEntry
+        {
+            Item = new ContainerItem { Count = 1, Item = new FormLink<IItemGetter>(FormKey.Null) },
+            Data = new ExtraData { ItemCondition = 1f, Owner = new FactionOwner { Faction = new FormLink<IFactionGetter>(faction), RequiredRank = -1 } },
+        } };
+        d2.Containers.Add(chest);
+        var d2Path = Path.Combine(_root, d2.ModKey.FileName.String);
+        using (var d1Ov = SkyrimMod.CreateFromBinaryOverlay(d1Path, SkyrimRelease.SkyrimSE))
+            d2.BeginWrite.ToPath(d2Path).WithLoadOrder(new ISkyrimModGetter[] { d1Ov }).Write();
+
+        var outKey = ModKey.FromNameAndExtension("HcOrDonorMerged.esp");
+        var outPath = Path.Combine(_root, outKey.FileName.String);
+        var dict = new Dictionary<FormKey, FormKey> { [faction] = new(outKey, 0x800), [chest.FormKey] = new(outKey, 0x801) };
+        using (var r = LoadOrderResolver.Build(new[] { d1Path, d2Path }))
+        {
+            var m = WritePatchBuilder.MergeBuild(new[] { (d1.ModKey.FileName.String, d1Path, d1.ModKey), (d2.ModKey.FileName.String, d2Path, d2.ModKey) },
+                outKey, dict, Array.Empty<string>(), _ => null, outPath, dataDir: null, OwnerRanks.FactionIn(r.Capture()));
+            Assert.True(m.Success, m.Error);
+        }
+        using var plain = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+        using var typed = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE, new() { LinkCache = plain.ToImmutableLinkCache() });
+        var owner = Assert.IsAssignableFrom<IFactionOwnerGetter>(typed.Containers.Single().Items![0].Data!.Owner);
+        Assert.Equal(-1, owner.RequiredRank);
+        Assert.Equal(new FormKey(outKey, 0x800), owner.Faction.FormKey);
+        Assert.Empty(typed.ModHeader.MasterReferences);
+    }
+
+    [Fact]
     public void ACompactIntoANewFolderRepointsAReferencerAndKeepsItsRanks()
     {
         var newBase = Path.Combine(_root, "compacted", BaseName);
