@@ -288,10 +288,13 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   renumbered count; the write sets the masters and the record count. Merge does not do this: it names each donor
   header it drops instead.
 - The plugin itself is renumbered and serialised whole, but everything downstream of the renumber gets only the
-  records it MOVES, the map entries whose id changes (#1205): the identify pass, the referencer repoint, the facegen
-  and voice carries and the report's count. A run where every originating record already sits at its compacted id
+  records it MOVES, the map entries whose id changes (#1205): the identify pass, the referencer repoint and the
+  report's count. The facegen and voice carries go by lane: in place they take the moved records only, since an
+  unmoved record's files already sit in its own mod folder; into a new file they take every originating record,
+  since the new mod folder starts empty and an unmoved NPC or voiced line would otherwise lose its face or voice once
+  the original mod is disabled. A run where every originating record already sits at its compacted id
   (a re-run, or a first compaction of an already-contiguous plugin) therefore finds no referencer to refuse or
-  rewrite and carries nothing; it says that no id moved and, conditionally, that it does not repair an earlier
+  rewrite, and in place carries nothing; it says that no id moved and, conditionally, that it does not repair an earlier
   failed repoint, and does not call itself a clean compaction. A partial move repoints only a referencer of a moved
   record. The referencer refusal says a link left on an old id may resolve to a different record of the plugin, not only dangle,
   because the renumber starts at 0x800 where the plugin's records usually already sit.

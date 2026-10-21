@@ -300,8 +300,10 @@ internal sealed partial class RecordWrites
                 var assetView = _host.Assets.Capture();
                 seqGate = assetView.ResolveForPlacement(srcSeqRel).Sources.Count > 0;   // VFS-aware (loose roots + active BSAs)
                 var outDir = Path.GetDirectoryName(outPath)!;
-                assetRename = AssetRenameService.CarryFaceGen(outPath, movedMap, assetView, outDir);
-                voiceRename = AssetRenameService.CarryVoice(outPath, movedMap, assetView, outDir);
+                // In place the files of an unmoved record already sit where they belong; a new mod folder starts empty.
+                var carryMap = inPlace ? movedMap : remapDict;
+                assetRename = AssetRenameService.CarryFaceGen(outPath, carryMap, assetView, outDir);
+                voiceRename = AssetRenameService.CarryVoice(outPath, carryMap, assetView, outDir);
             }
             catch (Exception ex)
             {
