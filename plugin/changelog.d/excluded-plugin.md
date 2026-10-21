@@ -1,1 +1,1 @@
-- **Records a plugin houseCARL could not read overrides last are now marked on reads and refused by apply, forward and copy; errors names references into that plugin instead of calling them undefined.** Check: find a FormID it overrides in xEdit, then run an apply dry run on it.
+- **Records a plugin houseCARL could not read overrides last are now marked on reads and refused by apply and forward; errors names references into that plugin instead of calling them undefined.** Check: find a FormID it overrides in xEdit, then run an apply dry run on it.

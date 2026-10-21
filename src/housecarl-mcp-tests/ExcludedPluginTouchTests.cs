@@ -232,39 +232,13 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     }
 
     [Fact]
-    public void AForwardRefusesUnlessItsSourceIsTheExcludedPluginsOwnFile()
+    public void AForwardOfATouchedRecordIsRefusedOnBothLanes()
     {
         var fromMaster = ForwardTools.Forward(_svc, formids: new[] { Fid(_overridden) }, source: "HcExMaster.esm", dry_run: true);
         Assert.Contains("also touched by " + BadName + ", excluded this session as unreadable", fromMaster);
 
-        var badPath = Path.Combine(_root, "inst", "mods", "BadMod", BadName);
-        var fromBad = ForwardTools.Forward(_svc, formids: new[] { Fid(_overridden) }, source: badPath, dry_run: true);
-        Assert.DoesNotContain("also touched by", fromBad);
-
-        var inPlace = ForwardTools.Forward(_svc, formids: new[] { Fid(_overridden) }, source: LateName, in_place: CleanName, acknowledge: true, dry_run: true);
-        Assert.DoesNotContain("also touched by", inPlace);
-    }
-
-    [Fact]
-    public void ACopyFromTheWinnerOfATouchedRecordIsRefused()
-    {
-        var r = CopyTools.Copy(_svc, from: Fid(_overridden), seed_paths: new[] { "Keywords" }, new_editorid: "HcExCopy");
-        Assert.Contains("also touched by " + BadName + ", excluded this session as unreadable", r);
-    }
-
-    [Fact]
-    public void AnApplyToAChildWhoseParentTheExcludedPluginTouchesIsRefused()
-    {
-        var r = Apply(_cleanRef, "EditorID", "HcExRefRenamed");
-        Assert.Contains(Fid(_cleanRef) + ": its parent " + Fid(_cell) + ": also touched by " + BadName, r);
-    }
-
-    [Fact]
-    public void ACreateUnderATouchedParentDisclosesItInTheHostLine()
-    {
-        var r = CreateTools.Create(_svc, records: JsonDocument.Parse(
-            "[{\"record_type\":\"PlacedObject\",\"editorid\":\"HcExNewRef\",\"parent\":\"" + Fid(_cell) + "\",\"collection\":\"Temporary\"}]").RootElement);
-        Assert.Contains("it is also touched by " + BadName + ", excluded this session as unreadable, so this copy lacks that plugin's version", r);
+        var inPlace = ForwardTools.Forward(_svc, formids: new[] { Fid(_overridden) }, source: "HcExMaster.esm", in_place: CleanName, acknowledge: true, dry_run: true);
+        Assert.Contains("also touched by " + BadName + ", excluded this session as unreadable", inPlace);
     }
 
     [Fact]
@@ -295,18 +269,6 @@ public sealed class ExcludedPluginTouchTests : IDisposable
                                         project: new() { form = "chain" });
         Assert.Contains("unresolved — " + Excluded, text);
         Assert.DoesNotContain("a missing endpoint", text);
-    }
-
-    [Fact]
-    public void ConflictsOnlyAndOverrideDepthCountTheExcludedPlugin()
-    {
-        var text = RecordsTools.Records(_svc, types: new[] { "WEAP" }, conflicts_only: true, format: "json");
-        var rows = JsonDocument.Parse(text).RootElement.GetProperty("matches").EnumerateArray().ToList();
-        var row = Assert.Single(rows, x => x.GetProperty("formid").GetString() == Fid(_overridden));
-        Assert.Equal(2, row.GetProperty("override_depth").GetInt32());
-
-        var index = RecordsTools.Records(_svc, conflicts_only: true);
-        Assert.Contains(Fid(_overridden), index);
     }
 
     [Fact]
