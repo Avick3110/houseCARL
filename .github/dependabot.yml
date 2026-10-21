@@ -9,7 +9,7 @@ updates:
     ignore:
       - dependency-name: "Nifly"
         versions: ["<= 1.1.0"]
-      # Microsoft.Extensions.* stays on the 10.0.x line ModelContextProtocol pins; a major bump breaks that.
+      # Microsoft.Extensions.* is kept on the 10.0.x line to match the net10 TFM and ModelContextProtocol's 10.0.x minimums.
       - dependency-name: "Microsoft.Extensions.*"
         update-types: ["version-update:semver-major"]
 
