@@ -334,10 +334,11 @@ public sealed class GameLanguageTests : IDisposable
         Assert.Contains(japanese, ReadName(svc, w.FormKey));
     }
 
-    /// <summary>A Korean install reads a plugin whose name is not UTF-8 (a Western mod's Windows-1252 "é") the way
-    /// Mutagen does, with a replacement character, instead of failing to open it.</summary>
+    /// <summary>A Korean install's legacy lane is Windows-1252, which decodes every byte: a plugin whose name is not
+    /// UTF-8 (a Western mod's "é") reads as written, and a new patch that touches another field writes the untouched
+    /// name back byte for byte rather than as a replacement character.</summary>
     [Fact]
-    public void AKoreanInstallReadsAPluginWithANonUtf8Name()
+    public void AKoreanInstallRoundTripsAPluginWithANonUtf8Name()
     {
         var path = Path.Combine(ModDir("WesternMod"), "HcWe.esp");
         var mod = new SkyrimMod(new ModKey("HcWe", ModType.Plugin), SkyrimRelease.SkyrimSE);
@@ -351,7 +352,58 @@ public sealed class GameLanguageTests : IDisposable
 
         var read = ReadName(svc, w.FormKey);
         Assert.DoesNotContain("error:", read);
-        Assert.Contains("p�e longue", read);
+        Assert.Contains("Epée longue", read);
+
+        Assert.DoesNotContain("error:", Set(svc, w.FormKey, "BasicStats.Damage", "20", "HcWePatch.esp"));
+        var patch = PatchPath("HcWePatch.esp");
+        Assert.True(Holds(patch, Cp1252.GetBytes("Epée longue")), "the untouched name did not round-trip");
+        Assert.False(Holds(patch, new byte[] { 0xEF, 0xBF, 0xBD }), "the untouched name was written as a replacement character");
+    }
+
+    /// <summary>A plugin's lane is its own bytes': a Russian master whose Russian tables are UTF-8 but whose own text is
+    /// not leaves a new patch over it in Windows-1251, the code page the game reads that patch's text in.</summary>
+    [Fact]
+    public void ARussianPatchOverAMasterWithUtf8TablesTakesTheMastersOwnLane()
+    {
+        var key = new ModKey("HcRm", ModType.Plugin);
+        var dir = ModDir("RussianMaster");
+        var mod = new SkyrimMod(key, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
+        var w = mod.Weapons.AddNew();
+        w.EditorID = "HcRmWeap";
+        w.Name = new TranslatedString(Language.Russian, RussianName);
+        w.BasicStats = new WeaponBasicStats { Damage = 7, Weight = 1 };
+        using (var sw = new StringsWriter(GameRelease.SkyrimSE, key, Path.Combine(dir, "Strings"),
+                                          new Always(new MutagenEncodingWrapper(Encoding.UTF8)), new System.IO.Abstractions.FileSystem()))
+            mod.BeginWrite.ToPath(Path.Combine(dir, "HcRm.esp")).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).WithStringsWriter(sw).Write();
+        var svc = Open("RUSSIAN", new[] { "RussianMaster" }, new[] { "HcRm.esp" });
+        Assert.Contains(RussianName, ReadName(svc, w.FormKey));
+
+        Assert.DoesNotContain("error:", Set(svc, w.FormKey, "Name", RussianNewName, "HcRmPatch.esp"));
+        var patch = PatchPath("HcRmPatch.esp");
+        Assert.True(Holds(patch, Cp1251.GetBytes(RussianNewName)), "the new name is not in Windows-1251");
+        Assert.False(Holds(patch, Encoding.UTF8.GetBytes(RussianNewName)), "the master's tables put the patch in UTF-8");
+    }
+
+    /// <summary>English keeps the rule it always had: a master whose English tables hold UTF-8 text puts a new patch
+    /// over it in UTF-8, so an English write is the bytes it was before the language was read.</summary>
+    [Fact]
+    public void AnEnglishPatchOverAMasterWithUtf8TablesKeepsTodaysBytes()
+    {
+        var key = new ModKey("HcEm", ModType.Plugin);
+        var dir = ModDir("EnglishMaster");
+        var mod = new SkyrimMod(key, SkyrimRelease.SkyrimSE) { UsingLocalization = true };
+        var w = mod.Weapons.AddNew();
+        w.EditorID = "HcEmWeap";
+        w.Name = "Épée de fer";
+        w.BasicStats = new WeaponBasicStats { Damage = 7, Weight = 1 };
+        using (var sw = new StringsWriter(GameRelease.SkyrimSE, key, Path.Combine(dir, "Strings"),
+                                          new Always(new MutagenEncodingWrapper(Encoding.UTF8)), new System.IO.Abstractions.FileSystem()))
+            mod.BeginWrite.ToPath(Path.Combine(dir, "HcEm.esp")).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).WithStringsWriter(sw).Write();
+        var svc = Open(null, new[] { "EnglishMaster" }, new[] { "HcEm.esp" });
+        Assert.Contains("Épée de fer", ReadName(svc, w.FormKey));
+
+        Assert.DoesNotContain("error:", Set(svc, w.FormKey, "Name", "Épée neuve", "HcEmPatch.esp"));
+        Assert.True(Holds(PatchPath("HcEmPatch.esp"), Encoding.UTF8.GetBytes("Épée neuve")), "the English patch left UTF-8");
     }
 
     // ---- which INI ----------------------------------------------------------------------------------
