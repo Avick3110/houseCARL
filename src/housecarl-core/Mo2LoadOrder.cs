@@ -1,3 +1,6 @@
+using System.Text;
+using System.Text.Unicode;
+
 namespace HousecarlCore;
 
 // The active load order, read from an MO2 portable instance's profile files on disk, never from the USVFS; the priority model and the three profile files are in docs/architecture/mo2-instance.md.
@@ -162,10 +165,10 @@ public static class Mo2LoadOrder
     }
 
     /// <summary>plugins.txt to the active set (the <c>*</c> stripped) and the inactive list; the implicit masters are not listed there at all and are classified in <see cref="ReadComposition"/>.</summary>
-    static void ParsePlugins(string pluginsPath, HashSet<string> active, List<string> inactive)
+    internal static void ParsePlugins(string pluginsPath, HashSet<string> active, List<string> inactive, Encoding? ansi = null)
     {
         if (!File.Exists(pluginsPath)) return;
-        foreach (var raw in ReadProfileLines(pluginsPath))
+        foreach (var raw in ReadPluginsLines(pluginsPath, ansi ?? SystemAnsi))
         {
             var line = raw.Trim();
             if (line.Length == 0 || line[0] == '#') continue;
@@ -192,10 +195,27 @@ public static class Mo2LoadOrder
         return names;
     }
 
-    /// <summary>Read one profile text file, naming a LOCKED file as the transient it is; only the Win32 sharing and lock violations become <see cref="ProfileUnreadableException"/>, and every other fault keeps its own error.</summary>
-    static string[] ReadProfileLines(string path)
+    /// <summary>modlist.txt's and loadorder.txt's lines, as UTF-8.</summary>
+    static string[] ReadProfileLines(string path) => ReadProfile(path, File.ReadAllLines);
+
+    /// <summary>The system ANSI code page, which MO2 writes plugins.txt in (<c>QStringEncoder(System)</c>).</summary>
+    static readonly Encoding SystemAnsi = CodePagesEncodingProvider.Instance.GetEncoding(0)!;
+
+    /// <summary>plugins.txt's lines: valid UTF-8 stays UTF-8, so a file that read before still does; anything else is decoded in <paramref name="ansi"/>, the system ANSI code page unless a test names one.</summary>
+    static List<string> ReadPluginsLines(string path, Encoding ansi)
     {
-        try { return File.ReadAllLines(path); }
+        var bytes = ReadProfile(path, File.ReadAllBytes);
+        var encoding = Utf8.IsValid(bytes) ? Encoding.UTF8 : ansi;
+        using var reader = new StreamReader(new MemoryStream(bytes), encoding, detectEncodingFromByteOrderMarks: true);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line) lines.Add(line);
+        return lines;
+    }
+
+    /// <summary>Read one profile file, naming a LOCKED file as the transient it is; only the Win32 sharing and lock violations become <see cref="ProfileUnreadableException"/>, and every other fault keeps its own error.</summary>
+    static T ReadProfile<T>(string path, Func<string, T> read)
+    {
+        try { return read(path); }
         catch (IOException ex) when (ex is not (FileNotFoundException or DirectoryNotFoundException)
                                      && (ex.HResult & 0xFFFF) is 32 or 33)   // ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION
         {

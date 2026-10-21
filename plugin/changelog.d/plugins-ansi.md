@@ -1,0 +1,1 @@
+- **Plugin names with accented or Cyrillic letters are now read from plugins.txt as MO2 writes them, so an unticked one is no longer loaded and a ticked one keeps its tick.** Check with `housecarl_load_order_status` on a profile holding such a plugin.
