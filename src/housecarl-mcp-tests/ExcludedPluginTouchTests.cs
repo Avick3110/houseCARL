@@ -17,6 +17,7 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     const string CleanName = "HcExClean.esp";
     const string LateName = "HcExLate.esp";
     const string BrokenName = "HcExBroken.esp";   // the bad plugin cut short, so its record headers cannot be walked either
+    const string GarbageName = "HcExGarbage.esp"; // not a plugin at all, so it cannot be opened
 
     readonly string _root = Path.Combine(Path.GetTempPath(), "hc-excluded-touch-" + Guid.NewGuid().ToString("N"));
     readonly LoadOrderService _svc;
@@ -91,6 +92,8 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         File.WriteAllBytes(Path.Combine(mods, "BrokenMod", BrokenName), OverstateNestedGroup(File.ReadAllBytes(badPath)));
         Place("CleanMod", clean, master, bad);
         Place("LateMod", late, master);
+        Directory.CreateDirectory(Path.Combine(mods, "GarbageMod"));
+        File.WriteAllBytes(Path.Combine(mods, "GarbageMod", GarbageName), new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 });
 
         var inst = Path.Combine(_root, "inst");
         File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
@@ -98,10 +101,10 @@ public sealed class ExcludedPluginTouchTests : IDisposable
             + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(inst, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        var names = new[] { master.ModKey.FileName.String, BadName, BrokenName, CleanName, LateName };
+        var names = new[] { master.ModKey.FileName.String, BadName, BrokenName, CleanName, LateName, GarbageName };
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", names) + "\r\n");
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), string.Join("", names.Select(n => "*" + n + "\r\n")));
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+LateMod\r\n+CleanMod\r\n+BrokenMod\r\n+BadMod\r\n+MasterMod\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+GarbageMod\r\n+LateMod\r\n+CleanMod\r\n+BrokenMod\r\n+BadMod\r\n+MasterMod\r\n");
         _svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
     }
 
@@ -167,6 +170,22 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         Assert.Contains("EXCLUDED this session", status);
         Assert.Contains("the records it overrides could not be listed either (", status);
         Assert.Contains("so reads of them are not marked and writes to them are not refused", status);
+    }
+
+    [Fact]
+    public void APluginThatCannotBeOpenedSaysItsTouchesAreNeitherMarkedNorRefused()
+    {
+        var status = Status(GarbageName);
+        Assert.Contains("EXCLUDED this session", status);
+        Assert.Contains("the records it overrides cannot be listed, so reads of them are not marked and writes to them are not refused", status);
+    }
+
+    [Fact]
+    public void AScanRowOfATouchedRecordCarriesTheNote()
+    {
+        var scan = RecordsTools.Records(_svc, types: new[] { "WEAP" });
+        Assert.Contains("    note: " + Note, scan);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(scan, "note: also touched by"));   // only the weapon the bad plugin wins
     }
 
     public static TheoryData<string, string?> MarkedForms => new()
