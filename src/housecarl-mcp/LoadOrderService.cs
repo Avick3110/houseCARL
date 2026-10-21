@@ -37,7 +37,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     IReadOnlyList<string> _assetWarnings = Array.Empty<string>();   // discovery warnings from the asset build (e.g. a Skyrim.ini we couldn't find → base BSAs unscanned)
     IReadOnlyList<ActiveArchive> _activeArchives = Array.Empty<ActiveArchive>();   // active BSAs behind the current asset build (archive → owning plugin); swapped with _assetResolver
     IReadOnlyList<string> _enabledModsAtBuild = Array.Empty<string>();             // enabled mods behind the current asset build; the loader scan walks these mods' Root folders, from the same capture as the view rather than a second profile read
-    (Mo2Composition Composition, ArchiveDiscoveryResult Discovery)? _orderArchives;   // the last text read's profile read and archive list, handed to the next asset build; null once the profile moved without a text read
     // Freshness baselines are last-seen FileStamps compared by value; contract in docs/architecture/load-order-resolver.md.
     FileStamp[] _profileStamps = new FileStamp[ProfileFileNames.Length];   // per ProfileFileNames, recorded at each order build
     FileStamp _iniStamp;                                                   // ModOrganizer.ini (instance-mode profile-switch baseline)
@@ -98,9 +97,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     {
         var ini = GameIni.For(r.ProfileDir);
         var discovery = ArchiveDiscovery.Discover(order.Composition, ini, r.ModsDir, r.DataDir, r.OverwriteDir);
-        var text = GameLanguage.Read(ini, order.Composition, discovery, r.ModsDir, r.DataDir, r.OverwriteDir, order.OrderedPaths);
-        _orderArchives = (order.Composition, discovery);
-        return text;
+        return GameLanguage.Read(ini, order.Composition, discovery, r.ModsDir, r.DataDir, r.OverwriteDir, order.OrderedPaths);
     }
 
     /// <summary>The corpus rulebook (corpus.json), loaded from the absolute CorpusPath on first use; the write pre-flight and the read scan's quantifier check share it.</summary>
@@ -562,9 +559,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>Build the asset resolver from the current roots: the active BSAs and the enabled-mod priority list, off one static profile read. Caller holds <see cref="_gate"/>.</summary>
     AssetResolver BuildAssetResolverLocked()
     {
-        // The order build's own profile read and archive list when it made one since the profile last moved, else a fresh one.
-        var comp = _orderArchives?.Composition ?? Mo2LoadOrder.ReadComposition(_profileDir);   // EnabledMods (priority) — cheap text parse
-        var discovery = _orderArchives?.Discovery ?? ArchiveDiscovery.Discover(comp, GameIni.For(_profileDir), _modsDir, _dataDir, _overwriteDir);
+        var comp = Mo2LoadOrder.ReadComposition(_profileDir);                       // EnabledMods (priority) — cheap text parse
+        var discovery = ArchiveDiscovery.Discover(comp, GameIni.For(_profileDir), _modsDir, _dataDir, _overwriteDir);
         _assetWarnings = discovery.Warnings;
         _activeArchives = discovery.Archives;   // kept alongside the resolver: archive filename → owning plugin (native-pairing provenance)
         _enabledModsAtBuild = comp.EnabledMods; // same build: the mod set behind this resolver (native-pairing loader scan)
@@ -884,22 +880,22 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         catch { return Array.Empty<string>(); }                  // root vanished / access denied — empty, not a thrown status read
     }
 
-    /// <summary>True if any profile file's or game INI's stamp differs from the last build's baseline, compared by value. Caller holds <see cref="_gate"/>.</summary>
+    /// <summary>True if any of the three MO2 profile files' stamps differs from the last build's baseline, compared by value. Caller holds <see cref="_gate"/>.</summary>
     bool ProfileFilesChanged()
     {
         if (_profileDir.Length == 0) return false;                 // test seam / not yet derived — nothing to compare against
-        return !StatProfileFiles(_profileDir).SequenceEqual(_profileStamps);
+        for (int i = 0; i < ProfileFileNames.Length; i++)
+            if (FileStamp.Of(Path.Combine(_profileDir, ProfileFileNames[i])) != _profileStamps[i]) return true;
+        return false;
     }
 
-    /// <summary>The three profile files' stamps in <see cref="ProfileFileNames"/> order, then the game INIs' the text is
-    /// read from (<see cref="GameIni.Files"/>) — a build's baseline, statted before the read it baselines. Caller holds <see cref="_gate"/>.</summary>
+    /// <summary>The three profile files' stamps in <see cref="ProfileFileNames"/> order — a build's baseline, statted before the read it baselines. Caller holds <see cref="_gate"/>.</summary>
     FileStamp[] StatProfileFiles(string profileDir)
-        => ProfileFileNames.Select(n => Path.Combine(profileDir, n)).Concat(GameIni.Files(profileDir))
-                           .Select(FileStamp.Of).ToArray();
-
-    /// <summary>Whether a game INI moved between two baselines, so the order's text must be read again.</summary>
-    static bool GameIniMoved(FileStamp[] now, FileStamp[] before)
-        => !now.Skip(ProfileFileNames.Length).SequenceEqual(before.Skip(ProfileFileNames.Length));
+    {
+        var s = new FileStamp[ProfileFileNames.Length];
+        for (int i = 0; i < ProfileFileNames.Length; i++) s[i] = FileStamp.Of(Path.Combine(profileDir, ProfileFileNames[i]));
+        return s;
+    }
 
     /// <summary>Lazy freshness, run on each tool call once the snapshot exists: a profile switch in instance mode, else the active profile's own files. Caller holds <see cref="_gate"/>.</summary>
     void RefreshOnProfileChange()
@@ -945,27 +941,22 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
         if (paths.Count > 0)
         {
-            // The set or order changed, or the profile or a game INI the text is read from did: read the language and
-            // build FIRST so the old snapshot survives a throw, then dispose and swap; the text is the build's, so a new
-            // text is a new build. A touch that moved none of them keeps the index and the text, and its asset build
-            // discovers for itself; either way the asset resolver drops and the baseline advances.
+            // The set or order changed, or what the text is read from did: read the language and build FIRST so the old
+            // snapshot survives a throw, then dispose and swap; the text is the build's, so a new text is a new build.
+            // A touch that moved neither keeps the index; either way the asset resolver drops and the baseline advances.
             bool orderChanged = !paths.SequenceEqual(_resolvedPaths, StringComparer.OrdinalIgnoreCase);
-            if (orderChanged || roots != RootsLocked() || GameIniMoved(profileStamps, _profileStamps))
-            {
-                var text = ReadInstanceText(roots, order);
-                if (_resolver is not null)
-                {
-                    // The rebuild carries the explainer too, or a profile change would drop every refusal to the flat not-found.
-                    var rebuilt = LoadOrderResolver.Build(paths, ExplainPluginAbsence, Counters, text);
-                    // The reverse-reference index is derived from plugin bytes, not from this snapshot, so it carries over.
-                    rebuilt.AdoptReverseIndexFrom(_resolver);
-                    _resolver.Dispose();
-                    _resolver = rebuilt;
-                }
-                if (orderChanged) _resolvedPaths = paths;
-            }
-            else _orderArchives = null;
+            var text = ReadInstanceText(roots, order);
             InvalidateAssetResolver();   // the active mod/archive set may have changed → the asset resolver rebuilds lazily
+            if (_resolver is not null)
+            {
+                // The rebuild carries the explainer too, or a profile change would drop every refusal to the flat not-found.
+                var rebuilt = LoadOrderResolver.Build(paths, ExplainPluginAbsence, Counters, text);
+                // The reverse-reference index is derived from plugin bytes, not from this snapshot, so it carries over.
+                rebuilt.AdoptReverseIndexFrom(_resolver);
+                _resolver.Dispose();
+                _resolver = rebuilt;
+            }
+            if (orderChanged) _resolvedPaths = paths;
             _orderWarnings = order.Warnings;
             _profileStamps = profileStamps;
             return true;
@@ -1115,7 +1106,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             _resolver?.Dispose(); _resolver = null;              // force a rebuild against the new instance on the next query
             _assetResolver?.Dispose(); _assetResolver = null;    // the asset resolver rebuilds against the new instance too
             _resolvedPaths = Array.Empty<string>();
-            _orderArchives = null;
             _profileStamps = new FileStamp[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
             _orderWarnings = Array.Empty<string>();
             InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too
