@@ -821,8 +821,9 @@ public sealed class LoadOrderResolver : IDisposable
         public (int Idx, Type? Seek) GroupOf(string pluginName, FormKey fk)
             => _r._nameToIdx.TryGetValue(pluginName, out int i) ? (i, _s.CopyType(fk, i, out _)) : (int.MaxValue, null);
 
-        /// <summary>The master filenames a plugin DECLARES in its header, in declared order; throws on a name not in the order or excluded this build.</summary>
-        public IReadOnlyList<string> DeclaredMasters(string pluginName) => _r.DeclaredMasters(pluginName, _s, _absences);
+        /// <summary>The master filenames a plugin DECLARES in its header, in declared order; throws on a name not in the order or excluded this build,
+        /// except one excluded for a parse failure when <paramref name="parseExcluded"/> is set, whose header still reads.</summary>
+        public IReadOnlyList<string> DeclaredMasters(string pluginName, bool parseExcluded = false) => _r.DeclaredMasters(pluginName, _s, _absences, parseExcluded);
 
         public ConflictTree? ResolveTree(OverlaySession session, FormKey fk) => _r.ResolveTree(session, fk, _s);
 
@@ -951,11 +952,11 @@ public sealed class LoadOrderResolver : IDisposable
     /// build, and <see cref="PluginUnreadableException"/> on a plugin that opened at index time but cannot be opened now.</summary>
     public IReadOnlyList<string> DeclaredMasters(string pluginName) => DeclaredMasters(pluginName, _snap, null);
 
-    IReadOnlyList<string> DeclaredMasters(string pluginName, IndexSnapshot s, AbsenceCache? absences)
+    IReadOnlyList<string> DeclaredMasters(string pluginName, IndexSnapshot s, AbsenceCache? absences, bool parseExcluded = false)
     {
         if (!_nameToIdx.TryGetValue(pluginName, out int idx))
             throw new ArgumentException($"plugin not in the load order: {pluginName}.{AbsenceCache.Clause(absences, this, pluginName)}");
-        if (s.Excluded.Contains(idx))
+        if (s.Excluded.Contains(idx) && !(parseExcluded && !s.Unopenable.Contains(idx)))
             throw new ArgumentException($"plugin '{pluginName}' was excluded from this session: {s.ExcludedPlugins[pluginName]}");
         ISkyrimModGetter ov;
         CheckUnchanged(idx, s);

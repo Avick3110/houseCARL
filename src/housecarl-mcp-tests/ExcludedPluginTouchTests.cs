@@ -48,6 +48,7 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
         sub.Cells.Add(cell); block.SubBlocks.Add(sub); master.Cells.Records.Add(block);
         _cell = cell.FormKey; _badRef = refA.FormKey; _cleanRef = refB.FormKey;
+        master.Keywords.Add(new Keyword(new FormKey(master.ModKey, 0x1A00), SkyrimRelease.SkyrimSE) { EditorID = "HcExMasterFarKeyword" });   // so a compaction of the master renumbers
 
         var bad = new SkyrimMod(ModKey.FromNameAndExtension(BadName), SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(bad, weapon)).BasicStats = new WeaponBasicStats { Damage = 99, Weight = 1 };
@@ -242,11 +243,20 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     }
 
     [Fact]
-    public void AnInPlaceCompactionNamesTheExcludedPluginAsUnreadAndRefuses()
+    public void AnInPlaceCompactionOfAPluginTheExcludedPluginMastersNamesItAsUnreadAndRefuses()
     {
-        var r = WriteTools.CompactPlugin(_svc, source: CleanName, esl: true, in_place: true, acknowledge: true);
+        var r = WriteTools.CompactPlugin(_svc, source: "HcExMaster.esm", esl: true, in_place: true, acknowledge: true);
         Assert.Contains("could not fully read " + BadName, r);
         Assert.Contains("refused — this is an IN-PLACE rewrite", r);
+    }
+
+    [Fact]
+    public void AnInPlaceCompactionOfAPluginTheExcludedPluginDoesNotMasterIsNotBlockedByIt()
+    {
+        var r = WriteTools.CompactPlugin(_svc, source: CleanName, esl: true, in_place: true, acknowledge: true);
+        Assert.DoesNotContain("could not fully read", r);
+        Assert.DoesNotContain("refused", r);
+        Assert.Contains("compacted " + CleanName + " IN PLACE", r);
     }
 
     string Excluded => $"FormID {Fid(_badOwn)} is not resolvable: its plugin '{BadName}' was excluded from this session";

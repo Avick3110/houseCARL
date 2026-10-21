@@ -76,9 +76,11 @@ public static class RemapEngine
             if (view.ExcludedPlugins.TryGetValue(plugin, out var excludedWhy))
             {
                 if (view.IsUnopenable(plugin)) continue;                 // could not be opened at build — already surfaced by the resolver
-                // Excluded for a parse failure, so its references and overrides are unknown: named as unread, which refuses the in-place lane.
-                unscannable++;
-                unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.EnumerationFault, excludedWhy));
+                // Excluded for a parse failure: only one that masters the set can reference or override it, and then it is named as unread.
+                bool masters;
+                try { masters = view.DeclaredMasters(plugin, parseExcluded: true).Any(transformSet.Contains); }
+                catch (PluginUnreadableException) { masters = true; }    // the header no longer reads, so it may
+                if (masters) unscannablePlugins.Add(new UnscannablePlugin(plugin, UnscannableCause.EnumerationFault, excludedWhy));
                 continue;
             }
             bool pluginListed = false;
