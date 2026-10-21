@@ -211,6 +211,20 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     }
 
     [Fact]
+    public void AMarkedReadRefusesWhenTheExcludedPluginChangesMidCall()
+    {
+        Assert.Contains("also touched by", RecordsTools.Records(_svc, formids: new[] { Fid(_overridden) }, project: new() { form = "tree" }));
+        var bad = Path.Combine(_root, "inst", "mods", "BadMod", BadName);
+        bool saved = false;
+        MidCallChange.BeforeCheck.Value = name => { if (!saved && name == "HcExMaster.esm") { File.SetLastWriteTimeUtc(bad, DateTime.UtcNow.AddSeconds(5)); saved = true; } };
+        string answer;
+        try { answer = RecordsTools.Records(_svc, formids: new[] { Fid(_overridden) }, project: new() { form = "tree" }); }
+        finally { MidCallChange.BeforeCheck.Value = null; }
+        Assert.True(saved);
+        Assert.Contains($"'{BadName}' changed on disk during this call", answer);
+    }
+
+    [Fact]
     public void ARecordInACellTheExcludedPluginOverridesIsMarked()
     {
         var tree = RecordsTools.Records(_svc, formids: new[] { Fid(_badRef), Fid(_cell) }, project: new() { form = "tree" });
