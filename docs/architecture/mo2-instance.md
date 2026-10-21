@@ -79,6 +79,10 @@ it until a tool writes there.
 - `plugins.txt` — the `*` active flag. Listed without a `*` = present but unchecked, and dropped
   from the order. Absent from the file entirely = an implicit force-loaded base/CC master.
 
+MO2 writes `plugins.txt` in the system ANSI code page (`QStringEncoder(System)`), so it is read in
+that code page unless its bytes are valid UTF-8, which is kept so a file that read before still does.
+`loadorder.txt` (MO2 writes it as UTF-8) and `modlist.txt` are read as UTF-8.
+
 MO2 holds `loadorder.txt` and `plugins.txt` open while it re-sorts, so a read landing in that
 window is a transient, not a failure: only the Win32 sharing and lock violations become
 `ProfileUnreadableException`, one sentence saying to retry. Every other read fault keeps its own
