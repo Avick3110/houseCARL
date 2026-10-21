@@ -49,9 +49,9 @@ public static class OrderDegraded
     /// <summary>The write refusal on such a record: a patch built without that plugin's version could undo its change; with no indexed winner, there is no readable version at all.</summary>
     public static string TouchRefusal(string formId, IReadOnlyList<string> excluded, bool hasWinner) =>
         (hasWinner
-            ? $"{formId}: {TouchedBy(excluded)}, so this write could undo that plugin's change. "
+            ? $"{formId}: {TouchedBy(excluded)}, so this write could undo {(excluded.Count == 1 ? "that plugin's change" : "those plugins' changes")}. "
             : $"{formId}: defined only by {string.Join(", ", excluded)}, excluded this session as unreadable, so it has no readable version to write. ") +
-        "Fix or remove that plugin (housecarl_load_order_status gives the reason) and retry.";
+        $"Fix or remove {(excluded.Count == 1 ? "that plugin" : "those plugins")} (housecarl_load_order_status gives the reason) and retry.";
 
     static string TouchedBy(IReadOnlyList<string> excluded) =>
         $"also touched by {string.Join(", ", excluded)}, excluded this session as unreadable, which " +
