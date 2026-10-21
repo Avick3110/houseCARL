@@ -12,13 +12,18 @@ public static class ArchiveDiscovery
     /// <summary>The <see cref="ActiveArchive.OwningPlugin"/> marker for a BASE archive. Single-sourced: consumers that discriminate official base archives key on THIS const.</summary>
     public const string IniArchiveOwner = "Skyrim.ini [Archive]";
 
-    /// <summary>Discover the active BSAs for the MO2 profile at <paramref name="profileDir"/>.
-    /// <paramref name="gamePath"/> is only the game-dir Skyrim.ini fallback; the profile's own is tried first.</summary>
-    public static ArchiveDiscoveryResult Discover(
-        string profileDir, string modsDir, string dataDir, string overwriteDir, string gamePath)
+    /// <summary>Discover the active BSAs for the MO2 profile at <paramref name="profileDir"/>; the base list comes from the INI the game reads (<see cref="GameIni"/>).</summary>
+    public static ArchiveDiscoveryResult Discover(string profileDir, string modsDir, string dataDir, string overwriteDir)
     {
         var warnings = new List<string>();
-        var comp = Mo2LoadOrder.ReadComposition(profileDir, warnings);
+        return Discover(Mo2LoadOrder.ReadComposition(profileDir, warnings), GameIni.For(profileDir), modsDir, dataDir, overwriteDir, warnings);
+    }
+
+    /// <summary>The same, over a composition and INI the caller already read, so an order build and its archives describe one profile state.</summary>
+    public static ArchiveDiscoveryResult Discover(Mo2Composition comp, GameIni ini, string modsDir, string dataDir,
+                                                  string overwriteDir, List<string>? warnings = null)
+    {
+        warnings ??= new List<string>();
 
         // Active plugins in load order (winner LAST) — the same filter as Mo2LoadOrder.Build.
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
@@ -33,7 +38,7 @@ public static class ArchiveDiscovery
         int rank = 0;
 
         // (1) base archives — Skyrim.ini [Archive] sResourceArchiveList/2; loaded first → the LOW rank block.
-        foreach (var fn in ReadBaseArchiveNames(profileDir, gamePath, warnings))
+        foreach (var fn in ReadBaseArchiveNames(ini, warnings))
         {
             if (archiveMap.TryGetValue(fn, out var found))
                 archives.Add(new ActiveArchive(found.Path, IniArchiveOwner, rank, found.OwningMod));
@@ -55,7 +60,7 @@ public static class ArchiveDiscovery
 
     /// <summary>Build archive-filename to the winning real path AND the MO2 layer it came from, the .bsa twin of
     /// <see cref="Mo2LoadOrder"/>'s plugin filename map.</summary>
-    internal static Dictionary<string, (string Path, string OwningMod)> BuildArchiveMap(
+    static Dictionary<string, (string Path, string OwningMod)> BuildArchiveMap(
         IReadOnlyList<string> enabledModsByPriority, string modsDir, string dataDir, string overwriteDir)
     {
         var map = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
@@ -86,54 +91,22 @@ public static class ArchiveDiscovery
                 yield return (Path.GetFileName(f), f);
     }
 
-    /// <summary>The always-loaded base archive filenames from Skyrim.ini's [Archive] lists, in file order. MO2
-    /// redirects the game INIs into the active profile, so the profile's copy is tried before the game dir's, and
-    /// neither being found is surfaced loud.</summary>
-    static IReadOnlyList<string> ReadBaseArchiveNames(string profileDir, string gamePath, List<string> warnings)
-    {
-        var candidates = new List<string>(2);
-        if (profileDir.Length > 0) candidates.Add(Path.Combine(profileDir, "Skyrim.ini"));
-        if (gamePath.Length > 0) candidates.Add(Path.Combine(gamePath, "Skyrim.ini"));
-
-        foreach (var ini in candidates)
-        {
-            if (!File.Exists(ini)) continue;
-            var names = ParseResourceArchiveList(ini);
-            if (names.Count > 0) return names;   // first Skyrim.ini that actually lists archives wins
-        }
-
-        warnings.Add(
-            "could not read the [Archive] sResourceArchiveList from a Skyrim.ini (looked in the profile folder" +
-            (gamePath.Length > 0 ? " and the game dir" : "") + ") — the base-game BSAs (Skyrim - Textures*.bsa, " +
-            "etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. " +
-            "If your MO2 uses profile-specific INIs, make sure the active profile has a Skyrim.ini.");
-        return Array.Empty<string>();
-    }
-
-    /// <summary>Parse a Skyrim.ini's [Archive] section, returning the archive filenames in file order. An INI without the section returns empty, not an error.</summary>
-    static IReadOnlyList<string> ParseResourceArchiveList(string iniPath)
+    /// <summary>The always-loaded base archive filenames from the [Archive] lists of the INI the game reads, list 1 then
+    /// list 2, each key SkyrimCustom.ini's over Skyrim.ini's; neither list being found is surfaced loud.</summary>
+    static IReadOnlyList<string> ReadBaseArchiveNames(GameIni ini, List<string> warnings)
     {
         var names = new List<string>();
-        string[] lines;
-        try { lines = File.ReadAllLines(iniPath); } catch { return names; }
+        foreach (var key in new[] { "sResourceArchiveList", "sResourceArchiveList2" })
+            if (ini.Value("Archive", key).Value is { } list)
+                names.AddRange(list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        if (names.Count > 0) return names;
 
-        bool inArchive = false;
-        foreach (var raw in lines)
-        {
-            var line = raw.Trim();
-            if (line.Length == 0 || line[0] == ';') continue;
-            if (line[0] == '[') { inArchive = line.Equals("[Archive]", StringComparison.OrdinalIgnoreCase); continue; }
-            if (!inArchive) continue;
-
-            var eq = line.IndexOf('=');
-            if (eq < 0) continue;
-            var key = line[..eq].Trim();
-            if (!key.Equals("sResourceArchiveList", StringComparison.OrdinalIgnoreCase)
-                && !key.Equals("sResourceArchiveList2", StringComparison.OrdinalIgnoreCase)) continue;
-
-            foreach (var part in line[(eq + 1)..].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                names.Add(part);
-        }
-        return names;
+        warnings.Add(
+            "could not read the [Archive] sResourceArchiveList from a Skyrim.ini (looked in the " +
+            (ini.ProfileLocal ? "profile folder" : "My Games folder, as the profile does not use its own INIs") +
+            ") — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY " +
+            "in a vanilla archive may read as absent. If your MO2 uses profile-specific INIs, make sure the active " +
+            "profile has a Skyrim.ini.");
+        return Array.Empty<string>();
     }
 }
