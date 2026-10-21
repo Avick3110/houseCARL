@@ -1379,7 +1379,8 @@ public static class WriteEngine
     /// <summary>Serialize a plugin edited IN PLACE back over ITSELF. DELIBERATELY NOT <see cref="WritePatch"/>: no
     /// baseline force-include and no floor, because this re-emits an EXISTING authored plugin. The caller MUST have
     /// released every overlay it holds on the target; see docs/architecture/write-path.md. A partial form goes back as
-    /// <paramref name="sources"/> (default: the output itself) held it, and refuses if <paramref name="edited"/> names it.</summary>
+    /// <paramref name="sources"/> (default: the output itself) held it, keyed through <paramref name="renamed"/>; it refuses
+    /// when <paramref name="edited"/> names it or no source holds it.</summary>
     public static void WriteInPlace(SkyrimMod targetMod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath,
                                     string? dataDir, Func<FormKey, bool>? isFaction,
                                     IReadOnlyList<string>? sources = null, IEnumerable<FormKey>? edited = null,

@@ -1,1 +1,1 @@
-- **In-place edits, compaction and merge keep placeholder (partial-form) cell, worldspace and topic records exactly as they were; one holding data, or edited by the call, is refused.** Check: edit such a plugin in place; compare in xEdit.
+- **In-place edits, compaction and merge keep placeholder (partial-form) cell, worldspace and topic records exactly as they were, padding an earlier save added included; a call that edits one, or a compaction that renumbers one, is refused.** Check: edit such a plugin in place; compare in xEdit.
