@@ -418,6 +418,8 @@ static partial class WriteTools
         if (movedNothing)
             sb.Append(o.Esl ? "light master (ESPFE): yes — " : "not light-flagged — ")
               .Append(stayed).Append(stayed == 1 ? " originating record already at its compacted id" : " originating records already at their compacted ids");
+        else if (o.RecordsRenumbered == 0)
+            sb.Append(o.Esl ? "light master (ESPFE): yes — " : "not light-flagged — ").Append("no originating records, so nothing was renumbered");
         else
         {
             sb.Append(o.Esl ? "light master (ESPFE): yes — " : "renumbered (not light-flagged): ")

@@ -174,6 +174,8 @@ public sealed class CompactServicePolicyTests
         var text = WriteTools.RenderCompact(o);
         Assert.DoesNotContain("identify-pass scanned", text);
         Assert.DoesNotContain(WriteSentences.CompactRuntimeConfigs, text);
+        Assert.Contains("light master (ESPFE): yes — no originating records, so nothing was renumbered", text);
+        Assert.DoesNotContain("0 originating records renumbered", text);
         using var pp = SkyrimMod.CreateFromBinaryOverlay(o.OutputPath, SkyrimRelease.SkyrimSE);
         Assert.True(pp.IsSmallMaster);
         var weap = pp.EnumerateMajorRecords<IWeaponGetter>().Single();
