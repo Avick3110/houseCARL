@@ -174,6 +174,20 @@ public sealed class OwnerRankWriteTests : IDisposable
     }
 
     [Fact]
+    public void AnInPlaceRemovalKeepsRanksOnTheRecordsItReserializes()
+    {
+        using (var r = LoadOrderResolver.Build(Order))
+        {
+            var o = WritePatchBuilder.RemoveRecordsInPlace(r, new[] { _ownFaction }, _overPath, OverName);
+            Assert.True(o.Success, o.Error);
+        }
+        var (owners, masters) = ReadBack(_overPath);
+        AssertCrossPluginRanks(owners);
+        Assert.DoesNotContain(_ownFaction, owners.Keys);
+        Assert.Equal(new[] { ExtraName, BaseName }, masters);
+    }
+
+    [Fact]
     public void AMergeOfADonorWithCrossPluginFactionOwnersKeepsTheirRanks()
     {
         var outKey = ModKey.FromNameAndExtension("HcOrMerged.esp");

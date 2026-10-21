@@ -146,8 +146,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   wherever it lives, so an injected faction counts; the dry-run master preview uses the same lookup. It runs where a
   lane takes its records: the renumber, merge and repoint lanes on their copies before the remap, so merge's
   donor-dangling check sees a typed owner; closure copy on each record its source chain fetches, so the walk never
-  follows the word, and on the patch it extends; and every lane once more just before its serialize, for the owners an
-  opened file, an override or a field copy brought in. The round-trip check does not retype. An NPC owner and an owner
+  follows the word, and on the patch it extends; and in the serialize itself, `WritePatchStaged` and `SerializeInPlace`,
+  with the faction test the lane hands `WritePatch` or `WriteInPlace`, for the owners an opened file, an override or a
+  field copy brought in. The apply, remove, forward, record-create and closure-copy lanes hand one; the renumber, merge
+  and repoint lanes, settled before their remap, and the round-trip check hand none. An NPC owner and an owner
   the order cannot name stay untyped. A load-order link cache on the open was measured instead and rejected: on ARR its
   first owner lookup cost 13 s and 4 GB. The getter-side walks still see the word: records reads, the reverse-reference
   index and `references=`, the compaction and merge referencer scans and the errors check (#1235).
