@@ -86,6 +86,40 @@ public sealed class CompactVoiceCarryTests
         Assert.True(File.Exists(Path.Combine(inst.ModDir, oldFuz)));
     }
 
+    // NEW-FILE, UNMOVED: a line already at its compacted id still gets its voice in the new mod folder, which starts empty
+    [Fact]
+    public void ANewFileCompactCarriesTheVoiceOfALineThatKeepsItsId()
+    {
+        using var inst = new CompactCarryInstance("VoiceStay", m => AddTopic(m, 0x800, 0x801, "HcVoiceTopic"));
+        var stays = new FormKey(inst.Key, 0x801);
+        inst.Loose(Voice(stays, "HcVoiceTopic", VoiceFile.Fuz), Fuz);
+
+        var o = inst.Compact();
+        Assert.True(o.Success, o.Error);
+        Assert.Equal(0, o.RecordsMoved);
+        var ik = InfoKey(o.OutputPath, "HcVoiceTopic");
+        Assert.Equal(0x801u, ik.ID);
+        var root = Path.GetDirectoryName(o.OutputPath)!;
+        Assert.NotEqual(inst.ModDir, root);
+        Assert.True(CompactCarryInstance.Holds(Path.Combine(root, Voice(ik, "HcVoiceTopic", VoiceFile.Fuz)), Fuz));
+        Assert.Equal(1, o.VoiceRename?.FilesCarried);
+    }
+
+    // IN-PLACE, UNMOVED: a line already at its compacted id keeps its voice where it is and nothing is re-copied
+    [Fact]
+    public void AnInPlaceCompactLeavesTheVoiceOfALineThatKeepsItsId()
+    {
+        using var inst = new CompactCarryInstance("VoiceStayIp", m => AddTopic(m, 0x800, 0x801, "HcVoiceTopic"));
+        var fuz = Voice(new FormKey(inst.Key, 0x801), "HcVoiceTopic", VoiceFile.Fuz);
+        inst.Loose(fuz, Fuz);
+
+        var o = inst.Compact(inPlace: true);
+        Assert.True(o.Success, o.Error);
+        Assert.Equal(0, o.RecordsMoved);
+        Assert.Equal(0, o.VoiceRename?.FilesCarried ?? 0);
+        Assert.True(CompactCarryInstance.Holds(Path.Combine(inst.ModDir, fuz), Fuz));
+    }
+
     // MULTI-LINE: two INFOs with DISTINCT audio each keep their OWN .fuz across the renumber
     [Fact]
     public void EachDialogueLineKeepsItsOwnAudio()
