@@ -337,7 +337,11 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     {
         var text = RecordsTools.Records(_svc, formids: new[] { Fid(_lateWeapon) }, walk: new() { seed_paths = new[] { "Keywords" } },
                                         project: new() { form = "chain" });
-        Assert.Contains("unresolved — Plugin 'HcExMaster.esm' IS in the load order, but defines no record 000A00", text);
+        Assert.Contains($"unresolved — FormID {Fid(_injected)} is not resolvable: it is defined only by {BadName}, excluded from this session", text);
+        Assert.DoesNotContain("defines no record 000A00", text);
+        var names = RecordsTools.Records(_svc, formids: new[] { Fid(_lateWeapon) },
+                                         project: new() { form = "fields", fields = new[] { "Keywords" }, depth = 2, resolve_names = true });
+        Assert.Contains($"unresolved: FormID {Fid(_injected)} is not resolvable: it is defined only by {BadName}", names);
         Assert.Contains("a missing endpoint", text);   // the FormID nothing defines keeps the generic sentence
     }
 

@@ -261,7 +261,7 @@ internal sealed partial class RecordReads
         }
     }
 
-    /// <summary>Why a FormID resolved to nothing, naming which of the three causes it is: the defining plugin was
+    /// <summary>Why a FormID resolved to nothing, naming which of the three causes it is: the defining plugin (or the excluded one injecting it) was
     /// excluded, it is not in the order, or it IS in the order and defines no such record. The ESL-compaction
     /// clause is stated only where the index says that plugin is light-flagged — pinned by
     /// <c>RuntimeFormIdTests.AMissingRecordInAnEslFlaggedPluginIsToldAboutCompaction</c> and
@@ -271,6 +271,10 @@ internal sealed partial class RecordReads
         var defining = FormIdToken.Plugin(fk.ModKey.FileName.String);
         if (view.ExcludedPlugins.TryGetValue(defining, out var why))
             return $"FormID {FormIdToken.Of(fk)} is not resolvable: its plugin '{defining}' was excluded from this session: {why}";
+        // A key an excluded plugin injects under another plugin's FormID space: name the plugin that defines it.
+        if (view.ExcludedTouchers(fk) is { Count: > 0 } by)
+            return $"FormID {FormIdToken.Of(fk)} is not resolvable: it is defined only by {string.Join(", ", by)}, excluded from this session " +
+                   "(housecarl_load_order_status gives the reason).";
         if (view.ContainsPlugin(defining))
         {
             var esl = view.IsLightFlagged(defining)
