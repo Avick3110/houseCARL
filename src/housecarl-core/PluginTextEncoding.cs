@@ -34,20 +34,52 @@ public static class PluginTextEncoding
 
     static readonly IMutagenEncoding StrictUtf8 = new MutagenEncodingWrapper(StrictUtf8Encoding);
 
-    /// <summary>The language default for the release and language houseCARL targets — Mutagen's own answer.</summary>
-    static readonly IMutagenEncoding LanguageDefault =
-        MutagenEncoding.GetEncoding(GameRelease.SkyrimSE, Language.English);
-
-    /// <summary>The language default that THROWS on a character it cannot spell instead of substituting <c>?</c>, so the question is the encoder's own answer at the moment it writes.</summary>
-    static readonly IMutagenEncoding StrictLegacy = new SpellCheck(
-        CodePagesEncodingProvider.Instance.GetEncoding(
-            1252, EncoderFallback.ExceptionFallback, DecoderFallback.ReplacementFallback)!);
-
     /// <summary>The encodings for a file resolved as UTF-8 — it can spell anything, so nothing here can refuse.</summary>
     public static readonly EncodingBundle Utf8Bundle = new(StrictUtf8, StrictUtf8);
 
-    /// <summary>The encodings for a file resolved to the language default, strict so an unspellable value stops the write instead of landing as <c>?</c>.</summary>
-    public static readonly EncodingBundle LegacyBundle = new(StrictLegacy, StrictLegacy);
+    /// <summary>The strict legacy bundle per code page, built once each.</summary>
+    static readonly ConcurrentDictionary<int, EncodingBundle> LegacyBundles = new();
+
+    /// <summary>The game language a plugin at this path is read and written in: its instance's <c>sLanguage</c>, English outside every instance.</summary>
+    static Language LanguageOf(string pluginPath) => GameLanguage.For(pluginPath)?.Language ?? Language.English;
+
+    /// <summary>The legacy code page Mutagen falls back to for a language: Windows-1252 for English and Western languages, 1251 for Russian, 1250 for Polish, 932 for Japanese; UTF-8 where it has none.</summary>
+    static int LegacyCodePage(Language language) => language switch
+    {
+        Language.Polish or Language.Czech or Language.Hungarian => 1250,
+        Language.Russian => 1251,
+        Language.Greek => 1253,
+        Language.Turkish => 1254,
+        Language.Arabic => 1256,
+        Language.Japanese => 932,
+        Language.Chinese or Language.ChineseSimplified or Language.Korean or Language.Thai => 65001,
+        _ => 1252,
+    };
+
+    /// <summary>The encodings for a file resolved to the language default, strict so an unspellable value stops the write instead of landing as <c>?</c>; the code page is the game language's.</summary>
+    public static EncodingBundle LegacyBundleFor(string pluginPath)
+    {
+        var cp = LegacyCodePage(LanguageOf(pluginPath));
+        return cp == 65001 ? Utf8Bundle : LegacyBundles.GetOrAdd(cp, c =>
+        {
+            // The language default that THROWS on a character it cannot spell instead of substituting '?', so the question is the encoder's own answer at the moment it writes.
+            var strict = new SpellCheck(CodePagesEncodingProvider.Instance.GetEncoding(
+                c, EncoderFallback.ExceptionFallback, DecoderFallback.ReplacementFallback)!);
+            return new EncodingBundle(strict, strict);
+        });
+    }
+
+    /// <summary>What a non-UTF-8 string decodes as in that language: Mutagen's own answer for English, so an English read is the one it always was; the language's code page otherwise, because Mutagen's non-English answer tries a lenient UTF-8 first and hands back replacement characters.</summary>
+    static IMutagenEncoding LegacyDecoder(GameRelease release, Language language)
+    {
+        if (language == Language.English) return MutagenEncoding.GetEncoding(release, language);
+        var cp = LegacyCodePage(language);
+        return cp == 65001 ? StrictUtf8 : new MutagenEncodingWrapper(CodePagesEncodingProvider.Instance.GetEncoding(cp)!);
+    }
+
+    /// <summary>The name a refusal gives the legacy code page of the file at that path.</summary>
+    static string CodePageName(string pluginPath)
+        => LegacyCodePage(LanguageOf(pluginPath)) is var cp && cp == 932 ? "Shift-JIS" : $"Windows-{cp}";
 
     /// <summary>What each plugin's own strings decoded as, by filename, against the file version it was resolved from. Written by the read, read by the write.</summary>
     static readonly ConcurrentDictionary<string, (string Stamp, LaneSink Sink)> Lanes =
@@ -56,19 +88,27 @@ public static class PluginTextEncoding
     /// <summary>The read parameters for opening one plugin; per plugin, because the lane it resolves to is recorded against that plugin's name as its strings are decoded.</summary>
     public static BinaryReadParameters ReadFor(string pluginPath) => ReadWith(pluginPath, null);
 
-    /// <summary>The same, over a strings-read parameter set the caller has already shaped, leaving everything else on it alone; only <c>NonTranslated</c> is overridden, so language selection is untouched.</summary>
+    /// <summary>The same, over a strings-read parameter set the caller has already shaped, leaving its folders alone; the language is the instance's <c>sLanguage</c>, and an instance whose language has no tables refuses here.</summary>
     public static BinaryReadParameters ReadWith(string pluginPath, StringsReadParameters? baseline)
     {
+        ThrowIfRefused(pluginPath);
+        var language = LanguageOf(pluginPath);
         var sink = SinkFor(pluginPath);
-        var reader = new Utf8First(LanguageDefault, sink);
-        return BinaryReadParameters.Default with
+        var reader = new Utf8First(LegacyDecoder(GameRelease.SkyrimSE, language), sink);
+        var strings = (baseline ?? new StringsReadParameters()) with
         {
-            StringsParam = (baseline ?? new StringsReadParameters()) with
-            {
-                EncodingProvider = new LanguageProvider(sink),
-                NonTranslatedEncodingOverride = reader,
-            },
+            EncodingProvider = new LanguageProvider(sink),
+            NonTranslatedEncodingOverride = reader,
         };
+        // English is Mutagen's own default, left unset so an English read is the read it always was.
+        if (language != Language.English) strings = strings with { TargetLanguage = language };
+        return BinaryReadParameters.Default with { StringsParam = strings };
+    }
+
+    /// <summary>Refuse, in the instance's own sentence, a plugin under an instance whose game language has no string tables.</summary>
+    public static void ThrowIfRefused(string pluginPath)
+    {
+        if (GameLanguage.For(pluginPath)?.Refusal is { } refusal) throw new GameLanguageRefusedException(refusal);
     }
 
     /// <summary>The lane record for one open, shared by every open of the SAME file version and replaced only when the file changes, so a header-only open cannot erase a lane an eager read resolved.</summary>
@@ -96,14 +136,14 @@ public static class PluginTextEncoding
 
     /// <summary>The encodings an IN-PLACE write embeds: the lane the read of that same file resolved to, so text the write did not change comes back byte-identical.</summary>
     public static EncodingBundle WriteInPlace(string targetPath)
-        => InPlaceIsUtf8(targetPath) ? Utf8Bundle : LegacyBundle;
+        => InPlaceIsUtf8(targetPath) ? Utf8Bundle : LegacyBundleFor(targetPath);
 
     /// <summary>Whether an in-place rewrite of that file goes out as UTF-8 — the lane its own read resolved to.</summary>
     public static bool InPlaceIsUtf8(string targetPath) => LaneOf(targetPath) == PluginTextLane.Utf8;
 
     /// <summary>The encodings a NEW file embeds: UTF-8 if any plugin contributing to it resolved as UTF-8, the language default otherwise, with a strict encoder and a whole-file second pass behind it.
     /// <para>The bound: a lane that REMAPS its records into the output's own ModKey — a merge — has no provenance left in the FormKeys and answers from the donors' master lists and the output name alone.</para></summary>
-    public static EncodingBundle WriteNew(IModGetter mod) => NewFileIsUtf8(mod) ? Utf8Bundle : LegacyBundle;
+    public static EncodingBundle WriteNew(IModGetter mod, string outputPath) => NewFileIsUtf8(mod) ? Utf8Bundle : LegacyBundleFor(outputPath);
 
     /// <summary>Whether a new file's contributing plugins put it in the UTF-8 lane before a single string is written — the provenance half of <see cref="WriteNew"/>.</summary>
     public static bool NewFileIsUtf8(IModGetter mod)
@@ -117,10 +157,10 @@ public static class PluginTextEncoding
     }
 
     /// <summary>The refusal for an IN-PLACE write whose file is in the language default and whose new value that encoding cannot spell; the staged temp is discarded and nothing is written.</summary>
-    public static string UnspellableRefusal(UnspellableTextException ex, string pluginFileName)
-        => $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. Its text is in "
-         + $"Windows-1252 (that is what reading it resolved to), and the value \"{ex.Text}\" contains "
-         + $"'{ex.Character}' (U+{(int)ex.Character:X4}), which Windows-1252 has no spelling for — writing it here "
+    public static string UnspellableRefusal(UnspellableTextException ex, string pluginPath)
+        => $"houseCARL did not write '{Path.GetFileName(pluginPath)}' — the file is unchanged and nothing was staged. Its text is in "
+         + $"{CodePageName(pluginPath)} (that is what reading it resolved to), and the value \"{ex.Text}\" contains "
+         + $"'{ex.Character}' (U+{(int)ex.Character:X4}), which {CodePageName(pluginPath)} has no spelling for — writing it here "
          + "would either store a '?' in place of the character or convert every other name in the file to UTF-8. "
          + "Write this value into a new patch instead (drop in_place=), which is free to be a UTF-8 file.";
 
@@ -192,7 +232,7 @@ public static class PluginTextEncoding
         internal LanguageProvider(LaneSink sink) => _sink = sink;
 
         public IMutagenEncoding GetEncoding(GameRelease release, Language language)
-            => new Utf8First(MutagenEncoding.GetEncoding(release, language), _sink);
+            => new Utf8First(LegacyDecoder(release, language), _sink);
     }
 
     /// <summary>Decode as UTF-8 when the bytes ARE UTF-8, otherwise as the language's fallback, recording which lane answered; the encode direction throws, because a write picks its encoding per file.</summary>
@@ -224,6 +264,9 @@ public static class PluginTextEncoding
         }
     }
 }
+
+/// <summary>An instance whose game language has no string tables, refused at the door every plugin open passes; the message is the one sentence.</summary>
+public sealed class GameLanguageRefusedException(string sentence) : InvalidOperationException(sentence);
 
 /// <summary>A value the file's own encoding has no spelling for, raised by the strict encoder AS it writes; it carries the whole value and the offending character.</summary>
 public sealed class UnspellableTextException : InvalidOperationException

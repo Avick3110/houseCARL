@@ -364,7 +364,7 @@ public sealed class LoadOrderResolver : IDisposable
         {
             var prm = PluginTextEncoding.ReadWith(path, new StringsReadParameters
             {
-                BsaFolderOverride = dataDir,
+                BsaFolderOverride = LocalizedStrings.ArchiveHomeFor(path, dataDir).Folder,
                 StringsFolderOverride = Path.Combine(dataDir, "Strings"),
             });
             return SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, prm);
@@ -384,6 +384,8 @@ public sealed class LoadOrderResolver : IDisposable
             throw new ArgumentException(
                 $"the load order holds {orderedPluginPaths.Count:N0} plugins, past the {ushort.MaxValue:N0} the order index can number; " +
                 "check the plugin list handed to houseCARL.");
+        // A game language with no string tables refuses the whole order once, rather than every plugin as a load failure.
+        if (orderedPluginPaths.Count > 0) PluginTextEncoding.ThrowIfRefused(orderedPluginPaths[0]);
         var paths = new string[orderedPluginPaths.Count];
         var names = new string[orderedPluginPaths.Count];
         var stamps = new FileStamp[orderedPluginPaths.Count];

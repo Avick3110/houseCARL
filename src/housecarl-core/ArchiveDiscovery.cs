@@ -55,7 +55,7 @@ public static class ArchiveDiscovery
 
     /// <summary>Build archive-filename to the winning real path AND the MO2 layer it came from, the .bsa twin of
     /// <see cref="Mo2LoadOrder"/>'s plugin filename map.</summary>
-    static Dictionary<string, (string Path, string OwningMod)> BuildArchiveMap(
+    internal static Dictionary<string, (string Path, string OwningMod)> BuildArchiveMap(
         IReadOnlyList<string> enabledModsByPriority, string modsDir, string dataDir, string overwriteDir)
     {
         var map = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
