@@ -160,7 +160,7 @@ public static class RepointStringsProbe
             mut.RemapLinks(new Dictionary<FormKey, FormKey> { [tgtOld] = tgtNew });
             {
                 var tgtOv = SkyrimMod.CreateFromBinaryOverlay(tgtPath, SkyrimRelease.SkyrimSE);
-                try { WriteEngine.WriteInPlace(mut, new ISkyrimModGetter[] { tgtOv }, refPath, data); }
+                try { WriteEngine.WriteInPlace(mut, new ISkyrimModGetter[] { tgtOv }, refPath, data, isFaction: null); }
                 catch (LocalizedTargetUnsupportedException ex)
                 {
                     // The shipped behaviour. The corruption this probe measured is why the refusal exists, so on a

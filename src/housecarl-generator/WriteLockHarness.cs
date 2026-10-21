@@ -264,7 +264,7 @@ public static class WriteLockHarness
             using var session = resolver.OpenSession();
             _ = resolver.GetRecord(session, winner!.Value.WinnerPlugin, fk);              // opens the TARGET overlay (winner == target)
             var patchMod = SkyrimMod.CreateFromBinary(target, SkyrimRelease.SkyrimSE);
-            bool ok = Try(() => WriteEngine.WritePatch(patchMod, session.AllMastersExcept(modKey.FileName.String), target), out var err);
+            bool ok = Try(() => WriteEngine.WritePatch(patchMod, session.AllMastersExcept(modKey.FileName.String), target, isFaction: null), out var err);
             Console.WriteLine($"   CURRENT fix (AllMastersExcept), winner-fetch overlay HELD : {(ok ? "WROTE — no residual?!" : "FAILED — RESIDUAL CONFIRMED")}");
             Console.WriteLine($"      [{err}]");
         }
@@ -281,7 +281,7 @@ public static class WriteLockHarness
                 var ov = WriteEngine.GenericGetOrAddAsOverride(patchMod, body, null);       // Phase 3: deep-copy override into the patch
                 ov.EditorID = "HcResidual_W_EDITED";                                        //          ... and edit it
             }                                                                              // RELEASE the winner-fetch overlay before serialize
-            bool ok = Try(() => WriteEngine.WritePatch(patchMod, Array.Empty<ISkyrimModGetter>(), target), out var err);
+            bool ok = Try(() => WriteEngine.WritePatch(patchMod, Array.Empty<ISkyrimModGetter>(), target, isFaction: null), out var err);
             string edid = ReadEditorId(target, fk);
             Console.WriteLine($"   FIX PREVIEW (release first; edit survives) : write={(ok ? "OK" : "FAILED " + err)}  edid-read-back=\"{edid}\" (expect HcResidual_W_EDITED)");
         }

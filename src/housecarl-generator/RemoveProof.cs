@@ -117,7 +117,7 @@ public static class RemoveProof
                 var patchMod = new SkyrimMod(new ModKey("houseCARL_RemoveProof_R2", ModType.Plugin), SkyrimRelease.SkyrimSE);
                 var cache = session.LinkCacheFor(winner!.Value.WinnerPlugin);
                 WriteEngine.GenericGetOrAddAsOverride(patchMod, body!, cache);
-                WriteEngine.WritePatch(patchMod, session.AllMasters(), outPath);
+                WriteEngine.WritePatch(patchMod, session.AllMasters(), outPath, isFaction: null);
                 bool seeded = PatchCarries(outPath, nestedFk);
                 // Remove it through the real into= flow (RemoveRecords re-opens from disk).
                 var rem = WritePatchBuilder.RemoveRecords(resolver, new[] { nestedFk }, outPath);

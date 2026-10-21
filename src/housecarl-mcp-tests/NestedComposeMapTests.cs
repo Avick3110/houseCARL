@@ -65,7 +65,7 @@ public sealed class NestedComposeMapTests : IDisposable
         var path = _rig.Out("hc_nullarm_a5.esp");
         var mod = new SkyrimMod(new ModKey("hc_nullarm_a5", ModType.Plugin), SkyrimRelease.SkyrimSE);
         WriteEngine.ApplyVerb(mod.ConstructibleObjects.AddNew(), AddCondition(Mapped("GetActorValueConditionData")));
-        WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path);
+        WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path, isFaction: null);
         var back = _rig.Open(path).ConstructibleObjects.Single();
         Assert.IsAssignableFrom<IGetActorValueConditionDataGetter>(((IConditionFloatGetter)back.Conditions.Single()).Data);
     }

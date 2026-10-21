@@ -38,7 +38,7 @@ public sealed class PatchWriteTests : IDisposable
         patch.ModHeader.Flags |= SkyrimModHeader.HeaderFlag.Localized;
 
         var ex = Assert.Throws<LocalizedTargetUnsupportedException>(() =>
-            WriteEngine.WritePatch(patch, Array.Empty<ISkyrimModGetter>(), Path.Combine(_dir, "HcLocalizedPatch.esp")));
+            WriteEngine.WritePatch(patch, Array.Empty<ISkyrimModGetter>(), Path.Combine(_dir, "HcLocalizedPatch.esp"), isFaction: null));
         Assert.Contains("into=", ex.Message);
     }
 
@@ -56,7 +56,7 @@ public sealed class PatchWriteTests : IDisposable
         patch.Keywords.GetOrAddAsOverride(kw);
 
         var path = Path.Combine(_dir, "HcBaselinePatch.esp");
-        WriteEngine.WritePatch(patch, new ISkyrimModGetter[] { skyrim, update, other }, path);
+        WriteEngine.WritePatch(patch, new ISkyrimModGetter[] { skyrim, update, other }, path, isFaction: null);
 
         using var back = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
         var masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList();
@@ -88,7 +88,7 @@ public sealed class PatchWriteTests : IDisposable
             Assert.Equal(name, weapon.Name?.String);   // the read decodes the name, which records the plugin's lane
             var patch = Mod(patchName);
             patch.Weapons.GetOrAddAsOverride(weapon);
-            WriteEngine.WritePatch(patch, new ISkyrimModGetter[] { read }, outPath);
+            WriteEngine.WritePatch(patch, new ISkyrimModGetter[] { read }, outPath, isFaction: null);
         }
 
         var bytes = File.ReadAllBytes(outPath);
@@ -109,7 +109,7 @@ public sealed class PatchWriteTests : IDisposable
     {
         var patch = Mod("HcStagePatch");
         patch.Keywords.AddNew("HcStageKw");
-        WriteEngine.WritePatch(patch, Array.Empty<ISkyrimModGetter>(), Path.Combine(_dir, "HcStagePatch.esp"));
+        WriteEngine.WritePatch(patch, Array.Empty<ISkyrimModGetter>(), Path.Combine(_dir, "HcStagePatch.esp"), isFaction: null);
 
         Assert.True(File.Exists(Path.Combine(_dir, "HcStagePatch.esp")));
         Assert.False(Directory.Exists(StagingDir));
@@ -124,7 +124,7 @@ public sealed class PatchWriteTests : IDisposable
         mgef.Conditions.Add(new ConditionFloat { Data = null! });
 
         Assert.ThrowsAny<Exception>(() =>
-            WriteEngine.WritePatch(patch, Array.Empty<ISkyrimModGetter>(), Path.Combine(_dir, "HcStageFailPatch.esp")));
+            WriteEngine.WritePatch(patch, Array.Empty<ISkyrimModGetter>(), Path.Combine(_dir, "HcStageFailPatch.esp"), isFaction: null));
         Assert.False(Directory.Exists(StagingDir));
     }
 
@@ -139,7 +139,7 @@ public sealed class PatchWriteTests : IDisposable
         patch.Keywords.AddNew("HcStageLockedKw");
 
         using (new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.None))
-            Assert.ThrowsAny<Exception>(() => WriteEngine.WritePatch(patch, Array.Empty<ISkyrimModGetter>(), target));
+            Assert.ThrowsAny<Exception>(() => WriteEngine.WritePatch(patch, Array.Empty<ISkyrimModGetter>(), target, isFaction: null));
 
         Assert.False(Directory.Exists(StagingDir));
         Assert.Equal("held", File.ReadAllText(target));
@@ -150,7 +150,7 @@ public sealed class PatchWriteTests : IDisposable
     {
         var target = Mod("HcStageInPlace");
         target.Keywords.AddNew("HcStageInPlaceKw");
-        WriteEngine.WriteInPlace(target, Array.Empty<ISkyrimModGetter>(), Path.Combine(_dir, "HcStageInPlace.esp"), null);
+        WriteEngine.WriteInPlace(target, Array.Empty<ISkyrimModGetter>(), Path.Combine(_dir, "HcStageInPlace.esp"), null, isFaction: null);
 
         Assert.True(File.Exists(Path.Combine(_dir, "HcStageInPlace.esp")));
         Assert.False(Directory.Exists(StagingDir));
@@ -167,7 +167,7 @@ public sealed class PatchWriteTests : IDisposable
         w.Name = "炎の剣";
 
         Assert.ThrowsAny<Exception>(() =>
-            WriteEngine.WriteInPlace(target, Array.Empty<ISkyrimModGetter>(), Path.Combine(_dir, name + ".esp"), null));
+            WriteEngine.WriteInPlace(target, Array.Empty<ISkyrimModGetter>(), Path.Combine(_dir, name + ".esp"), null, isFaction: null));
         Assert.False(Directory.Exists(StagingDir));
     }
 }

@@ -149,7 +149,7 @@ public sealed class GenderedNavWriteTests
             var outPath = Path.Combine(dir, "hc_gendered_nav_ser.esp");
             var mod = new SkyrimMod(new ModKey("hc_gendered_nav_ser", ModType.Plugin), SkyrimRelease.SkyrimSE);
             WriteEngine.ApplyVerb(mod.Armors.AddNew(), GenderedNav.Set("Armor", "WorldModel[1].Model.File", GenderedNav.FemaleNif));
-            WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, outPath);
+            WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, outPath, isFaction: null);
 
             using var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
             Assert.Contains("female", GenderedNav.Tok(GenderedNav.Read(back.Armors.Single(), "WorldModel.Female.Model.File")));

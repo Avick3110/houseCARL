@@ -77,7 +77,7 @@ public sealed class RemapNestedCompactTests : IDisposable
             _ren = RemapEngine.RenumberModInto(pPrime, donorOv, _plan.Dict, _ => false);
             pPrime.ModHeader.Stats.NextFormID = (uint)(RemapEngine.EslFloor + _plan.Dict.Count);
             Directory.CreateDirectory(Path.GetDirectoryName(_pPrimePath)!);
-            if (_ren.Success) WriteEngine.WriteInPlace(pPrime, Array.Empty<ISkyrimModGetter>(), _pPrimePath, dataDir: null);
+            if (_ren.Success) WriteEngine.WriteInPlace(pPrime, Array.Empty<ISkyrimModGetter>(), _pPrimePath, dataDir: null, isFaction: null);
         }
     }
 

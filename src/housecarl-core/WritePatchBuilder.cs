@@ -1912,7 +1912,7 @@ public static class WritePatchBuilder
         catch (Exception ex) { return CreatePluginOutcome.Fail($"could not build the plugin in memory: {ex.GetType().Name}: {ex.Message}"); }
 
         // Serialize through the single WritePatch chokepoint with an EMPTY known-master set → zero masters.
-        try { WriteEngine.WritePatch(mod, Array.Empty<ISkyrimModGetter>(), outPath); }
+        try { WriteEngine.WritePatch(mod, Array.Empty<ISkyrimModGetter>(), outPath, isFaction: null); }
         catch (Exception ex)
             { return CreatePluginOutcome.Fail($"writing the plugin failed (serialize or commit; nothing left on disk): {WriteEngine.Describe(ex)}"); }
 
@@ -2128,7 +2128,7 @@ public static class WritePatchBuilder
                 overlays.Add((IDisposable)mov); resolved.Add(mov);
             }
             // P′ has LOCALIZED cleared, so its serialize emits no string tables.
-            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir); }
+            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir, isFaction: null); }
             catch (Exception ex)
             {
                 return CompactBuildResult.Fail(
@@ -2242,7 +2242,7 @@ public static class WritePatchBuilder
                 }
                 masterOverlays.Add((IDisposable)mov); resolved.Add(mov);
             }
-            try { WriteEngine.WriteInPlace(m, resolved, outPath, dataDir); }
+            try { WriteEngine.WriteInPlace(m, resolved, outPath, dataDir, isFaction: null); }
             catch (Exception ex)
             {
                 return MergeBuildResult.Fail(

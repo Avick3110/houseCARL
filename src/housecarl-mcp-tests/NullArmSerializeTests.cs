@@ -28,7 +28,7 @@ public sealed class NullArmSerializeTests : IDisposable
         var path = _rig.Out(stem + ".esp");
         var mod = new SkyrimMod(new ModKey(stem, ModType.Plugin), SkyrimRelease.SkyrimSE);
         build(mod);
-        thrown = Record.Exception(() => WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path));
+        thrown = Record.Exception(() => WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path, isFaction: null));
         return path;
     }
 
@@ -124,7 +124,7 @@ public sealed class NullArmSerializeTests : IDisposable
         var outPath = _rig.Out("hc_nullarm_b6out.esp");
         var patch = new SkyrimMod(new ModKey("hc_nullarm_b6out", ModType.Plugin), SkyrimRelease.SkyrimSE);
         patch.ArmorAddons.Add(overlay.ArmorAddons.First().DeepCopy());
-        WriteEngine.WritePatch(patch, new ISkyrimModGetter[] { overlay }, outPath);
+        WriteEngine.WritePatch(patch, new ISkyrimModGetter[] { overlay }, outPath, isFaction: null);
         Assert.True(File.Exists(outPath));
     }
 

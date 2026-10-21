@@ -85,7 +85,7 @@ public sealed class FormLinkRemoveTests
             var npc = mod.Npcs.AddNew();
             WriteEngine.ApplyVerb(npc, SetReq("HeadTexture", "012345:Skyrim.esm"));
             WriteEngine.ApplyVerb(npc, RemReq("HeadTexture"));
-            WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path);
+            WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path, isFaction: null);
 
             using var back = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
             Assert.True(back.Npcs.First().HeadTexture.FormKey.IsNull);

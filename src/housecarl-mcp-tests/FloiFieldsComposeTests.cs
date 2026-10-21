@@ -62,7 +62,7 @@ public sealed class FloiFieldsComposeTests : IDisposable
         var path = _rig.Out(stem + ".esp");
         var mod = new SkyrimMod(new ModKey(stem, ModType.Plugin), SkyrimRelease.SkyrimSE);
         WriteEngine.ApplyVerb(mod.ConstructibleObjects.AddNew(), request);
-        WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path);
+        WriteEngine.WritePatch(mod, new ISkyrimModGetter[] { mod }, path, isFaction: null);
         return File.ReadAllBytes(path);
     }
 

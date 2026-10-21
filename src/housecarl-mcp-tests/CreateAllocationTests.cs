@@ -93,7 +93,7 @@ public sealed class CreateFormIdFloorTests
         try
         {
             var path = Path.Combine(dir, "HcFloorPatch.esp");
-            WriteEngine.WritePatch(patch, new ISkyrimModGetter[] { master }, path);
+            WriteEngine.WritePatch(patch, new ISkyrimModGetter[] { master }, path, isFaction: null);
             using var back = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
             Assert.True(back.ModHeader.Stats.NextFormID >= 0x800u, $"written counter 0x{back.ModHeader.Stats.NextFormID:X}");
         }

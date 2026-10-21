@@ -79,7 +79,7 @@ public sealed class RemapFlatRenumberTests : IDisposable
             var ren = RemapEngine.RenumberRecordsInto(pPrime, donorOv.EnumerateMajorRecords().Where(r => r.FormKey.ModKey == DonorKey), plan.Dict, _ => false);
             Assert.True(ren.Success, ren.Error);
             pPrime.ModHeader.Stats.NextFormID = 0x802;
-            WriteEngine.WriteInPlace(pPrime, Array.Empty<ISkyrimModGetter>(), pPrimePath, dataDir: null);
+            WriteEngine.WriteInPlace(pPrime, Array.Empty<ISkyrimModGetter>(), pPrimePath, dataDir: null, isFaction: null);
         }
 
         using var pp = SkyrimMod.CreateFromBinaryOverlay(pPrimePath, SkyrimRelease.SkyrimSE);

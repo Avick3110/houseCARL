@@ -145,7 +145,7 @@ public static class MultiMasterProof
 
         // ---- WRITE with the FULL known-master set, timed. ----
         var sww = Stopwatch.StartNew();
-        try { WriteEngine.WritePatch(patchMod, session.AllMasters(), outPath); }
+        try { WriteEngine.WritePatch(patchMod, session.AllMasters(), outPath, isFaction: null); }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"FAIL: multi-master serialize threw — {ex.GetType().Name}: {ex.Message}");
