@@ -91,7 +91,7 @@ public static class PluginTextEncoding
     static string CodePageName()
         => Legacy(GameLanguage.Current.Language).CodePage switch { 932 => "Shift-JIS", var cp => $"Windows-{cp}" };
 
-    /// <summary>What each plugin's own strings decoded as, by filename, against the file version it was resolved from. Written by the read, read by the write.</summary>
+    /// <summary>What each plugin's own strings decoded as, by game language and filename, against the file version it was resolved from. Written by the read, read by the write.</summary>
     static readonly ConcurrentDictionary<string, (string Stamp, LaneSink Sink)> Lanes =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -102,7 +102,7 @@ public static class PluginTextEncoding
     public static BinaryReadParameters ReadFor(string pluginPath, string? dataDir = null)
     {
         var text = GameLanguage.Current;   // once per open, so one open never mixes two order builds
-        var sink = SinkFor(pluginPath);
+        var sink = SinkFor(pluginPath, text.Language);
         var strings = new StringsReadParameters
         {
             // A plugin's lane is its own bytes'; the provider decodes a plain plugin's own text and a localized one's
@@ -117,10 +117,10 @@ public static class PluginTextEncoding
         return BinaryReadParameters.Default with { StringsParam = strings };
     }
 
-    /// <summary>The lane record for one open, shared by every open of the SAME file version and replaced only when the file changes, so a header-only open cannot erase a lane an eager read resolved.</summary>
-    static LaneSink SinkFor(string pluginPath)
+    /// <summary>The lane record for one open, shared by every open of the SAME file version in the same language and replaced only when the file changes, so a header-only open cannot erase a lane an eager read resolved.</summary>
+    static LaneSink SinkFor(string pluginPath, Language language)
     {
-        var name = Path.GetFileName(pluginPath);
+        var name = LaneKey(pluginPath, language);
         string? stamp;
         try
         {
@@ -155,7 +155,10 @@ public static class PluginTextEncoding
 
     /// <summary>What the read resolved that plugin's own bytes to be, or <see cref="PluginTextLane.AsciiOnly"/> for a plugin nothing has read a non-ASCII string out of.</summary>
     public static PluginTextLane LaneOf(string pluginNameOrPath)
-        => Lanes.TryGetValue(Path.GetFileName(pluginNameOrPath), out var s) ? s.Sink.Lane : PluginTextLane.AsciiOnly;
+        => Lanes.TryGetValue(LaneKey(pluginNameOrPath, GameLanguage.Current.Language), out var s) ? s.Sink.Lane : PluginTextLane.AsciiOnly;
+
+    /// <summary>A lane record's key: the language it was read in, since a plugin's lane depends on it, and the filename.</summary>
+    static string LaneKey(string pluginNameOrPath, Language language) => $"{language}|{Path.GetFileName(pluginNameOrPath)}";
 
     /// <summary>The encodings an IN-PLACE write embeds: the lane the read of that same file resolved to, so text the write did not change comes back byte-identical.</summary>
     public static EncodingBundle WriteInPlace(string targetPath)
