@@ -107,7 +107,8 @@ public static class Program
             // everything as it found it.
             //
             // Setup and the server share one target framework and both are framework-dependent (#734), so
-            // setup running at all proves the runtime the server needs. What is left to say is a runtime only
+            // setup running at all proves the runtime the server needs, unless roll-forward (DOTNET_ROLL_FORWARD)
+            // moves setup to a later major. What is left to say is a runtime only
             // this process can see (a DOTNET_ROOT the agent will not inherit).
             string? runtimeOwnRoot = OwnRootOnlyRuntime();
             Detect.HostState claude = Detect.Claude(home);
