@@ -467,6 +467,20 @@ public sealed class GameLanguageTests : IDisposable
         Assert.True(Holds(outside, Cp1251.GetBytes(RussianName)), "the name is not in Windows-1251");
     }
 
+    /// <summary>The game INIs are stamped with the profile: an sLanguage edit alone, with no profile file touched, is
+    /// read on the next call.</summary>
+    [Fact]
+    public void AnSLanguageEditIsPickedUpOnTheNextCall()
+    {
+        var weapon = WriteLocalized(Path.Combine(ModDir("GermanMod"), "HcDe.esp"), Language.German, GermanName);
+        var svc = Open("ENGLISH", new[] { "GermanMod" }, new[] { "HcDe.esp" });
+        Assert.DoesNotContain(GermanName, ReadName(svc, weapon));
+
+        File.WriteAllText(Path.Combine(Profile, "Skyrim.ini"), "[General]\r\nsLanguage=GERMAN\r\n");
+
+        Assert.Contains(GermanName, ReadName(svc, weapon));
+    }
+
     /// <summary>The text belongs to the order build it was read with: a call that pinned a view keeps that build's
     /// language when a refresh mid-call builds the order again under another one, and the next call reads the new build.</summary>
     [Fact]
