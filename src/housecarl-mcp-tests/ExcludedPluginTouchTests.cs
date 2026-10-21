@@ -131,7 +131,7 @@ public sealed class ExcludedPluginTouchTests : IDisposable
 
     static string Fid(FormKey fk) => FormIdToken.Of(fk);
 
-    const string Note = "also touched by " + BadName + ", excluded this session as unreadable — its version is not in this answer, so this record's real winner is unknown.";
+    const string Note = "also touched by " + BadName + ", excluded this session as unreadable, which loads after this record's winner and wins it in game — its version is not in this answer.";
 
     string Status(string? filter) =>
         StatusTools.LoadOrderStatus(_svc, new ToolPathResolver(new UserConfigStore(Path.Combine(_root, "user.json"))), filter: filter);
@@ -141,8 +141,8 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     {
         var status = Status(BadName);
         Assert.Contains("EXCLUDED this session", status);
-        Assert.Contains("a record it overrides after that record's winner is read without its version, marked on summary, fields, tree, delta and dense reads, " +
-                        "and apply, forward and housecarl_copy refuse it", status);
+        Assert.Contains("a record it overrides after that record's winner is read without its version, marked on summary, fields, tree, delta, dense and to_file reads, " +
+                        "and default-lane apply and forward on either lane refuse to write it", status);
         Assert.Contains("houseCARL does NOT read this plugin, so any record it overrides is answered without its version.", status);
         Assert.DoesNotContain("every other plugin is unaffected", status);
 
@@ -157,7 +157,7 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         var status = Status(BrokenName);
         Assert.Contains("EXCLUDED this session", status);
         Assert.Contains("the records it overrides could not be listed either (", status);
-        Assert.Contains("so reads of them are not marked", status);
+        Assert.Contains("so reads of them are not marked and writes to them are not refused", status);
     }
 
     public static TheoryData<string, string?> MarkedForms => new()
@@ -192,8 +192,8 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     public void ADefaultLaneWriteToARecordTheExcludedPluginOverridesIsRefused()
     {
         var refused = Apply(_overridden, "BasicStats.Damage", "12");
-        Assert.Contains(Fid(_overridden) + ": also touched by " + BadName + ", excluded this session as unreadable, so the record's real winner is unknown " +
-                        "and this write could undo that plugin's change.", refused);
+        Assert.Contains(Fid(_overridden) + ": also touched by " + BadName + ", excluded this session as unreadable, which loads after this record's winner " +
+                        "and wins it in game, so this write could undo that plugin's change.", refused);
 
         var control = Apply(_untouched, "EditorID", "HcExKeywordRenamed");
         Assert.False(control.StartsWith("error:", StringComparison.Ordinal), control);

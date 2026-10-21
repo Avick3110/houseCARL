@@ -42,17 +42,18 @@ public static class OrderDegraded
         $" · {sorted.Count} plugin(s) excluded (load failure): {Shown(sorted, ClauseNamesShown, n => $" +{n} more")}" +
         (pointToStatus ? " — reason in housecarl_load_order_status" : "");
 
-    /// <summary>The per-row note on a record an excluded plugin also defines or overrides: the answer lacks its version, so the winner is unknown.</summary>
+    /// <summary>The per-row note on a record an excluded plugin overrides after its winner: that plugin wins it in game, and the answer lacks its version.</summary>
     public static string TouchNote(IReadOnlyList<string> excluded) =>
-        $"{TouchedBy(excluded)} — its version is not in this answer, so this record's real winner is unknown.";
+        $"{TouchedBy(excluded)} — {(excluded.Count == 1 ? "its version is" : "their versions are")} not in this answer.";
 
-    /// <summary>The write refusal on a record an excluded plugin also touches: a patch built without that plugin's version could undo its change.</summary>
+    /// <summary>The write refusal on such a record: a patch built without that plugin's version could undo its change.</summary>
     public static string TouchRefusal(string formId, IReadOnlyList<string> excluded) =>
-        $"{formId}: {TouchedBy(excluded)}, so the record's real winner is unknown and this write could undo that plugin's change. " +
+        $"{formId}: {TouchedBy(excluded)}, so this write could undo that plugin's change. " +
         "Fix or remove that plugin (housecarl_load_order_status gives the reason) and retry.";
 
     static string TouchedBy(IReadOnlyList<string> excluded) =>
-        $"also touched by {string.Join(", ", excluded)}, excluded this session as unreadable";
+        $"also touched by {string.Join(", ", excluded)}, excluded this session as unreadable, which " +
+        (excluded.Count == 1 ? "loads after this record's winner and wins it in game" : "load after this record's winner, the last winning it in game");
 
     /// <summary>The first <paramref name="cap"/> names of a roster, then <paramref name="more"/> of how many are left.</summary>
     internal static string Shown(IReadOnlyList<string> names, int cap, Func<int, string> more) =>
