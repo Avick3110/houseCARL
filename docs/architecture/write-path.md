@@ -144,15 +144,17 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   becomes a master (#1204). The rank is the word's low 24 bits sign-extended, exact for any rank within ±2^23. The
   faction test is one lookup, `OwnerRanks.FactionIn(view)`: the order's winning record for the owner's key is a FACT,
   wherever it lives, so an injected faction counts; the dry-run master preview uses the same lookup. It runs where a
-  lane takes its records: the renumber, merge and repoint lanes on their copies before the remap, so merge's
-  donor-dangling check sees a typed owner; closure copy on each record its source chain fetches, so the walk never
+  lane takes its records: the renumber, merge and repoint lanes on their copies before the remap, so the merge
+  build's donor-dangling check sees a typed owner; closure copy on each record its source chain fetches, so the walk never
   follows the word, and on the patch it extends; and in the serialize itself, `WritePatchStaged` and `SerializeInPlace`,
   with the faction test the lane hands `WritePatch` or `WriteInPlace`, for the owners an opened file, an override or a
   field copy brought in. The apply, remove, forward, record-create and closure-copy lanes hand one; the renumber, merge
   and repoint lanes, settled before their remap, and the round-trip check hand none. An NPC owner and an owner
   the order cannot name stay untyped. A load-order link cache on the open was measured instead and rejected: on ARR its
   first owner lookup cost 13 s and 4 GB. The getter-side walks still see the word: records reads, the reverse-reference
-  index and `references=`, the compaction and merge referencer scans and the errors check (#1235).
+  index and `references=`, the compaction and merge referencer scans, the errors check, and two that refuse a write:
+  merge's donor pre-flight (`TryScanMergeDonor` and `MergeInjection.UnremappableLink`, before the build) and closure
+  copy's leak check on an attach target (`FindBoundLeak`, on the target's override before it is settled) (#1235).
 - Every write stages into a `.housecarl-tmp` sibling of the target and commits through `AtomicFile.Commit`, so the
   target only ever holds the old or the new complete file; the caller must release every handle it holds on the
   target first, and a failed stage leaves nothing behind.
