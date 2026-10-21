@@ -66,7 +66,7 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping: `check f
 4. Read the plan. Setup prints what it found on the machine and then every path it is about to write, and writes nothing until Enter; `q` quits.
 5. Restart the host. The closing block says what was written and what to do next.
 
-Flags, for an unattended run: `--claude` / `--codex` / `--both` pick the host, `--yes` skips the confirm at the plan, `--uninstall` removes instead of installing, `--skip-runtime-check` skips the .NET check. A run whose input is redirected has nobody to answer a question, so it stops and names the flag that answers it rather than assuming one.
+Flags, for an unattended run: `--claude` / `--codex` / `--both` pick the host, `--yes` skips the confirm at the plan, and `--uninstall` removes instead of installing. A run whose input is redirected has nobody to answer a question, so it stops and names the flag that answers it rather than assuming one.
 
 Updating: quit Claude Code and Codex first. Setup cannot replace a server a session is running; if one is, it stops and says so. Setup overwrites only the files in the package, so the saved MO2 instance and tool paths in `houseCARL.user.json` survive a re-run.
 

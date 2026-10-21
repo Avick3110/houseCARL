@@ -36,11 +36,6 @@ public static class Program
     private const string PluginFolderName = "housecarl"; // plugin dir shipped beside this exe
     private const string McpServerName    = "housecarl"; // server key under mcpServers / [mcp_servers.*]
 
-    // Major version of the runtimes the bundled SERVER needs (keep in sync with housecarl-mcp's
-    // TargetFramework). The default roll-forward policy stays within a major, so "11.x installed"
-    // does not satisfy a net10.0 framework-dependent server.
-    private const string ServerRuntimeMajor = "10";
-
     public enum Target { Claude, Codex, Both }
 
     /// <summary>What a non-interactive <see cref="TryInstall"/> did.</summary>
@@ -79,7 +74,6 @@ public static class Program
             Console.WriteLine("               so an unattended run needs a host flag as well)");
             Console.WriteLine("    --uninstall   remove houseCARL instead of installing it, from the host");
             Console.WriteLine("                  named by --claude/--codex/--both");
-            Console.WriteLine("    --skip-runtime-check   skip the .NET runtime preflight (custom DOTNET_ROOT etc.)");
             Console.WriteLine();
             Console.WriteLine("  Setup asks two questions - which host, and the confirm at the plan - and it");
             Console.WriteLine("  never answers one for you. A run whose input is redirected has nobody to ask,");
@@ -109,24 +103,16 @@ public static class Program
 
             // ---- detection ---------------------------------------------------
             // Read the machine before writing to it: which hosts are here, what houseCARL each already has,
-            // and the runtimes the bundled server needs. Reading only, so a run cancelled at the plan below
-            // leaves everything as it found it.
+            // and where the .NET runtime came from. Reading only, so a run cancelled at the plan below leaves
+            // everything as it found it.
             //
-            // The bundled server is framework-dependent net10.0: it needs the .NET Runtime
-            // (Microsoft.NETCore.App) at that major. This exe is framework-dependent too (#734: a
-            // self-contained apphost aborts in CLR startup on some CET / shadow-stack machines), so it
-            // needs the same runtime just to start; on a machine without it hostfxr's message goes to
-            // stderr and a double-clicked window closes over it, so the docs name that flash-and-close
-            // as the diagnosis instead of promising a message. The check below still catches a runtime
-            // only this process can see (a DOTNET_ROOT the agent will not inherit) and, on
-            // Windows-on-ARM, an x64 runtime missing where the x64 server looks.
-            bool skipRuntimeCheck = args.Contains("--skip-runtime-check");
-            (List<string> missingRuntimes, string? runtimeOwnRoot) = skipRuntimeCheck
-                ? (new List<string>(), null)
-                : MissingServerRuntimes();
+            // Setup and the server share one target framework and both are framework-dependent (#734), so
+            // setup running at all proves the runtime the server needs. What is left to say is a runtime only
+            // this process can see (a DOTNET_ROOT the agent will not inherit).
+            string? runtimeOwnRoot = OwnRootOnlyRuntime();
             Detect.HostState claude = Detect.Claude(home);
             Detect.HostState codex  = Detect.Codex(home, homeOverride);
-            ReportDetected(claude, codex, missingRuntimes, skipRuntimeCheck, runtimeOwnRoot);
+            ReportDetected(claude, codex, runtimeOwnRoot);
 
             Answer chose = ResolveChoice(args, claude, codex, out Mode mode, out Target target);
             if (chose == Answer.NoOneToAsk) return Finish(1);
@@ -136,18 +122,9 @@ public static class Program
                 return Finish(0);
             }
 
-            // The runtimes are the SERVER's, so only an install needs them. The refusal is therefore made after
-            // the choice rather than before it: a machine missing a runtime is exactly a machine somebody may
-            // want to remove houseCARL from, and refusing at the detection block would leave no way to.
-            if (mode == Mode.Install && missingRuntimes.Count > 0)
-            {
-                ReportMissingRuntimes();
-                return Finish(1);
-            }
-
-            // The package is the install's, for the same reason and after the same choice: a removal reads
-            // nothing out of it — what it takes off the machine is what the install put there — and refusing
-            // before the menu would leave a broken or half-unzipped package with no way to reach [4] Uninstall.
+            // The package is the install's, so it is checked after the choice: a removal reads nothing out of
+            // it — what it takes off the machine is what the install put there — and refusing before the menu
+            // would leave a broken or half-unzipped package with no way to reach [4] Uninstall.
             if (mode == Mode.Install
                 && (!File.Exists(srcManifest) || !File.Exists(srcExe) || !Directory.Exists(srcSkills)))
             {
@@ -215,11 +192,10 @@ public static class Program
 
     /// <summary>The detection block: one row per thing setup looked for, printed before any choice is offered.</summary>
     private static void ReportDetected(
-        Detect.HostState claude, Detect.HostState codex, List<string> missingRuntimes, bool skipped,
-        string? runtimeOwnRoot)
+        Detect.HostState claude, Detect.HostState codex, string? runtimeOwnRoot)
     {
         Ui.Heading("Checking your machine");
-        Ui.Row(".NET Runtime " + ServerRuntimeMajor, RuntimeStatus(skipped, missingRuntimes.Count > 0));
+        Ui.Row(".NET Runtime", [Ui.StatusWord.Good(Environment.Version.ToString())]);
         Ui.Row(claude.Name, HostStatus(claude));
         Ui.Row(codex.Name,  HostStatus(codex));
 
@@ -230,14 +206,6 @@ public static class Program
                   + "the server may not start if your agent is launched without it.",
                     runtimeOwnRoot);
     }
-
-    /// <summary>A runtime row's status. A missing runtime does not read as a problem here: this block prints
-    /// before the menu, and only an install needs the runtimes, so whether a missing one stops the run is not
-    /// known yet - the refusal after the choice is what says so.</summary>
-    private static Ui.StatusWord[] RuntimeStatus(bool skipped, bool missing)
-        => skipped ? [Ui.StatusWord.Plain("not checked (--skip-runtime-check)")]
-         : missing ? [Ui.StatusWord.Plain("not found")]
-         :           [Ui.StatusWord.Good("found")];
 
     /// <summary>A host row's status: the host being here, and what houseCARL is to it. A host that is not here
     /// is not a problem - either mode has the other host to work on - so it reads plain.</summary>
@@ -315,23 +283,6 @@ public static class Program
             + ", so the download did not unzip completely — unzip it again and run this setup.",
             "Looked in:  " + pluginSrc,
             "Missing:    " + missingPath);
-    }
-
-    /// <summary>The runtime refusal, sentence-first, with where to get the runtime below it.</summary>
-    private static void ReportMissingRuntimes()
-    {
-        string sentence = "houseCARL needs the .NET Runtime " + ServerRuntimeMajor + ", which is not installed on "
-            + "this machine — install it and run this setup again.";
-
-        string[] detail =
-        {
-            "https://dotnet.microsoft.com/download/dotnet/" + ServerRuntimeMajor + ".0",
-            "or:  winget install Microsoft.DotNet.Runtime." + ServerRuntimeMajor,
-            "",
-            "(Custom dotnet location? Re-run with --skip-runtime-check.)",
-        };
-
-        Ui.Problem(sentence, detail);
     }
 
     // ---- non-interactive install (the probeable seam under the prompt) -----
@@ -479,61 +430,36 @@ public static class Program
     internal static bool IsSharingViolation(IOException ex)
         => ex.HResult == HrSharingViolation || ex.HResult == HrLockViolation;
 
-    // ---- server runtime preflight ------------------------------------------
+    // ---- where the runtime came from ---------------------------------------
 
     /// <summary>
-    /// Which of the server's required shared frameworks are missing at the required major version, and
-    /// the root that answered if it was this process's own.
+    /// The root this process's runtime came from, when that root is the only place the runtime shows: a
+    /// DOTNET_ROOT or portable install with `dotnet` off PATH, which the host may not inherit. Null when
+    /// `dotnet --list-runtimes` or the machine-wide shared-framework folder also has it.
     ///
-    /// Three sources. `dotnet --list-runtimes` covers custom install locations on PATH; the machine-wide
-    /// shared-framework folder covers a console whose PATH predates a just-finished runtime install; and
-    /// the root this process is itself running out of covers a DOTNET_ROOT or portable install with
-    /// `dotnet` off PATH, which is invisible to both of the others and would otherwise have setup report
-    /// the base runtime missing while running on it.
-    ///
-    /// Only the own root is known to be the SERVER's architecture. On Windows-on-ARM the arm64 `dotnet`
-    /// host and the arm64 machine-wide folder both describe frameworks the win-x64 server cannot use
-    /// (x64 .NET lives under its own root there), so when the process and the OS disagree on
-    /// architecture the other two sources get no say.
+    /// On Windows-on-ARM the arm64 `dotnet` host and the arm64 machine-wide folder describe frameworks the
+    /// win-x64 server cannot use, so when the process and the OS disagree on architecture they get no say.
     /// </summary>
-    private static (List<string> Missing, string? OwnRoot) MissingServerRuntimes()
+    private static string? OwnRootOnlyRuntime()
     {
-        string[] required = { "Microsoft.NETCore.App" };
         string machineWide = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "shared");
         string? ownRoot = OwnSharedFrameworkRoot();
+        if (ownRoot is null
+            || string.Equals(Path.TrimEndingDirectorySeparator(ownRoot),
+                             Path.TrimEndingDirectorySeparator(machineWide),
+                             StringComparison.OrdinalIgnoreCase))
+            return null;
+
         bool ownRootOnly = RuntimeInformation.OSArchitecture != RuntimeInformation.ProcessArchitecture;
-
-        HashSet<string> fromOwn = ownRoot is null
-            ? new HashSet<string>(StringComparer.Ordinal)
-            : ScanSharedRoot(ownRoot, required);
-        HashSet<string> fromElsewhere = new(StringComparer.Ordinal);
-        if (!ownRootOnly)
-        {
-            fromElsewhere.UnionWith(DotnetListRuntimes(required));
-            fromElsewhere.UnionWith(ScanSharedRoot(machineWide, required));
-        }
-
-        List<string> missing = required
-            .Where(fx => !fromOwn.Contains(fx) && !fromElsewhere.Contains(fx))
-            .ToList();
-
-        // The own root is worth naming only when it is what decided the answer and is not the machine-wide
-        // install: a framework only it can see is a framework the HOST may not see either, because the host
-        // does not inherit a DOTNET_ROOT set in the shell that launched setup.
-        bool ownRootDecided = ownRoot is not null
-            && !string.Equals(Path.TrimEndingDirectorySeparator(ownRoot),
-                              Path.TrimEndingDirectorySeparator(machineWide),
-                              StringComparison.OrdinalIgnoreCase)
-            && required.Any(fx => fromOwn.Contains(fx) && !fromElsewhere.Contains(fx));
-
-        return (missing, ownRootDecided ? ownRoot : null);
+        bool elsewhere = !ownRootOnly && (DotnetListsRuntime() || HasRuntime(machineWide));
+        return elsewhere ? null : ownRoot;
     }
 
-    /// <summary>The required frameworks `dotnet --list-runtimes` reports at the required major version.</summary>
-    private static HashSet<string> DotnetListRuntimes(string[] required)
+    /// <summary>Whether `dotnet --list-runtimes` reports Microsoft.NETCore.App at this process's major.</summary>
+    private static bool DotnetListsRuntime()
     {
-        HashSet<string> found = new(StringComparer.Ordinal);
+        string prefix = "Microsoft.NETCore.App " + Environment.Version.Major + ".";
         try
         {
             ProcessStartInfo psi = new("dotnet", "--list-runtimes")
@@ -544,49 +470,30 @@ public static class Program
                 CreateNoWindow         = true,
             };
             using Process? p = Process.Start(psi);
-            if (p is not null)
+            if (p is null) return false;
+            // Drain stderr asynchronously so a broken dotnet host writing errors can't fill the pipe and
+            // deadlock the stdout read, and bound the whole interaction so a wedged host can't hang setup.
+            p.ErrorDataReceived += (_, _) => { };
+            p.BeginErrorReadLine();
+            Task<string> stdoutTask = p.StandardOutput.ReadToEndAsync();
+            if (!p.WaitForExit(15000))
             {
-                // Drain stderr asynchronously so a broken dotnet host writing errors can't fill the
-                // pipe and deadlock the stdout read, and bound the whole interaction so a wedged host
-                // can't hang the preflight - on timeout we kill it and fall through to the folder scan.
-                p.ErrorDataReceived += (_, _) => { };
-                p.BeginErrorReadLine();
-                Task<string> stdoutTask = p.StandardOutput.ReadToEndAsync();
-                if (!p.WaitForExit(15000))
-                {
-                    try { p.Kill(entireProcessTree: true); } catch { /* already exited */ }
-                }
-                if (stdoutTask.Wait(2000))
-                {
-                    foreach (string line in stdoutTask.Result.Split('\n'))
-                    {
-                        string t = line.Trim();
-                        foreach (string fx in required)
-                            if (t.StartsWith(fx + " " + ServerRuntimeMajor + ".", StringComparison.Ordinal))
-                                found.Add(fx);
-                    }
-                }
+                try { p.Kill(entireProcessTree: true); } catch { /* already exited */ }
             }
+            return stdoutTask.Wait(2000)
+                && stdoutTask.Result.Split('\n').Any(l => l.Trim().StartsWith(prefix, StringComparison.Ordinal));
         }
-        catch { /* dotnet not on PATH -- the folder scans still get a say */ }
-        return found;
+        catch { return false; /* dotnet not on PATH -- the folder scan still gets a say */ }
     }
 
-    /// <summary>The required frameworks present under one shared-framework root at the required major
-    /// version. A version folder must actually contain assemblies - an empty 10.x dir left behind by an
-    /// aborted install/uninstall must not count as "installed".</summary>
-    private static HashSet<string> ScanSharedRoot(string sharedDir, string[] required)
+    /// <summary>Whether one shared-framework root has Microsoft.NETCore.App at this process's major. A version
+    /// folder must actually contain assemblies - an empty one left by an aborted install does not count.</summary>
+    private static bool HasRuntime(string sharedDir)
     {
-        HashSet<string> found = new(StringComparer.Ordinal);
-        foreach (string fx in required)
-        {
-            string fxDir = Path.Combine(sharedDir, fx);
-            if (Directory.Exists(fxDir) &&
-                Directory.GetDirectories(fxDir, ServerRuntimeMajor + ".*")
-                    .Any(d => Directory.EnumerateFiles(d, "*.dll").Any()))
-                found.Add(fx);
-        }
-        return found;
+        string fxDir = Path.Combine(sharedDir, "Microsoft.NETCore.App");
+        return Directory.Exists(fxDir)
+            && Directory.GetDirectories(fxDir, Environment.Version.Major + ".*")
+                .Any(d => Directory.EnumerateFiles(d, "*.dll").Any());
     }
 
     /// <summary>The shared-framework root this process is running out of, or null if the layout is not the

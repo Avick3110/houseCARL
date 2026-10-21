@@ -68,7 +68,6 @@ COMMAND-LINE FLAGS  (you don't need these to install)
   --claude / --codex / --both   pick the agent without the menu
   --yes                         skip the confirm at the plan
   --uninstall                   remove instead of install
-  --skip-runtime-check          skip the .NET runtime check
   --help                        the full list
 
   Setup never answers its own questions: a run whose input is
