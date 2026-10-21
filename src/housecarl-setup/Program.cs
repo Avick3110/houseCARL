@@ -295,8 +295,7 @@ public static class Program
     /// Re-running setup over a LIVE install would have <see cref="CopyDirectory"/> overwrite the running
     /// <c>housecarl-mcp.exe</c> (File.Copy overwrite:true), throw mid-copy, and leave a half-updated tree
     /// behind a generic "did not complete". So we PRE-FLIGHT the lock at EVERY destination this target
-    /// touches, before copying anything, and refuse with actionable guidance (mirrors the runtime preflight
-    /// below). A clean first install (no destination exe yet) is never blocked. As defense in depth, a
+    /// touches, before copying anything, and refuse with actionable guidance. A clean first install (no destination exe yet) is never blocked. As defense in depth, a
     /// sharing violation that slips past the pre-flight (a held sibling DLL, or a session started between the
     /// check and the copy) is caught and surfaced with the same guidance instead of the generic failure.
     ///
