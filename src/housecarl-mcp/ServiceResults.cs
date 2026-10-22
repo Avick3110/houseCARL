@@ -147,9 +147,9 @@ public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorI
 
 /// <summary>The MATERIALISED conflict tree the render layer consumes — each touching plugin's name and the fields read off its own body, winner last; it carries no live overlay, so the renderer never holds a handle.</summary>
 public sealed record ConflictTreeView(IReadOnlyList<ConflictNodeView> Nodes,
-                                      IReadOnlyList<ChildDeclarers> ChildDeclarers)
+                                      IReadOnlyList<ChildDeclarers> ChildDeclarers, int WinnerAt)
 {
-    public ConflictNodeView Winner => Nodes[^1];
+    public ConflictNodeView Winner => Nodes[WinnerAt];
 }
 
 /// <summary>The precise owned-child answer for one child-bearing field: which of the record's providers declare child records there, and which could not be read. Both lists empty means nobody declares anything, rendered as a sentence.</summary>

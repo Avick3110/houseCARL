@@ -382,11 +382,19 @@ internal sealed partial class RecordReads
     /// last. For a caller that genuinely needs the providers side by side; the render does not.</summary>
     internal ConflictTreeView? ResolveTreePinned(LoadOrderService.ViewPin p, FormKey fk, IReadOnlyList<string>? fields)
     {
-        var nodes = new List<ConflictNodeView>();
-        var fill = FoldTreePinned(p, fk, fields, (plugin, read, _) => { nodes.Add(new ConflictNodeView(plugin, read)); return true; });
+        var nodes = new SortedDictionary<int, ConflictNodeView>();
+        int winnerNode = -1;
+        using var session = p.Resolver.OpenSession();
+        var fill = FoldTreeChunkPinned(p, session, new[] { fk }, fields, (_, node, plugin, read, isWinner) =>
+        {
+            nodes[node] = new ConflictNodeView(plugin, read);
+            if (isWinner) winnerNode = node;
+            return true;
+        })[0];
         if (fill is null) return null;
-        nodes.Reverse();                                        // the fold reads winner first; the tree reads winner last
-        return new ConflictTreeView(nodes, fill.ChildDeclarers);
+        // Node 0 is the top provider; the tree reads in load order.
+        var ordered = nodes.Values.Reverse().ToList();
+        return new ConflictTreeView(ordered, fill.ChildDeclarers, ordered.Count - 1 - winnerNode);
     }
 
     /// <summary>The name-resolution caches one lane carries: a target's identity per FormKey, and the absence clauses its rows share.</summary>

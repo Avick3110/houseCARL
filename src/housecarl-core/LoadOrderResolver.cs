@@ -14,9 +14,9 @@ namespace HousecarlCore;
 
 public sealed record ConflictNode(string Plugin, IMajorRecordGetter Record);
 
-public sealed record ConflictTree(FormKey FormKey, string RecordType, IReadOnlyList<ConflictNode> Nodes)
+public sealed record ConflictTree(FormKey FormKey, string RecordType, IReadOnlyList<ConflictNode> Nodes, int WinnerAt)
 {
-    public ConflictNode Winner => Nodes[^1];
+    public ConflictNode Winner => Nodes[WinnerAt];
     public bool IsConflict => Nodes.Count > 1;
 }
 
@@ -142,7 +142,7 @@ public sealed class LoadOrderResolver : IDisposable
 
         /// <summary>The record class of the winning copy, or null for a key this build did not see.</summary>
         public Type? WinnerClass(FormKey fk)
-            => Index.TryGetValue(fk, out var e) ? Types.Class(e.type == IndexTypes.Mixed ? MixedTypes[fk][^1] : e.type) : null;
+            => Index.TryGetValue(fk, out var e) ? Types.Class(e.type == IndexTypes.Mixed ? MixedTypes[fk][Array.LastIndexOf(Overriders[fk], (int)e.winner)] : e.type) : null;
     }
 
     /// <summary>The runtime address tables for ONE build: which plugin loads at each load index and at each light index. The engine numbers the two kinds separately.</summary>
@@ -413,6 +413,7 @@ public sealed class LoadOrderResolver : IDisposable
         int firstUnknownKind = -1;
         string? firstUnknownKindName = null;
         int maxDepth = 0;
+        var partialWinner = new HashSet<FormKey>();                   // keys whose winner so far is a partial form (no full copy yet)
 
         for (int i = 0; i < _paths.Length; i++)
         {
@@ -438,13 +439,13 @@ public sealed class LoadOrderResolver : IDisposable
                           || ov.ModKey.Type is ModType.Master or ModType.Light;
 
             // Buffer the WHOLE plugin's keys first (plugin-atomic); the CONTEXT walk carries each record's containing parent.
-            var keys = new List<(FormKey Key, Type Class)>();
+            var keys = new List<(FormKey Key, Type Class, bool Partial)>();
             var edges = new List<(FormKey Child, FormKey Parent)>();
             try
             {
                 foreach (var ctx in ov.EnumerateMajorRecordContexts())
                 {
-                    keys.Add((ctx.Record.FormKey, ctx.Record.GetType()));
+                    keys.Add((ctx.Record.FormKey, ctx.Record.GetType(), PartialInEffect(ctx.Record, ov.ModKey)));
                     ContainmentIndex.Stage(ctx, edges);
                 }
             }
@@ -477,17 +478,21 @@ public sealed class LoadOrderResolver : IDisposable
             finally { (ov as IDisposable)?.Dispose(); }                    // one plugin open at a time — never the whole floor
 
             containment.Merge(edges);                                      // later plugin wins, like the winner index
-            foreach (var (fk, cls) in keys)                                // merge the COMPLETE plugin into the index
+            foreach (var (fk, cls, partial) in keys)                       // merge the COMPLETE plugin into the index
             {
                 var t = types.Intern(cls);
                 if (!index.TryGetValue(fk, out var e))
                 {
                     index[fk] = ((ushort)i, 1, t);                         // first sighting — singleton so far, no list
+                    if (partial) partialWinner.Add(fk);
                 }
                 else
                 {
                     int newCount = e.count + 1;
-                    index[fk] = ((ushort)i, (ushort)newCount, MergeType(fk, e.type, e.count, t));   // higher overlay = new winner
+                    // Higher overlay = new winner, unless its copy is a partial form over a full one.
+                    bool wins = !partial || partialWinner.Contains(fk);
+                    if (wins && !partial) partialWinner.Remove(fk);
+                    index[fk] = (wins ? (ushort)i : e.winner, (ushort)newCount, MergeType(fk, e.type, e.count, t));
                     if (newCount == 2) overriders[fk] = new List<int> { e.winner, i };  // 2nd sighting promotes to multi
                     else overriders[fk].Add(i);                            // 3rd+ extends the list
                     if (newCount > maxDepth) maxDepth = newCount;
@@ -517,6 +522,21 @@ public sealed class LoadOrderResolver : IDisposable
             mixed[fk] = per;
             return IndexTypes.Mixed;
         }
+    }
+
+    /// <summary>The record header's Partial Form flag (bit 14).</summary>
+    internal const int PartialFormFlag = 0x4000;
+
+    /// <summary>Is this copy a partial form the engine loads none of the data from: a flagged CELL, WRLD or DIAL override, as xEdit reads it (a temporary exterior cell, non-persistent with a grid, is never partial).</summary>
+    internal static bool PartialInEffect(IMajorRecordGetter rec, ModKey plugin)
+    {
+        if ((rec.MajorRecordFlagsRaw & PartialFormFlag) == 0 || rec.FormKey.ModKey == plugin) return false;
+        return rec switch
+        {
+            ICellGetter cell => (cell.MajorRecordFlagsRaw & (int)Cell.MajorFlag.Persistent) != 0 || cell.Grid is null,
+            IWorldspaceGetter or IDialogTopicGetter => true,
+            _ => false,
+        };
     }
 
     /// <summary>The epoch fingerprint: a deterministic identity for ONE build, over every plugin's filename, RESOLVED PATH and freshness stamp in priority order plus which plugins it
@@ -757,7 +777,8 @@ public sealed class LoadOrderResolver : IDisposable
 
         /// <summary>False when the winner plugin carries this FormKey more than once, so its merged copies cannot stand for the one a body read returns.</summary>
         public bool WinnerHoldsOnce(FormKey fk)
-            => !_s.Index.TryGetValue(fk, out var e) || e.count < 2 || _s.Overriders[fk][^2] != e.winner;
+            => !_s.Index.TryGetValue(fk, out var e) || e.count < 2
+            || Array.IndexOf(_s.Overriders[fk], (int)e.winner) == Array.LastIndexOf(_s.Overriders[fk], (int)e.winner);
 
         /// <summary>O(1): the record that CONTAINS this one in THIS build — a DIAL over its INFO, a CELL over its placed references and navmeshes, a WRLD over its cells.</summary>
         public FormKey? ParentOf(FormKey fk) => _s.Containment.ParentOf(fk);
@@ -858,7 +879,7 @@ public sealed class LoadOrderResolver : IDisposable
             recType ??= RecordNaming.StripOverlay(rec.GetType().Name);
             nodes[n] = new ConflictNode(_names[oi], rec);
         }
-        return new ConflictTree(fk, recType ?? "?", nodes);
+        return new ConflictTree(fk, recType ?? "?", nodes, Array.LastIndexOf(overlayIdxs, (int)e.winner));
     }
 
     /// <summary>The same walk as <see cref="ResolveTree(OverlaySession, FormKey, IndexSnapshot)"/>, yielding one provider's body at a time and holding none, so a tree over a much-touched

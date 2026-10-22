@@ -1,0 +1,1 @@
+- **A partial-form override (CELL, WRLD or DIAL flagged 0x4000) no longer counts as the winner; reads, scans and edits use the full copy below it, as the game does.** Check: `records` on a DynDOLOD-partial persistent cell names the plugin before DynDOLOD as winner.

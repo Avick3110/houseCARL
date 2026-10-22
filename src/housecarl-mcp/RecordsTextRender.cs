@@ -198,9 +198,12 @@ static partial class RecordsTools
             Wire.AppendNote(sb, "  ", row.SharedNote);
             Wire.AppendNote(sb, "  ", row.ExcludedNote);
             sb.Append("  ").Append(row.Touchers.Count).Append(" plugin(s) touch this record (load order, winner last):\n");
+            // The winner is the index's, which a partial form above it does not displace.
+            var winner = row.Nodes.FirstOrDefault(nd => nd.IsWinner)?.Plugin;
+            int winnerAt = winner is null ? row.Touchers.Count - 1 : row.Touchers.ToList().FindLastIndex(t => string.Equals(t, winner, StringComparison.OrdinalIgnoreCase));
             for (int i = 0; i < row.Touchers.Count; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
-                  .Append(i == row.Touchers.Count - 1 ? "  (winner)" : "").Append('\n');
+                  .Append(i == winnerAt ? "  (winner)" : "").Append('\n');
             // The row ends at the block when the block was cut or ran the budget out, and a sole provider ends
             // there too, having nothing to diff against.
             bool ended = AppendChildDeclarers(sb, row, room, row.Nodes.Count > 1 ? nodesCut.Length : 0,
