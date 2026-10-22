@@ -569,6 +569,9 @@ internal sealed partial class RecordReads
 
         /// <summary>The note a record an excluded plugin also touches owes, read off the batch's pin.</summary>
         public string? ExcludedNote { get; init; }
+
+        /// <summary>The winner's position in <see cref="Touchers"/>, off the index; a partial form above it does not move it.</summary>
+        public int WinnerAt { get; init; } = -1;
     }
 
     /// <summary>The project=tree batch: per record, the full provider stack (touching list, winner last) with each
@@ -723,7 +726,7 @@ internal sealed partial class RecordReads
                 }
                 rows[i] = new TreeRow(FormIdToken.Of(fk), fills[j]!.Type, fills[j]!.EditorId,
                                       touchers, refLabel[j], ordered, null, fills[j]!.ChildDeclarers)
-                          { SharedNote = SharedEditorIds.Note(pin, fk, fills[j]!.Type, null), ExcludedNote = Wire.ExcludedNote(pin, fk) };
+                          { SharedNote = SharedEditorIds.Note(pin, fk, fills[j]!.Type, null), ExcludedNote = Wire.ExcludedNote(pin, fk), WinnerAt = view.WinnerAt(fk) };
             }
             // Past the budget the rows are dropped and nothing further is read.
             if (meter.Check(end, liveRow.Count) is { } tooDear)

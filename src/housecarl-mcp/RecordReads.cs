@@ -371,30 +371,22 @@ internal sealed partial class RecordReads
     /// <summary>The conflict-tree fill off a pinned build, so the tree's membership and the response's epoch stamp
     /// name the same build.</summary>
     internal TreeFill? FoldTreePinned(LoadOrderService.ViewPin p, FormKey fk, IReadOnlyList<string>? fields,
-                                      Func<string, RecordFields, bool, bool> onNode)
+                                      Func<int, string, RecordFields, bool> onNode)
     {
         using var session = p.Resolver.OpenSession();
         return FoldTreeChunkPinned(p, session, new[] { fk }, fields,
-                                   (_, _, plugin, read, isWinner) => onNode(plugin, read, isWinner))[0];
+                                   (_, node, plugin, read, _) => onNode(node, plugin, read))[0];
     }
 
-    /// <summary>The whole tree materialised — every provider's fields at once, in priority order with the winner
-    /// last. For a caller that genuinely needs the providers side by side; the render does not.</summary>
+    /// <summary>The whole tree materialised — every provider's fields at once, in priority order. For a caller that
+    /// genuinely needs the providers side by side; the render does not.</summary>
     internal ConflictTreeView? ResolveTreePinned(LoadOrderService.ViewPin p, FormKey fk, IReadOnlyList<string>? fields)
     {
-        var nodes = new SortedDictionary<int, ConflictNodeView>();
-        int winnerNode = -1;
-        using var session = p.Resolver.OpenSession();
-        var fill = FoldTreeChunkPinned(p, session, new[] { fk }, fields, (_, node, plugin, read, isWinner) =>
-        {
-            nodes[node] = new ConflictNodeView(plugin, read);
-            if (isWinner) winnerNode = node;
-            return true;
-        })[0];
-        if (fill is null) return null;
+        var nodes = new ConflictNodeView[p.View.TouchingPlugins(fk)?.Count ?? 0];
         // Node 0 is the top provider; the tree reads in load order.
-        var ordered = nodes.Values.Reverse().ToList();
-        return new ConflictTreeView(ordered, fill.ChildDeclarers, ordered.Count - 1 - winnerNode);
+        var fill = FoldTreePinned(p, fk, fields, (node, plugin, read) => { nodes[nodes.Length - 1 - node] = new ConflictNodeView(plugin, read); return true; });
+        if (fill is null) return null;
+        return new ConflictTreeView(nodes, fill.ChildDeclarers, p.View.WinnerAt(fk));
     }
 
     /// <summary>The name-resolution caches one lane carries: a target's identity per FormKey, and the absence clauses its rows share.</summary>

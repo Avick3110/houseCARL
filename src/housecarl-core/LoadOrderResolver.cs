@@ -142,7 +142,11 @@ public sealed class LoadOrderResolver : IDisposable
 
         /// <summary>The record class of the winning copy, or null for a key this build did not see.</summary>
         public Type? WinnerClass(FormKey fk)
-            => Index.TryGetValue(fk, out var e) ? Types.Class(e.type == IndexTypes.Mixed ? MixedTypes[fk][Array.LastIndexOf(Overriders[fk], (int)e.winner)] : e.type) : null;
+            => Index.TryGetValue(fk, out var e) ? Types.Class(e.type == IndexTypes.Mixed ? MixedTypes[fk][WinnerAt(fk, e)] : e.type) : null;
+
+        /// <summary>The winner's position among the key's providers in load order; a partial form above it does not move it.</summary>
+        public int WinnerAt(FormKey fk, (ushort winner, ushort count, byte type) e)
+            => e.count == 1 ? 0 : Array.LastIndexOf(Overriders[fk], (int)e.winner);
     }
 
     /// <summary>The runtime address tables for ONE build: which plugin loads at each load index and at each light index. The engine numbers the two kinds separately.</summary>
@@ -491,7 +495,7 @@ public sealed class LoadOrderResolver : IDisposable
                     int newCount = e.count + 1;
                     // Higher overlay = new winner, unless its copy is a partial form over a full one.
                     bool wins = !partial || partialWinner.Contains(fk);
-                    if (wins && !partial) partialWinner.Remove(fk);
+                    if (!partial && partialWinner.Count != 0) partialWinner.Remove(fk);
                     index[fk] = (wins ? (ushort)i : e.winner, (ushort)newCount, MergeType(fk, e.type, e.count, t));
                     if (newCount == 2) overriders[fk] = new List<int> { e.winner, i };  // 2nd sighting promotes to multi
                     else overriders[fk].Add(i);                            // 3rd+ extends the list
@@ -777,8 +781,10 @@ public sealed class LoadOrderResolver : IDisposable
 
         /// <summary>False when the winner plugin carries this FormKey more than once, so its merged copies cannot stand for the one a body read returns.</summary>
         public bool WinnerHoldsOnce(FormKey fk)
-            => !_s.Index.TryGetValue(fk, out var e) || e.count < 2
-            || Array.IndexOf(_s.Overriders[fk], (int)e.winner) == Array.LastIndexOf(_s.Overriders[fk], (int)e.winner);
+            => !_s.Index.TryGetValue(fk, out var e) || e.count < 2 || Array.IndexOf(_s.Overriders[fk], (int)e.winner) == _s.WinnerAt(fk, e);
+
+        /// <summary>The winner's position in <see cref="TouchingPlugins"/>, or -1 for a key this build did not see.</summary>
+        public int WinnerAt(FormKey fk) => _s.Index.TryGetValue(fk, out var e) ? _s.WinnerAt(fk, e) : -1;
 
         /// <summary>O(1): the record that CONTAINS this one in THIS build — a DIAL over its INFO, a CELL over its placed references and navmeshes, a WRLD over its cells.</summary>
         public FormKey? ParentOf(FormKey fk) => _s.Containment.ParentOf(fk);
@@ -879,7 +885,7 @@ public sealed class LoadOrderResolver : IDisposable
             recType ??= RecordNaming.StripOverlay(rec.GetType().Name);
             nodes[n] = new ConflictNode(_names[oi], rec);
         }
-        return new ConflictTree(fk, recType ?? "?", nodes, Array.LastIndexOf(overlayIdxs, (int)e.winner));
+        return new ConflictTree(fk, recType ?? "?", nodes, s.WinnerAt(fk, e));
     }
 
     /// <summary>The same walk as <see cref="ResolveTree(OverlaySession, FormKey, IndexSnapshot)"/>, yielding one provider's body at a time and holding none, so a tree over a much-touched

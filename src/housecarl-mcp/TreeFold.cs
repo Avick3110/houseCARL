@@ -40,6 +40,7 @@ internal sealed partial class RecordReads
         // Index only: no body is read to learn this.
         var providers = new string[n][];
         var winnerNode = new int[n];
+        bool anyDisplaced = false;
         for (int r = 0; r < n; r++)
         {
             var t = view.TouchingPlugins(keys[r]);
@@ -47,8 +48,8 @@ internal sealed partial class RecordReads
             var a = new string[t.Count];
             for (int i = 0; i < t.Count; i++) a[i] = t[t.Count - 1 - i];
             providers[r] = a;
-            var w = view.ResolveWinner(keys[r])?.WinnerPlugin;
-            winnerNode[r] = Math.Max(0, Array.FindIndex(a, x => string.Equals(x, w, StringComparison.OrdinalIgnoreCase)));
+            winnerNode[r] = t.Count - 1 - view.WinnerAt(keys[r]);
+            anyDisplaced |= winnerNode[r] > 0;
         }
 
         // Per-row state. `declares` is one answer per wanted field per provider, placed BY NODE because the
@@ -60,7 +61,7 @@ internal sealed partial class RecordReads
         var editorIds = new string?[n];
         var stopped = new bool[n];
 
-        RunPass(Groups(displacedWinners: true));
+        if (anyDisplaced) RunPass(Groups(displacedWinners: true));
         RunPass(Groups(displacedWinners: false));
 
         for (int r = 0; r < n; r++)
@@ -87,7 +88,7 @@ internal sealed partial class RecordReads
 
         // Every provider plugin of the chunk ONCE, with its whole share, in DESCENDING load order — so every
         // row's winner arrives before any other provider of that row and the rest arrive in node order. A winner
-        // below the top provider is read in a pass of its own first; with no partial form that pass is empty.
+        // below the top provider is read in a pass of its own first; with no partial form there is no such pass.
         List<(string Plugin, List<(int Row, int Node)> Hits)> Groups(bool displacedWinners)
         {
             var at = new Dictionary<string, List<(int, int)>>(StringComparer.OrdinalIgnoreCase);
