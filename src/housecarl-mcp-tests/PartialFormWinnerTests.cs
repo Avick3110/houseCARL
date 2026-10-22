@@ -243,6 +243,28 @@ public sealed class PartialFormWinnerTests : IDisposable
         Assert.DoesNotContain("partial form, does not win", Tree(_plainCell));
     }
 
+    /// <summary>A read answered from the full copy under a partial relied on the partial's plugin too: its flag decided the winner.</summary>
+    [Fact]
+    public void AMarkedReadRefusesWhenThePartialsPluginChangesMidCall()
+    {
+        Assert.Contains("changed on disk during this call", ReadWhilePartialChanges(_cell));
+        // Pins unchanged behaviour: a key the partial's plugin does not touch is not refused for it.
+        Assert.DoesNotContain("changed on disk", ReadWhilePartialChanges(_location));
+    }
+
+    string ReadWhilePartialChanges(FormKey fk)
+    {
+        var path = Path.Combine(_mods, "PartialMod", PartialName);
+        bool saved = false;
+        MidCallChange.BeforeCheck.Value = name =>
+        {
+            if (!saved && name == MasterName) { File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(5 + _bumps++)); saved = true; }
+        };
+        try { return Fields(fk, null, "EditorID"); }
+        finally { MidCallChange.BeforeCheck.Value = null; }
+    }
+    int _bumps;
+
     /// <summary>Pins unchanged behaviour: with no partial form the sentences say winner last, and the JSON row adds no winner.</summary>
     [Fact]
     public void AKeyWithNoPartialKeepsTheWinnerLastText()

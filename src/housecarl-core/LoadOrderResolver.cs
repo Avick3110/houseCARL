@@ -788,7 +788,15 @@ public sealed class LoadOrderResolver : IDisposable
         public string? DataDir => _r.DataDir;
 
         public WinnerInfo? ResolveWinner(FormKey fk)
-            => _s.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _r._names[Rely(e.winner)], e.count) : null;
+            => _s.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _r._names[RelyWinner(fk, e)], e.count) : null;
+
+        /// <summary>Rely on the winner and, where a partial form tops the key, on each plugin above it: their flags decided the answer.</summary>
+        int RelyWinner(FormKey fk, (ushort winner, ushort count, byte type) e)
+        {
+            if (_relied is not null && _s.Displaced.TryGetValue(fk, out int at))
+                foreach (int i in _s.Overriders[fk].AsSpan(at + 1)) Rely(i);
+            return Rely(e.winner);
+        }
 
         /// <summary>False when the winner plugin carries this FormKey more than once, so its merged copies cannot stand for the one a body read returns.</summary>
         public bool WinnerHoldsOnce(FormKey fk)
@@ -854,7 +862,7 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>The record class of the winning copy, read off this build with no body fetched; null for a key it did not see.</summary>
         public Type? WinnerClassOf(FormKey fk)
         {
-            if (_s.Index.TryGetValue(fk, out var e)) Rely(e.winner);
+            if (_s.Index.TryGetValue(fk, out var e)) RelyWinner(fk, e);
             return _s.WinnerClass(fk);
         }
 
