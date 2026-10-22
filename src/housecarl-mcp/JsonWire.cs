@@ -554,6 +554,7 @@ static class JsonWire
         {
             w.WriteString("error", row.Error);
             if (row.StackAbove is { Count: > 0 }) WriteStringArray(w, "stack_above", row.StackAbove);
+            if (row.StackWinner is not null) w.WriteString("winner", row.StackWinner);   // a partial form tops the stack
             w.WriteEndObject();
             return;
         }
@@ -565,6 +566,7 @@ static class JsonWire
         WriteDiffPole(w, "subject", s);
         WriteDiffPole(w, "reference", r);
         if (row.StackAbove is { Count: > 0 }) WriteStringArray(w, "stack_above", row.StackAbove);
+        if (row.StackWinner is not null) w.WriteString("winner", row.StackWinner);   // a partial form tops the stack
         if (row.Note is not null) w.WriteString("note", row.Note);
         var d = row.Diff!;
         w.WriteBoolean("complete", d.Complete);
@@ -625,6 +627,12 @@ static class JsonWire
         return Finish(ms);
     }
 
+    /// <summary>The row's winner, written only when a partial form tops its touchers so their last plugin is not it.</summary>
+    static void WriteTreeWinner(Utf8JsonWriter w, RecordReads.TreeRow row)
+    {
+        if (row.WinnerAt >= 0 && row.WinnerAt != row.Touchers.Count - 1) w.WriteString("winner", row.Touchers[row.WinnerAt]);
+    }
+
     /// <summary>One tree row — the provider stack with per-node deltas, shared by the json render and the artifact writer.</summary>
     /// <returns>true if any part of the row hit <paramref name="cap"/>; the caller must merge it into <c>truncated</c>.</returns>
     internal static bool WriteTreeRow(Utf8JsonWriter w, RecordReads.TreeRow row, CharCountedStream ms, int cap,
@@ -639,6 +647,7 @@ static class JsonWire
         {
             w.WriteString("error", row.Error);
             if (row.Touchers.Count > 0) WriteStringArray(w, "touchers", row.Touchers);
+            WriteTreeWinner(w, row);
             w.WriteEndObject();
             return false;
         }
@@ -648,7 +657,7 @@ static class JsonWire
         WriteExcludedNote(w, row.ExcludedNote);
         WriteNullable(w, "reference", row.ReferencePlugin);
         WriteStringArray(w, "touchers", row.Touchers);   // priority order, winner LAST unless a partial form tops it
-        if (row.WinnerAt >= 0 && row.WinnerAt != row.Touchers.Count - 1) w.WriteString("winner", row.Touchers[row.WinnerAt]);
+        WriteTreeWinner(w, row);
         // The precise owned-child answer, from the same TreeRow the text lane renders.
         if (row.ChildDeclarers.Count > 0)
         {

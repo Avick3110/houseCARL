@@ -115,7 +115,7 @@ internal sealed partial class RecordReads
             if (s.Error is not null) return new DeltaRow(FormIdToken.Of(fk), s.Pole, null, null, null, null, "subject: " + s.Error);
             // previous_provider is measured from the SUBJECT, so the reference reader is handed the subject's plugin.
             var r = rReader(fk, s.Pole!.Plugin);
-            if (r.Error is not null) return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error);
+            if (r.Error is not null) return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error) { StackWinner = r.StackWinner };
             string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
                 ? "the two poles resolved to the SAME provider — the diff is trivially empty by construction"
                 : null;
@@ -722,7 +722,7 @@ internal sealed partial class RecordReads
                 {
                     rows[i] = new TreeRow(FormIdToken.Of(fk), fills[j]?.Type, fills[j]?.EditorId,
                                           touchers, null, Array.Empty<TreeNodeDelta>(), versusError[j],
-                                          Array.Empty<ChildDeclarers>());
+                                          Array.Empty<ChildDeclarers>()) { WinnerAt = view.WinnerAt(fk) };
                     continue;
                 }
                 var ordered = new List<TreeNodeDelta>(nodes[j].Length);
@@ -731,7 +731,8 @@ internal sealed partial class RecordReads
                 if (fills[j] is null || ordered.Count == 0)
                 {
                     rows[i] = new TreeRow(FormIdToken.Of(fk), null, null, touchers, null, Array.Empty<TreeNodeDelta>(),
-                                          $"the provider bodies of {FormIdToken.Of(fk)} could not be read.", Array.Empty<ChildDeclarers>());
+                                          $"the provider bodies of {FormIdToken.Of(fk)} could not be read.", Array.Empty<ChildDeclarers>())
+                              { WinnerAt = view.WinnerAt(fk) };
                     continue;
                 }
                 rows[i] = new TreeRow(FormIdToken.Of(fk), fills[j]!.Type, fills[j]!.EditorId,

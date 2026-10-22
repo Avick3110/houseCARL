@@ -197,12 +197,14 @@ static partial class RecordsTools
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>").Append('\n');
             Wire.AppendNote(sb, "  ", row.SharedNote);
             Wire.AppendNote(sb, "  ", row.ExcludedNote);
-            sb.Append("  ").Append(row.Touchers.Count).Append(row.WinnerAt == row.Touchers.Count - 1
+            // A row with no known winner position reads winner last, and none of its touchers is called partial.
+            int winnerAt = row.WinnerAt < 0 ? row.Touchers.Count - 1 : row.WinnerAt;
+            sb.Append("  ").Append(row.Touchers.Count).Append(winnerAt == row.Touchers.Count - 1
                 ? " plugin(s) touch this record (load order, winner last):\n"
                 : " plugin(s) touch this record (load order; a partial form above the winner does not win):\n");
             for (int i = 0; i < row.Touchers.Count; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
-                  .Append(i == row.WinnerAt ? "  (winner)" : i > row.WinnerAt ? "  (partial form, does not win)" : "").Append('\n');
+                  .Append(i == winnerAt ? "  (winner)" : i > winnerAt ? "  (partial form, does not win)" : "").Append('\n');
             // The row ends at the block when the block was cut or ran the budget out, and a sole provider ends
             // there too, having nothing to diff against.
             bool ended = AppendChildDeclarers(sb, row, room, row.Nodes.Count > 1 ? nodesCut.Length : 0,
