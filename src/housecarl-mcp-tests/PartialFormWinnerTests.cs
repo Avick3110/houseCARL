@@ -30,6 +30,7 @@ public sealed class PartialFormWinnerTests : IDisposable
     readonly FormKey _plainCell;   // a master interior cell the esp overrides normally
     readonly FormKey _strayCell;   // a master interior cell the esp overrides as a partial form carrying a grid
     readonly FormKey _dupCell;     // a master interior cell the esp holds twice: full, then partial
+    readonly FormKey _deepCell;    // a master interior cell both later plugins override as partial forms
 
     public PartialFormWinnerTests()
     {
@@ -49,28 +50,30 @@ public sealed class PartialFormWinnerTests : IDisposable
         var plainCell = Interior(master.GetNextFormKey(), "HcPfPlainCell");
         var strayCell = Interior(master.GetNextFormKey(), "HcPfStrayCell");
         var dupCell = Interior(master.GetNextFormKey(), "HcPfDupCell");
-        FileInterior(master, cell, masterCell, plainCell, strayCell, dupCell);
+        var deepCell = Interior(master.GetNextFormKey(), "HcPfDeepCell");
+        deepCell.Location.SetTo(loc);
+        FileInterior(master, cell, masterCell, plainCell, strayCell, dupCell, deepCell);
         var ws = new Worldspace(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcPfWorld" };
         var grid = new Cell(master.GetNextFormKey(), SkyrimRelease.SkyrimSE)
             { EditorID = "HcPfGridCell", Flags = Cell.Flag.HasWater, Grid = new CellGrid { Point = new P2Int(0, 0) } };
         FileExterior(ws, grid);
         master.Worldspaces.Add(ws);
         _cell = cell.FormKey; _ref = placed.FormKey; _masterCell = masterCell.FormKey;
-        _gridCell = grid.FormKey; _plainCell = plainCell.FormKey; _strayCell = strayCell.FormKey; _dupCell = dupCell.FormKey;
+        _gridCell = grid.FormKey; _plainCell = plainCell.FormKey; _strayCell = strayCell.FormKey; _dupCell = dupCell.FormKey; _deepCell = deepCell.FormKey;
 
         // Each override carries its EDID only, as an xEdit-made partial form does (Mutagen pads the rest).
         Cell Over(Cell of, int flags, Cell.Flag cellFlags) => new(of.FormKey, SkyrimRelease.SkyrimSE)
             { EditorID = of.EditorID, MajorRecordFlagsRaw = flags, Flags = cellFlags };
 
         var masterPartial = new SkyrimMod(new ModKey("HcPfMasterPartial", ModType.Master), SkyrimRelease.SkyrimSE);
-        FileInterior(masterPartial, Over(masterCell, Partial, 0));
+        FileInterior(masterPartial, Over(masterCell, Partial, 0), Over(deepCell, Partial, 0));
 
         var esp = new SkyrimMod(ModKey.FromNameAndExtension(PartialName), SkyrimRelease.SkyrimSE);
         // The stray cell's partial carries a grid it should not; it is still interior, so still partial.
         var stray = Over(strayCell, Partial, 0);
         stray.Grid = new CellGrid { Point = new P2Int(3, 3) };
         FileInterior(esp, Over(cell, Partial, 0), Over(plainCell, 0, Cell.Flag.IsInteriorCell), stray,
-                     Over(dupCell, 0, Cell.Flag.IsInteriorCell), Over(dupCell, Partial, 0));
+                     Over(dupCell, 0, Cell.Flag.IsInteriorCell), Over(dupCell, Partial, 0), Over(deepCell, Partial, 0));
         var espWs = new Worldspace(ws.FormKey, SkyrimRelease.SkyrimSE) { EditorID = ws.EditorID };
         FileExterior(espWs, Over(grid, Partial, 0));
         esp.Worldspaces.Add(espWs);
@@ -209,6 +212,36 @@ public sealed class PartialFormWinnerTests : IDisposable
     [Fact]
     public void AnInteriorPartialCarryingAGridStillLoses() =>
         Assert.Equal(MasterName, _svc.CaptureView().ResolveWinner(_strayCell)!.Value.WinnerPlugin);
+
+    string Tree(FormKey fk, string? format = null) =>
+        RecordsTools.Records(_svc, formids: new[] { Fid(fk) }, format: format,
+                             project: new RecordsTools.RecordsProject { form = "tree", fields = new[] { "Location" } });
+
+    [Fact]
+    public void NoTextCallsThePartialsPluginTheWinner()
+    {
+        var tree = Tree(_cell);
+        Assert.DoesNotContain("winner last", tree);
+        Assert.Contains("(load order; a partial form above the winner does not win)", tree);
+        Assert.Contains("\"winner\": \"" + MasterName + "\"", Tree(_cell, "json"));
+
+        var delta = RecordsTools.Records(_svc, formids: new[] { Fid(_deepCell) }, source: Pole(MasterPartialName),
+                                         versus: Pole("previous_provider"), project: new RecordsTools.RecordsProject { form = "delta" });
+        Assert.Contains("stack above the subject (load order; the winner is " + MasterName + ", a partial form above it does not win): " + PartialName, delta);
+
+        var refused = Fields(_cell, Pole(MasterPartialName), "Location");
+        Assert.Contains("(load order; the winner is " + MasterName + ", a partial form above it does not win): " + MasterName + ", " + PartialName, refused);
+    }
+
+    /// <summary>Pins unchanged behaviour: with no partial form the sentences say winner last, and the JSON row adds no winner.</summary>
+    [Fact]
+    public void AKeyWithNoPartialKeepsTheWinnerLastText()
+    {
+        Assert.Contains("2 plugin(s) touch this record (load order, winner last):", Tree(_plainCell));
+        Assert.DoesNotContain("\"winner\": ", Tree(_plainCell, "json"));
+        Assert.Contains("Touched by (load order, winner last): " + MasterName + ", " + PartialName,
+                        Fields(_plainCell, Pole(MasterPartialName), "Location"));
+    }
 
     [Fact]
     public void APluginHoldingAKeyFullThenPartialWinsOnItsFullCopy()

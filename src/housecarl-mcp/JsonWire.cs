@@ -647,7 +647,8 @@ static class JsonWire
         WriteSharedName(w, row.SharedNote);
         WriteExcludedNote(w, row.ExcludedNote);
         WriteNullable(w, "reference", row.ReferencePlugin);
-        WriteStringArray(w, "touchers", row.Touchers);   // priority order, winner LAST
+        WriteStringArray(w, "touchers", row.Touchers);   // priority order, winner LAST unless a partial form tops it
+        if (row.WinnerAt >= 0 && row.WinnerAt != row.Touchers.Count - 1) w.WriteString("winner", row.Touchers[row.WinnerAt]);
         // The precise owned-child answer, from the same TreeRow the text lane renders.
         if (row.ChildDeclarers.Count > 0)
         {
