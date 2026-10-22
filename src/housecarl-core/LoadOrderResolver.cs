@@ -87,7 +87,8 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly Dictionary<FormKey, int[]> Overriders;                // MULTI keys only — ordered touching overlay indices
         public readonly IndexTypes Types;                                     // the class codes this build interned
         public readonly Dictionary<FormKey, byte[]> MixedTypes;               // MIXED keys only — each provider's own class code, aligned with Overriders
-        public readonly List<string> LoadFailures;                            // per-plugin index-build failures (open OR parse), always surfaced
+        public readonly Dictionary<FormKey, int> Displaced;                   // keys a partial form tops — the winner's position in Overriders
+        public readonly List<string> LoadFailures;                           // per-plugin index-build failures (open OR parse), always surfaced
         public readonly HashSet<int> Excluded;                                // overlay indices excluded this build — never re-touched by any path
         /// <summary>The SUBSET of <see cref="Excluded"/> whose file could not be OPENED at all; its own set, not derived from the reason string — prose can be reworded, membership is a fact.</summary>
         public readonly HashSet<int> Unopenable;
@@ -117,12 +118,12 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly Lazy<RuntimeSlots> Slots;
 
         public IndexSnapshot(Dictionary<FormKey, (ushort winner, ushort count, byte type)> index, Dictionary<FormKey, int[]> overriders,
-                             IndexTypes types, Dictionary<FormKey, byte[]> mixedTypes, List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
+                             IndexTypes types, Dictionary<FormKey, byte[]> mixedTypes, Dictionary<FormKey, int> displaced, List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
                              Dictionary<string, string> excludedPlugins, Dictionary<FormKey, int[]> excludedTouches, int maxDepth, string epoch,
                              bool[] light, int firstUnknownKind, string? firstUnknownKindName,
                              ContainmentIndex containment, bool[] masterBlock, FileStamp[] builtStamps)
         {
-            Index = index; Overriders = overriders; Types = types; MixedTypes = mixedTypes; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
+            Index = index; Overriders = overriders; Types = types; MixedTypes = mixedTypes; Displaced = displaced; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
             ExcludedPlugins = excludedPlugins; ExcludedTouches = excludedTouches; MaxDepth = maxDepth; Epoch = epoch; Light = light; Containment = containment;
             MasterBlock = masterBlock; BuiltStamps = builtStamps;
             FirstUnknownKind = firstUnknownKind; FirstUnknownKindName = firstUnknownKindName;
@@ -146,7 +147,7 @@ public sealed class LoadOrderResolver : IDisposable
 
         /// <summary>The winner's position among the key's providers in load order; a partial form above it does not move it.</summary>
         public int WinnerAt(FormKey fk, (ushort winner, ushort count, byte type) e)
-            => e.count == 1 ? 0 : Array.LastIndexOf(Overriders[fk], (int)e.winner);
+            => Displaced.TryGetValue(fk, out int at) ? at : e.count - 1;
     }
 
     /// <summary>The runtime address tables for ONE build: which plugin loads at each load index and at each light index. The engine numbers the two kinds separately.</summary>
@@ -418,6 +419,7 @@ public sealed class LoadOrderResolver : IDisposable
         string? firstUnknownKindName = null;
         int maxDepth = 0;
         var partialWinner = new HashSet<FormKey>();                   // keys whose winner so far is a partial form (no full copy yet)
+        var displaced = new Dictionary<FormKey, int>();               // keys a partial form tops — the winner's position among the providers
 
         for (int i = 0; i < _paths.Length; i++)
         {
@@ -496,6 +498,8 @@ public sealed class LoadOrderResolver : IDisposable
                     // Higher overlay = new winner, unless its copy is a partial form over a full one.
                     bool wins = !partial || partialWinner.Contains(fk);
                     if (!partial && partialWinner.Count != 0) partialWinner.Remove(fk);
+                    if (!wins) displaced.TryAdd(fk, e.count - 1);           // the winner stays where it was, the last copy before this one
+                    else if (displaced.Count != 0) displaced.Remove(fk);
                     index[fk] = (wins ? (ushort)i : e.winner, (ushort)newCount, MergeType(fk, e.type, e.count, t));
                     if (newCount == 2) overriders[fk] = new List<int> { e.winner, i };  // 2nd sighting promotes to multi
                     else overriders[fk].Add(i);                            // 3rd+ extends the list
@@ -509,7 +513,7 @@ public sealed class LoadOrderResolver : IDisposable
         return new IndexSnapshot(
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
-            types, mixed.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),
+            types, mixed.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()), displaced,
             failures, excluded, unopenable, excludedPlugins,
             excludedTouches.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()), maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
             light, firstUnknownKind, firstUnknownKindName, containment, masterBlock, (FileStamp[])_stamps.Clone());
@@ -788,7 +792,8 @@ public sealed class LoadOrderResolver : IDisposable
 
         /// <summary>False when the winner plugin carries this FormKey more than once, so its merged copies cannot stand for the one a body read returns.</summary>
         public bool WinnerHoldsOnce(FormKey fk)
-            => !_s.Index.TryGetValue(fk, out var e) || e.count < 2 || Array.IndexOf(_s.Overriders[fk], (int)e.winner) == _s.WinnerAt(fk, e);
+            => !_s.Index.TryGetValue(fk, out var e) || e.count < 2
+               || Array.IndexOf(_s.Overriders[fk], (int)e.winner) == Array.LastIndexOf(_s.Overriders[fk], (int)e.winner);
 
         /// <summary>The winner's position in <see cref="TouchingPlugins"/>, or -1 for a key this build did not see.</summary>
         public int WinnerAt(FormKey fk) => _s.Index.TryGetValue(fk, out var e) ? _s.WinnerAt(fk, e) : -1;

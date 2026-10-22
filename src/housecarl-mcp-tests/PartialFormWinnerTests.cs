@@ -29,6 +29,7 @@ public sealed class PartialFormWinnerTests : IDisposable
     readonly FormKey _gridCell;    // a temporary exterior cell; the esp overrides it with 0x4000 set
     readonly FormKey _plainCell;   // a master interior cell the esp overrides normally
     readonly FormKey _strayCell;   // a master interior cell the esp overrides as a partial form carrying a grid
+    readonly FormKey _dupCell;     // a master interior cell the esp holds twice: full, then partial
 
     public PartialFormWinnerTests()
     {
@@ -47,14 +48,15 @@ public sealed class PartialFormWinnerTests : IDisposable
         var masterCell = Interior(master.GetNextFormKey(), "HcPfMasterCell");
         var plainCell = Interior(master.GetNextFormKey(), "HcPfPlainCell");
         var strayCell = Interior(master.GetNextFormKey(), "HcPfStrayCell");
-        FileInterior(master, cell, masterCell, plainCell, strayCell);
+        var dupCell = Interior(master.GetNextFormKey(), "HcPfDupCell");
+        FileInterior(master, cell, masterCell, plainCell, strayCell, dupCell);
         var ws = new Worldspace(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcPfWorld" };
         var grid = new Cell(master.GetNextFormKey(), SkyrimRelease.SkyrimSE)
             { EditorID = "HcPfGridCell", Flags = Cell.Flag.HasWater, Grid = new CellGrid { Point = new P2Int(0, 0) } };
         FileExterior(ws, grid);
         master.Worldspaces.Add(ws);
         _cell = cell.FormKey; _ref = placed.FormKey; _masterCell = masterCell.FormKey;
-        _gridCell = grid.FormKey; _plainCell = plainCell.FormKey; _strayCell = strayCell.FormKey;
+        _gridCell = grid.FormKey; _plainCell = plainCell.FormKey; _strayCell = strayCell.FormKey; _dupCell = dupCell.FormKey;
 
         // Each override carries its EDID only, as an xEdit-made partial form does (Mutagen pads the rest).
         Cell Over(Cell of, int flags, Cell.Flag cellFlags) => new(of.FormKey, SkyrimRelease.SkyrimSE)
@@ -67,7 +69,8 @@ public sealed class PartialFormWinnerTests : IDisposable
         // The stray cell's partial carries a grid it should not; it is still interior, so still partial.
         var stray = Over(strayCell, Partial, 0);
         stray.Grid = new CellGrid { Point = new P2Int(3, 3) };
-        FileInterior(esp, Over(cell, Partial, 0), Over(plainCell, 0, Cell.Flag.IsInteriorCell), stray);
+        FileInterior(esp, Over(cell, Partial, 0), Over(plainCell, 0, Cell.Flag.IsInteriorCell), stray,
+                     Over(dupCell, 0, Cell.Flag.IsInteriorCell), Over(dupCell, Partial, 0));
         var espWs = new Worldspace(ws.FormKey, SkyrimRelease.SkyrimSE) { EditorID = ws.EditorID };
         FileExterior(espWs, Over(grid, Partial, 0));
         esp.Worldspaces.Add(espWs);
@@ -76,7 +79,8 @@ public sealed class PartialFormWinnerTests : IDisposable
         void Place(string mod, SkyrimMod m, params ISkyrimModGetter[] order)
         {
             Directory.CreateDirectory(Path.Combine(_mods, mod));
-            m.BeginWrite.ToPath(Path.Combine(_mods, mod, m.ModKey.FileName)).WithLoadOrder(order).Write();
+            // The esp holds one cell twice, which Mutagen refuses unless told not to check.
+            m.BeginWrite.ToPath(Path.Combine(_mods, mod, m.ModKey.FileName)).WithLoadOrder(order).NoFormIDUniquenessCheck().Write();
         }
         Place("MasterMod", master);
         Place("MasterPartialMod", masterPartial, master);
@@ -205,6 +209,25 @@ public sealed class PartialFormWinnerTests : IDisposable
     [Fact]
     public void AnInteriorPartialCarryingAGridStillLoses() =>
         Assert.Equal(MasterName, _svc.CaptureView().ResolveWinner(_strayCell)!.Value.WinnerPlugin);
+
+    [Fact]
+    public void APluginHoldingAKeyFullThenPartialWinsOnItsFullCopy()
+    {
+        Assert.Equal(1, _svc.CaptureView().WinnerAt(_dupCell));
+        var r = RecordsTools.Records(_svc, formids: new[] { Fid(_dupCell) }, project: new RecordsTools.RecordsProject { form = "tree" });
+        Assert.Contains("2. " + PartialName + "  (winner)", r);
+        Assert.DoesNotContain("3. " + PartialName + "  (winner)", r);
+    }
+
+    /// <summary>The fold walks each provider plugin once per chunk, a displaced winner's plugin included.</summary>
+    [Fact]
+    public void AChunkMixingADisplacedWinnerWithARowSharingItsPluginWalksItOnce()
+    {
+        long before = _svc.Counters.CollectPasses;
+        RecordsTools.Records(_svc, formids: new[] { Fid(_cell), Fid(_plainCell) },
+                             project: new RecordsTools.RecordsProject { form = "tree", fields = new[] { "Location" } });
+        Assert.Equal(2, _svc.Counters.CollectPasses - before);
+    }
 
     /// <summary>Pins unchanged behaviour: an override with no partial flag wins as before.</summary>
     [Fact]
