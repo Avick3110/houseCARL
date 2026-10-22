@@ -233,6 +233,16 @@ public sealed class PartialFormWinnerTests : IDisposable
         Assert.Contains("(load order; the winner is " + MasterName + ", a partial form above it does not win): " + MasterName + ", " + PartialName, refused);
     }
 
+    [Fact]
+    public void TheTreeLabelsEachPartialAboveTheWinner()
+    {
+        var r = Tree(_deepCell);
+        Assert.Contains("1. " + MasterName + "  (winner)\n", r);
+        Assert.Contains("2. " + MasterPartialName + "  (partial form, does not win)\n", r);
+        Assert.Contains("3. " + PartialName + "  (partial form, does not win)\n", r);
+        Assert.DoesNotContain("partial form, does not win", Tree(_plainCell));
+    }
+
     /// <summary>Pins unchanged behaviour: with no partial form the sentences say winner last, and the JSON row adds no winner.</summary>
     [Fact]
     public void AKeyWithNoPartialKeepsTheWinnerLastText()
