@@ -88,7 +88,7 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly IndexTypes Types;                                     // the class codes this build interned
         public readonly Dictionary<FormKey, byte[]> MixedTypes;               // MIXED keys only — each provider's own class code, aligned with Overriders
         public readonly Dictionary<FormKey, int> Displaced;                   // keys a partial form tops — the winner's position in Overriders
-        public readonly List<string> LoadFailures;                           // per-plugin index-build failures (open OR parse), always surfaced
+        public readonly List<string> LoadFailures;                            // per-plugin index-build failures (open OR parse), always surfaced
         public readonly HashSet<int> Excluded;                                // overlay indices excluded this build — never re-touched by any path
         /// <summary>The SUBSET of <see cref="Excluded"/> whose file could not be OPENED at all; its own set, not derived from the reason string — prose can be reworded, membership is a fact.</summary>
         public readonly HashSet<int> Unopenable;
