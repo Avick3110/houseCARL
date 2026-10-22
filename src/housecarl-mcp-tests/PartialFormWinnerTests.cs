@@ -3,6 +3,7 @@ using HousecarlCore;
 using HousecarlMcp;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 using Noggog;
 using Xunit;
@@ -17,6 +18,7 @@ public sealed class PartialFormWinnerTests : IDisposable
     const string MasterName = "HcPfMaster.esm";
     const string MasterPartialName = "HcPfMasterPartial.esm";
     const string PartialName = "HcPfPartial.esp";
+    const string LateName = "HcPfLate.esp";
     const int Partial = 0x4000;
 
     readonly string _root = Path.Combine(Path.GetTempPath(), "hc-partial-form-" + Guid.NewGuid().ToString("N"));
@@ -31,6 +33,12 @@ public sealed class PartialFormWinnerTests : IDisposable
     readonly FormKey _strayCell;   // a master interior cell the esp overrides as a partial form carrying a grid
     readonly FormKey _dupCell;     // a master interior cell the esp holds twice: full, then partial
     readonly FormKey _deepCell;    // a master interior cell both later plugins override as partial forms
+    readonly FormKey _persistCell; // a master exterior cell the esp overrides as a persistent partial carrying a grid
+    readonly FormKey _world;       // the master's worldspace; the esp overrides it as a partial form
+    readonly FormKey _topic;       // a master topic; the esp overrides it as a partial form
+    readonly FormKey _mixed;       // a master static the esp overrides as a partial DIAL, so the key's class is mixed
+    readonly FormKey _ghost;       // a cell whose definer is absent: partial, then full (the esp), then partial
+    readonly FormKey _ghost2;      // a cell whose definer is absent and every copy is partial
 
     public PartialFormWinnerTests()
     {
@@ -56,38 +64,59 @@ public sealed class PartialFormWinnerTests : IDisposable
         var ws = new Worldspace(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcPfWorld" };
         var grid = new Cell(master.GetNextFormKey(), SkyrimRelease.SkyrimSE)
             { EditorID = "HcPfGridCell", Flags = Cell.Flag.HasWater, Grid = new CellGrid { Point = new P2Int(0, 0) } };
-        FileExterior(ws, grid);
+        var persist = new Cell(master.GetNextFormKey(), SkyrimRelease.SkyrimSE)
+            { EditorID = "HcPfPersistCell", Flags = Cell.Flag.HasWater, Grid = new CellGrid { Point = new P2Int(1, 0) } };
+        FileExterior(ws, grid, persist);
         master.Worldspaces.Add(ws);
+        var topic = master.DialogTopics.AddNew(); topic.EditorID = "HcPfTopic";
+        var mixed = master.Statics.AddNew(); mixed.EditorID = "HcPfMixed";
         _cell = cell.FormKey; _ref = placed.FormKey; _masterCell = masterCell.FormKey;
         _gridCell = grid.FormKey; _plainCell = plainCell.FormKey; _strayCell = strayCell.FormKey; _dupCell = dupCell.FormKey; _deepCell = deepCell.FormKey;
+        _persistCell = persist.FormKey; _world = ws.FormKey; _topic = topic.FormKey; _mixed = mixed.FormKey;
+        var gone = new ModKey("HcPfGone", ModType.Master);
+        _ghost = new FormKey(gone, 0x800); _ghost2 = new FormKey(gone, 0x801);
 
         // Each override carries its EDID only, as an xEdit-made partial form does (Mutagen pads the rest).
         Cell Over(Cell of, int flags, Cell.Flag cellFlags) => new(of.FormKey, SkyrimRelease.SkyrimSE)
             { EditorID = of.EditorID, MajorRecordFlagsRaw = flags, Flags = cellFlags };
+        Cell Ghost(FormKey fk, int flags) => new(fk, SkyrimRelease.SkyrimSE)
+            { EditorID = "HcPfGhost" + fk.ID, MajorRecordFlagsRaw = flags, Flags = Cell.Flag.IsInteriorCell };
 
         var masterPartial = new SkyrimMod(new ModKey("HcPfMasterPartial", ModType.Master), SkyrimRelease.SkyrimSE);
-        FileInterior(masterPartial, Over(masterCell, Partial, 0), Over(deepCell, Partial, 0));
+        FileInterior(masterPartial, Over(masterCell, Partial, 0), Over(deepCell, Partial, 0), Ghost(_ghost, Partial));
 
         var esp = new SkyrimMod(ModKey.FromNameAndExtension(PartialName), SkyrimRelease.SkyrimSE);
         // The stray cell's partial carries a grid it should not; it is still interior, so still partial.
         var stray = Over(strayCell, Partial, 0);
         stray.Grid = new CellGrid { Point = new P2Int(3, 3) };
         FileInterior(esp, Over(cell, Partial, 0), Over(plainCell, 0, Cell.Flag.IsInteriorCell), stray,
-                     Over(dupCell, 0, Cell.Flag.IsInteriorCell), Over(dupCell, Partial, 0), Over(deepCell, Partial, 0));
-        var espWs = new Worldspace(ws.FormKey, SkyrimRelease.SkyrimSE) { EditorID = ws.EditorID };
-        FileExterior(espWs, Over(grid, Partial, 0));
+                     Over(dupCell, 0, Cell.Flag.IsInteriorCell), Over(dupCell, Partial, 0), Over(deepCell, Partial, 0),
+                     Ghost(_ghost, 0), Ghost(_ghost2, Partial));
+        var espWs = new Worldspace(ws.FormKey, SkyrimRelease.SkyrimSE) { EditorID = ws.EditorID, MajorRecordFlagsRaw = Partial };
+        // A persistent exterior partial loses though it carries a grid.
+        var persistOver = Over(persist, Partial | (int)Cell.MajorFlag.Persistent, 0);
+        persistOver.Grid = new CellGrid { Point = new P2Int(1, 0) };
+        FileExterior(espWs, Over(grid, Partial, 0), persistOver);
         esp.Worldspaces.Add(espWs);
+        esp.DialogTopics.Add(new DialogTopic(topic.FormKey, SkyrimRelease.SkyrimSE) { EditorID = topic.EditorID, MajorRecordFlagsRaw = Partial });
+        // The mixed key's partial copy is another class than the full copy below it.
+        esp.DialogTopics.Add(new DialogTopic(mixed.FormKey, SkyrimRelease.SkyrimSE) { EditorID = mixed.EditorID, MajorRecordFlagsRaw = Partial });
+
+        var late = new SkyrimMod(ModKey.FromNameAndExtension(LateName), SkyrimRelease.SkyrimSE);
+        FileInterior(late, Ghost(_ghost, Partial), Ghost(_ghost2, Partial));
 
         _mods = Path.Combine(_root, "inst", "mods");
-        void Place(string mod, SkyrimMod m, params ISkyrimModGetter[] order)
+        void Place(string mod, SkyrimMod m, params ModKey[] order)
         {
             Directory.CreateDirectory(Path.Combine(_mods, mod));
             // The esp holds one cell twice, which Mutagen refuses unless told not to check.
-            m.BeginWrite.ToPath(Path.Combine(_mods, mod, m.ModKey.FileName)).WithLoadOrder(order).NoFormIDUniquenessCheck().Write();
+            m.BeginWrite.ToPath(Path.Combine(_mods, mod, m.ModKey.FileName)).WithLoadOrder(order)
+             .WithKnownMasters(order.Select(k => new KeyedMasterStyle(k, MasterStyle.Full)).ToArray()).NoFormIDUniquenessCheck().Write();
         }
         Place("MasterMod", master);
-        Place("MasterPartialMod", masterPartial, master);
-        Place("PartialMod", esp, master);
+        Place("MasterPartialMod", masterPartial, gone, master.ModKey);
+        Place("PartialMod", esp, gone, master.ModKey);
+        Place("LateMod", late, gone);
 
         var inst = Path.Combine(_root, "inst");
         File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
@@ -95,10 +124,10 @@ public sealed class PartialFormWinnerTests : IDisposable
             + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(inst, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        var names = new[] { MasterName, MasterPartialName, PartialName };
+        var names = new[] { MasterName, MasterPartialName, PartialName, LateName };
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", names) + "\r\n");
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), string.Join("", names.Select(n => "*" + n + "\r\n")));
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+PartialMod\r\n+MasterPartialMod\r\n+MasterMod\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+LateMod\r\n+PartialMod\r\n+MasterPartialMod\r\n+MasterMod\r\n");
         _svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
     }
 
@@ -116,11 +145,12 @@ public sealed class PartialFormWinnerTests : IDisposable
         block.SubBlocks.Add(sub); m.Cells.Records.Add(block);
     }
 
-    static void FileExterior(Worldspace ws, Cell cell)
+    static void FileExterior(Worldspace ws, params Cell[] cells)
     {
         var blk = new WorldspaceBlock { BlockNumberX = 0, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellBlock };
         var sub = new WorldspaceSubBlock { BlockNumberX = 0, BlockNumberY = 0, GroupType = GroupTypeEnum.ExteriorCellSubBlock };
-        sub.Items.Add(cell); blk.Items.Add(sub); ws.SubCells.Add(blk);
+        foreach (var c in cells) sub.Items.Add(c);
+        blk.Items.Add(sub); ws.SubCells.Add(blk);
     }
 
     static string Fid(FormKey fk) => FormIdToken.Of(fk);
@@ -241,6 +271,61 @@ public sealed class PartialFormWinnerTests : IDisposable
         Assert.Contains("2. " + MasterPartialName + "  (partial form, does not win)\n", r);
         Assert.Contains("3. " + PartialName + "  (partial form, does not win)\n", r);
         Assert.DoesNotContain("partial form, does not win", Tree(_plainCell));
+    }
+
+    [Fact]
+    public void APartialWorldspaceAndAPartialTopicEachLoseToTheFullCopy()
+    {
+        var view = _svc.CaptureView();
+        Assert.Equal(MasterName, view.ResolveWinner(_world)!.Value.WinnerPlugin);
+        Assert.Equal(MasterName, view.ResolveWinner(_topic)!.Value.WinnerPlugin);
+    }
+
+    [Fact]
+    public void APersistentExteriorPartialCarryingAGridLoses() =>
+        Assert.Equal(MasterName, _svc.CaptureView().ResolveWinner(_persistCell)!.Value.WinnerPlugin);
+
+    /// <summary>With the definer absent, a partial below the full copy and one above it both lose; with every copy
+    /// partial the newest keeps the key.</summary>
+    [Fact]
+    public void AKeyWhoseDefinerIsAbsentWinsOnItsFullCopy()
+    {
+        var view = _svc.CaptureView();
+        Assert.Equal(PartialName, view.ResolveWinner(_ghost)!.Value.WinnerPlugin);
+        Assert.Equal(LateName, view.ResolveWinner(_ghost2)!.Value.WinnerPlugin);
+    }
+
+    [Fact]
+    public void APartialAboveAFullWinnerLeavesItHoldingTheKeyOnce() => Assert.True(_svc.CaptureView().WinnerHoldsOnce(_cell));
+
+    [Fact]
+    public void AMixedClassKeyReportsTheFullCopysClass() =>
+        Assert.Contains("Static", _svc.CaptureView().WinnerClassOf(_mixed)!.Name);
+
+    [Fact]
+    public void BothMaterialisedTreesNameTheFullCopyTheirWinner()
+    {
+        var pin = _svc.CapturePin();
+        Assert.Equal(MasterName, _svc.ReadArea.ResolveTreePinned(pin, _cell, null)!.Winner.Plugin);
+        using var session = pin.Resolver.OpenSession();
+        Assert.Equal(MasterName, pin.Resolver.ResolveTree(session, _cell)!.Winner.Plugin);
+    }
+
+    /// <summary>One chunk: a displaced-winner row beside a normal row of the same two plugins, and a three-deep stack;
+    /// each row labels and diffs against its own winner.</summary>
+    [Fact]
+    public void AChunkOfMixedRowsLabelsAndDiffsEachAgainstItsWinner()
+    {
+        var r = RecordsTools.Records(_svc, formids: new[] { Fid(_cell), Fid(_plainCell), Fid(_deepCell) },
+                                     project: new RecordsTools.RecordsProject { form = "tree", fields = new[] { "Location" } });
+        var rows = r.Split("\n" + Fid(_plainCell));
+        var plainAndDeep = rows[1].Split("\n" + Fid(_deepCell));
+        Assert.Contains("1. " + MasterName + "  (winner)", rows[0]);
+        Assert.Contains("Location", rows[0]);
+        Assert.Contains("2. " + PartialName + "  (winner)", plainAndDeep[0]);
+        Assert.DoesNotContain("Location", plainAndDeep[0]);
+        Assert.Contains("1. " + MasterName + "  (winner)", plainAndDeep[1]);
+        Assert.Contains("Location", plainAndDeep[1]);
     }
 
     /// <summary>A read answered from the full copy under a partial relied on the partial's plugin too: its flag decided the winner.</summary>
