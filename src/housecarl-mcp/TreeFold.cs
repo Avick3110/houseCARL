@@ -36,8 +36,10 @@ internal sealed partial class RecordReads
         var view = p.View;
         var hop = ContainmentIndex.ReadHop(view, session);   // '*parent' on fields= — this lane holds the index, so it answers
 
-        // Who provides each row, winner first. Index only: no body is read to learn this.
+        // Who provides each row, top first, and which node is the index's winner (a partial form above it loses).
+        // Index only: no body is read to learn this.
         var providers = new string[n][];
+        var winnerNode = new int[n];
         for (int r = 0; r < n; r++)
         {
             var t = view.TouchingPlugins(keys[r]);
@@ -45,6 +47,8 @@ internal sealed partial class RecordReads
             var a = new string[t.Count];
             for (int i = 0; i < t.Count; i++) a[i] = t[t.Count - 1 - i];
             providers[r] = a;
+            var w = view.ResolveWinner(keys[r])?.WinnerPlugin;
+            winnerNode[r] = Math.Max(0, Array.FindIndex(a, x => string.Equals(x, w, StringComparison.OrdinalIgnoreCase)));
         }
 
         // Per-row state. `declares` is one answer per wanted field per provider, placed BY NODE because the
@@ -56,7 +60,8 @@ internal sealed partial class RecordReads
         var editorIds = new string?[n];
         var stopped = new bool[n];
 
-        RunPass(Groups());
+        RunPass(Groups(displacedWinners: true));
+        RunPass(Groups(displacedWinners: false));
 
         for (int r = 0; r < n; r++)
         {
@@ -68,7 +73,7 @@ internal sealed partial class RecordReads
             {
                 var declaring = new List<string>();
                 var unreadable = new List<string>();
-                for (int node = providers[r].Length - 1; node >= 0; node--)   // node 0 is the winner, so this is priority order, winner last
+                for (int node = providers[r].Length - 1; node >= 0; node--)   // node 0 is the top provider, so this is priority order
                 {
                     var d = declares[r][f][node];
                     if (d == true) declaring.Add(providers[r][node]);
@@ -81,8 +86,9 @@ internal sealed partial class RecordReads
         return fills;
 
         // Every provider plugin of the chunk ONCE, with its whole share, in DESCENDING load order — so every
-        // row's winner arrives before any other provider of that row and the rest arrive in node order.
-        List<(string Plugin, List<(int Row, int Node)> Hits)> Groups()
+        // row's winner arrives before any other provider of that row and the rest arrive in node order. A winner
+        // below the top provider is read in a pass of its own first; with no partial form that pass is empty.
+        List<(string Plugin, List<(int Row, int Node)> Hits)> Groups(bool displacedWinners)
         {
             var at = new Dictionary<string, List<(int, int)>>(StringComparer.OrdinalIgnoreCase);
             for (int r = 0; r < n; r++)
@@ -90,6 +96,7 @@ internal sealed partial class RecordReads
                 if (providers[r] is not { } ps) continue;
                 for (int node = 0; node < ps.Length; node++)
                 {
+                    if ((node == winnerNode[r] && node > 0) != displacedWinners) continue;
                     if (!at.TryGetValue(ps[node], out var hits)) at[ps[node]] = hits = new List<(int, int)>();
                     hits.Add((r, node));
                 }
@@ -115,7 +122,7 @@ internal sealed partial class RecordReads
                 foreach (var (r, node) in hits)
                 {
                     if (stopped[r]) continue;
-                    bool isWinner = node == 0;
+                    bool isWinner = node == winnerNode[r];
                     var fk = keys[r];
                     var body = sink.TryGetValue(fk, out var got)
                              ? got
