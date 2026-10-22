@@ -202,7 +202,7 @@ static partial class RecordsTools
                 : " plugin(s) touch this record (load order; a partial form above the winner does not win):\n");
             for (int i = 0; i < row.Touchers.Count; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
-                  .Append(i == row.WinnerAt ? "  (winner)" : "").Append('\n');
+                  .Append(i == row.WinnerAt ? "  (winner)" : i > row.WinnerAt ? "  (partial form, does not win)" : "").Append('\n');
             // The row ends at the block when the block was cut or ran the budget out, and a sole provider ends
             // there too, having nothing to diff against.
             bool ended = AppendChildDeclarers(sb, row, room, row.Nodes.Count > 1 ? nodesCut.Length : 0,
