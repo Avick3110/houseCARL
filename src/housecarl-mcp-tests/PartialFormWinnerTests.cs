@@ -39,6 +39,7 @@ public sealed class PartialFormWinnerTests : IDisposable
     readonly FormKey _mixed;       // a master static the esp overrides as a partial DIAL, so the key's class is mixed
     readonly FormKey _ghost;       // a cell whose definer is absent: partial, then full (the esp), then partial
     readonly FormKey _ghost2;      // a cell whose definer is absent and every copy is partial
+    readonly FormKey _winBack;     // a master static: a partial DIAL, then a full DIAL (the esp), then a partial DIAL
 
     public PartialFormWinnerTests()
     {
@@ -70,6 +71,9 @@ public sealed class PartialFormWinnerTests : IDisposable
         master.Worldspaces.Add(ws);
         var topic = master.DialogTopics.AddNew(); topic.EditorID = "HcPfTopic";
         var mixed = master.Statics.AddNew(); mixed.EditorID = "HcPfMixed";
+        var winBack = master.Statics.AddNew(); winBack.EditorID = "HcPfWinBack";
+        _winBack = winBack.FormKey;
+        DialogTopic Topic(int flags) => new(_winBack, SkyrimRelease.SkyrimSE) { EditorID = "HcPfWinBack", MajorRecordFlagsRaw = flags };
         _cell = cell.FormKey; _ref = placed.FormKey; _masterCell = masterCell.FormKey;
         _gridCell = grid.FormKey; _plainCell = plainCell.FormKey; _strayCell = strayCell.FormKey; _dupCell = dupCell.FormKey; _deepCell = deepCell.FormKey;
         _persistCell = persist.FormKey; _world = ws.FormKey; _topic = topic.FormKey; _mixed = mixed.FormKey;
@@ -84,6 +88,7 @@ public sealed class PartialFormWinnerTests : IDisposable
 
         var masterPartial = new SkyrimMod(new ModKey("HcPfMasterPartial", ModType.Master), SkyrimRelease.SkyrimSE);
         FileInterior(masterPartial, Over(masterCell, Partial, 0), Over(deepCell, Partial, 0), Ghost(_ghost, Partial));
+        masterPartial.DialogTopics.Add(Topic(Partial));
 
         var esp = new SkyrimMod(ModKey.FromNameAndExtension(PartialName), SkyrimRelease.SkyrimSE);
         // The stray cell's partial carries a grid it should not; it is still interior, so still partial.
@@ -101,9 +106,11 @@ public sealed class PartialFormWinnerTests : IDisposable
         esp.DialogTopics.Add(new DialogTopic(topic.FormKey, SkyrimRelease.SkyrimSE) { EditorID = topic.EditorID, MajorRecordFlagsRaw = Partial });
         // The mixed key's partial copy is another class than the full copy below it.
         esp.DialogTopics.Add(new DialogTopic(mixed.FormKey, SkyrimRelease.SkyrimSE) { EditorID = mixed.EditorID, MajorRecordFlagsRaw = Partial });
+        esp.DialogTopics.Add(Topic(0));
 
         var late = new SkyrimMod(ModKey.FromNameAndExtension(LateName), SkyrimRelease.SkyrimSE);
         FileInterior(late, Ghost(_ghost, Partial), Ghost(_ghost2, Partial));
+        late.DialogTopics.Add(Topic(Partial));
 
         _mods = Path.Combine(_root, "inst", "mods");
         void Place(string mod, SkyrimMod m, params ModKey[] order)
@@ -116,7 +123,7 @@ public sealed class PartialFormWinnerTests : IDisposable
         Place("MasterMod", master);
         Place("MasterPartialMod", masterPartial, gone, master.ModKey);
         Place("PartialMod", esp, gone, master.ModKey);
-        Place("LateMod", late, gone);
+        Place("LateMod", late, gone, master.ModKey);
 
         var inst = Path.Combine(_root, "inst");
         File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
@@ -423,6 +430,52 @@ public sealed class PartialFormWinnerTests : IDisposable
         var r = RecordsTools.Records(_svc, formids: new[] { Fid(_dupCell) }, project: new RecordsTools.RecordsProject { form = "tree" });
         Assert.Contains("2. " + PartialName + "  (winner)", r);
         Assert.DoesNotContain("3. " + PartialName + "  (winner)", r);
+    }
+
+    /// <summary>In one chunk, each row's reference node is its own winner's copy, not its top provider, and every
+    /// other node is diffed against it.</summary>
+    [Fact]
+    public void EachRowOfAChunkDiffsAgainstItsOwnWinnersCopy()
+    {
+        var json = RecordsTools.Records(_svc, formids: new[] { Fid(_cell), Fid(_plainCell), Fid(_deepCell) }, format: "json",
+                                        project: new RecordsTools.RecordsProject { form = "tree", fields = new[] { "Location" } });
+        using var doc = JsonDocument.Parse(json);
+        var rows = doc.RootElement.GetProperty("rows").EnumerateArray().ToDictionary(r => r.GetProperty("formid").GetString()!);
+        void Baseline(FormKey fk, string winner, int differing)
+        {
+            var nodes = rows[Fid(fk)].GetProperty("nodes").EnumerateArray().ToList();
+            Assert.Equal(winner, nodes.Single(n => n.GetProperty("is_reference").GetBoolean()).GetProperty("plugin").GetString());
+            Assert.Equal(differing, nodes.Count(n => n.TryGetProperty("delta_count", out var c) && c.GetInt32() > 0));
+        }
+        Baseline(_cell, MasterName, 1);
+        Baseline(_plainCell, PartialName, 0);
+        Baseline(_deepCell, MasterName, 2);
+    }
+
+    /// <summary>A key going full, partial, full, partial wins on its second full copy, its class included.</summary>
+    [Fact]
+    public void AFullCopyOverAPartialFormWinsTheKeyBack()
+    {
+        var view = _svc.CaptureView();
+        Assert.Equal(PartialName, view.ResolveWinner(_winBack)!.Value.WinnerPlugin);
+        Assert.Equal(2, view.WinnerAt(_winBack));
+        Assert.Contains("DialogTopic", view.WinnerClassOf(_winBack)!.Name);
+        var r = RecordsTools.Records(_svc, formids: new[] { Fid(_winBack) }, project: new RecordsTools.RecordsProject { form = "tree" });
+        Assert.Contains("3. " + PartialName + "  (winner)", r);
+        Assert.Contains("4. " + LateName + "  (partial form, does not win)", r);
+    }
+
+    [Fact]
+    public void APluginHoldingTheWinningKeyTwiceDoesNotHoldItOnce() => Assert.False(_svc.CaptureView().WinnerHoldsOnce(_dupCell));
+
+    /// <summary>A lane that asks only the winner's class relied on the partial above it, whose flag decided it.</summary>
+    [Fact]
+    public void AWinnerClassAnswerReliesOnThePartialAboveTheWinner()
+    {
+        using var scope = MidCallChange.Begin();
+        Assert.NotNull(_svc.CaptureView().WinnerClassOf(_cell));
+        File.SetLastWriteTimeUtc(Path.Combine(_mods, "PartialMod", PartialName), DateTime.UtcNow.AddSeconds(5));
+        Assert.Contains($"'{PartialName}' changed on disk during this call", scope.Settle());
     }
 
     /// <summary>The fold walks each provider plugin once per chunk, a displaced winner's plugin included.</summary>
