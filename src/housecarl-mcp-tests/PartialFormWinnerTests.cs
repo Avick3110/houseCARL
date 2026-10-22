@@ -263,6 +263,51 @@ public sealed class PartialFormWinnerTests : IDisposable
         Assert.Contains("(load order; the winner is " + MasterName + ", a partial form above it does not win): " + MasterName + ", " + PartialName, refused);
     }
 
+    /// <summary>A refused tree row and a JSON delta row each name the winner their stacks do not end on.</summary>
+    [Fact]
+    public void EveryJsonRowNamesTheWinnerAPartialFormTops()
+    {
+        var refused = RecordsTools.Records(_svc, formids: new[] { Fid(_cell) }, versus: Pole(LateName), format: "json",
+                                           project: new RecordsTools.RecordsProject { form = "tree" });
+        Assert.Contains("\"error\": \"versus:", refused);
+        Assert.Contains("\"winner\": \"" + MasterName + "\"", refused);
+
+        var delta = RecordsTools.Records(_svc, formids: new[] { Fid(_deepCell) }, source: Pole(MasterPartialName), format: "json",
+                                         versus: Pole("previous_provider"), project: new RecordsTools.RecordsProject { form = "delta" });
+        Assert.Contains("\"winner\": \"" + MasterName + "\"", delta);
+        // Pins unchanged behaviour: with no partial form the delta row adds no winner.
+        Assert.DoesNotContain("\"winner\"", RecordsTools.Records(_svc, formids: new[] { Fid(_plainCell) }, source: Pole(PartialName), format: "json",
+                                                              versus: Pole("previous_provider"), project: new RecordsTools.RecordsProject { form = "delta" }));
+    }
+
+    [Fact]
+    public void TheTreeArtifactsManifestDeclaresTheWinnerItWrites()
+    {
+        string Schema(FormKey fk, string name)
+        {
+            var art = Path.Combine(_root, name + ".jsonl");
+            RecordsTools.Records(_svc, formids: new[] { Fid(fk) }, to_file: art, project: new RecordsTools.RecordsProject { form = "tree" });
+            using var doc = JsonDocument.Parse(File.ReadLines(art).First());
+            return string.Join(",", doc.RootElement.GetProperty("row_schema").EnumerateArray().Select(e => e.GetString()));
+        }
+        Assert.Contains("touchers,winner?,", Schema(_cell, "partial"));
+        // Pins unchanged behaviour: with no partial form the schema is as before.
+        Assert.DoesNotContain("winner", Schema(_plainCell, "plain"));
+    }
+
+    /// <summary>A hand-built row carries no winner position; it reads winner last and calls no toucher a partial form.</summary>
+    [Fact]
+    public void ARowWithNoWinnerPositionLabelsNoPartialForm()
+    {
+        var row = new RecordReads.TreeRow(Fid(_cell), "Cell", "HcPfCell", new[] { MasterName, PartialName }, MasterName,
+            new[] { new RecordReads.TreeNodeDelta(MasterName, false, true, Array.Empty<string>(), 0, true, null),
+                    new RecordReads.TreeNodeDelta(PartialName, true, false, Array.Empty<string>(), 0, true, null) },
+            null, Array.Empty<ChildDeclarers>());
+        var r = RecordsTools.RenderRecordsTree(new[] { row }, 1, 1, 0, false, "records  form=tree", null, 100_000, null, out _);
+        Assert.DoesNotContain("partial form", r);
+        Assert.Contains("2. " + PartialName + "  (winner)", r);
+    }
+
     [Fact]
     public void TheTreeLabelsEachPartialAboveTheWinner()
     {

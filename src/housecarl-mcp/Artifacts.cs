@@ -301,7 +301,8 @@ internal static class Artifacts
             writer.WriteRow((w, ms) => JsonWire.WriteDeltaRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Subject?.RecordType : null);
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "type", "editorid", "editorid_note?", "subject", "reference", "stack_above?", "note?", "complete", "deltas", "delta_count", "no_verdict_count", "agreed_count" },
+                                          WithWinner(new[] { "formid", "type", "editorid", "editorid_note?", "subject", "reference", "stack_above?", "note?", "complete", "deltas", "delta_count", "no_verdict_count", "agreed_count" },
+                                                     "stack_above?", rows.Any(r => r.StackWinner is not null)),
                                           "input order", rows.Count, epoch ?? "", ManifestNotes(scan));
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
@@ -316,9 +317,19 @@ internal static class Artifacts
             writer.WriteRow((w, ms) => JsonWire.WriteTreeRow(w, row, ms, int.MaxValue, LeverNames.Records),
                             row.Error is null ? row.Type : null);   // a records-only artifact: the rows speak the records vocabulary
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "type", "editorid", "editorid_note?", "reference", "touchers", "child_declarers?", "nodes" },
+                                          WithWinner(new[] { "formid", "type", "editorid", "editorid_note?", "reference", "touchers", "child_declarers?", "nodes" },
+                                                     "touchers", rows.Any(r => r.WinnerAt >= 0 && r.WinnerAt != r.Touchers.Count - 1)),
                                           "input order", rows.Count, epoch ?? "", ManifestNotes(scan, PreciseChildNotes(rows)));
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
+    }
+
+    /// <summary>The row schema with <c>winner?</c> after <paramref name="after"/> when a row writes it (a partial form tops its stack); else unchanged.</summary>
+    static string[] WithWinner(string[] schema, string after, bool written)
+    {
+        if (!written) return schema;
+        var keys = schema.ToList();
+        keys.Insert(keys.IndexOf(after) + 1, "winner?");
+        return keys.ToArray();
     }
 
     /// <summary>Build and save the artifact for a chain result — one row per seed, in input order: nodes with provenance, cycles, truncation notes, the template report.</summary>
