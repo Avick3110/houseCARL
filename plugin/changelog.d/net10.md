@@ -1,1 +1,0 @@
-- **houseCARL now runs on the .NET 10 runtime, and the ASP.NET Core runtime is no longer needed.** Install the .NET Runtime 10.0 (x64) before updating: setup will not start without it, and its window opens and closes with nothing in it.

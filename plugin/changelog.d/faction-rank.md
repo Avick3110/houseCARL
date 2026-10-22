@@ -1,1 +1,0 @@
-- **"Any rank" faction ownership on container, NPC inventory and leveled-list items keeps its rank and adds no master, in patches and in plugins edited in place, and an in-place write repairs ranks an earlier version damaged.** A patch no longer gains, as a master, the plugin the rank word seemed to point into.

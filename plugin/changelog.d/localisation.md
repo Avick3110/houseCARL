@@ -1,1 +1,0 @@
-- **Names read and write in your game's language from MO2's winning string tables (loose, or an INI-listed or plugin-named archive); a language Skyrim.esm has no tables in is refused.** Re-check non-English patches made with an earlier release.

@@ -149,6 +149,7 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping, and the 
 
 - Windows, x64.
 - .NET Runtime 10.0, x64, from the [.NET 10 download page](https://dotnet.microsoft.com/download/dotnet/10.0). Take the x64 build: the download page offers arm64 by default on an ARM machine, and an arm64 runtime does not run the x64 server or the x64 setup utility. Setup is framework-dependent like the server, so it needs the base runtime to start at all — if its window opens and closes with nothing in it, that is the missing runtime, so install it and run setup again. Running it from an open terminal instead shows the message, which the double-clicked window closes over.
+- Updating from 2.1.0 or earlier: install the .NET Runtime 10.0 (x64) first. Those releases ran on .NET 9, and the ASP.NET Core runtime they asked for is no longer needed.
 - [Mod Organizer 2](https://www.modorganizer.org/) with a profile. MO2 does not need to be running.
 - Claude Code v2.1.143 or newer (the terminal CLI, or the Claude desktop app's Code tab), or OpenAI Codex. houseCARL runs inside the host.
 
