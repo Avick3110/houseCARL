@@ -123,38 +123,38 @@ MIT License
   K4os.Hash.xxHash                                          1.0.8
   Microsoft.Extensions.AI.Abstractions                      10.8.3
   Microsoft.Extensions.Caching.Abstractions                 10.0.10
-  Microsoft.Extensions.Configuration                        10.0.10
-  Microsoft.Extensions.Configuration.Abstractions           10.0.10
-  Microsoft.Extensions.Configuration.Binder                 10.0.10
-  Microsoft.Extensions.Configuration.CommandLine            10.0.10
-  Microsoft.Extensions.Configuration.EnvironmentVariables   10.0.10
-  Microsoft.Extensions.Configuration.FileExtensions         10.0.10
-  Microsoft.Extensions.Configuration.Json                   10.0.10
-  Microsoft.Extensions.Configuration.UserSecrets            10.0.10
-  Microsoft.Extensions.DependencyInjection                  10.0.10
-  Microsoft.Extensions.DependencyInjection.Abstractions     10.0.10
-  Microsoft.Extensions.Diagnostics                          10.0.10
-  Microsoft.Extensions.Diagnostics.Abstractions             10.0.10
-  Microsoft.Extensions.FileProviders.Abstractions           10.0.10
-  Microsoft.Extensions.FileProviders.Physical               10.0.10
-  Microsoft.Extensions.FileSystemGlobbing                   10.0.10
-  Microsoft.Extensions.Hosting                              10.0.10
-  Microsoft.Extensions.Hosting.Abstractions                 10.0.10
+  Microsoft.Extensions.Configuration                        10.0.13
+  Microsoft.Extensions.Configuration.Abstractions           10.0.13
+  Microsoft.Extensions.Configuration.Binder                 10.0.13
+  Microsoft.Extensions.Configuration.CommandLine            10.0.13
+  Microsoft.Extensions.Configuration.EnvironmentVariables   10.0.13
+  Microsoft.Extensions.Configuration.FileExtensions         10.0.13
+  Microsoft.Extensions.Configuration.Json                   10.0.13
+  Microsoft.Extensions.Configuration.UserSecrets            10.0.13
+  Microsoft.Extensions.DependencyInjection                  10.0.13
+  Microsoft.Extensions.DependencyInjection.Abstractions     10.0.13
+  Microsoft.Extensions.Diagnostics                          10.0.13
+  Microsoft.Extensions.Diagnostics.Abstractions             10.0.13
+  Microsoft.Extensions.FileProviders.Abstractions           10.0.13
+  Microsoft.Extensions.FileProviders.Physical               10.0.13
+  Microsoft.Extensions.FileSystemGlobbing                   10.0.13
+  Microsoft.Extensions.Hosting                              10.0.13
+  Microsoft.Extensions.Hosting.Abstractions                 10.0.13
   Microsoft.Extensions.Http                                 10.0.10
-  Microsoft.Extensions.Logging                              10.0.10
-  Microsoft.Extensions.Logging.Abstractions                 10.0.10
-  Microsoft.Extensions.Logging.Configuration                10.0.10
-  Microsoft.Extensions.Logging.Console                      10.0.10
-  Microsoft.Extensions.Logging.Debug                        10.0.10
-  Microsoft.Extensions.Logging.EventLog                     10.0.10
-  Microsoft.Extensions.Logging.EventSource                  10.0.10
-  Microsoft.Extensions.Options                              10.0.10
-  Microsoft.Extensions.Options.ConfigurationExtensions      10.0.10
-  Microsoft.Extensions.Primitives                           10.0.10
+  Microsoft.Extensions.Logging                              10.0.13
+  Microsoft.Extensions.Logging.Abstractions                 10.0.13
+  Microsoft.Extensions.Logging.Configuration                10.0.13
+  Microsoft.Extensions.Logging.Console                      10.0.13
+  Microsoft.Extensions.Logging.Debug                        10.0.13
+  Microsoft.Extensions.Logging.EventLog                     10.0.13
+  Microsoft.Extensions.Logging.EventSource                  10.0.13
+  Microsoft.Extensions.Options                              10.0.13
+  Microsoft.Extensions.Options.ConfigurationExtensions      10.0.13
+  Microsoft.Extensions.Primitives                           10.0.13
   OneOf                                                     3.0.271
   SharpZipLib                                               1.4.2
   StrongInject                                              1.4.4
-  System.Diagnostics.EventLog                               10.0.10
+  System.Diagnostics.EventLog                               10.0.13
   System.IO.Abstractions                                    22.1.1
   System.Reactive                                           6.1.0
   TestableIO.System.IO.Abstractions                         22.1.1
