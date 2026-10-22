@@ -76,6 +76,11 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         var lw = late.Weapons.AddNew(); lw.EditorID = "HcExLateWeapon";
         _lateWeapon = lw.FormKey;
         lw.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { _injected.ToLink<IKeywordGetter>(), _missing.ToLink<IKeywordGetter>() };
+        // A partial form of the cell above the excluded plugin, so the cell's winner stays the master's copy below both.
+        var lateBlock = new CellBlock { BlockNumber = 1, GroupType = GroupTypeEnum.InteriorCellBlock };
+        var lateSub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+        lateSub.Cells.Add(new Cell(cell.FormKey, SkyrimRelease.SkyrimSE) { EditorID = cell.EditorID, MajorRecordFlagsRaw = 0x4000 });
+        lateBlock.SubBlocks.Add(lateSub); late.Cells.Records.Add(lateBlock);
 
         var mods = Path.Combine(_root, "inst", "mods");
         string Place(string mod, SkyrimMod m, params ISkyrimModGetter[] order)
@@ -208,6 +213,17 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         var control = RecordsTools.Records(_svc, formids: new[] { Fid(_untouched) }, project: new() { form = "tree" });
         Assert.Contains("HcExKeyword", control);
         Assert.DoesNotContain("also touched by", control);
+    }
+
+    /// <summary>The partial form above the cell's winner decided which excluded plugins load after it, so a refusal
+    /// built on them relied on its plugin too.</summary>
+    [Fact]
+    public void AnExcludedTouchUnderAPartialFormReliesOnThePartialsPlugin()
+    {
+        using var scope = MidCallChange.Begin();
+        Assert.Contains(BadName, _svc.CaptureView().ExcludedTouchers(_cell));
+        File.SetLastWriteTimeUtc(Path.Combine(_root, "inst", "mods", "LateMod", LateName), DateTime.UtcNow.AddSeconds(5));
+        Assert.Contains($"'{LateName}' changed on disk during this call", scope.Settle());
     }
 
     [Fact]

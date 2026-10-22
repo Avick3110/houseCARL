@@ -337,13 +337,24 @@ public sealed class PartialFormWinnerTests : IDisposable
         Assert.DoesNotContain("changed on disk", ReadWhilePartialChanges(_location));
     }
 
-    string ReadWhilePartialChanges(FormKey fk)
+    /// <summary>Every copy of an all-partial key decided its winner, so a read of it relied on each copy's plugin.</summary>
+    [Fact]
+    public void AMarkedReadOfAnAllPartialKeyRefusesWhenItsLowerPartialChanges()
     {
-        var path = Path.Combine(_mods, "PartialMod", PartialName);
+        Assert.Contains("changed on disk during this call", ReadWhileChanges(_ghost2, LateName, "PartialMod", PartialName));
+        // Pins unchanged behaviour: a key with no partial copy does not refuse for a plugin it does not answer from.
+        Assert.DoesNotContain("changed on disk", ReadWhileChanges(_plainCell, PartialName, "MasterPartialMod", MasterPartialName));
+    }
+
+    string ReadWhilePartialChanges(FormKey fk) => ReadWhileChanges(fk, MasterName, "PartialMod", PartialName);
+
+    string ReadWhileChanges(FormKey fk, string trigger, string mod, string changed)
+    {
+        var path = Path.Combine(_mods, mod, changed);
         bool saved = false;
         MidCallChange.BeforeCheck.Value = name =>
         {
-            if (!saved && name == MasterName) { File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(5 + _bumps++)); saved = true; }
+            if (!saved && name == trigger) { File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(5 + _bumps++)); saved = true; }
         };
         try { return Fields(fk, null, "EditorID"); }
         finally { MidCallChange.BeforeCheck.Value = null; }
