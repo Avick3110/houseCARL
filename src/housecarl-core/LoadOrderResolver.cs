@@ -536,7 +536,7 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>The record header's Partial Form flag (bit 14).</summary>
     internal const int PartialFormFlag = 0x4000;
 
-    /// <summary>Is this copy a partial form the engine loads none of the data from: a flagged CELL, WRLD or DIAL override, as xEdit reads it (a temporary exterior cell, one a worldspace holds without the Persistent flag, is never partial). Reads the header and the containing record, no subrecord.</summary>
+    /// <summary>Is this copy a partial form the engine loads none of the data from: a flagged CELL, WRLD or DIAL override, as xEdit reads it (a temporary exterior cell, one a worldspace holds without the Persistent flag, is never partial), except that the Persistent flag read is this copy's own, where xEdit reads the master's. Reads the header and the containing record, no subrecord.</summary>
     internal static bool PartialInEffect(IModContext ctx, ModKey plugin)
     {
         if (ctx.Record is not IMajorRecordGetter rec || (rec.MajorRecordFlagsRaw & PartialFormFlag) == 0 || rec.FormKey.ModKey == plugin) return false;
