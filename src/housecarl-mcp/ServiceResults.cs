@@ -145,7 +145,7 @@ public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorI
     public RecordSummary WithRuntime(RuntimeAddress a) => this with { RuntimeFormId = a.FormId, RuntimeFormIdNote = a.Note };
 }
 
-/// <summary>The MATERIALISED conflict tree the render layer consumes — each touching plugin's name and the fields read off its own body, winner last; it carries no live overlay, so the renderer never holds a handle.</summary>
+/// <summary>The MATERIALISED conflict tree the render layer consumes — each touching plugin's name and the fields read off its own body, in priority order with the winner at <c>WinnerAt</c>; it carries no live overlay, so the renderer never holds a handle.</summary>
 public sealed record ConflictTreeView(IReadOnlyList<ConflictNodeView> Nodes,
                                       IReadOnlyList<ChildDeclarers> ChildDeclarers, int WinnerAt)
 {

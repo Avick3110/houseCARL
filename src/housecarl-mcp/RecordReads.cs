@@ -114,7 +114,7 @@ internal sealed partial class RecordReads
             var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
             return ReadOutcome.Fail(fk,
                 $"Plugin '{plugin}' does not touch {FormIdToken.Of(fk)} — it has no version of this record. " +
-                $"Touched by (load order, winner last): {string.Join(", ", touchers)}.");
+                TouchedBy(view, fk, touchers, "load order"));
         }
 
         // materialise while the session (overlay) is open; the *parent hop climbs the index's containment map and
@@ -387,6 +387,15 @@ internal sealed partial class RecordReads
         var fill = FoldTreePinned(p, fk, fields, (node, plugin, read) => { nodes[nodes.Length - 1 - node] = new ConflictNodeView(plugin, read); return true; });
         if (fill is null) return null;
         return new ConflictTreeView(nodes, fill.ChildDeclarers, p.View.WinnerAt(fk));
+    }
+
+    /// <summary>The touchers a refusal names, in load order; when a partial form tops them it names the winner.</summary>
+    internal static string TouchedBy(LoadOrderResolver.IndexView view, FormKey fk, IReadOnlyList<string> touchers, string order = "active order")
+    {
+        int at = view.WinnerAt(fk);
+        return at < 0 || at == touchers.Count - 1
+            ? $"Touched by ({order}, winner last): {string.Join(", ", touchers)}."
+            : $"Touched by ({order}; the winner is {touchers[at]}, a partial form above it does not win): {string.Join(", ", touchers)}.";
     }
 
     /// <summary>The name-resolution caches one lane carries: a target's identity per FormKey, and the absence clauses its rows share.</summary>
@@ -776,7 +785,7 @@ internal sealed partial class RecordReads
                     results[index] = ReadOutcome.Fail(fk,
                         $"file '{plugin}' ({poleWhere}) does not define or override {FormIdToken.Of(fk)} — it has no version of this record. " +
                         (touchers.Count > 0
-                            ? $"Touched by (active order, winner last): {string.Join(", ", touchers)}."
+                            ? TouchedBy(view, fk, touchers)
                             : "No active plugin touches it either."))
                         with { Stamp = view.Stamp, Pin = pin };
                     continue;

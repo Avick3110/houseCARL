@@ -867,9 +867,6 @@ public sealed class LoadOrderResolver : IDisposable
         public IReadOnlyList<string> DeclaredMasters(string pluginName, bool parseExcluded = false) => _r.DeclaredMasters(pluginName, _s, _absences, parseExcluded);
 
         public ConflictTree? ResolveTree(OverlaySession session, FormKey fk) => _r.ResolveTree(session, fk, _s);
-
-        public IEnumerable<ConflictNode>? StreamTree(OverlaySession session, FormKey fk, bool winnerFirst = false)
-            => _r.StreamTree(session, fk, _s, winnerFirst);
     }
 
     // ---- Queries: single-shot conveniences, each delegating to a fresh Capture() — one call, one build ----
@@ -880,7 +877,7 @@ public sealed class LoadOrderResolver : IDisposable
 
     public IReadOnlyList<string>? TouchingPlugins(FormKey fk) => Capture(null).TouchingPlugins(fk);
 
-    /// <summary>The full conflict tree: every touching plugin's body, in priority order (winner last), fetched on demand into <paramref name="session"/>. null if the FormKey isn't in the order.</summary>
+    /// <summary>The full conflict tree: every touching plugin's body, in priority order with the winner at <see cref="ConflictTree.WinnerAt"/> (a partial form above it does not win), fetched on demand into <paramref name="session"/>. null if the FormKey isn't in the order.</summary>
     public ConflictTree? ResolveTree(OverlaySession session, FormKey fk) => ResolveTree(session, fk, _snap);
 
     /// <summary>The snapshot-pinned body of <see cref="ResolveTree(OverlaySession, FormKey)"/>, so a caller that already pinned a build reads the tree off the build its epoch stamp names.</summary>
@@ -898,24 +895,6 @@ public sealed class LoadOrderResolver : IDisposable
             nodes[n] = new ConflictNode(_names[oi], rec);
         }
         return new ConflictTree(fk, recType ?? "?", nodes, s.WinnerAt(fk, e));
-    }
-
-    /// <summary>The same walk as <see cref="ResolveTree(OverlaySession, FormKey, IndexSnapshot)"/>, yielding one provider's body at a time and holding none, so a tree over a much-touched
-    /// record pins one body rather than hundreds of GRUP byte arrays. <paramref name="winnerFirst"/> walks the same providers in reverse.</summary>
-    internal IEnumerable<ConflictNode>? StreamTree(OverlaySession session, FormKey fk, IndexSnapshot s, bool winnerFirst = false)
-    {
-        if (!s.Index.TryGetValue(fk, out var e)) return null;
-        return Walk(e.count == 1 ? new int[] { e.winner } : s.Overriders[fk]);
-
-        IEnumerable<ConflictNode> Walk(int[] overlayIdxs)
-        {
-            for (int n = 0; n < overlayIdxs.Length; n++)
-            {
-                int oi = overlayIdxs[winnerFirst ? overlayIdxs.Length - 1 - n : n];
-                var rec = FetchBody(session, oi, fk, s);
-                yield return new ConflictNode(_names[oi], rec);
-            }
-        }
     }
 
     /// <summary>Every record in one plugin with its whole-order conflict status (no bodies fetched); opens the plugin for the enumeration and disposes it when the enumeration ends.</summary>

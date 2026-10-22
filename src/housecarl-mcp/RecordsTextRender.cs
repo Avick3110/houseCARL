@@ -50,7 +50,7 @@ static partial class RecordsTools
             {
                 sb.Append("  error=").Append(row.Error).Append('\n');
                 if (row.StackAbove is { Count: > 0 })
-                    sb.Append("  stack above the subject (closer to winning, winner last): ").Append(string.Join(", ", row.StackAbove)).Append('\n');
+                    AppendStackAbove(sb, row);
                 if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
                 rendered++;
                 continue;
@@ -62,7 +62,7 @@ static partial class RecordsTools
             sb.Append("  subject:   ").Append(s.Plugin).Append(" [").Append(s.Where).Append("]\n");
             sb.Append("  reference: ").Append(r.Plugin).Append(" [").Append(r.Where).Append("]\n");
             if (row.StackAbove is { Count: > 0 })
-                sb.Append("  stack above the subject (closer to winning, winner last): ").Append(string.Join(", ", row.StackAbove)).Append('\n');
+                AppendStackAbove(sb, row);
             if (row.Note is not null) sb.Append("  note: ").Append(row.Note).Append('\n');
             if (d.Deltas.Count == 0)
             {
@@ -150,7 +150,7 @@ static partial class RecordsTools
         return true;
     }
 
-    /// <summary>The tree form's text render: per record the touching list in load order with the winner last, then each provider's delta against the reference, under the delta form's own wording rules and the same max_chars ceiling.</summary>
+    /// <summary>The tree form's text render: per record the touching list in load order with the winner marked, then each provider's delta against the reference, under the delta form's own wording rules and the same max_chars ceiling.</summary>
     /// <remarks>Internal so a test can drive a node shape no fixture produces — an incomplete comparison on a record only one in-order plugin touches.</remarks>
     internal static string RenderRecordsTree(IReadOnlyList<RecordReads.TreeRow> rows, int total, int contested, int errors,
                                     bool fieldsNarrow, string headerLine, OrderStamp? epoch, int maxChars,
@@ -197,7 +197,9 @@ static partial class RecordsTools
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>").Append('\n');
             Wire.AppendNote(sb, "  ", row.SharedNote);
             Wire.AppendNote(sb, "  ", row.ExcludedNote);
-            sb.Append("  ").Append(row.Touchers.Count).Append(" plugin(s) touch this record (load order, winner last):\n");
+            sb.Append("  ").Append(row.Touchers.Count).Append(row.WinnerAt == row.Touchers.Count - 1
+                ? " plugin(s) touch this record (load order, winner last):\n"
+                : " plugin(s) touch this record (load order; a partial form above the winner does not win):\n");
             for (int i = 0; i < row.Touchers.Count; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
                   .Append(i == row.WinnerAt ? "  (winner)" : "").Append('\n');
@@ -270,6 +272,13 @@ static partial class RecordsTools
         sb.Append(spillText);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
+
+    /// <summary>The delta's stack-above line; it names the winner when a partial form tops the stack.</summary>
+    static void AppendStackAbove(StringBuilder sb, RecordReads.DeltaRow row) =>
+        sb.Append(row.StackWinner is null
+                ? "  stack above the subject (closer to winning, winner last): "
+                : "  stack above the subject (load order; the winner is " + row.StackWinner + ", a partial form above it does not win): ")
+          .Append(string.Join(", ", row.StackAbove!)).Append('\n');
 
     /// <summary>The records text lane's cut notice, composed in one place, and returned rather than written so its room can be held back before the line it follows is laid.</summary>
     /// <param name="what">What was cut — the notice claims this and nothing else.</param>

@@ -58,7 +58,7 @@ public static class ResolveHarness
         bool allMatchFk = tree.Nodes.All(n => n.Record.FormKey == deepestFk);   // body-fetch returned the RIGHT record
         Console.WriteLine($"   {deepestFk}  type {tree.RecordType}  depth {tree.Nodes.Count}  fetched in {swt.Elapsed.TotalMilliseconds:N0}ms" +
                           $"  ({swt.Elapsed.TotalMilliseconds / Math.Max(1, tree.Nodes.Count):N3} ms/body)");
-        Console.WriteLine($"   winner (last in order) = {tree.Winner.Plugin}  | IsConflict {tree.IsConflict}");
+        Console.WriteLine($"   winner (node {tree.WinnerAt + 1} of {tree.Nodes.Count}) ={tree.Winner.Plugin}  | IsConflict {tree.IsConflict}");
         Console.WriteLine($"   CHECK every node is {tree.RecordType}: {(allSameType ? "PASS" : "FAIL")}  | every fetched body == {deepestFk}: {(allMatchFk ? "PASS" : "FAIL")}");
 
         // ---- 3. A spread of conflict trees — body-fetch timing across depths. ----
