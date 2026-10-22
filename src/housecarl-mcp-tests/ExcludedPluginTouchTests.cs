@@ -28,6 +28,7 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     readonly FormKey _cell;         // the master's interior cell the bad plugin overrides
     readonly FormKey _badRef;       // a placed object in that cell the bad plugin overrides
     readonly FormKey _cleanRef;     // a placed object in that cell the bad plugin does not touch
+    readonly FormKey _plainCell;    // a master interior cell the bad plugin overrides, with no partial form above it
     readonly FormKey _cleanWeapon;  // the clean plugin's weapon, keyworded with the bad plugin's own keyword
     readonly FormKey _injected;     // a keyword the bad plugin injects under the master's FormID space
     readonly FormKey _missing;      // a master FormID no plugin defines
@@ -50,14 +51,19 @@ public sealed class ExcludedPluginTouchTests : IDisposable
         cell.Temporary.Add(refA); cell.Temporary.Add(refB);
         var block = new CellBlock { BlockNumber = 1, GroupType = GroupTypeEnum.InteriorCellBlock };
         var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
-        sub.Cells.Add(cell); block.SubBlocks.Add(sub); master.Cells.Records.Add(block);
-        _cell = cell.FormKey; _badRef = refA.FormKey; _cleanRef = refB.FormKey;
+        var plainCell = new Cell(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcExPlainCell" };
+        var refC = new PlacedObject(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcExRefPlain" };
+        refC.Base.SetTo(weapon.FormKey);
+        plainCell.Temporary.Add(refC);
+        sub.Cells.Add(cell); sub.Cells.Add(plainCell); block.SubBlocks.Add(sub); master.Cells.Records.Add(block);
+        _cell = cell.FormKey; _badRef = refA.FormKey; _cleanRef = refB.FormKey; _plainCell = plainCell.FormKey;
         master.Keywords.Add(new Keyword(new FormKey(master.ModKey, 0x1A00), SkyrimRelease.SkyrimSE) { EditorID = "HcExMasterFarKeyword" });   // so a compaction of the master renumbers
 
         var bad = new SkyrimMod(ModKey.FromNameAndExtension(BadName), SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(bad, weapon)).BasicStats = new WeaponBasicStats { Damage = 99, Weight = 1 };
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(bad, weapon2)).BasicStats = new WeaponBasicStats { Damage = 99, Weight = 1 };
         WriteEngine.GenericGetOrAddAsOverride(bad, refA, master.ToImmutableLinkCache());   // carries the cell override with it
+        WriteEngine.GenericGetOrAddAsOverride(bad, refC, master.ToImmutableLinkCache());
         var badKw = bad.Keywords.AddNew(); badKw.EditorID = "HcExBadKeyword";
         _badOwn = badKw.FormKey;
         bad.Packages.AddNew().EditorID = "HcExBadPackage";
@@ -243,8 +249,8 @@ public sealed class ExcludedPluginTouchTests : IDisposable
     [Fact]
     public void ARecordInACellTheExcludedPluginOverridesIsMarked()
     {
-        var tree = RecordsTools.Records(_svc, formids: new[] { Fid(_badRef), Fid(_cell) }, project: new() { form = "tree" });
-        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(tree, "note: " + System.Text.RegularExpressions.Regex.Escape(Note)).Count);
+        var tree = RecordsTools.Records(_svc, formids: new[] { Fid(_badRef), Fid(_cell), Fid(_plainCell) }, project: new() { form = "tree" });
+        Assert.Equal(3,System.Text.RegularExpressions.Regex.Matches(tree, "note: " + System.Text.RegularExpressions.Regex.Escape(Note)).Count);
     }
 
     [Fact]
