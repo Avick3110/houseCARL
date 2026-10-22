@@ -302,6 +302,55 @@ public sealed class PartialFormWinnerTests : IDisposable
         Assert.DoesNotContain("winner", Schema(_plainCell, "plain"));
     }
 
+    [Fact]
+    public void TheDeltaArtifactsManifestDeclaresTheWinnerItWrites()
+    {
+        string Schema(FormKey fk, string subject, string name)
+        {
+            var art = Path.Combine(_root, name + ".jsonl");
+            RecordsTools.Records(_svc, formids: new[] { Fid(fk) }, source: Pole(subject), versus: Pole("previous_provider"), to_file: art,
+                                 project: new RecordsTools.RecordsProject { form = "delta" });
+            using var doc = JsonDocument.Parse(File.ReadLines(art).First());
+            return string.Join(",", doc.RootElement.GetProperty("row_schema").EnumerateArray().Select(e => e.GetString()));
+        }
+        Assert.Contains("stack_above?,winner?,", Schema(_deepCell, MasterPartialName, "delta-partial"));
+        // Pins unchanged behaviour: with no partial form the schema is as before.
+        Assert.DoesNotContain("winner", Schema(_plainCell, PartialName, "delta-plain"));
+    }
+
+    /// <summary>A partial copy above the winner is read while its plugin's share is walked, not after the winner: once
+    /// the winner is handed on, its node reads nothing more, so a file changed then is never opened.</summary>
+    [Fact]
+    public void AHeldPartialIsReadBeforeTheWinnerArrives()
+    {
+        var pin = _svc.CapturePin();
+        using var session = pin.Resolver.OpenSession();
+        var reads = new Dictionary<string, string?>();
+        _svc.ReadArea.FoldTreeChunkPinned(pin, session, new[] { _persistCell }, new[] { "*parent.EditorID" }, (_, _, plugin, read, isWinner) =>
+        {
+            if (isWinner)
+            {
+                // The parent hop reads the worldspace's winner; a read after this point would reopen the master and find it changed.
+                session.ReleaseOverlay(MasterName);
+                File.SetLastWriteTimeUtc(Path.Combine(_mods, "MasterMod", MasterName), DateTime.UtcNow.AddSeconds(5));
+            }
+            reads[plugin] = read.EditorId;
+            return true;
+        });
+        Assert.Equal("HcPfPersistCell", reads[PartialName]);
+    }
+
+    /// <summary>A held partial answers each child-bearing field from its own copy: declaring or not, never unreadable.</summary>
+    [Fact]
+    public void AHeldPartialAnswersItsChildDeclarersFromItsOwnCopy()
+    {
+        var pin = _svc.CapturePin();
+        using var session = pin.Resolver.OpenSession();
+        var declarers = _svc.ReadArea.FoldTreeChunkPinned(pin, session, new[] { _cell }, null, (_, _, _, _, _) => true)[0]!.ChildDeclarers;
+        Assert.Contains(declarers, cd => cd.Declaring.Contains(MasterName));
+        Assert.All(declarers, cd => Assert.DoesNotContain(PartialName, cd.Declaring.Concat(cd.Unreadable)));
+    }
+
     /// <summary>A hand-built row carries no winner position; it reads winner last and calls no toucher a partial form.</summary>
     [Fact]
     public void ARowWithNoWinnerPositionLabelsNoPartialForm()
@@ -397,6 +446,11 @@ public sealed class PartialFormWinnerTests : IDisposable
         // Pins unchanged behaviour: a key with no partial copy does not refuse for a plugin it does not answer from.
         Assert.DoesNotContain("changed on disk", ReadWhileChanges(_plainCell, PartialName, "MasterPartialMod", MasterPartialName));
     }
+
+    /// <summary>Pins unchanged behaviour: a key with no partial copy relies on its winner alone, not on the plugin below it.</summary>
+    [Fact]
+    public void AMarkedReadOfAPlainKeyDoesNotRefuseWhenTheProviderBelowItsWinnerChanges() =>
+        Assert.DoesNotContain("changed on disk", ReadWhileChanges(_plainCell, PartialName, "MasterMod", MasterName));
 
     string ReadWhilePartialChanges(FormKey fk) => ReadWhileChanges(fk, MasterName, "PartialMod", PartialName);
 
