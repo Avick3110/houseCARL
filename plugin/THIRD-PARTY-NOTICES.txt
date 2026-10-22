@@ -140,7 +140,7 @@ MIT License
   Microsoft.Extensions.FileSystemGlobbing                   10.0.13
   Microsoft.Extensions.Hosting                              10.0.13
   Microsoft.Extensions.Hosting.Abstractions                 10.0.13
-  Microsoft.Extensions.Http                                 10.0.10
+  Microsoft.Extensions.Http                                 10.0.13
   Microsoft.Extensions.Logging                              10.0.13
   Microsoft.Extensions.Logging.Abstractions                 10.0.13
   Microsoft.Extensions.Logging.Configuration                10.0.13
