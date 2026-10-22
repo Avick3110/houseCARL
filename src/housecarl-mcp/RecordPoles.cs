@@ -123,7 +123,7 @@ internal sealed partial class RecordReads
             var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.LabelVersus(s.Pole.Plugin));
             return new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null)
                    { StackWinner = r.StackWinner,
-                     SharedNote =s.Pole.InOrder ? SharedEditorIds.Note(pin, fk, s.Pole.RecordType, s.Pole.Plugin) : null,
+                     SharedNote = s.Pole.InOrder ? SharedEditorIds.Note(pin, fk, s.Pole.RecordType, s.Pole.Plugin) : null,
                      // A subject read off the excluded plugin's own file carries its version, so that row owes no note.
                      ExcludedNote = !s.Pole.InOrder && s.Pole.Path is { } own && pin?.View.PluginPath(Path.GetFileName(own)) is { } served
                                     && pin.View.ExcludedPlugins.ContainsKey(Path.GetFileName(own)) && PluginPaths.SamePluginFile(served, own)
