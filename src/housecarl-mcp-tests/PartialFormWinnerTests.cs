@@ -28,6 +28,7 @@ public sealed class PartialFormWinnerTests : IDisposable
     readonly FormKey _masterCell;  // a master interior cell; the master-flagged plugin overrides it as a partial form
     readonly FormKey _gridCell;    // a temporary exterior cell; the esp overrides it with 0x4000 set
     readonly FormKey _plainCell;   // a master interior cell the esp overrides normally
+    readonly FormKey _strayCell;   // a master interior cell the esp overrides as a partial form carrying a grid
 
     public PartialFormWinnerTests()
     {
@@ -45,24 +46,28 @@ public sealed class PartialFormWinnerTests : IDisposable
         cell.Temporary.Add(placed);
         var masterCell = Interior(master.GetNextFormKey(), "HcPfMasterCell");
         var plainCell = Interior(master.GetNextFormKey(), "HcPfPlainCell");
-        FileInterior(master, cell, masterCell, plainCell);
+        var strayCell = Interior(master.GetNextFormKey(), "HcPfStrayCell");
+        FileInterior(master, cell, masterCell, plainCell, strayCell);
         var ws = new Worldspace(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcPfWorld" };
         var grid = new Cell(master.GetNextFormKey(), SkyrimRelease.SkyrimSE)
             { EditorID = "HcPfGridCell", Flags = Cell.Flag.HasWater, Grid = new CellGrid { Point = new P2Int(0, 0) } };
         FileExterior(ws, grid);
         master.Worldspaces.Add(ws);
         _cell = cell.FormKey; _ref = placed.FormKey; _masterCell = masterCell.FormKey;
-        _gridCell = grid.FormKey; _plainCell = plainCell.FormKey;
+        _gridCell = grid.FormKey; _plainCell = plainCell.FormKey; _strayCell = strayCell.FormKey;
 
         // Each override carries its EDID only, as an xEdit-made partial form does (Mutagen pads the rest).
         Cell Over(Cell of, int flags, Cell.Flag cellFlags) => new(of.FormKey, SkyrimRelease.SkyrimSE)
-            { EditorID = of.EditorID, MajorRecordFlagsRaw = flags, Flags = cellFlags, Grid = of.Grid?.DeepCopy() };
+            { EditorID = of.EditorID, MajorRecordFlagsRaw = flags, Flags = cellFlags };
 
         var masterPartial = new SkyrimMod(new ModKey("HcPfMasterPartial", ModType.Master), SkyrimRelease.SkyrimSE);
         FileInterior(masterPartial, Over(masterCell, Partial, 0));
 
         var esp = new SkyrimMod(ModKey.FromNameAndExtension(PartialName), SkyrimRelease.SkyrimSE);
-        FileInterior(esp, Over(cell, Partial, 0), Over(plainCell, 0, Cell.Flag.IsInteriorCell));
+        // The stray cell's partial carries a grid it should not; it is still interior, so still partial.
+        var stray = Over(strayCell, Partial, 0);
+        stray.Grid = new CellGrid { Point = new P2Int(3, 3) };
+        FileInterior(esp, Over(cell, Partial, 0), Over(plainCell, 0, Cell.Flag.IsInteriorCell), stray);
         var espWs = new Worldspace(ws.FormKey, SkyrimRelease.SkyrimSE) { EditorID = ws.EditorID };
         FileExterior(espWs, Over(grid, Partial, 0));
         esp.Worldspaces.Add(espWs);
@@ -190,10 +195,16 @@ public sealed class PartialFormWinnerTests : IDisposable
     public void APartialFormInAMasterFlaggedPluginDoesNotWinEither() =>
         Assert.Equal(MasterName, _svc.CaptureView().ResolveWinner(_masterCell)!.Value.WinnerPlugin);
 
-    /// <summary>xEdit's rule: 0x4000 on a temporary exterior cell is not a partial form, so the override wins.</summary>
+    /// <summary>xEdit's rule: 0x4000 on a temporary exterior cell is not a partial form, so the override wins, though
+    /// its EDID-only copy carries no grid.</summary>
     [Fact]
     public void AFlaggedTemporaryExteriorCellWinsAsANormalOverride() =>
         Assert.Equal(PartialName, _svc.CaptureView().ResolveWinner(_gridCell)!.Value.WinnerPlugin);
+
+    /// <summary>An interior cell is told by where it sits, so a stray grid on its partial does not make it win.</summary>
+    [Fact]
+    public void AnInteriorPartialCarryingAGridStillLoses() =>
+        Assert.Equal(MasterName, _svc.CaptureView().ResolveWinner(_strayCell)!.Value.WinnerPlugin);
 
     /// <summary>Pins unchanged behaviour: an override with no partial flag wins as before.</summary>
     [Fact]

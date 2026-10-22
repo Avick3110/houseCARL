@@ -449,7 +449,7 @@ public sealed class LoadOrderResolver : IDisposable
             {
                 foreach (var ctx in ov.EnumerateMajorRecordContexts())
                 {
-                    keys.Add((ctx.Record.FormKey, ctx.Record.GetType(), PartialInEffect(ctx.Record, ov.ModKey)));
+                    keys.Add((ctx.Record.FormKey, ctx.Record.GetType(), PartialInEffect(ctx, ov.ModKey)));
                     ContainmentIndex.Stage(ctx, edges);
                 }
             }
@@ -531,16 +531,23 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>The record header's Partial Form flag (bit 14).</summary>
     internal const int PartialFormFlag = 0x4000;
 
-    /// <summary>Is this copy a partial form the engine loads none of the data from: a flagged CELL, WRLD or DIAL override, as xEdit reads it (a temporary exterior cell, non-persistent with a grid, is never partial).</summary>
-    internal static bool PartialInEffect(IMajorRecordGetter rec, ModKey plugin)
+    /// <summary>Is this copy a partial form the engine loads none of the data from: a flagged CELL, WRLD or DIAL override, as xEdit reads it (a temporary exterior cell, one a worldspace holds without the Persistent flag, is never partial). Reads the header and the containing record, no subrecord.</summary>
+    internal static bool PartialInEffect(IModContext ctx, ModKey plugin)
     {
-        if ((rec.MajorRecordFlagsRaw & PartialFormFlag) == 0 || rec.FormKey.ModKey == plugin) return false;
+        if (ctx.Record is not IMajorRecordGetter rec || (rec.MajorRecordFlagsRaw & PartialFormFlag) == 0 || rec.FormKey.ModKey == plugin) return false;
         return rec switch
         {
-            ICellGetter cell => (cell.MajorRecordFlagsRaw & (int)Cell.MajorFlag.Persistent) != 0 || cell.Grid is null,
+            ICellGetter => (rec.MajorRecordFlagsRaw & (int)Cell.MajorFlag.Persistent) != 0 || !InWorldspace(ctx),
             IWorldspaceGetter or IDialogTopicGetter => true,
             _ => false,
         };
+
+        static bool InWorldspace(IModContext ctx)
+        {
+            for (var up = ctx.Parent; up is not null; up = up.Parent)
+                if (up.Record is IMajorRecordGetter ancestor) return ancestor is IWorldspaceGetter;
+            return false;
+        }
     }
 
     /// <summary>The epoch fingerprint: a deterministic identity for ONE build, over every plugin's filename, RESOLVED PATH and freshness stamp in priority order plus which plugins it
