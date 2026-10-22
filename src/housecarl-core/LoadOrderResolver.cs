@@ -88,6 +88,7 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly IndexTypes Types;                                     // the class codes this build interned
         public readonly Dictionary<FormKey, byte[]> MixedTypes;               // MIXED keys only — each provider's own class code, aligned with Overriders
         public readonly Dictionary<FormKey, int> Displaced;                   // keys a partial form tops — the winner's position in Overriders
+        public readonly HashSet<FormKey> AllPartial;                          // keys every copy of which is a partial form — the newest wins
         public readonly List<string> LoadFailures;                            // per-plugin index-build failures (open OR parse), always surfaced
         public readonly HashSet<int> Excluded;                                // overlay indices excluded this build — never re-touched by any path
         /// <summary>The SUBSET of <see cref="Excluded"/> whose file could not be OPENED at all; its own set, not derived from the reason string — prose can be reworded, membership is a fact.</summary>
@@ -118,12 +119,12 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly Lazy<RuntimeSlots> Slots;
 
         public IndexSnapshot(Dictionary<FormKey, (ushort winner, ushort count, byte type)> index, Dictionary<FormKey, int[]> overriders,
-                             IndexTypes types, Dictionary<FormKey, byte[]> mixedTypes, Dictionary<FormKey, int> displaced, List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
+                             IndexTypes types, Dictionary<FormKey, byte[]> mixedTypes, Dictionary<FormKey, int> displaced, HashSet<FormKey> allPartial, List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
                              Dictionary<string, string> excludedPlugins, Dictionary<FormKey, int[]> excludedTouches, int maxDepth, string epoch,
                              bool[] light, int firstUnknownKind, string? firstUnknownKindName,
                              ContainmentIndex containment, bool[] masterBlock, FileStamp[] builtStamps)
         {
-            Index = index; Overriders = overriders; Types = types; MixedTypes = mixedTypes; Displaced = displaced; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
+            Index = index; Overriders = overriders; Types = types; MixedTypes = mixedTypes; Displaced = displaced; AllPartial = allPartial; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
             ExcludedPlugins = excludedPlugins; ExcludedTouches = excludedTouches; MaxDepth = maxDepth; Epoch = epoch; Light = light; Containment = containment;
             MasterBlock = masterBlock; BuiltStamps = builtStamps;
             FirstUnknownKind = firstUnknownKind; FirstUnknownKindName = firstUnknownKindName;
@@ -513,7 +514,7 @@ public sealed class LoadOrderResolver : IDisposable
         return new IndexSnapshot(
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
-            types, mixed.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()), displaced,
+            types, mixed.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()), displaced, partialWinner,
             failures, excluded, unopenable, excludedPlugins,
             excludedTouches.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()), maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
             light, firstUnknownKind, firstUnknownKindName, containment, masterBlock, (FileStamp[])_stamps.Clone());
@@ -727,7 +728,7 @@ public sealed class LoadOrderResolver : IDisposable
         public IReadOnlyList<string> ExcludedTouchers(FormKey fk)
         {
             if (!_s.ExcludedTouches.TryGetValue(fk, out var by)) return Array.Empty<string>();
-            int winner = _s.Index.TryGetValue(fk, out var e) ? Rely(e.winner) : -1;   // one loading before the winner is overridden by it
+            int winner = _s.Index.TryGetValue(fk, out var e) ? RelyWinner(fk, e) : -1;   // one loading before the winner is overridden by it
             var touchers = new List<string>();
             foreach (int i in by) if (i > winner) touchers.Add(_r._names[Rely(i)]);
             return touchers;
@@ -790,11 +791,14 @@ public sealed class LoadOrderResolver : IDisposable
         public WinnerInfo? ResolveWinner(FormKey fk)
             => _s.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _r._names[RelyWinner(fk, e)], e.count) : null;
 
-        /// <summary>Rely on the winner and, where a partial form tops the key, on each plugin above it: their flags decided the answer.</summary>
+        /// <summary>Rely on the winner and, where a partial form tops the key, on each plugin above it, or on every provider
+        /// of a key whose every copy is partial: their flags decided the answer.</summary>
         int RelyWinner(FormKey fk, (ushort winner, ushort count, byte type) e)
         {
             if (_relied is not null && _s.Displaced.TryGetValue(fk, out int at))
                 foreach (int i in _s.Overriders[fk].AsSpan(at + 1)) Rely(i);
+            else if (_relied is not null && e.count > 1 && _s.AllPartial.Contains(fk))
+                foreach (int i in _s.Overriders[fk]) Rely(i);
             return Rely(e.winner);
         }
 
