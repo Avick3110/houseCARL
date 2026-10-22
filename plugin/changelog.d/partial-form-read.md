@@ -1,1 +1,1 @@
-- **A partial-form override (0x4000) of an interior or persistent CELL, WRLD or DIAL no longer wins over a full copy; reads, scans and edits use that copy.** Check: `records` names the newest copy that is not partial as winner.
+- **A partial-form override (0x4000) of a WRLD, DIAL, or interior or persistent CELL no longer wins over a full copy; reads, scans and edits use that copy.** Check: `records` names the newest copy that is not partial as winner.
