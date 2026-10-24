@@ -393,6 +393,55 @@ public sealed class Utf8NameTests : IDisposable
         Assert.True(FileHolds(written[0], JapaneseName), "the patch lost the UTF-8 bytes");
     }
 
+    // ---- merge ------------------------------------------------------------------------------------
+    //
+    // A merge writes every record under the OUTPUT's name, which nothing has read, so only the donors' own reads can
+    // say what encoding the file goes out in.
+
+    /// <summary>The reported failure: a rename of a UTF-8 translation ESP. The output name was never read, so the
+    /// write took it for Windows-1252 and refused the Japanese name as unspellable.</summary>
+    [Fact]
+    public void ARenameOfAUtf8DonorCarriesItsJapaneseNameAsUtf8()
+    {
+        var o = _svc.MergePlugins(new[] { InlineName }, "HcUtf8InlineRenamed.esp");
+        Assert.True(o.Success, o.Error);
+        Assert.True(FileHolds(o.OutputPath, JapaneseName), "the Japanese name did not land as UTF-8");
+        Assert.True(FileHolds(o.OutputPath, LatinName), "the accented name beside it did not land as UTF-8");
+    }
+
+    /// <summary>The silent half: Windows-1252 CAN spell an accented Latin name, so a rename of a UTF-8 ESP holding
+    /// only those went through and flipped every one of them to bytes the reader no longer takes for UTF-8.</summary>
+    [Fact]
+    public void ARenameOfAUtf8LatinDonorKeepsItsAccentedNameUtf8()
+    {
+        var o = _svc.MergePlugins(new[] { Utf8LatinName }, "HcUtf8AccentRenamed.esp");
+        Assert.True(o.Success, o.Error);
+        Assert.True(FileHolds(o.OutputPath, LatinName), "the accented name is no longer UTF-8");
+        Assert.False(FileHoldsBytes(o.OutputPath, Cp1252.GetBytes(LatinName)), "the accented name was flipped to 1252");
+    }
+
+    /// <summary>The mirror: a Windows-1252 donor's rename keeps its name in 1252 bytes, the encoding the game reads it
+    /// in at <c>sLanguage=ENGLISH</c>.</summary>
+    [Fact]
+    public void ARenameOfAWindows1252DonorKeepsItsNameAsWindows1252Bytes()
+    {
+        var o = _svc.MergePlugins(new[] { LatinPluginName }, "HcUtf8LatinRenamed.esp");
+        Assert.True(o.Success, o.Error);
+        Assert.True(FileHoldsBytes(o.OutputPath, Cp1252.GetBytes(LatinName)), "the accented name is no longer 1252 bytes");
+        Assert.False(FileHolds(o.OutputPath, LatinName), "the accented name was re-encoded to UTF-8");
+    }
+
+    /// <summary>One file, one encoding: a UTF-8 donor beside a Windows-1252 one sends the whole merge out as UTF-8,
+    /// the 1252 donor's name re-spelled in it rather than left in a second encoding.</summary>
+    [Fact]
+    public void AMergeOfAUtf8AndAWindows1252DonorWritesBothNamesAsUtf8()
+    {
+        var o = _svc.MergePlugins(new[] { InlineName, LatinPluginName }, "HcUtf8Mixed.esp");
+        Assert.True(o.Success, o.Error);
+        Assert.True(FileHolds(o.OutputPath, JapaneseName), "the Japanese name did not land as UTF-8");
+        Assert.False(FileHoldsBytes(o.OutputPath, Cp1252.GetBytes(LatinName)), "a 1252 name was left beside UTF-8");
+    }
+
     // ---- the cap the render is measured against (#754) ---------------------------------------------
     //
     // Both lanes below measure through the one count in JsonWire, and both fixtures put a Japanese name in front of

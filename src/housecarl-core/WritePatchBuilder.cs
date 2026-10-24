@@ -2245,7 +2245,9 @@ public static class WritePatchBuilder
                 }
                 masterOverlays.Add((IDisposable)mov); resolved.Add(mov);
             }
-            try { WriteEngine.WriteInPlace(m, resolved, outPath, dataDir, isFaction: null); }
+            // The output name was never read, so the donors' own reads decide the encoding (the copy above decoded their strings).
+            var donorsUtf8 = PluginTextEncoding.MergedIsUtf8(donorsByLoadOrder.Select(d => d.Path));
+            try { WriteEngine.WriteMerged(m, resolved, outPath, donorsUtf8); }
             catch (Exception ex)
             {
                 return MergeBuildResult.Fail(

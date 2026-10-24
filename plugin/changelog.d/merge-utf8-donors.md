@@ -1,0 +1,1 @@
+- **`housecarl_merge_plugins` now writes a UTF-8 translated donor's text as UTF-8 instead of refusing it as unspellable in Windows-1252 or silently flipping its accented names.** Merge or rename a Japanese-translated ESP and read a name back.
