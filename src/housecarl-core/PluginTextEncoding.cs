@@ -174,6 +174,10 @@ public static class PluginTextEncoding
         _ => false,
     };
 
+    /// <summary>Whether a merged file goes out as UTF-8 — any donor whose read resolved as UTF-8, or a language with no
+    /// code page; a merge's FormKeys carry the output's ModKey, so the donors are named, after the copy decoded their strings.</summary>
+    public static bool MergedIsUtf8(IEnumerable<string> donorNamesOrPaths)
+        => NoCodePage || donorNamesOrPaths.Any(d => LaneOf(d) == PluginTextLane.Utf8);
 
     /// <summary>Whether a new file's contributing plugins put it in the UTF-8 lane before a single string is written — the provenance half of the new-file encoding choice.</summary>
     public static bool NewFileIsUtf8(IModGetter mod)

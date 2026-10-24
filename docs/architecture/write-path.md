@@ -353,6 +353,12 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - The placement names no other plugins: the records whose winner it decides are the overrides the donors carry at
   their MASTERS' FormIDs, which no pass in a merge enumerates, so the constraint is stated and the roster is not
   guessed at.
+- The merged plugin is serialized in the in-place shape (own masters, no baseline, counter verbatim) but takes a NEW
+  file's encoding through `WriteMerged`: its records carry the output's ModKey and the output name was never read, so
+  the lane comes from the donors (`MergedIsUtf8`, asked after the copy decoded their strings). Any UTF-8 donor, or a
+  game language with no code page, sends the whole file out as UTF-8, a legacy donor's text re-spelled in it;
+  otherwise the strict language default, with the same whole-file UTF-8 second pass as `WritePatch` for a value it
+  cannot spell. A legacy-only merge under a code-page language keeps its bytes.
 - A closure copy internalizes the walk's reached set with `Duplicate(newKey)` + `RemapLinks`, never field by field,
   so no field can be forgotten; allocation comes off the patch's own counter, so an EXTENDED patch keeps counting.
 - Those duplicates are built in a SCRATCH mod sharing the patch's ModKey and transplanted in. That is a correctness
