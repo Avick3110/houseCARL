@@ -33,7 +33,7 @@ Three tiers:
 | tier | fields | consequence of omission |
 |---|---|---|
 | confirmed crash | INFO CNAM (FavorLevel), INFO ENAM (Flags); DLVW DNAM, ENAM | the Creation Kit crashes when the owning topic or the Dialogue Views editor is opened; the game tolerates it |
-| byte parity | DLBR TNAM (Category); DIAL PNAM (Priority); QUST ANAM, objective FNAM, alias FNAM, reference-alias VTCK | a byte mismatch against a CK-authored record, no confirmed crash |
+| byte parity | DLBR TNAM (Category); DIAL PNAM (Priority); QUST ANAM, objective FNAM, alias FNAM, reference-alias VTCK; MESG INAM | a byte mismatch against a CK-authored record, no confirmed crash; a 0-byte MESG INAM also makes Wrye Bash refuse the whole plugin |
 | in-game behaviour | DLBR DNAM (Flags) | an absent DNAM reads as `TopLevel`, so a branch the author never marked top-level is published to the player's menu |
 
 There is no honest default for DLBR `Flags`, so the create path REFUSES a branch whose `Flags` no op set; why
@@ -46,6 +46,9 @@ Two exceptions to the is-null signal:
   also why the validator never flags its absence — doing so would false-positive every legitimately priority-0 topic.
 - Alias VTCK is scoped to REFERENCE aliases; a Location alias resolves to a place, not an actor, and the same gate
   guards the fill and the gap.
+- MESG `INAM` is a non-nullable byte field, so Mutagen writes it even when empty, as a 0-byte subrecord. "Unset" is
+  the empty array, and the fill writes the 4 zero bytes every vanilla Message carries. MESG is outside the dialogue
+  validator's seeds, so this fill has no validate counterpart.
 
 A `0`-fill materialises the subrecord only, so every named flag inside it — `OrWithPrevious` on an objective, the
 alias flags, and the INFO `Flags` struct's `Goodbye`, which [`docs/dialogue.md`](../dialogue.md) covers — stays an

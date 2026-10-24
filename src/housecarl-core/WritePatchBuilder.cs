@@ -2710,7 +2710,7 @@ public static class WritePatchBuilder
                 if (DialogueCkParity.ApplyTopicPriorityDefault(dtopic, authorSetPriority) is { } pfill)
                     { ops.Add(Fill(rec.FormKey, s.RecordType, pfill)); reqs.Add(null); }
             }
-            // CK-parity default-populate across the DIAL/INFO/DLVW/DLBR/QUST family, because Mutagen omits optionals the CK writes.
+            // CK-parity default-populate across the DIAL/INFO/DLVW/DLBR/QUST/MESG family, because Mutagen omits optionals the CK writes.
             else if (rec is IDialogResponses infoRec)
             {
                 foreach (var fill in DialogueCkParity.ApplyInfoDefaults(infoRec))
@@ -2729,6 +2729,11 @@ public static class WritePatchBuilder
             else if (rec is IQuest questRec)           // QUST NextAliasID (ANAM) + objective Flags (FNAM)
             {
                 foreach (var fill in DialogueCkParity.ApplyQuestDefaults(questRec))
+                    { ops.Add(Fill(rec.FormKey, s.RecordType, fill)); reqs.Add(null); }
+            }
+            else if (rec is IMessage messageRec)       // MESG INAM, written 0 bytes long by Mutagen when left empty
+            {
+                foreach (var fill in DialogueCkParity.ApplyMessageDefaults(messageRec))
                     { ops.Add(Fill(rec.FormKey, s.RecordType, fill)); reqs.Add(null); }
             }
             opRequests.Add(reqs);
