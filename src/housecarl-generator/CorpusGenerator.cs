@@ -715,16 +715,16 @@ public static class CorpusGenerator
                $"catalog. {ReachabilityCheck}";
     }
 
+    /// <summary>Every concrete major-record class of <paramref name="asm"/>, overlay twins left out.</summary>
+    internal static IEnumerable<Type> RecordClasses(Assembly asm) =>
+        asm.GetTypes().Where(c => c.IsClass && !c.IsAbstract && !IsOverlayTwin(c) && typeof(IMajorRecordGetter).IsAssignableFrom(c));
+
     /// <summary>
     /// True for Mutagen's lazy-read overlay class (e.g. ArmorBinaryOverlay), which
     /// implements only the getter interface of its real twin. Not a distinct modeled
     /// type — excluded from record enumeration and from polymorphic-arm detection so
     /// it doesn't masquerade as a second "arm" of an otherwise non-polymorphic struct.
     /// </summary>
-    /// <summary>Every concrete major-record class of <paramref name="asm"/>, overlay twins left out.</summary>
-    internal static IEnumerable<Type> RecordClasses(Assembly asm) =>
-        asm.GetTypes().Where(c => c.IsClass && !c.IsAbstract && !IsOverlayTwin(c) && typeof(IMajorRecordGetter).IsAssignableFrom(c));
-
     internal static bool IsOverlayTwin(Type t) => t.Name.EndsWith("BinaryOverlay", StringComparison.Ordinal);
 
     /// <summary>The concrete class that owns <paramref name="getterIfc"/>, closed over the same type arguments; null for an abstract base.</summary>
