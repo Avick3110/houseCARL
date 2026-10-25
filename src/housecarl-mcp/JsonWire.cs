@@ -2451,8 +2451,7 @@ static class JsonWire
             foreach (var host in contestedHosts.Take(Wire.ContestedHostsShown)) w.WriteStringValue(host);
             w.WriteEndArray();
             // Each subrecord Mutagen wrote at 0 bytes, once per kind, hoisted above the budget like the hosts.
-            WriteStringArray(w, "empty_subrecords",
-                o.Created.SelectMany(c => c.EmptySubrecords).Distinct(StringComparer.Ordinal).ToList());
+            WriteStringArray(w, "empty_subrecords", o.EmptySubrecordLines);
 
             // Did the per-record file check RUN at all? Outside the `created` budget: a cut must not remove it.
             w.WriteBoolean("verify_ran", o.Created.Any(c => c.VerifyAttempted));

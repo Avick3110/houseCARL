@@ -213,6 +213,10 @@ public static class WritePatchBuilder
         /// <summary>The structural-shell report for the cells this call created, filled by the SERVICE post-write.</summary>
         public CellShellReport? CellShell { get; init; }
 
+        /// <summary>Each created record's <see cref="CreatedRecord.EmptySubrecords"/> sentences, once per kind, for the renders to hoist.</summary>
+        public IReadOnlyList<string> EmptySubrecordLines =>
+            Created.SelectMany(c => c.EmptySubrecords).Distinct(StringComparer.Ordinal).ToList();
+
         public static CreateOutcome Fail(string error) =>
             new(false, error, "", false, Array.Empty<CreatedRecord>(), Array.Empty<string>(), 0);
 
