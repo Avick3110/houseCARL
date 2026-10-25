@@ -15,6 +15,6 @@ public static class EmptyOnCreate
 
     static string Sentence(TypeSchema ts, EmptySubrecord e) =>
         $"Mutagen writes {ts.Signature} {e.Subrecord} at 0 bytes on a new {ts.Name} and houseCARL fills nothing; vanilla never " +
-        "carries it empty, so a tool that expects data there can flag or skip the plugin (Wrye Bash leaves a plugin it " +
-        $"cannot read out of the Bashed Patch) — set {(e.Fields.Count == 1 ? e.Fields[0] : "one of " + string.Join(", ", e.Fields))} if that matters.";
+        $"carries it empty. Any value set on {(e.Fields.Count == 1 ? e.Fields[0] : "one of " + string.Join(", ", e.Fields))} " +
+        "silences this line, and houseCARL does not check that value's size or contents.";
 }
