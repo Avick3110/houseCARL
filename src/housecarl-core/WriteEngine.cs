@@ -1093,7 +1093,7 @@ public static class WriteEngine
     }
 
     /// <summary>The element type of an <c>IList&lt;T&gt;</c>-shaped property, else null.</summary>
-    static Type? ListElementType(Type t)
+    internal static Type? ListElementType(Type t)
     {
         if (t == typeof(string) || !typeof(System.Collections.IEnumerable).IsAssignableFrom(t)) return null;
         if (t.IsGenericType && t.GetGenericArguments() is { Length: 1 } ga) return ga[0];

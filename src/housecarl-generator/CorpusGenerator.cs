@@ -79,11 +79,8 @@ public static class CorpusGenerator
         var seenRecordGetters = new HashSet<Type>();
         var sigByName = new Dictionary<string, string>(StringComparer.Ordinal); // record catalog name -> xEdit 4-char signature
         var recordClasses = new Dictionary<Type, string>(); // concrete record class -> its catalog name, for the empty-subrecord probe
-        foreach (var c in asm.GetTypes())
+        foreach (var c in RecordClasses(asm))
         {
-            if (!c.IsClass || c.IsAbstract) continue;
-            if (IsOverlayTwin(c)) continue; // Mutagen's lazy-read overlay of the real class; not a distinct type
-            if (!typeof(IMajorRecordGetter).IsAssignableFrom(c)) continue;
             var gi = GetterInterfaceFor(c);
             if (gi == null) { CoverageAnomalies.Add(UnextractableWarning("record class", c)); continue; }
             if (seenRecordGetters.Add(gi))
@@ -724,6 +721,10 @@ public static class CorpusGenerator
     /// type — excluded from record enumeration and from polymorphic-arm detection so
     /// it doesn't masquerade as a second "arm" of an otherwise non-polymorphic struct.
     /// </summary>
+    /// <summary>Every concrete major-record class of <paramref name="asm"/>, overlay twins left out.</summary>
+    internal static IEnumerable<Type> RecordClasses(Assembly asm) =>
+        asm.GetTypes().Where(c => c.IsClass && !c.IsAbstract && !IsOverlayTwin(c) && typeof(IMajorRecordGetter).IsAssignableFrom(c));
+
     internal static bool IsOverlayTwin(Type t) => t.Name.EndsWith("BinaryOverlay", StringComparison.Ordinal);
 
     /// <summary>The concrete class that owns <paramref name="getterIfc"/>, closed over the same type arguments; null for an abstract base.</summary>

@@ -845,7 +845,7 @@ static partial class WriteTools
             sb.Append("  ! … and ").Append(contested.Count - Wire.ContestedHostsShown)
               .Append(" further contested parent(s) — each is named on its own record's `parent:` line below.\n");
         // Each subrecord Mutagen wrote at 0 bytes, said once per kind and outside the row budget.
-        foreach (var empty in o.Created.SelectMany(c => c.EmptySubrecords).Distinct(StringComparer.Ordinal))
+        foreach (var empty in o.EmptySubrecordLines)
             sb.Append("  ! ").Append(empty).Append('\n');
         int listed = 0;
         for (int ci = 0; ci < o.Created.Count; ci++)

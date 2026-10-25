@@ -18,7 +18,7 @@ public sealed class EmptyOnCreateTests
     /// <summary>A master with a 4-byte-INAM MESG, and two plugins (one with another) to merge and compact.</summary>
     sealed class World : IDisposable
     {
-        public string Root { get; }
+        readonly ScratchMo2 _mo2 = new("hc-empty-on-create-");
         public LoadOrderService Svc { get; }
         public static readonly ModKey Master = new("HcEoMaster", ModType.Master);
         public static readonly ModKey A = new("HcEoA", ModType.Plugin);
@@ -27,36 +27,22 @@ public sealed class EmptyOnCreateTests
 
         public World()
         {
-            Root = Path.Combine(Path.GetTempPath(), "hc-empty-on-create-" + Guid.NewGuid().ToString("N"));
-            string instance = Path.Combine(Root, "instance");
-            string profiles = Path.Combine(instance, "profiles", "Default");
-            Directory.CreateDirectory(profiles);
-            Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
-            File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
-                "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
-                + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
-
-            MasterMessage = Write(instance, Master, "HcEoMasterMsg");
-            Write(instance, A, "HcEoAMsg");
-            Write(instance, B, "HcEoBMsg");
-
+            MasterMessage = Write(Master, "HcEoMasterMsg");
+            Write(A, "HcEoAMsg");
+            Write(B, "HcEoBMsg");
             var names = new[] { Master, A, B }.Select(k => k.FileName.String).ToList();
-            File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", names) + "\r\n");
-            File.WriteAllText(Path.Combine(profiles, "plugins.txt"), string.Join("", names.Select(n => "*" + n + "\r\n")));
-            File.WriteAllText(Path.Combine(profiles, "modlist.txt"),
-                "# header\r\n" + string.Join("", new[] { B, A, Master }.Select(k => "+" + k.Name + "\r\n")));
-            Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
+            _mo2.Profile(string.Join("\r\n", names) + "\r\n", string.Join("", names.Select(n => "*" + n + "\r\n")),
+                string.Join("", new[] { B, A, Master }.Select(k => "+" + k.Name + "\r\n")));
+            Svc = _mo2.Open();
         }
 
         /// <summary>One plugin in its own mod folder holding one MESG with the 4-byte INAM vanilla carries.</summary>
-        static FormKey Write(string instance, ModKey key, string editorId)
+        FormKey Write(ModKey key, string editorId)
         {
-            var dir = Path.Combine(instance, "mods", key.Name);
-            Directory.CreateDirectory(dir);
             var m = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
             var msg = m.Messages.AddNew(editorId);
             msg.INAM = new byte[4];
-            m.BeginWrite.ToPath(Path.Combine(dir, key.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            m.BeginWrite.ToPath(_mo2.InMod(key.Name, key)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
             return msg.FormKey;
         }
 
@@ -67,7 +53,7 @@ public sealed class EmptyOnCreateTests
         public void Dispose()
         {
             Svc.Dispose();
-            try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
+            _mo2.Delete();
         }
     }
 
@@ -218,10 +204,8 @@ public sealed class EmptyOnCreateTests
     public void Probe_ReachesEveryRecordTypeWithNoAnomaly()
     {
         var asm = typeof(Message).Assembly;
-        var classes = asm.GetTypes()
-            .Where(c => c.IsClass && !c.IsAbstract && typeof(Mutagen.Bethesda.Plugins.Records.IMajorRecord).IsAssignableFrom(c)
-                        && asm.GetType($"{c.Namespace}.I{c.Name}Getter") is not null)
-            .ToList();
+        var classes = HousecarlGenerator.CorpusGenerator.RecordClasses(asm)
+            .Where(c => HousecarlGenerator.CorpusGenerator.GetterInterfaceFor(c) is not null).ToList();
         var anomalies = new List<string>();
         var found = HousecarlGenerator.EmptyOnCreateProbe.Run(classes, anomalies);
         Assert.Empty(anomalies);
