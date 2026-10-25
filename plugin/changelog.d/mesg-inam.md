@@ -1,0 +1,1 @@
+- **Creating a Message, Idle, Camera Path or Package now says which subrecord Mutagen writes empty and what that breaks.** Check: create a bare Message; the result names MESG INAM at 0 bytes.

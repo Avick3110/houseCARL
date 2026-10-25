@@ -437,7 +437,23 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 
 - A target record a parse-excluded plugin overrides after its winner is refused by default-lane apply and by forward (default and in-place), per edit, with `IndexView.ExcludedTouchRefusal`'s sentence: the patch would be built without that plugin's version and could undo its change. In-place apply does not refuse. Contract in docs/architecture/load-order-resolver.md, Exclusion.
 
+- Mutagen writes a few non-nullable fields as 0-byte subrecords on a record it constructs (today MESG INAM, IDLE
+  ANAM, CPTH ANAM, PACK XNAM, FSTS DATA), where vanilla always carries data. houseCARL fills none of them
+  (DECISIONS 2026-10-25 (5)); the create says so, one sentence per subrecord on `CreatedRecord.EmptySubrecords`,
+  hoisted once per kind above the budgeted rows (`empty_subrecords` on the json wire). The write still happens.
+- Membership is generated, not listed: `EmptyOnCreateProbe` (generator) creates every record type bare through the
+  create door, writes it, and lists the 0-byte subrecords into `TypeSchema.EmptyOnCreate` with the fields that fill
+  each. Its one data table is the vanilla 0-byte markers (NPC_ DATA, QUST NEXT, the RACE markers, SCEN HNAM, from
+  Skyrim.esm); a 0-byte subrecord that is neither a marker nor filled by a field is a coverage anomaly. When Mutagen
+  fixes a field the probe stops listing it and the sentence goes with no code change.
+- A field any edit of the create touches is the author's value and silent, an explicit empty included (DECISIONS
+  2026-10-25 (6)). Records read from disk and carried (forward, copy-as-new, merge, compact, in-place re-emit) keep
+  their bytes and carry no sentence: only `CreateRecords` says it.
+
 ## Pinned by
+- `EmptyOnCreateTests` — each probed field written at 0 bytes and named by a bare create and an upsert-replace; an
+  explicit empty and an author value silent; vanilla markers, GLOB / GMST / cell / nested creates silent; forward,
+  merge and compact carry a 4-byte INAM unchanged; the probe lists exactly the class.
 - `InPlaceGuardContractTests` — the `in_place`⇔`target=` contract and the `into=` / `patch=` exclusion on the edit,
   create and remove lanes, and a target that is not an active plugin refused; `ForwardFromPluginTests`'
   `TheInPlaceContractIsRefusedByNameOnTheForwardLane` for the forward lane's three halves.

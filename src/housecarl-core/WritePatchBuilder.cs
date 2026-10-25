@@ -174,6 +174,9 @@ public static class WritePatchBuilder
 
         /// <summary>The file check examined this record; false ⇒ no verify ran and the render says not checked.</summary>
         public bool VerifyAttempted { get; init; }
+
+        /// <summary>One sentence per subrecord Mutagen wrote at 0 bytes on this record and no edit set (<see cref="EmptyOnCreate"/>).</summary>
+        public IReadOnlyList<string> EmptySubrecords { get; init; } = Array.Empty<string>();
     }
 
     /// <summary>The outcome of a <see cref="CreateRecords"/> call; <see cref="Created"/> lists every new record with its allocated FormKey.</summary>
@@ -2736,7 +2739,10 @@ public static class WritePatchBuilder
             var parentKey = parentPlans[i] is { } plan2
                 ? plan2.body?.FormKey ?? plan2.patchParent?.FormKey : null;
             created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops, replaced)
-            { ParentHost = parentHosts[i], ParentContested = parentContested[i], ParentKey = parentKey });
+            {
+                ParentHost = parentHosts[i], ParentContested = parentContested[i], ParentKey = parentKey,
+                EmptySubrecords = EmptyOnCreate.Warnings(rulebook, rec, s.Edits),
+            });
         }
 
         // A nested create overrides its PARENT into the artifact, which forks it like any other override.

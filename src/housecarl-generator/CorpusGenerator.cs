@@ -78,6 +78,7 @@ public static class CorpusGenerator
 
         var seenRecordGetters = new HashSet<Type>();
         var sigByName = new Dictionary<string, string>(StringComparer.Ordinal); // record catalog name -> xEdit 4-char signature
+        var recordClasses = new Dictionary<Type, string>(); // concrete record class -> its catalog name, for the empty-subrecord probe
         foreach (var c in asm.GetTypes())
         {
             if (!c.IsClass || c.IsAbstract) continue;
@@ -88,6 +89,7 @@ public static class CorpusGenerator
             if (seenRecordGetters.Add(gi))
             {
                 seeds.Add(new RefItem(gi, "record", null));
+                recordClasses[c] = CatalogName(gi);
                 // Capture the signature here, where the concrete class is in hand (the BFS below works from
                 // getter interfaces). Verified reachable + correct for all 133 records (Probe.RunSig).
                 var sig = RecordSignature(c);
@@ -164,6 +166,10 @@ public static class CorpusGenerator
         // Attach each record's xEdit signature (captured at seed time, where the concrete class was in hand).
         foreach (var (cname, sig) in sigByName)
             if (catalog.TryGetValue(cname, out var ts)) ts.Signature = sig;
+
+        // Which subrecords Mutagen writes at 0 bytes on a bare new record; a create that leaves one says so.
+        foreach (var (cls, empties) in EmptyOnCreateProbe.Run(recordClasses.Keys.ToList(), CoverageAnomalies))
+            if (catalog.TryGetValue(recordClasses[cls], out var ts)) ts.EmptyOnCreate = empties;
 
         // ---- 3. Assemble + emit. ----
         var corpus = new Corpus

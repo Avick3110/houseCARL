@@ -35,6 +35,16 @@ public sealed class TypeSchema
     public int WritableCount { get; set; }
 
     public List<FieldSchema> Fields { get; set; } = new();
+
+    /// <summary>For a record: the subrecords Mutagen writes at 0 bytes on a new record of this type that vanilla never carries empty, found by the generator's bare-construct probe.</summary>
+    public List<EmptySubrecord>? EmptyOnCreate { get; set; }
+}
+
+/// <summary>One subrecord a bare new record is written with at 0 bytes, and the fields whose value fills it.</summary>
+public sealed class EmptySubrecord
+{
+    public string Subrecord { get; set; } = "";
+    public List<string> Fields { get; set; } = new();
 }
 
 public sealed class FieldSchema
