@@ -27,7 +27,8 @@ public sealed class NewFileTextEncodingTests : IDisposable
     const string OverName = "Hache élevée";
 
     const string Legacy = "HcMuLegacy.esp", Jp = "HcMuJp.esp", Accent = "HcMuAccent.esp", JpOnly = "HcMuJpOnly.esp",
-                 Over = "HcMuOver.esp", Back = "HcMuBack.esp", Owned = "HcMuOwned.esp", Ascii = "HcMuAscii.esp";
+                 Over = "HcMuOver.esp", Back = "HcMuBack.esp", Owned = "HcMuOwned.esp", Ascii = "HcMuAscii.esp",
+                 CellPlugin = "HcMuCell.esp";
 
     static readonly Encoding Cp1252 = CodePagesEncodingProvider.Instance.GetEncoding(1252)!;
     static readonly Encoding Cp932 = CodePagesEncodingProvider.Instance.GetEncoding(932)!;
@@ -36,7 +37,7 @@ public sealed class NewFileTextEncodingTests : IDisposable
 
     readonly string _root = Path.Combine(Path.GetTempPath(), "hc-newfile-text-" + Guid.NewGuid().ToString("N"));
     readonly List<LoadOrderService> _services = new();
-    FormKey _legacyWeap, _legacyPlain, _jpWeap, _accentWeap, _jpOnlyWeap, _ownedDrop, _asciiWeap;
+    FormKey _legacyWeap, _legacyPlain, _jpWeap, _accentWeap, _jpOnlyWeap, _ownedDrop, _asciiWeap, _cell;
 
     public void Dispose()
     {
@@ -70,7 +71,7 @@ public sealed class NewFileTextEncodingTests : IDisposable
 
     /// <summary>The world, under <paramref name="sLanguage"/>: a Windows-1252 plugin, UTF-8 plugins holding Japanese and
     /// Latin, Latin only and Japanese only, a UTF-8 override of the 1252 plugin's weapon, a Windows-1252 override of the
-    /// UTF-8 Latin weapon, and a houseCARL patch written UTF-8, and an all-ASCII plugin.</summary>
+    /// UTF-8 Latin weapon, and a houseCARL patch written UTF-8, an all-ASCII plugin, and a UTF-8 interior cell.</summary>
     LoadOrderService Open(string sLanguage)
     {
         Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
@@ -118,7 +119,17 @@ public sealed class NewFileTextEncodingTests : IDisposable
         _asciiWeap = AddWeapon(ascii, "HcMuAsciiWeap", "Iron Sword").FormKey;
         Write(ascii, Path.Combine(ModDir("AsciiMod"), Ascii), Utf8Bundle);
 
-        var plugins = new[] { Legacy, Jp, Accent, JpOnly, Over, Back, Owned, Ascii };
+        var cellMod = NewMod(CellPlugin);
+        var cell = new Cell(cellMod.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcMuCell", Name = LatinName, Flags = Cell.Flag.IsInteriorCell };
+        var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+        sub.Cells.Add(cell);
+        var block = new CellBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock };
+        block.SubBlocks.Add(sub);
+        cellMod.Cells.Records.Add(block);
+        _cell = cell.FormKey;
+        Write(cellMod, Path.Combine(ModDir("CellMod"), CellPlugin), Utf8Bundle);
+
+        var plugins = new[] { Legacy, Jp, Accent, JpOnly, Over, Back, Owned, Ascii, CellPlugin };
         File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
@@ -127,7 +138,7 @@ public sealed class NewFileTextEncodingTests : IDisposable
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + string.Concat(plugins.Select(n => n + "\r\n")));
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), string.Concat(plugins.Select(n => "*" + n + "\r\n")));
         File.WriteAllText(Path.Combine(prof, "modlist.txt"),
-            "# header\r\n+AsciiMod\r\n+OwnedMod\r\n+BackMod\r\n+OverMod\r\n+JpOnlyMod\r\n+AccentMod\r\n+JpMod\r\n+LegacyMod\r\n");
+            "# header\r\n+CellMod\r\n+AsciiMod\r\n+OwnedMod\r\n+BackMod\r\n+OverMod\r\n+JpOnlyMod\r\n+AccentMod\r\n+JpMod\r\n+LegacyMod\r\n");
         File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), $"[General]\r\nsLanguage={sLanguage}\r\n");
         var svc = LoadOrderService.WithInstance(Instance, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
         _services.Add(svc);
@@ -402,6 +413,19 @@ public sealed class NewFileTextEncodingTests : IDisposable
             into: "HcMuLanePatch.esp"));
         Assert.True(HoldsUtf8(path, OverName), "the copied UTF-8 name is not UTF-8");
         Assert.True(HoldsUtf8(path, LatinName), "the patch's own name stayed Windows-1252 in a UTF-8 file");
+    }
+
+    /// <summary>A nested record (an interior cell) copied into a new patch through the link-cache context carries its
+    /// UTF-8 name as UTF-8.</summary>
+    [Fact]
+    public void AnEnglishPatchOverAUtf8CellKeepsItsName()
+    {
+        var svc = Open("ENGLISH");
+        Assert.DoesNotContain("error:", ApplyTools.Apply(svc, ops: Je(
+            $@"[{{""formid"":""{Fid(_cell)}"",""field_path"":""EditorID"",""op"":""Set"",""value"":""HcMuCellEdited""}}]"),
+            patch: "HcMuCellPatch"));
+        Assert.True(HoldsUtf8(Output("HcMuCellPatch.esp"), LatinName), "the cell's name is not UTF-8");
+        Assert.False(Holds1252(Output("HcMuCellPatch.esp"), LatinName), "the cell's name went Windows-1252");
     }
 
     // ---- the copy scope -----------------------------------------------------------------------------
