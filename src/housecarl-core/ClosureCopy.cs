@@ -91,7 +91,7 @@ public static class ClosureCopy
 
         // Duplicate + remap in a SCRATCH mod sharing the patch's ModKey, then transplant.
         var scratch = new SkyrimMod(patch.ModKey, SkyrimRelease.SkyrimSE);
-        var ren = RemapEngine.RenumberRecordsInto(scratch, nodes.Select(n => n.Body), map, isFaction);
+        var ren = PluginTextEncoding.CopyInto(patch, () => RemapEngine.RenumberRecordsInto(scratch, nodes.Select(n => n.Body), map, isFaction));
         if (!ren.Success)
             return CopyResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant, ren.Error!));
 

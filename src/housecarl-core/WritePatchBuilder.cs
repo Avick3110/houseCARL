@@ -439,7 +439,7 @@ public static class WritePatchBuilder
                 // CopyFrom transplants the field FROM the source body into ov; every other verb applies to ov directly.
                 string? applyNote = null;
                 if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
-                    WriteEngine.CopyField(srcBody!, ov, req.Path);
+                    PluginTextEncoding.CopyInto(patchMod, () => WriteEngine.CopyField(srcBody!, ov, req.Path));
                 else
                     applyNote = WriteEngine.ApplyVerb(ov, req);
                 var (after, landed, _, _, display) = DescribeApplied(ov, req);
@@ -2138,7 +2138,7 @@ public static class WritePatchBuilder
                 overlays.Add((IDisposable)mov); resolved.Add(mov);
             }
             // P′ has LOCALIZED cleared, so its serialize emits no string tables.
-            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir, isFaction: null); }
+            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir, isFaction: null, textOf: srcPath); }
             catch (Exception ex)
             {
                 return CompactBuildResult.Fail(
@@ -2198,7 +2198,7 @@ public static class WritePatchBuilder
                 if (!string.IsNullOrWhiteSpace(ov.ModHeader.Author) || !string.IsNullOrWhiteSpace(ov.ModHeader.Description))
                     headerMetaDonors.Add(name);
             }
-            mr = RemapEngine.MergeModsInto(m, mods, dict, isFaction);
+            mr = PluginTextEncoding.CopyInto(m, () => RemapEngine.MergeModsInto(m, mods, dict, isFaction));
         }
         finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* best-effort */ } } }
         if (!mr.Success) return MergeBuildResult.Fail(mr.Error!);
@@ -2252,11 +2252,12 @@ public static class WritePatchBuilder
                 }
                 masterOverlays.Add((IDisposable)mov); resolved.Add(mov);
             }
-            try { WriteEngine.WriteInPlace(m, resolved, outPath, dataDir, isFaction: null); }
+            try { WriteEngine.WriteMerged(m, resolved, outPath, dataDir); }
             catch (Exception ex)
             {
                 return MergeBuildResult.Fail(
-                    $"writing the merged plugin failed (serialize or commit; nothing partial left): {WriteEngine.Describe(ex)}.");
+                    $"houseCARL did not write the merged plugin '{outKey.FileName}' and left nothing behind: {ex.Message}"
+                    + (ex.InnerException is { } inner ? $" ({inner.Message})" : ""));
             }
         }
         finally { foreach (var d in masterOverlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }
