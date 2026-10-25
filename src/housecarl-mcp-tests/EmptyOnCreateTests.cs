@@ -78,6 +78,7 @@ public sealed class EmptyOnCreateTests
     [InlineData("IdleAnimation", "IDLE", "ANAM")]
     [InlineData("CameraPath", "CPTH", "ANAM")]
     [InlineData("Package", "PACK", "XNAM")]
+    [InlineData("FootstepSet", "FSTS", "DATA")]
     public void BareCreate_WritesTheEmptySubrecordAndSaysSo(string type, string recSig, string sig)
     {
         using var w = new World();
@@ -116,6 +117,59 @@ public sealed class EmptyOnCreateTests
 
         Assert.Equal(new[] { 0 }, Lengths(o.OutputPath, k => k == rec.FormKey, "INAM"));
         Assert.Empty(rec.EmptySubrecords);
+    }
+
+    // An edit of an unrelated field does not silence it: only the probed field's own edit does.
+    [Fact]
+    public void UnrelatedEdit_StillSaysSo()
+    {
+        using var w = new World();
+        var o = w.Create("Message", "HcEoUnrelated", null, Set("Description", "Hello"));
+        var rec = Created(o);
+
+        Assert.Equal(new[] { 0 }, Lengths(o.OutputPath, k => k == rec.FormKey, "INAM"));
+        Assert.Contains("MESG INAM at 0 bytes", Assert.Single(rec.EmptySubrecords));
+    }
+
+    /// <summary>One batch of <paramref name="count"/> bare Messages into one fresh patch.</summary>
+    static WritePatchBuilder.CreateOutcome CreateMessages(World w, string prefix, int count)
+    {
+        var o = w.Svc.CreateRecordsBatch(Enumerable.Range(0, count)
+            .Select(i => new CreateOp { RecordType = "Message", Editorid = prefix + i }).ToArray(), prefix, null);
+        Assert.True(o.Success, o.Error);
+        Assert.Equal(count, o.Created.Count);
+        return o;
+    }
+
+    static int Occurrences(string haystack, string needle) =>
+        (haystack.Length - haystack.Replace(needle, "").Length) / needle.Length;
+
+    // A batch of bare records of one type says the line once, in text and json.
+    [Fact]
+    public void BatchOfOneType_SaysTheLineOnce()
+    {
+        using var w = new World();
+        var o = CreateMessages(w, "HcEoBatch", 3);
+
+        Assert.All(o.Created, c => Assert.Single(c.EmptySubrecords));
+        Assert.Single(o.EmptySubrecordLines);
+        Assert.Equal(1, Occurrences(WriteTools.RenderCreate(o, 20000), "MESG INAM at 0 bytes"));
+        Assert.Equal(1, Occurrences(JsonWire.RenderCreateOutcome(o, 20000, readback: false, lane: "patch"), "MESG INAM at 0 bytes"));
+    }
+
+    // A max_chars that cuts the created rows keeps the line: the text's `!` line and the json's empty_subrecords.
+    [Fact]
+    public void RowCut_KeepsTheLine()
+    {
+        using var w = new World();
+        var o = CreateMessages(w, "HcEoCut", 40);
+
+        // A cap below the header cuts before the first row, so the line cannot ride on a listed row.
+        var text = WriteTools.RenderCreate(o, 10);
+        Assert.Contains("[truncated: 0 of 40 ", text);
+        Assert.Contains("  ! Mutagen writes MESG INAM at 0 bytes", text);
+        var json = System.Text.Json.JsonDocument.Parse(JsonWire.RenderCreateOutcome(o, 10, readback: false, lane: "patch")).RootElement;
+        Assert.Contains("MESG INAM at 0 bytes", Assert.Single(json.GetProperty("empty_subrecords").EnumerateArray()).GetString());
     }
 
     // An author's value fills it: the bytes are the author's, and nothing is said.
@@ -223,6 +277,12 @@ public sealed class EmptyOnCreateTests
         Assert.Equal(new[] { "CPTH.ANAM", "FSTS.DATA", "IDLE.ANAM", "MESG.INAM", "PACK.XNAM" }, listed);
         Assert.Null(corpus.Types["Npc"].EmptyOnCreate);
         Assert.Null(corpus.Types["Race"].EmptyOnCreate);
+        // Every field whose fill makes it non-empty, per member.
         Assert.Equal(new[] { "INAM" }, corpus.Types["Message"].EmptyOnCreate![0].Fields);
+        Assert.Equal(new[] { "RelatedIdles" }, corpus.Types["IdleAnimation"].EmptyOnCreate![0].Fields);
+        Assert.Equal(new[] { "RelatedPaths" }, corpus.Types["CameraPath"].EmptyOnCreate![0].Fields);
+        Assert.Equal(new[] { "XnamMarker" }, corpus.Types["Package"].EmptyOnCreate![0].Fields);
+        Assert.Equal(new[] { "RunForwardAlternateFootsteps", "RunForwardFootsteps", "WalkForwardAlternateFootsteps",
+            "WalkForwardAlternateFootsteps2", "WalkForwardFootsteps" }, corpus.Types["FootstepSet"].EmptyOnCreate![0].Fields);
     }
 }
