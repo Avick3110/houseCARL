@@ -111,6 +111,10 @@ internal sealed class DialogueCkParityWorld : IDisposable
     public static float? ReadTopicPriority(string patchPath, FormKey fk) =>
         Read(patchPath, ov => ov.DialogTopics.FirstOrDefault(x => x.FormKey == fk)?.Priority);
 
+    /// <summary>A written Message's INAM as hex, empty when the subrecord was written 0 bytes long.</summary>
+    public static string? ReadMessageInam(string patchPath, FormKey fk) =>
+        Read(patchPath, ov => ov.Messages.FirstOrDefault(x => x.FormKey == fk) is { } m ? Convert.ToHexString(m.INAM.ToArray()) : null);
+
     /// <summary>A written Quest's NextAliasID (ANAM), null when the subrecord is absent.</summary>
     public static uint? ReadQuestNextAliasId(string patchPath, FormKey fk) =>
         Read(patchPath, ov => ov.Quests.FirstOrDefault(x => x.FormKey == fk)?.NextAliasID);
