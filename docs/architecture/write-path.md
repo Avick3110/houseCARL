@@ -67,12 +67,18 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   copy onto a target), CopyFrom's field, the closure copy's renumber, and the merge's build. The provenance is text
   decoded inside the copy, so an override whose own name is Windows-1252 keeps it whatever its record's origin, and a
   localized plugin's tables count only where they count toward its lane (English). Text decoded before the copy does
-  not count: the copy lane's owner-rank settle deep-copies a container, NPC or leveled list whose entry has a faction
-  owner before the scope opens, so a clone of one goes out in the code page. Text decoded during the copy counts even
+  not count: the copy lane's source chain (`RecordCopy.cs`, through `OwnerRanks.Settled`) deep-copies, before the
+  scope opens, every record it fetches, root or dependency, attach or clone, that holds an entry whose owner Mutagen
+  left untyped and the faction test resolves to a faction. That record's text does not mark the file, so the file goes
+  out in the code page unless something else marks it or the code page cannot spell its text (then the second pass
+  writes it UTF-8). Text decoded during the copy counts even
   when it is not kept: a merge whose UTF-8 donor loses every non-ASCII record to a Windows-1252 donor goes out UTF-8.
-  This rule replaces 2.0.1's (a new file is UTF-8 if any plugin that contributed a record to it resolved as UTF-8)
-  and changes two outputs on purpose: a merge of a UTF-8 and a Windows-1252 donor rewrites the Windows-1252 donor's
-  text as UTF-8, and a patch over a Windows-1252 override of a UTF-8 plugin's record stays Windows-1252. A merge keeps the in-place shape
+  This rule replaces 2.0.1's (a new file is UTF-8 if its own name, a master's, or a record's origin resolved as UTF-8)
+  and changes three outputs on purpose: a merge of a UTF-8 and a Windows-1252 donor rewrites the Windows-1252 donor's
+  text as UTF-8; a patch over a Windows-1252 override of a UTF-8 plugin's record stays Windows-1252; and, with the
+  master-name and record-origin arms gone, a file whose only tie to a UTF-8 plugin is mastering it or holding a record
+  it defines goes out in the code page when that can spell its text, so an `into=` patch mastering a UTF-8 plugin
+  keeps its own Windows-1252 text. A merge keeps the in-place shape
   (own masters, the counter verbatim, no baseline) but none of its encoding: no file of its name was read.
 - Every lane that rewrites a file it read runs the round-trip check in `SubrecordInventory` before any op touches
   it, dry run included: apply, create, remove and forward in place; apply, create, forward, copy and remove on an
@@ -112,8 +118,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   parse, cannot be read, or the walk faults — the call is refused in the check's own sentence, never passed. A serialize
   fault on an in-place lane is reported as one the write would meet the same way; on an `into=` lane, whose write goes
   through another chain, it is reported as the check not running.
-  A localized target is not walked: the service lanes refuse it before consent and `WriteInPlace` (compaction's copy
-  included), `WriteMerged` and `WritePatch` refuse it before staging, so no write the check could stop lands. The header is out of scope (unused masters are
+  A localized target is not walked: the service lanes refuse it before consent and `WriteInPlace`, `WriteMerged` and
+  `WritePatch` refuse it before staging, so no write the check could stop lands. Compaction never reaches that guard:
+  in place it is refused at the service, and the new-file lane clears LOCALIZED in `CompactBuild` and writes the
+  plugin de-localized. The header is out of scope (unused masters are
   dropped there on purpose). Merge, a compact into a new plugin and a fresh patch do not run it: their output is a new
   file whose content is the parse, which is the read half of #961, not a write that destroys the original. The check
   reads the target through the full parse while the in-place compact copies from the overlay, so on compact it
