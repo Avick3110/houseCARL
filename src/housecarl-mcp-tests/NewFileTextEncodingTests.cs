@@ -139,13 +139,7 @@ public sealed class NewFileTextEncodingTests : IDisposable
 
     string Output(string plugin) => Directory.GetFiles(Mods, plugin, SearchOption.AllDirectories).Single();
 
-    static bool Holds(string path, byte[] needle)
-    {
-        var hay = File.ReadAllBytes(path);
-        for (int i = 0; i + needle.Length <= hay.Length; i++)
-            if (hay.AsSpan(i, needle.Length).SequenceEqual(needle)) return true;
-        return false;
-    }
+    static bool Holds(string path, byte[] needle) => File.ReadAllBytes(path).AsSpan().IndexOf(needle) >= 0;
 
     static bool HoldsUtf8(string path, string text) => Holds(path, Encoding.UTF8.GetBytes(text));
     static bool Holds1252(string path, string text) => Holds(path, Cp1252.GetBytes(text));

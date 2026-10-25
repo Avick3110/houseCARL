@@ -56,7 +56,7 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   could not answer, and a did-not-land verdict only off a walk that succeeded. Never the applied in-memory value.
   An opaque `bytes` leaf re-reads as a byte count with its structure NOT checked.
 - A file's text encoding follows whose text it carries, never a file name standing in for it. A file rewritten from
-  its own text (in place, or compacted to a copy that keeps its basename) keeps the lane its read resolved to
+  its own text (in place, or compacted to a copy that keeps its basename, so its lane, keyed by that name, is the source's) keeps the lane its read resolved to
   (`PluginTextEncoding.WriteInPlace`) and refuses a value that lane cannot spell; an all-ASCII file there takes the
   language's code page, UTF-8 only in a language with none (DECISIONS 2026-10-25 (11)). Every other file is new
   text: a patch (`WritePatch`, `NewFileIsUtf8`) and a merge (`WriteEngine.WriteMerged`, `MergedIsUtf8`) go out UTF-8

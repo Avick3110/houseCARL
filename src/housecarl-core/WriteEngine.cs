@@ -1387,20 +1387,19 @@ public static class WriteEngine
 
     /// <summary>Serialize a plugin edited IN PLACE back over ITSELF. DELIBERATELY NOT <see cref="WritePatch"/>: no
     /// baseline force-include and no floor, because this re-emits an EXISTING authored plugin. The caller MUST have
-    /// released every overlay it holds on the target; see docs/architecture/write-path.md. <paramref name="textOf"/> is
-    /// the plugin whose own text this is when that is not the target (a compacted copy's source), whose lane it keeps.</summary>
+    /// released every overlay it holds on the target; see docs/architecture/write-path.md.</summary>
     public static void WriteInPlace(SkyrimMod targetMod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath,
-                                    string? dataDir, Func<FormKey, bool>? isFaction, string? textOf = null)
-        => WriteOwnShape(targetMod, ownMasters, outputPath, dataDir, isFaction, textOf ?? outputPath);
+                                    string? dataDir, Func<FormKey, bool>? isFaction)
+        => WriteOwnShape(targetMod, ownMasters, outputPath, dataDir, isFaction, merged: false);
 
     /// <summary>Serialize a MERGE: a new file in the in-place shape (own masters, counter verbatim, no baseline), whose
     /// encoding is the new-file rule's, since its text is its donors' and no file of its name was read.</summary>
     public static void WriteMerged(SkyrimMod merged, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath, string? dataDir)
-        => WriteOwnShape(merged, ownMasters, outputPath, dataDir, isFaction: null, textOf: null);
+        => WriteOwnShape(merged, ownMasters, outputPath, dataDir, isFaction: null, merged: true);
 
-    /// <summary>The in-place shape's write; a null <paramref name="textOf"/> is a merge, else the plugin whose lane the text keeps.</summary>
+    /// <summary>The in-place shape's write: a merge takes the new-file encoding, anything else its own file's lane.</summary>
     static void WriteOwnShape(SkyrimMod targetMod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath,
-                              string? dataDir, Func<FormKey, bool>? isFaction, string? textOf)
+                              string? dataDir, Func<FormKey, bool>? isFaction, bool merged)
     {
         var expected = targetMod.ModKey.FileName.String;
         var actual = Path.GetFileName(outputPath);
@@ -1420,7 +1419,7 @@ public static class WriteEngine
         // Same composed-null-arm serialize guard as WritePatch — an in-place edit can compose a record too.
         if (isFaction is not null) OwnerRanks.Settle(targetMod, isFaction);   // the lane's faction test, for every owner its records brought in; null only where the caller settled already or has no owners
         string staged;
-        try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath, textOf); }
+        try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath, merged); }
         // A value this file's own encoding cannot spell: in place there is no second pass, so this is a refusal.
         catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is { } bad)
         {
@@ -1446,17 +1445,17 @@ public static class WriteEngine
     };
 
     /// <summary>Stage 1 of the in-place write: own declared masters, the counter verbatim with NO floor, no baseline, staged in the sibling temp.</summary>
-    static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath, string? textOf)
+    static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath, bool merged)
     {
         var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
         var tmpPath = Path.Combine(tmpDir, Path.GetFileName(outputPath));
         Directory.CreateDirectory(tmpDir);
         try
         {
-            if (textOf is null)
+            if (merged)
                 SerializeNew(PluginTextEncoding.MergedIsUtf8(targetMod), tmpPath, e => SerializeInPlace(targetMod, ordered, tmpPath, null, e));
             else
-                SerializeInPlace(targetMod, ordered, tmpPath, null, PluginTextEncoding.WriteInPlace(textOf));
+                SerializeInPlace(targetMod, ordered, tmpPath, null, PluginTextEncoding.WriteInPlace(outputPath));
             return tmpPath;
         }
         catch
