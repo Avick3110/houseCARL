@@ -64,9 +64,12 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   when that cannot spell a value; a merge in a language with no code page is UTF-8 outright, as xEdit's is, and an
   `into=` patch whose own read was UTF-8 stays UTF-8. A copy is any record or field taken out of a plugin into the
   file, each run through `PluginTextEncoding.CopyInto`: `GenericGetOrAddAsOverride` (apply, forward, create's parents,
-  copy onto a target), CopyFrom's field, the closure copy's renumber, and the merge's build. The provenance is the
-  copied text itself, so an override whose own name is Windows-1252 keeps it whatever its record's origin, and a
-  localized plugin's tables count only where they count toward its lane (English). A merge keeps the in-place shape
+  copy onto a target), CopyFrom's field, the closure copy's renumber, and the merge's build. The provenance is text
+  decoded inside the copy, so an override whose own name is Windows-1252 keeps it whatever its record's origin, and a
+  localized plugin's tables count only where they count toward its lane (English). Text decoded before the copy does
+  not count: the copy lane's owner-rank settle deep-copies a container, NPC or leveled list whose entry has a faction
+  owner before the scope opens, so a clone of one goes out in the code page. Text decoded during the copy counts even
+  when it is not kept: a merge whose UTF-8 donor loses every non-ASCII record to a Windows-1252 donor goes out UTF-8. A merge keeps the in-place shape
   (own masters, the counter verbatim, no baseline) but none of its encoding: no file of its name was read.
 - Every lane that rewrites a file it read runs the round-trip check in `SubrecordInventory` before any op touches
   it, dry run included: apply, create, remove and forward in place; apply, create, forward, copy and remove on an
