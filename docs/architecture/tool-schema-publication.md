@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-08
-covers: [src/housecarl-mcp/ToolSchemas.cs, src/housecarl-mcp/NestedSchemaConstraints.cs, src/housecarl-mcp/SchemaDepthCap.cs, src/housecarl-mcp/Program.cs]
+updated: 2026-10-25
+covers: [src/housecarl-mcp/ToolSchemas.cs, src/housecarl-mcp/NestedSchemaConstraints.cs, src/housecarl-mcp/SchemaDepthCap.cs, src/housecarl-mcp/Program.cs, src/housecarl-mcp/SupportedPlatform.cs]
 ---
 # Tool schema publication
 
@@ -208,6 +208,17 @@ provider the cap was set for.
 The cap applies to the server entry, not to a model, so every model behind that entry gets the cut
 schemas; two entries split them.
 
+### The platform refusal
+
+The depth read is the second start-up refusal, not the first. Before it, `Program.cs` asks
+`SupportedPlatform.Refusal` whether this OS is supported; off Windows it writes one sentence to stderr (the client's
+MCP log), saying to run houseCARL on Windows and linking #1256, and exits 1 before the depth read and before the host
+builds. stdout stays empty. Loose-asset paths are not sound off Windows yet, so every asset answer there would be
+silently wrong (#1256). It fires only on a native non-Windows .NET start of the dll: the shipped
+`housecarl-mcp.exe` never execs on Linux or macOS, so the user gets the host's spawn failure instead, and under
+Wine or Proton `OperatingSystem.IsWindows()` is true, so the start passes. The OS fact is read through the internal
+`SupportedPlatform.IsWindows` seam, which only a test swaps; it is not a setting.
+
 ### The server instructions and the 2,048 cut
 
 Claude Code delivers the first 2,048 characters of the `initialize` instructions (characters of the string) and
@@ -245,6 +256,9 @@ with deferred tools a session sees only tool names up front, so the instructions
   `AtTheShallowestCapEveryParameterStillPublishesTheTypeItPublishedUncut` and
   `AtTheShallowestCapAMissingRequiredParameterIsStillRefusedByName` — the floor of 4;
   `AnInvalidDepthIsRefusedAtStartupInOneSentence` — a value below the floor refuses the server's start.
+- *The platform refusal*: `SupportedPlatformTests.ANonWindowsStartIsRefusedInOneSentence` and
+  `AWindowsStartIsNotRefused` — the sentence and the Windows pass; `SupportedPlatformEntryTests.TheEntryPointRefusesANonWindowsStart`
+  — the `Program.cs` gate itself, run in-process with the seam swapped, so dropping it fails on Windows CI.
 
 ## Where
 
