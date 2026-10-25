@@ -4,6 +4,13 @@ using ModelContextProtocol.Protocol;
 // houseCARL MCP server over stdio. It reads the active load order statically from the configured MO2 instance, and an
 // empty config still boots.
 
+// Windows only for now: on any other OS the server refuses here, before any tool can answer.
+if (SupportedPlatform.Refusal(OperatingSystem.IsWindows()) is { } wrongOs)
+{
+    Console.Error.WriteLine(wrongOs);
+    return 1;
+}
+
 // The optional cut on the published schemas, read before the host is built; a bad value stops the start here.
 int? maxSchemaDepth;
 try
@@ -37,7 +44,7 @@ else
         explicitMode ? "explicit configured paths" : $"MO2 instance '{instanceDir}' [{instanceSource}]");
 await app.RunAsync();
 
-return 0;   // the refusal above returns 1, so the exit code is spelled on both paths
+return 0;   // the refusals above return 1, so the exit code is spelled on both paths
 
 // Setup, split out of the top-level flow.
 

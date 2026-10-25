@@ -1,0 +1,1 @@
+- **On Linux or macOS houseCARL now says it runs on Windows only and exits, instead of answering wrongly.** Check: start it there; one sentence naming issue #1256, no tools.
