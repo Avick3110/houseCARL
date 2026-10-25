@@ -451,9 +451,11 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   their bytes and carry no sentence: only `CreateRecords` says it.
 
 ## Pinned by
-- `EmptyOnCreateTests` — each probed field written at 0 bytes and named by a bare create and an upsert-replace; an
-  explicit empty and an author value silent; vanilla markers, GLOB / GMST / cell / nested creates silent; forward,
-  merge and compact carry a 4-byte INAM unchanged; the probe lists exactly the class.
+- `EmptyOnCreateTests` — each of the five probed fields written at 0 bytes and named by a bare create (text and json);
+  a Message upsert-replace and a Message create editing an unrelated field still name INAM; an explicit empty and an
+  author value silent; a batch of one type says the line once, and a row cut keeps it (text and json); vanilla
+  markers, GLOB / GMST / interior cell / nested creates silent; forward, merge and compact carry a 4-byte INAM
+  unchanged; the probe reaches every record type with no anomaly and lists exactly the class with each member's fields.
 - `InPlaceGuardContractTests` — the `in_place`⇔`target=` contract and the `into=` / `patch=` exclusion on the edit,
   create and remove lanes, and a target that is not an active plugin refused; `ForwardFromPluginTests`'
   `TheInPlaceContractIsRefusedByNameOnTheForwardLane` for the forward lane's three halves.
