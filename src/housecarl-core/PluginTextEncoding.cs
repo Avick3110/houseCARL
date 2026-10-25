@@ -322,7 +322,8 @@ public static class PluginTextEncoding
         public int GetBytes(ReadOnlySpan<char> chars, Span<byte> bytes) => throw Unsupported();
 
         static NotSupportedException Unsupported() =>
-            new("read encoding; a write picks its encoding per file through PluginTextEncoding.WriteInPlace, NewFileIsUtf8 or MergedIsUtf8");
+            new("read encoding; a write picks its encoding per file: WriteEngine.WriteInPlace (in place, or a compacted copy) "
+              + "embeds PluginTextEncoding.WriteInPlace, and WritePatch and WriteMerged pick theirs in WriteEngine.SerializeNew");
 
         static bool HasNonAscii(ReadOnlySpan<byte> bytes)
         {

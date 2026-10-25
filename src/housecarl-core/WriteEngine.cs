@@ -1385,8 +1385,9 @@ public static class WriteEngine
         catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
-    /// <summary>Serialize a plugin edited IN PLACE back over ITSELF. DELIBERATELY NOT <see cref="WritePatch"/>: no
-    /// baseline force-include and no floor, because this re-emits an EXISTING authored plugin. The caller MUST have
+    /// <summary>Serialize a plugin rewritten from its OWN text: edited IN PLACE back over ITSELF, or compacted to a copy
+    /// that keeps its basename. DELIBERATELY NOT <see cref="WritePatch"/>: no baseline force-include and no floor,
+    /// because this re-emits an EXISTING authored plugin. The caller MUST have
     /// released every overlay it holds on the target; see docs/architecture/write-path.md.</summary>
     public static void WriteInPlace(SkyrimMod targetMod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath,
                                     string? dataDir, Func<FormKey, bool>? isFaction)
