@@ -169,6 +169,9 @@ public sealed class EmptyOnCreateTests
         Assert.Contains("[truncated: 0 of 40 ", text);
         Assert.Contains("  ! Mutagen writes MESG INAM at 0 bytes", text);
         var json = System.Text.Json.JsonDocument.Parse(JsonWire.RenderCreateOutcome(o, 10, readback: false, lane: "patch")).RootElement;
+        // The json rows were in fact cut, so the line did not ride on a listed row there either.
+        Assert.Equal(40, json.GetProperty("total_created").GetInt32());
+        Assert.True(json.GetProperty("created").GetArrayLength() < 40);
         Assert.Contains("MESG INAM at 0 bytes", Assert.Single(json.GetProperty("empty_subrecords").EnumerateArray()).GetString());
     }
 
