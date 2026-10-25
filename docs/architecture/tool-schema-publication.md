@@ -213,8 +213,9 @@ schemas; two entries split them.
 The depth read is the second start-up refusal, not the first. Before it, `Program.cs` asks
 `SupportedPlatform.Refusal` whether this OS is supported; off Windows it writes one sentence to stderr (the client's
 MCP log), saying to run houseCARL on Windows and linking #1256, and exits 1 before the depth read and before the host
-builds. stdout stays empty. Loose-asset paths are not sound off Windows yet, so every asset answer there would be
-silently wrong (#1256). It fires only on a native non-Windows .NET start of the dll: the shipped
+builds. stdout stays empty. Path handling off Windows is unsound beyond loose assets (plugin, record and Papyrus-root
+paths, and where writes land), so answers there could be silently wrong; the refusal lifts only with full Linux
+support, not with any one path fix (#1256). It fires only on a native non-Windows .NET start of the dll: the shipped
 `housecarl-mcp.exe` never execs on Linux or macOS, so the user gets the host's spawn failure instead, and under
 Wine or Proton `OperatingSystem.IsWindows()` is true, so the start passes. The OS fact is read through the internal
 `SupportedPlatform.IsWindows` seam, which only a test swaps; it is not a setting.

@@ -1,6 +1,6 @@
 namespace HousecarlMcp;
 
-/// <summary>The start-up refusal on a non-Windows OS, where every loose-asset answer would be silently wrong until Linux is supported (#1256).</summary>
+/// <summary>The start-up refusal on a non-Windows OS, where path handling (loose assets, plugins, records, Papyrus roots, write targets) is unsound and answers could be silently wrong; it lifts only with full Linux support (#1256).</summary>
 internal static class SupportedPlatform
 {
     /// <summary>The OS fact the start reads. Internal, not a setting: only a test swaps it, to run the real entry point as non-Windows.</summary>
