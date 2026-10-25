@@ -43,13 +43,13 @@ public sealed class SupportedPlatformEntryTests
     public void TheEntryPointRefusesANonWindowsStart()
     {
         var entry = ToolSurface.Assembly.EntryPoint!;
-        var (realIn, realOut, realErr, realOs) = (Console.In, Console.Out, Console.Error, SupportedPlatform.IsWindows);
+        var (realOut, realErr, realOs) = (Console.Out, Console.Error, SupportedPlatform.IsWindows);
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         try
         {
             SupportedPlatform.IsWindows = () => false;
-            Console.SetIn(TextReader.Null);   // without the gate the stdio server reads EOF and stops, not hangs
+            // Without the gate the server serves the runner's raw stdin and returns only at its EOF; the 30 s wait bounds that.
             Console.SetOut(stdout);
             Console.SetError(stderr);
             var run = Task.Run(() => entry.Invoke(null, [Array.Empty<string>()]) switch
@@ -64,7 +64,6 @@ public sealed class SupportedPlatformEntryTests
         finally
         {
             SupportedPlatform.IsWindows = realOs;
-            Console.SetIn(realIn);
             Console.SetOut(realOut);
             Console.SetError(realErr);
         }
