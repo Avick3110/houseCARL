@@ -69,7 +69,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   localized plugin's tables count only where they count toward its lane (English). Text decoded before the copy does
   not count: the copy lane's owner-rank settle deep-copies a container, NPC or leveled list whose entry has a faction
   owner before the scope opens, so a clone of one goes out in the code page. Text decoded during the copy counts even
-  when it is not kept: a merge whose UTF-8 donor loses every non-ASCII record to a Windows-1252 donor goes out UTF-8. A merge keeps the in-place shape
+  when it is not kept: a merge whose UTF-8 donor loses every non-ASCII record to a Windows-1252 donor goes out UTF-8.
+  This rule replaces 2.0.1's (a new file is UTF-8 if any plugin that contributed a record to it resolved as UTF-8)
+  and changes two outputs on purpose: a merge of a UTF-8 and a Windows-1252 donor rewrites the Windows-1252 donor's
+  text as UTF-8, and a patch over a Windows-1252 override of a UTF-8 plugin's record stays Windows-1252. A merge keeps the in-place shape
   (own masters, the counter verbatim, no baseline) but none of its encoding: no file of its name was read.
 - Every lane that rewrites a file it read runs the round-trip check in `SubrecordInventory` before any op touches
   it, dry run included: apply, create, remove and forward in place; apply, create, forward, copy and remove on an
