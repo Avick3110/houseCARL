@@ -55,6 +55,19 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - A write response states only what it re-read from the written FILE: the file's value, `not-checked` where the file
   could not answer, and a did-not-land verdict only off a walk that succeeded. Never the applied in-memory value.
   An opaque `bytes` leaf re-reads as a byte count with its structure NOT checked.
+- A file's text encoding follows whose text it carries, never a file name standing in for it. A file rewritten from
+  its own text (in place, or compacted to a copy that keeps its basename) keeps the lane its read resolved to
+  (`PluginTextEncoding.WriteInPlace`) and refuses a value that lane cannot spell; an all-ASCII file there takes the
+  language's code page, UTF-8 only in a language with none (DECISIONS 2026-10-25 (11)). Every other file is new
+  text: a patch (`WritePatch`, `NewFileIsUtf8`) and a merge (`WriteEngine.WriteMerged`, `MergedIsUtf8`) go out UTF-8
+  when a copy decoded UTF-8 text into them, else in the strict code page with the whole file written again as UTF-8
+  when that cannot spell a value; a merge in a language with no code page is UTF-8 outright, as xEdit's is, and an
+  `into=` patch whose own read was UTF-8 stays UTF-8. A copy is any record or field taken out of a plugin into the
+  file, each run through `PluginTextEncoding.CopyInto`: `GenericGetOrAddAsOverride` (apply, forward, create's parents,
+  copy onto a target), CopyFrom's field, the closure copy's renumber, and the merge's build. The provenance is the
+  copied text itself, so an override whose own name is Windows-1252 keeps it whatever its record's origin, and a
+  localized plugin's tables count only where they count toward its lane (English). A merge keeps the in-place shape
+  (own masters, the counter verbatim, no baseline) but none of its encoding: no file of its name was read.
 - Every lane that rewrites a file it read runs the round-trip check in `SubrecordInventory` before any op touches
   it, dry run included: apply, create, remove and forward in place; apply, create, forward, copy and remove on an
   existing patch (`into=`); and the in-place compact over its target and every referencer it would repoint, on the
@@ -454,6 +467,14 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   `CreateRecords` says it.
 
 ## Pinned by
+- `NewFileTextEncodingTests` — under English a rename of a UTF-8 Japanese or accented plugin keeps its UTF-8 bytes,
+  and a merge of a UTF-8 and a Windows-1252 donor is UTF-8 throughout (Japanese plus 1252 written, not refused);
+  under Japanese a rename of a UTF-8 Japanese-only or accented plugin is UTF-8, not Shift-JIS or refused; a 1252
+  rename keeps its bytes in English and Japanese, and a Korean one is UTF-8; a merge that cannot write names the merge
+  with no exception type or `in_place=`; a compacted copy keeps its source's encoding; a clone, a patch over a UTF-8
+  override, a forward of it and a CopyFrom of a UTF-8 name are UTF-8; a patch over a 1252 override of a UTF-8 record
+  stays 1252; removing from a UTF-8 patch keeps it UTF-8; Japanese typed into a patch with no UTF-8 contributor is
+  Shift-JIS under Japanese; Japanese in place into an all-ASCII plugin under English refuses.
 - `EmptyOnCreateTests` — each of the five probed fields written at 0 bytes and named by a bare create (text and json);
   a Message upsert-replace and a Message create editing an unrelated field still name INAM; an explicit empty and an
   author value silent; a batch of one type says the line once, and a row cut keeps it (text and json); vanilla
