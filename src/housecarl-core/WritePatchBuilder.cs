@@ -439,7 +439,7 @@ public static class WritePatchBuilder
                 // CopyFrom transplants the field FROM the source body into ov; every other verb applies to ov directly.
                 string? applyNote = null;
                 if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
-                    PluginTextEncoding.CopyInto(patchMod, () => WriteEngine.CopyField(srcBody!, ov, req.Path));
+                    PluginTextEncoding.CopyInto(patchMod, () => { WriteEngine.CopyField(srcBody!, ov, req.Path); return 0; });
                 else
                     applyNote = WriteEngine.ApplyVerb(ov, req);
                 var (after, landed, _, _, display) = DescribeApplied(ov, req);
@@ -2138,7 +2138,7 @@ public static class WritePatchBuilder
                 overlays.Add((IDisposable)mov); resolved.Add(mov);
             }
             // P′ has LOCALIZED cleared, so its serialize emits no string tables.
-            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir, isFaction: null, textOf: srcPath); }
+            try { WriteEngine.WriteInPlace(pPrime, resolved, outPath, dataDir, isFaction: null); }
             catch (Exception ex)
             {
                 return CompactBuildResult.Fail(

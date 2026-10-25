@@ -188,6 +188,7 @@ public static class PluginTextEncoding
 
     /// <summary>The mods a copy decoded UTF-8 text into, the provenance half of the new-file encoding.</summary>
     static readonly ConditionalWeakTable<IModGetter, object> CarriesUtf8 = new();
+    static readonly object Marked = new();
 
     /// <summary>The mod the running copy writes into, which a UTF-8 decode marks.</summary>
     static readonly AsyncLocal<IModGetter?> CopyingInto = new();
@@ -197,13 +198,11 @@ public static class PluginTextEncoding
     public static T CopyInto<T>(IModGetter into, Func<T> copy)
     {
         var outer = CopyingInto.Value;
+        if (ReferenceEquals(outer, into)) return copy();   // already scoped to this mod: no context swap per record
         CopyingInto.Value = into;
         try { return copy(); }
         finally { CopyingInto.Value = outer; }
     }
-
-    /// <summary><see cref="CopyInto{T}"/> for a copy with no result.</summary>
-    public static void CopyInto(IModGetter into, Action copy) => CopyInto(into, () => { copy(); return 0; });
 
     /// <summary>The refusal for an IN-PLACE write whose file is in the language default and whose new value that encoding cannot spell; the staged temp is discarded and nothing is written.</summary>
     public static string UnspellableRefusal(UnspellableTextException ex, string pluginFileName)
@@ -307,7 +306,7 @@ public static class PluginTextEncoding
                 if (_sink is not null)
                 {
                     _sink.SawUtf8();
-                    if (CopyingInto.Value is { } into) CarriesUtf8.AddOrUpdate(into, true);
+                    if (CopyingInto.Value is { } into) CarriesUtf8.TryAdd(into, Marked);
                 }
                 return StrictUtf8Encoding.GetString(bytes);
             }
