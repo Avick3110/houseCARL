@@ -18,6 +18,7 @@ public sealed class SupportedPlatformTests
 
         Assert.NotNull(said);
         Assert.Contains("Windows only", said, StringComparison.Ordinal);
+        Assert.Contains("run it on a Windows PC instead", said, StringComparison.Ordinal);
         Assert.Contains("issues/1256", said, StringComparison.Ordinal);
         Assert.DoesNotContain('\n', said);
         Assert.EndsWith(".", said, StringComparison.Ordinal);
