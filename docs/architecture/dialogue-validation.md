@@ -16,7 +16,8 @@ page is [`docs/dialogue.md`](../dialogue.md).
 Mutagen omits a null/unset optional subrecord on write; the Creation Kit writes it unconditionally, nulls included.
 A record authored through houseCARL that sets only the fields the author cared about therefore differs STRUCTURALLY
 from a CK-authored one of the same content. `DialogueCkParity` closes that by default-populating the nullable fields
-the CK always emits, at create time, inside the Mutagen model.
+the CK always emits, at create time, inside the Mutagen model. A non-nullable field Mutagen writes EMPTY is a
+different case, outside these fills: the create says so and fills nothing ([`write-path.md`](write-path.md)).
 
 Three invariants hold for every default, and the DialogTopic SNAM marker follows the same pattern:
 
