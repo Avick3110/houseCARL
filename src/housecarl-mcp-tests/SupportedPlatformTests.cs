@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text;
 using HousecarlMcp;
 using Xunit;
 
@@ -70,5 +72,56 @@ public sealed class SupportedPlatformEntryTests
 
         Assert.Equal(SupportedPlatform.Refusal(isWindows: false) + Environment.NewLine, stderr.ToString());
         Assert.Empty(stdout.ToString());
+    }
+}
+
+/// <summary>
+/// The built exe, started as its own process with the OS fact swapped by a .NET startup hook (<see cref="StartupHook"/>,
+/// in this test assembly), so the raw stdout pipe a client reads is what is measured, not <c>Console.Out</c>.
+/// </summary>
+[Trait("tier", "unit")]
+public sealed class SupportedPlatformProcessTests
+{
+    /// <summary>Off Windows nothing reaches the raw stdout, the client's JSON-RPC channel.</summary>
+    [Fact]
+    public void ANonWindowsStartWritesNothingToTheRawStdout()
+    {
+        var (exit, stdout, stderr) = BootAsNonWindows(new Dictionary<string, string?>());
+
+        Assert.Equal(1, exit);
+        Assert.Equal(SupportedPlatform.Refusal(isWindows: false) + Environment.NewLine, stderr);
+        Assert.Empty(stdout);
+    }
+
+    /// <summary>Start the real exe under the hook with this environment, feed it nothing, and collect the raw bytes it wrote.</summary>
+    internal static (int Exit, byte[] Stdout, string Stderr) BootAsNonWindows(IReadOnlyDictionary<string, string?> environment)
+    {
+        var exe = Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp", "bin",
+                               HarnessPaths.Configuration, HarnessPaths.TargetFramework, "housecarl-mcp.exe");
+        var psi = new ProcessStartInfo(exe)
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        psi.Environment["DOTNET_STARTUP_HOOKS"] = typeof(StartupHook).Assembly.Location;
+        psi.Environment.Remove(SchemaDepthCap.Variable);
+        foreach (var (name, value) in environment)
+            if (value is null) psi.Environment.Remove(name); else psi.Environment[name] = value;
+
+        using var proc = Process.Start(psi)!;
+        var raw = new MemoryStream();
+        var stdout = proc.StandardOutput.BaseStream.CopyToAsync(raw);
+        var stderr = proc.StandardError.ReadToEndAsync();
+        proc.StandardInput.Close();
+        if (!proc.WaitForExit(30_000))
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            Assert.Fail("The server started as non-Windows did not exit within 30 s; it must refuse the start, not serve.");
+        }
+        stdout.GetAwaiter().GetResult();
+        return (proc.ExitCode, raw.ToArray(), stderr.GetAwaiter().GetResult());
     }
 }
