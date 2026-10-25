@@ -1,1 +1,1 @@
-- **A merge or rename of a UTF-8 plugin (a translation) now writes its text as UTF-8 instead of refusing it or rewriting it in your game's code page; so does a copy clone or patch carrying a UTF-8 plugin's text.** Check: rename a translated plugin and read a name back.
+- **A merge, rename, clone or patch now writes a translated plugin's text as UTF-8 when it copies UTF-8 text, replacing 2.0.1's any-contributor rule.** Check: under English, rename a plugin with Japanese names; it writes instead of refusing.
