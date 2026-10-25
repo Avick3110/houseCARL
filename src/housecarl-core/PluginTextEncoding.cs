@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Unicode;
 using Mutagen.Bethesda;
@@ -108,7 +109,7 @@ public static class PluginTextEncoding
         {
             // A plugin's lane is its own bytes'; the provider decodes a plain plugin's own text and a localized one's
             // tables, which count toward it only in English, so an English write stays the bytes it always was.
-            EncodingProvider = new LanguageProvider(text.Language == Language.English || !IsLocalized(pluginPath, sink) ? sink : new LaneSink()),
+            EncodingProvider = new LanguageProvider(text.Language == Language.English || !IsLocalized(pluginPath, sink) ? sink : null),
             NonTranslatedEncodingOverride = new Utf8First(Legacy(text.Language).Decoder, sink),
         };
         if (text.FoldersFor(pluginPath, dataDir) is { } folders)
@@ -161,9 +162,10 @@ public static class PluginTextEncoding
     /// <summary>A lane record's key: the language it was read in, since a plugin's lane depends on it, and the filename.</summary>
     static string LaneKey(string pluginNameOrPath, Language language) => $"{language}|{Path.GetFileName(pluginNameOrPath)}";
 
-    /// <summary>The encodings an IN-PLACE write embeds: the lane the read of that same file resolved to, so text the write did not change comes back byte-identical.</summary>
-    public static EncodingBundle WriteInPlace(string targetPath)
-        => InPlaceIsUtf8(targetPath) ? Utf8Bundle : LegacyBundle;
+    /// <summary>The encodings a write of ONE plugin's own text embeds (in place, or compacted to a copy): the lane the
+    /// read of that file resolved to, so text the write did not change comes back byte-identical.</summary>
+    public static EncodingBundle WriteInPlace(string sourcePath)
+        => InPlaceIsUtf8(sourcePath) ? Utf8Bundle : LegacyBundle;
 
     /// <summary>Whether an in-place rewrite of that file goes out as UTF-8 — the lane its own read resolved to; an
     /// ASCII-only file takes UTF-8 in a language with no code page.</summary>
@@ -175,16 +177,33 @@ public static class PluginTextEncoding
     };
 
 
-    /// <summary>Whether a new file's contributing plugins put it in the UTF-8 lane before a single string is written — the provenance half of the new-file encoding choice.</summary>
+    /// <summary>Whether a patch goes out UTF-8 before a single string is written: its own text (an <c>into=</c> patch)
+    /// read as UTF-8, or a copy decoded UTF-8 text into it.</summary>
     public static bool NewFileIsUtf8(IModGetter mod)
+        => LaneOf(mod.ModKey.FileName.String) == PluginTextLane.Utf8 || CarriesUtf8.TryGetValue(mod, out _);
+
+    /// <summary>Whether a merge goes out UTF-8: a donor's text was decoded into it as UTF-8, or the game's language has no
+    /// code page, where a merged file is UTF-8 as xEdit's is.</summary>
+    public static bool MergedIsUtf8(IModGetter merged) => NoCodePage || CarriesUtf8.TryGetValue(merged, out _);
+
+    /// <summary>The mods a copy decoded UTF-8 text into, the provenance half of the new-file encoding.</summary>
+    static readonly ConditionalWeakTable<IModGetter, object> CarriesUtf8 = new();
+
+    /// <summary>The mod the running copy writes into, which a UTF-8 decode marks.</summary>
+    static readonly AsyncLocal<IModGetter?> CopyingInto = new();
+
+    /// <summary>Run <paramref name="copy"/>, which copies records' text out of plugins into <paramref name="into"/>,
+    /// marking <paramref name="into"/> when any of that text decodes as UTF-8.</summary>
+    public static T CopyInto<T>(IModGetter into, Func<T> copy)
     {
-        if (LaneOf(mod.ModKey.FileName.String) == PluginTextLane.Utf8) return true;
-        foreach (var m in mod.MasterReferences)
-            if (LaneOf(m.Master.FileName.String) == PluginTextLane.Utf8) return true;
-        foreach (var r in mod.EnumerateMajorRecords())
-            if (LaneOf(r.FormKey.ModKey.FileName.String) == PluginTextLane.Utf8) return true;
-        return false;
+        var outer = CopyingInto.Value;
+        CopyingInto.Value = into;
+        try { return copy(); }
+        finally { CopyingInto.Value = outer; }
     }
+
+    /// <summary><see cref="CopyInto{T}"/> for a copy with no result.</summary>
+    public static void CopyInto(IModGetter into, Action copy) => CopyInto(into, () => { copy(); return 0; });
 
     /// <summary>The refusal for an IN-PLACE write whose file is in the language default and whose new value that encoding cannot spell; the staged temp is discarded and nothing is written.</summary>
     public static string UnspellableRefusal(UnspellableTextException ex, string pluginFileName)
@@ -264,25 +283,35 @@ public static class PluginTextEncoding
     /// <summary>UTF-8 over whatever Mutagen would have chosen for the language — the encoding a LOCALIZED plugin's <c>.STRINGS</c> tables are read with; language selection is untouched.</summary>
     sealed class LanguageProvider : IMutagenEncodingProvider
     {
-        readonly LaneSink _sink;
-        internal LanguageProvider(LaneSink sink) => _sink = sink;
+        readonly LaneSink? _sink;
+        internal LanguageProvider(LaneSink? sink) => _sink = sink;
 
         public IMutagenEncoding GetEncoding(GameRelease release, Language language)
             => new Utf8First(Legacy(language).Decoder, _sink);
     }
 
-    /// <summary>Decode as UTF-8 when the bytes ARE UTF-8, otherwise as the language's fallback, recording which lane answered; the encode direction throws, because a write picks its encoding per file.</summary>
+    /// <summary>Decode as UTF-8 when the bytes ARE UTF-8, otherwise as the language's fallback, recording which lane
+    /// answered (a null sink records nothing: text that does not count toward a lane); the encode direction throws,
+    /// because a write picks its encoding per file.</summary>
     sealed class Utf8First : IMutagenEncoding
     {
         readonly IMutagenEncoding _fallback;
-        readonly LaneSink _sink;
-        internal Utf8First(IMutagenEncoding fallback, LaneSink sink) { _fallback = fallback; _sink = sink; }
+        readonly LaneSink? _sink;
+        internal Utf8First(IMutagenEncoding fallback, LaneSink? sink) { _fallback = fallback; _sink = sink; }
 
         public string GetString(ReadOnlySpan<byte> bytes)
         {
             if (!HasNonAscii(bytes)) return StrictUtf8Encoding.GetString(bytes);
-            if (Utf8.IsValid(bytes)) { _sink.SawUtf8(); return StrictUtf8Encoding.GetString(bytes); }
-            _sink.SawLegacy();
+            if (Utf8.IsValid(bytes))
+            {
+                if (_sink is not null)
+                {
+                    _sink.SawUtf8();
+                    if (CopyingInto.Value is { } into) CarriesUtf8.AddOrUpdate(into, true);
+                }
+                return StrictUtf8Encoding.GetString(bytes);
+            }
+            _sink?.SawLegacy();
             return _fallback.GetString(bytes);
         }
 
@@ -291,7 +320,7 @@ public static class PluginTextEncoding
         public int GetBytes(ReadOnlySpan<char> chars, Span<byte> bytes) => throw Unsupported();
 
         static NotSupportedException Unsupported() =>
-            new("read encoding; a write picks its encoding per file through PluginTextEncoding.WriteInPlace/LegacyBundle");
+            new("read encoding; a write picks its encoding per file through PluginTextEncoding.WriteInPlace, NewFileIsUtf8 or MergedIsUtf8");
 
         static bool HasNonAscii(ReadOnlySpan<byte> bytes)
         {

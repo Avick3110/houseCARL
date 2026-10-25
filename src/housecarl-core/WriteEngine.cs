@@ -613,6 +613,9 @@ public static class WriteEngine
     /// <summary>Generic <c>GetOrAddAsOverride</c>: a flat-group record through its <c>SkyrimGroup&lt;T&gt;</c>, anything else through the nested path.</summary>
     public static IMajorRecord GenericGetOrAddAsOverride(
         SkyrimMod patchMod, IMajorRecordGetter source, ILinkCache? sourceLinkCache = null)
+        => PluginTextEncoding.CopyInto(patchMod, () => GetOrAddAsOverride(patchMod, source, sourceLinkCache));
+
+    static IMajorRecord GetOrAddAsOverride(SkyrimMod patchMod, IMajorRecordGetter source, ILinkCache? sourceLinkCache)
     {
         if (TryResolveGroup(patchMod, source, out var group, out var tMajor, out var tMajorGetter))
         {
@@ -1332,23 +1335,29 @@ public static class WriteEngine
 
         try
         {
-            if (PluginTextEncoding.NewFileIsUtf8(patchMod)) Serialize(PluginTextEncoding.Utf8Bundle);
-            else
-                // The strict encoder is the CHECK: a value the language default cannot spell stops the write rather
-                // than landing as '?'. A new file has no bytes to preserve, so the whole thing goes out as UTF-8.
-                try { Serialize(PluginTextEncoding.LegacyBundle); }
-                catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is not null)
-                {
-                    CleanupStaged(tmpPath);
-                    Directory.CreateDirectory(tmpDir);
-                    Serialize(PluginTextEncoding.Utf8Bundle);
-                }
+            SerializeNew(PluginTextEncoding.NewFileIsUtf8(patchMod), tmpPath, Serialize);
             return tmpPath;
         }
         catch
         {
             CleanupStaged(tmpPath);
             throw;
+        }
+    }
+
+    /// <summary>Serialize a NEW file: UTF-8 when its provenance says so, else the strict language default, and the whole
+    /// file again as UTF-8 when that cannot spell a value.</summary>
+    static void SerializeNew(bool utf8, string tmpPath, Action<Mutagen.Bethesda.Plugins.Binary.Streams.EncodingBundle> serialize)
+    {
+        if (utf8) { serialize(PluginTextEncoding.Utf8Bundle); return; }
+        // The strict encoder is the CHECK: a value the language default cannot spell stops the write rather than
+        // landing as '?'. A new file has no bytes to preserve, so the whole thing goes out as UTF-8.
+        try { serialize(PluginTextEncoding.LegacyBundle); }
+        catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is not null)
+        {
+            CleanupStaged(tmpPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(tmpPath)!);
+            serialize(PluginTextEncoding.Utf8Bundle);
         }
     }
 
@@ -1378,9 +1387,20 @@ public static class WriteEngine
 
     /// <summary>Serialize a plugin edited IN PLACE back over ITSELF. DELIBERATELY NOT <see cref="WritePatch"/>: no
     /// baseline force-include and no floor, because this re-emits an EXISTING authored plugin. The caller MUST have
-    /// released every overlay it holds on the target; see docs/architecture/write-path.md.</summary>
+    /// released every overlay it holds on the target; see docs/architecture/write-path.md. <paramref name="textOf"/> is
+    /// the plugin whose own text this is when that is not the target (a compacted copy's source), whose lane it keeps.</summary>
     public static void WriteInPlace(SkyrimMod targetMod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath,
-                                    string? dataDir, Func<FormKey, bool>? isFaction)
+                                    string? dataDir, Func<FormKey, bool>? isFaction, string? textOf = null)
+        => WriteOwnShape(targetMod, ownMasters, outputPath, dataDir, isFaction, textOf ?? outputPath);
+
+    /// <summary>Serialize a MERGE: a new file in the in-place shape (own masters, counter verbatim, no baseline), whose
+    /// encoding is the new-file rule's, since its text is its donors' and no file of its name was read.</summary>
+    public static void WriteMerged(SkyrimMod merged, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath, string? dataDir)
+        => WriteOwnShape(merged, ownMasters, outputPath, dataDir, isFaction: null, textOf: null);
+
+    /// <summary>The in-place shape's write; a null <paramref name="textOf"/> is a merge, else the plugin whose lane the text keeps.</summary>
+    static void WriteOwnShape(SkyrimMod targetMod, IReadOnlyList<ISkyrimModGetter> ownMasters, string outputPath,
+                              string? dataDir, Func<FormKey, bool>? isFaction, string? textOf)
     {
         var expected = targetMod.ModKey.FileName.String;
         var actual = Path.GetFileName(outputPath);
@@ -1400,7 +1420,7 @@ public static class WriteEngine
         // Same composed-null-arm serialize guard as WritePatch — an in-place edit can compose a record too.
         if (isFaction is not null) OwnerRanks.Settle(targetMod, isFaction);   // the lane's faction test, for every owner its records brought in; null only where the caller settled already or has no owners
         string staged;
-        try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath); }
+        try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath, textOf); }
         // A value this file's own encoding cannot spell: in place there is no second pass, so this is a refusal.
         catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is { } bad)
         {
@@ -1426,14 +1446,17 @@ public static class WriteEngine
     };
 
     /// <summary>Stage 1 of the in-place write: own declared masters, the counter verbatim with NO floor, no baseline, staged in the sibling temp.</summary>
-    static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath)
+    static string WriteInPlaceStaged(SkyrimMod targetMod, ISkyrimModGetter[] ordered, string outputPath, string? textOf)
     {
         var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
         var tmpPath = Path.Combine(tmpDir, Path.GetFileName(outputPath));
         Directory.CreateDirectory(tmpDir);
         try
         {
-            SerializeInPlace(targetMod, ordered, outputPath, tmpPath, fileSystem: null);
+            if (textOf is null)
+                SerializeNew(PluginTextEncoding.MergedIsUtf8(targetMod), tmpPath, e => SerializeInPlace(targetMod, ordered, tmpPath, null, e));
+            else
+                SerializeInPlace(targetMod, ordered, tmpPath, null, PluginTextEncoding.WriteInPlace(textOf));
             return tmpPath;
         }
         catch
@@ -1444,13 +1467,14 @@ public static class WriteEngine
     }
 
     /// <summary>The one in-place serialize, shared by the staged write and the round-trip check; a null order is the check's missing-master retry.</summary>
-    internal static void SerializeInPlace(SkyrimMod targetMod, ISkyrimModGetter[]? ordered, string outputPath,
-                                          string writePath, System.IO.Abstractions.IFileSystem? fileSystem)
+    internal static void SerializeInPlace(SkyrimMod targetMod, ISkyrimModGetter[]? ordered, string writePath,
+                                          System.IO.Abstractions.IFileSystem? fileSystem,
+                                          Mutagen.Bethesda.Plugins.Binary.Streams.EncodingBundle encodings)
     {
         var target = targetMod.BeginWrite.ToPath(writePath, fileSystem);
         (ordered is null ? target.WithNoLoadOrder() : target.WithLoadOrder(ordered))   // the target's OWN masters — no whole-order, no baseline
             .NoNextFormIDProcessing()          // persist the author's NextObjectID verbatim (no EnsureFormIdFloor)
-            .WithEmbeddedEncodings(PluginTextEncoding.WriteInPlace(outputPath))
+            .WithEmbeddedEncodings(encodings)
             .Write();
     }
 

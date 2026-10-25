@@ -161,7 +161,7 @@ public static class SubrecordInventory
     static ReadOnlyMemorySlice<byte>? Capture(SkyrimMod parsed, ISkyrimModGetter[]? ordered, string path)
     {
         var capture = new CaptureFileSystem();
-        WriteEngine.SerializeInPlace(parsed, ordered, path, path, capture);
+        WriteEngine.SerializeInPlace(parsed, ordered, path, capture, PluginTextEncoding.WriteInPlace(path));
         return capture.Bytes;
     }
 
