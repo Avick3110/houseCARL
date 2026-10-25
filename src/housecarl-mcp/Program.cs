@@ -5,7 +5,7 @@ using ModelContextProtocol.Protocol;
 // empty config still boots.
 
 // Windows only for now: on any other OS the server refuses here, before any tool can answer.
-if (SupportedPlatform.Refusal(OperatingSystem.IsWindows()) is { } wrongOs)
+if (SupportedPlatform.Refusal(SupportedPlatform.IsWindows()) is { } wrongOs)
 {
     Console.Error.WriteLine(wrongOs);
     return 1;
