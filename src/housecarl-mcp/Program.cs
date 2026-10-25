@@ -1,8 +1,8 @@
 using HousecarlMcp;
 using ModelContextProtocol.Protocol;
 
-// houseCARL MCP server over stdio. It reads the active load order statically from the configured MO2 instance, and an
-// empty config still boots.
+// houseCARL MCP server over stdio. It reads the active load order statically from the configured MO2 instance. On
+// Windows an empty config still boots; any other OS is refused below.
 
 // Windows only for now: on any other OS the server refuses here, before any tool can answer.
 if (SupportedPlatform.Refusal(SupportedPlatform.IsWindows()) is { } wrongOs)
