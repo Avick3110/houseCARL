@@ -42,7 +42,7 @@ public sealed class SupportedPlatformEntryTests
     [Fact]
     public void TheEntryPointRefusesANonWindowsStart()
     {
-        var entry = typeof(SupportedPlatform).Assembly.EntryPoint!;
+        var entry = ToolSurface.Assembly.EntryPoint!;
         var (realIn, realOut, realErr, realOs) = (Console.In, Console.Out, Console.Error, SupportedPlatform.IsWindows);
         var stdout = new StringWriter();
         var stderr = new StringWriter();
