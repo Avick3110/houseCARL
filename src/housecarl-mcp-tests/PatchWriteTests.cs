@@ -85,9 +85,9 @@ public sealed class PatchWriteTests : IDisposable
         using (var read = SkyrimMod.CreateFromBinaryOverlay(srcPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(srcPath)))
         {
             var weapon = read.Weapons.Single();
-            Assert.Equal(name, weapon.Name?.String);   // the read decodes the name, which records the plugin's lane
+            Assert.Equal(name, weapon.Name?.String);
             var patch = Mod(patchName);
-            patch.Weapons.GetOrAddAsOverride(weapon);
+            WriteEngine.GenericGetOrAddAsOverride(patch, weapon);   // the product's copy door, which notes the UTF-8 text it decodes
             WriteEngine.WritePatch(patch, new ISkyrimModGetter[] { read }, outPath, isFaction: null);
         }
 
