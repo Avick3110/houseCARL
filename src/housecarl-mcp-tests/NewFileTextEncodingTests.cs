@@ -387,6 +387,23 @@ public sealed class NewFileTextEncodingTests : IDisposable
         Assert.True(Holds1252(Output("HcMuBackPatch.esp"), LatinName), "extending the patch re-encoded its 1252 name");
     }
 
+    /// <summary>DECISIONS 2026-09-15 (e): an <c>into=</c> patch whose own text is Windows-1252, extended with a copy of
+    /// UTF-8 text, goes out UTF-8 throughout.</summary>
+    [Fact]
+    public void AWindows1252PatchExtendedWithAUtf8CopyGoesUtf8()
+    {
+        var svc = Open("ENGLISH");
+        Assert.DoesNotContain("error:", Damage(svc, _accentWeap, "HcMuLanePatch"));
+        var path = Output("HcMuLanePatch.esp");
+        Assert.True(Holds1252(path, LatinName), "the patch did not start Windows-1252");
+
+        Assert.DoesNotContain("error:", ApplyTools.Apply(svc, ops: Je(
+            $@"[{{""formid"":""{Fid(_legacyWeap)}"",""field_path"":""BasicStats.Damage"",""op"":""Set"",""value"":""20""}}]"),
+            into: "HcMuLanePatch.esp"));
+        Assert.True(HoldsUtf8(path, OverName), "the copied UTF-8 name is not UTF-8");
+        Assert.True(HoldsUtf8(path, LatinName), "the patch's own name stayed Windows-1252 in a UTF-8 file");
+    }
+
     // ---- the copy scope -----------------------------------------------------------------------------
 
     /// <summary>A copy scope ends with its copy: text decoded after an inner scope returns marks the outer mod, and
