@@ -2166,6 +2166,11 @@ public static class WritePatchBuilder
     /// <summary>The one sentence a merge that cannot write returns: what failed, its cause once, and what to try.</summary>
     internal static string MergeWriteFailure(string fileName, Exception ex)
     {
+        // A null required arm is a merged record Mutagen cannot write; no folder fix reaches it, and its own text is several sentences.
+        if (ex is NullArmSerializeException)
+            return $"houseCARL did not write the merged plugin '{fileName}' and left nothing behind: a merged record has a "
+                 + "required part that is empty, such as a condition, leveled-list entry or effect; find it in the donors "
+                 + "with xEdit's Check for Errors, fix or drop that donor, then run the merge again.";
         var causes = ex is AggregateException agg
             ? agg.Flatten().InnerExceptions.Select(e => e.Message)
             : ex.InnerException is { } inner && !ex.Message.Contains(inner.Message, StringComparison.Ordinal)

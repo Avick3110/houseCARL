@@ -293,6 +293,20 @@ public sealed class NewFileTextEncodingTests : IDisposable
                      + "check that the mods folder is writable and has free space, then run the merge again.", s);
     }
 
+    /// <summary>A null required arm gives one sentence whose remedy fits it: no folder remedy, and not the cause's own text.</summary>
+    [Fact]
+    public void AMergeWriteFailureOnAnEmptyRequiredPartSaysWhatFitsIt()
+    {
+        var s = WritePatchBuilder.MergeWriteFailure("HcMuFail.esp", new NullArmSerializeException(new NullReferenceException()));
+        Assert.StartsWith("houseCARL did not write the merged plugin 'HcMuFail.esp' and left nothing behind", s);
+        Assert.DoesNotContain("writable", s);
+        Assert.DoesNotContain("free space", s);
+        Assert.DoesNotContain("Exception", s);
+        Assert.DoesNotContain("in_place", s);
+        Assert.DoesNotContain(". ", s);                 // one sentence
+        Assert.EndsWith("then run the merge again.", s);
+    }
+
     /// <summary>Deny the current user making folders inside any NEW subfolder of <paramref name="dir"/> until disposed.</summary>
     sealed class DenyNewSubfolders : IDisposable
     {
