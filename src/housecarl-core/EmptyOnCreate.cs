@@ -15,6 +15,6 @@ public static class EmptyOnCreate
 
     static string Sentence(TypeSchema ts, EmptySubrecord e) =>
         $"Mutagen writes {ts.Signature} {e.Subrecord} at 0 bytes on a new {ts.Name} and houseCARL fills nothing; vanilla never " +
-        $"carries it empty. Any value set on {(e.Fields.Count == 1 ? e.Fields[0] : "one of " + string.Join(", ", e.Fields))} " +
-        "silences this line, and houseCARL does not check that value's size or contents.";
+        $"carries it empty. It is said for each new {ts.Name} whose own ops set {(e.Fields.Count == 1 ? "no " + e.Fields[0] : "none of " + string.Join(", ", e.Fields))}; " +
+        "a value set there is the author's, and houseCARL does not check its size or contents.";
 }
