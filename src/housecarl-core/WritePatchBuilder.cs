@@ -2163,6 +2163,19 @@ public static class WritePatchBuilder
             new(false, error, Array.Empty<string>(), 0, 0, Array.Empty<RemapEngine.MergeConflict>(), 0);
     }
 
+    /// <summary>The one sentence a merge that cannot write returns: what failed, its cause once, and what to try.</summary>
+    internal static string MergeWriteFailure(string fileName, Exception ex)
+    {
+        var causes = ex is AggregateException agg
+            ? agg.Flatten().InnerExceptions.Select(e => e.Message)
+            : ex.InnerException is { } inner && !ex.Message.Contains(inner.Message, StringComparison.Ordinal)
+                ? new[] { ex.Message, inner.Message }
+                : new[] { ex.Message };
+        var cause = string.Join("; ", causes.Select(c => c.Trim().TrimEnd('.')).Where(c => c.Length > 0).Distinct());
+        return $"houseCARL did not write the merged plugin '{fileName}' and left nothing behind ({cause}); "
+             + "check that the mods folder is writable and has free space, then run the merge again.";
+    }
+
     /// <summary>Build the merged plugin M from the donors in LOAD ORDER; a link still pointing INTO a donor REFUSES the build.</summary>
     public static MergeBuildResult MergeBuild(
         IReadOnlyList<(string Name, string Path, ModKey Key)> donorsByLoadOrder, ModKey outKey,
@@ -2253,12 +2266,7 @@ public static class WritePatchBuilder
                 masterOverlays.Add((IDisposable)mov); resolved.Add(mov);
             }
             try { WriteEngine.WriteMerged(m, resolved, outPath, dataDir); }
-            catch (Exception ex)
-            {
-                return MergeBuildResult.Fail(
-                    $"houseCARL did not write the merged plugin '{outKey.FileName}' and left nothing behind: {ex.Message}"
-                    + (ex.InnerException is { } inner ? $" ({inner.Message})" : ""));
-            }
+            catch (Exception ex) { return MergeBuildResult.Fail(MergeWriteFailure(outKey.FileName, ex)); }
         }
         finally { foreach (var d in masterOverlays) { try { d.Dispose(); } catch { /* best-effort; never mask the write result */ } } }
 
