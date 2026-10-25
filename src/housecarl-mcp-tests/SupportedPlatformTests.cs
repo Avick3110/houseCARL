@@ -40,7 +40,7 @@ public sealed class SupportedPlatformTests
 [Collection(SerialCollection.Name)]
 public sealed class SupportedPlatformEntryTests
 {
-    /// <summary>Off Windows the start writes the sentence to stderr, nothing to stdout, and exits 1 before the host builds.</summary>
+    /// <summary>Off Windows the start writes the sentence to <c>Console.Error</c>, nothing to <c>Console.Out</c>, and exits 1; the raw stdout and the start order are pinned by <see cref="SupportedPlatformProcessTests"/>.</summary>
     [Fact]
     public void TheEntryPointRefusesANonWindowsStart()
     {
@@ -91,6 +91,40 @@ public sealed class SupportedPlatformProcessTests
         Assert.Equal(1, exit);
         Assert.Equal(SupportedPlatform.Refusal(isWindows: false) + Environment.NewLine, stderr);
         Assert.Empty(stdout);
+    }
+
+    /// <summary>
+    /// The refusal runs before the depth read and before the host builds: a refused depth value is never reported, and a
+    /// corrupt user config is never read, so it is not backed up.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("1")]
+    public void ANonWindowsStartIsRefusedBeforeTheDepthReadAndTheHost(string? depth)
+    {
+        var dataDir = Path.Combine(Path.GetTempPath(), "housecarl-mcp-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataDir);
+        try
+        {
+            var config = Path.Combine(dataDir, "houseCARL.user.json");
+            File.WriteAllText(config, "{ not json");
+
+            var (exit, stdout, stderr) = BootAsNonWindows(new Dictionary<string, string?>
+            {
+                ["HOUSECARL_DATA_DIR"] = dataDir,
+                [SchemaDepthCap.Variable] = depth,
+            });
+
+            Assert.Equal(1, exit);
+            Assert.Equal(SupportedPlatform.Refusal(isWindows: false) + Environment.NewLine, stderr);
+            Assert.Empty(stdout);
+            Assert.Equal([config], Directory.GetFiles(dataDir));
+            Assert.Equal("{ not json", File.ReadAllText(config));
+        }
+        finally
+        {
+            Directory.Delete(dataDir, recursive: true);
+        }
     }
 
     /// <summary>Start the real exe under the hook with this environment, feed it nothing, and collect the raw bytes it wrote.</summary>
