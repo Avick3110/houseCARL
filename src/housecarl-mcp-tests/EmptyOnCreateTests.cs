@@ -153,7 +153,10 @@ public sealed class EmptyOnCreateTests
 
         Assert.All(o.Created, c => Assert.Single(c.EmptySubrecords));
         Assert.Single(o.EmptySubrecordLines);
-        Assert.Equal(1, Occurrences(WriteTools.RenderCreate(o, 20000), "MESG INAM at 0 bytes"));
+        var text = WriteTools.RenderCreate(o, 20000);
+        Assert.Equal(1, Occurrences(text, "MESG INAM at 0 bytes"));
+        // The `!` line sits above the created rows.
+        Assert.True(text.IndexOf("  ! Mutagen writes MESG INAM", StringComparison.Ordinal) < text.IndexOf("HcEoBatch0", StringComparison.Ordinal));
         Assert.Equal(1, Occurrences(JsonWire.RenderCreateOutcome(o, 20000, readback: false, lane: "patch"), "MESG INAM at 0 bytes"));
     }
 
