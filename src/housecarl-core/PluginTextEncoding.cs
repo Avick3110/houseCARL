@@ -204,6 +204,9 @@ public static class PluginTextEncoding
         finally { CopyingInto.Value = outer; }
     }
 
+    /// <summary><see cref="CopyInto{T}"/> for a copy that returns nothing.</summary>
+    public static void CopyInto(IModGetter into, Action copy) => CopyInto(into, () => { copy(); return true; });
+
     /// <summary>The refusal for an IN-PLACE write whose file is in the language default and whose new value that encoding cannot spell; the staged temp is discarded and nothing is written.</summary>
     public static string UnspellableRefusal(UnspellableTextException ex, string pluginFileName)
     {

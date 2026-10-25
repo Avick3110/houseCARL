@@ -439,7 +439,7 @@ public static class WritePatchBuilder
                 // CopyFrom transplants the field FROM the source body into ov; every other verb applies to ov directly.
                 string? applyNote = null;
                 if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
-                    PluginTextEncoding.CopyInto(patchMod, () => { WriteEngine.CopyField(srcBody!, ov, req.Path); return 0; });
+                    PluginTextEncoding.CopyInto(patchMod, () => WriteEngine.CopyField(srcBody!, ov, req.Path));
                 else
                     applyNote = WriteEngine.ApplyVerb(ov, req);
                 var (after, landed, _, _, display) = DescribeApplied(ov, req);
