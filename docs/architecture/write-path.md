@@ -106,8 +106,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   parse, cannot be read, or the walk faults — the call is refused in the check's own sentence, never passed. A serialize
   fault on an in-place lane is reported as one the write would meet the same way; on an `into=` lane, whose write goes
   through another chain, it is reported as the check not running.
-  A localized target is not walked: the service lanes refuse it before consent and `WriteInPlace` and `WritePatch`
-  refuse it before staging, so no write the check could stop lands. The header is out of scope (unused masters are
+  A localized target is not walked: the service lanes refuse it before consent and `WriteInPlace` (compaction's copy
+  included), `WriteMerged` and `WritePatch` refuse it before staging, so no write the check could stop lands. The header is out of scope (unused masters are
   dropped there on purpose). Merge, a compact into a new plugin and a fresh patch do not run it: their output is a new
   file whose content is the parse, which is the read half of #961, not a write that destroys the original. The check
   reads the target through the full parse while the in-place compact copies from the overlay, so on compact it
@@ -673,7 +673,8 @@ The writes area is one class, `RecordWrites`, across `RecordWrites.cs`, `RecordC
   (`GenericGetOrAddAsOverride`, `NestedGetOrAddAsOverride`, `EnumerateFlatGroups`, `RemovalTypeFor`, `SeekTypeFor`),
   create (`CanCreateType`, `GenericAddNew`, `GenericUpsertNew`, `NestedAddNew`, `AddExteriorCell`, `AddInteriorCell`,
   `EnsureFormIdFloor`), the child-group carry (`CaptureChildGroup`, `RestoreChildGroup`, `ChildBearingProperties`),
-  the serialize (`WritePatch`, `WriteInPlace`, `CommitStagedPatch`, `RootNullArm`, `PluginIsLocalized`), path
+  the serialize (`WritePatch`, `WriteInPlace`, `WriteMerged`, `SerializeNew`, `SerializeInPlace`, `CommitStagedPatch`,
+  `RootNullArm`, `PluginIsLocalized`), path
   navigation and the verbs (`ApplyVerb`, `ApplyScalarVerb`, `ApplyListVerb`, `ApplyDictVerb`, `BuildStruct`,
   `StepIntoElement`, `SetFloi`, `CopyField`), the coercion family (`Coerce` / `CanCoerce` and the `Try*` rules), the
   refusal types (`ExpectedApplyRejectionException`, `MalformedTargetDataException`, `NullArmSerializeException`,
