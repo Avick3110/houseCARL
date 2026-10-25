@@ -286,6 +286,25 @@ public sealed class NewFileTextEncodingTests : IDisposable
         Assert.Empty(Directory.GetFileSystemEntries(Mods, "*HcMuFail*", SearchOption.AllDirectories));
     }
 
+    /// <summary>A merge whose serialize fails after it staged its file leaves nothing behind: no staged file, no staging folder.</summary>
+    [Fact]
+    public void AMergeThatFailsAfterStagingLeavesNothingBehind()
+    {
+        var outDir = Path.Combine(_root, "out");
+        Directory.CreateDirectory(outDir);
+        var merged = NewMod("HcMuFail.esp");
+        // A condition composed without its Data arm: Mutagen throws partway through the staged write.
+        WriteEngine.ApplyVerb(merged.ConstructibleObjects.AddNew(), new WriteRequest
+        {
+            RecordType = "ConstructibleObject", Path = new[] { "Conditions" }, Verb = "Add",
+            Struct = RecordWrites.MapStruct(new StructInput { Type = "ConditionFloat" }, "test", out _),
+        });
+
+        Assert.Throws<NullArmSerializeException>(() =>
+            WriteEngine.WriteMerged(merged, Array.Empty<ISkyrimModGetter>(), Path.Combine(outDir, "HcMuFail.esp"), dataDir: null));
+        Assert.Empty(Directory.GetFileSystemEntries(outDir, "*", SearchOption.AllDirectories));
+    }
+
     /// <summary>An aggregate throw names each cause once, not the wrapper's copy of it and then the cause again.</summary>
     [Fact]
     public void AMergeWriteFailureNamesAnAggregatesCauseOnce()
