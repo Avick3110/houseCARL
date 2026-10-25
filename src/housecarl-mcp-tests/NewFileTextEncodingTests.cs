@@ -273,9 +273,11 @@ public sealed class NewFileTextEncodingTests : IDisposable
     public void AMergeThatCannotWriteSaysWhatToTryThroughTheTool()
     {
         var svc = Open("ENGLISH");
-        using var _ = new DenyNewSubfolders(Mods);   // the merge's own folder is made, its staging folder is not
-
-        var r = WriteTools.MergePlugins(svc, new[] { Accent }, "HcMuFail");
+        // The merge's own folder is made, its staging folder is not.
+        Assert.True(DenyAce.TryDenyNewSubfolders(Mods), "the fixture did not build: the deny did not bite on this host");
+        string r;
+        try { r = WriteTools.MergePlugins(svc, new[] { Accent }, "HcMuFail"); }
+        finally { DenyAce.UndenyNewSubfolders(Mods); }
 
         Assert.StartsWith("error: houseCARL did not write the merged plugin 'HcMuFail.esp' and left nothing behind (", r);
         Assert.EndsWith("check that the mods folder is writable and has free space, then run the merge again.", r);
@@ -305,33 +307,6 @@ public sealed class NewFileTextEncodingTests : IDisposable
         Assert.DoesNotContain("in_place", s);
         Assert.DoesNotContain(". ", s);                 // one sentence
         Assert.EndsWith("then run the merge again.", s);
-    }
-
-    /// <summary>Deny the current user making folders inside any NEW subfolder of <paramref name="dir"/> until disposed.</summary>
-    sealed class DenyNewSubfolders : IDisposable
-    {
-        readonly DirectoryInfo _dir;
-        readonly System.Security.AccessControl.FileSystemAccessRule _rule = new(
-            System.Security.Principal.WindowsIdentity.GetCurrent().Name,
-            System.Security.AccessControl.FileSystemRights.CreateDirectories,
-            System.Security.AccessControl.InheritanceFlags.ContainerInherit,
-            System.Security.AccessControl.PropagationFlags.InheritOnly,
-            System.Security.AccessControl.AccessControlType.Deny);
-
-        public DenyNewSubfolders(string dir)
-        {
-            _dir = new DirectoryInfo(dir);
-            var sec = _dir.GetAccessControl();
-            sec.AddAccessRule(_rule);
-            _dir.SetAccessControl(sec);
-        }
-
-        public void Dispose()
-        {
-            var sec = _dir.GetAccessControl();
-            sec.RemoveAccessRuleSpecific(_rule);
-            _dir.SetAccessControl(sec);
-        }
     }
 
     // ---- compaction ---------------------------------------------------------------------------------

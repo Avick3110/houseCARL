@@ -28,6 +28,43 @@ static class DenyAce
         catch { return false; }
     }
 
+    /// <summary>Deny the current user making folders inside any NEW subfolder of one directory, checked on a probe
+    /// subfolder. False means the ACE did not bite on this host, and it has already been taken back off.</summary>
+    public static bool TryDenyNewSubfolders(string dir)
+    {
+        try
+        {
+            var di = new DirectoryInfo(dir);
+            var sec = di.GetAccessControl();
+            sec.AddAccessRule(NewSubfolderRule());
+            di.SetAccessControl(sec);
+            var probe = Path.Combine(dir, ".deny-probe-" + Guid.NewGuid().ToString("N"));
+            try { Directory.CreateDirectory(Path.Combine(probe, "x")); }
+            catch (UnauthorizedAccessException) { return true; }
+            finally { try { Directory.Delete(probe, recursive: true); } catch { } }
+            UndenyNewSubfolders(dir);
+            return false;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Take the new-subfolder deny off again.</summary>
+    public static void UndenyNewSubfolders(string dir)
+    {
+        try
+        {
+            var di = new DirectoryInfo(dir);
+            var sec = di.GetAccessControl();
+            sec.RemoveAccessRuleSpecific(NewSubfolderRule());
+            di.SetAccessControl(sec);
+        }
+        catch { /* cleanup is best effort; the temp tree goes either way */ }
+    }
+
+    static FileSystemAccessRule NewSubfolderRule() => new(WindowsIdentity.GetCurrent().Name,
+        FileSystemRights.CreateDirectories, InheritanceFlags.ContainerInherit, PropagationFlags.InheritOnly,
+        AccessControlType.Deny);
+
     /// <summary>Take the deny ACE off again — left behind, it would block the temp tree's own cleanup.</summary>
     public static void Undeny(string dir)
     {
