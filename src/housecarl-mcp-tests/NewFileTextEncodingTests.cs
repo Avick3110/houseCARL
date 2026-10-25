@@ -262,6 +262,8 @@ public sealed class NewFileTextEncodingTests : IDisposable
         Assert.StartsWith("error: houseCARL did not write the merged plugin 'HcMuFail.esp' and left nothing behind (", r);
         Assert.EndsWith("check that the mods folder is writable and has free space, then run the merge again.", r);
         Assert.DoesNotContain("Exception", r);
+        // "left nothing behind": no folder or plugin of the merge's name remains under the mods folder.
+        Assert.Empty(Directory.GetFileSystemEntries(Mods, "*HcMuFail*", SearchOption.AllDirectories));
     }
 
     /// <summary>An aggregate throw names each cause once, not the wrapper's copy of it and then the cause again.</summary>
