@@ -387,6 +387,30 @@ public sealed class NewFileTextEncodingTests : IDisposable
         Assert.True(Holds1252(Output("HcMuBackPatch.esp"), LatinName), "extending the patch re-encoded its 1252 name");
     }
 
+    // ---- the copy scope -----------------------------------------------------------------------------
+
+    /// <summary>A copy scope ends with its copy: text decoded after an inner scope returns marks the outer mod, and
+    /// text decoded after the outer scope returns marks no mod.</summary>
+    [Fact]
+    public void ACopyScopeEndsWithItsCopy()
+    {
+        Open("ENGLISH");
+        var path = Output(Accent);
+        var outer = NewMod("HcMuScopeOuter.esp");
+        var inner = NewMod("HcMuScopeInner.esp");
+        var after = NewMod("HcMuScopeAfter.esp");
+        using var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path));
+        string? Decode() => ov.Weapons.Single().Name?.String;
+
+        PluginTextEncoding.CopyInto(outer, () => { PluginTextEncoding.CopyInto(inner, () => 0); return Decode(); });
+        Assert.True(PluginTextEncoding.NewFileIsUtf8(outer), "the outer copy's UTF-8 text did not mark it");
+        Assert.False(PluginTextEncoding.NewFileIsUtf8(inner), "text decoded after the inner copy marked it");
+
+        PluginTextEncoding.CopyInto(after, () => 0);
+        Assert.Equal(LatinName, Decode());
+        Assert.False(PluginTextEncoding.NewFileIsUtf8(after), "text decoded after the copy marked it");
+    }
+
     /// <summary>Unchanged: Japanese typed into a new patch with no UTF-8 contributor stays Shift-JIS (DECISIONS 2026-10-21 (7)).</summary>
     [Fact]
     public void AJapaneseValueIntoANewPatchWithNoUtf8ContributorIsShiftJis()
