@@ -446,8 +446,8 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   each. Its one data table is the vanilla 0-byte markers (NPC_ DATA, QUST NEXT, the RACE markers, SCEN HNAM, from
   Skyrim.esm); a 0-byte subrecord that is neither a marker nor filled by a field is a coverage anomaly. When Mutagen
   fixes a field the probe stops listing it and the sentence goes with no code change.
-- A field any edit of the create touches is the author's value and silent, an explicit empty included, and so is a
-  value of the wrong size: only a field left at 0 bytes is reported. Records read from disk and carried (forward, copy-as-new, merge, compact, in-place re-emit) keep
+- The rule is per created record. A probed field that one of that record's own edits touches is the author's value and
+  silent, an explicit empty or a value of the wrong size included; a probed field no edit of that record touched is reported, and in a batch the hoisted line stands while any record left it untouched. Records read from disk and carried (forward, copy-as-new, merge, compact, in-place re-emit) keep
   their bytes and carry no sentence: only `CreateRecords` says it.
 
 ## Pinned by
