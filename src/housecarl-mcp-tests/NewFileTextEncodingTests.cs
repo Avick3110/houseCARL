@@ -247,6 +247,57 @@ public sealed class NewFileTextEncodingTests : IDisposable
         Assert.DoesNotContain("Exception", r.Error);
         Assert.DoesNotContain("serialize or commit", r.Error);
         Assert.DoesNotContain("in_place", r.Error);
+        Assert.EndsWith("then run the merge again.", r.Error);
+    }
+
+    /// <summary>The same sentence reaches the merge tool's reply: what failed and what to try, ending in a period.</summary>
+    [Fact]
+    public void AMergeThatCannotWriteSaysWhatToTryThroughTheTool()
+    {
+        var svc = Open("ENGLISH");
+        using var _ = new DenyNewSubfolders(Mods);   // the merge's own folder is made, its staging folder is not
+
+        var r = WriteTools.MergePlugins(svc, new[] { Accent }, "HcMuFail");
+
+        Assert.StartsWith("error: houseCARL did not write the merged plugin 'HcMuFail.esp' and left nothing behind (", r);
+        Assert.EndsWith("check that the mods folder is writable and has free space, then run the merge again.", r);
+        Assert.DoesNotContain("Exception", r);
+    }
+
+    /// <summary>An aggregate throw names each cause once, not the wrapper's copy of it and then the cause again.</summary>
+    [Fact]
+    public void AMergeWriteFailureNamesAnAggregatesCauseOnce()
+    {
+        var s = WritePatchBuilder.MergeWriteFailure("HcMuFail.esp", new AggregateException(new IOException("The disk is full.")));
+        Assert.Equal("houseCARL did not write the merged plugin 'HcMuFail.esp' and left nothing behind (The disk is full); "
+                     + "check that the mods folder is writable and has free space, then run the merge again.", s);
+    }
+
+    /// <summary>Deny the current user making folders inside any NEW subfolder of <paramref name="dir"/> until disposed.</summary>
+    sealed class DenyNewSubfolders : IDisposable
+    {
+        readonly DirectoryInfo _dir;
+        readonly System.Security.AccessControl.FileSystemAccessRule _rule = new(
+            System.Security.Principal.WindowsIdentity.GetCurrent().Name,
+            System.Security.AccessControl.FileSystemRights.CreateDirectories,
+            System.Security.AccessControl.InheritanceFlags.ContainerInherit,
+            System.Security.AccessControl.PropagationFlags.InheritOnly,
+            System.Security.AccessControl.AccessControlType.Deny);
+
+        public DenyNewSubfolders(string dir)
+        {
+            _dir = new DirectoryInfo(dir);
+            var sec = _dir.GetAccessControl();
+            sec.AddAccessRule(_rule);
+            _dir.SetAccessControl(sec);
+        }
+
+        public void Dispose()
+        {
+            var sec = _dir.GetAccessControl();
+            sec.RemoveAccessRuleSpecific(_rule);
+            _dir.SetAccessControl(sec);
+        }
     }
 
     // ---- compaction ---------------------------------------------------------------------------------
