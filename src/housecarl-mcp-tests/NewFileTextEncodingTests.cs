@@ -359,6 +359,16 @@ public sealed class NewFileTextEncodingTests : IDisposable
         Assert.True(HoldsUtf8(Output("HcMuFwd.esp"), OverName), "the forwarded name is not UTF-8");
     }
 
+    /// <summary>The forwarded version's text decides: a UTF-8 source forwarded over a later Windows-1252 winner is UTF-8.</summary>
+    [Fact]
+    public void AnEnglishForwardOfAUtf8SourceOverAWindows1252WinnerIsUtf8()
+    {
+        var svc = Open("ENGLISH");
+        Assert.DoesNotContain("error:", ForwardTools.Forward(svc, formids: new[] { Fid(_accentWeap) }, source: Accent, patch: "HcMuFwdBack"));
+        Assert.True(HoldsUtf8(Output("HcMuFwdBack.esp"), LatinName), "the forwarded name is not UTF-8");
+        Assert.False(Holds1252(Output("HcMuFwdBack.esp"), LatinName), "the forwarded name went Windows-1252");
+    }
+
     [Fact]
     public void AnEnglishCopiedUtf8FieldMakesThePatchUtf8()
     {
