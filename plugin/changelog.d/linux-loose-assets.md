@@ -1,1 +1,1 @@
-- **On Linux or macOS houseCARL now says it runs on Windows only and exits, instead of answering wrongly.** Check: start it there; one sentence naming issue #1256, no tools.
+- **Started natively on Linux or macOS (`dotnet housecarl-mcp.dll`), houseCARL now refuses in one sentence and exits, instead of answering wrongly.** Check: start it so there; the sentence names issue #1256, on stderr (your client's MCP log).
