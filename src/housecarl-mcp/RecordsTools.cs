@@ -1971,7 +1971,6 @@ public static partial class RecordsTools
 
             // summary / aggregate: the shared scan renders, prefilled rows carrying the file's identities and
             // winner context where a record also lives in the order.
-            outcome = WithPlanNotes(outcome);
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
