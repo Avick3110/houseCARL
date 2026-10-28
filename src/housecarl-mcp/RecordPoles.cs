@@ -564,7 +564,11 @@ internal sealed partial class RecordReads
 
     /// <summary>One provider's node in a project=tree row: its position plus its comparison against the row's reference
     /// pole, null on the reference node itself.</summary>
-    public sealed record TreeNodeDelta(string Plugin, bool IsWinner, bool IsReference, string? Error, FieldsDiff.Result? Diff);
+    public sealed record TreeNodeDelta(string Plugin, bool IsWinner, FieldsDiff.Result? Diff)
+    {
+        /// <summary>The reference node, the one the others are compared against.</summary>
+        public bool IsReference => Diff is null;
+    }
 
     /// <summary>One record's project=tree row: every provider in priority order, the winner at <see cref="WinnerAt"/>,
     /// each diffed against the reference pole; a non-null Error is a per-item refusal.</summary>
@@ -704,8 +708,8 @@ internal sealed partial class RecordReads
                     }
                     bool isRef = refReader is null ? isWinner
                                : refIsActiveProvider[j] && string.Equals(plugin, refPlugin[j], StringComparison.OrdinalIgnoreCase);
-                    if (isRef) { nodes[j][node] = new TreeNodeDelta(plugin, isWinner, true, null, null); return true; }
-                    nodes[j][node] = new TreeNodeDelta(plugin, isWinner, false, null, FieldsDiff.Compare(read, refFields[j]!, referenceLabel: refLabel[j]));
+                    if (isRef) { nodes[j][node] = new TreeNodeDelta(plugin, isWinner, null); return true; }
+                    nodes[j][node] = new TreeNodeDelta(plugin, isWinner, FieldsDiff.Compare(read, refFields[j]!, referenceLabel: refLabel[j]));
                     return true;
                 });
 
