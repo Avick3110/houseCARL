@@ -393,6 +393,16 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         Assert.Contains("or test MajorFlags", r);
     }
 
+    // r4 #6: has_none refuses a generic name the record's own flags rename, as has does, never matching it as absent.
+    [Fact]
+    public void HasNone_RefusesAGenericNameTheRecordsOwnFlagsRename()
+    {
+        var r = Where("STAT", "SkyrimMajorRecordFlags has_none NotPlayable");
+        Assert.Contains("error: predicate", r);
+        Assert.DoesNotContain("HcOcNeverFades", r);
+        Assert.Contains("Static's header flags read with its own names first", r);
+    }
+
     string Where(string type, string predicate) => RecordsTools.Records(Svc, types: new[] { type }, where: new[] { predicate });
 
     [Theory]
