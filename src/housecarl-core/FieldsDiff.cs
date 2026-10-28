@@ -8,7 +8,7 @@ public static class FieldsDiff
     /// <summary>Field-level deltas, preformatted for the conflict-tree render; <see cref="Complete"/> false means an empty <see cref="Deltas"/> must NOT be rendered as "identical to winner".</summary>
     /// <param name="NoVerdictCount">How many of <paramref name="Deltas"/> are no-verdict lines (UNREADABLE, or NO FIELD on both sides) rather than value differences.</param>
     /// <param name="NoFieldCount">How many of those no-verdicts are NO FIELD on both sides: a wrong path, not a read fault.</param>
-    /// <param name="MatchedListCount">Positional lists whose contents match in the same order, holding <paramref name="MatchedItemCount"/> items in all.</param>
+    /// <param name="MatchedListCount">Positional lists whose contents match in the same order (a list or dict empty on both sides among them), holding <paramref name="MatchedItemCount"/> items in all.</param>
     /// <param name="BothAbsentCount">Fields absent on both sides: the same state, never a value leaf in <paramref name="AgreedCount"/>.</param>
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
         int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount, int NoFieldCount = 0, bool Capped = false,
@@ -23,7 +23,8 @@ public static class FieldsDiff
         {
             var parts = new List<string>();
             if (AgreedCount > 0) parts.Add($"{AgreedCount} {leaves} agree");
-            if (MatchedListCount == 1) parts.Add($"1 list with the same {MatchedItemCount} item(s)");
+            if (MatchedListCount > 0 && MatchedItemCount == 0) parts.Add(MatchedListCount == 1 ? "1 list empty on both" : $"{MatchedListCount} lists empty on both");
+            else if (MatchedListCount == 1) parts.Add($"1 list with the same {MatchedItemCount} item(s)");
             else if (MatchedListCount > 1) parts.Add($"{MatchedListCount} lists with the same items ({MatchedItemCount} in all)");
             if (BothAbsentCount > 0) parts.Add(BothAbsentCount == 1 ? "1 field absent on both" : $"{BothAbsentCount} fields absent on both");
             return parts.Count > 0 ? string.Join(", ", parts) : null;
@@ -136,6 +137,11 @@ public static class FieldsDiff
                 else if (!string.Equals(NormalizeForCompare(val), NormalizeForCompare(wv), StringComparison.Ordinal))
                 {
                     deltas.Add($"{path}={val} ({referenceLabel} {wv})");
+                }
+                else if (!capped && val is "[list: 0 item(s)]" or "[dict: 0 pair(s)]")
+                {
+                    // Empty on both sides: no element lines, so never a list root; the same (no) items.
+                    matchedLists++;
                 }
                 else if (tValueLeaves.Contains(path) && wValueLeaves.Contains(path))
                 {
