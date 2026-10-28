@@ -89,6 +89,36 @@ public sealed class DialogueTypeCheckTests : IDisposable
     }
 
     [Fact]
+    public void ARightTypedBranchIsNotFetchedWhenTheTopicsQuestIsUnsetOrUnresolved()
+    {
+        // The branch sits in a held-open plugin: its body is read only to compare quests, which needs the topic's.
+        var t = new SkyrimMod(new ModKey("HcDtbTargets", ModType.Master), SkyrimRelease.SkyrimSE);
+        var qB = t.Quests.AddNew(); qB.EditorID = "HcDtbQuestB";
+        var br = t.DialogBranches.AddNew(); br.EditorID = "HcDtbBranch"; DialogueCkParity.ApplyBranchDefaults(br);
+        br.Quest.SetTo(qB.FormKey);
+        string tPath = Write(t);
+
+        var sKey = new ModKey("HcDtbSeed", ModType.Plugin);
+        var s = new SkyrimMod(sKey, SkyrimRelease.SkyrimSE);
+        var unset = s.DialogTopics.AddNew(); unset.EditorID = "HcDtbUnset";
+        var unresolved = s.DialogTopics.AddNew(); unresolved.EditorID = "HcDtbUnresolved";
+        unresolved.Quest.SetTo(new FormKey(sKey, 0x00ABCDEF));
+        foreach (var topic in new[] { unset, unresolved })
+        {
+            topic.Branch.SetTo(br.FormKey); topic.SubtypeName = new RecordType("CUST");
+        }
+        string sPath = Write(s, t);
+
+        using var resolver = LoadOrderResolver.Build(new[] { tPath, sPath });
+        using var assets = AssetResolver.Build("", "", _dir, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+        resolver.Capture();
+
+        using var hold = HeldOpen.Hold(tPath);
+        Assert.Empty(LinkIssues(DialogueValidate.Run(resolver, assets, unset.FormKey)));
+        Assert.Empty(LinkIssues(DialogueValidate.Run(resolver, assets, unresolved.FormKey)));
+    }
+
+    [Fact]
     public void AFoldIsJudgedByItsOwnTypesAndARecordOnlyItHoldsIsPresent()
     {
         var t = new SkyrimMod(new ModKey("HcDtfTargets", ModType.Master), SkyrimRelease.SkyrimSE);
