@@ -254,7 +254,7 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
     }
 
     [Fact]
-    public void Json_RowsCarryTheUnresolvedStringCount()
+    public void Json_RowsCarryTheUnresolvedStringAndNullLinkCounts()
     {
         Assert.Equal(0, Json(Delta("Armature", "json")).GetProperty("rows")[0].GetProperty("unresolved_string_count").GetInt32());
         var art = W.Scratch("delta-unresolved.jsonl");
@@ -263,6 +263,7 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
                              versus: Pole(OutputAgreementWorld.MasterName), to_file: art);
         var schema = JsonDocument.Parse(File.ReadLines(art).First()).RootElement.GetProperty("row_schema");
         Assert.Contains(schema.EnumerateArray(), e => e.GetString() == "unresolved_string_count");
+        Assert.Contains(schema.EnumerateArray(), e => e.GetString() == "present_null_link_count");
     }
 
     // Several of each kind: the plural phrases, joined by ", ".
