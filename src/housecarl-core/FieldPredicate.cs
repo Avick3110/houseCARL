@@ -1341,9 +1341,11 @@ public sealed class FieldPredicateSet
         return string.Equals(token, operand, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>One leaf against one operand: an enum leaf by its underlying integer when the operand names one, else <see cref="ValueEquals"/>.</summary>
+    /// <summary>One leaf against one operand: a header leaf by its bits in the read's vocabulary, an enum leaf by its underlying
+    /// integer when the operand names one, else <see cref="ValueEquals"/>.</summary>
     static bool LeafEquals(ReadEngine.LeafRead leaf, string operand)
-        => leaf.EnumBox is { } box && EnumOperand(operand, box.GetType()) is { } v ? ReadEngine.EnumNumber(box) == v : ValueEquals(leaf.Token, operand);
+        => leaf.Flags is { Remainder: { } rest } fh ? ResolveBits(operand, fh.EnumType, rest) is { Bad: null } r && r.Bits == fh.Bits
+           : leaf.EnumBox is { } box && EnumOperand(operand, box.GetType()) is { } v ? ReadEngine.EnumNumber(box) == v : ValueEquals(leaf.Token, operand);
 
     static readonly ConcurrentDictionary<(Type Enum, string Operand), Int128?> EnumOperands = new();
 
@@ -1357,10 +1359,21 @@ public sealed class FieldPredicateSet
         return name is null ? null : ReadEngine.EnumNumber((Enum)Enum.Parse(k.Enum, name));
     });
 
-    /// <summary>Whether an '=', '!=', 'in' or 'not in' literal can ever equal a leaf of this enum, by the comparison's own rules.</summary>
-    public static bool EnumLiteralFits(string literal, Type enumType)
-        => EnumOperand(literal, enumType) is not null
-           || (enumType.IsDefined(typeof(FlagsAttribute), false) && TryResolveBits(literal, enumType, out _));
+    /// <summary>Whether an '=', '!=', 'in' or 'not in' literal can ever equal a leaf of this enum, by the comparison's own rules;
+    /// with <paramref name="remainder"/>, a header leaf read with its record's own flags first.</summary>
+    public static bool EnumLiteralFits(string literal, Type enumType, Type? remainder = null)
+        => remainder is not null ? ResolveBits(literal, enumType, remainder).Bad is null
+           : EnumOperand(literal, enumType) is not null
+             || (enumType.IsDefined(typeof(FlagsAttribute), false) && TryResolveBits(literal, enumType, out _));
+
+    /// <summary>The names a header leaf takes: its record's own flag names, then the generic names of the bits those leave unnamed.</summary>
+    static IEnumerable<string> HeaderNames(Type own, Type generic) => Enum.GetNames(own).Concat(Enum.GetNames(generic)
+        .Where(n => ReadEngine.TryEnumBitsFromName(generic, n, out var b) && b != 0 && ReadEngine.Unnamed(new ReadEngine.FlagBits(b, own)) == b));
+
+    /// <summary>What to try on a header leaf a name failed on: the record type's own names, a bit value, or MajorFlags.</summary>
+    static string HeaderRemedy(Type own, Type generic) =>
+        $"{own.DeclaringType?.Name ?? own.Name}'s header flags read with its own names first, then the generic names for the bits those leave unnamed " +
+        $"({string.Join(", ", HeaderNames(own, generic))}); write one of those or a bit value, or test MajorFlags";
 
     static bool TryNum(string s, out double d)
         => double.TryParse(s, NumberStyles.Float | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out d);
@@ -1465,39 +1478,45 @@ public sealed class FieldPredicateSet
                        $"('{p.FullPath}[*any] {OpStr(p.Op, p.Negate)} …') or one of them ('{p.FullPath}[0]'), or use references= for list→FormID membership.";
         }
         if (count || p.Op is not (Op.Eq or Op.Ne or Op.In or Op.NotIn)) return null;
-        var enums = new List<Type>();
+        var enums = new List<(Type Enum, Type? Remainder)>();
         foreach (var l in leaves)
         {
             var aq = l.Field is not { } f ? null : l.Element ? f.ElementTypeAssemblyQualified
                    : f.Cardinality == "enum" ? f.MutableTypeAssemblyQualified ?? f.GetterTypeAssemblyQualified : null;
             if (aq is null || WriteEngine.ResolveType(aq) is not { } rt || (Nullable.GetUnderlyingType(rt) ?? rt) is not { IsEnum: true } e) return null;
-            if (!enums.Contains(e)) enums.Add(e);
+            // The header leaf of a record with its own MajorFlag reads in that vocabulary first, as the read decodes it.
+            var v = e == typeof(Mutagen.Bethesda.Skyrim.SkyrimMajorRecord.SkyrimMajorRecordFlag) && l.Owner is { } o && _walk!.ClassOf(o) is { } c
+                    && ReadEngine.OwnMajorFlag(c) is { } own ? (own, e) : (e, (Type?)null);
+            if (!enums.Contains(v)) enums.Add(v);
         }
         return enums.Count == 0 ? null : EnumLiteralRefusal(p, enums);
     }
 
     /// <summary>A value literal no enum the leaves hold can equal, with the hint that fits how it went wrong.</summary>
-    static string? EnumLiteralRefusal(Predicate p, IReadOnlyList<Type> enums)
+    static string? EnumLiteralRefusal(Predicate p, IReadOnlyList<(Type Enum, Type? Remainder)> enums)
     {
         foreach (var literal in p.RawMembers ?? (IReadOnlyList<string>)new[] { p.Operand })
         {
-            if (enums.Any(e => EnumLiteralFits(literal, e))) continue;
-            var enumNames = string.Join(" or ", enums.Select(e => e.DeclaringType is { } d ? $"{d.Name}.{e.Name}" : e.Name));
-            var flags = enums.Where(e => e.IsDefined(typeof(FlagsAttribute), false)).ToList();
+            if (enums.Any(e => EnumLiteralFits(literal, e.Enum, e.Remainder))) continue;
+            var enumNames = string.Join(" or ", enums.Select(e => e.Enum.DeclaringType is { } d ? $"{d.Name}.{e.Enum.Name}" : e.Enum.Name));
+            var flags = enums.Where(e => e.Enum.IsDefined(typeof(FlagsAttribute), false)).ToList();
+            var names = (IEnumerable<(Type Enum, Type? Remainder)> vs) => vs.SelectMany(e => e.Remainder is { } r ? HeaderNames(e.Enum, r) : Enum.GetNames(e.Enum)).Distinct();
             var bare = literal.Trim('"', '\'');
             string hint;
-            if (bare.Length < literal.Length && enums.Any(e => EnumLiteralFits(bare, e)))
+            if (bare.Length < literal.Length && enums.Any(e => EnumLiteralFits(bare, e.Enum, e.Remainder)))
                 hint = $" The quotes are read as part of the value; write it bare: '{p.Text.Replace(literal, bare)}'.";
+            else if (enums.Any(e => e.Remainder is not null))
+                hint = " " + string.Join(" ", enums.Where(e => e.Remainder is not null).Select(e => HeaderRemedy(e.Enum, e.Remainder!) + "."));
             else if (literal.Contains(',') && flags.Count > 0)
             {
                 var bad = literal.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                                 .FirstOrDefault(m => !flags.Any(e => EnumLiteralFits(m, e))) ?? literal;
-                hint = $" '{bad}' is no flag of it.{PluginNameSuggest.DidYouMean(bad, flags.SelectMany(Enum.GetNames).Distinct())}";
+                                 .FirstOrDefault(m => !flags.Any(e => EnumLiteralFits(m, e.Enum))) ?? literal;
+                hint = $" '{bad}' is no flag of it.{PluginNameSuggest.DidYouMean(bad, names(flags))}";
             }
             else if (literal.Contains(','))
                 hint = $" {enumNames} is not a [Flags] enum, so a field holds one name and a comma list never matches; test several with 'in [a, b]'.";
             else
-                hint = PluginNameSuggest.DidYouMean(literal, enums.SelectMany(Enum.GetNames).Distinct());
+                hint = PluginNameSuggest.DidYouMean(literal, names(enums));
             return $"predicate '{p.Text}': '{literal}' names no value of the {enumNames} enum this field holds, so the test means nothing.{hint}";
         }
         return null;

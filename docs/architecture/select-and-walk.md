@@ -28,7 +28,11 @@ path walk, and containment comes off Mutagen's context walk.
   cannot express, and whose operand is a bit value or a flag name, or several split the way an `in`
   list splits with the flags decode's `|` as a separator too (`[Body, Hands]` = `Body, Hands` =
   `Body | Hands`), and the decode's `slotNN` (biped) or `bitN` token for an unnamed bit; `=` and `!=`
-  on a flags leaf resolve the same spellings, once per operand and enum. On a list or dict path the
+  on a flags leaf resolve the same spellings, once per operand and enum. On `SkyrimMajorRecordFlags`
+  of a record type with its own `MajorFlag`, `has`, `=`, `!=`, `in` and `not in` all take the read's
+  vocabulary: that type's own names first, then the generic header names for the bits those leave
+  unnamed (`GLOB … = Constant | CantWait`); a generic name the type renames (`STAT … = NotPlayable`)
+  is refused with the type's own names and `MajorFlags` as what to try. On a list or dict path the
   has-family refuses the call from the schema, before any record is read:
   a form-link list with form operands gets the list members' own spelling (`Keywords[*none] in [X]`),
   other form links a `->` step (`Keywords->editorid = X`), a dict one entry, any other list the
@@ -37,7 +41,8 @@ path walk, and containment comes off Mutagen's context walk.
 - On an enum leaf the schema names, a `=`, `!=`, `in` or `not in` literal that is neither a whole number (compared to
   the enum's underlying value) nor one of that enum's names (a comma list only on a `[Flags]` enum) refuses the call at
   plan time with a "did you mean", when every enum the path can end on rejects it; a `->` right side is checked over
-  the target types that carry the field.
+  the target types that carry the field. The header leaf is checked in each record type's vocabulary above, so a
+  literal one type in `types=` holds still passes.
 - Whether a path names a field is decided from the generated schema before any record is read (#1160),
   by `SchemaPathWalk`: one walk over each side of a term that carries the SET of types a step can be on —
   struct fields, list elements, dict values, every arm of a union, `.Male`/`.Female` and `[0]`/`[1]` on a
