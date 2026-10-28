@@ -93,6 +93,7 @@ public sealed class DialogueBranchQuestTests : IDisposable
         Assert.Equal(DialogueIssueSeverity.Warning, issue.Severity);
         Assert.Contains(MapsWording, issue.Message);
         Assert.DoesNotContain(TwiceWording, issue.Message);
+        Assert.DoesNotContain("Creation Kit", issue.Message);
     }
 
     [Fact]
