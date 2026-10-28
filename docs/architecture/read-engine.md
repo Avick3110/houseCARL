@@ -85,7 +85,8 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
   ("ArmorRating (not on Weapon) not compared"). A row where no path was compared and at least one is
   a planned path its type lacks compared nothing (`NothingCompared`): it is not complete and never
   "identical" ("nothing compared, NOT 'identical': …"), and the delta census counts it in
-  `not_compared` (written only when there are any; json `nothing_compared`). A row whose other paths could not be read is nothing-compared
+  `not_compared` (text and json alike, written only when there are any; the json row's flag beside
+  `not_on_type` is `nothing_compared`). A row whose other paths could not be read is nothing-compared
   and a no-verdict at once, counted in both `no_verdict` and `not_compared`.
 - The agreed count counts only exact-path VALUE leaves read on BOTH sides — never a container
   summary, never a side's absent or null-link sentinel, because an absent field is not an agreement.
