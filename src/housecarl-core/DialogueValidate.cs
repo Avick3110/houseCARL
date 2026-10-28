@@ -402,7 +402,7 @@ public static class DialogueValidate
                 var branchLabel = branch.EditorID is { Length: > 0 } bid ? $"{bid} ({FormIdToken.Of(bfk)})" : FormIdToken.Of(bfk);
                 issues.Add(new(DialogueIssueSeverity.Warning,
                     $"DialogTopic.Quest is {FormIdToken.Of(tq)} but its Branch {branchLabel} "
-                    + $"belongs to quest {FormIdToken.Of(bq)} — the Creation Kit cannot build a topic whose quest differs from its branch's. "
+                    + $"belongs to quest {FormIdToken.Of(bq)}, so the two disagree on which quest owns the topic. "
                     + (topLevel
                         ? "The branch is top-level, so its menu entry can show twice in game (a duplicate player dialogue option). "
                         : "The topic is filed under two quests' branch maps. ")
