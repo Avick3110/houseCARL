@@ -90,7 +90,7 @@ public static class CheckTools
              ".pex is not on disk reads unverifiable, never clean. " +
              // ---- family: dialogue -------------------------------------------------------------------------
              "Dialogue family — each seeded topic's graph as the game sees it: the topic is wired to a quest, the " +
-             "branch resolves, no INFO.LinkTo target or previous link (PNAM) is dangling (an empty PNAM is normal " +
+             "branch resolves and names the topic's own quest, no INFO.LinkTo target or previous link (PNAM) is dangling (an empty PNAM is normal " +
              "and never flagged), each voiced line's .fuz is on disk, each result script is bound and compiled, " +
              "non-ASCII player-facing text (topic name, prompt, response) is flagged as likely mojibake, each line's " +
              "conditions are checked for some malformed shapes (a dangling form reference, a dead quest-alias " +
