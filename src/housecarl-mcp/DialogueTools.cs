@@ -49,7 +49,7 @@ internal static class DialogueWire
         if (t.Issues.Count == 0)
         {
             // The conditions clause is asserted only when the topic actually has conditioned INFOs.
-            sb.Append(pad).Append("  graph: OK — quest + branch wiring resolve, LinkTo targets resolve, no dangling PNAM");
+            sb.Append(pad).Append("  graph: OK — quest + branch wiring resolve and agree, LinkTo targets resolve, no dangling PNAM");
             sb.Append(t.ConditionedInfoCount > 0
                 ? ", conditions well-formed (their form references + alias indices resolve).\n"
                 : ".\n");

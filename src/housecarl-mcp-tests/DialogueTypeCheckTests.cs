@@ -38,9 +38,9 @@ public sealed class DialogueTypeCheckTests : IDisposable
     [Fact]
     public void TargetsInAHeldOpenPluginFetchNoBodyAndWrongTypesAreStillReported()
     {
-        // The Branch, PNAM and LinkTo targets sit in one plugin, held open while the check runs: any body fetch
-        // from it fails, so a clean answer proves none was made. The Quest stays in the seed: its body is read
-        // once for its aliases.
+        // The wrong-type Branch, PNAM and LinkTo targets sit in one plugin, held open while the check runs: any body
+        // fetch from it fails, so a clean answer proves none was made. The Quest stays in the seed: its body is read
+        // once for its aliases. A right-type branch's body is read for its Quest, so the branch target is wrong-type.
         var t = new SkyrimMod(new ModKey("HcDtTargets", ModType.Master), SkyrimRelease.SkyrimSE);
         var lines = new List<FormKey>();
         var topics = new List<FormKey>();
@@ -51,14 +51,13 @@ public sealed class DialogueTypeCheckTests : IDisposable
             dt.Responses.Add(i);
             topics.Add(dt.FormKey); lines.Add(i.FormKey);
         }
-        var branch = t.DialogBranches.AddNew(); branch.EditorID = "HcDtBranch";
         var weap = t.Weapons.AddNew(); weap.EditorID = "HcDtWeap";
         string tPath = Write(t);
 
         var s = new SkyrimMod(new ModKey("HcDtSeed", ModType.Plugin), SkyrimRelease.SkyrimSE);
         var quest = s.Quests.AddNew(); quest.EditorID = "HcDtQuest";
         var topic = s.DialogTopics.AddNew(); topic.EditorID = "HcDtSeedTopic";
-        topic.Quest.SetTo(quest.FormKey); topic.Branch.SetTo(branch.FormKey); topic.SubtypeName = new RecordType("CUST");
+        topic.Quest.SetTo(quest.FormKey); topic.Branch.SetTo(weap.FormKey); topic.SubtypeName = new RecordType("CUST");
         for (int n = 0; n < 20; n++)
         {
             var i = new DialogResponses(s.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = $"HcDtSeedI{n}" };
@@ -83,6 +82,7 @@ public sealed class DialogueTypeCheckTests : IDisposable
 
         Assert.Equal(new[]
         {
+            $"DialogTopic.Branch points at {weap.FormKey}, which resolves to a Weapon, not a dialogue branch (DLBR) — the branch wiring is broken.",
             $"INFO {FormIdToken.Of(bad.FormKey)} has a previous-link (PNAM -> {FormIdToken.Of(weap.FormKey)}) that resolves to a Weapon, not a dialogue line (INFO).",
             LinkTo(bad.FormKey, weap.FormKey, "resolves to a Weapon, not a dialogue topic (DIAL)"),
         }, issues);
