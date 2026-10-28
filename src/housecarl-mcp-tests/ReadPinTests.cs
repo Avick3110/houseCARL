@@ -318,7 +318,7 @@ public sealed class ReadPinTests : IDisposable
     }
 
     /// <summary>The base plugin's node, one under the winner, against the overlay post reference.</summary>
-    IReadOnlyList<string> TreeBaseDeltas() => Tree(OverlayPost).Nodes.Single(n => n.Plugin == BaseName).Deltas;
+    IReadOnlyList<string> TreeBaseDeltas() => Tree(OverlayPost).Nodes.Single(n => n.Plugin == BaseName).Diff!.Deltas;
 
     [Fact]
     public void AProfileSwitchInsideTheHoldDoesNotSplitTheTreeOverlayReferenceFromItsAssetBuild()
