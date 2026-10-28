@@ -68,8 +68,8 @@ static partial class RecordsTools
             {
                 if (!d.Complete)
                     sb.Append("  no differing fields in what was read, but the deep read was TRUNCATED at the cap — NOT a clean 'identical' (Q3). Narrow with ").Append(LeverNames.Records.Fields).Append(" to compare in full.\n");
-                else if (d.AgreedCount > 0)
-                    sb.Append("  identical across the fields read (").Append(d.AgreedCount).Append(" value leaf/leaves agree).\n");
+                else if (d.Agreement("value leaf/leaves") is { } agreed)
+                    sb.Append("  identical across the fields read (").Append(agreed).Append(").\n");
                 else
                     sb.Append("  identical across the fields read (no differing fields).\n");
             }
@@ -238,6 +238,8 @@ static partial class RecordsTools
                 foreach (var n in row.Nodes)
                 {
                     if (n.IsReference) continue;
+                    var agreed = FieldsDiff.AgreementPhrase(n.AgreedCount, n.MatchedListCount, n.MatchedItemCount, n.BothAbsentCount, "leaf/leaves")
+                                 ?? "no differing fields";
                     // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas.
                     string body = n.Deltas.Count > 0
                         ? string.Join("; ", n.Deltas) +
@@ -245,8 +247,8 @@ static partial class RecordsTools
                         : !n.Complete
                             ? "no differing fields in what was read, but the comparison is INCOMPLETE — the deep read was TRUNCATED at the cap, so this is not a clean 'identical'.\n"
                             : fieldsNarrow
-                                ? $"identical to {row.ReferencePlugin} across the fields read ({n.AgreedCount} leaf/leaves agree)\n"
-                                : $"identical to {row.ReferencePlugin} (whole record; {n.AgreedCount} leaf/leaves agree)\n";
+                                ? $"identical to {row.ReferencePlugin} across the fields read ({agreed})\n"
+                                : $"identical to {row.ReferencePlugin} (whole record; {agreed})\n";
                     // Composed before it is priced, so the notice cannot land past the node that crossed.
                     string line = "    " + n.Plugin + (n.IsWinner ? " (winner)" : "") + ": " + body;
                     if (sb.Length + line.Length + nodesCut.Length > budget)

@@ -8,11 +8,28 @@ public static class FieldsDiff
     /// <summary>Field-level deltas, preformatted for the conflict-tree render; <see cref="Complete"/> false means an empty <see cref="Deltas"/> must NOT be rendered as "identical to winner".</summary>
     /// <param name="NoVerdictCount">How many of <paramref name="Deltas"/> are no-verdict lines (UNREADABLE, or NO FIELD on both sides) rather than value differences.</param>
     /// <param name="NoFieldCount">How many of those no-verdicts are NO FIELD on both sides: a wrong path, not a read fault.</param>
+    /// <param name="MatchedListCount">Positional lists whose contents match in the same order, holding <paramref name="MatchedItemCount"/> items in all.</param>
+    /// <param name="BothAbsentCount">Fields absent on both sides: the same state, never a value leaf in <paramref name="AgreedCount"/>.</param>
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
-        int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount, int NoFieldCount = 0, bool Capped = false)
+        int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount, int NoFieldCount = 0, bool Capped = false,
+        int MatchedListCount = 0, int MatchedItemCount = 0, int BothAbsentCount = 0)
     {
         /// <summary>Why the comparison is incomplete, in words; empty when it is complete.</summary>
         public string Why => IncompleteWhy(NoVerdictCount - NoFieldCount, NoFieldCount, Capped);
+
+        /// <summary>What agreed, as one phrase ("3 leaf/leaves agree, 1 list with the same 2 items"), or null when nothing was counted.</summary>
+        public string? Agreement(string leaves) => AgreementPhrase(AgreedCount, MatchedListCount, MatchedItemCount, BothAbsentCount, leaves);
+    }
+
+    /// <summary>The agreement counts as one phrase, each kind named only when present; null when all are zero.</summary>
+    public static string? AgreementPhrase(int agreed, int lists, int items, int bothAbsent, string leaves)
+    {
+        var parts = new List<string>();
+        if (agreed > 0) parts.Add($"{agreed} {leaves} agree");
+        if (lists == 1) parts.Add($"1 list with the same {items} item(s)");
+        else if (lists > 1) parts.Add($"{lists} lists with the same items ({items} in all)");
+        if (bothAbsent > 0) parts.Add(bothAbsent == 1 ? "1 field absent on both" : $"{bothAbsent} fields absent on both");
+        return parts.Count > 0 ? string.Join(", ", parts) : null;
     }
 
     /// <summary>The causes of an incomplete comparison as one phrase; a fields= narrowing is offered only where it helps.</summary>
@@ -96,7 +113,7 @@ public static class FieldsDiff
         // Exact-path comparison: scalars, substructs, dict children, and the summary line of a root whose elements are not compared.
         var tScalar = ExactPathLines(tLines, listRoots, comparedRoots, Suppressed);
         var wScalar = ExactPathLines(wLines, listRoots, comparedRoots, Suppressed);
-        int agreedCount = 0;
+        int agreedCount = 0, bothAbsent = 0, matchedLists = 0, matchedItems = 0;
         var agreedSample = new List<string>();
         foreach (var (path, val) in tScalar)
         {
@@ -105,7 +122,8 @@ public static class FieldsDiff
                 bool tAbsent = IsAbsentSentinel(val), wAbsent = IsAbsentSentinel(wv);
                 if (tAbsent && wAbsent)
                 {
-                    // Both carry nothing here — same state, no delta and not an agreement.
+                    // Both carry nothing here — same state, no delta and not a value agreement.
+                    bothAbsent++;
                 }
                 else if (tAbsent)
                 {
@@ -146,14 +164,16 @@ public static class FieldsDiff
                 // Equal multisets mean the same contents; an ordered fingerprint mismatch is a pure reorder, which for some types IS the semantics.
                 if (!tElems.Select(e => e.Fingerprint).SequenceEqual(wElems.Select(e => e.Fingerprint)))
                     deltas.Add($"{root}: same {tElems.Count} item(s), ORDER DIFFERS from {referenceLabel}");
+                else { matchedLists++; matchedItems += tElems.Count; }
                 continue;
             }
             deltas.Add(DescribeListDelta(root, tElems.Count, wElems.Count, onlyT, onlyW, referenceLabel));
         }
 
         // On a CAPPED comparison the agreed set would be a where-the-cap-fell artifact; an unreadable leaf does not touch it.
-        if (capped) { agreedCount = 0; agreedSample.Clear(); }
-        return new Result(deltas, complete, agreedCount, agreedSample, noVerdict.Count, noField.Count, capped);
+        if (capped) { agreedCount = 0; agreedSample.Clear(); bothAbsent = 0; }
+        return new Result(deltas, complete, agreedCount, agreedSample, noVerdict.Count, noField.Count, capped,
+                          matchedLists, matchedItems, bothAbsent);
     }
 
     /// <summary>How many agreed-field paths to keep for the render — a small sample, not the full set.</summary>

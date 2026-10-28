@@ -565,7 +565,8 @@ internal sealed partial class RecordReads
     /// <summary>One provider's node in a project=tree row: its position plus its delta against the row's reference
     /// pole. Empty deltas together with Complete means genuinely identical to the reference.</summary>
     public sealed record TreeNodeDelta(string Plugin, bool IsWinner, bool IsReference,
-                                       IReadOnlyList<string> Deltas, int AgreedCount, bool Complete, string? Error, string Why = "");
+                                       IReadOnlyList<string> Deltas, int AgreedCount, bool Complete, string? Error, string Why = "",
+                                       int MatchedListCount = 0, int MatchedItemCount = 0, int BothAbsentCount = 0);
 
     /// <summary>One record's project=tree row: every provider in priority order, the winner at <see cref="WinnerAt"/>,
     /// each diffed against the reference pole; a non-null Error is a per-item refusal.</summary>
@@ -707,7 +708,8 @@ internal sealed partial class RecordReads
                                : refIsActiveProvider[j] && string.Equals(plugin, refPlugin[j], StringComparison.OrdinalIgnoreCase);
                     if (isRef) { nodes[j][node] = new TreeNodeDelta(plugin, isWinner, true, Array.Empty<string>(), 0, true, null); return true; }
                     var d = FieldsDiff.Compare(read, refFields[j]!, referenceLabel: refLabel[j]);
-                    nodes[j][node] = new TreeNodeDelta(plugin, isWinner, false, d.Deltas, d.AgreedCount, d.Complete, null, d.Why);
+                    nodes[j][node] = new TreeNodeDelta(plugin, isWinner, false, d.Deltas, d.AgreedCount, d.Complete, null, d.Why,
+                                                       d.MatchedListCount, d.MatchedItemCount, d.BothAbsentCount);
                     return true;
                 });
 
