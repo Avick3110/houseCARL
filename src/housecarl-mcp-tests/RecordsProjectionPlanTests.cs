@@ -58,6 +58,8 @@ public sealed class RecordsProjectionPlanTests : RecordsTestBase
         Assert.Equal(1, CountOf(r, NoteHead));
         Assert.True(r.IndexOf(NoteHead, StringComparison.Ordinal) < r.IndexOf("batch:", StringComparison.Ordinal), "the note rides the header");
         Assert.Equal(Token, FieldLine(r, "ArmorRating").Split(" = ")[1]);
+        // The note carries the schema's clause: the types that do model the path.
+        Served(r, NoteHead + ": 'ArmorRating' is not a field of Weapon; Mutagen models 'ArmorRating' on 1 other type(s) (Armor), not on these.");
     }
 
     [Theory]
@@ -191,7 +193,7 @@ public sealed class RecordsProjectionPlanTests : RecordsTestBase
 
     /// <summary>A row that compared one path and lacks another is complete and names the lacking one, in json as in text.</summary>
     [Fact]
-    public void AJsonDeltaRowThatComparedSomethingNamesWhatItLackedAndStaysComplete()
+    public void ADeltaRowThatComparedSomethingNamesWhatItLackedAndStaysComplete()
     {
         var doc = Doc(Delta("json", fields: new[] { "ArmorRating", "BasicStats.Damage" }));
         Assert.False(doc.TryGetProperty("not_compared", out _));
@@ -261,5 +263,47 @@ public sealed class RecordsProjectionPlanTests : RecordsTestBase
         Served(r);
         Assert.DoesNotContain("note: project.fields 'ObjectEffect'", r);
         Assert.DoesNotContain("ObjectEffect = (not on", r);
+        Assert.Equal(2, CountOf(r, "ObjectEffect = (null link)"));
+    }
+
+    /// <summary>Pins unchanged behaviour: a leaf the schema cannot judge (an index into a byte field) keeps the read's own answer, never the token.</summary>
+    [Fact]
+    public void ALeafTheSchemaCannotJudgeKeepsTheReadsAnswer()
+    {
+        var r = RecordsTools.Records(Svc, formids: WeaponAndArmor, project: Fields("Unused[0]"));
+        Served(r, "Unused[0] = (absent)", "Unused[0] = (not on Armor)");
+        Assert.DoesNotContain("(not on Weapon)", r);
+    }
+
+    /// <summary>Pins unchanged behaviour (a known limit): a scan with no prefilled rows states no plan note; its cells still name the type.</summary>
+    [Fact]
+    public void AScanWithNoPrefilledRowsStatesNoPlanNote()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, conflicts_only: true, format: "json", project: Fields("ArmorRating")));
+        Assert.False(doc.TryGetProperty("notes", out _));
+        Assert.Contains(doc.GetProperty("matches").EnumerateArray(), m => m.GetProperty("fields")[0].GetProperty("note").GetString() == Token);
+    }
+
+    /// <summary>The plan's note is decided over the rows the scan kept, so a where= that leaves only the carrying type states none.</summary>
+    [Fact]
+    public void AScanWhoseRowsAllCarryThePathStatesNoPlanNote()
+    {
+        var r = RecordsTools.Records(Svc, types: Mixed, where: new[] { "ArmorRating exists" }, project: Fields("ArmorRating"));
+        Served(r, "type=Armor");
+        Assert.DoesNotContain("type=Weapon", r);
+        Assert.DoesNotContain("note: project.fields", r);
+    }
+
+    /// <summary>A to_file scan's rows are read through the plan too, so the file's cells are the token.</summary>
+    [Fact]
+    public void AScanArtifactsCellsAreTheToken()
+    {
+        var art = W.Scratch("scan-not-on.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(art)!);
+        RecordsTools.Records(Svc, types: Mixed, to_file: art, project: Fields("ArmorRating"));
+        var weapons = File.ReadLines(art).Skip(1).Select(l => JsonDocument.Parse(l).RootElement.Clone())
+                          .Where(x => x.GetProperty("type").GetString() == "Weapon").ToList();
+        Assert.NotEmpty(weapons);
+        Assert.All(weapons, w => Assert.Equal(Token, w.GetProperty("fields")[0].GetProperty("note").GetString()));
     }
 }
