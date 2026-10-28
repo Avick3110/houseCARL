@@ -14,8 +14,8 @@ public static class FieldsDiff
     /// resolve: not compared, and never counted absent.</param>
     /// <param name="PresentNullLinkCount">Links whose subrecord is present and null on both sides: the same state, never
     /// absent and never a value leaf.</param>
-    /// <param name="NothingCompared">Every path read was a planned path this record's type lacks: not complete, not a
-    /// no-verdict, and never "identical".</param>
+    /// <param name="NothingCompared">No path was compared and at least one was a planned path this record's type lacks:
+    /// not complete and never "identical"; with other paths that could not be read it is also a no-verdict.</param>
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
         int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount, int NoFieldCount = 0, bool Capped = false,
         int MatchedListCount = 0, int MatchedItemCount = 0, int BothAbsentCount = 0, int UnresolvedStringCount = 0,

@@ -1187,7 +1187,7 @@ public static partial class RecordsTools
             int noVerdict = rows.Count(x => x.Error is null && x.Diff!.NoVerdictCount > 0);
             int noField = rows.Count(x => x.Error is null && x.Diff!.NoFieldCount > 0 && x.Diff.NoFieldCount == x.Diff.NoVerdictCount);
             int errs = rows.Count(x => x.Error is not null);
-            // In none of the counts above: every path read was one its type lacks. Named only when there are any.
+            // No path compared, at least one its type lacks; also in no_verdict when other paths could not be read. Named only when there are any.
             int notCompared = rows.Count(x => x.Error is null && x.Diff!.NothingCompared);
             var notComparedCount = notCompared > 0 ? new[] { KvI("not_compared", notCompared) } : Array.Empty<KeyValuePair<string, int>>();
             var deltaCounts = CmpCounts(new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs) }.Concat(notComparedCount).ToArray());
