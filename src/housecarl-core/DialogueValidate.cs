@@ -36,6 +36,9 @@ public sealed record TopicValidation(
 
     /// <summary>The subtype name the SNAM marker names — the honest label when the number is stale.</summary>
     public string SubtypeFromMarker { get; init; } = "";
+
+    /// <summary>The topic's Quest and its branch's Quest were both resolved as quests and compared equal.</summary>
+    public bool BranchQuestAgrees { get; init; }
 }
 
 /// <summary>The SEQ lint for a QUEST input: a Start-Game-Enabled quest needs a <c>.seq</c> that LISTS it and is
@@ -385,6 +388,7 @@ public static class DialogueValidate
 
         // --- Branch wiring: optional, but if set it must resolve to a real DLBR, of the topic's own quest.
         var branchFk = NonNull(topic.Branch.FormKeyNullable);
+        bool branchQuestAgrees = false;
         if (branchFk is { } bfk)
         {
             if (BadRef(bfk, "a dialogue branch (DLBR)", typeof(IDialogBranchGetter)) is { } bwhy)
@@ -393,20 +397,24 @@ public static class DialogueValidate
             // Topic and branch must name the same quest, as xEdit warns; only the branch body is fetched.
             else if (questFk is { } tq && questWhy is null
                      && resolve(bfk) is IDialogBranchGetter branch
-                     && NonNull(branch.Quest.FormKeyNullable) is { } bq && bq != tq
+                     && NonNull(branch.Quest.FormKeyNullable) is { } bq
                      // An unresolved or non-QUST branch Quest is skipped, as xEdit skips it; typed off the index.
                      && BadRef(bq, "a quest (QUST)", typeof(IQuestGetter)) is null)
             {
-                // DNAM absent reads as TopLevel, as the CK does.
-                bool topLevel = (branch.Flags ?? DialogBranch.Flag.TopLevel).HasFlag(DialogBranch.Flag.TopLevel);
-                var branchLabel = branch.EditorID is { Length: > 0 } bid ? $"{bid} ({FormIdToken.Of(bfk)})" : FormIdToken.Of(bfk);
-                issues.Add(new(DialogueIssueSeverity.Warning,
-                    $"DialogTopic.Quest is {FormIdToken.Of(tq)} but its Branch {branchLabel} "
-                    + $"belongs to quest {FormIdToken.Of(bq)}, so the two disagree on which quest owns the topic. "
-                    + (topLevel
-                        ? "The branch is top-level, so its menu entry can show twice in game (a duplicate player dialogue option). "
-                        : "The topic is filed under two quests' branch maps. ")
-                    + $"Set the topic's Quest to {FormIdToken.Of(bq)}, or move the topic to a branch of {FormIdToken.Of(tq)}."));
+                branchQuestAgrees = bq == tq;
+                if (!branchQuestAgrees)
+                {
+                    // DNAM absent reads as TopLevel, as the CK does.
+                    bool topLevel = (branch.Flags ?? DialogBranch.Flag.TopLevel).HasFlag(DialogBranch.Flag.TopLevel);
+                    var branchLabel = branch.EditorID is { Length: > 0 } bid ? $"{bid} ({FormIdToken.Of(bfk)})" : FormIdToken.Of(bfk);
+                    issues.Add(new(DialogueIssueSeverity.Warning,
+                        $"DialogTopic.Quest is {FormIdToken.Of(tq)} but its Branch {branchLabel} "
+                        + $"belongs to quest {FormIdToken.Of(bq)}, so the two disagree on which quest owns the topic. "
+                        + (topLevel
+                            ? "The branch is top-level, so its menu entry can show twice in game (a duplicate player dialogue option). "
+                            : "The topic is filed under two quests' branch maps. ")
+                        + $"Set the topic's Quest to {FormIdToken.Of(bq)}, or move the topic to a branch of {FormIdToken.Of(tq)}."));
+                }
             }
         }
 
@@ -582,6 +590,7 @@ public static class DialogueValidate
         {
             SubtypeDisagreesWithMarker = DialogueSubtype.MarkerDisagreesWithSubtype(topic),
             SubtypeFromMarker = DialogueSubtype.LabelForMarker(topic.SubtypeName) ?? "",
+            BranchQuestAgrees = branchQuestAgrees,
         };
     }
 
