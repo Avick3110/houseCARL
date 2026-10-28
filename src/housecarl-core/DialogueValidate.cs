@@ -386,7 +386,7 @@ public static class DialogueValidate
             issues.Add(new(DialogueIssueSeverity.Problem,
                 $"DialogTopic.Quest points at {FormIdToken.Of(questFk.Value)}, which {questWhy} — the owning quest is unresolved."));
 
-        // --- Branch wiring: optional, but if set it must resolve to a real DLBR, of the topic's own quest.
+        // --- Branch wiring: optional, but if set it must resolve to a real DLBR; where both quests are set QUSTs they must agree (a mismatch is a Warning).
         var branchFk = NonNull(topic.Branch.FormKeyNullable);
         bool branchQuestAgrees = false;
         if (branchFk is { } bfk)
