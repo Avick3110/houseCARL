@@ -182,6 +182,10 @@ path walk, and containment comes off Mutagen's context walk.
   brute-force set from the records' known values.
 - `GenderedArmAccountingTests` / `AbsentStepAccountingTests` — the #1071 bullet: a missing gendered arm,
   absent list or index past the end is unset (and answers `missing`), and a genuine parse failure stays a read fault.
+- `RecordsOutputAgreementTests` (`Has_*`, `EqAndIn_*`, `NeAndNotIn_*`, `Eq_*`, `In_*`) — the header leaf's
+  vocabulary: `has`, `=`, `in` and their complements take a type's own names and the generic remainder, refuse a
+  generic name the type renames with the type's names and `MajorFlags` as the remedy, keep integer operands and KYWD's
+  generic names, and a multi-type `types=` keeps a literal one of its types holds.
 
 ## Where
 
