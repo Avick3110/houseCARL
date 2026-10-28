@@ -333,6 +333,16 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         Assert.Contains("error: predicate", RecordsTools.Records(Svc, types: new[] { "STAT" }, where: new[] { "SkyrimMajorRecordFlags has NotPlayable" }));
     }
 
+    // The refusal names the record's type and what to try: its own names, a bit value, or MajorFlags.
+    [Fact]
+    public void Has_TheRefusalNamesTheTypeAndARemedy()
+    {
+        var r = Where("STAT", "SkyrimMajorRecordFlags has NotPlayable");
+        Assert.Contains("Static's header flags read with its own names first", r);
+        Assert.Contains("NeverFades", r);
+        Assert.Contains("or test MajorFlags", r);
+    }
+
     string Where(string type, string predicate) => RecordsTools.Records(Svc, types: new[] { type }, where: new[] { predicate });
 
     [Theory]
