@@ -344,7 +344,7 @@ internal static class CheckSentences
                "records project=info_order")]
     internal const string DialogueBoundary =
         "validates the dialogue graph at the data layer — quest and branch wiring (the topic and its branch name the " +
-        "same quest), LinkTo and previous-link targets " +
+        "same quest, where both are set and are QUSTs), LinkTo and previous-link targets " +
         "(an EMPTY previous-link is the vanilla norm and is never flagged), each voiced line's .fuz on disk, each " +
         "result script bound and compiled, the CK-parity subrecords, and a subset of MALFORMED conditions. It " +
         "cannot EVALUATE whether a WELL-FORMED condition passes — only the running game can{0} — and it does not " +
