@@ -152,10 +152,14 @@ total in the envelope and then enters the list lane, so what keeps the two apart
 
 The one exception is `notes`: every `notes` pair is written as one `notes` array after the other pairs. A form that
 consumes a scan (a body read, a comparison, `info_order`, a walk) carries the scan's owed notes that way, the same
-member the scan's own render writes. Every response reads those notes from one list,
-`CrossQueryOutcome.OwedNotes` (predicate, unmatched, scan coverage, where_source, reverse index), written when the
-header or envelope is, so the unmatched note can point at a manifest the response wrote; every artifact manifest
-reads `ManifestNotes`, the same list naming every unmatched member, and adds only its own. Each note is said once:
+member the scan's own render writes. A response reads its notes from two sources, written when the header or
+envelope is, so the unmatched note can point at a manifest the response wrote: the scan's
+`CrossQueryOutcome.OwedNotes` (predicate, unmatched, scan coverage, where_source, reverse index), and the
+`project.fields` plan's notes (`PlannedFields.Notes`, read-engine.md). On the list, pole, comparison and body lanes
+the plan's notes follow the scan's through `Head` / `Env`; on the scan renders, which read rows lazily, they ride
+inside `OwedNotes` as `CrossQueryOutcome.FieldNotes`. Every artifact manifest reads `ManifestNotes`, the scan's list
+naming every unmatched member, and adds only its own, so a scan render's manifest carries the plan's notes and a
+to_file or ceiling-spill manifest on the list, delta, tree and body lanes does not (the response does). Each note is said once:
 no separate `scan_note` or `reverse_index` member beside the array (the MGEF carrier result's `scan_note` is its own).
 
 ### Measuring a unit means writing it
