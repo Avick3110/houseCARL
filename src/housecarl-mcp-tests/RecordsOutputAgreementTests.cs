@@ -28,6 +28,8 @@ public sealed class OutputAgreementWorld : IDisposable
     public FormKey RawKeyword { get; }
     /// <summary>A GLOB only the unticked plugin defines.</summary>
     public FormKey OffGlobal { get; }
+    /// <summary>An NPC_ the patch restates with no packages on either side.</summary>
+    public FormKey Npc { get; }
 
     public OutputAgreementWorld()
     {
@@ -52,6 +54,7 @@ public sealed class OutputAgreementWorld : IDisposable
         stat.MajorFlags = Static.MajorFlag.NeverFades;
         var kywd = master.Keywords.AddNew(); kywd.EditorID = "HcOcRawKeyword";
         kywd.MajorRecordFlagsRaw = 0x80000;
+        var npc = master.Npcs.AddNew(); npc.EditorID = "HcOcNpc";
         var topic = master.DialogTopics.AddNew(); topic.EditorID = "HcOcTopic";
         topic.Responses.Add(new DialogResponses(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcOcLine" });
         SyntheticInstance.WriteMod(instance, "OcMaster", master, sky);
@@ -59,6 +62,7 @@ public sealed class OutputAgreementWorld : IDisposable
         var patch = new SkyrimMod(ModKey.FromNameAndExtension(PatchName), SkyrimRelease.SkyrimSE);
         patch.Armors.GetOrAddAsOverride(armo);
         patch.Weapons.GetOrAddAsOverride(weap).BasicStats!.Value = 20;
+        patch.Npcs.GetOrAddAsOverride(npc);
         SyntheticInstance.WriteMod(instance, "OcPatch", patch, master);
 
         var off = new SkyrimMod(ModKey.FromNameAndExtension(OffName), SkyrimRelease.SkyrimSE);
@@ -67,7 +71,7 @@ public sealed class OutputAgreementWorld : IDisposable
         off.Globals.Add(new GlobalFloat(off.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcOcOffB", Data = 4f });
         off.Armors.GetOrAddAsOverride(armo);
         SyntheticInstance.WriteMod(instance, "OcOff", off, master);
-        OffGlobal = offA.FormKey;
+        (OffGlobal, Npc) = (offA.FormKey, npc.FormKey);
 
         SyntheticInstance.WriteProfile(instance,
             new[] { "# header", "-OcOff", "+OcPatch", "+OcMaster", "+VanillaStub" },
@@ -198,6 +202,34 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
                                      versus: Pole(OutputAgreementWorld.MasterName));
         Assert.Contains("1 difference", r);
         Assert.DoesNotContain("identical across", r);
+    }
+
+    // A list empty on both sides is named, never "no differing fields" with every count 0.
+    [Fact]
+    public void TreeAndDelta_AListEmptyOnBothSidesIsNamed()
+    {
+        var tree = RecordsTools.Records(Svc, formids: new[] { Fid(W.Npc) }, project: Project("tree", "Packages"));
+        Assert.Contains("across the fields read (1 list empty on both)", tree);
+        Assert.DoesNotContain("no differing fields", tree);
+        var delta = RecordsTools.Records(Svc, formids: new[] { Fid(W.Npc) }, project: Project("delta", "Packages"),
+                                         versus: Pole(OutputAgreementWorld.MasterName));
+        Assert.Contains("identical across the fields read (1 list empty on both).", delta);
+        var node = Json(RecordsTools.Records(Svc, formids: new[] { Fid(W.Npc) }, project: Project("tree", "Packages"), format: "json"))
+                   .GetProperty("rows")[0].GetProperty("nodes").EnumerateArray().Single(n => !n.GetProperty("is_reference").GetBoolean());
+        Assert.Equal(1, node.GetProperty("matched_list_count").GetInt32());
+        Assert.Equal(0, node.GetProperty("matched_item_count").GetInt32());
+        var row = Json(RecordsTools.Records(Svc, formids: new[] { Fid(W.Npc) }, project: Project("delta", "Packages"),
+                                            versus: Pole(OutputAgreementWorld.MasterName), format: "json")).GetProperty("rows")[0];
+        Assert.Equal(1, row.GetProperty("matched_list_count").GetInt32());
+    }
+
+    // Pins unchanged behaviour: the delta census counts a list empty on both sides as identical.
+    [Fact]
+    public void DeltaCensus_CountsAListEmptyOnBothSidesAsIdentical()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "NPC_" }, project: Project("delta", "Packages"),
+                                     versus: Pole(OutputAgreementWorld.MasterName), counts_only: true);
+        Assert.Contains("identical=1", r);
     }
 
     // ---- B: the header-flags leaf reads in the record's own vocabulary ----------------------------------
