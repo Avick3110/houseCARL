@@ -1400,8 +1400,6 @@ public sealed class FieldPredicateSet
     bool _typed;
     bool[] _carried = [];
     List<string>?[] _lacking = [];
-    Dictionary<string, string>?[] _renaming = [];
-    List<string>?[] _renamed = [];
 
     /// <summary>The schema's refusal for this set over <paramref name="roots"/> (null: any record type), or null with a note per listed type that cannot match; binds the per-class check the scan makes.</summary>
     public string? Plan(SchemaPathWalk walk, IReadOnlyList<TypeSchema>? roots)
@@ -1410,13 +1408,10 @@ public sealed class FieldPredicateSet
         _typed = roots is not null;
         _carried = new bool[_predicates.Count];
         _lacking = new List<string>?[_predicates.Count];
-        _renaming = new Dictionary<string, string>?[_predicates.Count];
-        _renamed = new List<string>?[_predicates.Count];
         var scope = roots ?? walk.Records;
         string where = roots is null ? "on any record type" : roots.Count == 1 ? $"of {roots[0].Name}" : $"of any of {string.Join(", ", roots.Select(r => r.Name))}";
-        for (int k = 0; k < _predicates.Count; k++)
+        foreach (var p in _predicates)
         {
-            var p = _predicates[k];
             var (segs, folds, hops) = CandidateSide(p);
             var own = walk.Walk(scope, hops, segs, folds, where);
             if (own.Failure is { } why) return Refuse(p, why);
@@ -1439,7 +1434,6 @@ public sealed class FieldPredicateSet
             }
             if (p.Pseudo != PseudoPath.None) continue;
             if (LeafRefusal(p, leaves) is { } leafWhy) return leafWhy;
-            if (p.LinkPath is null) NoteRenaming(k, p, leaves);
         }
         return null;
     }
@@ -1463,17 +1457,11 @@ public sealed class FieldPredicateSet
             for (int k = 0; k < _predicates.Count; k++)
             {
                 var (segs, folds, hops) = CandidateSide(_predicates[k]);
-                if (_walk.Walk(new[] { ts }, hops, segs, folds, $"of {ts.Name}").Failure is { } why)
-                {
-                    ok = false;
-                    if (!_typed) { (_lacking[k] ??= new()).Add(ts.Name); continue; }
-                    if (_notedTypes.Add(ts.Name)) _planNotes.Add(LackingNote(_predicates[k], why, ts));
-                    break;
-                }
-                _carried[k] = true;
-                if (_renaming[k]?.ContainsKey(ts.Name) != true) continue;
+                if (_walk.Walk(new[] { ts }, hops, segs, folds, $"of {ts.Name}").Failure is not { } why) { _carried[k] = true; continue; }
                 ok = false;
-                if (!_typed && !(_renamed[k] ??= new()).Contains(ts.Name)) _renamed[k]!.Add(ts.Name);
+                if (!_typed) { (_lacking[k] ??= new()).Add(ts.Name); continue; }
+                if (_notedTypes.Add(ts.Name)) _planNotes.Add(LackingNote(_predicates[k], why, ts));
+                break;
             }
         return _classVerdicts[runtime] = ok;
     }
@@ -1491,42 +1479,18 @@ public sealed class FieldPredicateSet
                 return $"predicate '{p.Text}': '{p.FullPath}' is a {(dict ? "dict" : "list")} here, not a scalar leaf; filter on its elements " +
                        $"('{p.FullPath}[*any] {OpStr(p.Op, p.Negate)} …') or one of them ('{p.FullPath}[0]'), or use references= for list→FormID membership.";
         }
-        if (count || p.Op is not (Op.Eq or Op.Ne or Op.In or Op.NotIn) || LeafEnums(leaves) is not { } le) return null;
-        var enums = le.Select(x => (x.Enum, x.Remainder)).Distinct().ToList();
-        return enums.Count == 0 ? null : EnumLiteralRefusal(p, enums);
-    }
-
-    /// <summary>Each leaf's enum and owner, a header leaf read in its record's own flag names first; null when a leaf holds no enum.</summary>
-    List<(TypeSchema? Owner, Type Enum, Type? Remainder)>? LeafEnums(IReadOnlyList<SchemaPathWalk.Leaf> leaves)
-    {
-        var list = new List<(TypeSchema?, Type, Type?)>(leaves.Count);
+        if (count || p.Op is not (Op.Eq or Op.Ne or Op.In or Op.NotIn)) return null;
+        var enums = new List<(Type Enum, Type? Remainder)>();
         foreach (var l in leaves)
         {
             var aq = l.Field is not { } f ? null : l.Element ? f.ElementTypeAssemblyQualified
                    : f.Cardinality == "enum" ? f.MutableTypeAssemblyQualified ?? f.GetterTypeAssemblyQualified : null;
             if (aq is null || WriteEngine.ResolveType(aq) is not { } rt || (Nullable.GetUnderlyingType(rt) ?? rt) is not { IsEnum: true } e) return null;
             // The header leaf of a record with its own MajorFlag reads in that vocabulary first, as the read decodes it.
-            list.Add(l.Owner is { } o && _walk!.ClassOf(o) is { } c && ReadEngine.HeaderOwnFlags(e, c) is { } own ? (l.Owner, own, e) : (l.Owner, e, null));
+            var v = l.Owner is { } o && _walk!.ClassOf(o) is { } c && ReadEngine.HeaderOwnFlags(e, c) is { } own ? (own, e) : (e, (Type?)null);
+            if (!enums.Contains(v)) enums.Add(v);
         }
-        return list;
-    }
-
-    /// <summary>Aaron's pick (e), #1079 r2 #11/#34: a record type whose own header flags rename a literal another type in
-    /// scope takes matches neither the test nor its complement, said in a note, as a type lacking the field is.</summary>
-    void NoteRenaming(int k, Predicate p, IReadOnlyList<SchemaPathWalk.Leaf> leaves)
-    {
-        if (p.Op is not (Op.Eq or Op.Ne or Op.In or Op.NotIn or Op.Has or Op.HasAny or Op.HasNone)
-            || p.PathFolds is { } pf && pf[^1] == Fold.Count || LeafEnums(leaves) is not { } le) return;
-        var literals = p.Op is Op.Has or Op.HasAny or Op.HasNone ? HasOperandMembers(p.Operand) : p.RawMembers ?? (IEnumerable<string>)new[] { p.Operand };
-        foreach (var literal in literals)
-        {
-            if (!le.Any(x => EnumLiteralFits(literal, x.Enum, x.Remainder))) continue;
-            foreach (var (o, e, r) in le)
-                if (r is not null && o is not null && !EnumLiteralFits(literal, e, r)
-                    && (_renaming[k] ??= new(StringComparer.Ordinal)).TryAdd(o.Name, literal) && _typed && _notedTypes.Add(o.Name))
-                    _planNotes.Add($"note: predicate '{p.Text}': '{literal}' is a generic header flag name that {o.Name}'s own flags call by " +
-                                   $"another name; no {o.Name} can match it or its complement. Test MajorFlags or a bit value for {o.Name}.");
-        }
+        return enums.Count == 0 ? null : EnumLiteralRefusal(p, enums);
     }
 
     /// <summary>A value literal no enum the leaves hold can equal, with the hint that fits how it went wrong.</summary>
@@ -1575,11 +1539,6 @@ public sealed class FieldPredicateSet
             if (_lacking[k] is { } lack && !_carried[k])
                 notes.Add($"predicate '{_predicates[k].Text}': '{_predicates[k].FullPath}' names no field on any record type in scope ({string.Join(", ", lack.Take(3))}" +
                           $"{(lack.Count > 3 ? $", and {lack.Count - 3} more" : "")}), so no record here can match. 0 matches on that basis is NOT a confirmed 'nothing matches'.");
-        for (int k = 0; k < _renamed.Length; k++)
-            if (_renamed[k] is { } rn)
-                notes.Add($"predicate '{_predicates[k].Text}': '{_renaming[k]![rn[0]]}' is a generic header flag name that the own flags of " +
-                          $"{string.Join(", ", rn.Take(3))}{(rn.Count > 3 ? $", and {rn.Count - 3} more" : "")} call by another name, so no record " +
-                          "of those types can match it or its complement. Test MajorFlags or a bit value for them.");
         // Each predicate is carried somewhere, but no type met carries them all, so nothing was scanned.
         if (!_typed && _scanned == 0 && notes.Count == 0 && _classVerdicts.ContainsValue(false))
             notes.Add($"no record type in scope carries all of the predicates ({string.Join(", ", _predicates.Select(p => $"'{p.Text}'"))}), so no record here can match. " +
