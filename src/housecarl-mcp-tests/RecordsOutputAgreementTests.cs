@@ -30,6 +30,8 @@ public sealed class OutputAgreementWorld : IDisposable
     public FormKey OffGlobal { get; }
     /// <summary>An NPC_ the patch restates with no packages on either side.</summary>
     public FormKey Npc { get; }
+    /// <summary>A STAT with no header flags that the patch marks HasDistantLOD.</summary>
+    public FormKey FlagFlipStatic { get; }
 
     public OutputAgreementWorld()
     {
@@ -52,6 +54,7 @@ public sealed class OutputAgreementWorld : IDisposable
         master.Globals.Add(stray);
         var stat = master.Statics.AddNew(); stat.EditorID = "HcOcNeverFades";
         stat.MajorFlags = Static.MajorFlag.NeverFades;
+        var flip = master.Statics.AddNew(); flip.EditorID = "HcOcFlagFlip";
         var kywd = master.Keywords.AddNew(); kywd.EditorID = "HcOcRawKeyword";
         kywd.MajorRecordFlagsRaw = 0x80000;
         var npc = master.Npcs.AddNew(); npc.EditorID = "HcOcNpc";
@@ -63,6 +66,7 @@ public sealed class OutputAgreementWorld : IDisposable
         patch.Armors.GetOrAddAsOverride(armo);
         patch.Weapons.GetOrAddAsOverride(weap).BasicStats!.Value = 20;
         patch.Npcs.GetOrAddAsOverride(npc);
+        patch.Statics.GetOrAddAsOverride(flip).MajorFlags = Static.MajorFlag.HasDistantLOD;
         SyntheticInstance.WriteMod(instance, "OcPatch", patch, master);
 
         var off = new SkyrimMod(ModKey.FromNameAndExtension(OffName), SkyrimRelease.SkyrimSE);
@@ -71,7 +75,7 @@ public sealed class OutputAgreementWorld : IDisposable
         off.Globals.Add(new GlobalFloat(off.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcOcOffB", Data = 4f });
         off.Armors.GetOrAddAsOverride(armo);
         SyntheticInstance.WriteMod(instance, "OcOff", off, master);
-        (OffGlobal, Npc) = (offA.FormKey, npc.FormKey);
+        (OffGlobal, Npc, FlagFlipStatic) = (offA.FormKey, npc.FormKey, flip.FormKey);
 
         SyntheticInstance.WriteProfile(instance,
             new[] { "# header", "-OcOff", "+OcPatch", "+OcMaster", "+VanillaStub" },
@@ -210,6 +214,32 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
                              versus: Pole(OutputAgreementWorld.MasterName), to_file: art);
         var schema = JsonDocument.Parse(File.ReadLines(art).First()).RootElement.GetProperty("row_schema");
         Assert.Contains(schema.EnumerateArray(), e => e.GetString() == "unresolved_string_count");
+    }
+
+    // Several of each kind: the plural phrases, joined by ", ".
+    [Fact]
+    public void Compare_SeveralOfEachKindReadAsOnePhrase()
+    {
+        static RecordFields Read(params FieldValue[] f) => new("ARMO", "000800:X.esm", null, f);
+        FieldValue[] lines =
+        {
+            new("Value", true, "5", null),
+            new("Keywords", false, null, "[list: 1 item(s)]"), new("Keywords[0]", true, "000801:X.esm", null),
+            new("Armature", false, null, "[list: 2 item(s)]"), new("Armature[0]", true, "000802:X.esm", null), new("Armature[1]", true, "000803:X.esm", null),
+            new("AlternateBlockMaterial", false, null, ReadEngine.AbsentNote, Present: false),
+            new("ObjectEffect", false, null, ReadEngine.AbsentNote, Present: false),
+        };
+        Assert.Equal("1 leaf/leaves agree, 2 lists with the same items (3 in all), 2 fields absent on both",
+                     FieldsDiff.Compare(Read(lines), Read(lines)).Agreement("leaf/leaves"));
+    }
+
+    // A header-flags difference shows each side's decode beside its token.
+    [Fact]
+    public void Delta_AHeaderFlagsDifferenceCarriesTheDecode()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.FlagFlipStatic) }, project: Project("delta", "SkyrimMajorRecordFlags"),
+                                     versus: Pole(OutputAgreementWorld.MasterName));
+        Assert.Contains("SkyrimMajorRecordFlags=32768 [HasDistantLOD]", r);
     }
 
     // Pins unchanged behaviour: the delta census still counts a matched list and a both-absent field as identical.
@@ -407,6 +437,7 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
     {
         var doc = Json(RecordsTools.Records(Svc, types: new[] { "GLOB" }, counts_only: true, format: format));
         Assert.False(doc.TryGetProperty("capped", out var c) && c.GetBoolean());
+        Assert.Equal(2, doc.GetProperty("total").GetInt32());
     }
 
     // Pins unchanged behaviour: a real limit= cut still offers paging.
@@ -425,6 +456,7 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         var doc = Json(RecordsTools.Records(Svc, types: new[] { "ARMO" }, project: Project(form),
                                             versus: versus is null ? null : Pole(versus), format: "json"));
         Assert.Equal(JsonValueKind.Number, doc.GetProperty("total").ValueKind);
+        Assert.Equal(1, doc.GetProperty("total").GetInt32());
     }
 
     [Fact]
