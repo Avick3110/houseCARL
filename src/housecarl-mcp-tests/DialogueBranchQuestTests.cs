@@ -81,6 +81,8 @@ public sealed class DialogueBranchQuestTests : IDisposable
         Assert.Contains($"HcBqTopBranch ({FormIdToken.Of(w.Branch.FormKey)})", issue.Message);
         Assert.Contains(TwiceWording, issue.Message);
         Assert.DoesNotContain(MapsWording, issue.Message);
+        // No claim about what the Creation Kit can build: nothing sources one.
+        Assert.DoesNotContain("Creation Kit", issue.Message);
     }
 
     [Fact]
