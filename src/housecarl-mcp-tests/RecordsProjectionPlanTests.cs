@@ -203,7 +203,8 @@ public sealed class RecordsProjectionPlanTests : RecordsTestBase
             Assert.Equal(notOn, row.GetProperty("not_on_type").EnumerateArray().Single().GetString());
         }
         var text = Delta(fields: new[] { "ArmorRating", "BasicStats.Damage" });
-        Served(text, "2 record(s): 1 differing, 1 identical, 0 error(s)");
+        Served(text, "2 record(s): 1 differing, 1 identical, 0 error(s)",
+               "identical across the fields read (1 value leaf/leaves agree, BasicStats.Damage (not on Armor) not compared).");
         Assert.DoesNotContain("nothing compared", text);
     }
 

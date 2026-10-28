@@ -38,7 +38,7 @@ public static class FieldsDiff
                 parts.Add(PresentNullLinkCount == 1 ? "1 link null on both, subrecord present" : $"{PresentNullLinkCount} links null on both, subrecord present");
             if (UnresolvedStringCount > 0)
                 parts.Add(UnresolvedStringCount == 1 ? "1 localized string unresolved, not compared" : $"{UnresolvedStringCount} localized strings unresolved, not compared");
-            if (NotOnType is { Count: > 0 }) parts.AddRange(NotOnType);
+            if (NotOnType is { Count: > 0 }) parts.Add(string.Join(" and ", NotOnType) + " not compared");
             return parts.Count > 0 ? string.Join(", ", parts) : null;
         }
     }
