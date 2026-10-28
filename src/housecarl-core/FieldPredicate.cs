@@ -1490,11 +1490,11 @@ public sealed class FieldPredicateSet
             var v = l.Owner is { } o && _walk!.ClassOf(o) is { } c && ReadEngine.HeaderOwnFlags(e, c) is { } own ? (own, e) : (e, (Type?)null);
             if (!enums.Contains(v)) enums.Add(v);
         }
-        return enums.Count == 0 ? null : EnumLiteralRefusal(p, enums);
+        return enums.Count == 0 ? null : EnumLiteralRefusal(p, enums, _typed);
     }
 
     /// <summary>A value literal no enum the leaves hold can equal, with the hint that fits how it went wrong.</summary>
-    static string? EnumLiteralRefusal(Predicate p, IReadOnlyList<(Type Enum, Type? Remainder)> enums)
+    static string? EnumLiteralRefusal(Predicate p, IReadOnlyList<(Type Enum, Type? Remainder)> enums, bool typed)
     {
         foreach (var literal in p.RawMembers ?? (IReadOnlyList<string>)new[] { p.Operand })
         {
@@ -1515,7 +1515,9 @@ public sealed class FieldPredicateSet
                        (enums.Any(e => e.Remainder is null && e.Enum == headers[0].Remainder)
                            ? $"; the other types read the generic names ({string.Join(", ", Enum.GetNames(headers[0].Remainder!))})." : ".");
             else if (headers.Count > 1)
-                hint = $"{PluginNameSuggest.DidYouMean(literal, names(enums))} Narrow with types= to the record type you mean and write one of its flag names, " +
+                hint = $"{PluginNameSuggest.DidYouMean(literal, names(enums))} " +
+                       (typed ? "Each of these types reads its own flag names first; list one alone in types= to see its names, "
+                              : "Narrow with types= to the record type you mean and write one of its flag names, ") +
                        "or write a bit value, or test MajorFlags.";
             else if (literal.Contains(',') && flags.Count > 0)
             {
