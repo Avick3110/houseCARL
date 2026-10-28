@@ -1187,10 +1187,14 @@ public static partial class RecordsTools
             int noVerdict = rows.Count(x => x.Error is null && x.Diff!.NoVerdictCount > 0);
             int noField = rows.Count(x => x.Error is null && x.Diff!.NoFieldCount > 0 && x.Diff.NoFieldCount == x.Diff.NoVerdictCount);
             int errs = rows.Count(x => x.Error is not null);
+            // In none of the counts above: every path read was one its type lacks. Named only when there are any.
+            int notCompared = rows.Count(x => x.Error is null && x.Diff!.NothingCompared);
+            var notComparedCount = notCompared > 0 ? new[] { KvI("not_compared", notCompared) } : Array.Empty<KeyValuePair<string, int>>();
+            var deltaCounts = CmpCounts(new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs) }.Concat(notComparedCount).ToArray());
             if (counts_only)
                 return json
-                    ? JsonWire.RenderNamedCounts(Env(null), CmpCounts(KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs)), epoch, max_chars)
-                    : Census($"{Head(null)}\ncount={rows.Count} differing={differing} identical={identical} no_verdict={noVerdict} errors={errs}" + Wire.EpochLine(epoch));
+                    ? JsonWire.RenderNamedCounts(Env(null), deltaCounts, epoch, max_chars)
+                    : Census($"{Head(null)}\ncount={rows.Count} differing={differing} identical={identical} no_verdict={noVerdict} errors={errs}" + (notCompared > 0 ? $" not_compared={notCompared}" : "") + Wire.EpochLine(epoch));
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
@@ -1199,10 +1203,9 @@ public static partial class RecordsTools
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
-            var deltaCounts = CmpCounts(KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs));
             string Render(SpillState? sp, out bool trunc) => json
                 ? JsonWire.RenderDelta(winRows, max_chars, epoch, Env(sp), deltaCounts, sp, out trunc)
-                : RenderRecordsDelta(winRows, rows.Count, differing, identical, noVerdict, errs, Head(sp), epoch, max_chars, sp, out trunc, noField: noField);
+                : RenderRecordsDelta(winRows, rows.Count, differing, identical, noVerdict, errs, Head(sp), epoch, max_chars, sp, out trunc, noField: noField, notCompared: notCompared);
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {

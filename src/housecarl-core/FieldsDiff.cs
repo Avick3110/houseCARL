@@ -14,10 +14,12 @@ public static class FieldsDiff
     /// resolve: not compared, and never counted absent.</param>
     /// <param name="PresentNullLinkCount">Links whose subrecord is present and null on both sides: the same state, never
     /// absent and never a value leaf.</param>
+    /// <param name="NothingCompared">Every path read was a planned path this record's type lacks: not complete, not a
+    /// no-verdict, and never "identical".</param>
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
         int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount, int NoFieldCount = 0, bool Capped = false,
         int MatchedListCount = 0, int MatchedItemCount = 0, int BothAbsentCount = 0, int UnresolvedStringCount = 0,
-        int PresentNullLinkCount = 0, IReadOnlyList<string>? NotOnType = null)
+        int PresentNullLinkCount = 0, IReadOnlyList<string>? NotOnType = null, bool NothingCompared = false)
     {
         /// <summary>Why the comparison is incomplete, in words; empty when it is complete.</summary>
         public string Why => IncompleteWhy(NoVerdictCount - NoFieldCount, NoFieldCount, Capped);
@@ -75,7 +77,9 @@ public static class FieldsDiff
         var noField = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (p, v) in tLines) if (ReadEngine.IsNoSuchFieldNote(v) && wNoField.Contains(p)) noField.TryAdd(p, v);
         var noVerdict = tUnreadable.Keys.Union(wUnreadable.Keys).Union(noField.Keys).OrderBy(p => p, StringComparer.Ordinal).ToList();
-        bool complete = !capped && noVerdict.Count == 0;
+        // Every path a planned type-lacking one: no line was left to compare, which is not two equal records.
+        bool nothingCompared = !capped && notOn.Count > 0 && tLines.Count == 0 && wLines.Count == 0;
+        bool complete = !capped && noVerdict.Count == 0 && !nothingCompared;
 
         // A path is OUT of the comparison when it, or a path it hangs under, could not be read on either side.
         bool Suppressed(string p) => noVerdict.Any(s => p.StartsWith(s, StringComparison.Ordinal)
@@ -196,7 +200,7 @@ public static class FieldsDiff
         // On a CAPPED comparison the agreed set would be a where-the-cap-fell artifact; an unreadable leaf does not touch it.
         if (capped) { agreedCount = 0; agreedSample.Clear(); bothAbsent = 0; unresolved = 0; presentNull = 0; matchedLists = 0; matchedItems = 0; }
         return new Result(deltas, complete, agreedCount, agreedSample, noVerdict.Count, noField.Count, capped,
-                          matchedLists, matchedItems, bothAbsent, unresolved, presentNull, notOn);
+                          matchedLists, matchedItems, bothAbsent, unresolved, presentNull, notOn, nothingCompared);
     }
 
     /// <summary>How many agreed-field paths to keep for the render — a small sample, not the full set.</summary>
