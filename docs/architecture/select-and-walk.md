@@ -36,11 +36,13 @@ path walk, and containment comes off Mutagen's context walk.
   `in` and `not in`, with a did-you-mean and what to try: one type's own names and `MajorFlags` (and the generic names
   when a type with no `MajorFlag` of its own is in scope), or under several such types a bit value,
   `MajorFlags` and listing one type alone in `types=` to see its names.
-  `has` refuses such a literal when it reads the first record, with the type's own names and
-  `MajorFlags`, and no did-you-mean. Known limit: on a multi-type `types=` or an untyped (`plugins=`,
-  `formids=`) scope where another type holds the name, the literal passes plan time; `has` then refuses
-  the call at the first record of the renaming type, while `=`/`in` are false there and `!=`/`not in`
-  true, with no note. On a list or dict path the
+  `has`, `has_any` and `has_none` refuse such a literal when they read the first record, with no
+  did-you-mean: with the type's own names and `MajorFlags` when that record's type has a `MajorFlag`
+  of its own, with the generic sentence ("is not a bit value or a valid `<enum>` flag name") otherwise. Known limit:
+  on a multi-type `types=` or an untyped (`plugins=`, `formids=`) scope, any literal one type in scope
+  can name and another cannot (a generic name one type renames, or one type's own name) passes plan
+  time; `has`, `has_any` and `has_none` then refuse the call at the first record of a type that cannot
+  name it, while `=`/`in` are false there and `!=`/`not in` true, with no note. On a list or dict path the
   has-family refuses the call from the schema, before any record is read:
   a form-link list with form operands gets the list members' own spelling (`Keywords[*none] in [X]`),
   other form links a `->` step (`Keywords->editorid = X`), a dict one entry, any other list the
