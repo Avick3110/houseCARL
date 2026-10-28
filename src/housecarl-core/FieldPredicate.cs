@@ -1216,7 +1216,8 @@ public sealed class FieldPredicateSet
             var r = ResolveBits(p.Operand, fi.EnumType, fi.Remainder);
             if (r.Bad is { } name)
                 return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' value '{name}' " +
-                               (r.Refusal ?? $"is not a bit value or a valid {fi.EnumType.Name} flag name") + ".");
+                               (r.Refusal ?? (fi.Remainder is { } rest ? "is not a bit value or a header flag name here: " + HeaderRemedy(fi.EnumType, rest)
+                                                                         : $"is not a bit value or a valid {fi.EnumType.Name} flag name")) + ".");
             opBits = r.Bits;
         }
         else if (TryBits(token, out leafBits))   // a plain integer leaf — bit-test its numeric value
