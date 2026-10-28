@@ -26,6 +26,8 @@ public sealed class OutputAgreementWorld : IDisposable
     public FormKey NeverFadesStatic { get; }
     /// <summary>A KYWD (no type-specific header flags) carrying raw 0x80000.</summary>
     public FormKey RawKeyword { get; }
+    /// <summary>A GLOB only the unticked plugin defines.</summary>
+    public FormKey OffGlobal { get; }
 
     public OutputAgreementWorld()
     {
@@ -58,9 +60,12 @@ public sealed class OutputAgreementWorld : IDisposable
         SyntheticInstance.WriteMod(instance, "OcPatch", patch, master);
 
         var off = new SkyrimMod(ModKey.FromNameAndExtension(OffName), SkyrimRelease.SkyrimSE);
-        off.Globals.Add(new GlobalFloat(off.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcOcOffA", Data = 3f });
+        var offA = new GlobalFloat(off.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcOcOffA", Data = 3f };
+        off.Globals.Add(offA);
         off.Globals.Add(new GlobalFloat(off.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcOcOffB", Data = 4f });
-        SyntheticInstance.WriteMod(instance, "OcOff", off);
+        off.Armors.GetOrAddAsOverride(armo);
+        SyntheticInstance.WriteMod(instance, "OcOff", off, master);
+        OffGlobal = offA.FormKey;
 
         SyntheticInstance.WriteProfile(instance,
             new[] { "# header", "-OcOff", "+OcPatch", "+OcMaster", "+VanillaStub" },
@@ -297,6 +302,31 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
                                             project: Project("everything"), format: "json"));
         Assert.Equal(2, doc.GetProperty("total").GetInt32());
         Assert.Equal(JsonValueKind.False, doc.GetProperty("epoch_covers_source").ValueKind);
+    }
+
+    [Fact]
+    public void Envelope_WalkTotalIsAJsonNumber()
+    {
+        var doc = Json(RecordsTools.Records(Svc, types: new[] { "ARMO" }, walk: new RecordsTools.RecordsWalk { depth = 1 }, format: "json"));
+        Assert.Equal(JsonValueKind.Number, doc.GetProperty("total").ValueKind);
+    }
+
+    [Fact]
+    public void Envelope_OffOrderComparisonTotalIsAJsonNumber()
+    {
+        var doc = Json(RecordsTools.Records(Svc, types: new[] { "ARMO" }, source: Pole(OutputAgreementWorld.OffName),
+                                            project: Project("delta"), versus: Pole("winner"), format: "json"));
+        Assert.Equal(1, doc.GetProperty("total").GetInt32());
+    }
+
+    [Fact]
+    public void Envelope_EpochCoversSourceIsABoolean_OnAListAndAComparisonPole()
+    {
+        var list = Json(RecordsTools.Records(Svc, formids: new[] { Fid(W.OffGlobal) }, source: Pole(OutputAgreementWorld.OffName), format: "json"));
+        Assert.Equal(JsonValueKind.False, list.GetProperty("epoch_covers_source").ValueKind);
+        var delta = Json(RecordsTools.Records(Svc, formids: new[] { Fid(W.Armor) }, project: Project("delta"),
+                                              versus: Pole(OutputAgreementWorld.OffName), format: "json"));
+        Assert.Equal(JsonValueKind.False, delta.GetProperty("epoch_covers_source").ValueKind);
     }
 
     [Fact]
