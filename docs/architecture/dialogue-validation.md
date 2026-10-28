@@ -65,15 +65,20 @@ validating within {plugin + its masters} alone is a deliberately deferred capabi
 resolve or asset failure rides `CheckError` rather than being swallowed.
 
 A Quest, Branch, PNAM or LinkTo target's TYPE is read off the index (the fold's own record where the fold wins it),
-and a wrong type is named from that class: no target body is fetched. Every fetch from a plugin copies its whole
+and a wrong type is named from that class: the type check fetches no body. Every fetch from a plugin copies its whole
 top-level group, so fetching each target sank a large follower quest past 8 GB. A target whose plugin changes
 mid-call is caught by ruling F's stamp check (pending that PR), which re-checks every plugin the call relied on.
 
-One body is fetched beyond the type check: a Branch that resolves to a DLBR while the Quest resolves to a QUST is read
-through the run's cached, fold-aware resolve (once per distinct branch per run, a DLBR-group seek), and a set branch
-Quest that differs from the topic's Quest is a Warning naming both quests and the branch, as xEdit warns. A TopLevel
+Beyond the per-INFO voice and condition checks, which resolve their own targets, and the SNAM gate's base copy, the
+topic's wiring fetches only these bodies, each through the run's cached, fold-aware resolve: the owning quest and its
+text-display globals, for the alias-index and `<Global=X>` lints, where the Quest resolves; and the branch. A
+Branch that resolves to a DLBR while the Quest resolves to a QUST is read (once per distinct branch per run, a
+DLBR-group seek), and a set branch Quest that is a QUST (typed off the index, as above) and differs from the topic's
+Quest is a Warning naming both quests and the branch, as xEdit warns. A TopLevel
 branch (or one with no DNAM) says its menu entry can show twice in game; any other says the topic is filed under two
-quests' branch maps. An unset Quest on either side, or a wiring that already failed its type check, adds nothing. The
+quests' branch maps. An unset Quest on either side, a branch Quest that is dangling or not a QUST (xEdit skips it
+too), or a wiring that already failed its type check, adds nothing. The clean line says the wiring "agrees" only
+where the two quests were compared. The
 check runs per topic, so a quest input lists only topics whose own Quest names it: a foreign topic in that quest's
 branch is found from its own quest, not this one. DLVW and DLBR inputs stay record-level: vanilla views legitimately
 hold other quests' branches.
