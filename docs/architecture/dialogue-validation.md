@@ -69,6 +69,15 @@ and a wrong type is named from that class: no target body is fetched. Every fetc
 top-level group, so fetching each target sank a large follower quest past 8 GB. A target whose plugin changes
 mid-call is caught by ruling F's stamp check (pending that PR), which re-checks every plugin the call relied on.
 
+One body is fetched beyond the type check: a Branch that resolves to a DLBR while the Quest resolves to a QUST is read
+through the run's cached, fold-aware resolve (once per distinct branch per run, a DLBR-group seek), and a set branch
+Quest that differs from the topic's Quest is a Warning naming both quests and the branch, as xEdit warns. A TopLevel
+branch (or one with no DNAM) says its menu entry can show twice in game; any other says the topic is filed under two
+quests' branch maps. An unset Quest on either side, or a wiring that already failed its type check, adds nothing. The
+check runs per topic, so a quest input lists only topics whose own Quest names it: a foreign topic in that quest's
+branch is found from its own quest, not this one. DLVW and DLBR inputs stay record-level: vanilla views legitimately
+hold other quests' branches.
+
 Standing limits a render must state rather than let "checks passed" read as "this will play": CTDA conditions are
 semantic and only the game evaluates them, and lip-sync and audio content are outside the data layer.
 
