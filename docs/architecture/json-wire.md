@@ -248,7 +248,8 @@ own lane can survive.
   numbers carrying the count and `epoch_covers_source` a boolean on the body, tree, delta, walk, off-order and
   `info_order` lanes, and `ToFile_TheQueryEchoStaysStrings` keeps the artifact's query echo strings;
   `RecordsOverlayEnvelopeKindTests` covers the overlay post-state pole. The same class pins the delta and tree rows'
-  `matched_list_count`, `matched_item_count`, `both_absent_count` and `unresolved_string_count`, inline and in a
+  `matched_list_count`, `matched_item_count`, `both_absent_count`, `present_null_link_count` and
+  `unresolved_string_count`, inline and in a
   `to_file` row and its `row_schema`.
 
 ## Where
