@@ -368,7 +368,7 @@ public static class DialogueValidate
         // Text-encoding lint over the player-facing strings; WARN only, and report-only.
         CheckEncoding(topic.Name?.String, $"DialogTopic.Name ({edid})", issues);
 
-        // Classify a SET reference off the winner's class alone: no body is fetched.
+        // Classify a reference off the winner's class alone: no body is fetched; a null key has no class and reads as absent.
         string? BadRef(FormKey target, string expects, Type expected)
         {
             if (classOf(target) is not { } cls) return $"is not in the active load order ({expects} missing or disabled)";
@@ -398,7 +398,8 @@ public static class DialogueValidate
             else if (questFk is { } tq && questWhy is null
                      && resolve(bfk) is IDialogBranchGetter branch
                      && branch.Quest.FormKeyNullable is { } bq
-                     // An unset, unresolved or non-QUST branch Quest is skipped, as xEdit skips it; typed off the index.
+                     // An unset (00000000) branch Quest reaches BadRef and is skipped by its absent arm, as is an
+                     // unresolved or non-QUST one, as xEdit skips it; typed off the index.
                      && BadRef(bq, "a quest (QUST)", typeof(IQuestGetter)) is null)
             {
                 branchQuestAgrees = bq == tq;
