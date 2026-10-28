@@ -720,13 +720,13 @@ static class JsonWire
             w.WriteString("plugin", n.Plugin);
             w.WriteBoolean("is_winner", n.IsWinner);
             w.WriteBoolean("is_reference", n.IsReference);
-            if (!n.IsReference)
+            if (n.Diff is { } nd)
             {
-                w.WriteBoolean("complete", n.Complete);
-                WriteStringArray(w, "deltas", n.Deltas);
-                w.WriteNumber("delta_count", n.Deltas.Count);
-                w.WriteNumber("agreed_count", n.AgreedCount);
-                if (n.Diff is { } nd) WriteOtherAgreement(w, nd.MatchedListCount, nd.MatchedItemCount, nd.BothAbsentCount);
+                w.WriteBoolean("complete", nd.Complete);
+                WriteStringArray(w, "deltas", nd.Deltas);
+                w.WriteNumber("delta_count", nd.Deltas.Count);
+                w.WriteNumber("agreed_count", nd.AgreedCount);
+                WriteOtherAgreement(w, nd.MatchedListCount, nd.MatchedItemCount, nd.BothAbsentCount);
             }
             w.WriteEndObject();
         }

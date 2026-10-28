@@ -1412,7 +1412,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     static RecordReads.TreeRow FiveDeclarerRow() => new(
         "000001:Test.esm", "Cell", "TestCell",
         new[] { "A.esp", "B.esp", "C.esp", "D.esp", "E.esp" }, "E.esp",
-        new[] { new RecordReads.TreeNodeDelta("E.esp", true, true, Array.Empty<string>(), 0, true, null) },
+        new[] { new RecordReads.TreeNodeDelta("E.esp", true, true, null, null) },
         null,
         new[] { new ChildDeclarers("Persistent", OwnedChildShape.Collection,
                                    new[] { "A.esp", "B.esp", "C.esp", "D.esp", "E.esp" }, Array.Empty<string>()) });
@@ -1452,7 +1452,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     static RecordReads.TreeRow UnreadableRow(OwnedChildShape shape, int declaring, int unreadable) => new(
         "000001:Test.esm", "Cell", "TestCell",
         new[] { "A.esp", "B.esp", "C.esp", "D.esp", "E.esp" }, "E.esp",
-        new[] { new RecordReads.TreeNodeDelta("E.esp", true, true, Array.Empty<string>(), 0, true, null) },
+        new[] { new RecordReads.TreeNodeDelta("E.esp", true, true, null, null) },
         null,
         new[] { new ChildDeclarers("Landscape", shape,
                                    Names("D", declaring), Names("U", unreadable)) });

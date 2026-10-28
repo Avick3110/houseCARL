@@ -356,8 +356,8 @@ public sealed class PartialFormWinnerTests : IDisposable
     public void ARowWithNoWinnerPositionLabelsNoPartialForm()
     {
         var row = new RecordReads.TreeRow(Fid(_cell), "Cell", "HcPfCell", new[] { MasterName, PartialName }, MasterName,
-            new[] { new RecordReads.TreeNodeDelta(MasterName, false, true, Array.Empty<string>(), 0, true, null),
-                    new RecordReads.TreeNodeDelta(PartialName, true, false, Array.Empty<string>(), 0, true, null) },
+            new[] { new RecordReads.TreeNodeDelta(MasterName, false, true, null, null),
+                    new RecordReads.TreeNodeDelta(PartialName, true, false, null, new FieldsDiff.Result(Array.Empty<string>(), true, 0, Array.Empty<string>(), 0)) },
             null, Array.Empty<ChildDeclarers>());
         var r = RecordsTools.RenderRecordsTree(new[] { row }, 1, 1, 0, false, "records  form=tree", null, 100_000, null, out _);
         Assert.DoesNotContain("partial form", r);

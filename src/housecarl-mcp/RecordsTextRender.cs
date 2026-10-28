@@ -237,16 +237,15 @@ static partial class RecordsTools
                 sb.Append(diffHead);
                 foreach (var n in row.Nodes)
                 {
-                    if (n.IsReference) continue;
+                    if (n.Diff is not { } nd) continue;
                     // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas.
-                    string body = n.Deltas.Count > 0
-                        ? string.Join("; ", n.Deltas) +
-                          (n.Complete ? "" : " — the comparison is INCOMPLETE: " + (n.Why.Length > 0 ? n.Why : FieldsDiff.IncompleteWhy(0, 0, false))) + "\n"
-                        : !n.Complete
+                    string body = nd.Deltas.Count > 0
+                        ? string.Join("; ", nd.Deltas) + (nd.Complete ? "" : " — the comparison is INCOMPLETE: " + nd.Why) + "\n"
+                        : !nd.Complete
                             ? "no differing fields in what was read, but the comparison is INCOMPLETE — the deep read was TRUNCATED at the cap, so this is not a clean 'identical'.\n"
                             : fieldsNarrow
-                                ? $"identical to {row.ReferencePlugin} across the fields read ({Agreed(n)})\n"
-                                : $"identical to {row.ReferencePlugin} (whole record; {Agreed(n)})\n";
+                                ? $"identical to {row.ReferencePlugin} across the fields read ({Agreed(nd)})\n"
+                                : $"identical to {row.ReferencePlugin} (whole record; {Agreed(nd)})\n";
                     // Composed before it is priced, so the notice cannot land past the node that crossed.
                     string line = "    " + n.Plugin + (n.IsWinner ? " (winner)" : "") + ": " + body;
                     if (sb.Length + line.Length + nodesCut.Length > budget)
@@ -276,7 +275,7 @@ static partial class RecordsTools
     }
 
     /// <summary>What an identical tree node agreed on, in words.</summary>
-    static string Agreed(RecordReads.TreeNodeDelta n) => n.Diff?.Agreement("leaf/leaves") ?? "no differing fields";
+    static string Agreed(FieldsDiff.Result d) => d.Agreement("leaf/leaves") ?? "no differing fields";
 
     /// <summary>The delta's stack-above line; it names the winner when a partial form tops the stack.</summary>
     static void AppendStackAbove(StringBuilder sb, RecordReads.DeltaRow row) =>
