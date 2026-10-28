@@ -79,8 +79,8 @@ Apache License 2.0
 
   --- generated: Apache-2.0 components ---
   miniball                    1.0.4
-  ModelContextProtocol        2.2.0
-  ModelContextProtocol.Core   2.2.0
+  ModelContextProtocol        2.3.0
+  ModelContextProtocol.Core   2.3.0
   --- end generated ---
 
   ModelContextProtocol*: Copyright (c) the Model Context Protocol authors, from
@@ -121,8 +121,8 @@ MIT License
   K4os.Compression.LZ4                                      1.3.8
   K4os.Compression.LZ4.Streams                              1.3.8
   K4os.Hash.xxHash                                          1.0.8
-  Microsoft.Extensions.AI.Abstractions                      10.8.3
-  Microsoft.Extensions.Caching.Abstractions                 10.0.10
+  Microsoft.Extensions.AI.Abstractions                      10.11.0
+  Microsoft.Extensions.Caching.Abstractions                 10.0.13
   Microsoft.Extensions.Configuration                        10.0.13
   Microsoft.Extensions.Configuration.Abstractions           10.0.13
   Microsoft.Extensions.Configuration.Binder                 10.0.13
