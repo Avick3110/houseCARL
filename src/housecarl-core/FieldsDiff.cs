@@ -10,9 +10,11 @@ public static class FieldsDiff
     /// <param name="NoFieldCount">How many of those no-verdicts are NO FIELD on both sides: a wrong path, not a read fault.</param>
     /// <param name="MatchedListCount">Positional lists whose contents match in the same order (a list or dict empty on both sides among them), holding <paramref name="MatchedItemCount"/> items in all.</param>
     /// <param name="BothAbsentCount">Fields absent on both sides: the same state, never a value leaf in <paramref name="AgreedCount"/>.</param>
+    /// <param name="UnresolvedStringCount">Fields carrying no value on either side where a side's localized string did not
+    /// resolve: not compared, and never counted absent.</param>
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
         int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount, int NoFieldCount = 0, bool Capped = false,
-        int MatchedListCount = 0, int MatchedItemCount = 0, int BothAbsentCount = 0)
+        int MatchedListCount = 0, int MatchedItemCount = 0, int BothAbsentCount = 0, int UnresolvedStringCount = 0)
     {
         /// <summary>Why the comparison is incomplete, in words; empty when it is complete.</summary>
         public string Why => IncompleteWhy(NoVerdictCount - NoFieldCount, NoFieldCount, Capped);
@@ -27,6 +29,8 @@ public static class FieldsDiff
             else if (MatchedListCount == 1) parts.Add($"1 list with the same {MatchedItemCount} item(s)");
             else if (MatchedListCount > 1) parts.Add($"{MatchedListCount} lists with the same items ({MatchedItemCount} in all)");
             if (BothAbsentCount > 0) parts.Add(BothAbsentCount == 1 ? "1 field absent on both" : $"{BothAbsentCount} fields absent on both");
+            if (UnresolvedStringCount > 0)
+                parts.Add(UnresolvedStringCount == 1 ? "1 localized string unresolved, not compared" : $"{UnresolvedStringCount} localized strings unresolved, not compared");
             return parts.Count > 0 ? string.Join(", ", parts) : null;
         }
     }
@@ -112,7 +116,7 @@ public static class FieldsDiff
         // Exact-path comparison: scalars, substructs, dict children, and the summary line of a root whose elements are not compared.
         var tScalar = ExactPathLines(tLines, listRoots, comparedRoots, Suppressed);
         var wScalar = ExactPathLines(wLines, listRoots, comparedRoots, Suppressed);
-        int agreedCount = 0, bothAbsent = 0, matchedLists = 0, matchedItems = 0;
+        int agreedCount = 0, bothAbsent = 0, unresolved = 0, matchedLists = 0, matchedItems = 0;
         var agreedSample = new List<string>();
         foreach (var (path, val) in tScalar)
         {
@@ -121,8 +125,9 @@ public static class FieldsDiff
                 bool tAbsent = IsAbsentSentinel(val), wAbsent = IsAbsentSentinel(wv);
                 if (tAbsent && wAbsent)
                 {
-                    // Both carry nothing here — same state, no delta and not a value agreement.
-                    bothAbsent++;
+                    // Both carry nothing here — no delta and not a value agreement; an unresolved string is unread, not absent.
+                    if (val == ReadEngine.UnresolvedStringNote || wv == ReadEngine.UnresolvedStringNote) unresolved++;
+                    else bothAbsent++;
                 }
                 else if (tAbsent)
                 {
@@ -175,9 +180,9 @@ public static class FieldsDiff
         }
 
         // On a CAPPED comparison the agreed set would be a where-the-cap-fell artifact; an unreadable leaf does not touch it.
-        if (capped) { agreedCount = 0; agreedSample.Clear(); bothAbsent = 0; }
+        if (capped) { agreedCount = 0; agreedSample.Clear(); bothAbsent = 0; unresolved = 0; }
         return new Result(deltas, complete, agreedCount, agreedSample, noVerdict.Count, noField.Count, capped,
-                          matchedLists, matchedItems, bothAbsent);
+                          matchedLists, matchedItems, bothAbsent, unresolved);
     }
 
     /// <summary>How many agreed-field paths to keep for the render — a small sample, not the full set.</summary>

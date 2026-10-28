@@ -598,16 +598,18 @@ static class JsonWire
         if (d.NoFieldCount > 0) w.WriteNumber("no_field_count", d.NoFieldCount);
         if (cut) { w.WriteNumber("deltas_rendered", rendered); w.WriteBoolean("deltas_truncated", true); }
         w.WriteNumber("agreed_count", d.AgreedCount);
-        WriteOtherAgreement(w, d.MatchedListCount, d.MatchedItemCount, d.BothAbsentCount);
+        WriteOtherAgreement(w, d);
         w.WriteEndObject();
     }
 
-    /// <summary>The agreement <c>agreed_count</c> does not count: lists whose contents match, and fields absent on both sides.</summary>
-    static void WriteOtherAgreement(Utf8JsonWriter w, int lists, int items, int bothAbsent)
+    /// <summary>What <c>agreed_count</c> does not count: lists whose contents match, fields absent on both sides, and
+    /// localized strings that did not resolve.</summary>
+    static void WriteOtherAgreement(Utf8JsonWriter w, FieldsDiff.Result d)
     {
-        w.WriteNumber("matched_list_count", lists);
-        w.WriteNumber("matched_item_count", items);
-        w.WriteNumber("both_absent_count", bothAbsent);
+        w.WriteNumber("matched_list_count", d.MatchedListCount);
+        w.WriteNumber("matched_item_count", d.MatchedItemCount);
+        w.WriteNumber("both_absent_count", d.BothAbsentCount);
+        w.WriteNumber("unresolved_string_count", d.UnresolvedStringCount);
     }
 
     /// <summary>records form=delta. The identical count only counts COMPLETE comparisons (<c>complete:false</c> otherwise).</summary>
@@ -726,7 +728,7 @@ static class JsonWire
                 WriteStringArray(w, "deltas", nd.Deltas);
                 w.WriteNumber("delta_count", nd.Deltas.Count);
                 w.WriteNumber("agreed_count", nd.AgreedCount);
-                WriteOtherAgreement(w, nd.MatchedListCount, nd.MatchedItemCount, nd.BothAbsentCount);
+                WriteOtherAgreement(w, nd);
             }
             w.WriteEndObject();
         }

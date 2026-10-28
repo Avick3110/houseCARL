@@ -183,6 +183,35 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         Assert.Equal(1, FieldsDiff.Compare(Read(absent), Read(absent)).BothAbsentCount);
     }
 
+    // Aaron's pick (c): a localized string unresolved on either side is not compared and never counted absent.
+    [Fact]
+    public void Compare_AnUnresolvedStringIsCountedApartFromAbsence()
+    {
+        static RecordFields Read(params FieldValue[] f) => new("ARMO", "000800:X.esm", null, f);
+        var unresolved = new FieldValue("Name", false, null, ReadEngine.UnresolvedStringNote);
+        var absent = new FieldValue("Name", false, null, ReadEngine.AbsentNote, Present: false);
+        foreach (var d in new[] { FieldsDiff.Compare(Read(unresolved), Read(unresolved)), FieldsDiff.Compare(Read(unresolved), Read(absent)) })
+        {
+            Assert.Equal(0, d.BothAbsentCount);
+            Assert.Equal(1, d.UnresolvedStringCount);
+            Assert.Equal("1 localized string unresolved, not compared", d.Agreement("leaf/leaves"));
+        }
+        Assert.Equal("2 localized strings unresolved, not compared",
+            FieldsDiff.Compare(Read(unresolved, unresolved with { Path = "Description" }), Read(unresolved, unresolved with { Path = "Description" })).Agreement("leaf/leaves"));
+    }
+
+    [Fact]
+    public void Json_RowsCarryTheUnresolvedStringCount()
+    {
+        Assert.Equal(0, Json(Delta("Armature", "json")).GetProperty("rows")[0].GetProperty("unresolved_string_count").GetInt32());
+        var art = W.Scratch("delta-unresolved.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(art)!);
+        RecordsTools.Records(Svc, formids: new[] { Fid(W.Armor) }, project: Project("delta", "Armature"),
+                             versus: Pole(OutputAgreementWorld.MasterName), to_file: art);
+        var schema = JsonDocument.Parse(File.ReadLines(art).First()).RootElement.GetProperty("row_schema");
+        Assert.Contains(schema.EnumerateArray(), e => e.GetString() == "unresolved_string_count");
+    }
+
     // Pins unchanged behaviour: the delta census still counts a matched list and a both-absent field as identical.
     [Theory]
     [InlineData("Armature")]
