@@ -215,8 +215,8 @@ public sealed class TreeIncompleteNoteTests
     {
         var row = new RecordReads.TreeRow("000800:A.esm", "Weapon", "HcWeap",
             new[] { "A.esm", "B.esp" }, "A.esm",
-            new[] { new RecordReads.TreeNodeDelta("A.esm", false, true, null, null),
-                    new RecordReads.TreeNodeDelta("B.esp", true, false, null, new FieldsDiff.Result(deltas, false, 0, Array.Empty<string>(), 0)) },
+            new[] { new RecordReads.TreeNodeDelta("A.esm", false, null),
+                    new RecordReads.TreeNodeDelta("B.esp", true, new FieldsDiff.Result(deltas, false, 0, Array.Empty<string>(), 0)) },
             null, Array.Empty<ChildDeclarers>());
         return RecordsTools.RenderRecordsTree(new[] { row }, 1, 1, 0, false, "records  form=tree", null,
                                               100_000, null, out _);
