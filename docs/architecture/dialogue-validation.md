@@ -78,8 +78,8 @@ DLBR-group seek), and a set branch Quest that is a QUST (typed off the index, as
 Quest is a Warning naming both quests and the branch, as xEdit warns. A TopLevel
 branch (or one with no DNAM) says its menu entry can show twice in game; any other says the topic is filed under two
 quests' branch maps. An unset Quest on either side, a branch Quest that is dangling or not a QUST (xEdit skips it
-too), or a wiring that already failed its type check, adds nothing. The clean line says the wiring resolves "and agree" only
-where the two quests were compared. The
+too), or a wiring that already failed its type check, adds nothing. The clean line reads "quest + branch wiring resolve and
+agree" only where the two quests were compared; otherwise it ends at "resolve". The
 check runs per topic, so a quest input lists only topics whose own Quest names it: a foreign topic in that quest's
 branch is found from its own quest, not this one. DLVW and DLBR inputs stay record-level: vanilla views legitimately
 hold other quests' branches.
