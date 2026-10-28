@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-17
-covers: [src/housecarl-core/ReadEngine.cs, src/housecarl-core/ConditionLine.cs, src/housecarl-core/BodyGather.cs, src/housecarl-core/WinnerBodies.cs, src/housecarl-core/RecordLinks.cs, src/housecarl-core/RecordArms.cs, src/housecarl-core/OrderedGather.cs, src/housecarl-core/RecordNaming.cs, src/housecarl-core/PathFold.cs, src/housecarl-core/PluginFile.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/RecordPoles.cs, src/housecarl-mcp/RecordWalk.cs, src/housecarl-mcp/RecordQuery.cs, src/housecarl-mcp/TreeFold.cs, src/housecarl-mcp/FieldFold.cs, src/housecarl-mcp/ReverseWalkBatch.cs, src/housecarl-mcp/ScanDetailReader.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/ScopeSplit.cs, src/housecarl-mcp/BodyPrefetch.cs, src/housecarl-mcp/PoleGather.cs, src/housecarl-mcp/PluginPaths.cs, src/housecarl-core/FieldsDiff.cs]
+updated: 2026-10-28
+covers: [src/housecarl-core/ReadEngine.cs, src/housecarl-core/ConditionLine.cs, src/housecarl-core/BodyGather.cs, src/housecarl-core/WinnerBodies.cs, src/housecarl-core/RecordLinks.cs, src/housecarl-core/RecordArms.cs, src/housecarl-core/OrderedGather.cs, src/housecarl-core/RecordNaming.cs, src/housecarl-core/PathFold.cs, src/housecarl-core/PluginFile.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/RecordPoles.cs, src/housecarl-mcp/RecordWalk.cs, src/housecarl-mcp/RecordQuery.cs, src/housecarl-mcp/TreeFold.cs, src/housecarl-mcp/FieldFold.cs, src/housecarl-mcp/ReverseWalkBatch.cs, src/housecarl-mcp/ScanDetailReader.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/ScopeSplit.cs, src/housecarl-mcp/BodyPrefetch.cs, src/housecarl-mcp/PoleGather.cs, src/housecarl-mcp/PluginPaths.cs, src/housecarl-core/FieldsDiff.cs, src/housecarl-core/PlannedFields.cs]
 ---
 # The read engine
 
@@ -57,11 +57,29 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
   brackets are semantic keys and compare by exact path. A CAP suppresses one-sided deltas and the
   agreed count record-wide; an UNREADABLE leaf suppresses only that path and the list element
   comparison it sits in. An empty delta list with `Complete` false must never render as identical.
+- `project.fields` is planned once per call before any read (`PlannedFields`, #1093), through the
+  schema walk `where=` plans with (`SchemaPathWalk`; select-and-walk.md): each read path is walked over
+  the `types=` in scope, or every record type without them or under `walk=` (whose `types=` picks seeds,
+  not the rows it reaches). A path no type in scope carries refuses the call in one sentence, as `where=`
+  refuses it. The plan rides the read as the `fields` list itself (`PlannedFields` is an
+  `IReadOnlyList<string>`), so every lane that hands `ReadFields` its paths carries it with no new
+  parameter. `ReadFields` asks the plan once per (runtime class, path); a path the class's type lacks
+  reads as `(not on Type)` (`Present=false`, `Readable=false`), never the per-record diagnosis, and the
+  plan keeps the types that lacked it. A `*parent` path and a class the schema does not model keep the
+  read's own note, as does a can't-tell leaf. The call states one note per lacking path, with the
+  schema's clause over those types (case slip, nearest name, or the types that model it): on the list,
+  pole, comparison and body lanes through the header and `notes`, read after the rows; on the scan
+  renders, which read rows lazily, through the scan's owed notes, decided over the window's prefilled
+  types before the header is written. An untyped scan with no prefilled rows states no note; its cells
+  still name the type. The plan lives and dies with the call. `ReadEngine.ReadFields` without a plan
+  (the write read-back, FaceGen, the SkyPatcher replay) still writes the long no-field note.
 - A path with no field on BOTH sides is a wrong path, not two equal values: it is a NO FIELD line,
   not compared, and leaves the comparison incomplete. It is counted apart from an unreadable leaf
   (`NoFieldCount`, json `no_field_count`), and its incomplete note says to fix the path rather than
   narrow `fields=`, which is the remedy for a read fault or the cap. A no-field note on one side only
-  stays a line and is a shape difference.
+  stays a line and is a shape difference. A planned `(not on Type)` path is neither: it is not
+  compared, not counted as no-field, leaves the comparison complete, and is named in the agreement
+  phrase (`NotOnType`, "ArmorRating (not on Weapon)").
 - The agreed count counts only exact-path VALUE leaves read on BOTH sides — never a container
   summary, never a side's absent or null-link sentinel, because an absent field is not an agreement.
   Per-field presence is reliable only for nullable fields, whose absence the read engine spells, so a
@@ -102,6 +120,10 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 - `RecordsRemedyRepairTests.AListHopRemedyComesFromThePlanSoNoScannedRecordComputesIt` — the list-hop remedy comes from the plan, so no scanned record computes it.
 - `ConditionSummaryLineTests` and `ConditionSummaryLinePresenceTests` — the compact condition line on both summary paths, the full form one level below it, and `Conditions[0] exists` still present.
 - `RecordsFieldFoldTests` — `[*]` and `[*count]` columns, and the read's truncation note surviving the fold.
+- `RecordsProjectionPlanTests` — the planned token on text, json, dense, rows, overlay, scan, off-order and list lanes
+  with the note said once; tree and delta complete with the path named, not counted no-field; a path no type in scope
+  carries refused as `where=` refuses it; a walk planned over what it reaches; the case-slip hint kept on an untyped
+  list. `RecordsNoFieldNoteTests` — the unplanned read's no-field note, unchanged.
 - `InfoOrderDoorTests`, `EffectChainManyTests` and `ConflictsOnlyFillTests` — an `info_order` seed in a plugin that will not open is a row error, many MGEF seeds in one call answer as each does alone, and a conflicts-only render reads each winner group once.
 - `DoorGroupReadTests` — a `->` scan reads its target group once and a `*parent` scan its container group once across two scan chunks, a formid universe past one chunk reads its winner group once, and a typed error names the candidate-order record, not the door's first.
 - `BodyGatherEquivalenceTests.AGatheredBodyIsTheBodyTheSingleFetchReturns` and `AFaultedPluginIsNamedAndFallsBackToTheSingleFetch` — a gathered body equals the one-at-a-time body, and a faulted plugin's fallback raises the same exception type and message the direct fetch does. `BodyGatherDoorTests` — faults are named in declaration order, what a faulted plugin yielded is kept, a gather over two plugins and two groups reads each (plugin, group) once, a per-group gather holds only the group being handled, and a broken NPC_ group (which sorts before WEAP) still lets `WinnerBodies` and a `formids=`+`where=` scan return the plugin's weapons and name the plugin.
@@ -114,7 +136,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 ## Where
 `src/housecarl-core/`: `ReadEngine.cs` (leaf read, emit, deep walk), `BodyGather.cs` /
 `WinnerBodies.cs` (bulk bodies), `OrderedGather.cs` (the read door), `RecordLinks.cs`, `RecordArms.cs`, `RecordNaming.cs`,
-`PathFold.cs`, `PluginFile.cs`, `FieldsDiff.cs` (the deep comparison behind `project={"form":"tree"}`).
+`PathFold.cs`, `PluginFile.cs`, `FieldsDiff.cs` (the deep comparison behind `project={"form":"tree"}`), `PlannedFields.cs` (the projection plan).
 `src/housecarl-mcp/`: `RecordReads.cs` (resolve, the pinned per-match fill `ResolveReadOn`, `ResolveRefOne`,
 `ArtifactEpochMismatch`, the pairwise record diff `DiffPole`, batch, the one-pole batch, info order, the dialogue
 fold), `RecordPoles.cs` (comparison poles, the delta/tree batches), `RecordWalk.cs` (walk), `RecordQuery.cs`
