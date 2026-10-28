@@ -142,12 +142,12 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
     [Fact]
     public void AnAbsentListIsTheReadsAnswerNotAMisuseOfTheToken()
     {
-        // No Effects field on a WEAP at all: the read's own note carries out under the caller's spelling, and the
+        // No Effects field on a WEAP at all: the plan's token carries out under the caller's spelling, and the
         // count is NOT answered with a number — a missing field and an empty list are different answers.
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[1]) }, project: Fields("Effects[*count]"));
         Served(r, "Effects[*count]");
         Assert.DoesNotContain("Effects[*count] = 0", r);
-        Assert.Contains("no field", Line(r, "Effects[*count]").ToLowerInvariant());
+        Assert.Contains("(not on Weapon)", Line(r, "Effects[*count]"));
     }
 
     [Fact]

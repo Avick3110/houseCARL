@@ -138,11 +138,20 @@ public static class ReadEngine
         var typeName = RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(record.GetType())?.Name ?? "I?Getter");
         var targets = paths is { Count: > 0 } ? (IEnumerable<string>)paths : ModeledFieldNames(typeName, record.GetType());
         var fields = new List<FieldValue>();
+        // A planned projection path this record's type lacks reads as the plan's token, never the per-record diagnosis.
+        var plan = paths as PlannedFields;
+        bool Lacking(string p)
+        {
+            if (plan?.TokenFor(record.GetType(), p) is not { } token) return false;
+            fields.Add(new FieldValue(p, false, null, token, null, Present: false, Count: null, Readable: false));
+            return true;
+        }
         if (depth <= 1)
         {
             // depth 1 (default) — the one-level read the round-trip oracle drives. Expansion is a separate branch.
             foreach (var p in targets)
             {
+                if (Lacking(p)) continue;
                 var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var (on, tail, hopNote) = HopToParent(record, seg, parentOf);
                 if (hopNote is not null) { fields.Add(new FieldValue(p, false, null, hopNote, null, Present: false, Count: null, Readable: false)); continue; }
@@ -170,6 +179,7 @@ public static class ReadEngine
             {
                 var (d, elementTail) = perPath is not null ? perPath[at] : (depth, null);
                 at++;
+                if (Lacking(p)) continue;
                 var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var (on, tail, hopNote) = HopToParent(record, seg, parentOf);
                 if (hopNote is not null) { fields.Add(new FieldValue(p, false, null, hopNote, null, Present: false, Count: null, Readable: false)); continue; }

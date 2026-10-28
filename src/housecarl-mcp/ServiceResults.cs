@@ -98,8 +98,11 @@ public sealed record CrossQueryOutcome(
     public IReadOnlyList<string> ManifestNotes() =>
         Owed(Unmatched.Count == 0 ? null : FieldPredicateSet.UnmatchedSentence(Unmatched, Unmatched.Count, UnmatchedGap, true));
 
+    /// <summary>The projection plan's notes, one per field path some row type lacks.</summary>
+    public IReadOnlyList<string> FieldNotes { get; init; } = Array.Empty<string>();
+
     IReadOnlyList<string> Owed(string? unmatched) =>
-        new[] { PredicateNote, unmatched, ScanNote, WhereSourceNote, ReverseIndexNote }.OfType<string>().ToList();
+        new[] { PredicateNote, unmatched, ScanNote, WhereSourceNote, ReverseIndexNote }.OfType<string>().Concat(FieldNotes).ToList();
 
 
     /// <summary>The scan's pinned resolver and view, so the render's per-match fills read off the same build the scan matched. Never serialized.</summary>

@@ -1,13 +1,16 @@
-using HousecarlMcp;
+using HousecarlCore;
+using Mutagen.Bethesda.Plugins.Records;
 using Xunit;
 
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The projection lane's no-such-field note says WHICH of the two dead-end causes it is. A field the record type
+/// The unplanned read's no-such-field note says WHICH of the two dead-end causes it is. A field the record type
 /// does not model (Mutagen models VirtualMachineAdapter on some record types and not others, so a scripted ALCH
 /// is invisible) and a mistyped name both used to read as a bare "(no field X)", and they need opposite next
-/// moves: nothing to fix in the path, versus fix the spelling.
+/// moves: nothing to fix in the path, versus fix the spelling. The records tool plans its paths before reading
+/// (RecordsProjectionPlanTests); these pin the note the other readers (write read-back, FaceGen, SkyPatcher
+/// replay) still get.
 /// </summary>
 [Collection("records")]
 [Trait("tier", "integration")]
@@ -15,8 +18,13 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
 {
     public RecordsNoFieldNoteTests(RecordsFixture f) : base(f) { }
 
-    string Spell(params string[] paths) =>
-        RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, project: Fields(paths));
+    IMajorRecordGetter SpellBody => W.SpellBodies.First(b => b.FormKey == W.SpellA);
+
+    IMajorRecordGetter WeaponBody => W.WeaponBodies.First(b => b.FormKey == W.Weapons[0]);
+
+    static string Note(IMajorRecordGetter body, string path) => ReadEngine.ReadFields(body, new[] { path }).Fields.Single().Note ?? "";
+
+    string Spell(string path) => Note(SpellBody, path);
 
     /// <summary>Issue #528's own case, on the record type the fixture has: Mutagen models VirtualMachineAdapter on
     /// many types and not on Spell, so the name is right and the path is not the thing to fix.</summary>
@@ -24,7 +32,8 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
     public void AFieldTheTypeDoesNotModelIsToldTheNameIsNotMistyped()
     {
         var r = Spell("VirtualMachineAdapter");
-        Served(r, "not a mistyped name", "just not on Spell");
+        Assert.Contains("not a mistyped name", r);
+        Assert.Contains("just not on Spell", r);
     }
 
     /// <summary>A name no modeled type carries is the other cause, and is named as such.</summary>
@@ -32,7 +41,8 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
     public void AMistypedFieldIsToldItIsMistyped()
     {
         var r = Spell("Effcts");
-        Served(r, "a mistyped name", "did you mean 'Effects'?");
+        Assert.Contains("a mistyped name", r);
+        Assert.Contains("did you mean 'Effects'?", r);
         Assert.DoesNotContain("not a mistyped name", r);
     }
 
@@ -40,7 +50,7 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
     /// thing to say about it.</summary>
     [Fact]
     public void ACaseOnlySlipIsOfferedTheExactSpelling() =>
-        Served(Spell("editorid"), "did you mean 'EditorID'?");
+        Assert.Contains("did you mean 'EditorID'?", Spell("editorid"));
 
     /// <summary>A case-only slip whose OTHER casing is a real field somewhere else is still a case-only slip. The
     /// corpus models 'DATA' on DialogResponses and nowhere else, and a Weapon spells the same subrecord 'Data' —
@@ -48,8 +58,8 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
     [Fact]
     public void ACaseOnlySlipBeatsTheSameCasingModeledElsewhere()
     {
-        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, project: Fields("DATA"));
-        Served(r, "did you mean 'Data'?");
+        var r = Note(WeaponBody, "DATA");
+        Assert.Contains("did you mean 'Data'?", r);
         Assert.DoesNotContain("not a mistyped name", r);
     }
 
@@ -60,7 +70,7 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
     public void AnOwnerNearFieldBeatsTheModeledElsewhereClaim()
     {
         var r = Spell("Effect");
-        Served(r, "did you mean 'Effects'?");
+        Assert.Contains("did you mean 'Effects'?", r);
         Assert.DoesNotContain("not a mistyped name", r);
     }
 
@@ -71,29 +81,31 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
     public void AnOwnerTheCatalogDoesNotModelGetsTheBareNote()
     {
         var r = Spell("HalfCostPerk.Name");
-        Served(r, "(no field Name)");
+        Assert.Contains("(no field Name)", r);
         Assert.DoesNotContain("mistyped name", r);
     }
 
     /// <summary>The types the field IS modeled on are named, not just counted, so a caller can see the name is
     /// real. ArmorRating lives on exactly one type, which is the tightest form of that claim.</summary>
     [Fact]
-    public void TheTypesThatDoModelTheFieldAreNamed() =>
-        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, project: Fields("ArmorRating")),
-               "1 other type(s) (Armor)", "just not on Weapon");
+    public void TheTypesThatDoModelTheFieldAreNamed()
+    {
+        var r = Note(WeaponBody, "ArmorRating");
+        Assert.Contains("1 other type(s) (Armor)", r);
+        Assert.Contains("just not on Weapon", r);
+    }
 
     /// <summary>The verdict costs a schema lookup and a nearest-name sweep over the owner type's whole field list,
-    /// and every record in a scan dead-ends the same way — so it is computed once per (corpus, owner type, name),
-    /// not once per scanned record. The name is unique to this run so the memo is cold when it runs.</summary>
+    /// and every record of a type dead-ends the same way — so it is computed once per (corpus, owner type, name),
+    /// not once per record read. The name is unique to this run so the memo is cold when it runs.</summary>
     [Fact]
-    public void AScanComputesOneVerdictForTheWholeScan()
+    public void ManyReadsComputeOneVerdict()
     {
         var probe = "NoFieldMemoProbe" + Guid.NewGuid().ToString("N");
-        int Computed() => HousecarlCore.ModeledFieldIndex.ComputationsOf("Spell", probe);
+        int Computed() => ModeledFieldIndex.ComputationsOf("Spell", probe);
         var before = Computed();
-        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, project: Fields(probe));
-        Served(r, "a mistyped name");
-        Assert.True(W.SpellBodies.Count > 1, "the scan must cross more than one record for this to say anything");
+        Assert.True(W.SpellBodies.Count > 1, "the reads must cross more than one record for this to say anything");
+        foreach (var b in W.SpellBodies) Assert.Contains("a mistyped name", Note(b, probe));
         Assert.Equal(1, Computed() - before);
     }
 }
