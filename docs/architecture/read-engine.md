@@ -61,7 +61,9 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
   schema walk `where=` plans with (`SchemaPathWalk`; select-and-walk.md): each read path is walked over
   the `types=` in scope, or every record type without them or under `walk=` (whose `types=` picks seeds,
   not the rows it reaches). A path no type in scope carries refuses the call in one sentence, as `where=`
-  refuses it. The plan rides the read as the `fields` list itself (`PlannedFields` is an
+  refuses it. A quantified path is planned at its list root only (the fold's read root): a tail after
+  `[*]` (`Effects[*].Data.Magnitud`) is not planned, so it is not refused and keeps the read's own
+  per-element note. The plan rides the read as the `fields` list itself (`PlannedFields` is an
   `IReadOnlyList<string>`), so every lane that hands `ReadFields` its paths carries it with no new
   parameter. `ReadFields` asks the plan once per (runtime class, path); a path the class's type lacks
   reads as `(not on Type)` (`Present=false`, `Readable=false`), never the per-record diagnosis, and the
