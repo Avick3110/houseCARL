@@ -190,6 +190,52 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         Assert.Equal(1, FieldsDiff.Compare(Read(absent), Read(absent)).BothAbsentCount);
     }
 
+    // r2 #1: a cap clears the unresolved and present-null-link counts with the rest of the agreement.
+    [Fact]
+    public void Compare_ACappedReadCountsNoUnresolvedStringOrNullLink()
+    {
+        static RecordFields Read(params FieldValue[] f) => new("INFO", "000800:X.esm", null, f);
+        var unresolved = new FieldValue("Name", false, null, ReadEngine.UnresolvedStringNote);
+        var nullLink = new FieldValue("PreviousDialog", false, null, ReadEngine.PresentNullLinkNote, Present: false);
+        var cap = new FieldValue("…", false, null, "[cap]");
+        var d = FieldsDiff.Compare(Read(unresolved, nullLink, cap), Read(unresolved, nullLink));
+        Assert.Equal(0, d.UnresolvedStringCount);
+        Assert.Equal(0, d.PresentNullLinkCount);
+        var whole = FieldsDiff.Compare(Read(unresolved, nullLink), Read(unresolved, nullLink));
+        Assert.Equal(1, whole.UnresolvedStringCount);
+        Assert.Equal(1, whole.PresentNullLinkCount);
+    }
+
+    // r2 #3: emptiness is read from the element count: a cap still suppresses it, an empty dict counts, summary text alone does not.
+    [Fact]
+    public void Compare_EmptyOnBothSidesIsReadFromTheElementCount()
+    {
+        static RecordFields Read(params FieldValue[] f) => new("NPC_", "000800:X.esm", null, f);
+        var emptyList = new FieldValue("Packages", false, null, "[list: 0 item(s)]", Count: 0);
+        var emptyDict = new FieldValue("BipedObjectNames", false, null, "[dict: 0 pair(s)]", Count: 0);
+        var cap = new FieldValue("…", false, null, "[cap]");
+        Assert.Equal(1, FieldsDiff.Compare(Read(emptyList), Read(emptyList)).MatchedListCount);
+        Assert.Equal(0, FieldsDiff.Compare(Read(emptyList, cap), Read(emptyList)).MatchedListCount);
+        Assert.Equal(1, FieldsDiff.Compare(Read(emptyDict), Read(emptyDict)).MatchedListCount);
+        var textOnly = emptyList with { Count = null };
+        Assert.Equal(0, FieldsDiff.Compare(Read(textOnly), Read(textOnly)).MatchedListCount);
+    }
+
+    // r2 #2: the json row carries the unresolved count it was given.
+    [Fact]
+    public void Json_ADeltaRowWithAnUnresolvedPairCountsIt()
+    {
+        static RecordFields Read(params FieldValue[] f) => new("ARMO", "000800:X.esm", null, f);
+        var unresolved = new FieldValue("Name", false, null, ReadEngine.UnresolvedStringNote);
+        var row = new RecordReads.DeltaRow("000800:A.esm",
+            new RecordReads.DiffPole("B.esp", "active", true, "Armor", "HcArmo"),
+            new RecordReads.DiffPole("A.esm", "active", true, "Armor", "HcArmo"),
+            FieldsDiff.Compare(Read(unresolved), Read(unresolved)), null, null, null);
+        var doc = Json(JsonWire.RenderDelta(new[] { row }, 100_000, null, Array.Empty<EnvelopePair>(),
+                                            Array.Empty<KeyValuePair<string, int>>(), null, out _));
+        Assert.Equal(1, doc.GetProperty("rows")[0].GetProperty("unresolved_string_count").GetInt32());
+    }
+
     // Aaron's pick (c): a localized string unresolved on either side is not compared and never counted absent.
     [Fact]
     public void Compare_AnUnresolvedStringIsCountedApartFromAbsence()
@@ -406,6 +452,7 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         var r = RecordsTools.Records(Svc, types: new[] { "STAT", "KYWD" }, where: new[] { "SkyrimMajorRecordFlags in [NotPlayable]" });
         Assert.DoesNotContain("error:", r);
         Assert.DoesNotContain("HcOcNeverFades", r);
+        Assert.Contains("HcOcBit4Keyword", r);
     }
 
     // Aaron's pick (e), r2 #11/#34: on a multi-type scan the type that renames the name matches neither the test nor its
