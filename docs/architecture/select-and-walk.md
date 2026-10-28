@@ -31,13 +31,16 @@ path walk, and containment comes off Mutagen's context walk.
   on a flags leaf resolve the same spellings, once per operand and enum. On `SkyrimMajorRecordFlags`
   of a record type with its own `MajorFlag`, `has`, `=`, `!=`, `in` and `not in` all take the read's
   vocabulary: that type's own names first, then the generic header names for the bits those leave
-  unnamed (`GLOB … = Constant | CantWait`). A generic name the type renames (`STAT … = NotPlayable`)
-  is refused when every type in scope renames it, `=`/`in` at plan time and `has` at the first record,
-  with the type's own names, a did-you-mean and `MajorFlags` as what to try; a typo under an untyped
-  scope is refused once, naming the nearest name and `types=` as the way to see one type's names. On a
-  multi-type `types=` or an untyped (`plugins=`, `formids=`) scope where another type holds the name,
-  the renaming type matches neither the test nor its complement (`!=`, `not in`, `has_none` included)
-  and a note names it, as a type lacking the field is named. On a list or dict path the
+  unnamed (`GLOB … = Constant | CantWait`). A literal no type in scope can name (a typo, or
+  `STAT … = NotPlayable`, a generic name the type renames) is refused at plan time under `=`, `!=`,
+  `in` and `not in`, with a did-you-mean and what to try: one type's own names and `MajorFlags` (and the generic names
+  when a type with no `MajorFlag` of its own is in scope), or under several such types a bit value,
+  `MajorFlags` and listing one type alone in `types=` to see its names.
+  `has` refuses such a literal when it reads the first record, with the type's own names and
+  `MajorFlags`, and no did-you-mean. Known limit: on a multi-type `types=` or an untyped (`plugins=`,
+  `formids=`) scope where another type holds the name, the literal passes plan time; `has` then refuses
+  the call at the first record of the renaming type, while `=`/`in` are false there and `!=`/`not in`
+  true, with no note. On a list or dict path the
   has-family refuses the call from the schema, before any record is read:
   a form-link list with form operands gets the list members' own spelling (`Keywords[*none] in [X]`),
   other form links a `->` step (`Keywords->editorid = X`), a dict one entry, any other list the
