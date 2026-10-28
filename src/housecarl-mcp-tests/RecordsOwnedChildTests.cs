@@ -1364,7 +1364,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void Json_ANoChildrenRowsNodesCutStillSetsTruncated_NotCoveredByTheDeclarersLeadCheck()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.Weapon, format: "json", maxChars: 1296));
+        using var doc = JsonDocument.Parse(Tree(_w.Weapon, format: "json", maxChars: 1378));
         Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
         Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
     }
@@ -1372,7 +1372,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void Json_TheSameNoChildrenRowFitsWithRoomToSpareIsNotMarkedTruncated()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.Weapon, format: "json", maxChars: 1297));
+        using var doc = JsonDocument.Parse(Tree(_w.Weapon, format: "json", maxChars: 1379));
         Assert.False(doc.RootElement.GetProperty("truncated").GetBoolean());
     }
 
