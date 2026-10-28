@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-/// <summary>One response-envelope pair, written as its value's JSON kind: a count (long or int) a number, a flag a boolean, text a string.</summary>
+/// <summary>One response-envelope pair, written as its value's JSON kind: a count (int) a number, a flag a boolean, text a string.</summary>
 readonly record struct EnvelopePair(string Key, object Value);
 
 /// <summary>The format="json" twin of the text <see cref="Wire"/> renderer: one serializer per read tool over the
@@ -78,7 +78,6 @@ static class JsonWire
             if (kv.Key == "notes") continue;
             switch (kv.Value)
             {
-                case long n: w.WriteNumber(kv.Key, n); break;
                 case int n: w.WriteNumber(kv.Key, n); break;
                 case bool f: w.WriteBoolean(kv.Key, f); break;
                 default: w.WriteString(kv.Key, kv.Value.ToString()); break;
