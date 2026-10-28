@@ -935,17 +935,19 @@ public static class ReadEngine
         // enum (inverse of TryEnum). A [Flags] enum ALSO carries the bit pattern and type, for the predicate.
         if (u.IsEnum || val.GetType().IsEnum)
         {
-            var token = val.ToString() ?? "";
             var enumType = u.IsEnum ? u : val.GetType();
             if (enumType.IsDefined(typeof(FlagsAttribute), false) && TryEnumBits(val, enumType, out var bits))
             {
                 // The header int decodes with the record's own MajorFlag names first; a bit those name prints as the integer token.
                 if (enumType == typeof(SkyrimMajorRecord.SkyrimMajorRecordFlag) && OwnMajorFlag(parent.GetType()) is { } own)
-                    return LeafRead.FlagsValue(PeelFlagBits(own, bits) != bits ? bits.ToString(CultureInfo.InvariantCulture) : token,
-                                               new FlagBits(bits, own, enumType)) with { EnumBox = val as Enum };
-                return LeafRead.FlagsValue(token, new FlagBits(bits, enumType)) with { EnumBox = val as Enum };
+                {
+                    var fb = new FlagBits(bits, own, enumType);
+                    return LeafRead.FlagsValue(OwnNamesABit(fb) ? bits.ToString(CultureInfo.InvariantCulture) : val.ToString() ?? "", fb)
+                           with { EnumBox = val as Enum };
+                }
+                return LeafRead.FlagsValue(val.ToString() ?? "", new FlagBits(bits, enumType)) with { EnumBox = val as Enum };
             }
-            return LeafRead.Value(token) with { EnumBox = val as Enum };
+            return LeafRead.Value(val.ToString() ?? "") with { EnumBox = val as Enum };
         }
         // formlink (inverse of TryFormLink). A present-but-null link is not round-trippable, so it is a note.
         if (val is IFormLinkGetter fl)
@@ -1032,7 +1034,7 @@ public static class ReadEngine
             slots = new List<int>();
             for (int i = 0; i < 32; i++) if ((fb.Bits & (1UL << i)) != 0) slots.Add(30 + i);
         }
-        var names = FlagNames(fb, out bool anyNamed, numericToken: fb.Remainder is not null && ulong.TryParse(leaf.Token, out _));
+        var names = FlagNames(fb, out bool anyNamed);
         // The slot list is dropped from the display when every set bit is already a slotNN token.
         var slotText = slots is not { Count: > 0 } || (names is not null && !anyNamed) ? null
                      : (slots.Count == 1 ? "slot " : "slots ") + string.Join(" ", slots);
@@ -1046,12 +1048,7 @@ public static class ReadEngine
 
     /// <summary>The record class's own nested <c>MajorFlag</c> enum (the type of its <c>MajorFlags</c>), or null when it has none.</summary>
     internal static Type? OwnMajorFlag(Type recordType) => OwnMajorFlags.GetOrAdd(recordType, static t =>
-    {
-        foreach (var iface in t.GetInterfaces())
-            if (iface.GetProperty("MajorFlags", BindingFlags.Public | BindingFlags.Instance)?.PropertyType is { IsEnum: true, Name: "MajorFlag" } e)
-                return e;
-        return null;
-    });
+        WriteEngine.ResolveProperty(t, "MajorFlags")?.PropertyType is { IsEnum: true, Name: "MajorFlag" } e ? e : null);
 
     static readonly ConcurrentDictionary<Type, Type?> OwnMajorFlags = new();
 
@@ -1069,14 +1066,18 @@ public static class ReadEngine
 
     /// <summary>The named bits plus one token per unnamed bit (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere),
     /// joined by " | ", or null when every set bit is named and the token already lists them.</summary>
-    static string? FlagNames(FlagBits fb, out bool anyNamed, bool numericToken = false)
+    static string? FlagNames(FlagBits fb, out bool anyNamed)
     {
         anyNamed = false;
         ulong remainder = Unnamed(fb);
-        if (remainder == 0 && !numericToken) return null;
+        // A header leaf whose own flags name a bit carries the integer token, so its names are always shown.
+        if (remainder == 0 && !OwnNamesABit(fb)) return null;
         anyNamed = (fb.Bits & ~remainder) != 0;
         return string.Join(" | ", FlagParts(fb, remainder));
     }
+
+    /// <summary>True when a header leaf's own flag names name a set bit, the case whose token is the integer.</summary>
+    static bool OwnNamesABit(FlagBits fb) => fb.Remainder is not null && PeelFlagBits(fb.EnumType, fb.Bits) != fb.Bits;
 
     /// <summary>The set bits no flag member names, peeled the way .NET's [Flags].ToString() greedily applies each fully contained member.</summary>
     internal static ulong Unnamed(FlagBits fb)
@@ -1089,7 +1090,7 @@ public static class ReadEngine
     internal static List<string> FlagParts(FlagBits fb, ulong remainder)
     {
         var parts = new List<string>();
-        ulong typedLeft = PeelFlagBits(fb.EnumType, fb.Bits);
+        ulong typedLeft = fb.Remainder is null ? remainder : PeelFlagBits(fb.EnumType, fb.Bits);
         ulong nameable = fb.Bits & ~typedLeft & ~remainder;
         if (nameable != 0) parts.AddRange(Enum.ToObject(fb.EnumType, nameable).ToString()!.Split(", "));
         if (fb.Remainder is { } rest && (typedLeft & ~remainder) is var restNamed and not 0)

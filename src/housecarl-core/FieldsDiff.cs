@@ -17,19 +17,17 @@ public static class FieldsDiff
         /// <summary>Why the comparison is incomplete, in words; empty when it is complete.</summary>
         public string Why => IncompleteWhy(NoVerdictCount - NoFieldCount, NoFieldCount, Capped);
 
-        /// <summary>What agreed, as one phrase ("3 leaf/leaves agree, 1 list with the same 2 items"), or null when nothing was counted.</summary>
-        public string? Agreement(string leaves) => AgreementPhrase(AgreedCount, MatchedListCount, MatchedItemCount, BothAbsentCount, leaves);
-    }
-
-    /// <summary>The agreement counts as one phrase, each kind named only when present; null when all are zero.</summary>
-    public static string? AgreementPhrase(int agreed, int lists, int items, int bothAbsent, string leaves)
-    {
-        var parts = new List<string>();
-        if (agreed > 0) parts.Add($"{agreed} {leaves} agree");
-        if (lists == 1) parts.Add($"1 list with the same {items} item(s)");
-        else if (lists > 1) parts.Add($"{lists} lists with the same items ({items} in all)");
-        if (bothAbsent > 0) parts.Add(bothAbsent == 1 ? "1 field absent on both" : $"{bothAbsent} fields absent on both");
-        return parts.Count > 0 ? string.Join(", ", parts) : null;
+        /// <summary>What agreed, as one phrase ("3 leaf/leaves agree, 1 list with the same 2 items"), each kind named only
+        /// when present; null when nothing was counted.</summary>
+        public string? Agreement(string leaves)
+        {
+            var parts = new List<string>();
+            if (AgreedCount > 0) parts.Add($"{AgreedCount} {leaves} agree");
+            if (MatchedListCount == 1) parts.Add($"1 list with the same {MatchedItemCount} item(s)");
+            else if (MatchedListCount > 1) parts.Add($"{MatchedListCount} lists with the same items ({MatchedItemCount} in all)");
+            if (BothAbsentCount > 0) parts.Add(BothAbsentCount == 1 ? "1 field absent on both" : $"{BothAbsentCount} fields absent on both");
+            return parts.Count > 0 ? string.Join(", ", parts) : null;
+        }
     }
 
     /// <summary>The causes of an incomplete comparison as one phrase; a fields= narrowing is offered only where it helps.</summary>

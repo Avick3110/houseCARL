@@ -9,6 +9,11 @@ internal sealed partial class RecordReads
 {
     // ---- cross-plugin query ----------------------------------------------------------------------------
 
+    /// <summary>Matches exist BEYOND the returned window; the matches offset= skipped were asked to be, a group_by=
+    /// tally has no window, and limit 0 (counts_only) asks for none.</summary>
+    static bool WindowCapped(Dictionary<string, int>? groups, int limit, int total, int offset, int returned) =>
+        groups is null && limit > 0 && total > offset + returned;
+
     /// <summary>Scan the order for records matching a filter, in a SINGLE enumeration pass with the matching record's
     /// body in hand: type= streams the winner body, plugins= each scoped plugin's own, conflicts_only= alone reads
     /// the index.</summary>
@@ -656,9 +661,7 @@ internal sealed partial class RecordReads
         // The group_by= TALLY is not limit-capped (the render's table rows are), so Capped is a match-line concern only.
         var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
                               .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
-        // Capped means matches exist BEYOND the returned window; the matches offset= skipped were asked to be, and
-        // limit 0 (counts_only) asks for no window at all.
-        return new CrossQueryOutcome(keys, prefilled, total, groups is null && limit > 0 && total > offset + keys.Count, null,
+        return new CrossQueryOutcome(keys, prefilled, total, WindowCapped(groups, limit, total, offset, keys.Count), null,
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
@@ -940,7 +943,7 @@ internal sealed partial class RecordReads
             scanNote = scanNote is null ? scopeMissingNote : scopeMissingNote + " " + scanNote;
         var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
                               .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
-        return new CrossQueryOutcome(keys, prefilled, total, groups is null && limit > 0 && total > offset + keys.Count, null,
+        return new CrossQueryOutcome(keys, prefilled, total, WindowCapped(groups, limit, total, offset, keys.Count), null,
                                      predicate?.AccountingNote(), sources, scanNote, matched, groupRows, groupBy,
                                      definedIn ? pole.Plugin : null, offset, false, null)
                { Stamp = view.Stamp, Pin = pin,
