@@ -602,13 +602,14 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    /// <summary>What <c>agreed_count</c> does not count: lists whose contents match, fields absent on both sides, and
-    /// localized strings that did not resolve.</summary>
+    /// <summary>What <c>agreed_count</c> does not count: lists whose contents match, fields absent on both sides, links
+    /// null on both sides with the subrecord present, and localized strings that did not resolve.</summary>
     static void WriteOtherAgreement(Utf8JsonWriter w, FieldsDiff.Result d)
     {
         w.WriteNumber("matched_list_count", d.MatchedListCount);
         w.WriteNumber("matched_item_count", d.MatchedItemCount);
         w.WriteNumber("both_absent_count", d.BothAbsentCount);
+        w.WriteNumber("present_null_link_count", d.PresentNullLinkCount);
         w.WriteNumber("unresolved_string_count", d.UnresolvedStringCount);
     }
 

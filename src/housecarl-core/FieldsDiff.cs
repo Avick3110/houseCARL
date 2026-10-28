@@ -12,9 +12,12 @@ public static class FieldsDiff
     /// <param name="BothAbsentCount">Fields absent on both sides: the same state, never a value leaf in <paramref name="AgreedCount"/>.</param>
     /// <param name="UnresolvedStringCount">Fields carrying no value on either side where a side's localized string did not
     /// resolve: not compared, and never counted absent.</param>
+    /// <param name="PresentNullLinkCount">Links whose subrecord is present and null on both sides: the same state, never
+    /// absent and never a value leaf.</param>
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
         int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount, int NoFieldCount = 0, bool Capped = false,
-        int MatchedListCount = 0, int MatchedItemCount = 0, int BothAbsentCount = 0, int UnresolvedStringCount = 0)
+        int MatchedListCount = 0, int MatchedItemCount = 0, int BothAbsentCount = 0, int UnresolvedStringCount = 0,
+        int PresentNullLinkCount = 0)
     {
         /// <summary>Why the comparison is incomplete, in words; empty when it is complete.</summary>
         public string Why => IncompleteWhy(NoVerdictCount - NoFieldCount, NoFieldCount, Capped);
@@ -29,6 +32,8 @@ public static class FieldsDiff
             else if (MatchedListCount == 1) parts.Add($"1 list with the same {MatchedItemCount} item(s)");
             else if (MatchedListCount > 1) parts.Add($"{MatchedListCount} lists with the same items ({MatchedItemCount} in all)");
             if (BothAbsentCount > 0) parts.Add(BothAbsentCount == 1 ? "1 field absent on both" : $"{BothAbsentCount} fields absent on both");
+            if (PresentNullLinkCount > 0)
+                parts.Add(PresentNullLinkCount == 1 ? "1 link null on both, subrecord present" : $"{PresentNullLinkCount} links null on both, subrecord present");
             if (UnresolvedStringCount > 0)
                 parts.Add(UnresolvedStringCount == 1 ? "1 localized string unresolved, not compared" : $"{UnresolvedStringCount} localized strings unresolved, not compared");
             return parts.Count > 0 ? string.Join(", ", parts) : null;
@@ -58,8 +63,10 @@ public static class FieldsDiff
         var wValueLeaves = new HashSet<string>(StringComparer.Ordinal);
         var tUnreadable = new Dictionary<string, string>(StringComparer.Ordinal);
         var wUnreadable = new Dictionary<string, string>(StringComparer.Ordinal);
-        var (tLines, tCapped) = CleanLines(theirs, tValueLeaves, tUnreadable);
-        var (wLines, wCapped) = CleanLines(winner, wValueLeaves, wUnreadable);
+        var tEmpty = new HashSet<string>(StringComparer.Ordinal);
+        var wEmpty = new HashSet<string>(StringComparer.Ordinal);
+        var (tLines, tCapped) = CleanLines(theirs, tValueLeaves, tUnreadable, tEmpty);
+        var (wLines, wCapped) = CleanLines(winner, wValueLeaves, wUnreadable, wEmpty);
         bool capped = tCapped || wCapped;
         // A path with no field on either side is a wrong path, never two equal values.
         var wNoField = wLines.Where(l => ReadEngine.IsNoSuchFieldNote(l.val)).Select(l => l.path).ToHashSet(StringComparer.Ordinal);
@@ -116,7 +123,7 @@ public static class FieldsDiff
         // Exact-path comparison: scalars, substructs, dict children, and the summary line of a root whose elements are not compared.
         var tScalar = ExactPathLines(tLines, listRoots, comparedRoots, Suppressed);
         var wScalar = ExactPathLines(wLines, listRoots, comparedRoots, Suppressed);
-        int agreedCount = 0, bothAbsent = 0, unresolved = 0, matchedLists = 0, matchedItems = 0;
+        int agreedCount = 0, bothAbsent = 0, unresolved = 0, presentNull = 0, matchedLists = 0, matchedItems = 0;
         var agreedSample = new List<string>();
         foreach (var (path, val) in tScalar)
         {
@@ -143,10 +150,15 @@ public static class FieldsDiff
                 {
                     deltas.Add($"{path}={val} ({referenceLabel} {wv})");
                 }
-                else if (!capped && val is "[list: 0 item(s)]" or "[dict: 0 pair(s)]")
+                else if (!capped && tEmpty.Contains(path) && wEmpty.Contains(path))
                 {
                     // Empty on both sides: no element lines, so never a list root; the same (no) items.
                     matchedLists++;
+                }
+                else if (val == ReadEngine.PresentNullLinkNote)
+                {
+                    // The same "I am first" marker on both sides: equal, but neither absent nor a value leaf.
+                    presentNull++;
                 }
                 else if (tValueLeaves.Contains(path) && wValueLeaves.Contains(path))
                 {
@@ -180,9 +192,9 @@ public static class FieldsDiff
         }
 
         // On a CAPPED comparison the agreed set would be a where-the-cap-fell artifact; an unreadable leaf does not touch it.
-        if (capped) { agreedCount = 0; agreedSample.Clear(); bothAbsent = 0; unresolved = 0; }
+        if (capped) { agreedCount = 0; agreedSample.Clear(); bothAbsent = 0; unresolved = 0; presentNull = 0; }
         return new Result(deltas, complete, agreedCount, agreedSample, noVerdict.Count, noField.Count, capped,
-                          matchedLists, matchedItems, bothAbsent, unresolved);
+                          matchedLists, matchedItems, bothAbsent, unresolved, presentNull);
     }
 
     /// <summary>How many agreed-field paths to keep for the render — a small sample, not the full set.</summary>
@@ -196,9 +208,10 @@ public static class FieldsDiff
         return null;
     }
 
-    /// <summary>The read's lines minus the expansion-cap sentinel and the UNREADABLE ones, keyed on <c>Readable</c>.</summary>
+    /// <summary>The read's lines minus the expansion-cap sentinel and the UNREADABLE ones, keyed on <c>Readable</c>;
+    /// <paramref name="empty"/> collects the containers the read counted 0 elements in.</summary>
     static (List<(string path, string val)> lines, bool capped) CleanLines(RecordFields rf,
-        HashSet<string> valueLeaves, Dictionary<string, string> unreadable)
+        HashSet<string> valueLeaves, Dictionary<string, string> unreadable, HashSet<string> empty)
     {
         var lines = new List<(string, string)>(rf.Fields.Count);
         bool capped = false;
@@ -207,6 +220,7 @@ public static class FieldsDiff
             if (f.Path == "…") { capped = true; continue; }            // ReadEngine's expansion-cap sentinel
             if (!f.Readable && !ReadEngine.IsNoSuchFieldNote(f.Note)) { unreadable[f.Path] = f.Note ?? ""; continue; }
             if (f.HasValue) valueLeaves.Add(f.Path);
+            if (f.Count == 0) empty.Add(f.Path);
             // A flags leaf carries its decode beside the token; the decode is a function of the bits, so equality holds.
             var shown = f is { HasValue: true, Bytes: null, Display: { } d } ? $"{f.Token} [{d}]" : f.Token ?? "";
             lines.Add((f.Path, f.HasValue ? shown : f.Note ?? ""));
