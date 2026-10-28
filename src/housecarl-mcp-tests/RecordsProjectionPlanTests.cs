@@ -91,6 +91,14 @@ public sealed class RecordsProjectionPlanTests : RecordsTestBase
         Assert.Contains(rows, row => row[at].GetString() == Token);
     }
 
+    /// <summary>A walk's types= picks its seeds, not the types it reaches, so a path only a reached type carries is read, not refused.</summary>
+    [Fact]
+    public void AWalksRowsPlanOverWhatItReachesNotItsSeedTypes()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk(), project: Fields("MagicSkill"));
+        Served(r, "MagicSkill = (not on Spell)");
+    }
+
     [Fact]
     public void AnOffOrderDenseScanCarriesTheNoteOnce()
     {
