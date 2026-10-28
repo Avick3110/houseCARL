@@ -150,7 +150,7 @@ public static class FieldsDiff
                 {
                     deltas.Add($"{path}={val} ({referenceLabel} {wv})");
                 }
-                else if (!capped && tEmpty.Contains(path) && wEmpty.Contains(path))
+                else if (tEmpty.Contains(path) && wEmpty.Contains(path))
                 {
                     // Empty on both sides: no element lines, so never a list root; the same (no) items.
                     matchedLists++;
@@ -192,7 +192,7 @@ public static class FieldsDiff
         }
 
         // On a CAPPED comparison the agreed set would be a where-the-cap-fell artifact; an unreadable leaf does not touch it.
-        if (capped) { agreedCount = 0; agreedSample.Clear(); bothAbsent = 0; unresolved = 0; presentNull = 0; }
+        if (capped) { agreedCount = 0; agreedSample.Clear(); bothAbsent = 0; unresolved = 0; presentNull = 0; matchedLists = 0; matchedItems = 0; }
         return new Result(deltas, complete, agreedCount, agreedSample, noVerdict.Count, noField.Count, capped,
                           matchedLists, matchedItems, bothAbsent, unresolved, presentNull);
     }
