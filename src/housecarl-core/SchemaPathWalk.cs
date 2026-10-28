@@ -32,6 +32,9 @@ public sealed class SchemaPathWalk
     public TypeSchema? RecordOf(Type runtime) => _recordOf.GetOrAdd(runtime, t =>
         WriteEngine.PrimaryGetter(t)?.FullName is { } g && _byGetter.TryGetValue(g, out var ts) ? ts : null);
 
+    /// <summary>A concrete runtime class of a record type, or null when none is modeled.</summary>
+    public Type? ClassOf(TypeSchema ts) => _classOf.GetValueOrDefault(ts);
+
     /// <summary>Where one step of a path can land: a schema field (its element when <see cref="Element"/>), a CLR type below a value field, or neither (can't tell).</summary>
     public readonly record struct Leaf(FieldSchema? Field, bool Element, Type? Clr, TypeSchema? Owner)
     {

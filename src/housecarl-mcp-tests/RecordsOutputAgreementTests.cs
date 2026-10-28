@@ -242,6 +242,75 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         Assert.Contains("error: predicate", RecordsTools.Records(Svc, types: new[] { "STAT" }, where: new[] { "SkyrimMajorRecordFlags has NotPlayable" }));
     }
 
+    string Where(string type, string predicate) => RecordsTools.Records(Svc, types: new[] { type }, where: new[] { predicate });
+
+    [Theory]
+    [InlineData("SkyrimMajorRecordFlags = NeverFades")]
+    [InlineData("SkyrimMajorRecordFlags in [NeverFades]")]
+    public void EqAndIn_ResolveTheRecordsOwnFlagName(string predicate) => Assert.Contains("HcOcNeverFades", Where("STAT", predicate));
+
+    [Theory]
+    [InlineData("SkyrimMajorRecordFlags = Constant")]
+    [InlineData("SkyrimMajorRecordFlags in [Constant]")]
+    public void EqAndIn_MatchAConstantGlob_NotRefused(string predicate)
+    {
+        var r = Where("GLOB", predicate);
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("HcOcConstant", r);
+        Assert.DoesNotContain("HcOcStray", r);
+    }
+
+    // A generic name the record's own flags rename is refused, as 'has' refuses it, never matched by another type's meaning.
+    [Theory]
+    [InlineData("SkyrimMajorRecordFlags = NotPlayable")]
+    [InlineData("SkyrimMajorRecordFlags in [NotPlayable]")]
+    public void EqAndIn_RefuseAGenericNameTheRecordsOwnFlagsRename(string predicate)
+    {
+        var r = Where("STAT", predicate);
+        Assert.Contains("error: predicate", r);
+        Assert.DoesNotContain("HcOcNeverFades", r);
+        Assert.Contains("NeverFades", r);
+        Assert.Contains("MajorFlags", r);
+    }
+
+    // A multi-type predicate keeps a literal one of its types holds; the type that renames the bit does not match it.
+    [Fact]
+    public void In_AMultiTypeScanMatchesTheGenericNameOnlyWhereItIsTheRecordsOwn()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "STAT", "KYWD" }, where: new[] { "SkyrimMajorRecordFlags in [NotPlayable]" });
+        Assert.DoesNotContain("error:", r);
+        Assert.DoesNotContain("HcOcNeverFades", r);
+    }
+
+    [Fact]
+    public void NeAndNotIn_AreTheComplements()
+    {
+        foreach (var r in new[] { Where("GLOB", "SkyrimMajorRecordFlags != Constant"), Where("GLOB", "SkyrimMajorRecordFlags not in [Constant]") })
+        {
+            Assert.DoesNotContain("HcOcConstant", r);
+            Assert.Contains("HcOcStray", r);
+        }
+    }
+
+    // Aaron's pick: the generic name serves the bit the GLOB's own flags leave unnamed.
+    [Fact]
+    public void Eq_TheGenericRemainderNameMatches()
+    {
+        var r = Where("GLOB", "SkyrimMajorRecordFlags = Constant | CantWait");
+        Assert.Contains("HcOcStray", r);
+        Assert.DoesNotContain("HcOcConstant", r);
+    }
+
+    // Pins unchanged behaviour: integer operands, and a type with no own flags taking the generic names.
+    [Fact]
+    public void Eq_IntegerOperandsAndAKeywordsGenericNamesAsBefore()
+    {
+        Assert.Contains("HcOcConstant", Where("GLOB", "SkyrimMajorRecordFlags = 64"));
+        Assert.Contains("HcOcConstant", Where("GLOB", "SkyrimMajorRecordFlags = 0x40"));
+        Assert.Contains("HcOcRawKeyword", Where("KYWD", "SkyrimMajorRecordFlags = CantWait"));
+        Assert.Contains("HcOcRawKeyword", Where("KYWD", "SkyrimMajorRecordFlags in [CantWait]"));
+    }
+
     // Pins unchanged behaviour: a type with no flags of its own decodes with the generic header enum, as before.
     [Fact]
     public void Kywd_ATypeWithNoOwnFlagsDecodesAsBefore()
