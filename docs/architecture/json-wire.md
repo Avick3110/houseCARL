@@ -146,8 +146,9 @@ its JSON kind: a count (`total`, `not_touched`) is a number, a flag (`epoch_cove
 string. `Utf8JsonWriter` does not dedupe, so an envelope key colliding with a renderer's own top-level key (`count`,
 `epoch`, `records`, `rendered`, `truncated`, …) emits a duplicate-key document. The current set is disjoint; keep it
 that way when adding pairs. `total` is both: the lanes that consume a scan (a body read, a comparison, `info_order`, a
-walk) put the scan's total in the envelope, and the dense list census writes its own `total`; the census is reached
-only from the list lane, whose envelope carries none.
+walk) put the scan's total in the envelope, and the dense list census writes its own `total`. A walk puts the scan's
+total in the envelope and then enters the list lane, so what keeps the two apart is that dense refuses a walk up front
+(`DenseRefusal`, before any lane runs); every other lane that reaches the census carries no envelope `total`.
 
 The one exception is `notes`: every `notes` pair is written as one `notes` array after the other pairs. A form that
 consumes a scan (a body read, a comparison, `info_order`, a walk) carries the scan's owed notes that way, the same
@@ -243,6 +244,12 @@ own lane can survive.
   renderers take a cap.
 - *The read-back block*: `WriteSurfaceInPlaceTransportTests.ForcedReadbackIsReportedFull` — "json: an in-place
   lane that FORCED the read-back reports readback_full:true, ask kept separately".
+- *Envelope keys must stay disjoint*: `RecordsOutputAgreementTests` (`Envelope_*`) — `total` and `not_touched` are json
+  numbers carrying the count and `epoch_covers_source` a boolean on the body, tree, delta, walk, off-order and
+  `info_order` lanes, and `ToFile_TheQueryEchoStaysStrings` keeps the artifact's query echo strings;
+  `RecordsOverlayEnvelopeKindTests` covers the overlay post-state pole. The same class pins the delta and tree rows'
+  `matched_list_count`, `matched_item_count`, `both_absent_count` and `unresolved_string_count`, inline and in a
+  `to_file` row and its `row_schema`.
 
 ## Where
 
