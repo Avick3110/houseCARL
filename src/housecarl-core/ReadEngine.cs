@@ -939,7 +939,7 @@ public static class ReadEngine
             if (enumType.IsDefined(typeof(FlagsAttribute), false) && TryEnumBits(val, enumType, out var bits))
             {
                 // The header int decodes with the record's own MajorFlag names first; a bit those name prints as the integer token.
-                if (enumType == typeof(SkyrimMajorRecord.SkyrimMajorRecordFlag) && OwnMajorFlag(parent.GetType()) is { } own)
+                if (HeaderOwnFlags(enumType, parent.GetType()) is { } own)
                 {
                     var fb = new FlagBits(bits, own, enumType);
                     return LeafRead.FlagsValue(OwnNamesABit(fb) ? bits.ToString(CultureInfo.InvariantCulture) : val.ToString() ?? "", fb)
@@ -1051,6 +1051,11 @@ public static class ReadEngine
         WriteEngine.ResolveProperty(t, "MajorFlags")?.PropertyType is { IsEnum: true, Name: "MajorFlag" } e ? e : null);
 
     static readonly ConcurrentDictionary<Type, Type?> OwnMajorFlags = new();
+
+    /// <summary>The names a flags leaf reads in first: the record class's own MajorFlag when the leaf is the generic header
+    /// enum and the class has one, else null.</summary>
+    internal static Type? HeaderOwnFlags(Type enumType, Type recordClass) =>
+        enumType == typeof(SkyrimMajorRecord.SkyrimMajorRecordFlag) ? OwnMajorFlag(recordClass) : null;
 
     static readonly ConcurrentDictionary<Type, ulong[]> MemberMasks = new();
 

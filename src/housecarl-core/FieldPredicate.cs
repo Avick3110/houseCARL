@@ -1198,7 +1198,8 @@ public sealed class FieldPredicateSet
                 // A bare runtime FormID operand resolved at parse compares as the FormKey it names.
                 if (p.RuntimeKey is { } rk && TryFormKey(token, out var tk))
                     eq = tk == rk;
-                else if (flags is { } feq && TryResolveBits(p.Operand, feq.EnumType, out var opBits))
+                // A header leaf read in its record's own names resolves in LeafEquals, with the generic names for the rest.
+                else if (flags is { Remainder: null } feq && TryResolveBits(p.Operand, feq.EnumType, out var opBits))
                     eq = feq.Bits == opBits;
                 else
                     eq = LeafEquals(leaf, p.Operand);
@@ -1486,8 +1487,7 @@ public sealed class FieldPredicateSet
                    : f.Cardinality == "enum" ? f.MutableTypeAssemblyQualified ?? f.GetterTypeAssemblyQualified : null;
             if (aq is null || WriteEngine.ResolveType(aq) is not { } rt || (Nullable.GetUnderlyingType(rt) ?? rt) is not { IsEnum: true } e) return null;
             // The header leaf of a record with its own MajorFlag reads in that vocabulary first, as the read decodes it.
-            var v = e == typeof(Mutagen.Bethesda.Skyrim.SkyrimMajorRecord.SkyrimMajorRecordFlag) && l.Owner is { } o && _walk!.ClassOf(o) is { } c
-                    && ReadEngine.OwnMajorFlag(c) is { } own ? (own, e) : (e, (Type?)null);
+            var v = l.Owner is { } o && _walk!.ClassOf(o) is { } c && ReadEngine.HeaderOwnFlags(e, c) is { } own ? (own, e) : (e, (Type?)null);
             if (!enums.Contains(v)) enums.Add(v);
         }
         return enums.Count == 0 ? null : EnumLiteralRefusal(p, enums);
