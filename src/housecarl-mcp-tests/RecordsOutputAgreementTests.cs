@@ -52,6 +52,8 @@ public sealed class OutputAgreementWorld : IDisposable
         stat.MajorFlags = Static.MajorFlag.NeverFades;
         var kywd = master.Keywords.AddNew(); kywd.EditorID = "HcOcRawKeyword";
         kywd.MajorRecordFlagsRaw = 0x80000;
+        var topic = master.DialogTopics.AddNew(); topic.EditorID = "HcOcTopic";
+        topic.Responses.Add(new DialogResponses(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcOcLine" });
         SyntheticInstance.WriteMod(instance, "OcMaster", master, sky);
 
         var patch = new SkyrimMod(ModKey.FromNameAndExtension(PatchName), SkyrimRelease.SkyrimSE);
@@ -305,6 +307,13 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
     }
 
     [Fact]
+    public void Envelope_InfoOrderTotalIsAJsonNumber()
+    {
+        var doc = Json(RecordsTools.Records(Svc, types: new[] { "DIAL" }, project: Project("info_order"), format: "json"));
+        Assert.Equal(1, doc.GetProperty("total").GetInt32());
+    }
+
+    [Fact]
     public void Envelope_WalkTotalIsAJsonNumber()
     {
         var doc = Json(RecordsTools.Records(Svc, types: new[] { "ARMO" }, walk: new RecordsTools.RecordsWalk { depth = 1 }, format: "json"));
@@ -348,5 +357,20 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         var query = manifest.GetProperty("query");
         Assert.NotEmpty(query.EnumerateObject());
         Assert.All(query.EnumerateObject(), p => Assert.Equal(JsonValueKind.String, p.Value.ValueKind));
+    }
+}
+
+/// <summary>#1079 on the shared records world: the SkyPatcher post-state pole's coverage flag is a json boolean.</summary>
+[Collection("records")]
+[Trait("tier", "integration")]
+public sealed class RecordsOverlayEnvelopeKindTests : RecordsTestBase
+{
+    public RecordsOverlayEnvelopeKindTests(RecordsFixture f) : base(f) { }
+
+    [Fact]
+    public void Envelope_OverlayPostEpochCoversSourceIsABoolean()
+    {
+        var doc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, source: Overlay("post"), format: "json"));
+        Assert.Equal(JsonValueKind.False, doc.GetProperty("epoch_covers_source").ValueKind);
     }
 }
