@@ -467,6 +467,16 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         Assert.Contains("NotPlayable", r[r.IndexOf("the other types read the generic names", StringComparison.Ordinal)..]);
     }
 
+    // r4 #12: with two types in types= that each have their own header names, the typo hint says to list one alone.
+    [Fact]
+    public void Eq_ATwoOwnFlagsTypesHeaderTypoSaysToListOneAlone()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "STAT", "GLOB" }, where: new[] { "SkyrimMajorRecordFlags = Constnat" });
+        Assert.Contains("error: predicate", r);
+        Assert.Contains("Each of these types reads its own flag names first; list one alone in types=", r);
+        Assert.DoesNotContain("Narrow with types=", r);
+    }
+
     // A multi-type predicate keeps a literal one of its types holds; the type that renames the bit does not match it.
     [Fact]
     public void In_AMultiTypeScanMatchesTheGenericNameOnlyWhereItIsTheRecordsOwn()
