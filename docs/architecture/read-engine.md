@@ -80,7 +80,10 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
   (`NoFieldCount`, json `no_field_count`), and its incomplete note says to fix the path rather than
   narrow `fields=`, which is the remedy for a read fault or the cap. A no-field note on one side only
   stays a line and is a shape difference. A planned `(not on Type)` path is neither: it is not
-  compared, not counted as no-field, and named per row (`NotOnType`, json `not_on_type`). A row that
+  compared and not counted as no-field (`NotOnType`). Json names it on every delta row and tree
+  node that has one (`not_on_type`); text names it per row only on a row with no differences (the agreement
+  phrase, or the nothing-compared line), and a text row with differences leaves it to the call's
+  one note. A row that
   compared another path stays complete and names it in the agreement phrase as not compared
   ("ArmorRating (not on Weapon) not compared"). A row where no path was compared and at least one is
   a planned path its type lacks compared nothing (`NothingCompared`): it is not complete and never
