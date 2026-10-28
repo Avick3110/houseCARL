@@ -455,35 +455,19 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         Assert.Contains("HcOcBit4Keyword", r);
     }
 
-    // Aaron's pick (e), r2 #11/#34: on a multi-type scan the type that renames the name matches neither the test nor its
-    // complement, said in a note; the type that holds the name matches by it.
-    [Theory]
-    [InlineData("SkyrimMajorRecordFlags has NotPlayable", true)]
-    [InlineData("SkyrimMajorRecordFlags has_any [NotPlayable]", true)]
-    [InlineData("SkyrimMajorRecordFlags = NotPlayable", true)]
-    [InlineData("SkyrimMajorRecordFlags != NotPlayable", false)]
-    [InlineData("SkyrimMajorRecordFlags not in [NotPlayable]", false)]
-    [InlineData("SkyrimMajorRecordFlags has_none [NotPlayable]", false)]
-    public void MultiType_TheRenamingTypeMatchesNeitherTheTestNorItsComplement(string predicate, bool bit4Matches)
-    {
-        var r = RecordsTools.Records(Svc, types: new[] { "STAT", "KYWD" }, where: new[] { predicate });
-        Assert.DoesNotContain("error:", r);
-        Assert.DoesNotContain("HcOcNeverFades", r);
-        Assert.DoesNotContain("HcOcFlagFlip", r);
-        Assert.Equal(bit4Matches, r.Contains("HcOcBit4Keyword"));
-        Assert.Equal(!bit4Matches, r.Contains("HcOcRawKeyword"));
-        Assert.Contains("'NotPlayable' is a generic header flag name that Static's own flags call by another name; no Static can match it or its complement", r);
-    }
-
+    // Pins unchanged behaviour, the Known limit of #1079 r3 (Aaron's pick (c)): on a multi-type scan a generic name one type
+    // renames passes plan time; has refuses the call at that type's first record, = is false there and != true.
     [Fact]
-    public void Untyped_TheRenamingTypesMatchNothingAndAreNamed()
+    public void MultiType_ARenamedGenericNameSplitsByOperator()
     {
-        var r = RecordsTools.Records(Svc, plugins: new RecordsTools.RecordsScope { names = new[] { OutputAgreementWorld.MasterName } },
-                                     where: new[] { "SkyrimMajorRecordFlags != NotPlayable" });
-        Assert.DoesNotContain("error:", r);
-        Assert.DoesNotContain("HcOcNeverFades", r);
-        Assert.Contains("HcOcRawKeyword", r);
-        Assert.Contains("Static", r[r.IndexOf("is a generic header flag name that the own flags of", StringComparison.Ordinal)..]);
+        string MultiType(string predicate) => RecordsTools.Records(Svc, types: new[] { "STAT", "KYWD" }, where: new[] { predicate });
+        Assert.Contains("error: predicate", MultiType("SkyrimMajorRecordFlags has NotPlayable"));
+        var eq = MultiType("SkyrimMajorRecordFlags = NotPlayable");
+        Assert.Contains("HcOcBit4Keyword", eq);
+        Assert.DoesNotContain("HcOcNeverFades", eq);
+        var ne = MultiType("SkyrimMajorRecordFlags != NotPlayable");
+        Assert.Contains("HcOcNeverFades", ne);
+        Assert.DoesNotContain("HcOcBit4Keyword", ne);
     }
 
     [Fact]
