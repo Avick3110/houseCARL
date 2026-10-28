@@ -57,6 +57,9 @@ public sealed class OutputAgreementWorld : IDisposable
         var flip = master.Statics.AddNew(); flip.EditorID = "HcOcFlagFlip";
         var kywd = master.Keywords.AddNew(); kywd.EditorID = "HcOcRawKeyword";
         kywd.MajorRecordFlagsRaw = 0x80000;
+        // Bit 4, which the generic header enum calls NotPlayable and a STAT's own flags call NeverFades.
+        var bit4 = master.Keywords.AddNew(); bit4.EditorID = "HcOcBit4Keyword";
+        bit4.MajorRecordFlagsRaw = 4;
         var npc = master.Npcs.AddNew(); npc.EditorID = "HcOcNpc";
         var topic = master.DialogTopics.AddNew(); topic.EditorID = "HcOcTopic";
         topic.Responses.Add(new DialogResponses(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcOcLine" });
@@ -403,6 +406,37 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         var r = RecordsTools.Records(Svc, types: new[] { "STAT", "KYWD" }, where: new[] { "SkyrimMajorRecordFlags in [NotPlayable]" });
         Assert.DoesNotContain("error:", r);
         Assert.DoesNotContain("HcOcNeverFades", r);
+    }
+
+    // Aaron's pick (e), r2 #11/#34: on a multi-type scan the type that renames the name matches neither the test nor its
+    // complement, said in a note; the type that holds the name matches by it.
+    [Theory]
+    [InlineData("SkyrimMajorRecordFlags has NotPlayable", true)]
+    [InlineData("SkyrimMajorRecordFlags has_any [NotPlayable]", true)]
+    [InlineData("SkyrimMajorRecordFlags = NotPlayable", true)]
+    [InlineData("SkyrimMajorRecordFlags != NotPlayable", false)]
+    [InlineData("SkyrimMajorRecordFlags not in [NotPlayable]", false)]
+    [InlineData("SkyrimMajorRecordFlags has_none [NotPlayable]", false)]
+    public void MultiType_TheRenamingTypeMatchesNeitherTheTestNorItsComplement(string predicate, bool bit4Matches)
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "STAT", "KYWD" }, where: new[] { predicate });
+        Assert.DoesNotContain("error:", r);
+        Assert.DoesNotContain("HcOcNeverFades", r);
+        Assert.DoesNotContain("HcOcFlagFlip", r);
+        Assert.Equal(bit4Matches, r.Contains("HcOcBit4Keyword"));
+        Assert.Equal(!bit4Matches, r.Contains("HcOcRawKeyword"));
+        Assert.Contains("'NotPlayable' is a generic header flag name that Static's own flags call by another name; no Static can match it or its complement", r);
+    }
+
+    [Fact]
+    public void Untyped_TheRenamingTypesMatchNothingAndAreNamed()
+    {
+        var r = RecordsTools.Records(Svc, plugins: new RecordsTools.RecordsScope { names = new[] { OutputAgreementWorld.MasterName } },
+                                     where: new[] { "SkyrimMajorRecordFlags != NotPlayable" });
+        Assert.DoesNotContain("error:", r);
+        Assert.DoesNotContain("HcOcNeverFades", r);
+        Assert.Contains("HcOcRawKeyword", r);
+        Assert.Contains("Static", r[r.IndexOf("is a generic header flag name that the own flags of", StringComparison.Ordinal)..]);
     }
 
     [Fact]
