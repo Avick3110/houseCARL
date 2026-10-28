@@ -79,8 +79,8 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
   narrow `fields=`, which is the remedy for a read fault or the cap. A no-field note on one side only
   stays a line and is a shape difference. A planned `(not on Type)` path is neither: it is not
   compared, not counted as no-field, and named per row (`NotOnType`, json `not_on_type`). A row that
-  compared another path stays complete and names it in the agreement phrase ("ArmorRating (not on
-  Weapon)"). A row whose every path read is one its type lacks compared nothing (`NothingCompared`):
+  compared another path stays complete and names it in the agreement phrase as not compared
+  ("ArmorRating (not on Weapon) not compared"). A row whose every path read is one its type lacks compared nothing (`NothingCompared`):
   it is not complete and never "identical" ("nothing compared, NOT 'identical': …"), and the delta
   census counts it apart (`not_compared`, written only when there are any; json `nothing_compared`).
 - The agreed count counts only exact-path VALUE leaves read on BOTH sides — never a container
