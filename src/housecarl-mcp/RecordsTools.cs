@@ -521,7 +521,7 @@ public static partial class RecordsTools
 
         // ---- the response envelope (form + resolved source arm) -----------------------------------------
         // Text renders get it as a header line; json renders carry the same pairs as top-level fields.
-        var envelope = new List<KeyValuePair<string, string>> { new("form", form) };
+        var envelope = new List<EnvelopePair> { new("form", form) };
         string headerLine = $"records  form={form}";
         void Arm(string statement)
         {
@@ -535,8 +535,8 @@ public static partial class RecordsTools
         void OweNotes(CrossQueryOutcome scan) => owed = scan;
         string Head(SpillState? sp) => owed is null ? headerLine
             : headerLine + string.Concat(owed.OwedNotes(sp?.Spill is not null).Select(n => "\n" + n));
-        List<KeyValuePair<string, string>> Env(SpillState? sp) => owed is null ? envelope
-            : envelope.Concat(owed.OwedNotes(sp?.Spill is not null).Select(n => new KeyValuePair<string, string>("notes", n))).ToList();
+        List<EnvelopePair> Env(SpillState? sp) => owed is null ? envelope
+            : envelope.Concat(owed.OwedNotes(sp?.Spill is not null).Select(n => new EnvelopePair("notes", n))).ToList();
         // A census is a text render too, so it is held to the same ceiling and says so when max_chars is smaller
         // than the statements it carries whatever the budget.
         string Census(string body) => RenderCap.Settle(body, Wire.Cap(max_chars));
@@ -557,7 +557,7 @@ public static partial class RecordsTools
         // What every post-state overlay read states: the layer is outside the epoch, and its warnings that bear on the rows.
         void OverlayPostNotes()
         {
-            envelope.Add(new("epoch_covers_source", "false"));
+            envelope.Add(new("epoch_covers_source", false));
             headerLine += "\n(the SkyPatcher INI layer's files are OUTSIDE the epoch fingerprint — an INI edit changes answers " +
                           "without changing the epoch; a record whose type SkyPatcher cannot patch reads as its plain winner)";
             StateOverlayWarnings();
@@ -740,7 +740,7 @@ public static partial class RecordsTools
                 Arm($"{pole!.Plugin} — {pole.Where}");
                 if (!pole.EpochCoversPole)
                 {
-                    envelope.Add(new("epoch_covers_source", "false"));
+                    envelope.Add(new("epoch_covers_source", false));
                     headerLine += "\n(the off-order file's content is OUTSIDE the epoch fingerprint — an edit to it changes answers without changing the epoch)";
                 }
             }
@@ -1296,7 +1296,7 @@ public static partial class RecordsTools
         void CoverageNote(bool covers)
         {
             if (covers) return;
-            envelope.Add(new("epoch_covers_source", "false"));
+            envelope.Add(new("epoch_covers_source", false));
             headerLine += "\n(a pole reads content OUTSIDE the epoch fingerprint — an off-order file or the INI layer; an edit there changes answers without changing the epoch)";
         }
 
@@ -1508,7 +1508,7 @@ public static partial class RecordsTools
             if (walk is not null && outcome.Error is null && outcome.Groups is null)
             {
                 var seedKeys = outcome.Keys.Select(k => k.ToString()).ToArray();
-                envelope.Add(new("total", outcome.Total.ToString()));
+                envelope.Add(new("total", outcome.Total));
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan as walk seeds";
                 expectEpoch = outcome.Epoch;
                 return WalkLane(seedKeys, null, null);
@@ -1525,7 +1525,7 @@ public static partial class RecordsTools
             //      two captures' seam is epoch-compared.
             if (comparisonForm && outcome.Error is null && outcome.Groups is null)
             {
-                envelope.Add(new("total", outcome.Total.ToString()));
+                envelope.Add(new("total", outcome.Total));
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan";
                 var cmpKeys = ComparisonWindow(outcome.Keys, outcome.Total);
                 if (ComparisonCost(cmpKeys.Count, ComparisonLever()) is { } cmpTooBig)
@@ -1567,7 +1567,7 @@ public static partial class RecordsTools
             if (form == "info_order" && outcome.Error is null && outcome.Groups is null)
             {
                 var ioKeys = outcome.Keys.Select(k => k.ToString()).ToList();
-                envelope.Add(new("total", outcome.Total.ToString()));
+                envelope.Add(new("total", outcome.Total));
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan";
                 // The scan selects out of the ACTIVE order's index, which the folded file is not in, so a topic only
                 // that file defines is reached by naming it in formids= — said here rather than left to be found.
@@ -1672,7 +1672,7 @@ public static partial class RecordsTools
                     int notTouched = bodies.Count(o => o.Error is not null && (o.Error.Contains("does not touch") || o.Error.Contains("does not define or override")));
                     if (notTouched > 0)
                     {
-                        envelope.Add(new("not_touched", notTouched.ToString()));
+                        envelope.Add(new("not_touched", notTouched));
                         headerLine += $"\nnot_touched={notTouched} — scoped match(es) the source pole has no version of (each row names its actual touchers)";
                     }
                 }
@@ -1686,7 +1686,7 @@ public static partial class RecordsTools
                     return json ? JsonWire.RenderError(tear, outcome.Stamp) : "error: " + tear;
                 }
                 var bodyEpoch = bodyEpochs.FirstOrDefault() ?? outcome.Stamp;
-                envelope.Add(new("total", outcome.Total.ToString()));
+                envelope.Add(new("total", outcome.Total));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
                 // Selected by a scan, not a formids list, so the batch notice's selection clause names limit=.
                 var evLevers = formLevers.OnScanSelection();
@@ -1759,7 +1759,7 @@ public static partial class RecordsTools
             // The file is the SELECTION statement, stated for every form except delta, whose pipeline names the
             // same file as its subject.
             if (form != "delta") Arm($"{pole.Plugin} — {pole.Where}");
-            envelope.Add(new("epoch_covers_source", "false"));
+            envelope.Add(new("epoch_covers_source", false));
             headerLine += "\n(the off-order file's content is OUTSIDE the epoch fingerprint — an edit to it changes answers without changing the epoch)";
             if (conflicts_only)
                 return Wire.Refuse(json, "error: conflicts_only= has no meaning on an out-of-load-order file — it is not in the conflict frame. Drop it, or read the winner (source=\"winner\").", pole.Stamp);
@@ -1854,7 +1854,7 @@ public static partial class RecordsTools
             // Comparisons over the file's matches: the file IS the subject pole (its version of each match).
             if (comparisonForm && outcome.Error is null && outcome.Groups is null)
             {
-                envelope.Add(new("total", outcome.Total.ToString()));
+                envelope.Add(new("total", outcome.Total));
                 headerLine += $"\n{outcome.Total} match(es) selected from the file";
                 var cmpKeys = ComparisonWindow(outcome.Keys, outcome.Total);
                 if (ComparisonCost(cmpKeys.Count, ComparisonLever()) is { } offCmpTooBig)
@@ -1920,7 +1920,7 @@ public static partial class RecordsTools
                                $"(epoch={string.Join(", ", offBodyEpochs.Where(e => e != outcome.Epoch))}) — the two halves would mix builds. Retry the call.";
                     return json ? JsonWire.RenderError(tear, outcome.Stamp) : "error: " + tear;
                 }
-                envelope.Add(new("total", outcome.Total.ToString()));
+                envelope.Add(new("total", outcome.Total));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
                 // Selected by the off-order file scan, so the remedy vocabulary matches the body lane above.
                 var offLevers = formLevers.OnScanSelection();

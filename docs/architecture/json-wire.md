@@ -141,12 +141,15 @@ and the document would stop being json. `AssetTools`'s manifest-only lane guards
 
 ### Envelope keys must stay disjoint
 
-Response-envelope pairs are written as top-level string fields at the START of a document. `Utf8JsonWriter` does not
-dedupe, so an envelope key colliding with a renderer's own top-level key (`count`, `epoch`, `records`, `rendered`,
-`truncated`, `total`, …) emits a duplicate-key document. The current set is disjoint; keep it that way when adding
-pairs.
+Response-envelope pairs are written as top-level fields at the START of a document. Each pair (`EnvelopePair`) carries
+its JSON kind: a count (`total`, `not_touched`) is a number, a flag (`epoch_covers_source`) a boolean, everything else a
+string. `Utf8JsonWriter` does not dedupe, so an envelope key colliding with a renderer's own top-level key (`count`,
+`epoch`, `records`, `rendered`, `truncated`, …) emits a duplicate-key document. The current set is disjoint; keep it
+that way when adding pairs. `total` is both: the lanes that consume a scan (a body read, a comparison, `info_order`, a
+walk) put the scan's total in the envelope, and the dense list census writes its own `total`; the census is reached
+only from the list lane, whose envelope carries none.
 
-The one exception is `notes`: every `notes` pair is written as one `notes` array after the string pairs. A form that
+The one exception is `notes`: every `notes` pair is written as one `notes` array after the other pairs. A form that
 consumes a scan (a body read, a comparison, `info_order`, a walk) carries the scan's owed notes that way, the same
 member the scan's own render writes. Every response reads those notes from one list,
 `CrossQueryOutcome.OwedNotes` (predicate, unmatched, scan coverage, where_source, reverse index), written when the

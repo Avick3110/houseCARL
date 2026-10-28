@@ -108,7 +108,7 @@ public sealed class RecordsOwedNotesTests : RecordsTestBase
                                      versus: l.Form == "delta" ? Plugin(W.MasterName) : null,
                                      walk: l.Walk ? new RecordsTools.RecordsWalk { depth = 1 } : null,
                                      project: project, format: l.Format, to_file: art,
-                                     max_chars: lane.Contains("ceiling") ? 300 : 0);
+                                     max_chars: lane.Contains("ceiling") ? 250 : 0);
         if (lane.Contains("ceiling")) art = Je(r).GetProperty("spilled").GetProperty("path").GetString();
 
         Assert.False(r.StartsWith("error:") || r.Contains("\"ok\": false"), "refused: " + First(r));
