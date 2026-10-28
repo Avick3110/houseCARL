@@ -101,6 +101,14 @@ public sealed class DialogueBranchQuestTests : IDisposable
     }
 
     [Fact]
+    public void ABranchWithNoEditorIdIsNamedByItsFormId()
+    {
+        var w = Build("HcBqNoEdid", w => w.QA.FormKey, w => w.QB.FormKey, tweak: w => w.Branch.EditorID = null);
+        Assert.Contains($"its Branch {FormIdToken.Of(w.Branch.FormKey)} {Mismatch}",
+            Assert.Single(TopicIssues(Run(w, w.Topic.FormKey))).Message);
+    }
+
+    [Fact]
     public void ValidatingTheTopicsQuestCarriesTheSameFinding()
     {
         var w = Build("HcBqFan", w => w.QA.FormKey, w => w.QB.FormKey);
