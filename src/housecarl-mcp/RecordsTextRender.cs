@@ -238,8 +238,6 @@ static partial class RecordsTools
                 foreach (var n in row.Nodes)
                 {
                     if (n.IsReference) continue;
-                    var agreed = FieldsDiff.AgreementPhrase(n.AgreedCount, n.MatchedListCount, n.MatchedItemCount, n.BothAbsentCount, "leaf/leaves")
-                                 ?? "no differing fields";
                     // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas.
                     string body = n.Deltas.Count > 0
                         ? string.Join("; ", n.Deltas) +
@@ -247,8 +245,8 @@ static partial class RecordsTools
                         : !n.Complete
                             ? "no differing fields in what was read, but the comparison is INCOMPLETE — the deep read was TRUNCATED at the cap, so this is not a clean 'identical'.\n"
                             : fieldsNarrow
-                                ? $"identical to {row.ReferencePlugin} across the fields read ({agreed})\n"
-                                : $"identical to {row.ReferencePlugin} (whole record; {agreed})\n";
+                                ? $"identical to {row.ReferencePlugin} across the fields read ({Agreed(n)})\n"
+                                : $"identical to {row.ReferencePlugin} (whole record; {Agreed(n)})\n";
                     // Composed before it is priced, so the notice cannot land past the node that crossed.
                     string line = "    " + n.Plugin + (n.IsWinner ? " (winner)" : "") + ": " + body;
                     if (sb.Length + line.Length + nodesCut.Length > budget)
@@ -276,6 +274,9 @@ static partial class RecordsTools
         sb.Append(spillText);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
+
+    /// <summary>What an identical tree node agreed on, in words.</summary>
+    static string Agreed(RecordReads.TreeNodeDelta n) => n.Diff?.Agreement("leaf/leaves") ?? "no differing fields";
 
     /// <summary>The delta's stack-above line; it names the winner when a partial form tops the stack.</summary>
     static void AppendStackAbove(StringBuilder sb, RecordReads.DeltaRow row) =>

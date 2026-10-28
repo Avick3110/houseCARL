@@ -5,12 +5,8 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-/// <summary>One response-envelope pair carrying its JSON kind: a count is written as a number, a flag as a boolean, the rest as strings.</summary>
-readonly record struct EnvelopePair(string Key, string Value, long? Number = null, bool? Flag = null)
-{
-    public EnvelopePair(string key, long number) : this(key, number.ToString(System.Globalization.CultureInfo.InvariantCulture), Number: number) { }
-    public EnvelopePair(string key, bool flag) : this(key, flag ? "true" : "false", Flag: flag) { }
-}
+/// <summary>One response-envelope pair, written as its value's JSON kind: a count (long or int) a number, a flag a boolean, text a string.</summary>
+readonly record struct EnvelopePair(string Key, object Value);
 
 /// <summary>The format="json" twin of the text <see cref="Wire"/> renderer: one serializer per read tool over the
 /// SAME outcome objects, so text and JSON differ only in formatting; contracts in docs/architecture/json-wire.md.</summary>
@@ -80,11 +76,15 @@ static class JsonWire
         foreach (var kv in envelope)
         {
             if (kv.Key == "notes") continue;
-            if (kv.Number is { } n) w.WriteNumber(kv.Key, n);
-            else if (kv.Flag is { } f) w.WriteBoolean(kv.Key, f);
-            else w.WriteString(kv.Key, kv.Value);
+            switch (kv.Value)
+            {
+                case long n: w.WriteNumber(kv.Key, n); break;
+                case int n: w.WriteNumber(kv.Key, n); break;
+                case bool f: w.WriteBoolean(kv.Key, f); break;
+                default: w.WriteString(kv.Key, kv.Value.ToString()); break;
+            }
         }
-        var notes = envelope.Where(kv => kv.Key == "notes").Select(kv => kv.Value).ToList();   // a consumed scan's owed notes, one array
+        var notes = envelope.Where(kv => kv.Key == "notes").Select(kv => (string)kv.Value).ToList();   // a consumed scan's owed notes, one array
         if (notes.Count > 0) WriteStringArray(w, "notes", notes);
     }
 
@@ -727,7 +727,7 @@ static class JsonWire
                 WriteStringArray(w, "deltas", n.Deltas);
                 w.WriteNumber("delta_count", n.Deltas.Count);
                 w.WriteNumber("agreed_count", n.AgreedCount);
-                WriteOtherAgreement(w, n.MatchedListCount, n.MatchedItemCount, n.BothAbsentCount);
+                if (n.Diff is { } nd) WriteOtherAgreement(w, nd.MatchedListCount, nd.MatchedItemCount, nd.BothAbsentCount);
             }
             w.WriteEndObject();
         }

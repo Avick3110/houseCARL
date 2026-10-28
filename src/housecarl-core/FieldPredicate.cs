@@ -1284,7 +1284,7 @@ public sealed class FieldPredicateSet
             {
                 string? refusal = null;
                 if (!TryBits(m, out var b) && !ReadEngine.TryEnumBitsFromName(k.Enum, m, out b)
-                    && !(k.Fallback is { } r && ReadEngine.TryEnumBitsFromName(r, m, out b) && (b & ~ReadEngine.PeelFlagBits(k.Enum, ulong.MaxValue)) == 0)
+                    && !(k.Fallback is { } r && ReadEngine.TryEnumBitsFromName(r, m, out b) && ReadEngine.Unnamed(new ReadEngine.FlagBits(b, k.Enum)) == b)
                     && !TryDecodeToken(m, k.Enum, out b, out refusal))
                     return (0, m, refusal);
                 bits |= b;
