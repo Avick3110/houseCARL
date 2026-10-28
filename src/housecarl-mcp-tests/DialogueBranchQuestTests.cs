@@ -141,6 +141,23 @@ public sealed class DialogueBranchQuestTests : IDisposable
         Assert.Empty(TopicIssues(Run(w, w.Topic.FormKey)));
     }
 
+    static string CleanLine(DialogueValidationReport r)
+    {
+        var sb = new System.Text.StringBuilder();
+        HousecarlMcp.DialogueWire.AppendTopic(sb, r.Topics.Single(), indent: false, int.MaxValue);
+        return sb.ToString().Split('\n').Single(l => l.Contains("graph: OK"));
+    }
+
+    [Fact]
+    public void TheCleanLineSaysTheQuestsAgreeOnlyWhereTheyWereCompared()
+    {
+        var same = Build("HcBqCleanSame", w => w.QA.FormKey, w => w.QA.FormKey);
+        Assert.Contains("quest + branch wiring resolve and agree,", CleanLine(Run(same, same.Topic.FormKey)));
+
+        var noBq = Build("HcBqCleanNoBq", w => w.QA.FormKey, _ => null);
+        Assert.Contains("quest + branch wiring resolve, LinkTo", CleanLine(Run(noBq, noBq.Topic.FormKey)));
+    }
+
     [Fact]
     public void ATopicWithNoQuestGetsOnlyTheUnsetQuestWarning()
     {
