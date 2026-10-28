@@ -7,7 +7,8 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>The dialogue check judges a Branch, PNAM or LinkTo target's type off the index (the fold's own record
-/// where the fold wins it), so no target body is fetched, right type or wrong.</summary>
+/// where the fold wins it): no PNAM or LinkTo body is fetched, right type or wrong, nor a wrong-typed Branch's, and a
+/// right-typed Branch is read only once the topic's Quest resolves.</summary>
 [Trait("tier", "integration")]
 public sealed class DialogueTypeCheckTests : IDisposable
 {

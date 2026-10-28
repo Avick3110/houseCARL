@@ -125,9 +125,16 @@ defaulting to the widest set. The same table decides what the epoch stamp names:
 substrate throughout and the stamp caveats nothing.
 
 ## Pinned by
-- `DialogueTypeCheckTests` — Branch, PNAM and LinkTo targets in a held-open plugin fetch no body, right type or
-  wrong, and a wrong type is still reported by name; a fold that wins a link target as another record type is
-  judged by the fold's type, and a record only the fold holds counts as present.
+- `DialogueTypeCheckTests` — PNAM and LinkTo targets in a held-open plugin fetch no body, right type or wrong, nor
+  does a wrong-typed Branch, and each wrong type is still reported by name; a right-typed Branch there is not read
+  while the topic's Quest is unset or unresolved; a fold that wins a link target as another record type is judged
+  by the fold's type, and a record only the fold holds counts as present.
+- `DialogueBranchQuestTests` — a topic whose Quest differs from its branch's warns, with the duplicate-menu wording
+  for a TopLevel branch or one with no DNAM and the branch-maps wording otherwise, naming the branch by EditorID or
+  by FormID alone; the topic's quest input carries the same finding and the branch's quest input lists no foreign
+  topic; a same-quest pair, an unset Quest on either side, an unresolved topic Quest, a dangling Branch, and a branch
+  Quest that is dangling or a WEAP add no Warning; a DLVW holding another quest's branch is not flagged; a fold is
+  judged by its own branch and its own QUST; the clean line says "agree" only where the quests were compared.
 - `DialogueCkParityPairTests` and `DialogueCkParityCreateTests` — the fill and gap pairs; their `*-WINS` tests pin
   NON-OVERRIDE, their `*-AUTOFILL` tests NEVER SILENT, `DIAL-PNAM-WINS` an explicit `0` Priority, and
   `QUST-ALIAS-LOCATION` VTCK's scope to reference aliases.
