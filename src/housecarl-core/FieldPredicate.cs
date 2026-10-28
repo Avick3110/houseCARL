@@ -1510,7 +1510,10 @@ public sealed class FieldPredicateSet
             if (bare.Length < literal.Length && enums.Any(e => EnumLiteralFits(bare, e.Enum, e.Remainder)))
                 hint = $" The quotes are read as part of the value; write it bare: '{p.Text.Replace(literal, bare)}'.";
             else if (headers.Count == 1)
-                hint = $"{PluginNameSuggest.DidYouMean(literal, names(enums))} {HeaderRemedy(headers[0].Enum, headers[0].Remainder!)}.";
+                hint = $"{PluginNameSuggest.DidYouMean(literal, names(enums))} {HeaderRemedy(headers[0].Enum, headers[0].Remainder!)}" +
+                       // A type in scope with no MajorFlag of its own reads the generic names only.
+                       (enums.Any(e => e.Remainder is null && e.Enum == headers[0].Remainder)
+                           ? $"; the other types read the generic names ({string.Join(", ", Enum.GetNames(headers[0].Remainder!))})." : ".");
             else if (headers.Count > 1)
                 hint = $"{PluginNameSuggest.DidYouMean(literal, names(enums))} Narrow with types= to the record type you mean and write one of its flag names, " +
                        "or write a bit value, or test MajorFlags.";
