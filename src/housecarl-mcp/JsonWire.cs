@@ -599,9 +599,18 @@ static class JsonWire
         int cap = Wire.Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
         using var ms = new CharCountedStream();
+        WriteOtherAgreement(w, d.MatchedListCount, d.MatchedItemCount, d.BothAbsentCount);
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
+    /// <summary>The agreement <c>agreed_count</c> does not count: lists whose contents match, and fields absent on both sides.</summary>
+    static void WriteOtherAgreement(Utf8JsonWriter w, int lists, int items, int bothAbsent)
+    {
+        w.WriteNumber("matched_list_count", lists);
+        w.WriteNumber("matched_item_count", items);
+        w.WriteNumber("both_absent_count", bothAbsent);
+    }
+
             WriteEnvelope(w, envelope);
             // The census covers the COMPLETE list: rows may be a WINDOW, so the caller hands the counters in.
             foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);
@@ -718,6 +727,7 @@ static class JsonWire
                                     IReadOnlyList<KeyValuePair<string, string>> envelope,
                                     IReadOnlyList<KeyValuePair<string, int>> counts,
                                     SpillState? spill, out bool truncated, LeverNames? levers = null)
+                WriteOtherAgreement(w, n.MatchedListCount, n.MatchedItemCount, n.BothAbsentCount);
     {
         truncated = false;
         int cap = Wire.Cap(maxChars);
