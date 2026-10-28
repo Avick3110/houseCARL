@@ -374,6 +374,28 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         Assert.Contains("MajorFlags", r);
     }
 
+    // r2 #16: an untyped scope's header typo is refused in one bounded sentence, with the did-you-mean.
+    [Fact]
+    public void Eq_AnUntypedHeaderTypoIsRefusedBriefly()
+    {
+        var r = RecordsTools.Records(Svc, plugins: new RecordsTools.RecordsScope { names = new[] { OutputAgreementWorld.MasterName } },
+                                     where: new[] { "SkyrimMajorRecordFlags = Constnat" });
+        Assert.Contains("error: predicate", r);
+        Assert.Contains("Did you mean `Constant`", r);
+        Assert.Contains("Narrow with types=", r);
+        Assert.DoesNotContain("header flags read with its own names first", r);
+        Assert.True(r.Length < 600, $"refusal is {r.Length} chars");
+    }
+
+    // r2 #17: a one-type header typo offers the record's own name.
+    [Fact]
+    public void Eq_AOneTypeHeaderTypoOffersItsOwnName()
+    {
+        var r = Where("STAT", "SkyrimMajorRecordFlags = NeverFade");
+        Assert.Contains("Did you mean `NeverFades`", r);
+        Assert.Contains("Static's header flags read with its own names first", r);
+    }
+
     // A multi-type predicate keeps a literal one of its types holds; the type that renames the bit does not match it.
     [Fact]
     public void In_AMultiTypeScanMatchesTheGenericNameOnlyWhereItIsTheRecordsOwn()

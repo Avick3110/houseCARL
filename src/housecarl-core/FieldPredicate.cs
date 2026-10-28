@@ -1499,15 +1499,21 @@ public sealed class FieldPredicateSet
         foreach (var literal in p.RawMembers ?? (IReadOnlyList<string>)new[] { p.Operand })
         {
             if (enums.Any(e => EnumLiteralFits(literal, e.Enum, e.Remainder))) continue;
-            var enumNames = string.Join(" or ", enums.Select(e => e.Enum.DeclaringType is { } d ? $"{d.Name}.{e.Enum.Name}" : e.Enum.Name));
+            var headers = enums.Where(e => e.Remainder is not null).ToList();
+            // Many record types' header leaves are one header flags field, named once.
+            var enumNames = headers.Count > 1 ? "header flags"
+                : string.Join(" or ", enums.Select(e => e.Enum.DeclaringType is { } d ? $"{d.Name}.{e.Enum.Name}" : e.Enum.Name));
             var flags = enums.Where(e => e.Enum.IsDefined(typeof(FlagsAttribute), false)).ToList();
             var names = (IEnumerable<(Type Enum, Type? Remainder)> vs) => vs.SelectMany(e => e.Remainder is { } r ? HeaderNames(e.Enum, r) : Enum.GetNames(e.Enum)).Distinct();
             var bare = literal.Trim('"', '\'');
             string hint;
             if (bare.Length < literal.Length && enums.Any(e => EnumLiteralFits(bare, e.Enum, e.Remainder)))
                 hint = $" The quotes are read as part of the value; write it bare: '{p.Text.Replace(literal, bare)}'.";
-            else if (enums.Any(e => e.Remainder is not null))
-                hint = " " + string.Join(" ", enums.Where(e => e.Remainder is not null).Select(e => HeaderRemedy(e.Enum, e.Remainder!) + "."));
+            else if (headers.Count == 1)
+                hint = $"{PluginNameSuggest.DidYouMean(literal, names(enums))} {HeaderRemedy(headers[0].Enum, headers[0].Remainder!)}.";
+            else if (headers.Count > 1)
+                hint = $"{PluginNameSuggest.DidYouMean(literal, names(enums))} Narrow with types= to the record type you mean and write one of its flag names, " +
+                       "or write a bit value, or test MajorFlags.";
             else if (literal.Contains(',') && flags.Count > 0)
             {
                 var bad = literal.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
