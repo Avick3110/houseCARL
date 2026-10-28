@@ -51,8 +51,9 @@ public static class ReadEngine
         public override string ToString() => HasValue ? Token : Note ?? "(none)";
     }
 
-    /// <summary>The bit-test view of a <c>[Flags]</c> enum leaf — the bit pattern plus the enum type.</summary>
-    internal readonly record struct FlagBits(ulong Bits, Type EnumType);
+    /// <summary>The bit-test view of a <c>[Flags]</c> enum leaf — the bit pattern plus the enum type; <paramref name="Remainder"/>
+    /// names the bits <paramref name="EnumType"/> does not (the generic header enum behind a record's own <c>MajorFlag</c>).</summary>
+    internal readonly record struct FlagBits(ulong Bits, Type EnumType, Type? Remainder = null);
 
     /// <summary>A modeled leaf that exists but holds no value.</summary>
     public const string AbsentNote = "(absent)";
@@ -937,7 +938,13 @@ public static class ReadEngine
             var token = val.ToString() ?? "";
             var enumType = u.IsEnum ? u : val.GetType();
             if (enumType.IsDefined(typeof(FlagsAttribute), false) && TryEnumBits(val, enumType, out var bits))
+            {
+                // The header int decodes with the record's own MajorFlag names first; a bit those name prints as the integer token.
+                if (enumType == typeof(SkyrimMajorRecord.SkyrimMajorRecordFlag) && OwnMajorFlag(parent.GetType()) is { } own)
+                    return LeafRead.FlagsValue(PeelFlagBits(own, bits) != bits ? bits.ToString(CultureInfo.InvariantCulture) : token,
+                                               new FlagBits(bits, own, enumType)) with { EnumBox = val as Enum };
                 return LeafRead.FlagsValue(token, new FlagBits(bits, enumType)) with { EnumBox = val as Enum };
+            }
             return LeafRead.Value(token) with { EnumBox = val as Enum };
         }
         // formlink (inverse of TryFormLink). A present-but-null link is not round-trippable, so it is a note.
@@ -1025,7 +1032,7 @@ public static class ReadEngine
             slots = new List<int>();
             for (int i = 0; i < 32; i++) if ((fb.Bits & (1UL << i)) != 0) slots.Add(30 + i);
         }
-        var names = FlagNames(fb, out bool anyNamed);
+        var names = FlagNames(fb, out bool anyNamed, numericToken: fb.Remainder is not null && ulong.TryParse(leaf.Token, out _));
         // The slot list is dropped from the display when every set bit is already a slotNN token.
         var slotText = slots is not { Count: > 0 } || (names is not null && !anyNamed) ? null
                      : (slots.Count == 1 ? "slot " : "slots ") + string.Join(" ", slots);
@@ -1036,6 +1043,17 @@ public static class ReadEngine
 
     /// <summary>True for the biped slot enum, whose unnamed bits the decode prints as <c>slotNN</c>.</summary>
     internal static bool IsBipedSlots(Type enumType) => enumType.Name == "BipedObjectFlag";
+
+    /// <summary>The record class's own nested <c>MajorFlag</c> enum (the type of its <c>MajorFlags</c>), or null when it has none.</summary>
+    internal static Type? OwnMajorFlag(Type recordType) => OwnMajorFlags.GetOrAdd(recordType, static t =>
+    {
+        foreach (var iface in t.GetInterfaces())
+            if (iface.GetProperty("MajorFlags", BindingFlags.Public | BindingFlags.Instance)?.PropertyType is { IsEnum: true, Name: "MajorFlag" } e)
+                return e;
+        return null;
+    });
+
+    static readonly ConcurrentDictionary<Type, Type?> OwnMajorFlags = new();
 
     static readonly ConcurrentDictionary<Type, ulong[]> MemberMasks = new();
 
@@ -1051,24 +1069,31 @@ public static class ReadEngine
 
     /// <summary>The named bits plus one token per unnamed bit (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere),
     /// joined by " | ", or null when every set bit is named and the token already lists them.</summary>
-    static string? FlagNames(FlagBits fb, out bool anyNamed)
+    static string? FlagNames(FlagBits fb, out bool anyNamed, bool numericToken = false)
     {
         anyNamed = false;
         ulong remainder = Unnamed(fb);
-        if (remainder == 0) return null;
+        if (remainder == 0 && !numericToken) return null;
         anyNamed = (fb.Bits & ~remainder) != 0;
         return string.Join(" | ", FlagParts(fb, remainder));
     }
 
     /// <summary>The set bits no flag member names, peeled the way .NET's [Flags].ToString() greedily applies each fully contained member.</summary>
-    internal static ulong Unnamed(FlagBits fb) => PeelFlagBits(fb.EnumType, fb.Bits);
+    internal static ulong Unnamed(FlagBits fb)
+    {
+        var left = PeelFlagBits(fb.EnumType, fb.Bits);
+        return fb.Remainder is { } rest ? PeelFlagBits(rest, left) : left;
+    }
 
     /// <summary>Each set bit's flag name, then one token per unnamed bit (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere).</summary>
     internal static List<string> FlagParts(FlagBits fb, ulong remainder)
     {
         var parts = new List<string>();
-        ulong nameable = fb.Bits & ~remainder;
+        ulong typedLeft = PeelFlagBits(fb.EnumType, fb.Bits);
+        ulong nameable = fb.Bits & ~typedLeft & ~remainder;
         if (nameable != 0) parts.AddRange(Enum.ToObject(fb.EnumType, nameable).ToString()!.Split(", "));
+        if (fb.Remainder is { } rest && (typedLeft & ~remainder) is var restNamed and not 0)
+            parts.AddRange(Enum.ToObject(rest, restNamed).ToString()!.Split(", "));
         bool biped = IsBipedSlots(fb);
         for (int i = 0; i < 64; i++)
             if ((remainder & (1UL << i)) != 0) parts.Add(UnnamedBitToken(i, biped));

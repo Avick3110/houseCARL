@@ -1213,7 +1213,7 @@ public sealed class FieldPredicateSet
         if (flags is { } fi)
         {
             leafBits = fi.Bits;
-            var r = ResolveBits(p.Operand, fi.EnumType);
+            var r = ResolveBits(p.Operand, fi.EnumType, fi.Remainder);
             if (r.Bad is { } name)
                 return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' value '{name}' " +
                                (r.Refusal ?? $"is not a bit value or a valid {fi.EnumType.Name} flag name") + ".");
@@ -1274,22 +1274,25 @@ public sealed class FieldPredicateSet
         return r.Bad is null;
     }
 
-    /// <summary>One operand's resolution on one enum, once per pair: its bits, or the member that fails and why.</summary>
-    static (ulong Bits, string? Bad, string? Refusal) ResolveBits(string operand, Type enumType) =>
-        FlagOperands.GetOrAdd((enumType, operand), static k =>
+    /// <summary>One operand's resolution on one enum, once per pair: its bits, or the member that fails and why;
+    /// <paramref name="fallback"/> names only the bits <paramref name="enumType"/> leaves unnamed, as the read decodes them.</summary>
+    static (ulong Bits, string? Bad, string? Refusal) ResolveBits(string operand, Type enumType, Type? fallback = null) =>
+        FlagOperands.GetOrAdd((enumType, fallback, operand), static k =>
         {
             ulong bits = 0;
             foreach (var m in HasOperandMembers(k.Operand))
             {
                 string? refusal = null;
-                if (!TryBits(m, out var b) && !ReadEngine.TryEnumBitsFromName(k.Enum, m, out b) && !TryDecodeToken(m, k.Enum, out b, out refusal))
+                if (!TryBits(m, out var b) && !ReadEngine.TryEnumBitsFromName(k.Enum, m, out b)
+                    && !(k.Fallback is { } r && ReadEngine.TryEnumBitsFromName(r, m, out b) && (b & ~ReadEngine.PeelFlagBits(k.Enum, ulong.MaxValue)) == 0)
+                    && !TryDecodeToken(m, k.Enum, out b, out refusal))
                     return (0, m, refusal);
                 bits |= b;
             }
             return (bits, null, null);
         });
 
-    static readonly ConcurrentDictionary<(Type Enum, string Operand), (ulong Bits, string? Bad, string? Refusal)> FlagOperands = new();
+    static readonly ConcurrentDictionary<(Type Enum, Type? Fallback, string Operand), (ulong Bits, string? Bad, string? Refusal)> FlagOperands = new();
 
     /// <summary>A has-family operand's members: the <c>in</c> list split, with the flags decode's <c>|</c> read as a separator too.</summary>
     static IEnumerable<string> HasOperandMembers(string operand) => ListMembers(operand.Replace('|', ','));
