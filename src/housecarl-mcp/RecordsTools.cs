@@ -546,7 +546,7 @@ public static partial class RecordsTools
         void OweNotes(CrossQueryOutcome scan) => owed = scan;
         IReadOnlyList<string> Owed(SpillState? sp) =>
             (owed?.OwedNotes(sp?.Spill is not null) ?? Array.Empty<string>()).Concat(fieldPlan?.Notes() ?? Array.Empty<string>()).ToList();
-        string Head(SpillState? sp) => Owed(sp) is { Count: > 0 } n ? headerLine + string.Concat(n.Select(x => "\n" + x)) : headerLine;
+        string Head(SpillState? sp) => headerLine + string.Concat(Owed(sp).Select(x => "\n" + x));
         List<EnvelopePair> Env(SpillState? sp) => Owed(sp) is { Count: > 0 } n
             ? envelope.Concat(n.Select(x => new EnvelopePair("notes", x))).ToList() : envelope;
         // The scan renders read their rows lazily and state the scan's owed notes, so the plan's ride the scan there.

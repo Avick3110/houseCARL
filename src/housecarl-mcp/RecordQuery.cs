@@ -682,23 +682,21 @@ internal sealed partial class RecordReads
     }
 
     /// <summary>The schema's plan for the where= set over the scan's types, or over every record type without types=; null when the scan may run.</summary>
-    string? SchemaPlanRefusal(IReadOnlyList<string>? typeTokens, FieldPredicateSet predicate)
-    {
-        var roots = new List<TypeSchema>();
-        foreach (var token in typeTokens ?? Array.Empty<string>())
-            foreach (var ts in _host.Rulebook.RecordTypesNamed(token))
-                if (!roots.Contains(ts)) roots.Add(ts);
-        return predicate.Plan(_host.Rulebook.PathWalk, roots.Count == 0 ? null : roots);
-    }
+    string? SchemaPlanRefusal(IReadOnlyList<string>? typeTokens, FieldPredicateSet predicate) =>
+        predicate.Plan(_host.Rulebook.PathWalk, PlanRoots(typeTokens));
 
     /// <summary>The schema's plan for a projection's field paths over the scan's types, or over every record type without them, through the walk where= plans with.</summary>
-    internal (PlannedFields? Plan, string? Refusal) PlanFields(IReadOnlyList<string> paths, IReadOnlyList<string>? typeTokens)
+    internal (PlannedFields? Plan, string? Refusal) PlanFields(IReadOnlyList<string> paths, IReadOnlyList<string>? typeTokens) =>
+        PlannedFields.Of(_host.Rulebook.PathWalk, paths, PlanRoots(typeTokens));
+
+    /// <summary>The record types the scan's type tokens name, once each, or null for any record type.</summary>
+    IReadOnlyList<TypeSchema>? PlanRoots(IReadOnlyList<string>? typeTokens)
     {
         var roots = new List<TypeSchema>();
         foreach (var token in typeTokens ?? Array.Empty<string>())
             foreach (var ts in _host.Rulebook.RecordTypesNamed(token))
                 if (!roots.Contains(ts)) roots.Add(ts);
-        return PlannedFields.Of(_host.Rulebook.PathWalk, paths, roots.Count == 0 ? null : roots);
+        return roots.Count == 0 ? null : roots;
     }
 
     /// <summary>The one sentence a scan owes for records it filtered only after reading around content Mutagen
