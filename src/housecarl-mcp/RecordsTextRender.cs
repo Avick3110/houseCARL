@@ -11,14 +11,14 @@ static partial class RecordsTools
     internal static string RenderRecordsDelta(IReadOnlyList<RecordReads.DeltaRow> rows, int total, int differing, int identical,
                                      int noVerdict, int errors,
                                      string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated,
-                                     bool unreserved = false, int noField = 0)
+                                     bool unreserved = false, int noField = 0, int notCompared = 0)
     {
         truncated = false;
         int cap = Wire.Cap(maxChars);
         if (!unreserved)
         {
             var whole = RenderRecordsDelta(rows, total, differing, identical, noVerdict, errors, headerLine, epoch,
-                                           maxChars, spill, out _, unreserved: true, noField: noField);
+                                           maxChars, spill, out _, unreserved: true, noField: noField, notCompared: notCompared);
             if (whole.Length <= cap) return whole;
         }
         bool manifestOnly = spill?.ManifestOnly ?? false;
@@ -29,6 +29,7 @@ static partial class RecordsTools
         // Named only when there are any, since such a record is in neither of the two counts above.
         if (noVerdict - noField > 0) sb.Append(noVerdict - noField).Append(" with a field that could not be read, ");
         if (noField > 0) sb.Append(noField).Append(" with a path that names no field, ");
+        if (notCompared > 0) sb.Append(notCompared).Append(" with no path read on its type (nothing compared), ");
         sb.Append(errors).Append(" error(s)");
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
@@ -66,8 +67,10 @@ static partial class RecordsTools
             if (row.Note is not null) sb.Append("  note: ").Append(row.Note).Append('\n');
             if (d.Deltas.Count == 0)
             {
-                if (!d.Complete)
+                if (!d.Complete && !d.NothingCompared)
                     sb.Append("  no differing fields in what was read, but the deep read was TRUNCATED at the cap — NOT a clean 'identical' (Q3). Narrow with ").Append(LeverNames.Records.Fields).Append(" to compare in full.\n");
+                else if (d.NothingCompared)
+                    sb.Append("  nothing compared, NOT 'identical': ").Append(string.Join(", ", d.NotOnType!)).Append(".\n");
                 else if (d.Agreement("value leaf/leaves") is { } agreed)
                     sb.Append("  identical across the fields read (").Append(agreed).Append(").\n");
                 else
@@ -241,8 +244,10 @@ static partial class RecordsTools
                     // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas.
                     string body = nd.Deltas.Count > 0
                         ? string.Join("; ", nd.Deltas) + (nd.Complete ? "" : " — the comparison is INCOMPLETE: " + nd.Why) + "\n"
-                        : !nd.Complete
+                        : !nd.Complete && !nd.NothingCompared
                             ? "no differing fields in what was read, but the comparison is INCOMPLETE — the deep read was TRUNCATED at the cap, so this is not a clean 'identical'.\n"
+                        : nd.NothingCompared
+                            ? $"nothing compared, not 'identical': {string.Join(", ", nd.NotOnType!)}\n"
                             : fieldsNarrow
                                 ? $"identical to {row.ReferencePlugin} across the fields read ({Agreed(nd)})\n"
                                 : $"identical to {row.ReferencePlugin} (whole record; {Agreed(nd)})\n";

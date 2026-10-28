@@ -596,10 +596,19 @@ static class JsonWire
         // How many of those lines are NO-VERDICTS rather than value differences.
         w.WriteNumber("no_verdict_count", d.NoVerdictCount);
         if (d.NoFieldCount > 0) w.WriteNumber("no_field_count", d.NoFieldCount);
+        WriteNotOnType(w, d);
         if (cut) { w.WriteNumber("deltas_rendered", rendered); w.WriteBoolean("deltas_truncated", true); }
         w.WriteNumber("agreed_count", d.AgreedCount);
         WriteOtherAgreement(w, d);
         w.WriteEndObject();
+    }
+
+    /// <summary>The planned paths this record's type lacks, which were not compared, and whether nothing else was; written only when there are any.</summary>
+    static void WriteNotOnType(Utf8JsonWriter w, FieldsDiff.Result d)
+    {
+        if (d.NotOnType is not { Count: > 0 } notOn) return;
+        WriteStringArray(w, "not_on_type", notOn);
+        if (d.NothingCompared) w.WriteBoolean("nothing_compared", true);
     }
 
     /// <summary>What <c>agreed_count</c> does not count: lists whose contents match, fields absent on both sides, links
@@ -728,6 +737,7 @@ static class JsonWire
                 w.WriteBoolean("complete", nd.Complete);
                 WriteStringArray(w, "deltas", nd.Deltas);
                 w.WriteNumber("delta_count", nd.Deltas.Count);
+                WriteNotOnType(w, nd);
                 w.WriteNumber("agreed_count", nd.AgreedCount);
                 WriteOtherAgreement(w, nd);
             }

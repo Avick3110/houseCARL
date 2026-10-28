@@ -124,31 +124,101 @@ public sealed class RecordsProjectionPlanTests : RecordsTestBase
         Assert.Equal(1, CountOf(r, NoteHead));
     }
 
+    static RecordsTools.RecordsProject Compare(string form, params string[] fields) => new() { form = form, fields = fields };
+
+    string Delta(string? format = null, bool countsOnly = false, string? toFile = null, params string[] fields) =>
+        RecordsTools.Records(Svc, formids: WeaponAndArmor, source: Plugin(W.MasterName), versus: Plugin("winner"), format: format,
+                             counts_only: countsOnly, to_file: toFile, project: Compare("delta", fields));
+
+    static JsonElement RowOf(JsonElement doc, string type) =>
+        doc.GetProperty("rows").EnumerateArray().Single(x => x.GetProperty("type").GetString() == type);
+
+    /// <summary>A node whose every path its type lacks compared nothing, so it is neither identical nor a wrong path.</summary>
     [Fact]
-    public void ATreeOverMixedTypesIsCompleteAndSaysNotOnWeapon()
+    public void ATreeNodeThatComparedNothingSaysSoNotIdentical()
     {
-        var r = RecordsTools.Records(Svc, formids: WeaponAndArmor, project: new() { form = "tree", fields = new[] { "ArmorRating" } });
-        Served(r, "ArmorRating (not on Weapon)");
+        var r = RecordsTools.Records(Svc, formids: WeaponAndArmor, project: Compare("tree", "ArmorRating"));
+        Served(r, "nothing compared, not 'identical': ArmorRating (not on Weapon)");
+        Assert.DoesNotContain("identical to", r);
         Assert.DoesNotContain("INCOMPLETE", r);
         Assert.DoesNotContain("NO FIELD", r);
     }
 
     [Fact]
-    public void ADeltaOverMixedTypesCountsNoPathAsNamingNoField()
+    public void AJsonTreeNodeThatComparedNothingIsNotComplete()
     {
-        var r = RecordsTools.Records(Svc, formids: WeaponAndArmor, source: Plugin(W.MasterName), versus: Plugin("winner"),
-                                     project: new() { form = "delta", fields = new[] { "ArmorRating" } });
-        Served(r, "ArmorRating (not on Weapon)");
-        Assert.DoesNotContain("names no field", r);
-        Assert.DoesNotContain("INCOMPLETE", r);
+        var doc = Doc(RecordsTools.Records(Svc, formids: WeaponAndArmor, format: "json", project: Compare("tree", "ArmorRating")));
+        var nodes = RowOf(doc, "Weapon").GetProperty("nodes").EnumerateArray().Where(n => n.TryGetProperty("complete", out _)).ToList();
+        Assert.NotEmpty(nodes);
+        Assert.All(nodes, n =>
+        {
+            Assert.False(n.GetProperty("complete").GetBoolean());
+            Assert.True(n.GetProperty("nothing_compared").GetBoolean());
+            Assert.Equal("ArmorRating (not on Weapon)", n.GetProperty("not_on_type").EnumerateArray().Single().GetString());
+        });
     }
 
     [Fact]
-    public void ADeltaOverMixedTypesSaysWhatItDidNotCompareInJsonByCount()
+    public void ADeltaRowThatComparedNothingIsCountedApartFromIdentical()
     {
-        var doc = Doc(RecordsTools.Records(Svc, formids: WeaponAndArmor, source: Plugin(W.MasterName), versus: Plugin("winner"), format: "json",
-                                           project: new() { form = "delta", fields = new[] { "ArmorRating" } }));
-        Assert.All(doc.GetProperty("rows").EnumerateArray(), row => Assert.False(row.TryGetProperty("no_field_count", out _)));
+        var r = Delta(fields: "ArmorRating");
+        Served(r, "2 record(s): 0 differing, 1 identical, 1 with no path read on its type (nothing compared), 0 error(s)",
+               "nothing compared, NOT 'identical': ArmorRating (not on Weapon).");
+        Assert.Equal(1, CountOf(r, "identical across the fields read"));
+        Assert.DoesNotContain("names no field", r);
+        Assert.DoesNotContain("INCOMPLETE", r);
+        Served(Delta(countsOnly: true, fields: "ArmorRating"), "count=2 differing=0 identical=1 no_verdict=0 errors=0 not_compared=1");
+    }
+
+    [Fact]
+    public void AJsonDeltaRowThatComparedNothingIsNotCompleteAndNamesThePath()
+    {
+        foreach (var doc in new[] { Doc(Delta("json", fields: "ArmorRating")), Doc(Delta("json", countsOnly: true, fields: "ArmorRating")) })
+        {
+            Assert.Equal(1, doc.GetProperty("identical").GetInt32());
+            Assert.Equal(1, doc.GetProperty("not_compared").GetInt32());
+        }
+        var json = Doc(Delta("json", fields: "ArmorRating"));
+        var weapon = RowOf(json, "Weapon");
+        Assert.False(weapon.GetProperty("complete").GetBoolean());
+        Assert.True(weapon.GetProperty("nothing_compared").GetBoolean());
+        Assert.Equal("ArmorRating (not on Weapon)", weapon.GetProperty("not_on_type").EnumerateArray().Single().GetString());
+        Assert.False(weapon.TryGetProperty("no_field_count", out _));
+        var armor = RowOf(json, "Armor");
+        Assert.True(armor.GetProperty("complete").GetBoolean());
+        Assert.False(armor.TryGetProperty("not_on_type", out _));
+    }
+
+    /// <summary>A row that compared one path and lacks another is complete and names the lacking one, in json as in text.</summary>
+    [Fact]
+    public void AJsonDeltaRowThatComparedSomethingNamesWhatItLackedAndStaysComplete()
+    {
+        var doc = Doc(Delta("json", fields: new[] { "ArmorRating", "BasicStats.Damage" }));
+        Assert.False(doc.TryGetProperty("not_compared", out _));
+        foreach (var (type, notOn) in new[] { ("Weapon", "ArmorRating (not on Weapon)"), ("Armor", "BasicStats.Damage (not on Armor)") })
+        {
+            var row = RowOf(doc, type);
+            Assert.True(row.GetProperty("complete").GetBoolean());
+            Assert.False(row.TryGetProperty("nothing_compared", out _));
+            Assert.Equal(notOn, row.GetProperty("not_on_type").EnumerateArray().Single().GetString());
+        }
+        var text = Delta(fields: new[] { "ArmorRating", "BasicStats.Damage" });
+        Served(text, "2 record(s): 1 differing, 1 identical, 0 error(s)");
+        Assert.DoesNotContain("nothing compared", text);
+    }
+
+    [Fact]
+    public void TheDeltaArtifactNamesTheRowThatComparedNothing()
+    {
+        var art = W.Scratch("delta-not-on.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(art)!);
+        Delta(toFile: art, fields: "ArmorRating");
+        var lines = File.ReadLines(art).Select(l => JsonDocument.Parse(l).RootElement.Clone()).ToList();
+        var schema = lines[0].GetProperty("row_schema").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Contains("not_on_type?", schema);
+        Assert.Contains("nothing_compared?", schema);
+        var weapon = lines.Single(l => l.TryGetProperty("type", out var t) && t.GetString() == "Weapon");
+        Assert.True(weapon.GetProperty("nothing_compared").GetBoolean());
     }
 
     [Fact]
