@@ -167,6 +167,44 @@ public sealed class DialogueBranchQuestTests : IDisposable
     }
 
     [Fact]
+    public void ABranchWhoseQuestIsInNoPluginIsNotFlagged()
+    {
+        var w = Build("HcBqDangBq", w => w.QA.FormKey, w => new FormKey(w.Mod.ModKey, 0x00ABCDEF));
+        Assert.Empty(TopicIssues(Run(w, w.Topic.FormKey)));
+        Assert.Empty(TopicIssues(Run(w, w.QA.FormKey)));
+    }
+
+    [Fact]
+    public void ABranchWhoseQuestIsNotAQuestIsNotFlagged()
+    {
+        var w = Build("HcBqWeapBq", w => w.QA.FormKey, _ => null, tweak: w =>
+        {
+            var weap = w.Mod.Weapons.AddNew(); weap.EditorID = "HcBqWeapBqWeap";
+            w.Branch.Quest.SetTo(weap.FormKey);
+        });
+        Assert.Empty(TopicIssues(Run(w, w.Topic.FormKey)));
+        Assert.Empty(TopicIssues(Run(w, w.QA.FormKey)));
+    }
+
+    [Fact]
+    public void AFoldThatSuppliesTheBranchsQuestCountsItAsResolved()
+    {
+        // The branch's Quest is in no plugin of the order; only the fold defines it, as a QUST.
+        var w = Build("HcBqFoldQ", w => w.QA.FormKey, w => new FormKey(w.Mod.ModKey, 0x00ABCDEF));
+        var foldQuest = new FormKey(w.Mod.ModKey, 0x00ABCDEF);
+        Assert.Empty(TopicIssues(Run(w, w.Topic.FormKey)));
+
+        var f = new SkyrimMod(new ModKey("HcBqFoldQf", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        f.Quests.Add(new Quest(foldQuest, SkyrimRelease.SkyrimSE) { EditorID = "HcBqFoldQfQuest" });
+        string fPath = Path.Combine(_dir, f.ModKey.FileName.String);
+        f.BeginWrite.ToPath(fPath).WithLoadOrder(new ISkyrimModGetter[] { w.Mod }).Write();
+
+        using var fold = DialogueFold.Open(f.ModKey.FileName.String, "test", fPath, null);
+        var issue = Assert.Single(TopicIssues(Run(w, w.Topic.FormKey, fold)));
+        Assert.Contains($"{Mismatch} {FormIdToken.Of(foldQuest)}", issue.Message);
+    }
+
+    [Fact]
     public void AViewHoldingABranchOfAnotherQuestIsNotFlagged()
     {
         // Vanilla views hold other quests' branches legitimately (the CK's "Current quest only" off).
