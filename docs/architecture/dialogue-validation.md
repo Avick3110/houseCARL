@@ -70,8 +70,9 @@ top-level group, so fetching each target sank a large follower quest past 8 GB. 
 mid-call is caught by ruling F's stamp check (pending that PR), which re-checks every plugin the call relied on.
 
 Beyond the per-INFO voice and condition checks, which resolve their own targets, and the SNAM gate's base copy, the
-topic's wiring fetches only these bodies, each through the run's cached, fold-aware resolve: the owning quest and its
-text-display globals, for the alias-index and `<Global=X>` lints, where the Quest resolves; and the branch. A
+topic's wiring fetches only these bodies, each through the run's cached, fold-aware resolve: the owning quest, whenever
+the Quest is set, whatever its type (a body that is not a QUST feeds neither lint), and, where it is a QUST, each of its
+non-null text-display global entries with no type read first, for the alias-index and `<Global=X>` lints; and the branch. A
 Branch that resolves to a DLBR while the Quest resolves to a QUST is read (once per distinct branch per run, a
 DLBR-group seek), and a set branch Quest that is a QUST (typed off the index, as above) and differs from the topic's
 Quest is a Warning naming both quests and the branch, as xEdit warns. A TopLevel
