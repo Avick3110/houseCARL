@@ -445,6 +445,17 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
         Assert.Contains("Static's header flags read with its own names first", r);
     }
 
+    // r3 #26: with a type that has no MajorFlag of its own in scope, the typo hint names the generic names it reads too.
+    [Fact]
+    public void Eq_AMixedTypesHeaderTypoNamesWhatEachTypeReads()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "STAT", "KYWD" }, where: new[] { "SkyrimMajorRecordFlags = Constnat" });
+        Assert.Contains("error: predicate", r);
+        Assert.Contains("Static's header flags read with its own names first", r);
+        Assert.Contains("the other types read the generic names (", r);
+        Assert.Contains("NotPlayable", r[r.IndexOf("the other types read the generic names", StringComparison.Ordinal)..]);
+    }
+
     // A multi-type predicate keeps a literal one of its types holds; the type that renames the bit does not match it.
     [Fact]
     public void In_AMultiTypeScanMatchesTheGenericNameOnlyWhereItIsTheRecordsOwn()
