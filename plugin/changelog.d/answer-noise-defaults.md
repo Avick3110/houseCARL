@@ -1,0 +1,1 @@
+- **`housecarl_records` says a missing field once per call, not on every row: a path one record type lacks reads `(not on Npc)` with one note naming the type, and a path no type in scope has is refused up front, as `where=` refuses it.** Check: `types=[NPC_, FACT] project.fields=[Ranks]`.
