@@ -393,7 +393,9 @@ public static class DialogueValidate
             // Topic and branch must name the same quest, as xEdit warns; only the branch body is fetched.
             else if (questFk is { } tq && questWhy is null
                      && resolve(bfk) is IDialogBranchGetter branch
-                     && NonNull(branch.Quest.FormKeyNullable) is { } bq && bq != tq)
+                     && NonNull(branch.Quest.FormKeyNullable) is { } bq && bq != tq
+                     // An unresolved or non-QUST branch Quest is skipped, as xEdit skips it; typed off the index.
+                     && BadRef(bq, "a quest (QUST)", typeof(IQuestGetter)) is null)
             {
                 // DNAM absent reads as TopLevel, as the CK does.
                 bool topLevel = (branch.Flags ?? DialogBranch.Flag.TopLevel).HasFlag(DialogBranch.Flag.TopLevel);
