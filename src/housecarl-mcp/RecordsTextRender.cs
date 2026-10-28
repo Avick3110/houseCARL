@@ -560,7 +560,7 @@ static partial class RecordsTools
 
     /// <summary>The list-lane summary render: one identity-and-winner line per outcome or its per-item error, the batch shape of the scan lane's summary rows, with the spill marker in-band on both transports.</summary>
     static string RenderRecordsSummary(IReadOnlyList<ReadOutcome> outcomes, bool json, string headerLine,
-                                       List<KeyValuePair<string, string>> envelope, int maxChars, SpillState? spill,
+                                       List<EnvelopePair> envelope, int maxChars, SpillState? spill,
                                        (int RowsRead, long Millis) bodyCost, out bool truncated,
                                        LeverNames? levers = null, IReadOnlyList<string?>? matches = null)
     {
@@ -627,7 +627,7 @@ static partial class RecordsTools
     /// <param name="rowLimit">the caller's limit= as the TABLE's row cap (0 = uncapped): a count table caps with
     /// limit= and does not page (#810), and the counts above it stay the whole tally.</param>
     static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, OrderStamp? epoch,
-                                      string headerLine, List<KeyValuePair<string, string>> envelope,
+                                      string headerLine, List<EnvelopePair> envelope,
                                       (int RowsRead, long Millis) bodyCost, int maxChars,
                                       IReadOnlyList<string>? requestedTypes = null, int rowLimit = 0)
     {

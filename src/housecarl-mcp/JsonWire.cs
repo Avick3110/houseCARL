@@ -5,6 +5,13 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
+/// <summary>One response-envelope pair carrying its JSON kind: a count is written as a number, a flag as a boolean, the rest as strings.</summary>
+readonly record struct EnvelopePair(string Key, string Value, long? Number = null, bool? Flag = null)
+{
+    public EnvelopePair(string key, long number) : this(key, number.ToString(System.Globalization.CultureInfo.InvariantCulture), Number: number) { }
+    public EnvelopePair(string key, bool flag) : this(key, flag ? "true" : "false", Flag: flag) { }
+}
+
 /// <summary>The format="json" twin of the text <see cref="Wire"/> renderer: one serializer per read tool over the
 /// SAME outcome objects, so text and JSON differ only in formatting; contracts in docs/architecture/json-wire.md.</summary>
 static class JsonWire
@@ -65,12 +72,18 @@ static class JsonWire
         WriteNullable(w, "error", error);
     }
 
-    /// <summary>Optional response-envelope pairs written as top-level string fields at the START of a document, every "notes" pair one array;
+    /// <summary>Optional response-envelope pairs written as top-level fields of their own kind at the START of a document, every "notes" pair one array;
     /// their keys must stay disjoint from every renderer's own — docs/architecture/json-wire.md.</summary>
-    static void WriteEnvelope(Utf8JsonWriter w, IReadOnlyList<KeyValuePair<string, string>>? envelope)
+    static void WriteEnvelope(Utf8JsonWriter w, IReadOnlyList<EnvelopePair>? envelope)
     {
         if (envelope is null) return;
-        foreach (var kv in envelope) if (kv.Key != "notes") w.WriteString(kv.Key, kv.Value);
+        foreach (var kv in envelope)
+        {
+            if (kv.Key == "notes") continue;
+            if (kv.Number is { } n) w.WriteNumber(kv.Key, n);
+            else if (kv.Flag is { } f) w.WriteBoolean(kv.Key, f);
+            else w.WriteString(kv.Key, kv.Value);
+        }
         var notes = envelope.Where(kv => kv.Key == "notes").Select(kv => kv.Value).ToList();   // a consumed scan's owed notes, one array
         if (notes.Count > 0) WriteStringArray(w, "notes", notes);
     }
@@ -350,7 +363,7 @@ static class JsonWire
     /// <param name="bodyCost">What reading these bodies cost; the count is the BODIES READ, short of the list (#582, #607).</param>
     /// <param name="matches">Which multi-target references= target(s) each row hit; null when there was no such lookup (#576).</param>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars, SpillState? spill, out bool truncated,
-                                     IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null,
+                                     IReadOnlyList<EnvelopePair>? envelope = null, LeverNames? levers = null,
                                      (int RowsRead, long Millis)? bodyCost = null,
                                      IReadOnlyList<string?>? matches = null)
     {
@@ -401,7 +414,7 @@ static class JsonWire
     /// <param name="maxChars">the caller's max_chars: this document has no rows to cut, so the cap can only be
     /// missed outright, and it says so with the member every other capped document closes on (#809). REQUIRED, with
     /// no default, so a call site that forgets it does not compile into a silent server-default ceiling.</param>
-    public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, OrderStamp? epoch,
+    public static string RenderCounts(IReadOnlyList<EnvelopePair> envelope, int count, int ok, int errors, OrderStamp? epoch,
                                       int maxChars)
     {
         int cap = Wire.Cap(maxChars);
@@ -422,7 +435,7 @@ static class JsonWire
 
     /// <summary>records counts_only for forms with named counters (delta, tree): the envelope and the counters, no rows.</summary>
     /// <param name="maxChars">as <see cref="RenderCounts"/>: no rows to cut, so an over-cap census says so.</param>
-    public static string RenderNamedCounts(IReadOnlyList<KeyValuePair<string, string>> envelope,
+    public static string RenderNamedCounts(IReadOnlyList<EnvelopePair> envelope,
                                            IReadOnlyList<KeyValuePair<string, int>> counts, OrderStamp? epoch,
                                            int maxChars)
     {
@@ -442,7 +455,7 @@ static class JsonWire
 
     /// <summary>records form=summary on the list lane: one identity+winner row per outcome, or its per-item error.</summary>
     public static string RenderRecordsSummary(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
-                                              IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                              IReadOnlyList<EnvelopePair> envelope,
                                               SpillState? spill, (int RowsRead, long Millis) bodyCost, out bool truncated,
                                               IReadOnlyList<string?>? matches = null)
     {
@@ -496,7 +509,7 @@ static class JsonWire
     public static string RenderListAggregate(string groupBy, IReadOnlyList<KeyValuePair<string, int>> rows,
                                              int count, int errors, OrderStamp? epoch,
                                              (int RowsRead, long Millis) bodyCost, int maxChars,
-                                             IReadOnlyList<KeyValuePair<string, string>>? envelope = null,
+                                             IReadOnlyList<EnvelopePair>? envelope = null,
                                              IReadOnlyList<string>? emptyGroups = null,
                                              int rowLimit = 0)
     {
@@ -586,23 +599,10 @@ static class JsonWire
         if (d.NoFieldCount > 0) w.WriteNumber("no_field_count", d.NoFieldCount);
         if (cut) { w.WriteNumber("deltas_rendered", rendered); w.WriteBoolean("deltas_truncated", true); }
         w.WriteNumber("agreed_count", d.AgreedCount);
+        WriteOtherAgreement(w, d.MatchedListCount, d.MatchedItemCount, d.BothAbsentCount);
         w.WriteEndObject();
     }
 
-    /// <summary>records form=delta. The identical count only counts COMPLETE comparisons (<c>complete:false</c> otherwise).</summary>
-    public static string RenderDelta(IReadOnlyList<RecordReads.DeltaRow> rows, int maxChars, OrderStamp? epoch,
-                                     IReadOnlyList<KeyValuePair<string, string>> envelope,
-                                     IReadOnlyList<KeyValuePair<string, int>> counts,
-                                     SpillState? spill, out bool truncated)
-    {
-        truncated = false;
-        int cap = Wire.Cap(maxChars);
-        bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new CharCountedStream();
-        WriteOtherAgreement(w, d.MatchedListCount, d.MatchedItemCount, d.BothAbsentCount);
-        using (var w = new Utf8JsonWriter(ms, Opts))
-        {
-            w.WriteStartObject();
     /// <summary>The agreement <c>agreed_count</c> does not count: lists whose contents match, and fields absent on both sides.</summary>
     static void WriteOtherAgreement(Utf8JsonWriter w, int lists, int items, int bothAbsent)
     {
@@ -611,6 +611,19 @@ static class JsonWire
         w.WriteNumber("both_absent_count", bothAbsent);
     }
 
+    /// <summary>records form=delta. The identical count only counts COMPLETE comparisons (<c>complete:false</c> otherwise).</summary>
+    public static string RenderDelta(IReadOnlyList<RecordReads.DeltaRow> rows, int maxChars, OrderStamp? epoch,
+                                     IReadOnlyList<EnvelopePair> envelope,
+                                     IReadOnlyList<KeyValuePair<string, int>> counts,
+                                     SpillState? spill, out bool truncated)
+    {
+        truncated = false;
+        int cap = Wire.Cap(maxChars);
+        bool manifestOnly = spill?.ManifestOnly ?? false;
+        using var ms = new CharCountedStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
             WriteEnvelope(w, envelope);
             // The census covers the COMPLETE list: rows may be a WINDOW, so the caller hands the counters in.
             foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);
@@ -714,6 +727,7 @@ static class JsonWire
                 WriteStringArray(w, "deltas", n.Deltas);
                 w.WriteNumber("delta_count", n.Deltas.Count);
                 w.WriteNumber("agreed_count", n.AgreedCount);
+                WriteOtherAgreement(w, n.MatchedListCount, n.MatchedItemCount, n.BothAbsentCount);
             }
             w.WriteEndObject();
         }
@@ -724,10 +738,9 @@ static class JsonWire
 
     /// <summary>records form=tree: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c>.</summary>
     public static string RenderTree(IReadOnlyList<RecordReads.TreeRow> rows, int maxChars, OrderStamp? epoch,
-                                    IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                    IReadOnlyList<EnvelopePair> envelope,
                                     IReadOnlyList<KeyValuePair<string, int>> counts,
                                     SpillState? spill, out bool truncated, LeverNames? levers = null)
-                WriteOtherAgreement(w, n.MatchedListCount, n.MatchedItemCount, n.BothAbsentCount);
     {
         truncated = false;
         int cap = Wire.Cap(maxChars);
@@ -844,7 +857,7 @@ static class JsonWire
 
     /// <summary>records form=chain: <c>{…envelope, seeds, errors, epoch, rows:[…]}</c>.</summary>
     public static string RenderChain(IReadOnlyList<RecordReads.WalkSeedResult> rows, int maxChars, OrderStamp? epoch,
-                                     IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                     IReadOnlyList<EnvelopePair> envelope,
                                      IReadOnlyList<KeyValuePair<string, int>> counts,
                                      SpillState? spill, out bool truncated)
     {
@@ -882,7 +895,7 @@ static class JsonWire
     /// <summary>records form=chain, walk=reverse: per seed the carriers with the MATCHING entry's payload —
     /// magnitudes AS AUTHORED, conditions not evaluated.</summary>
     public static string RenderEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
-                                            int maxChars, IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                            int maxChars, IReadOnlyList<EnvelopePair> envelope,
                                             IReadOnlyList<KeyValuePair<string, int>> counts, OrderStamp? epoch,
                                             SpillState? spill, out bool outTruncated)
     {
@@ -1003,7 +1016,7 @@ static class JsonWire
 
     /// <summary>records form=info_order: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c>.</summary>
     public static string RenderInfoOrder(IReadOnlyList<RecordReads.InfoOrderRow> rows, int maxChars, OrderStamp? epoch,
-                                         IReadOnlyList<KeyValuePair<string, string>> envelope,
+                                         IReadOnlyList<EnvelopePair> envelope,
                                          IReadOnlyList<KeyValuePair<string, int>> counts,
                                          SpillState? spill, out bool truncated)
     {
@@ -1050,7 +1063,7 @@ static class JsonWire
     /// own term (#810); <c>cut_by</c> names whichever knob stopped it.</param>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields, int depth,
                                           SpillState? spill, out bool truncated,
-                                          IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null,
+                                          IReadOnlyList<EnvelopePair>? envelope = null, LeverNames? levers = null,
                                           CancellationToken ct = default, int rowLimit = 0)
     {
         truncated = false;
@@ -1187,7 +1200,7 @@ static class JsonWire
 
     public static string RenderCrossQueryDense(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields,
                                                SpillState? spill, out bool truncated,
-                                               IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null,
+                                               IReadOnlyList<EnvelopePair>? envelope = null, LeverNames? levers = null,
                                                FoldPlan? fold = null, CancellationToken ct = default)
     {
         truncated = false;
@@ -1241,7 +1254,7 @@ static class JsonWire
     /// <summary>The dense render of a list read's bodies (a formids= read or a scan's body lane), through the scan's table.</summary>
     public static string RenderBatchDense(IReadOnlyList<ReadOutcome> outcomes, IReadOnlyList<string>? fields, FoldPlan? fold,
                                           int maxChars, SpillState? spill, out bool truncated,
-                                          IReadOnlyList<KeyValuePair<string, string>>? envelope, (int RowsRead, long Millis) bodyCost,
+                                          IReadOnlyList<EnvelopePair>? envelope, (int RowsRead, long Millis) bodyCost,
                                           IReadOnlyList<string?>? matches = null, bool countsOnly = false)
     {
         int cap = Wire.Cap(maxChars);

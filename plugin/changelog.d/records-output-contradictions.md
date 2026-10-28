@@ -1,0 +1,1 @@
+- **`housecarl_records` stops contradicting itself: identical tree/delta rows name what agreed (a matching list, a field absent on both), a GLOB's header flags read `Constant`, `counts_only` drops the paging hint, and json `total` is a number.** Check: a GLOB's `SkyrimMajorRecordFlags`.
