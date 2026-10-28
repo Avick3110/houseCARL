@@ -17,7 +17,7 @@ public static class FieldsDiff
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
         int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount, int NoFieldCount = 0, bool Capped = false,
         int MatchedListCount = 0, int MatchedItemCount = 0, int BothAbsentCount = 0, int UnresolvedStringCount = 0,
-        int PresentNullLinkCount = 0)
+        int PresentNullLinkCount = 0, IReadOnlyList<string>? NotOnType = null)
     {
         /// <summary>Why the comparison is incomplete, in words; empty when it is complete.</summary>
         public string Why => IncompleteWhy(NoVerdictCount - NoFieldCount, NoFieldCount, Capped);
@@ -36,6 +36,7 @@ public static class FieldsDiff
                 parts.Add(PresentNullLinkCount == 1 ? "1 link null on both, subrecord present" : $"{PresentNullLinkCount} links null on both, subrecord present");
             if (UnresolvedStringCount > 0)
                 parts.Add(UnresolvedStringCount == 1 ? "1 localized string unresolved, not compared" : $"{UnresolvedStringCount} localized strings unresolved, not compared");
+            if (NotOnType is { Count: > 0 }) parts.AddRange(NotOnType);
             return parts.Count > 0 ? string.Join(", ", parts) : null;
         }
     }
@@ -65,8 +66,9 @@ public static class FieldsDiff
         var wUnreadable = new Dictionary<string, string>(StringComparer.Ordinal);
         var tEmpty = new HashSet<string>(StringComparer.Ordinal);
         var wEmpty = new HashSet<string>(StringComparer.Ordinal);
-        var (tLines, tCapped) = CleanLines(theirs, tValueLeaves, tUnreadable, tEmpty);
-        var (wLines, wCapped) = CleanLines(winner, wValueLeaves, wUnreadable, wEmpty);
+        var notOn = new List<string>();
+        var (tLines, tCapped) = CleanLines(theirs, tValueLeaves, tUnreadable, tEmpty, notOn);
+        var (wLines, wCapped) = CleanLines(winner, wValueLeaves, wUnreadable, wEmpty, null);
         bool capped = tCapped || wCapped;
         // A path with no field on either side is a wrong path, never two equal values.
         var wNoField = wLines.Where(l => ReadEngine.IsNoSuchFieldNote(l.val)).Select(l => l.path).ToHashSet(StringComparer.Ordinal);
@@ -194,7 +196,7 @@ public static class FieldsDiff
         // On a CAPPED comparison the agreed set would be a where-the-cap-fell artifact; an unreadable leaf does not touch it.
         if (capped) { agreedCount = 0; agreedSample.Clear(); bothAbsent = 0; unresolved = 0; presentNull = 0; matchedLists = 0; matchedItems = 0; }
         return new Result(deltas, complete, agreedCount, agreedSample, noVerdict.Count, noField.Count, capped,
-                          matchedLists, matchedItems, bothAbsent, unresolved, presentNull);
+                          matchedLists, matchedItems, bothAbsent, unresolved, presentNull, notOn);
     }
 
     /// <summary>How many agreed-field paths to keep for the render — a small sample, not the full set.</summary>
@@ -209,15 +211,17 @@ public static class FieldsDiff
     }
 
     /// <summary>The read's lines minus the expansion-cap sentinel and the UNREADABLE ones, keyed on <c>Readable</c>;
-    /// <paramref name="empty"/> collects the containers the read counted 0 elements in.</summary>
+    /// <paramref name="empty"/> collects the containers the read counted 0 elements in, and <paramref name="notOn"/> the planned
+    /// paths this record's type lacks, which are not compared.</summary>
     static (List<(string path, string val)> lines, bool capped) CleanLines(RecordFields rf,
-        HashSet<string> valueLeaves, Dictionary<string, string> unreadable, HashSet<string> empty)
+        HashSet<string> valueLeaves, Dictionary<string, string> unreadable, HashSet<string> empty, List<string>? notOn)
     {
         var lines = new List<(string, string)>(rf.Fields.Count);
         bool capped = false;
         foreach (var f in rf.Fields)
         {
             if (f.Path == "…") { capped = true; continue; }            // ReadEngine's expansion-cap sentinel
+            if (PlannedFields.IsNotOnNote(f.Note)) { notOn?.Add($"{f.Path} {f.Note}"); continue; }
             if (!f.Readable && !ReadEngine.IsNoSuchFieldNote(f.Note)) { unreadable[f.Path] = f.Note ?? ""; continue; }
             if (f.HasValue) valueLeaves.Add(f.Path);
             if (f.Count == 0) empty.Add(f.Path);

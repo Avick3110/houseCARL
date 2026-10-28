@@ -282,14 +282,25 @@ public static partial class RecordsTools
             depth = Math.Max(depth, foldPlan.Depth);
             foldPlan = foldPlan with { Depth = depth, CallerDepth = project?.depth is { } cd && cd > 0 ? cd : 1 };
         }
-        var projFields = bodyFields || comparisonForm ? project?.fields : null;
+        IReadOnlyList<string>? projFields = bodyFields || comparisonForm ? project?.fields : null;
         // The read runs the LIST path a quantifier binds to and the fold puts the caller's spelling back; each path
         // is read once, at the depth that path's column needs.
         string[]? foldReadPaths = null; (int Depth, string[]? Tail)[]? readDepths = null;
         if (foldPlan is not null) (foldReadPaths, readDepths) = foldPlan.Read();
         // Paths whose every column is a [*count] carry no list line, so they take the child union's index-only tier.
         var countFields = foldPlan?.CountOnlyPaths;
-        var readPaths = foldPlan is null ? projFields : foldReadPaths;
+        IReadOnlyList<string>? readPaths = foldPlan is null ? projFields : foldReadPaths;
+        // The projection's plan, made once before any read through the walk where= plans with: a path no type in scope
+        // carries refuses here, and one a type lacks reads as a short token, said once; docs/architecture/read-engine.md.
+        PlannedFields? fieldPlan = null;
+        if (readPaths is { Count: > 0 } && form != "chain")
+        {
+            // A walk's types= narrows what it reaches, not what the rows are, so its rows plan untyped.
+            var (plan, planErr) = svc.PlanFields(readPaths, walk is null ? types : null);
+            if (planErr is not null) return Wire.Refuse(json, "error: " + planErr);
+            readPaths = fieldPlan = plan;
+            if (foldPlan is null) projFields = plan;
+        }
         bool resolveNames = project?.resolve_names ?? false;
         // The lever vocabulary is a function of (tool, FORM); docs/architecture/records-tool-front.md.
         var formLevers = form == "everything" ? LeverNames.Records.WithoutFieldSelector() : LeverNames.Records;
@@ -530,13 +541,21 @@ public static partial class RecordsTools
             envelope.Add(new("source", statement));
             headerLine += $"  source={statement}";
         }
-        // A consumed scan's owed notes, appended after the header's own lines when the header is written.
+        // A consumed scan's owed notes, then the field plan's, appended after the header's own lines when the header is written.
         CrossQueryOutcome? owed = null;
         void OweNotes(CrossQueryOutcome scan) => owed = scan;
-        string Head(SpillState? sp) => owed is null ? headerLine
-            : headerLine + string.Concat(owed.OwedNotes(sp?.Spill is not null).Select(n => "\n" + n));
-        List<EnvelopePair> Env(SpillState? sp) => owed is null ? envelope
-            : envelope.Concat(owed.OwedNotes(sp?.Spill is not null).Select(n => new EnvelopePair("notes", n))).ToList();
+        IReadOnlyList<string> Owed(SpillState? sp) =>
+            (owed?.OwedNotes(sp?.Spill is not null) ?? Array.Empty<string>()).Concat(fieldPlan?.Notes() ?? Array.Empty<string>()).ToList();
+        string Head(SpillState? sp) => Owed(sp) is { Count: > 0 } n ? headerLine + string.Concat(n.Select(x => "\n" + x)) : headerLine;
+        List<EnvelopePair> Env(SpillState? sp) => Owed(sp) is { Count: > 0 } n
+            ? envelope.Concat(n.Select(x => new EnvelopePair("notes", x))).ToList() : envelope;
+        // The scan renders read their rows lazily and state the scan's owed notes, so the plan's ride the scan there.
+        CrossQueryOutcome WithPlanNotes(CrossQueryOutcome scan)
+        {
+            if (fieldPlan is null) return scan;
+            if (scan.Prefilled is { } rowsTyped) fieldPlan.Expect(rowsTyped.Select(m => m.Type));
+            return scan with { FieldNotes = fieldPlan.Notes() };
+        }
         // A census is a text render too, so it is held to the same ceiling and says so when max_chars is smaller
         // than the statements it carries whatever the budget.
         string Census(string body) => RenderCap.Settle(body, Wire.Cap(max_chars));
@@ -619,7 +638,7 @@ public static partial class RecordsTools
             : RenderBudget.ComparisonScanLever;
 
         // The comparison floor, before any read: past the budget even at the cheapest measured row, it refuses.
-        bool cmpNarrowed = projFields is { Length: > 0 };
+        bool cmpNarrowed = projFields is { Count: > 0 };
         string? ComparisonCost(int rows, string lever) =>
             RenderBudget.RefuseComparison(svc.Bounds, rows, cmpNarrowed, form, RenderBudget.ComparisonLever(lever, cmpNarrowed));
 
@@ -650,7 +669,7 @@ public static partial class RecordsTools
                 var e = new List<KeyValuePair<string, string>> { new("formids", echoSrc ?? $"{ids.Length} inline formid(s)") };
                 e.Add(new("form", form));
                 if (srcName is not null) e.Add(new("source", srcName + (srcMod is not null ? $" (mod '{srcMod}')" : "")));
-                if (projFields is { Length: > 0 }) e.Add(new("fields", string.Join(", ", projFields)));
+                if (projFields is { Count: > 0 }) e.Add(new("fields", string.Join(", ", projFields)));
                 if (depth > 1) e.Add(new("depth", depth.ToString()));
                 return e;
             }
@@ -1115,7 +1134,7 @@ public static partial class RecordsTools
                     new("source", srcSpec.Label),
                 };
                 if (versusSpec is not null) e.Add(new("versus", versusSpec.Label));
-                if (projFields is { Length: > 0 }) e.Add(new("fields", string.Join(", ", projFields)));
+                if (projFields is { Count: > 0 }) e.Add(new("fields", string.Join(", ", projFields)));
                 return e;
             }
 
@@ -1225,7 +1244,7 @@ public static partial class RecordsTools
             var treeCounts = CmpCounts(KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs));
             string Render(SpillState? sp, out bool trunc) => json
                 ? JsonWire.RenderTree(winRows, max_chars, epoch, Env(sp), treeCounts, sp, out trunc, LeverNames.Records)
-                : RenderRecordsTree(winRows, rows.Count, contested, errs, projFields is { Length: > 0 }, Head(sp), epoch, max_chars, sp, out trunc);
+                : RenderRecordsTree(winRows, rows.Count, contested, errs, projFields is { Count: > 0 }, Head(sp), epoch, max_chars, sp, out trunc);
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
@@ -1482,7 +1501,7 @@ public static partial class RecordsTools
                 Add("where", where is { Length: > 0 } ? string.Join(" AND ", where) : null);
                 Add("where_source", where_source);
                 Add("group_by", groupBy);
-                Add("fields", projFields is { Length: > 0 } ? string.Join(", ", projFields) : null);
+                Add("fields", projFields is { Count: > 0 } ? string.Join(", ", projFields) : null);
                 if (depth > 1) Add("depth", depth.ToString());
                 if (winnerFields) Add("fields_source", "winner");
                 Add("source", srcName ?? (srcSpec.Kind != RecordReads.PoleKind.Winner ? srcSpec.Label : null));
@@ -1720,9 +1739,10 @@ public static partial class RecordsTools
             // ---- summary / fields / aggregate: the scan renders, envelope-stamped. ----
             // Summary rows the scan left unfilled are filled once here, for the render and the spill alike.
             if (outcome.Prefilled is null && outcome.Error is null && outcome.Groups is null
-                && !(projFields is { Length: > 0 } && readPaths is { Length: > 0 })
+                && !(projFields is { Count: > 0 } && readPaths is { Count: > 0 })
                 && svc.FillSummaries(outcome, ct) is { } fill)
                 outcome = outcome with { Prefilled = fill };
+            outcome = WithPlanNotes(outcome);
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
@@ -1732,7 +1752,7 @@ public static partial class RecordsTools
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
             // "drop project=" is only actionable on detail rows; a summary-form scan has no project= to drop.
-            var qLevers = projFields is { Length: > 0 } ? LeverNames.Records : LeverNames.Records.WithNothingToDrop();
+            var qLevers = projFields is { Count: > 0 } ? LeverNames.Records : LeverNames.Records.WithNothingToDrop();
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
                 Wire.QueryFormat.Dense => JsonWire.RenderCrossQueryDense(svc, outcome, readPaths, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, qLevers, foldPlan, ct),
@@ -1951,6 +1971,7 @@ public static partial class RecordsTools
 
             // summary / aggregate: the shared scan renders, prefilled rows carrying the file's identities and
             // winner context where a record also lives in the order.
+            outcome = WithPlanNotes(outcome);
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
