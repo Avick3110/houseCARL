@@ -375,18 +375,36 @@ public static class DialogueValidate
 
         // --- Quest wiring: an unowned topic may never present its lines.
         var questFk = NonNull(topic.Quest.FormKeyNullable);
+        string? questWhy = questFk is null ? null : BadRef(questFk.Value, "a quest (QUST)", typeof(IQuestGetter));
         if (questFk is null)
             issues.Add(new(DialogueIssueSeverity.Warning,
                 "DialogTopic.Quest is unset — this topic is not owned by a quest. Most dialogue topics are; an unowned topic may never present its lines in game. Verify this is intentional."));
-        else if (BadRef(questFk.Value, "a quest (QUST)", typeof(IQuestGetter)) is { } qwhy)
+        else if (questWhy is not null)
             issues.Add(new(DialogueIssueSeverity.Problem,
-                $"DialogTopic.Quest points at {FormIdToken.Of(questFk.Value)}, which {qwhy} — the owning quest is unresolved."));
+                $"DialogTopic.Quest points at {FormIdToken.Of(questFk.Value)}, which {questWhy} — the owning quest is unresolved."));
 
         // --- Branch wiring: optional, but if set it must resolve to a real DLBR.
         var branchFk = NonNull(topic.Branch.FormKeyNullable);
-        if (branchFk is not null && BadRef(branchFk.Value, "a dialogue branch (DLBR)", typeof(IDialogBranchGetter)) is { } bwhy)
+        string? branchWhy = branchFk is null ? null : BadRef(branchFk.Value, "a dialogue branch (DLBR)", typeof(IDialogBranchGetter));
+        if (branchWhy is not null)
             issues.Add(new(DialogueIssueSeverity.Problem,
-                $"DialogTopic.Branch points at {branchFk.Value}, which {bwhy} — the branch wiring is broken."));
+                $"DialogTopic.Branch points at {branchFk!.Value}, which {branchWhy} — the branch wiring is broken."));
+
+        // --- Topic and branch must name the same quest (xEdit warns the same); only the branch body is fetched.
+        else if (branchFk is { } bfk && questFk is { } tq && questWhy is null
+                 && resolve(bfk) is IDialogBranchGetter branch
+                 && NonNull(branch.Quest.FormKeyNullable) is { } bq && bq != tq)
+        {
+            // DNAM absent reads as TopLevel, as the CK does.
+            bool topLevel = (branch.Flags ?? DialogBranch.Flag.TopLevel).HasFlag(DialogBranch.Flag.TopLevel);
+            issues.Add(new(DialogueIssueSeverity.Warning,
+                $"DialogTopic.Quest is {FormIdToken.Of(tq)} but its Branch {branch.EditorID ?? ""} ({FormIdToken.Of(bfk)}) "
+                + $"belongs to quest {FormIdToken.Of(bq)} — the Creation Kit cannot build a topic whose quest differs from its branch's. "
+                + (topLevel
+                    ? "The branch is top-level, so its menu entry can show twice in game (a duplicate player dialogue option). "
+                    : "The topic is filed under two quests' branch maps. ")
+                + $"Set the topic's Quest to {FormIdToken.Of(bq)}, or move the topic to a branch of {FormIdToken.Of(tq)}."));
+        }
 
         // --- BNAM absent on a Custom topic: it plays fine, but crashes the CK's Dialogue Views editor. WARN.
         if (topic.Subtype == DialogTopic.SubtypeEnum.Custom && branchFk is null)
