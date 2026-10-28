@@ -67,10 +67,10 @@ static partial class RecordsTools
             if (row.Note is not null) sb.Append("  note: ").Append(row.Note).Append('\n');
             if (d.Deltas.Count == 0)
             {
-                if (!d.Complete && !d.NothingCompared)
-                    sb.Append("  no differing fields in what was read, but the deep read was TRUNCATED at the cap — NOT a clean 'identical' (Q3). Narrow with ").Append(LeverNames.Records.Fields).Append(" to compare in full.\n");
-                else if (d.NothingCompared)
+                if (d.NothingCompared)
                     sb.Append("  nothing compared, NOT 'identical': ").Append(string.Join(", ", d.NotOnType!)).Append(".\n");
+                else if (!d.Complete)
+                    sb.Append("  no differing fields in what was read, but the deep read was TRUNCATED at the cap — NOT a clean 'identical' (Q3). Narrow with ").Append(LeverNames.Records.Fields).Append(" to compare in full.\n");
                 else if (d.Agreement("value leaf/leaves") is { } agreed)
                     sb.Append("  identical across the fields read (").Append(agreed).Append(").\n");
                 else
@@ -244,10 +244,10 @@ static partial class RecordsTools
                     // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas.
                     string body = nd.Deltas.Count > 0
                         ? string.Join("; ", nd.Deltas) + (nd.Complete ? "" : " — the comparison is INCOMPLETE: " + nd.Why) + "\n"
-                        : !nd.Complete && !nd.NothingCompared
-                            ? "no differing fields in what was read, but the comparison is INCOMPLETE — the deep read was TRUNCATED at the cap, so this is not a clean 'identical'.\n"
                         : nd.NothingCompared
                             ? $"nothing compared, not 'identical': {string.Join(", ", nd.NotOnType!)}\n"
+                        : !nd.Complete
+                            ? "no differing fields in what was read, but the comparison is INCOMPLETE — the deep read was TRUNCATED at the cap, so this is not a clean 'identical'.\n"
                             : fieldsNarrow
                                 ? $"identical to {row.ReferencePlugin} across the fields read ({Agreed(nd)})\n"
                                 : $"identical to {row.ReferencePlugin} (whole record; {Agreed(nd)})\n";
