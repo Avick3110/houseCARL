@@ -51,6 +51,29 @@ public static class Mo2Instance
         return string.IsNullOrWhiteSpace(v) ? null : v;
     }
 
+    /// <summary>MO2's file-visibility lists off ModOrganizer.ini: an unset key keeps MO2's default, and one that is not
+    /// a readable list keeps the default with a warning naming the key; a missing or unreadable ini is all defaults.</summary>
+    public static (Mo2SkipRules Rules, IReadOnlyList<string> Warnings) ReadSkipRules(string instanceDir)
+    {
+        string[] lines;
+        try { lines = File.ReadAllLines(IniPath(instanceDir)); }
+        catch { return (Mo2SkipRules.Default, Array.Empty<string>()); }
+        var warnings = new List<string>();
+        var suffixes = Read(Mo2SkipRules.SuffixesKey, Mo2SkipRules.Default.FileSuffixes);
+        var dirs = Read(Mo2SkipRules.DirectoriesKey, Mo2SkipRules.Default.Directories);
+        return (new Mo2SkipRules(suffixes, dirs), warnings);
+
+        IReadOnlyList<string> Read(string key, IReadOnlyList<string> def)
+        {
+            try { return Mo2SkipRules.ParseList(FindValue(lines, key)) ?? def; }
+            catch (FormatException ex)
+            {
+                warnings.Add($"{IniFileName} [Settings] {key}: {ex.Message}, so MO2's default ({string.Join(", ", def)}) is used for which loose files are hidden.");
+                return def;
+            }
+        }
+    }
+
     /// <summary>The single derive worker: it populates <paramref name="problems"/> when given one, and returns paths ONLY when every required piece resolves to a real folder.</summary>
     static Mo2InstancePaths? Derive(string instanceDir, List<string>? problems)
     {

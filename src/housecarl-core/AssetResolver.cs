@@ -39,6 +39,7 @@ public sealed class AssetResolver : IDisposable
     readonly IReadOnlyList<string> _enabledMods;         // mod folder names, HIGHEST priority FIRST (Mo2Composition.EnabledMods order)
     readonly IReadOnlyList<ActiveArchive> _archives;     // active BSAs (path-deduped; winner decided by PluginRank)
     readonly IReadOnlyList<(string Name, string Dir)> _looseRoots;   // loose roots in PRECEDENCE order: overwrite > mods (priority) > Data
+    readonly Mo2SkipRules _skip;                         // which loose files MO2 keeps out of the Data view
 
     /// <summary>One build's whole output, swapped in as one reference write so a concurrent Resolve never sees a half-rebuilt cache.</summary>
     internal sealed class Snapshot
@@ -135,8 +136,9 @@ public sealed class AssetResolver : IDisposable
             : snap.RootFailures.Values.OrderBy(v => v, StringComparer.OrdinalIgnoreCase).ToList();
 
     AssetResolver(string overwriteDir, string modsDir, string dataDir,
-                  IReadOnlyList<string> enabledMods, IReadOnlyList<ActiveArchive> archives)
+                  IReadOnlyList<string> enabledMods, IReadOnlyList<ActiveArchive> archives, Mo2SkipRules skip)
     {
+        _skip = skip;
         _overwriteDir = overwriteDir ?? "";
         _modsDir = modsDir ?? "";
         _dataDir = dataDir ?? "";
@@ -175,8 +177,9 @@ public sealed class AssetResolver : IDisposable
 
     /// <summary>Build a resolver over the given roots, enabled-mod priority list and active archives, reading each archive's table once.</summary>
     public static AssetResolver Build(string overwriteDir, string modsDir, string dataDir,
-                                      IReadOnlyList<string> enabledModsByPriority, IReadOnlyList<ActiveArchive> activeArchives)
-        => new(overwriteDir, modsDir, dataDir, enabledModsByPriority, activeArchives);
+                                      IReadOnlyList<string> enabledModsByPriority, IReadOnlyList<ActiveArchive> activeArchives,
+                                      Mo2SkipRules? skip = null)
+        => new(overwriteDir, modsDir, dataDir, enabledModsByPriority, activeArchives, skip ?? Mo2SkipRules.Default);
 
     Snapshot BuildTables()
     {
@@ -308,10 +311,12 @@ public sealed class AssetResolver : IDisposable
         var fname = Path.GetFileName(opened);
         var st = snap.LooseCache.GetOrAdd(subtreeDir, d => WarmSubtree(d, snap, pass));
         var loose = new List<PlacementSource>();
-        foreach (var (rootIndex, files) in st.Present)               // Present is already in precedence order
-            if (files.Contains(fname))
-                loose.Add(new PlacementSource(_looseRoots[rootIndex].Name, AssetKind.Loose,
-                    LooseFilePath: Path.Combine(_looseRoots[rootIndex].Dir, opened), ArchivePath: null, EntryPath: rel));
+        // A file MO2 hides is not in the Data view, whichever root holds it; archives are not filtered.
+        if (_skip.Shows(opened))
+            foreach (var (rootIndex, files) in st.Present)           // Present is already in precedence order
+                if (files.Contains(fname))
+                    loose.Add(new PlacementSource(_looseRoots[rootIndex].Name, AssetKind.Loose,
+                        LooseFilePath: Path.Combine(_looseRoots[rootIndex].Dir, opened), ArchivePath: null, EntryPath: rel));
 
         // ---- BSA, highest plugin rank first ----
         var bsa = new List<(PlacementSource source, int rank)>();
@@ -428,7 +433,8 @@ public sealed class AssetResolver : IDisposable
                 foreach (var f in Directory.EnumerateFiles(baseDir, "*", SearchOption.AllDirectories))
                 {
                     // Re-rooted on the NORMALIZED prefix, not sliced off rootDir, which would carry the caller's casing.
-                    Take(withSep + Normalize(f.Substring(baseDir.Length)));
+                    var rel = withSep + Normalize(f.Substring(baseDir.Length));
+                    if (_skip.Shows(rel)) Take(rel);
                     if (Full()) { stopped = true; return found; }
                 }
             }
