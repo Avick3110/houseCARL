@@ -416,8 +416,7 @@ public sealed class AssetResolver : IDisposable
     /// filename, or the MO2 layer an active archive lives in — the names <see cref="AssetSourceSelection.NameMatches(string, string?, string)"/> accepts.</summary>
     public bool HasProvider(string name)
     {
-        foreach (var (rootName, _) in _looseRoots)
-            if (string.Equals(rootName, name, StringComparison.OrdinalIgnoreCase)) return true;
+        if (RootIndex(name) >= 0) return true;
         foreach (var a in _archives)
             if (AssetSourceSelection.NameMatches(Path.GetFileName(a.Path), a.OwningMod, name)) return true;
         return false;
@@ -433,12 +432,14 @@ public sealed class AssetResolver : IDisposable
         var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool Full() => max > 0 && found.Count >= max;
         void Take(string rel) { if (keep is null || keep(rel)) found.Add(rel); }
+        // A named provider walks its own root only (none when it names only archives); the winner is still decided later, against every root.
+        int only = provider is null ? -1 : RootIndex(provider);
 
         // loose: recurse each root's copy of the prefix dir (set-UNION across roots — the per-path winner is decided later).
-        foreach (var (rootName, rootDir) in _looseRoots)
+        for (int i = 0; i < _looseRoots.Count; i++)
         {
-            // A named provider walks its own root only; the winner is still decided later, against every root.
-            if (provider is not null && !string.Equals(rootName, provider, StringComparison.OrdinalIgnoreCase)) continue;
+            if (provider is not null && i != only) continue;
+            var (rootName, rootDir) = _looseRoots[i];
             var baseDir = Path.Combine(rootDir, pre);
             // A "not there" is only an absence when it can be proved one; unreadable is named inside.
             if (!Directory.Exists(baseDir)) { AbsenceIsReal(rootName, rootDir, pre, baseDir, snap); continue; }

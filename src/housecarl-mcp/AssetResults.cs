@@ -17,6 +17,9 @@ public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Erro
 
     /// <summary>Who ships this copy: the mod folder behind a BSA, else the provider's own name — the same fallback <see cref="FaceGenCheck"/>'s pair classifier uses, empty string included.</summary>
     internal static string Owner(AssetProvider p) => p.OwningMod is { Length: > 0 } m ? m : p.Source;
+
+    /// <summary>The named provider's standing on this path; null when the call named no provider or the row did not resolve.</summary>
+    public ProviderStanding? Standing { get; init; }
 }
 
 /// <summary>One entry of <c>asset_status</c>'s <c>formids=</c> SELECT: the caller's raw token, the FormKey it parsed to, or the sentence to report instead. A malformed token is ONE error row, never a failed call.</summary>
@@ -41,14 +44,6 @@ public sealed record AssetStatusData(
     /// <summary>How many paths the selection named — <see cref="Results"/>'s own count when nothing paged.</summary>
     public int Selected => Total < 0 ? Results.Count : Total;
 
-    /// <summary>Where <see cref="Provider"/> stands on one resolved path; null when no provider was named or the row has no resolution.</summary>
-    public ProviderStanding? StandingOf(AssetHit? hit)
-    {
-        if (Provider is not { } name || hit is null) return null;
-        bool Named(AssetProvider p) => AssetSourceSelection.NameMatches(p.Source, p.OwningMod, name);
-        if (!hit.Providers.Any(Named)) return ProviderStanding.NotProvided;
-        return Named(hit.Winner!) ? ProviderStanding.Wins : ProviderStanding.Shadowed;
-    }
 }
 
 /// <summary>A named provider's standing on one path: its copy wins, another layer's copy wins over it, or it ships no copy.</summary>
@@ -56,6 +51,16 @@ public enum ProviderStanding { Wins, Shadowed, NotProvided }
 
 internal static class ProviderStandings
 {
+    /// <summary>Where <paramref name="provider"/> stands on one resolved path; null when no provider was named.</summary>
+    internal static ProviderStanding? Of(AssetHit hit, string? provider)
+    {
+        if (provider is null) return null;
+        foreach (var p in hit.Providers)
+            if (AssetSourceSelection.NameMatches(p, provider))
+                return AssetSourceSelection.NameMatches(hit.Winner!, provider) ? ProviderStanding.Wins : ProviderStanding.Shadowed;
+        return ProviderStanding.NotProvided;
+    }
+
     /// <summary>The machine token both the json row and the artifact column carry.</summary>
     internal static string Token(this ProviderStanding s) => s switch
     {
