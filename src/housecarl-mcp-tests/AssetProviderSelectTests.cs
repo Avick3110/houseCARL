@@ -109,10 +109,31 @@ public sealed class AssetProviderSelectTests : IClassFixture<AssetSelectWorld>
     [Fact]
     public void AnExplicitPathTheProviderDoesNotShipSaysSo()
     {
-        var text = AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0004.nif"), @"meshes\hcnothing.nif" },
-                                          under: new[] { @"meshes\hcnothing" }, provider: "FaceBase");
+        var text = AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0004.nif"), @"meshes\hcnothing.nif" }, provider: "FaceBase");
 
         Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(text, "provider \"FaceBase\": does not provide this path").Count);
+    }
+
+    /// <summary>Beside an explicit path, provider= narrows rather than adds: the asked row alone, with its standing,
+    /// and not every other file the provider ships.</summary>
+    [Fact]
+    public void AProviderBesideExplicitPathsAnswersOnlyThosePaths()
+    {
+        var one = Provider("FaceBase", paths: new[] { _w.Rel("0004.nif") });
+        Assert.Equal(ProviderStanding.NotProvided, Assert.Single(one.Results).Standing);
+
+        var none = Provider("FaceBase", paths: new[] { @"meshes\hcnothing.nif" });
+        Assert.Equal(ProviderStanding.NotProvided, Assert.Single(none.Results).Standing);
+    }
+
+    /// <summary>Beside formids=, provider= answers the pair's two rows, each with a standing, and walks nothing else.</summary>
+    [Fact]
+    public void AProviderBesideFormidsAnswersOnlyThePairRows()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { AssetSelectWorld.SplitFormId }, provider: "FaceBase");
+
+        Assert.Contains("(2 paths selected, provider \"FaceBase\")", text);
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(text, "provider \"FaceBase\": ").Count);
     }
 
     /// <summary>The census per provider: what it provides, wins and loses, and the winning-layers table says who
