@@ -1,6 +1,6 @@
 namespace HousecarlCore;
 
-/// <summary>The "you probably dropped the root folder" suggestion for a path that resolved to nothing. VERIFIED,
+/// <summary>The "you probably dropped the root folder, or added a data\ folder" suggestion for a path that resolved to nothing. VERIFIED,
 /// never guessed: the candidate is re-resolved through the same view (docs/architecture/assets.md).</summary>
 public static class AssetPathHint
 {
