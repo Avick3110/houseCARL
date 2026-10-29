@@ -77,10 +77,10 @@ public static class AssetGlob
         return Sorted(view.EnumerateUnder(LiteralPrefix(norm), p => rx.IsMatch(p), max, out stopped, provider));
     }
 
-    /// <summary>What to say when a bare name glob ('*goldbrand*', no separator) matched nothing: '*' stays inside one
+    /// <summary>What to say when a bare name glob ('*goldbrand*', no separator, no '**') matched nothing: '*' stays inside one
     /// folder, so it read the Data root only. Null for any other selector.</summary>
     public static string? BareNameHint(string selector) =>
-        HasWildcard(selector) && selector.IndexOfAny(new[] { '/', '\\' }) < 0
+        HasWildcard(selector) && selector.IndexOfAny(new[] { '/', '\\' }) < 0 && !selector.Contains("**")
             ? $" '*' stays inside one folder, so '{selector}' reads the Data root only; '**/{selector}' searches every folder."
             : null;
 

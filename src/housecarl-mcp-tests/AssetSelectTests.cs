@@ -121,6 +121,16 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("'**/*0004*' searches every folder", note, StringComparison.Ordinal);
     }
 
+    /// <summary>A leading '**' already crosses folders, so a bare '**name*' that matches nothing gets no Data-root hint.</summary>
+    [Fact]
+    public void ADoubleStarNameThatMatchesNothingGetsNoDataRootHint()
+    {
+        var note = Assert.Single(_w.Svc.AssetStatus(Array.Empty<string>(), new[] { "**zzzgold*" }).SelectorNotes!);
+
+        Assert.Contains("matched no file", note, StringComparison.Ordinal);
+        Assert.DoesNotContain("Data root only", note, StringComparison.Ordinal);
+    }
+
     /// <summary>Explicit paths and a directory compose in one call: the paths keep their place and their order, and the
     /// sweep does not repeat one it already named.</summary>
     [Fact]
