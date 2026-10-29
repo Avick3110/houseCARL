@@ -23,7 +23,9 @@ public static class AssetTools
          "'meshes/**/*fur*.nif') and formids= (NPC FaceGen pairs); they compose. An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
-         "counts only the window, except under to_file= and counts_only=, which resolve the whole selection. " +
+         "counts only the window, except under to_file= and counts_only=, which resolve the whole selection. A loose " +
+         "file MO2 hides (a .mohidden name, anything under .git, or the instance's own skip lists) is not in the VFS and " +
+         "answers absent. " +
          "Read-only.")]
     public static string AssetStatus(
         LoadOrderService svc,
@@ -308,7 +310,9 @@ static class AssetWire
             // Each suggestion was verified by re-resolving the prefixed form. Backticks, not single quotes — an asset path can carry the author's own apostrophes.
             if (r.PrefixSuggestions is { Count: > 0 } sug)
                 sb.Append("  did you mean ").Append(string.Join(" or ", sug.Select(s => "`" + s + "`")))
-                  .Append("?  (a path read off a record is relative to its root folder, not to Data)\n");
+                  .Append(sug.All(s => AssetPathHint.AddsRootOnly(r.RelPath, s))
+                      ? "?  (a path read off a record is relative to its root folder, not to Data)\n"
+                      : "?  (" + AssetPathHint.DataPrefixSentence + ")\n");
             // Both incomplete-scan conditions hedge an ABSENT at the point of use, not only in the top-of-output note: the asset could exist where we did not look.
             if (readIncomplete)
                 sb.Append("  [!] but an archive failed to read this build (see the read-failure note above), so " +
