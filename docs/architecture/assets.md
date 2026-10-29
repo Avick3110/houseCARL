@@ -172,7 +172,9 @@ pattern matches. `*` within a segment, `?` one character, `**` across separators
 Data-relative path, compiled `NonBacktracking` because `**` nests quantifiers. A selector with no literal directory
 prefix walks from the Data root: `**/*goldbrand*` is "where does a file with this name live", across every loose
 root and archive table. `*goldbrand*` stays one segment deep, and when it matches nothing the note names the `**/`
-form. The one bound is a contract: the enumeration is **bounded by matches, not candidates** — the pattern filters
+form. A bare name with no wildcard (`0004.nif`) that matches nothing is pointed at `**/0004.nif` only when that form,
+capped at one match and narrowed to `provider=`, finds a file; otherwise no glob is named. That probe has no literal
+prefix, so on a miss it is one more whole-order walk. The one bound is a contract: the enumeration is **bounded by matches, not candidates** — the pattern filters
 inside the walk, which stops at the cap. A whole-order walk measured 2.4 s warm loose and 0.4 s for every archive
 table over 326,491 paths, so the bound, not the prefix, is what keeps a sweep affordable.
 
