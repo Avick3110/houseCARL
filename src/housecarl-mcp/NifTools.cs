@@ -58,7 +58,8 @@ public static class NifTools
                      "scale, with that shape's partitions, alpha, texture-set paths and bones inline; 'partitions' " +
                      "the BSDismember partitions (decoded to SBP_* names); 'alpha' the alpha property (blend / test / " +
                      "threshold); 'paths' the embedded texture-set paths, with slot names where the shader determines " +
-                     "them, and under each the Data path it names with the load order's winner or ABSENT; " +
+                     "them, and under each the Data path it names with the load order's winner or ABSENT, or, when it names " +
+                     "none, why; " +
                      "'shader' the shader property (block type, the shader type such as SkinTint / FaceTint / " +
                      "HairTint / EnvironmentMap / Parallax, the SLSF1+SLSF2 flags by name, and on a Skyrim-layout " +
                      "shader the lighting values: emissive colour and multiple, glossiness, specular strength and " +
