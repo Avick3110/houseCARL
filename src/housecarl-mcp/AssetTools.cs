@@ -77,7 +77,7 @@ public static class AssetTools
                      "that is not in the active order is refused.")]
             string? provider = null,
         [Description("Optional. Max paths to resolve and render. 0 = no limit. to_file= ignores it and covers the " +
-                     "whole selection. Under counts_only=true it caps the census table's rows instead; the census " +
+                     "whole selection. Under counts_only=true it caps each census table's rows instead; the census " +
                      "still covers the whole selection.")]
             int limit = 0,
         [Description("Optional. Where the rendered window starts in the selection, for paging. 0 = the beginning.")]
