@@ -2868,7 +2868,7 @@ static class JsonWire
         return Finish(ms);
     }
 
-    /// <summary>The <c>counts_only=</c> twin of <see cref="RenderAssetStatus"/>: no path rows, and the layer table is the shared axis.</summary>
+    /// <summary>The <c>counts_only=</c> twin of <see cref="RenderAssetStatus"/>: no path rows, and the two layer tables are shared axes.</summary>
     public static string RenderAssetCensus(AssetStatusData d, int maxChars, int limit)
     {
         int cap = Wire.Cap(maxChars);
@@ -2891,7 +2891,7 @@ static class JsonWire
             else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, caveatBudget);
 
             WriteCensusCounters(w, c);
-            // The layer table through the shared axis: the frame is reserved before its rows are offered to it.
+            // The layer tables through the shared axes: each frame is reserved before its rows are offered to it.
             var body = new BoundedBody(acct: null, budget: budget, () => Size(w, ms));
             WriteHistogramAxes(w, body, AssetCensus.RowLimit(limit), AssetCensus.Axes(c));
             w.WriteBoolean("truncated", omitted > 0 || AssetCensus.Axes(c).Any(a => body.Stopped(a.Subject)));
