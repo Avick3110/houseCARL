@@ -81,6 +81,17 @@ public sealed class AssetVisibilityTests : IDisposable
     }
 
     [Fact]
+    public void ExplicitPathsModeHidesWhatMO2HidesByDefault()
+    {
+        using var svc = HousecarlMcp.LoadOrderService.WithExplicitPaths(_p.Data, _p.Mods, _p.Prof, 0,
+            new UserConfigStore(Path.Combine(_p.Root, "user-explicit.json")));
+
+        Assert.False(Exists(svc, Hidden));
+        Assert.False(Exists(svc, GitHead));
+        Assert.True(Exists(svc, Shown));
+    }
+
+    [Fact]
     public void ACustomSuffixListReplacesTheDefault()
     {
         Settings("skip_file_suffixes=.off");
