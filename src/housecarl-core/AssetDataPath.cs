@@ -15,22 +15,21 @@ public static class AssetDataPath
     /// <see cref="ArgumentException"/> naming the input when it is no legal Data path.</summary>
     public static string For(string raw, AssetLinkKind kind)
     {
-        string mapped;
         try
         {
-            mapped = kind switch
+            var mapped = kind switch
             {
                 AssetLinkKind.Texture => new AssetLink<SkyrimTextureAssetType>(raw).DataRelativePath.Path,
                 AssetLinkKind.Model => new AssetLink<SkyrimModelAssetType>(raw).DataRelativePath.Path,
                 _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
             };
+            // Mutagen's mapping is not the Data-path gate: a rooted or '..' result is refused here.
+            return AssetResolver.ValidateRelPath(mapped);
         }
         catch (Exception ex) when (ex is not ArgumentOutOfRangeException)
         {
             throw new ArgumentException($"'{raw}' is not a path a {kind.ToString().ToLowerInvariant()} link can name — {ex.Message}", ex);
         }
-        // Mutagen's mapping is not the Data-path gate: a rooted or '..' result is refused here.
-        return AssetResolver.ValidateRelPath(mapped);
     }
 
     /// <summary>As <see cref="For"/>, or null when there is no legal Data path to offer.</summary>

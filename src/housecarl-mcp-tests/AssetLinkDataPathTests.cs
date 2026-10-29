@@ -22,6 +22,9 @@ public sealed class AssetLinkDataPathTests : IDisposable
         @"data\" + Tint, @"textures\nowhere\ghost.dds", @"..\escape.dds",
     };
 
+    // Spelt out rather than read off AssetPathHint, so the test compiles against a build without the door.
+    const string DataPrefixSentence = @"A path a file names can start with data\, which is not part of a Data-relative path.";
+
     readonly PlaceInstance _p = new();
     readonly LoadOrderService _svc;
 
@@ -60,7 +63,7 @@ public sealed class AssetLinkDataPathTests : IDisposable
         var rendered = AssetWire.Render(_svc.AssetStatus(new[] { @"data\" + Tint }), 20000);
 
         Assert.Contains("did you mean `" + Tint + "`", rendered, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(AssetPathHint.DataPrefixSentence, rendered, StringComparison.Ordinal);
+        Assert.Contains(DataPrefixSentence, rendered, StringComparison.Ordinal);
         Assert.DoesNotContain("relative to its root folder", rendered, StringComparison.Ordinal);
     }
 
@@ -70,7 +73,7 @@ public sealed class AssetLinkDataPathTests : IDisposable
         var o = _svc.PlaceAssets(new[] { new PlaceRequest(@"data\" + Tint, null) }, null, null).Results[0];
 
         Assert.False(o.Placed);
-        Assert.Contains("Did you mean `" + Tint + "`? " + AssetPathHint.DataPrefixSentence, o.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Did you mean `" + Tint + "`? " + DataPrefixSentence, o.Error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -79,7 +82,7 @@ public sealed class AssetLinkDataPathTests : IDisposable
         var r = _svc.NifInspect(new[] { @"data\" + Mesh }, null).Results[0];
 
         Assert.True(r.Absent);
-        Assert.Contains("Did you mean `" + Mesh + "`? " + AssetPathHint.DataPrefixSentence, r.Error, StringComparison.Ordinal);
+        Assert.Contains("Did you mean `" + Mesh + "`? " + DataPrefixSentence, r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -95,7 +98,7 @@ public sealed class AssetLinkDataPathTests : IDisposable
     [Fact]
     public void EachSlotResolvesAsADirectAssetStatusCallOnItsDataPath()
     {
-        var links = _svc.NifInspect(new[] { Mesh }, null).Results[0].SlotLinks!;
+        var text = PathsSection();
 
         foreach (var (raw, data, exists) in new[]
         {
@@ -103,24 +106,23 @@ public sealed class AssetLinkDataPathTests : IDisposable
             (Slots[7], @"textures\nowhere\ghost.dds", false),
         })
         {
-            var link = links[raw];
-            Assert.Equal(data, link.DataPath, StringComparer.OrdinalIgnoreCase);
             var direct = _svc.AssetStatus(new[] { data }).Results[0].Hit!;
-            Assert.Equal(exists, link.Hit!.Exists);
-            Assert.Equal(direct.Exists, link.Hit.Exists);
-            Assert.Equal(direct.Winner?.Source, link.Hit.Winner?.Source);
-            Assert.Equal(direct.Winner?.Kind, link.Hit.Winner?.Kind);
+            Assert.Equal(exists, direct.Exists);
+            var answer = direct.Exists ? $"WINS: \"{direct.Winner!.Source}\" (loose)" : "ABSENT";
+            Assert.Contains(": " + raw + "\n      data path: " + data + "  " + answer + "\n", text, StringComparison.OrdinalIgnoreCase);
         }
     }
 
     [Fact]
     public void ASlotNoDataPathCanBeMadeOfIsItsOwnError()
     {
-        var link = _svc.NifInspect(new[] { Mesh }, null).Results[0].SlotLinks![Slots[8]];
+        var text = PathsSection();
 
-        Assert.Null(link.DataPath);
-        Assert.Contains("..", link.Error, StringComparison.Ordinal);
+        Assert.Contains(": " + Slots[8] + "\n      data path: none — '" + Slots[8] + "'", text, StringComparison.Ordinal);
     }
+
+    string PathsSection() => NifWire.Render(_svc.NifInspect(new[] { Mesh }, null),
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "paths" }, Array.Empty<string>(), 80_000);
 
     [Fact]
     public void ThePathsSectionPrintsTheRawSlotAndItsDataPathAndWinner()
