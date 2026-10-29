@@ -14,8 +14,10 @@ public static class FieldsDiff
     /// resolve: not compared, and never counted absent.</param>
     /// <param name="PresentNullLinkCount">Links whose subrecord is present and null on both sides: the same state, never
     /// absent and never a value leaf.</param>
-    /// <param name="NothingCompared">No path was compared and at least one was a planned path this record's type lacks:
-    /// not complete and never "identical"; with other paths that could not be read it is also a no-verdict.</param>
+    /// <param name="NothingCompared">Not capped, at least one planned path this record's type lacks, and on each side no
+    /// line left besides those (every other path could not be read on that side): not complete, never "identical", and
+    /// also a no-verdict when other paths were read. A one-side read fault or a both-sides no-field path leaves a line, so
+    /// that row is a plain no-verdict; an absent, unresolved or present-null path is a compared state.</param>
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
         int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount, int NoFieldCount = 0, bool Capped = false,
         int MatchedListCount = 0, int MatchedItemCount = 0, int BothAbsentCount = 0, int UnresolvedStringCount = 0,
@@ -77,7 +79,7 @@ public static class FieldsDiff
         var noField = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (p, v) in tLines) if (ReadEngine.IsNoSuchFieldNote(v) && wNoField.Contains(p)) noField.TryAdd(p, v);
         var noVerdict = tUnreadable.Keys.Union(wUnreadable.Keys).Union(noField.Keys).OrderBy(p => p, StringComparer.Ordinal).ToList();
-        // Every path a planned type-lacking one: no line was left to compare, which is not two equal records.
+        // A planned type-lacking path and no line left on either side: nothing was compared, which is not two equal records.
         bool nothingCompared = !capped && notOn.Count > 0 && tLines.Count == 0 && wLines.Count == 0;
         bool complete = !capped && noVerdict.Count == 0 && !nothingCompared;
 

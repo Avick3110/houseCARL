@@ -83,14 +83,19 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
   compared and not counted as no-field (`NotOnType`). Json names it on every delta row and tree
   node that has one (`not_on_type`); text names it per row only on a row with no differences (the agreement
   phrase, or the nothing-compared line), and a text row with differences leaves it to the call's
-  one note. A row that
-  compared another path stays complete and names it in the agreement phrase as not compared
-  ("ArmorRating (not on Weapon) not compared"). A row where no path was compared and at least one is
-  a planned path its type lacks compared nothing (`NothingCompared`): it is not complete and never
-  "identical" ("nothing compared, NOT 'identical': …"), and the delta census counts it in
-  `not_compared` (text and json alike, written only when there are any; the json row's flag beside
-  `not_on_type` is `nothing_compared`). A row whose other paths could not be read is nothing-compared
-  and a no-verdict at once, counted in both `no_verdict` and `not_compared`.
+  one note. The planned-lacking path does not make a row incomplete: a row is complete only when it is
+  not capped and has no no-verdict, and a complete row names the path in the agreement phrase as not
+  compared ("ArmorRating (not on Weapon) not compared"). An absent-on-both, unresolved-string or
+  present-null path is a compared state, so a row whose only other path is one of those is complete
+  and identical. A row compared nothing (`NothingCompared`) when it is not capped, has at
+  least one planned-lacking path, and on each side has no line left besides those, that is, every
+  other path read could not be read on that side: it is not complete and never "identical"
+  ("nothing compared, NOT 'identical': …"), and the delta census counts it in `not_compared` (text and
+  json alike, written only when there are any; the json row's flag beside `not_on_type` is
+  `nothing_compared`). Such a row with other paths, all unreadable on both sides, is nothing-compared
+  and a no-verdict at once, counted in both `no_verdict` and `not_compared`. A path unreadable on one
+  side only, or reading no field on both, leaves a line, so that row is a plain no-verdict
+  (UNREADABLE / NO FIELD, INCOMPLETE), not nothing-compared.
 - The agreed count counts only exact-path VALUE leaves read on BOTH sides — never a container
   summary, never a side's absent or null-link sentinel, because an absent field is not an agreement.
   Per-field presence is reliable only for nullable fields, whose absence the read engine spells, so a
