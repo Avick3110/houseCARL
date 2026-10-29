@@ -178,7 +178,8 @@ table over 326,491 paths, so the bound, not the prefix, is what keeps a sweep af
 
 `provider=` narrows the same walk to one provider's files: a loose root by name, and every active archive whose
 filename it is or whose MO2 layer it names (`AssetSourceSelection.NameMatches`, the rule `source_provider=` uses), so
-a mod name covers the archives it ships. Alone it walks the provider's whole tree; with `under=` it walks only
+a mod name covers the archives it ships, and `Data` covers the Data folder's loose files and the base-game archives
+(their owning layer is `Data`). Alone it walks the provider's whole tree; with `under=` it walks only
 beneath those selectors; beside `asset_paths=` or `formids=` alone it walks nothing and only reads those rows. A name the build does not have is refused, since it would walk nothing. Each row is
 still resolved against every root, so the provider's standing is a reading of `AssetHit.Providers`, no new
 resolution, matched by name as the walk is: **wins** when the winning copy's name matches the provider, **shadowed**
