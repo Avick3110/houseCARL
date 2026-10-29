@@ -22,8 +22,8 @@ public static class AssetTools
          "BSAs and MO2's priority; for SKSE plugins, which load only loose at the top level, use housecarl_skse. " +
          "Select with asset_paths=, under= (a folder, or a glob: 'meshes/**/*fur*.nif'; '**/*goldbrand*' finds a " +
          "name in every folder), formids= (NPC FaceGen pairs) and provider= (alone, every file one mod or archive " +
-         "ships; beside another selector, it narrows that selection to the provider's files and marks each row's " +
-         "standing). An archive that cannot be read, or a " +
+         "ships; beside another selector, it narrows that selection to the provider's files), each row marked " +
+         "wins, shadowed by the winner, or not provided.An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
          "counts only the window, except under to_file= and counts_only=, which resolve the whole selection. A loose " +
