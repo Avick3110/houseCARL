@@ -14,6 +14,12 @@ public sealed class AssetLinkDataPathTests : IDisposable
     const string Head = @"textures\Actors\Character\Female\FemaleHead.dds";
     const string Msn = @"textures\actors\character\female\femalehead_msn.dds";
     const string Mesh = @"meshes\actors\guard\head.nif";
+    const string Deep = @"meshes\actors\guard\deep.nif";
+    const string DeepTex = @"textures\mymod\data\foo.dds";
+    const string Foo = @"textures\foo.dds";
+
+    // A folder named data below the first segment, kept, and one that would map onto an unrelated file if stripped.
+    static readonly string[] DeepSlots = { DeepTex, @"mymod\data\textures\foo.dds" };
 
     // The three forms one FaceGen NIF carries, an absent slot and one no Data path can be made of.
     static readonly string[] Slots =
@@ -31,8 +37,11 @@ public sealed class AssetLinkDataPathTests : IDisposable
     public AssetLinkDataPathTests()
     {
         var mod = _p.Mod("GuardFace");
-        foreach (var rel in new[] { Tint, Head, Msn }) PlaceInstance.Loose(mod, rel, "x"u8.ToArray());
+        foreach (var rel in new[] { Tint, Head, Msn, DeepTex, Foo, @"textures\actors\x\data\foo.dds" })
+            PlaceInstance.Loose(mod, rel, "x"u8.ToArray());
         PlaceInstance.Loose(mod, Mesh, NifSetMeshes.Textured(Slots));
+        PlaceInstance.Loose(mod, Deep, NifSetMeshes.Textured(DeepSlots));
+        PlaceInstance.Loose(mod, @"meshes\armor\data\x.nif", NifSetMeshes.Textured());
         _p.Profile(Array.Empty<string>(), Array.Empty<string>(), new[] { "+GuardFace" });
         _svc = _p.Open();
     }
@@ -131,6 +140,33 @@ public sealed class AssetLinkDataPathTests : IDisposable
         Assert.Contains("data path: ", NifTools.NifInspect(_svc, mesh_paths: new[] { Mesh }, sections: "paths"), StringComparison.Ordinal);
     }
 
-    string PathsSection() => NifWire.Render(_svc.NifInspect(new[] { Mesh }, null, slotLinks: true),
+    [Fact]
+    public void AFolderNamedDataBelowTheFirstSegmentStaysInTheSlotsDataPath()
+    {
+        var text = PathsSection(Deep);
+        var winner = _svc.AssetStatus(new[] { DeepTex }).Results[0].Hit!.Winner!.Source;
+
+        Assert.Contains(": " + DeepTex + "\n      data path: " + DeepTex + $"  WINS: \"{winner}\" (loose)\n", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(": " + DeepSlots[1] + "\n      data path: " + @"textures\mymod\data\textures\foo.dds  ABSENT", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("data path: " + Foo + " ", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ARootlessPathWithAFolderNamedDataGetsItsVerifiedRootForm()
+    {
+        Assert.Equal(new[] { @"textures\actors\x\data\foo.dds" }, _svc.AssetStatus(new[] { "actors/x/data/foo.dds" }).Results[0].PrefixSuggestions);
+        Assert.Contains(@"Did you mean `meshes\armor\data\x.nif`?", _svc.NifInspect(new[] { @"armor\data\x.nif" }, null).Results[0].Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ALeadingOrDriveRootedDataFolderIsStillDropped()
+    {
+        // Pins unchanged behaviour.
+        Assert.Equal(Foo, AssetDataPath.For(@"C:\Games\Skyrim\Data\textures\foo.dds", AssetLinkKind.Texture), ignoreCase: true);
+        Assert.Equal(Foo, AssetDataPath.For(@"data\textures\foo.dds", AssetLinkKind.Texture), ignoreCase: true);
+        Assert.Null(AssetDataPath.TryFor(@"data\SKSE\Plugins\CharGen\x.dds", AssetLinkKind.Texture));
+    }
+
+    string PathsSection(string mesh = Mesh) => NifWire.Render(_svc.NifInspect(new[] { mesh }, null, slotLinks: true),
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "paths" }, Array.Empty<string>(), 80_000);
 }
