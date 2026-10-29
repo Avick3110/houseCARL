@@ -84,7 +84,7 @@ public static class AssetGlob
     {
         if (selector.IndexOfAny(new[] { '/', '\\' }) >= 0 || selector.Contains("**")) return null;
         if (HasWildcard(selector))
-            return $" '*' stays inside one folder, so '{selector}' reads the Data root only; '**/{selector}' searches every folder.";
+            return $" '*' and '?' stay inside one folder, so '{selector}' reads the Data root only; '**/{selector}' searches every folder.";
         var everyFolder = "**/" + selector;
         return Select(view, everyFolder, out _, 1, out _, provider).Count > 0
             ? $" '{selector}' names only the Data root; '{everyFolder}' finds it in every folder."
