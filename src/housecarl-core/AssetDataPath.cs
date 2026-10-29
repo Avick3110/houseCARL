@@ -23,12 +23,14 @@ public static class AssetDataPath
         };
         try
         {
-            // Only a rooted string holds the game's Data folder somewhere inside it; Mutagen's link finds it there.
-            var mapped = Path.IsPathRooted(raw)
+            // A leading separator is dropped as asset_status drops it, so only a drive-rooted string is left rooted.
+            var path = AssetResolver.Normalize(raw);
+            // Only a drive-rooted string holds the game's Data folder somewhere inside it; Mutagen's link finds it there.
+            var mapped = Path.IsPathRooted(path)
                 ? kind == AssetLinkKind.Texture
-                    ? new AssetLink<SkyrimTextureAssetType>(raw).DataRelativePath.Path
-                    : new AssetLink<SkyrimModelAssetType>(raw).DataRelativePath.Path
-                : Relative(raw.Replace('/', '\\'), root);
+                    ? new AssetLink<SkyrimTextureAssetType>(path).DataRelativePath.Path
+                    : new AssetLink<SkyrimModelAssetType>(path).DataRelativePath.Path
+                : Relative(path, root);
             // Mutagen's mapping is not the Data-path gate: a rooted or '..' result is refused here.
             return AssetResolver.ValidateRelPath(mapped);
         }
