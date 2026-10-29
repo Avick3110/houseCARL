@@ -110,7 +110,7 @@ public static class NifTools
         // Sections requested but none resolved: fail rather than render the summary as if that were the answer.
         if (SectionsError(want, unknownTokens) is { } sectionsErr) return sectionsErr;
 
-        var data = svc.NifInspect(selected, string.IsNullOrWhiteSpace(source_provider) ? null : source_provider);
+        var data = svc.NifInspect(selected, string.IsNullOrWhiteSpace(source_provider) ? null : source_provider, want.Contains("paths"));
         return NifWire.Render(data, want, unknownTokens, Wire.Cap(max_chars));
     });
 
@@ -531,9 +531,9 @@ static class NifWire
     {
         sb.Append("      data path: ");
         if (link.Error is not null) { sb.Append("none — ").Append(link.Error).Append('\n'); return; }
-        sb.Append(link.DataPath).Append("  ");
-        if (link.Hit is { Exists: true, Winner: { } w })
-            sb.Append("WINS: ").Append(AssetSourceSelection.Describe(w.Source, w.Kind == AssetKind.Bsa ? "BSA" : "loose"));
+        var hit = link.Hit!;
+        sb.Append(hit.RelPath).Append("  ");
+        if (hit is { Exists: true, Winner: { } w }) sb.Append("WINS: ").Append(AssetWire.Provider(w));
         else sb.Append("ABSENT");
         sb.Append('\n');
     }

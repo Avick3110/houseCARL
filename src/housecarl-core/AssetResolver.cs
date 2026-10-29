@@ -709,7 +709,7 @@ public sealed class AssetResolver : IDisposable
         var (name, dir) = _looseRoots[at];
         try
         {
-            if (Directory.Exists(dir)) return new DirectoryInfo(dir).EnumerateFiles().Select(f => f.Name).ToList();
+            if (Directory.Exists(dir)) return new DirectoryInfo(dir).EnumerateFiles().Select(f => f.Name).Where(_skip.Shows).ToList();
             if (WalkProvesAbsent(dir, dir, Directory.Exists, FreshNames)) return Array.Empty<string>();
             RecordRootFailure(name, "", snap);
             return null;

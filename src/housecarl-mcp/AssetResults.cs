@@ -264,9 +264,9 @@ public sealed record NifInspectData(
         => new(relPath, null, Array.Empty<NifProvider>(), false, false, null, error);
 }
 
-/// <summary>One texture slot's link: the Data path it names through <see cref="HousecarlCore.AssetDataPath"/> and its
-/// resolution, or the named reason the string is no Data path.</summary>
-public sealed record NifSlotLink(string? DataPath, HousecarlCore.AssetHit? Hit, string? Error);
+/// <summary>One texture slot's link: the resolution of the Data path it names through <see cref="HousecarlCore.AssetDataPath"/>
+/// (the path is the hit's), or the named reason the string is no Data path.</summary>
+public sealed record NifSlotLink(HousecarlCore.AssetHit? Hit, string? Error);
 
 /// <summary>The batch behind housecarl_nif_inspect: per-path <see cref="Results"/> in INPUT ORDER, plus the build-level caveats one asset capture pins for the whole batch, which is what makes an ABSENT result provisional.</summary>
 public sealed record NifInspectBatchData(
