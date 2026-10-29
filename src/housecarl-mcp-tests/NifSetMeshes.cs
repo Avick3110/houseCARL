@@ -65,23 +65,21 @@ static class NifSetMeshes
 
     /// <summary>A head-like shape with a lighting shader, a nine-slot texture set whose slot 6 is a facetint, flags and
     /// two partitions: the synthetic stand-in for the probe's real facegen smoke mesh.</summary>
-    public static byte[] Textured()
+    public static byte[] Textured() => Textured(new[]
+    {
+        @"textures\actors\character\female\femalehead.dds", @"textures\actors\character\female\femalehead_msn.dds",
+        "", "", "", "", FaceTintPath, "", "",
+    });
+
+    /// <summary>The same head-like mesh with its texture set holding <paramref name="slots"/> as given.</summary>
+    public static byte[] Textured(IReadOnlyList<string> slots)
     {
         var f = new NifFile();
         f.Create(Se, withRootNode: true);
         var root = f.GetRootNodes().First();
         root.Name = new NiStringRef("FaceRoot"); root.Flags_ui = 0xE;
 
-        var texSet = new BSShaderTextureSet
-        {
-            Textures = new List<NiString4>
-            {
-                new(@"textures\actors\character\female\femalehead.dds", false),
-                new(@"textures\actors\character\female\femalehead_msn.dds", false),
-                new("", false), new("", false), new("", false), new("", false),
-                new(FaceTintPath, false), new("", false), new("", false),
-            },
-        };
+        var texSet = new BSShaderTextureSet { Textures = slots.Select(s => new NiString4(s, false)).ToList() };
         texSet.NumTextures = (uint)texSet.Textures.Count;
         var shader = new BSLightingShaderProperty
         {

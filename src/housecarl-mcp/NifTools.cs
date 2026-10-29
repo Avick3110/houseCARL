@@ -427,7 +427,7 @@ static class NifWire
             s => string.Join(", ", s.Partitions.Select(p => $"{p.BodyPartId} ({p.BodyPartName}, flags {p.PartFlags})")))) missed++;
         if (want.Contains("alpha") && !RenderPerShape(sb, nif, room, "alpha", s => s.Alpha is not null,
             s => AlphaLine(s.Alpha!))) missed++;
-        if (want.Contains("paths") && !RenderPaths(sb, nif, room)) missed++;
+        if (want.Contains("paths") && !RenderPaths(sb, nif, d.SlotLinks, room)) missed++;
         if (want.Contains("shader") && !RenderShader(sb, nif, room)) missed++;
         if (want.Contains("bones") && !RenderPerShape(sb, nif, room, "bones", s => s.Bones.Count > 0,
             s => string.Join(", ", s.Bones))) missed++;
@@ -493,7 +493,7 @@ static class NifWire
         return true;
     }
 
-    static bool RenderPaths(StringBuilder sb, NifInspect nif, RenderCap cap)
+    static bool RenderPaths(StringBuilder sb, NifInspect nif, IReadOnlyDictionary<string, NifSlotLink>? links, RenderCap cap)
     {
         // Charged with the heading, for the same reason the shapes section charges it there.
         if (!cap.TryAppend(sb, "\n--- paths (embedded texture-set slots; material/.tri/physics-xml refs appear under sections=strings) ---\n"
@@ -504,7 +504,11 @@ static class NifWire
         {
             int mark = sb.Length;
             sb.Append("  '").Append(s.Name).Append("':\n");
-            foreach (var t in s.Textures) AppendTexture(sb, t);
+            foreach (var t in s.Textures)
+            {
+                AppendTexture(sb, t);
+                if (links is not null && links.TryGetValue(t.Path, out var link)) AppendSlotLink(sb, link);
+            }
             if (Cut(sb, cap, mark, textured.Count - shown)) return true;
             shown++;
         }
@@ -519,6 +523,19 @@ static class NifWire
         sb.Append("    tex[").Append(t.Slot).Append(']');
         if (t.SlotName is not null) sb.Append(" (").Append(t.SlotName).Append(')');
         sb.Append(": ").Append(t.Path).Append('\n');
+    }
+
+    /// <summary>Under a slot line, the Data path the slot names and which copy of it the game loads, so a slot spelt
+    /// with data\ or without textures\ is read the way the engine opens it.</summary>
+    static void AppendSlotLink(StringBuilder sb, NifSlotLink link)
+    {
+        sb.Append("      data path: ");
+        if (link.Error is not null) { sb.Append("none — ").Append(link.Error).Append('\n'); return; }
+        sb.Append(link.DataPath).Append("  ");
+        if (link.Hit is { Exists: true, Winner: { } w })
+            sb.Append("WINS: ").Append(AssetSourceSelection.Describe(w.Source, w.Kind == AssetKind.Bsa ? "BSA" : "loose"));
+        else sb.Append("ABSENT");
+        sb.Append('\n');
     }
 
     /// <summary>The shader section: per shape, the block type and shader type, the decoded flag words, and the lighting

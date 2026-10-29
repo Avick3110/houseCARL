@@ -756,7 +756,24 @@ internal sealed partial class AssetLayers
 
         var outcome = NifService.Inspect(bytes);
         return new NifInspectData(rel, NifProviderFor(chosen), providers, place.Ambiguous,
-            false, outcome.Inspect, outcome.Error);
+            false, outcome.Inspect, outcome.Error, outcome.Inspect is null ? null : SlotLinks(view, outcome.Inspect));
+    }
+
+    /// <summary>Every texture slot string of a mesh through the one link-to-Data-path door, resolved against the same view the mesh was.</summary>
+    static Dictionary<string, NifSlotLink> SlotLinks(AssetResolver.AssetView view, NifInspect nif)
+    {
+        var links = new Dictionary<string, NifSlotLink>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in nif.Shapes.SelectMany(s => s.Textures))
+        {
+            if (links.ContainsKey(t.Path)) continue;
+            try
+            {
+                var data = AssetDataPath.For(t.Path, AssetLinkKind.Texture);
+                links[t.Path] = new NifSlotLink(data, view.Resolve(data), null);
+            }
+            catch (ArgumentException ex) { links[t.Path] = new NifSlotLink(null, null, ex.Message); }
+        }
+        return links;
     }
 
     /// <summary>The provider record for a CHOSEN source, carrying the off-order provenance only the copy actually read can have.</summary>
