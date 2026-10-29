@@ -71,7 +71,8 @@ public static class AssetTools
                      "('Foo - Textures.bsa'). Alone, selects every file it provides; with under= every file it provides " +
                      "beneath those selectors; with asset_paths= or formids= only those rows. Marks every row with the provider's standing: wins, shadowed by " +
                      "the winning copy, or does not provide this path. Under counts_only=true the census adds its " +
-                     "provides / wins / shadowed counts, and the winning-layers table says who shadows it. A name " +
+                     "provides / wins / shadowed counts. The standing matches by name, so an archive's copy is shadowed " +
+                     "by its own mod's loose copy; the census tables count by MO2 layer, the mod an archive belongs to. A name " +
                      "that is not in the active order is refused.")]
             string? provider = null,
         [Description("Optional. Max paths to resolve and render. 0 = no limit. to_file= ignores it and covers the " +
