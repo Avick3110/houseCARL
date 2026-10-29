@@ -256,8 +256,32 @@ public sealed class AssetProviderSelectTests : IClassFixture<AssetSelectWorld>
 
         var file = Path.Combine(_w.Root, "provider-" + Guid.NewGuid().ToString("N") + ".jsonl");
         AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, provider: "FaceBase", to_file: file);
-        var rows = File.ReadAllLines(file).Skip(1).Select(l => JsonDocument.Parse(l).RootElement).ToList();
+        var lines = File.ReadAllLines(file);
+        var rows = lines.Skip(1).Select(l => JsonDocument.Parse(l).RootElement).ToList();
         Assert.Equal(new[] { "wins", "shadowed", "wins" }, rows.Select(r => r.GetProperty("provider_standing").GetString()));
+        // The manifest's query names the provider, so a re-read of the file knows which provider the standings are of.
+        Assert.Contains("\"provider\":\"FaceBase\"", lines[0].Replace(" ", ""), StringComparison.Ordinal);
+    }
+
+    /// <summary>The provider's name is trimmed like every other selector: a pasted name with spaces round it selects
+    /// the same files.</summary>
+    [Fact]
+    public void AProviderNameWithSpacesRoundItIsTrimmed()
+    {
+        var d = Provider("  FaceBase  ");
+
+        Assert.Equal(8, d.Selected);
+        Assert.Equal("FaceBase", d.Provider);
+    }
+
+    /// <summary>A provider in the active order that ships nothing is said out loud, not answered as an empty sweep.</summary>
+    [Fact]
+    public void AProviderThatShipsNothingSaysSo()
+    {
+        var d = Provider("overwrite");
+
+        Assert.Equal(0, d.Selected);
+        Assert.Equal("provider 'overwrite' provides no file in the active load order.", Assert.Single(d.SelectorNotes!));
     }
 
     /// <summary>With no provider named, a row is the row it always was: no standing line, no standing member, and
