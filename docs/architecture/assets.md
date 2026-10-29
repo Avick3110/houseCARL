@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-24
-covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
+updated: 2026-10-29
+covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
 
@@ -25,6 +25,25 @@ Games, SkyrimCustom.ini over Skyrim.ini per key) takes the low block, each activ
 > Data map. An archive list that cannot be found is a surfaced warning, never a silent omission. The order build's
 string-table winners (`GameLanguage.Read`) take the same archive list and ranks, so a change to the winner rule here
 moves where plugin names are read from too.
+
+### Visibility
+
+Precedence decides which copy wins among files the VFS holds; visibility decides what it holds. MO2 maps the whole mod
+folder, and USVFS skips two things: a file whose name ends with a skip suffix, and anything under a folder named as a
+skip directory. `Mo2SkipRules.Shows` is that one predicate, applied to the loose layer where a path is resolved
+(`ResolveProviders`) and where a folder is walked (`EnumerateUnder`), so every consumer of either sees the same Data
+view. It is applied on the Data-relative path and not inside a directory listing, because one listing cannot see a
+`.git` segment above it.
+
+- **The lists are MO2's own**, read off `ModOrganizer.ini` (`skip_file_suffixes`, `skip_directories`) at each asset
+  build: unset keeps MO2's defaults, `.mohidden` and `.git`; `@Invalid()` or a blank value is the empty list, which
+  skips nothing; a value that is not a list keeps the default and is a build warning naming the key. An empty item is
+  dropped, since it would hide every file. Explicit-paths mode has no ini and takes the defaults.
+- **Only file names and folder names.** A folder named `x.mohidden` and Root Builder's `root\` are real VFS paths, so
+  they stay listed; archives are not filtered; the watch baseline stays the full listing, so hiding or unhiding a file
+  between two calls is seen.
+- One limit, said rather than papered over: an edit to the skip lists alone, with no mod, profile or file change
+  beside it, is read on the next asset rebuild, not the next call.
 
 **The order is injected.** `AssetResolver.Build` takes the roots, the enabled-mod priority list and the resolved
 archives with their ranks. The BSA winner is only as correct as those ranks, which the service computes; the
@@ -239,13 +258,25 @@ another mod wins, which a *fresh* folder out-ranks on enable — MO2 registers a
 priority — while an `into=` folder must also be sorted above it. `PlaceWire.WinnerLine` and `EnableAndSort` are the
 one home, because the JSON transport carries them verbatim.
 
+### From a link to a Data path
+
+A path a file names is not always Data-relative: one FaceGen NIF carries `Actors\…`, `textures\…` and
+`data\textures\…` in its slots. `AssetDataPath.For` is the one door from such a string to the Data path the game
+opens, keyed by link kind (texture, model): Mutagen's typed asset link, which drops a leading `data\` and adds the
+kind's root folder where it is missing, the same rule the record harvest takes through `DataRelativePath`. Its result
+then passes `NormalizeQueryPath`, so a rooted or `..` string is a named refusal that quotes the string, never a
+dropped link. `NormalizeQueryPath` itself is unchanged: a modder's own path is Data-relative as typed. `nif_inspect`'s
+paths section and the root-prefix hint below go through the door.
+
 ### Suggesting a root prefix
 
 A model path read off a record is stored relative to `meshes\`, so passing it verbatim returns a flat ABSENT that is
-true for the string as given. `AssetPathHint` is **verified, never guessed**: it re-resolves the prefixed candidate
-through the same view and offers it only if a real provider supplies it. The mesh lane also names the convention on
-a miss, stating that form is not provided either; the generic lane does not, because it legitimately answers for
-`sound\`, `scripts\` and `interface\`.
+true for the string as given. `AssetPathHint` is **verified, never guessed**: it maps the path through the door above
+once per root kind, re-resolves that candidate through the same view, and offers it only if a real provider supplies
+it. A root the door adds is printed as the hint always spelt it (`textures\`, not Mutagen's `Textures\`). A candidate
+that dropped a `data\` gets its own reason, which says the prefix is not part of a Data path and claims nothing about
+whether the engine reads the `data\` form. The mesh lane also names the convention on a miss, stating that form is not
+provided either; the generic lane does not, because it legitimately answers for `sound\`, `scripts\` and `interface\`.
 
 ## Pinned by
 
@@ -325,6 +356,14 @@ a miss, stating that form is not provided either; the generic lane does not, bec
 - *Archives*: `BsaPackReadBackTests.PackRefusesAScratchFromANonZeroExit` — a non-zero exit is a failed pack whatever it
   left behind; `PackRefusesAnArchiveThatCountsShort` in the same class and
   `BsaPackCountTests.ACountMismatchRefusesNamingBothNumbers` — the header count is checked against the source scan.
+- *Visibility*: `AssetVisibilityTests` — a hidden file and a `.git` folder are not listed under their folders and the
+  census does not count them; a hidden file asked by name is absent; custom suffix and directory lists replace the
+  defaults; `@Invalid()` skips nothing; an empty item hides nothing; an unreadable list keeps the default with a warning
+  naming the key; hiding and unhiding between calls is seen; a hidden folder and `root\` stay listed.
+- *From a link to a Data path*: `AssetLinkDataPathTests` — a `data\textures\…` or `data\meshes\…` path gets the
+  verified hint naming its Data form, with the `data\` reason, on `asset_status`, `nif_inspect` and `place`; a miss
+  gets none; each NIF slot's Data path answers as a direct `asset_status` call; a slot the door refuses is its own
+  error line.
 - *Suggesting a root prefix*: Pinned by `AssetPrefixHintTests` — the prefixed candidate is offered only when a real
   provider supplies it. Its non-asset-root cases (`sound\`) assert the same thing as its plain-miss cases, so it
   cannot see whether the generic lane prints the convention note: that half is not pinned.
@@ -333,7 +372,8 @@ a miss, stating that form is not provided either; the generic lane does not, bec
 
 `src/housecarl-core/AssetResolver.cs` and `ArchiveDiscovery.cs` hold the build, its precedence and the archive ranks;
 `AssetSourceSelection.cs` and `OffOrderAssetSource.cs` decide which provider a read comes from; `AssetGlob.cs` and
-`AssetLinkHarvest.cs` are the two selectors; `AssetPathHint.cs` is the root-prefix hint; `VoicePath.cs` and
+`AssetLinkHarvest.cs` are the two selectors; `Mo2SkipRules.cs` is the visibility rule (its ini read is in
+`Mo2Instance.cs`); `AssetDataPath.cs` is the link-to-Data-path door; `AssetPathHint.cs` is the root-prefix hint; `VoicePath.cs` and
 `VoiceCheck.cs` are the voice paths; `AssetRenameService.cs` is the renumber carry; `BsaArchive.cs` lists, unpacks and
 packs. `src/housecarl-mcp/AssetLayers.cs` is the service lane over all of it: the class `AssetLayers`, which the head
 builds over itself and the output instance and reaches through one-line delegators, with the SkyPatcher replay in `SkyPatcherReplay.cs`.

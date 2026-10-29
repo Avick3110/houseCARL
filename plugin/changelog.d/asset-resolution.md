@@ -1,0 +1,1 @@
+- **`asset_status` no longer lists files MO2 hides (`.mohidden`, anything under `.git`) as present, an ABSENT `data\textures\…` path names its `textures\…` form, and `nif_inspect sections=paths` shows each slot's Data path and winner.** Check: `under=["meshes/magic"]` lists no `.mohidden` row.
