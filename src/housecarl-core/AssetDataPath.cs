@@ -28,7 +28,7 @@ public static class AssetDataPath
         if (Path.IsPathRooted(path))
         {
             mapped = Rooted(path, kind);
-            why = $"a drive-rooted path names a Data path only through a Data folder with {dir} after it";
+            why = $"a drive-rooted path names a Data path only through the last data folder in it, with {dir} right after that folder";
         }
         else
         {
