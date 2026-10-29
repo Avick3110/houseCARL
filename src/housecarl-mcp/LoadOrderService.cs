@@ -565,10 +565,14 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     {
         var comp = Mo2LoadOrder.ReadComposition(_profileDir);                       // EnabledMods (priority) — cheap text parse
         var discovery = ArchiveDiscovery.Discover(comp, GameIni.For(_profileDir), _modsDir, _dataDir, _overwriteDir);
-        _assetWarnings = discovery.Warnings;
+        // Explicit mode has no ModOrganizer.ini, so MO2's default skip lists apply.
+        var (skip, skipWarnings) = _instanceDir is null
+            ? (Mo2SkipRules.Default, Array.Empty<string>())
+            : Mo2Instance.ReadSkipRules(_instanceDir);
+        _assetWarnings = skipWarnings.Count == 0 ? discovery.Warnings : discovery.Warnings.Concat(skipWarnings).ToList();
         _activeArchives = discovery.Archives;   // kept alongside the resolver: archive filename → owning plugin (native-pairing provenance)
         _enabledModsAtBuild = comp.EnabledMods; // same build: the mod set behind this resolver (native-pairing loader scan)
-        return AssetResolver.Build(_overwriteDir, _modsDir, _dataDir, comp.EnabledMods, discovery.Archives);
+        return AssetResolver.Build(_overwriteDir, _modsDir, _dataDir, comp.EnabledMods, discovery.Archives, skip);
     }
 
     /// <summary>Every asset lane's warnings: the build's own, plus the kept-build sentence when a profile change could not be re-read. Caller holds <see cref="_gate"/>.</summary>
