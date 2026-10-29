@@ -180,7 +180,8 @@ table over 326,491 paths, so the bound, not the prefix, is what keeps a sweep af
 filename it is or whose MO2 layer it names (`AssetSourceSelection.NameMatches`, the rule `source_provider=` uses), so
 a mod name covers the archives it ships, and `Data` covers the Data folder's loose files and the base-game archives
 (their owning layer is `Data`). Alone it walks the provider's whole tree; with `under=` it walks only
-beneath those selectors; beside `asset_paths=` or `formids=` alone it walks nothing and only reads those rows. A name the build does not have is refused, since it would walk nothing. Each row is
+beneath those selectors; beside `asset_paths=` or `formids=` alone it walks nothing and only reads those rows. A name that is not in the active load order (a disabled mod, an inactive archive, a typo) is refused by name, since
+it would walk nothing. Each row is
 still resolved against every root, so the provider's standing is a reading of `AssetHit.Providers`, no new
 resolution, matched by name as the walk is: **wins** when the winning copy's name matches the provider, **shadowed**
 when the provider ships a copy and the winning copy's does not (the row names that winner; an archive's copy is
