@@ -368,7 +368,7 @@ provided either; the generic lane does not, because it legitimately answers for 
   `LooseRootFilesTests.AModRootListsItsOwnTopLevelFilesWithoutCountingAWarmListing` — a hidden root file is not listed.
 - *From a link to a Data path*: `AssetLinkDataPathTests` — a `data\textures\…` or `data\meshes\…` path gets the
   verified hint naming its Data form, with the `data\` reason, on `asset_status`, `nif_inspect` and `place`; a miss
-  gets none; each NIF slot's Data path answers as a direct `asset_status` call; a slot the door refuses is its own
+  gets no hint on `asset_status`, and on a mesh tool the convention sentence names its Data form, unverified; each NIF slot's Data path answers as a direct `asset_status` call; a slot the door refuses is its own
   error line, saying why and what to give; a folder named `data` below the first segment stays in the path, a leading
   separator is dropped, and a leading or drive-rooted Data folder is still cut.
 - *Suggesting a root prefix*: Pinned by `AssetPrefixHintTests` — the prefixed candidate is offered only when a real
