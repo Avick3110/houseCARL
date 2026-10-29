@@ -14,7 +14,7 @@ internal static class AssetArtifact
     {
         "path", "formid", "slot", "exists", "winner", "winner_kind", "winner_mod", "provider_count", "providers",
         "ambiguous", "pair_path", "pair_exists", "pair_winner", "pair_winner_kind", "pair_winner_mod", "pair_differs",
-        "error",
+        "provider_standing", "error",
     };
 
     /// <summary>Write the artifact for one resolution: the spill to render, or a named error the caller renders
@@ -26,7 +26,7 @@ internal static class AssetArtifact
                                                            string? noEpochBecause = null)
     {
         using var writer = new ResultArtifact.Writer();
-        foreach (var r in d.Results) writer.WriteRow((w, _) => Row(w, r));
+        foreach (var r in d.Results) writer.WriteRow((w, _) => Row(w, r, d.StandingOf(r.Hit)));
 
         var notes = new List<string>
         {
@@ -78,8 +78,7 @@ internal static class AssetArtifact
         if (json) return JsonWire.RenderAssetStatusManifestOnly(d, spill, cap);
 
         var sb = new StringBuilder();
-        sb.Append("asset status — profile '").Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
-          .Append("'  (").Append(d.Selected).Append(" path").Append(d.Selected == 1 ? "" : "s").Append(" selected)\n");
+        sb.Append(AssetWire.Header(d)).Append('\n');
         // The alarms an ABSENT row in the FILE depends on, rendered whatever the budget: the file carries no place to state them.
         var room = RenderCap.For(cap, 0);
         BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
@@ -96,7 +95,7 @@ internal static class AssetArtifact
 
     /// <summary>One row, every column present so a consumer can index by name — except <c>error</c>, written ONLY on
     /// a failed row, because its presence is the artifact contract's marker for a row that names no identity.</summary>
-    static void Row(Utf8JsonWriter w, AssetPathResult r)
+    static void Row(Utf8JsonWriter w, AssetPathResult r, ProviderStanding? standing)
     {
         w.WriteStartObject();
         w.WriteString("path", r.RelPath);
@@ -109,6 +108,7 @@ internal static class AssetArtifact
             w.WriteNull("provider_count"); w.WriteNull("providers"); w.WriteNull("ambiguous");
             w.WriteNull("pair_path"); w.WriteNull("pair_exists"); w.WriteNull("pair_winner");
             w.WriteNull("pair_winner_kind"); w.WriteNull("pair_winner_mod"); w.WriteNull("pair_differs");
+            w.WriteNull("provider_standing");
             w.WriteString("error", r.Error);
             w.WriteEndObject();
             return;
@@ -148,6 +148,8 @@ internal static class AssetArtifact
             w.WriteNull("pair_exists"); w.WriteNull("pair_winner"); w.WriteNull("pair_winner_kind");
             w.WriteNull("pair_winner_mod"); w.WriteNull("pair_differs");
         }
+        // Null unless the call named a provider=.
+        Str(w, "provider_standing", standing?.Token());
         w.WriteEndObject();
     }
 

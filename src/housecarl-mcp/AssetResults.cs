@@ -22,7 +22,7 @@ public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Erro
 /// <summary>One entry of <c>asset_status</c>'s <c>formids=</c> SELECT: the caller's raw token, the FormKey it parsed to, or the sentence to report instead. A malformed token is ONE error row, never a failed call.</summary>
 public sealed record FaceGenSeed(string Token, FormKey? Key, string? Error);
 
-/// <summary>The data behind housecarl_asset_status: one <see cref="AssetPathResult"/> per queried path, the build-level caveats that make an Exists=false answer provisional, what each <c>under=</c> selector had to say, the paging window (a negative <see cref="Total"/> means nothing paged), and <see cref="BoundRefusal"/>, the declared-cost refusal under which nothing was resolved and no other member carries an answer.</summary>
+/// <summary>The data behind housecarl_asset_status: one <see cref="AssetPathResult"/> per queried path, the build-level caveats that make an Exists=false answer provisional, what each <c>under=</c> selector had to say, the paging window (a negative <see cref="Total"/> means nothing paged), <see cref="Refusal"/>, the declared-cost or unknown-provider refusal under which nothing was resolved and no other member carries an answer, and the <see cref="Provider"/> every row is read against.</summary>
 public sealed record AssetStatusData(
     IReadOnlyList<AssetPathResult> Results,
     IReadOnlyList<string> BsaFailures,
@@ -35,10 +35,34 @@ public sealed record AssetStatusData(
     int Total = -1,
     int Offset = 0,
     int Limit = 0,
-    string? BoundRefusal = null)
+    string? Refusal = null,
+    string? Provider = null)
 {
     /// <summary>How many paths the selection named — <see cref="Results"/>'s own count when nothing paged.</summary>
     public int Selected => Total < 0 ? Results.Count : Total;
+
+    /// <summary>Where <see cref="Provider"/> stands on one resolved path; null when no provider was named or the row has no resolution.</summary>
+    public ProviderStanding? StandingOf(AssetHit? hit)
+    {
+        if (Provider is not { } name || hit is null) return null;
+        bool Named(AssetProvider p) => AssetSourceSelection.NameMatches(p.Source, p.OwningMod, name);
+        if (!hit.Providers.Any(Named)) return ProviderStanding.NotProvided;
+        return Named(hit.Winner!) ? ProviderStanding.Wins : ProviderStanding.Shadowed;
+    }
+}
+
+/// <summary>A named provider's standing on one path: its copy wins, another layer's copy wins over it, or it ships no copy.</summary>
+public enum ProviderStanding { Wins, Shadowed, NotProvided }
+
+internal static class ProviderStandings
+{
+    /// <summary>The machine token both the json row and the artifact column carry.</summary>
+    internal static string Token(this ProviderStanding s) => s switch
+    {
+        ProviderStanding.Wins => "wins",
+        ProviderStanding.Shadowed => "shadowed",
+        _ => "not_provided",
+    };
 }
 
 /// <summary>One provider of an SKSE-layer file: the mod, "overwrite", "Data" or BSA filename, and whether it is a "loose" file or a "BSA" entry.</summary>

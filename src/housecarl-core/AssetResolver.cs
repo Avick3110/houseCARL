@@ -412,7 +412,19 @@ public sealed class AssetResolver : IDisposable
     IReadOnlyCollection<string> EnumerateUnder(string prefix, Snapshot snap)
         => EnumerateUnder(prefix, snap, null, 0, out _);
 
-    IReadOnlyCollection<string> EnumerateUnder(string prefix, Snapshot snap, Func<string, bool>? keep, int max, out bool stopped)
+    /// <summary>Is <paramref name="name"/> a provider this build has: a loose root's name, an active archive's
+    /// filename, or the MO2 layer an active archive lives in — the names <see cref="AssetSourceSelection.NameMatches(string, string?, string)"/> accepts.</summary>
+    public bool HasProvider(string name)
+    {
+        foreach (var (rootName, _) in _looseRoots)
+            if (string.Equals(rootName, name, StringComparison.OrdinalIgnoreCase)) return true;
+        foreach (var a in _archives)
+            if (AssetSourceSelection.NameMatches(Path.GetFileName(a.Path), a.OwningMod, name)) return true;
+        return false;
+    }
+
+    IReadOnlyCollection<string> EnumerateUnder(string prefix, Snapshot snap, Func<string, bool>? keep, int max, out bool stopped,
+                                               string? provider = null)
     {
         stopped = false;
         var pre = NormalizeQueryPath(prefix).TrimEnd('\\');      // drive-root / '..' rejected loud, backslash-normalized
@@ -425,6 +437,8 @@ public sealed class AssetResolver : IDisposable
         // loose: recurse each root's copy of the prefix dir (set-UNION across roots — the per-path winner is decided later).
         foreach (var (rootName, rootDir) in _looseRoots)
         {
+            // A named provider walks its own root only; the winner is still decided later, against every root.
+            if (provider is not null && !string.Equals(rootName, provider, StringComparison.OrdinalIgnoreCase)) continue;
             var baseDir = Path.Combine(rootDir, pre);
             // A "not there" is only an absence when it can be proved one; unreadable is named inside.
             if (!Directory.Exists(baseDir)) { AbsenceIsReal(rootName, rootDir, pre, baseDir, snap); continue; }
@@ -448,7 +462,10 @@ public sealed class AssetResolver : IDisposable
         }
 
         // BSA: every table entry under the prefix (the cached tables ARE the authoritative archive listing, zero handle at rest).
-        foreach (var t in snap.Tables.Values)
+        foreach (var a in _archives)
+        {
+            if (provider is not null && !AssetSourceSelection.NameMatches(Path.GetFileName(a.Path), a.OwningMod, provider)) continue;
+            if (!snap.Tables.TryGetValue(a.Path, out var t)) continue;
             foreach (var entry in t)
                 if (entry.StartsWith(withSep, StringComparison.OrdinalIgnoreCase))
                 {
@@ -456,6 +473,7 @@ public sealed class AssetResolver : IDisposable
                     Take(withSep + entry.Substring(withSep.Length));
                     if (Full()) { stopped = true; return found; }
                 }
+        }
 
         return found;
     }
@@ -510,6 +528,12 @@ public sealed class AssetResolver : IDisposable
 
         public IReadOnlyCollection<string> EnumerateUnder(string prefix, Func<string, bool>? keep, int max, out bool stopped)
             => _r.EnumerateUnder(prefix, _s, keep, max, out stopped);
+
+        /// <summary>As above, over ONE provider's own files: its loose root, and the active archives it names or owns.</summary>
+        public IReadOnlyCollection<string> EnumerateUnder(string prefix, Func<string, bool>? keep, int max, out bool stopped, string? provider)
+            => _r.EnumerateUnder(prefix, _s, keep, max, out stopped, provider);
+
+        public bool HasProvider(string name) => _r.HasProvider(name);
     }
 
     /// <summary>Re-read the inputs — the active archives and every directory the warmed loose subtrees put under

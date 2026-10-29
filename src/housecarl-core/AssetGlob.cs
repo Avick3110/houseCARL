@@ -42,7 +42,7 @@ public static class AssetGlob
         };
     }
 
-    /// <summary>Every Data-relative path the selector names, sorted. Throws ArgumentException for a drive-rooted, parent-escaping or unanchored selector.</summary>
+    /// <summary>Every Data-relative path the selector names, sorted. Throws ArgumentException for a drive-rooted or parent-escaping selector.</summary>
     public static IReadOnlyList<string> Select(AssetResolver.AssetView view, string selector) =>
         Select(view, selector, out _);
 
@@ -51,33 +51,31 @@ public static class AssetGlob
         => Select(view, selector, out namedOneFile, 0, out _);
 
     /// <summary>As above, with the enumeration BOUNDED: the walk stops at <paramref name="max"/> MATCHES and says so
-    /// through <paramref name="stopped"/>, so a narrow glob under a wide prefix is never refused for the prefix.</summary>
+    /// through <paramref name="stopped"/>, so a narrow glob under a wide prefix is never refused for the prefix. A
+    /// selector with no literal directory ('**/*goldbrand*') walks from the Data root under the same bound.
+    /// <paramref name="provider"/> narrows the walk to the files that one provider ships.</summary>
     public static IReadOnlyList<string> Select(AssetResolver.AssetView view, string selector, out bool namedOneFile,
-                                               int max, out bool stopped)
+                                               int max, out bool stopped, string? provider = null)
     {
         namedOneFile = false;
         stopped = false;
         var norm = AssetResolver.ValidateRelPath(selector).TrimEnd('\\');
-        var prefix = LiteralPrefix(norm);
-        // A selector with no literal directory would enumerate the whole VFS before a path rendered. Tested on the
-        // PREFIX, not on the presence of a wildcard: "/", "\" and "//" sweep exactly as wide as an unanchored glob.
-        if (prefix.Length == 0)
-            throw new ArgumentException(
-                "under has to be anchored under a directory, or it sweeps the whole load order — " +
-                $"name a folder, e.g. 'meshes/actors/character' or 'meshes/actors/character/**/*.nif': '{selector}'");
 
         if (!HasWildcard(norm))
         {
-            var beneath = Sorted(view.EnumerateUnder(norm, null, max, out stopped));
-            if (beneath.Count > 0) return beneath;
+            var beneath = Sorted(view.EnumerateUnder(norm, null, max, out stopped, provider));
+            if (beneath.Count > 0 || norm.Length == 0) return beneath;
             // Nothing beneath it, but the string may BE a file the load order provides — a path pasted into under=.
             // One resolve, only on the empty branch, so the ordinary folder sweep pays nothing for it.
-            if (view.Resolve(norm).Exists) { namedOneFile = true; return new[] { norm }; }
+            var hit = view.Resolve(norm);
+            if (hit.Exists && (provider is null
+                               || hit.Providers.Any(p => AssetSourceSelection.NameMatches(p.Source, p.OwningMod, provider))))
+            { namedOneFile = true; return new[] { norm }; }
             return beneath;
         }
 
         var rx = ToRegex(norm);                                  // compiled ONCE, not per candidate path
-        return Sorted(view.EnumerateUnder(prefix, p => rx.IsMatch(p), max, out stopped));
+        return Sorted(view.EnumerateUnder(LiteralPrefix(norm), p => rx.IsMatch(p), max, out stopped, provider));
     }
 
     static IReadOnlyList<string> Sorted(IEnumerable<string> paths) =>

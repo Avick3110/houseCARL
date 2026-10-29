@@ -2834,6 +2834,7 @@ static class JsonWire
         {
             w.WriteStartObject();
             w.WriteString("profile", d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)");
+            if (d.Provider is { } provider) w.WriteString("provider", provider);
             // The caveats lead, as in the text render: an ABSENT below is authoritative only when both are empty.
             w.WriteBoolean("read_incomplete", d.ReadIncomplete);
             int caveatsOmitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, budget)
@@ -2848,7 +2849,8 @@ static class JsonWire
             {
                 // rendered > 0: the FIRST row always renders its core answer, as BatchRender does on the text lane.
                 if (rendered > 0 && Over(w, ms, budget)) break;
-                WriteAssetRow(w, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.RootFailures.Count > 0);
+                WriteAssetRow(w, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.RootFailures.Count > 0,
+                              d.StandingOf(r.Hit));
                 rendered++;
             }
             w.WriteEndArray();
@@ -2890,8 +2892,9 @@ static class JsonWire
             WriteCensusCounters(w, c);
             // The layer table through the shared axis: the frame is reserved before its rows are offered to it.
             var body = new BoundedBody(acct: null, budget: budget, () => Size(w, ms));
-            WriteHistogramAxes(w, body, AssetCensus.RowLimit(limit), AssetCensus.Axis(c));
-            w.WriteBoolean("truncated", omitted > 0 || body.Stopped(SweepSubject.AssetWinnerRows));
+            WriteHistogramAxes(w, body, AssetCensus.RowLimit(limit), AssetCensus.Axes(c));
+            w.WriteBoolean("truncated", omitted > 0 || body.Stopped(SweepSubject.AssetWinnerRows)
+                                        || body.Stopped(SweepSubject.AssetShadowedRows));
             WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
@@ -2907,6 +2910,15 @@ static class JsonWire
         w.WriteNumber("errors", c.Errors);
         w.WriteNumber("loose", c.Loose);
         w.WriteNumber("bsa", c.Bsa);
+        if (c.Named is { } n)
+        {
+            w.WriteStartObject("provider");
+            w.WriteString("name", n.Name);
+            w.WriteNumber("provides", n.Provides);
+            w.WriteNumber("wins", n.Wins);
+            w.WriteNumber("shadowed", n.Shadowed);
+            w.WriteEndObject();
+        }
     }
 
     /// <summary>What the census document carries whatever the budget says: the counters, the axis frame and the
@@ -2926,7 +2938,7 @@ static class JsonWire
             w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
             WriteCensusCounters(w, c);
             // Read at the same depth the render writes the axis at, so the two measure one object.
-            frame = HistogramFrameCostFor(AssetCensus.Axis(c), new JsonUnitDepths(w.CurrentDepth).AxisFrame);
+            frame = AssetCensus.Axes(c).Sum(a => HistogramFrameCostFor(a, new JsonUnitDepths(w.CurrentDepth).AxisFrame));
             w.WriteBoolean("truncated", true);
             w.WriteEndObject();
         }
@@ -3007,7 +3019,7 @@ static class JsonWire
         d.RootFailures.Count == 0 ? 0 : WriteCappedStringArray(w, ms, "root_failures", d.RootFailures, budget);
 
     static void WriteAssetRow(Utf8JsonWriter w, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete,
-                              bool rootIncomplete)
+                              bool rootIncomplete, ProviderStanding? standing)
     {
         w.WriteStartObject();
         w.WriteString("path", r.RelPath);
@@ -3029,6 +3041,8 @@ static class JsonWire
         foreach (var p in hit.Providers) WriteAssetProvider(w, null, p);
         w.WriteEndArray();
         w.WriteBoolean("ambiguous", hit.Ambiguous);
+        // On a provider= call only, so a plain row is byte-for-byte the document it always was.
+        if (standing is { } st) w.WriteString("provider_standing", st.Token());
         // On a formids= row only: the OWNER the pair's `differs` verdict is decided on, not the bare OwningMod.
         if (r.FormId is not null)
             WriteNullable(w, "winner_mod", hit.Winner is { } owner ? AssetPathResult.Owner(owner) : null);
@@ -3314,6 +3328,7 @@ static class JsonWire
         SweepSubject.FaceGenClassRows => "facegen_by_class",
         SweepSubject.FaceGenModRows => "facegen_by_owning_mod",
         SweepSubject.AssetWinnerRows => "winners_by_layer",
+        SweepSubject.AssetShadowedRows => "shadowed_by_layer",
         _ => s.ToString(),
     };
 }
