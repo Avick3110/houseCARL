@@ -131,6 +131,15 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.DoesNotContain("Data root only", note, StringComparison.Ordinal);
     }
 
+    /// <summary>A bare filename that lives in a subfolder matches nothing at the Data root, and the note names the '**/' form.</summary>
+    [Fact]
+    public void ABareFilenameThatMatchesNothingNamesTheEveryFolderForm()
+    {
+        var note = Assert.Single(_w.Svc.AssetStatus(Array.Empty<string>(), new[] { "0004.nif" }).SelectorNotes!);
+
+        Assert.Contains("'**/0004.nif' finds it in every folder", note, StringComparison.Ordinal);
+    }
+
     /// <summary>Explicit paths and a directory compose in one call: the paths keep their place and their order, and the
     /// sweep does not repeat one it already named.</summary>
     [Fact]
