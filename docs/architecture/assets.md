@@ -181,8 +181,9 @@ filename it is or whose MO2 layer it names (`AssetSourceSelection.NameMatches`, 
 a mod name covers the archives it ships. Alone it walks the provider's whole tree; with `under=` it walks only
 beneath those selectors; beside `asset_paths=` or `formids=` alone it walks nothing and only reads those rows. A name the build does not have is refused, since it would walk nothing. Each row is
 still resolved against every root, so the provider's standing is a reading of `AssetHit.Providers`, no new
-resolution: **wins** when the winner is the provider's, **shadowed** when the provider ships a copy another layer
-wins over (the row names that winner), **not provided** for an explicit path it does not ship. The standing rides the
+resolution, matched by name as the walk is: **wins** when the winning copy's name matches the provider, **shadowed**
+when the provider ships a copy and the winning copy's does not (the row names that winner; an archive's copy is
+shadowed by its own mod's loose copy), **not provided** for an explicit path it does not ship. The standing rides the
 text row as one line, the json row as `provider_standing`, and the artifact as a `provider_standing` column (null with
 no provider). A mod's `.bsa` files are themselves loose files in its folder, and MO2 maps them into Data, so they are
 part of what the mod provides.
@@ -190,7 +191,7 @@ part of what the mod provides.
 The `counts_only=` census has two layer tables: the layers that **win** paths and the layers that ship a copy another
 layer wins over (**shadowed**), each layer counted once per path, so a mod's loose copy beside its own archive's copy
 is one layer that wins. What a layer provides is its winning count plus its shadowed count. With `provider=` the
-census adds `provides / wins / shadowed` for that provider, and the winning-layers table names who shadows it.
+census adds `provides / wins / shadowed` for that provider; the tables count by MO2 layer, not by provider name.
 
 `bsa_list` and `bsa_extract` `under=` use the same grammar through `AssetGlob.Matcher`, over one archive's own
 listing. Neither bound applies there: the listing is already finite and already read, so an unanchored selector is
