@@ -80,6 +80,25 @@ public sealed class AssetVisibilityTests : IDisposable
         Assert.True(Exists(svc, Shown));
     }
 
+    // Unchanged: USVFS filters loose files only, so an archive's hidden-looking entry is still read.
+    [Fact]
+    public void AnArchiveEntryWithASkipNameIsStillPresent()
+    {
+        using var p = new PlaceInstance();
+        var body = HousecarlGenerator.BsaBuilder.Bytes("VIS", 8);
+        File.WriteAllBytes(Path.Combine(p.Mod("ArchHost"), "Dummy.bsa"), HousecarlGenerator.BsaBuilder.Build(105,
+            HousecarlGenerator.BsaBuilder.HasFolderNames | HousecarlGenerator.BsaBuilder.HasFileNames, new[]
+            {
+                (Path.GetDirectoryName(Hidden)!, new[] { (Path.GetFileName(Hidden), body) }),
+                (".git", new[] { ("HEAD", body) }),
+            }));
+        p.ProfileWithDummy("ArchHost", "+ArchHost");
+        var svc = p.Open();
+
+        Assert.True(Exists(svc, Hidden));
+        Assert.True(Exists(svc, GitHead));
+    }
+
     [Fact]
     public void ExplicitPathsModeHidesWhatMO2HidesByDefault()
     {
