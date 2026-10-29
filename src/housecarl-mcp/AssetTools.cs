@@ -24,7 +24,8 @@ public static class AssetTools
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
          "counts only the window, except under to_file= and counts_only=, which resolve the whole selection. A loose " +
-         "file MO2 hides (a .mohidden name, anything under .git, or the instance's own skip lists) is not in the VFS and " +
+         "file MO2 hides (by default a .mohidden name or anything under .git; a skip list the instance sets replaces that " +
+         "default) is not in the VFS and " +
          "answers absent. " +
          "Read-only.")]
     public static string AssetStatus(
