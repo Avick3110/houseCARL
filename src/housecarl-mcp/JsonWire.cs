@@ -2873,8 +2873,10 @@ static class JsonWire
     {
         int cap = Wire.Cap(maxChars);
         var c = AssetCensus.Tally(d);
-        // What this document writes whatever the budget says comes out of max_chars before the caveats.
-        int budget = Math.Max(cap - AssetCensusFixedReserve(d, c), 1);
+        // What this document writes whatever the budget says comes out of max_chars before the caveats, and the axis
+        // frames too; the axes, written after the counters, owe only the trailing flag and reserve their frames themselves.
+        int caveatBudget = Math.Max(cap - AssetCensusFixedReserve(d, c, out int frame, out int tail) - frame, 1);
+        int budget = Math.Max(cap - tail, 1);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -2882,11 +2884,11 @@ static class JsonWire
             w.WriteString("profile", d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)");
             // The caveats lead here too: an absent= count is authoritative only where both are empty.
             w.WriteBoolean("read_incomplete", d.ReadIncomplete);
-            int omitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, budget)
-                        + RootFailuresJson(w, ms, d, budget)
-                        + WriteCappedStringArray(w, ms, "warnings", d.Warnings, budget);
+            int omitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, caveatBudget)
+                        + RootFailuresJson(w, ms, d, caveatBudget)
+                        + WriteCappedStringArray(w, ms, "warnings", d.Warnings, caveatBudget);
             if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
-            else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, budget);
+            else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, caveatBudget);
 
             WriteCensusCounters(w, c);
             // The layer table through the shared axis: the frame is reserved before its rows are offered to it.
@@ -2919,11 +2921,11 @@ static class JsonWire
         }
     }
 
-    /// <summary>What the census document carries whatever the budget says: the counters, the axis frame and the
-    /// trailing flag, measured under the response's own writer options at the depth they are written.</summary>
-    static int AssetCensusFixedReserve(AssetStatusData d, AssetCensus.Counts c)
+    /// <summary>What the census document carries whatever the budget says: the counters and the trailing flag, measured
+    /// under the response's own writer options at the depth they are written; <paramref name="frame"/> is the axis
+    /// frames, <paramref name="tail"/> the trailing flag alone.</summary>
+    static int AssetCensusFixedReserve(AssetStatusData d, AssetCensus.Counts c, out int frame, out int tail)
     {
-        int frame;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -2936,11 +2938,30 @@ static class JsonWire
             w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
             WriteCensusCounters(w, c);
             // Read at the same depth the render writes the axis at, so the two measure one object.
-            frame = AssetCensus.Axes(c).Sum(a => HistogramFrameCostFor(a, new JsonUnitDepths(w.CurrentDepth).AxisFrame));
+            var depths = new JsonUnitDepths(w.CurrentDepth);
+            frame = AssetCensus.Axes(c).Sum(a => HistogramFrameCostFor(a, depths.AxisFrame));
+            int before = Size(w, ms);
             w.WriteBoolean("truncated", true);
             w.WriteEndObject();
+            // The frame is measured with an empty rows array; one that holds a row closes on its own line, and only the
+            // axis being written has that line still to come.
+            tail = Size(w, ms) - before + (AssetCensus.Axes(c).Any(a => a.Rows is { Count: > 0 }) ? RowsCloseLine(depths) : 0);
         }
-        return Chars(ms) + frame;
+        return Chars(ms);
+    }
+
+    /// <summary>What an axis's rows array costs to close once it holds a row, beyond the empty array its frame measures.</summary>
+    static int RowsCloseLine(JsonUnitDepths depths)
+    {
+        int Axis(bool withRow) => MeasureMember(depths.AxisFrame, w =>
+        {
+            w.WriteStartObject("a");
+            w.WriteStartArray("rows");
+            if (withRow) w.WriteNullValue();
+            w.WriteEndArray();
+            w.WriteEndObject();
+        });
+        return Axis(true) - Axis(false) - MeasureUnit(depths.HistogramRows, false, w => w.WriteNullValue());
     }
 
     /// <summary>The <c>to_file=</c> twin of <see cref="RenderAssetStatus"/>: the caveats an ABSENT row in the FILE

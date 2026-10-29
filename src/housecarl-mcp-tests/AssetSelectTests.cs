@@ -528,17 +528,42 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
     [Fact]
     public void TheJsonCensusFitsTheMaxCharsItWasGiven()
     {
-        const int Cap = 1_500;
-        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
-                                          counts_only: true, format: "json", max_chars: Cap);
+        string Census(int cap) => AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                                         counts_only: true, format: "json", max_chars: cap);
+        // At 1300 the winning rows render that main rendered there.
+        var whole = Census(1_300);
+        Assert.True(whole.Length <= 1_300, $"the census document is {whole.Length} chars on max_chars=1300");
+        Assert.True(System.Text.Json.JsonDocument.Parse(whole).RootElement
+                        .GetProperty("winners_by_layer").GetProperty("rendered").GetInt32() >= 2);
 
+        // A real cut: some rows in, the rest disclosed by the axis's own frame, and the document still inside the cap.
+        const int Cap = 1_075;
+        var text = Census(Cap);
         var root = System.Text.Json.JsonDocument.Parse(text).RootElement;
-        // A real cut: some rows in, the rest disclosed by the axis's own frame.
         Assert.Equal(3, root.GetProperty("winners_by_layer").GetProperty("distinct").GetInt32());
         Assert.Equal(2, root.GetProperty("winners_by_layer").GetProperty("rendered").GetInt32());
         Assert.Equal("max_chars", root.GetProperty("winners_by_layer").GetProperty("cut_by").GetString());
         Assert.True(root.GetProperty("truncated").GetBoolean());
         Assert.True(text.Length <= Cap, $"the census document is {text.Length} chars on max_chars={Cap}");
+        // Every cap from where the fixed part fits up to the whole document stays inside it.
+        for (int cap = 960; cap <= Census(0).Length; cap++)
+            Assert.True(Census(cap).Length <= cap, $"the census document overran max_chars={cap}");
+    }
+
+    /// <summary>At a cap the whole json census fits in, every row of both axes renders and nothing is cut: the counters
+    /// and axis frames are charged once. The few chars of slack are the frame's widest-member reserve.</summary>
+    [Fact]
+    public void TheJsonCensusRendersWholeAtTheCapItFitsIn()
+    {
+        string Census(int cap) => AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                                         counts_only: true, format: "json", max_chars: cap);
+        int cap = Census(0).Length + 16;
+
+        var root = System.Text.Json.JsonDocument.Parse(Census(cap)).RootElement;
+        Assert.False(root.GetProperty("truncated").GetBoolean());
+        foreach (var axis in new[] { "winners_by_layer", "shadowed_by_layer" })
+            Assert.Equal(root.GetProperty(axis).GetProperty("distinct").GetInt32(),
+                         root.GetProperty(axis).GetProperty("rendered").GetInt32());
     }
 
     /// <summary>counts_only= and to_file= ask for opposite dispositions of the same result, so the pair is refused
