@@ -2923,7 +2923,7 @@ static class JsonWire
 
     /// <summary>What the census document carries whatever the budget says: the counters and the trailing flag, measured
     /// under the response's own writer options at the depth they are written; <paramref name="frame"/> is the axis
-    /// frames, <paramref name="tail"/> the trailing flag alone.</summary>
+    /// frames, <paramref name="tail"/> what the axes still owe once written: the trailing flag and one rows array's closing line.</summary>
     static int AssetCensusFixedReserve(AssetStatusData d, AssetCensus.Counts c, out int frame, out int tail)
     {
         using var ms = new CharCountedStream();
