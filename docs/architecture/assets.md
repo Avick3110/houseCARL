@@ -31,8 +31,8 @@ moves where plugin names are read from too.
 Precedence decides which copy wins among files the VFS holds; visibility decides what it holds. MO2 maps the whole mod
 folder, and USVFS skips two things: a file whose name ends with a skip suffix, and anything under a folder named as a
 skip directory. `Mo2SkipRules.Shows` is that one predicate, applied to the loose layer where a path is resolved
-(`ResolveProviders`) and where a folder is walked (`EnumerateUnder`), so every consumer of either sees the same Data
-view. It is applied on the Data-relative path and not inside a directory listing, because one listing cannot see a
+(`ResolveProviders`), where a folder is walked (`EnumerateUnder`) and where a root's top-level files are listed
+(`LooseRootFiles`), so every consumer of any of them sees the same Data view. It is applied on the Data-relative path and not inside a directory listing, because one listing cannot see a
 `.git` segment above it.
 
 - **The lists are MO2's own**, read off `ModOrganizer.ini` (`skip_file_suffixes`, `skip_directories`) at each asset
@@ -359,7 +359,8 @@ provided either; the generic lane does not, because it legitimately answers for 
 - *Visibility*: `AssetVisibilityTests` — a hidden file and a `.git` folder are not listed under their folders and the
   census does not count them; a hidden file asked by name is absent; custom suffix and directory lists replace the
   defaults; `@Invalid()` skips nothing; an empty item hides nothing; an unreadable list keeps the default with a warning
-  naming the key; hiding and unhiding between calls is seen; a hidden folder and `root\` stay listed.
+  naming the key; hiding and unhiding between calls is seen; a hidden folder and `root\` stay listed;
+  `LooseRootFilesTests.AModRootListsItsOwnTopLevelFilesWithoutCountingAWarmListing` — a hidden root file is not listed.
 - *From a link to a Data path*: `AssetLinkDataPathTests` — a `data\textures\…` or `data\meshes\…` path gets the
   verified hint naming its Data form, with the `data\` reason, on `asset_status`, `nif_inspect` and `place`; a miss
   gets none; each NIF slot's Data path answers as a direct `asset_status` call; a slot the door refuses is its own
