@@ -22,7 +22,7 @@ public static class AssetTools
          "BSAs and MO2's priority; for SKSE plugins, which load only loose at the top level, use housecarl_skse. " +
          "Select with asset_paths=, under= (a folder, or a glob: 'meshes/**/*fur*.nif'; '**/*goldbrand*' finds a " +
          "name in every folder), formids= (NPC FaceGen pairs) and provider= (alone, every file one mod or archive " +
-         "ships; with under=, only its files beneath those; beside asset_paths= or formids=, only those rows), each row marked " +
+         "ships; with under=, only its files beneath those; beside asset_paths= or formids= with no under=, only those rows; with under= too, both), each row marked " +
          "wins, shadowed by the winner, or not provided. An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
@@ -70,7 +70,7 @@ public static class AssetTools
                      "files and the active archives it ships), 'overwrite', 'Data' (the game's Data folder: its loose " +
                      "files and the base-game archives), or one archive's filename " +
                      "('Foo - Textures.bsa'). Alone, selects every file it provides; with under= every file it provides " +
-                     "beneath those selectors; with asset_paths= or formids= only those rows. Marks every row with the provider's standing: wins, shadowed by " +
+                     "beneath those selectors; with asset_paths= or formids= those rows too, and with no under= only those rows. Marks every row with the provider's standing: wins, shadowed by " +
                      "the winning copy, or does not provide this path. Under counts_only=true the census adds its " +
                      "provides / wins / shadowed counts. The standing matches by name, so an archive's copy is shadowed " +
                      "by its own mod's loose copy; the census tables count by MO2 layer, the mod an archive belongs to. A name " +
