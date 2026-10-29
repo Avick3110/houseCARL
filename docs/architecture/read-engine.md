@@ -81,9 +81,10 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
   narrow `fields=`, which is the remedy for a read fault or the cap. A no-field note on one side only
   stays a line and is a shape difference. A planned `(not on Type)` path is neither: it is not
   compared and not counted as no-field (`NotOnType`). Json names it on every delta row and tree
-  node that has one (`not_on_type`); text names it per row only on a row with no differences (the agreement
-  phrase, or the nothing-compared line), and a text row with differences leaves it to the call's
-  one note. The planned-lacking path does not make a row incomplete: a row is complete only when it is
+  node that has one (`not_on_type`); text names it per row only on a complete row with no delta lines (the
+  agreement phrase) and on a nothing-compared row (its line); a row with any delta line (a value
+  difference, UNREADABLE or NO FIELD) or a capped row (its TRUNCATED line) leaves it to the call's one
+  note. The planned-lacking path does not make a row incomplete: a row is complete only when it is
   not capped and has no no-verdict, and a complete row names the path in the agreement phrase as not
   compared ("ArmorRating (not on Weapon) not compared"). An absent-on-both, unresolved-string or
   present-null path is a compared state, so a row whose only other path is one of those is complete
