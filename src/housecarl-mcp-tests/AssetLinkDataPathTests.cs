@@ -127,7 +127,8 @@ public sealed class AssetLinkDataPathTests : IDisposable
     {
         var text = PathsSection();
 
-        Assert.Contains(": " + Slots[8] + "\n      data path: none — '" + Slots[8] + "'", text, StringComparison.Ordinal);
+        Assert.Contains(": " + Slots[8] + "\n      data path: none — '" + Slots[8] + "' names no texture Data path: it has a '..' segment, "
+            + @"or one of only dots or spaces. Give the path from textures\ on, as it sits under Data.", text, StringComparison.Ordinal);
     }
 
     [Fact]
