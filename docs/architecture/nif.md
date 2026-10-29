@@ -86,12 +86,12 @@ rather than a best guess. The index is always printed beside the name, because t
 `texture_slot=` takes.
 
 A slot string is printed as the NIF spells it, and in the `paths` section a `data path:` line under it gives the Data
-path that string names and its winner, resolved against the same view the mesh was. The mapping is the asset layer's
-one door from a link to a Data path ([assets.md](assets.md), From a link to a Data path), so a FaceGen head's three
-forms (`Actors\…`, `textures\…`, `data\textures\…`) name the winner a direct `asset_status` call on the mapped path
-names. A miss is a bare `ABSENT`: none of `asset_status`'s per-path hedges rides it, so an unread archive or an unlisted
-root is named only in the header's notes. A string the door refuses is its own `data path: none` line naming the slot string. The `shapes` section keeps the raw
-string only, and `nif_set` writes the string it is given (Pinned by: `AssetLinkDataPathTests`).
+path that string names and its winner in the load order, even when `source_provider=` reads the mesh from a named
+mod. The mapping is the asset layer's one door from a link to a Data path ([assets.md](assets.md), From a link to a
+Data path), so a FaceGen head's three forms (`Actors\…`, `textures\…`, `data\textures\…`) name the winner a direct
+`asset_status` call on the mapped path names. A miss is a bare `ABSENT`: none of `asset_status`'s per-path hedges rides
+it, so an unread archive or an unlisted root is named only in the header's notes. A string the door refuses is its own
+`data path: none` line naming the slot string. The `shapes` section keeps the raw string only, and `nif_set` writes the string it is given (Pinned by: `AssetLinkDataPathTests`).
 
 An `INiShader` widening is narrowed back on read: emissive is a Color3 on disk and the interface widens it to Color4,
 so the fourth component is a synthetic 0 that would render as a fully transparent emissive. RGB only, on read, on

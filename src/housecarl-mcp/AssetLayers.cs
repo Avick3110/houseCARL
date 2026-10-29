@@ -760,7 +760,7 @@ internal sealed partial class AssetLayers
             false, outcome.Inspect, outcome.Error, slotLinks && outcome.Inspect is not null ? SlotLinks(view, outcome.Inspect) : null);
     }
 
-    /// <summary>Every texture slot string of a mesh through the one link-to-Data-path door, resolved against the same view the mesh was.</summary>
+    /// <summary>Every texture slot string of a mesh through the one link-to-Data-path door, resolved against the load order whatever source the mesh was read from.</summary>
     static Dictionary<string, NifSlotLink> SlotLinks(AssetResolver.AssetView view, NifInspect nif)
     {
         var links = new Dictionary<string, NifSlotLink>(StringComparer.OrdinalIgnoreCase);
