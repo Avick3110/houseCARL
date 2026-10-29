@@ -64,7 +64,7 @@ public static class AssetGlob
         if (!HasWildcard(norm))
         {
             var beneath = Sorted(view.EnumerateUnder(norm, null, max, out stopped, provider));
-            if (beneath.Count > 0 || norm.Length == 0) return beneath;
+            if (beneath.Count > 0) return beneath;
             // Nothing beneath it, but the string may BE a file the load order provides — a path pasted into under=.
             // One resolve, only on the empty branch, so the ordinary folder sweep pays nothing for it.
             var hit = view.Resolve(norm);
