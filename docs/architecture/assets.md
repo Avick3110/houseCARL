@@ -267,7 +267,7 @@ relative string loses a leading `data\`, and what follows must then start with t
 `data\`, the root is added where it is missing, by Mutagen's root name and its test, which has no separator boundary
 (`TexturesHD\…` counts as rooted). A folder named `data` deeper in a relative string is part of the path:
 `textures\mymod\data\foo.dds` stays as it is. A drive-rooted string goes through Mutagen's typed asset link, which maps
-it through the first `\Data\` folder in it and needs the root folder after; one with no Data folder is refused. The
+it through the last `data` folder in it and needs the root folder right after that folder; one with no such folder is refused. The
 record harvest still reads Mutagen's `DataRelativePath`, which also cuts at a deeper `data` folder. The door's result
 then passes `NormalizeQueryPath`, so a `..` or no-name segment is refused too. A refusal is one line naming the string,
 why, and to give the path from the root folder on, never a dropped link. `NormalizeQueryPath` itself is unchanged: a modder's own path is Data-relative as typed. `nif_inspect`'s
