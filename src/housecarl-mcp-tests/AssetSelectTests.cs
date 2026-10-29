@@ -138,6 +138,20 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         var note = Assert.Single(_w.Svc.AssetStatus(Array.Empty<string>(), new[] { "0004.nif" }).SelectorNotes!);
 
         Assert.Contains("'**/0004.nif' finds it in every folder", note, StringComparison.Ordinal);
+        Assert.Equal(_w.Rel("0004.nif"),
+                     Assert.Single(_w.Svc.AssetStatus(Array.Empty<string>(), new[] { "**/0004.nif" }).Results).RelPath);
+    }
+
+    /// <summary>A bare folder name deep in meshes, or a mod's name, finds no file under '**/', so no '**/' form is named.</summary>
+    [Theory]
+    [InlineData("facegeom")]
+    [InlineData("FaceBase")]
+    public void ABareNameTheEveryFolderFormCannotFindNamesNoGlob(string bare)
+    {
+        var note = Assert.Single(_w.Svc.AssetStatus(Array.Empty<string>(), new[] { bare }).SelectorNotes!);
+
+        Assert.Contains("matched no file", note, StringComparison.Ordinal);
+        Assert.DoesNotContain("**/", note, StringComparison.Ordinal);
     }
 
     /// <summary>Explicit paths and a directory compose in one call: the paths keep their place and their order, and the

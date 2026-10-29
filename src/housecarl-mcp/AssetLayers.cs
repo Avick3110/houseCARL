@@ -91,7 +91,7 @@ internal sealed partial class AssetLayers
             if (wholeProvider) return $"provider '{provider}' provides no file in the active load order.";
             var scope = provider is null ? "the active load order" : $"provider '{provider}'";
             return $"under '{sel}' matched no file in {scope} — check the spelling, or nothing enabled provides that folder."
-                   + AssetGlob.BareNameHint(sel);
+                   + AssetGlob.BareNameHint(view, sel, provider);
         }
         foreach (var raw in wholeProvider ? new[] { "**" } : under ?? Array.Empty<string>())
         {

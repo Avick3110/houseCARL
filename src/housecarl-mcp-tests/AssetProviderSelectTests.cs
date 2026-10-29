@@ -204,6 +204,20 @@ public sealed class AssetProviderSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("matched no file in provider 'FaceBase'", Assert.Single(d.SelectorNotes!));
     }
 
+    /// <summary>A bare name that matches nothing is pointed at '**/' only when that form finds a file under the same
+    /// provider: FaceBase ships 0001.nif deep in meshes, while HcArch.bsa is another mod's root file.</summary>
+    [Fact]
+    public void ABareNameIsPointedAtEveryFolderOnlyWhenTheProviderShipsIt()
+    {
+        var shipped = Assert.Single(Provider("FaceBase", under: new[] { "0001.nif" }).SelectorNotes!);
+        Assert.Contains("'**/0001.nif' finds it in every folder", shipped, StringComparison.Ordinal);
+        Assert.Equal(_w.Rel("0001.nif"), Assert.Single(Provider("FaceBase", under: new[] { "**/0001.nif" }).Results).RelPath);
+
+        var other = Assert.Single(Provider("FaceBase", under: new[] { "HcArch.bsa" }).SelectorNotes!);
+        Assert.Contains("matched no file in provider 'FaceBase'", other, StringComparison.Ordinal);
+        Assert.DoesNotContain("**/", other, StringComparison.Ordinal);
+    }
+
     /// <summary>Two mods over one textures folder: Top ships own.dds loose AND in its archive, and twice.dds in both
     /// of its archives; Low ships twice.dds loose, which beats Top's archive copies.</summary>
     sealed class TwoCopyWorld : IDisposable
