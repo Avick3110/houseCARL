@@ -78,13 +78,17 @@ public static class AssetGlob
     }
 
     /// <summary>What to say when a selector with no separator matched nothing: a bare name glob ('*goldbrand*', no '**')
-    /// or a bare name ('0004.nif') read the Data root only. Null for any other selector.</summary>
-    public static string? BareNameHint(string selector)
+    /// or a bare name ('0004.nif') read the Data root only; a bare name is pointed at '**/' only when that finds a file
+    /// under <paramref name="provider"/>. Null for any other selector.</summary>
+    public static string? BareNameHint(AssetResolver.AssetView view, string selector, string? provider)
     {
         if (selector.IndexOfAny(new[] { '/', '\\' }) >= 0 || selector.Contains("**")) return null;
-        return HasWildcard(selector)
-            ? $" '*' stays inside one folder, so '{selector}' reads the Data root only; '**/{selector}' searches every folder."
-            : $" '{selector}' names only the Data root; '**/{selector}' finds it in every folder.";
+        if (HasWildcard(selector))
+            return $" '*' stays inside one folder, so '{selector}' reads the Data root only; '**/{selector}' searches every folder.";
+        var everyFolder = "**/" + selector;
+        return Select(view, everyFolder, out _, 1, out _, provider).Count > 0
+            ? $" '{selector}' names only the Data root; '{everyFolder}' finds it in every folder."
+            : null;
     }
 
     static IReadOnlyList<string> Sorted(IEnumerable<string> paths) =>
