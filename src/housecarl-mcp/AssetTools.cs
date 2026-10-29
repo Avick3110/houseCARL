@@ -405,8 +405,8 @@ static class AssetWire
 
 /// <summary><c>asset_status</c>'s <c>counts_only=</c> census (SPEC §2.1): what the file layer looks like in
 /// AGGREGATE over the paths this call resolved. It covers the WHOLE selection and <c>limit=</c> is spent on the
-/// table's rows instead, which is the thing here that actually needs paging. The table is the surface's one
-/// <see cref="HistogramAxis"/>, so only the counters above it are this lane's own.</summary>
+/// tables' rows instead, which is the thing here that actually needs paging. The two tables, winning and shadowed
+/// layers, are the surface's <see cref="HistogramAxis"/>, so only the counters above them are this lane's own.</summary>
 static class AssetCensus
 {
     /// <summary>The census over one resolution. <see cref="ByLayer"/> is the winning MO2 LAYERS, count descending
@@ -478,7 +478,7 @@ static class AssetCensus
         + $"winners: loose={c.Loose} BSA={c.Bsa}\n"
         + (c.Named is { } n ? $"provider \"{n.Name}\": provides={n.Provides} wins={n.Wins} shadowed={n.Shadowed}\n" : "");
 
-    /// <summary>The text census: the alarms an ABSENT count depends on, the counters, then the layer axis. The counters are exact whatever the axis's cut.</summary>
+    /// <summary>The text census: the alarms an ABSENT count depends on, the counters, then the two layer axes. The counters are exact whatever the axes' cut.</summary>
     public static string Render(AssetStatusData d, int cap, int limit)
     {
         var c = Tally(d);
