@@ -26,7 +26,7 @@ internal static class AssetArtifact
                                                            string? noEpochBecause = null)
     {
         using var writer = new ResultArtifact.Writer();
-        foreach (var r in d.Results) writer.WriteRow((w, _) => Row(w, r, d.StandingOf(r.Hit)));
+        foreach (var r in d.Results) writer.WriteRow((w, _) => Row(w, r));
 
         var notes = new List<string>
         {
@@ -95,7 +95,7 @@ internal static class AssetArtifact
 
     /// <summary>One row, every column present so a consumer can index by name — except <c>error</c>, written ONLY on
     /// a failed row, because its presence is the artifact contract's marker for a row that names no identity.</summary>
-    static void Row(Utf8JsonWriter w, AssetPathResult r, ProviderStanding? standing)
+    static void Row(Utf8JsonWriter w, AssetPathResult r)
     {
         w.WriteStartObject();
         w.WriteString("path", r.RelPath);
@@ -149,7 +149,7 @@ internal static class AssetArtifact
             w.WriteNull("pair_winner_mod"); w.WriteNull("pair_differs");
         }
         // Null unless the call named a provider=.
-        Str(w, "provider_standing", standing?.Token());
+        Str(w, "provider_standing", r.Standing?.Token());
         w.WriteEndObject();
     }
 

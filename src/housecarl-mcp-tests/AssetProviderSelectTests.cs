@@ -28,9 +28,9 @@ public sealed class AssetProviderSelectTests : IClassFixture<AssetSelectWorld>
         var d = Provider("FaceBase");
 
         Assert.Equal(8, d.Selected);
-        Assert.Equal(ProviderStanding.Shadowed, d.StandingOf(Row(d, "0002.nif").Hit));
+        Assert.Equal(ProviderStanding.Shadowed, Row(d, "0002.nif").Standing);
         Assert.Equal("FaceHigher", Row(d, "0002.nif").Hit!.Winner!.Source);
-        Assert.Equal(7, d.Results.Count(r => d.StandingOf(r.Hit) == ProviderStanding.Wins));
+        Assert.Equal(7, d.Results.Count(r => r.Standing == ProviderStanding.Wins));
         // Only FaceBase's own files: FaceHigher's 0004 is not in its view.
         Assert.DoesNotContain(d.Results, r => Path.GetFileName(r.RelPath) == "0004.nif");
     }
@@ -54,9 +54,9 @@ public sealed class AssetProviderSelectTests : IClassFixture<AssetSelectWorld>
 
         Assert.Equal(3, d.Selected);
         Assert.All(d.Results, r => Assert.Contains(r.Hit!.Providers, p => p.Source == "HcArch.bsa"));
-        Assert.Equal(ProviderStanding.Wins, d.StandingOf(Row(d, "0005.nif").Hit));
+        Assert.Equal(ProviderStanding.Wins, Row(d, "0005.nif").Standing);
         var split = Row(d, Path.GetFileName(AssetSelectWorld.Face(AssetSelectWorld.SplitFormId, FaceGenSlot.Mesh)));
-        Assert.Equal(ProviderStanding.Shadowed, d.StandingOf(split.Hit));
+        Assert.Equal(ProviderStanding.Shadowed, split.Standing);
         Assert.Equal("FaceHigher", split.Hit!.Winner!.Source);
     }
 
@@ -70,7 +70,7 @@ public sealed class AssetProviderSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Equal(6, d.Selected);
         Assert.Contains(d.Results, r => r.RelPath.Equals("HcArch.bsa", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(d.Results, r => r.Hit!.Winner!.Source == "HcArch - Textures.bsa");
-        Assert.Equal(1, d.Results.Count(r => d.StandingOf(r.Hit) == ProviderStanding.Shadowed));
+        Assert.Equal(1, d.Results.Count(r => r.Standing == ProviderStanding.Shadowed));
     }
 
     /// <summary>A name the build does not have walks nothing, so it is refused by name rather than answered empty.</summary>
@@ -102,7 +102,7 @@ public sealed class AssetProviderSelectTests : IClassFixture<AssetSelectWorld>
         var d = Provider("FaceHigher", under: new[] { "**/*000?.nif" });
 
         Assert.Equal(new[] { "0002.nif", "0004.nif" }, d.Results.Select(r => Path.GetFileName(r.RelPath)));
-        Assert.All(d.Results, r => Assert.Equal(ProviderStanding.Wins, d.StandingOf(r.Hit)));
+        Assert.All(d.Results, r => Assert.Equal(ProviderStanding.Wins, r.Standing));
     }
 
     /// <summary>An explicit path the provider does not ship still answers, and says the provider does not provide it.</summary>
@@ -200,8 +200,8 @@ public sealed class AssetProviderSelectTests : IClassFixture<AssetSelectWorld>
             File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
                 "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
                 + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
-            Loose(top, @"textures\hcdup\own.dds");
-            Loose(low, @"textures\hcdup\twice.dds");
+            ResolverArchives.Loose(top, @"textures\hcdup\own.dds");
+            ResolverArchives.Loose(low, @"textures\hcdup\twice.dds");
             File.WriteAllBytes(Path.Combine(top, "HcDup.bsa"),
                 BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
                     new[] { (@"textures\hcdup", new[] { ("own.dds", BsaBuilder.Bytes("OWN", 48)), ("twice.dds", BsaBuilder.Bytes("T1", 48)) }) }));
@@ -213,13 +213,6 @@ public sealed class AssetProviderSelectTests : IClassFixture<AssetSelectWorld>
             File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+Top\r\n+Low\r\n");
             File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
             Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(_root, "houseCARL.user.json")));
-        }
-
-        static void Loose(string modDir, string rel)
-        {
-            var p = Path.Combine(modDir, rel);
-            Directory.CreateDirectory(Path.GetDirectoryName(p)!);
-            File.WriteAllText(p, "x");
         }
 
         public void Dispose()

@@ -261,7 +261,7 @@ static class AssetWire
                 BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
                 AppendSelectorNotes(sb, d.SelectorNotes, room);
             },
-            (sb, r, _) => AppendPath(sb, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.RootFailures.Count > 0, d),
+            (sb, r, _) => AppendPath(sb, r, d),
             out int rendered,
             // The accounting block is priced INSIDE max_chars, the way the check sweep's footer is, so max_chars means the same on this tool as on every other.
             reserve: AccountingReserve(d) + spillText.Length);
@@ -299,8 +299,7 @@ static class AssetWire
         TransportAccounting.Reserve(d.Selected, d.Results.Count, new RowWindow(d.Offset, d.Limit),
                                     d.SelectorNotes?.Count ?? 0, RowNoun);
 
-    static void AppendPath(StringBuilder sb, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete,
-                           bool rootIncomplete, AssetStatusData d)
+    static void AppendPath(StringBuilder sb, AssetPathResult r, AssetStatusData d)
     {
         sb.Append('\n').Append(r.RelPath);
         // Only on a row the formids= SELECT derived, so a plain path block is byte-for-byte the block it always was.
@@ -329,16 +328,16 @@ static class AssetWire
                       ? "?  (a path read off a record is relative to its root folder, not to Data)\n"
                       : "?  (" + AssetPathHint.DataPrefixSentence + ")\n");
             // Both incomplete-scan conditions hedge an ABSENT at the point of use, not only in the top-of-output note: the asset could exist where we did not look.
-            if (readIncomplete)
+            if (d.BsaFailures.Count > 0)
                 sb.Append("  [!] but an archive failed to read this build (see the read-failure note above), so " +
                           "\"absent\" may be incomplete — the asset could live in the unreadable archive.\n");
-            if (discoveryIncomplete)
+            if (d.Warnings.Count > 0)
                 sb.Append("  [!] some archives were not scanned this build (see the discovery note above), so " +
                           "\"absent\" may be incomplete — base-game assets live in BSAs that weren't enumerated.\n");
-            if (rootIncomplete)
+            if (d.RootFailures.Count > 0)
                 sb.Append("  [!] but a loose root failed to read this build (see the root note above), so " +
                           "\"absent\" may be incomplete — the asset could live in the root that was not read.\n");
-            AppendStanding(sb, d, hit);
+            AppendStanding(sb, d, r);
             AppendPair(sb, r);
             return;
         }
@@ -357,14 +356,15 @@ static class AssetWire
         if (hit.Ambiguous)
             sb.Append("  note: more than one source provides this — the winner above is the precedence call (loose " +
                       "beats BSA; among BSAs the latest-loaded plugin wins). Verify only if that's unexpected.\n");
-        AppendStanding(sb, d, hit);
+        AppendStanding(sb, d, r);
         AppendPair(sb, r);
     }
 
     /// <summary>The named provider's standing on this path, on a provider= call only.</summary>
-    static void AppendStanding(StringBuilder sb, AssetStatusData d, HousecarlCore.AssetHit hit)
+    static void AppendStanding(StringBuilder sb, AssetStatusData d, AssetPathResult r)
     {
-        if (d.StandingOf(hit) is not { } st) return;
+        if (r.Standing is not { } st) return;
+        var hit = r.Hit!;
         sb.Append("  provider \"").Append(d.Provider).Append("\": ").Append(st switch
         {
             ProviderStanding.Wins => "wins",
@@ -414,7 +414,10 @@ static class AssetCensus
                                            IReadOnlyList<SweepCount> ByShadowed, ProviderCounts? Named);
 
     /// <summary>One named provider over the selection: the paths it ships a copy of, and how many of those it wins and loses.</summary>
-    internal readonly record struct ProviderCounts(string Name, int Provides, int Wins, int Shadowed);
+    internal readonly record struct ProviderCounts(string Name, int Wins, int Shadowed)
+    {
+        public int Provides => Wins + Shadowed;
+    }
 
     /// <summary>What the axes are titled, and the notes that keep them honest. A note rides its axis, so it is written whatever the budget says.</summary>
     const string AxisTitle = "winning layers";
@@ -438,25 +441,23 @@ static class AssetCensus
             if (win.Kind == HousecarlCore.AssetKind.Bsa) bsa++; else loose++;
             var owner = AssetPathResult.Owner(win);
             byLayer[owner] = byLayer.GetValueOrDefault(owner) + 1;
-            // Each losing layer once per path: a mod's loose copy and its own archive's are one layer's two copies.
+            // Each losing layer once per path, the winner's own layer never: a mod's loose copy and its own archive's are one layer's two copies.
             losers.Clear();
+            losers.Add(owner);
             foreach (var p in hit.Providers)
-                if (AssetPathResult.Owner(p) is var o && !string.Equals(o, owner, StringComparison.OrdinalIgnoreCase) && losers.Add(o))
+                if (AssetPathResult.Owner(p) is var o && losers.Add(o))
                     byShadowed[o] = byShadowed.GetValueOrDefault(o) + 1;
-            switch (d.StandingOf(hit))
+            switch (r.Standing)
             {
                 case ProviderStanding.Wins: wins++; break;
                 case ProviderStanding.Shadowed: shadowed++; break;
             }
         }
         // The census always covers the whole selection, so its counters are the selection's — never a window's.
-        return new Counts(d.Selected, present, absent, errors, loose, bsa, Ranked(byLayer), Ranked(byShadowed),
-                          d.Provider is { } name ? new ProviderCounts(name, wins + shadowed, wins, shadowed) : null);
+        return new Counts(d.Selected, present, absent, errors, loose, bsa,
+                          SweepFindings.Histogram(byLayer), SweepFindings.Histogram(byShadowed),
+                          d.Provider is { } name ? new ProviderCounts(name, wins, shadowed) : null);
     }
-
-    static List<SweepCount> Ranked(Dictionary<string, int> counts) =>
-        counts.OrderByDescending(m => m.Value).ThenBy(m => m.Key, StringComparer.Ordinal)
-              .Select(m => new SweepCount(m.Key, m.Value)).ToList();
 
     /// <summary>The axes this census renders, in one place so the two transports cannot title or note them differently.</summary>
     internal static HistogramAxis[] Axes(Counts c) =>

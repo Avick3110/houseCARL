@@ -2849,8 +2849,7 @@ static class JsonWire
             {
                 // rendered > 0: the FIRST row always renders its core answer, as BatchRender does on the text lane.
                 if (rendered > 0 && Over(w, ms, budget)) break;
-                WriteAssetRow(w, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.RootFailures.Count > 0,
-                              d.StandingOf(r.Hit));
+                WriteAssetRow(w, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.RootFailures.Count > 0);
                 rendered++;
             }
             w.WriteEndArray();
@@ -2893,8 +2892,7 @@ static class JsonWire
             // The layer table through the shared axis: the frame is reserved before its rows are offered to it.
             var body = new BoundedBody(acct: null, budget: budget, () => Size(w, ms));
             WriteHistogramAxes(w, body, AssetCensus.RowLimit(limit), AssetCensus.Axes(c));
-            w.WriteBoolean("truncated", omitted > 0 || body.Stopped(SweepSubject.AssetWinnerRows)
-                                        || body.Stopped(SweepSubject.AssetShadowedRows));
+            w.WriteBoolean("truncated", omitted > 0 || AssetCensus.Axes(c).Any(a => body.Stopped(a.Subject)));
             WriteCapOverrun(w, ms, cap);
             w.WriteEndObject();
         }
@@ -3019,7 +3017,7 @@ static class JsonWire
         d.RootFailures.Count == 0 ? 0 : WriteCappedStringArray(w, ms, "root_failures", d.RootFailures, budget);
 
     static void WriteAssetRow(Utf8JsonWriter w, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete,
-                              bool rootIncomplete, ProviderStanding? standing)
+                              bool rootIncomplete)
     {
         w.WriteStartObject();
         w.WriteString("path", r.RelPath);
@@ -3042,7 +3040,7 @@ static class JsonWire
         w.WriteEndArray();
         w.WriteBoolean("ambiguous", hit.Ambiguous);
         // On a provider= call only, so a plain row is byte-for-byte the document it always was.
-        if (standing is { } st) w.WriteString("provider_standing", st.Token());
+        if (r.Standing is { } st) w.WriteString("provider_standing", st.Token());
         // On a formids= row only: the OWNER the pair's `differs` verdict is decided on, not the bare OwningMod.
         if (r.FormId is not null)
             WriteNullable(w, "winner_mod", hit.Winner is { } owner ? AssetPathResult.Owner(owner) : null);

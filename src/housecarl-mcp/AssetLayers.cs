@@ -84,13 +84,20 @@ internal sealed partial class AssetLayers
         // The bound is on what this call RESOLVES: a window's walk runs to the end, while a whole-selection resolve stops the enumeration the moment it would cross it.
         bool wholeIsResolved = wholeSelection || limit <= 0;
         bool overBound = false;
-        // A provider with no under= walks everything it ships: the Data root, narrowed to that provider.
+        // A provider with no under= walks everything it ships: '**', narrowed to that provider.
         bool wholeProvider = provider is not null && under is not { Count: > 0 };
-        foreach (var raw in wholeProvider ? new[] { "" } : under ?? Array.Empty<string>())
+        string NoMatchNote(string sel)
+        {
+            if (wholeProvider) return $"provider '{provider}' provides no file in the active load order.";
+            var scope = provider is null ? "the active load order" : $"provider '{provider}'";
+            return $"under '{sel}' matched no file in {scope} — check the spelling, or nothing enabled provides that folder."
+                   + AssetGlob.BareNameHint(sel);
+        }
+        foreach (var raw in wholeProvider ? new[] { "**" } : under ?? Array.Empty<string>())
         {
             if (overBound) break;
             var sel = (raw ?? "").Trim();
-            if (sel.Length == 0 && !wholeProvider) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
+            if (sel.Length == 0) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
             try
             {
                 // One past what is left of the budget: a selector that fills it has proved the selection is over. 0 = no cap.
@@ -102,13 +109,7 @@ internal sealed partial class AssetLayers
                     notes.Add($"under '{sel}' names a file, not a directory — it was resolved as that one path.");
                 // A selector that matched nothing is said out loud: silent, a typo would read as a clean sweep.
                 else if (matched.Count == 0)
-                    notes.Add(wholeProvider
-                        ? $"provider '{provider}' provides no file in the active load order."
-                        : $"under '{sel}' matched no file in {(provider is null ? "the active load order" : $"provider '{provider}'")} — check the spelling, or nothing enabled provides that folder."
-                          // A bare name glob reads one folder deep, which is the likely surprise.
-                          + (AssetGlob.HasWildcard(sel) && sel.IndexOfAny(new[] { '/', '\\' }) < 0
-                              ? $" '*' stays inside one folder, so '{sel}' reads the Data root only; '**/{sel}' searches every folder."
-                              : ""));
+                    notes.Add(NoMatchNote(sel));
                 foreach (var m in matched) if (seen.Add(m)) selected.Add(new Selection(m, null, null, null));
             }
             catch (ArgumentException ex) { notes.Add($"under '{sel}': {ex.Message}"); }
@@ -161,7 +162,8 @@ internal sealed partial class AssetLayers
                 var suggest = hit.Exists ? Array.Empty<string>()
                                          : AssetPathHint.VerifiedPrefixes(view, p, AssetPathHint.AssetRoots);
                 var pair = sel.PairPath is null ? null : Resolve(sel.PairPath);
-                results.Add(new AssetPathResult(p, hit, null, suggest, sel.FormId, sel.Slot, sel.PairPath, pair));
+                results.Add(new AssetPathResult(p, hit, null, suggest, sel.FormId, sel.Slot, sel.PairPath, pair)
+                            { Standing = ProviderStandings.Of(hit, provider) });
                 seenA = p; seenAHit = hit;
                 seenB = sel.PairPath; seenBHit = pair;
             }

@@ -74,6 +74,9 @@ public static class AssetSourceSelection
     /// <summary>Does <paramref name="name"/> address this source — its provider name, or for a BSA the MO2 layer the archive lives in?</summary>
     public static bool NameMatches(PlacementSource s, string name) => NameMatches(s.ProviderName, s.OwningMod, name);
 
+    /// <summary>The same test over a resolved provider.</summary>
+    public static bool NameMatches(AssetProvider p, string name) => NameMatches(p.Source, p.OwningMod, name);
+
     /// <summary>The same test over a provider's name and the MO2 layer it lives in, for a caller holding no placement source.</summary>
     public static bool NameMatches(string providerName, string? owningMod, string name)
         => string.Equals(providerName, name, StringComparison.OrdinalIgnoreCase)

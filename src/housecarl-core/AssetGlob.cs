@@ -68,8 +68,7 @@ public static class AssetGlob
             // Nothing beneath it, but the string may BE a file the load order provides — a path pasted into under=.
             // One resolve, only on the empty branch, so the ordinary folder sweep pays nothing for it.
             var hit = view.Resolve(norm);
-            if (hit.Exists && (provider is null
-                               || hit.Providers.Any(p => AssetSourceSelection.NameMatches(p.Source, p.OwningMod, provider))))
+            if (hit.Exists && (provider is null || hit.Providers.Any(p => AssetSourceSelection.NameMatches(p, provider))))
             { namedOneFile = true; return new[] { norm }; }
             return beneath;
         }
@@ -77,6 +76,13 @@ public static class AssetGlob
         var rx = ToRegex(norm);                                  // compiled ONCE, not per candidate path
         return Sorted(view.EnumerateUnder(LiteralPrefix(norm), p => rx.IsMatch(p), max, out stopped, provider));
     }
+
+    /// <summary>What to say when a bare name glob ('*goldbrand*', no separator) matched nothing: '*' stays inside one
+    /// folder, so it read the Data root only. Null for any other selector.</summary>
+    public static string? BareNameHint(string selector) =>
+        HasWildcard(selector) && selector.IndexOfAny(new[] { '/', '\\' }) < 0
+            ? $" '*' stays inside one folder, so '{selector}' reads the Data root only; '**/{selector}' searches every folder."
+            : null;
 
     static IReadOnlyList<string> Sorted(IEnumerable<string> paths) =>
         paths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
