@@ -682,7 +682,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     {
         var text = AssetTools.AssetStatus(_w.Svc);
 
-        Assert.Contains("asset_paths, under and formids are all empty", text);
+        Assert.Contains("asset_paths, under, formids and provider are all empty", text);
         Assert.Contains("01A51A:Dawnguard.esm", text);
     }
 

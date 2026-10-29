@@ -287,8 +287,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     // The assets area's tool-facing surface; the bodies are in AssetLayers.cs and SkyPatcherReplay.cs.
     public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under = null, int limit = 0, int offset = 0,
-                                       IReadOnlyList<FaceGenSeed>? seeds = null, bool wholeSelection = false)
-        => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection);
+                                       IReadOnlyList<FaceGenSeed>? seeds = null, bool wholeSelection = false,
+                                       string? provider = null)
+        => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection, provider);
     public SkseInventoryData SkseInventory(string? peekFilter = null) => _assetLayers.SkseInventory(peekFilter);
     public SkseConfigAuditData SkseConfigAudit() => _assetLayers.SkseConfigAudit();
     public NativePairingAuditData NativePairingAudit() => _assetLayers.NativePairingAudit();

@@ -37,17 +37,27 @@ internal sealed partial class AssetLayers
     /// source provides each, and which copy wins. ONE <see cref="AssetResolver.Capture"/> for the batch, so every
     /// path and the build-level caveats describe a single build; a bad path is a per-path error, never a batch
     /// failure. <paramref name="under"/> is the directory/glob SELECT (<see cref="AssetGlob"/>),
-    /// <paramref name="seeds"/> the FaceGen one, and <paramref name="wholeSelection"/> <see cref="AssetArtifact"/>'s never-a-window <c>to_file=</c> disposition.</summary>
+    /// <paramref name="seeds"/> the FaceGen one, <paramref name="wholeSelection"/> <see cref="AssetArtifact"/>'s never-a-window <c>to_file=</c> disposition,
+    /// and <paramref name="provider"/> the one provider whose files <paramref name="under"/> walks (all of them when <paramref name="under"/> is empty) and every row is read against.</summary>
     public AssetStatusData AssetStatus(
         IReadOnlyList<string> relPaths,
         IReadOnlyList<string>? under,
         int limit,
         int offset,
         IReadOnlyList<FaceGenSeed>? seeds,
-        bool wholeSelection)
+        bool wholeSelection,
+        string? provider = null)
     {
         var captured = _host.CaptureAssets();   // the view is pinned and handle-free, so the body runs outside the gate
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
+        provider = provider?.Trim() is { Length: > 0 } named ? named : null;
+        // A provider the build does not have would walk nothing and read every row as not provided, so it is refused by name.
+        if (provider is not null && !view.HasProvider(provider))
+            return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
+                                       view.ReadIncomplete, warnings, profileName,
+                                       Refusal: $"error: provider '{provider}' is not in the active load order — name an " +
+                                                "enabled mod folder, 'overwrite', 'Data' or an active archive's filename, " +
+                                                "as a row's providers line spells it.");
         var notes = new List<string>();
         var selected = new List<Selection>(relPaths.Count);
         foreach (var p in relPaths) selected.Add(new Selection(p ?? "", null, null, null));   // explicit paths first, in the order given, never deduped
@@ -74,23 +84,31 @@ internal sealed partial class AssetLayers
         // The bound is on what this call RESOLVES: a window's walk runs to the end, while a whole-selection resolve stops the enumeration the moment it would cross it.
         bool wholeIsResolved = wholeSelection || limit <= 0;
         bool overBound = false;
-        foreach (var raw in under ?? Array.Empty<string>())
+        // A provider with no under= walks everything it ships: the Data root, narrowed to that provider.
+        bool wholeProvider = provider is not null && under is not { Count: > 0 };
+        foreach (var raw in wholeProvider ? new[] { "" } : under ?? Array.Empty<string>())
         {
             if (overBound) break;
             var sel = (raw ?? "").Trim();
-            if (sel.Length == 0) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
+            if (sel.Length == 0 && !wholeProvider) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
             try
             {
                 // One past what is left of the budget: a selector that fills it has proved the selection is over. 0 = no cap.
                 int room = wholeIsResolved ? Math.Max(MaxAssetPaths - selected.Count, 0) + 1 : 0;
-                var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped);
+                var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped, provider);
                 overBound |= stopped;
                 // A selector that named a FILE is said out loud too, so the sweep's own count is explained.
                 if (namedOneFile)
                     notes.Add($"under '{sel}' names a file, not a directory — it was resolved as that one path.");
                 // A selector that matched nothing is said out loud: silent, a typo would read as a clean sweep.
                 else if (matched.Count == 0)
-                    notes.Add($"under '{sel}' matched no file in the active load order — check the spelling, or nothing enabled provides that folder.");
+                    notes.Add(wholeProvider
+                        ? $"provider '{provider}' provides no file in the active load order."
+                        : $"under '{sel}' matched no file in {(provider is null ? "the active load order" : $"provider '{provider}'")} — check the spelling, or nothing enabled provides that folder."
+                          // A bare name glob reads one folder deep, which is the likely surprise.
+                          + (AssetGlob.HasWildcard(sel) && sel.IndexOfAny(new[] { '/', '\\' }) < 0
+                              ? $" '*' stays inside one folder, so '{sel}' reads the Data root only; '**/{sel}' searches every folder."
+                              : ""));
                 foreach (var m in matched) if (seen.Add(m)) selected.Add(new Selection(m, null, null, null));
             }
             catch (ArgumentException ex) { notes.Add($"under '{sel}': {ex.Message}"); }
@@ -153,7 +171,8 @@ internal sealed partial class AssetLayers
         return new AssetStatusData(results, view.BsaFailures, view.RootFailures, view.ReadIncomplete,
                                    warnings, profileName,
                                    notes, total, Math.Max(offset, 0),    // the offset ASKED for, so a past-the-end page can say so
-                                   Math.Max(limit, 0));                  // the limit ASKED for, so the next-page advice repeats it
+                                   Math.Max(limit, 0),                   // the limit ASKED for, so the next-page advice repeats it
+                                   Provider: provider);
     }
 
     /// <summary>One entry of an <c>asset_status</c> selection: the path, and on a <c>formids=</c> row the NPC, the slot and the other half's path. <c>Error</c> answers as its own row.</summary>

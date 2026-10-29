@@ -72,9 +72,12 @@ public static class AssetSourceSelection
     public static string Describe(string providerName, string kindLabel) => $"\"{providerName}\" ({kindLabel})";
 
     /// <summary>Does <paramref name="name"/> address this source — its provider name, or for a BSA the MO2 layer the archive lives in?</summary>
-    public static bool NameMatches(PlacementSource s, string name)
-        => string.Equals(s.ProviderName, name, StringComparison.OrdinalIgnoreCase)
-        || (s.OwningMod is { } owner && string.Equals(owner, name, StringComparison.OrdinalIgnoreCase));
+    public static bool NameMatches(PlacementSource s, string name) => NameMatches(s.ProviderName, s.OwningMod, name);
+
+    /// <summary>The same test over a provider's name and the MO2 layer it lives in, for a caller holding no placement source.</summary>
+    public static bool NameMatches(string providerName, string? owningMod, string name)
+        => string.Equals(providerName, name, StringComparison.OrdinalIgnoreCase)
+        || (owningMod is { } owner && string.Equals(owner, name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Pick the provider to read from under <paramref name="choice"/>'s pole. <paramref name="offOrderLookup"/>
     /// is the off-order lane, consulted ONLY under the Named pole; this type renders nothing.</summary>

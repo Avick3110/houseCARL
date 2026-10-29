@@ -10,17 +10,19 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class AssetTools
 {
-    [McpServerTool(Name = ToolNames.AssetStatus, ReadOnly = true, Title = "Asset status — which mod/BSA wins for a Data-relative path"),
+    [McpServerTool(Name = ToolNames.AssetStatus, ReadOnly = true, Title = "Asset status — which mod/BSA wins, where a file lives, what a mod loses"),
      Description(
-         "Which copy of a file the game loads through MO2's virtual file system, for any tree (meshes, textures, " +
-         "scripts, sound, interface): the winner, every source that provides " +
+         "Which mod wins a file, where a file lives, and what one mod provides, wins and loses, through MO2's " +
+         "virtual file system, for any tree (meshes, textures, scripts, sound, interface, SKSE/Plugins, " +
+         "CalienteTools/BodySlide): the winner, every source that provides " +
          "it (loose mods, overwrite, the game Data folder, active BSAs), whether more than one source contends, and whether " +
          "it is absent. Precedence: loose beats BSA; among loose files the higher-priority mod (then overwrite) wins; " +
          "among BSAs the later-loaded plugin's archive wins. The file-layer counterpart to a record's load-order " +
          "winner; answers 'why isn't my override applying'. Use this instead of searching mods/ on disk, which misses " +
          "BSAs and MO2's priority; for SKSE plugins, which load only loose at the top level, use housecarl_skse. " +
-         "Select with asset_paths=, under= (a folder, or a glob under one: " +
-         "'meshes/**/*fur*.nif') and formids= (NPC FaceGen pairs); they compose. An archive that cannot be read, or a " +
+         "Select with asset_paths=, under= (a folder, or a glob: 'meshes/**/*fur*.nif'; '**/*goldbrand*' finds a " +
+         "name in every folder), formids= (NPC FaceGen pairs) and provider= (every file one mod or archive ships, " +
+         "each row marked wins or shadowed by the winner); they compose. An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
          "counts only the window, except under to_file= and counts_only=, which resolve the whole selection. A loose " +
@@ -41,8 +43,10 @@ public static class AssetTools
                      "beneath it, loose and BSA, is resolved, e.g. " +
                      "'meshes/actors/character/facegendata/facegeom/Skyrim.esm' for one master's facegen set. '*' " +
                      "matches within one path segment, '?' one character, '**' across separators: " +
-                     "'textures/actors/character/**/*.dds'. Matches come after the asset_paths and formids= rows, " +
-                     "sorted, duplicates dropped. A selector that matches nothing says so.")]
+                     "'textures/actors/character/**/*.dds'. A glob needs no folder in front: '**/*goldbrand*' finds " +
+                     "every file whose name holds 'goldbrand', in any folder, while '*goldbrand*' reads the Data root " +
+                     "only. Matches come after the asset_paths and formids= rows, sorted, duplicates dropped. A " +
+                     "selector that matches nothing says so. With provider=, only that provider's files are walked.")]
             string[]? under = null,
         [Description("Optional. NPC FormIDs ('XXXXXX:Plugin.esp', the defining master's filename). Each contributes " +
                      "both halves of its FaceGen pair, " +
@@ -61,6 +65,14 @@ public static class AssetTools
                      "(epoch-checked against the current build); records types=[\"NPC_\"] to_file= then " +
                      "formids=[\"@<that file>\"] sweeps the whole order.")]
             string[]? formids = null,
+        [Description("Optional. One provider, as a row's providers line spells it: an enabled mod folder (its loose " +
+                     "files and the active archives it ships), 'overwrite', 'Data', or one archive's filename " +
+                     "('Foo - Textures.bsa'). Selects every file it provides, or with under= every file it provides " +
+                     "beneath those selectors, and marks every row with the provider's standing: wins, shadowed by " +
+                     "the winning copy, or does not provide this path. Under counts_only=true the census adds its " +
+                     "provides / wins / shadowed counts, and the winning-layers table says who shadows it. A name " +
+                     "that is not in the active order is refused.")]
+            string? provider = null,
         [Description("Optional. Max paths to resolve and render. 0 = no limit. to_file= ignores it and covers the " +
                      "whole selection. Under counts_only=true it caps the census table's rows instead; the census " +
                      "still covers the whole selection.")]
@@ -74,9 +86,9 @@ public static class AssetTools
                      "whole selection: limit= does not narrow it and row_count equals total. Re-enter it via " +
                      "asset_paths=[\"@<path>\"]; its identity column is 'path', so it is not a formids= list.")]
             string? to_file = null,
-        [Description("Optional. Return a census instead of path rows: which MO2 layers win how many paths, how the " +
-                     "winners split between loose and BSA, and how many are absent. It covers the whole selection; " +
-                     "limit= caps its table's rows.")]
+        [Description("Optional. Return a census instead of path rows: which MO2 layers win how many paths, which " +
+                     "layers provide a copy that another layer wins over, how the winners split between loose and " +
+                     "BSA, and how many are absent. It covers the whole selection; limit= caps its tables' rows.")]
             bool counts_only = false,
         [Description("Optional. 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
@@ -92,11 +104,12 @@ public static class AssetTools
         string Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
 
         if ((asset_paths is null || asset_paths.Length == 0) && (under is null || under.Length == 0)
-            && (formids is null || formids.Length == 0))
-            return Refuse("asset_paths, under and formids are all empty. Pass Data-relative asset path(s) in " +
+            && (formids is null || formids.Length == 0) && string.IsNullOrWhiteSpace(provider))
+            return Refuse("asset_paths, under, formids and provider are all empty. Pass Data-relative asset path(s) in " +
                           "asset_paths (e.g. 'textures/armor/iron/cuirass_1.dds'), a Data-relative directory or glob " +
-                          "in under (e.g. 'meshes/actors/character/facegendata/facegeom/Skyrim.esm'), or NPC " +
-                          "FormID(s) in formids (e.g. '01A51A:Dawnguard.esm') for their FaceGen pairs.");
+                          "in under (e.g. 'meshes/actors/character/facegendata/facegeom/Skyrim.esm'), NPC " +
+                          "FormID(s) in formids (e.g. '01A51A:Dawnguard.esm') for their FaceGen pairs, or a mod or " +
+                          "archive name in provider for every file it ships.");
         // The window's own refusal, from the window: this tool and housecarl_skse answer the same input class.
         if (new RowWindow(offset, limit).Error is { } bad) return Wire.Refuse(json, bad);
         int cap = Wire.Cap(max_chars);
@@ -166,9 +179,9 @@ public static class AssetTools
 
         // counts_only= resolves the WHOLE selection, as to_file= does: a census of a window would answer about a window while the rows that need paging had no knob.
         var data = svc.AssetStatus(pathTokens ?? Array.Empty<string>(), under, counts_only ? 0 : limit, offset, seeds,
-                                   wholeSelection: wantFile || counts_only);
-        // The declared-cost refusal: the selection was counted and is past the bound, so nothing was resolved.
-        if (data.BoundRefusal is { } tooBig) return Wire.Refuse(json, tooBig);
+                                   wholeSelection: wantFile || counts_only, provider: provider);
+        // The declared-cost refusal (the selection was counted and is past the bound) or an unknown provider: nothing was resolved.
+        if (data.Refusal is { } refused) return Wire.Refuse(json, refused);
 
         if (counts_only)
             return json ? JsonWire.RenderAssetCensus(data, cap, limit) : AssetCensus.Render(data, cap, limit);
@@ -180,6 +193,7 @@ public static class AssetTools
                 new("asset_paths", pathEcho ?? $"{pathTokens?.Length ?? 0} inline path(s)"),
                 new("under", under is { Length: > 0 } ? string.Join(",", under) : "<none>"),
                 new("formids", idEcho ?? $"{seeds.Count} inline formid(s)"),
+                new("provider", data.Provider ?? "<none>"),
                 new("read_incomplete", data.ReadIncomplete ? "true" : "false"),
                 new("discovery_warnings", data.Warnings.Count.ToString()),
             };
@@ -227,7 +241,7 @@ static class AssetWire
         new StringBuilder("asset status — profile '")
             .Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
             .Append("'  (").Append(d.Selected).Append(" path").Append(d.Selected == 1 ? "" : "s")
-            .Append(" selected)").ToString();
+            .Append(" selected").Append(d.Provider is { } p ? ", provider \"" + p + "\"" : "").Append(')').ToString();
 
     public static string Render(AssetStatusData d, int cap) => Render(d, cap, null, out _);
 
@@ -247,7 +261,7 @@ static class AssetWire
                 BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
                 AppendSelectorNotes(sb, d.SelectorNotes, room);
             },
-            (sb, r, _) => AppendPath(sb, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.RootFailures.Count > 0),
+            (sb, r, _) => AppendPath(sb, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.RootFailures.Count > 0, d),
             out int rendered,
             // The accounting block is priced INSIDE max_chars, the way the check sweep's footer is, so max_chars means the same on this tool as on every other.
             reserve: AccountingReserve(d) + spillText.Length);
@@ -286,7 +300,7 @@ static class AssetWire
                                     d.SelectorNotes?.Count ?? 0, RowNoun);
 
     static void AppendPath(StringBuilder sb, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete,
-                           bool rootIncomplete)
+                           bool rootIncomplete, AssetStatusData d)
     {
         sb.Append('\n').Append(r.RelPath);
         // Only on a row the formids= SELECT derived, so a plain path block is byte-for-byte the block it always was.
@@ -324,6 +338,7 @@ static class AssetWire
             if (rootIncomplete)
                 sb.Append("  [!] but a loose root failed to read this build (see the root note above), so " +
                           "\"absent\" may be incomplete — the asset could live in the root that was not read.\n");
+            AppendStanding(sb, d, hit);
             AppendPair(sb, r);
             return;
         }
@@ -342,7 +357,20 @@ static class AssetWire
         if (hit.Ambiguous)
             sb.Append("  note: more than one source provides this — the winner above is the precedence call (loose " +
                       "beats BSA; among BSAs the latest-loaded plugin wins). Verify only if that's unexpected.\n");
+        AppendStanding(sb, d, hit);
         AppendPair(sb, r);
+    }
+
+    /// <summary>The named provider's standing on this path, on a provider= call only.</summary>
+    static void AppendStanding(StringBuilder sb, AssetStatusData d, HousecarlCore.AssetHit hit)
+    {
+        if (d.StandingOf(hit) is not { } st) return;
+        sb.Append("  provider \"").Append(d.Provider).Append("\": ").Append(st switch
+        {
+            ProviderStanding.Wins => "wins",
+            ProviderStanding.Shadowed => "shadowed by " + Provider(hit.Winner!) + Mod(hit.Winner!),
+            _ => "does not provide this path",
+        }).Append('\n');
     }
 
     /// <summary>The OTHER half of the FaceGen pair, beside this one: its path and its own winner, written on a present and an ABSENT row alike. Nothing on a row no FormID derived.</summary>
@@ -379,45 +407,72 @@ static class AssetWire
 static class AssetCensus
 {
     /// <summary>The census over one resolution. <see cref="ByLayer"/> is the winning MO2 LAYERS, count descending
-    /// then name ascending — the same value the artifact's <c>winner_mod</c> column carries.</summary>
+    /// then name ascending — the same value the artifact's <c>winner_mod</c> column carries; <see cref="ByShadowed"/>
+    /// the layers that provide a copy another layer wins over, in the same order; <see cref="Named"/> the provider= counts.</summary>
     internal readonly record struct Counts(int Selected, int Present, int Absent, int Errors,
-                                           int Loose, int Bsa, IReadOnlyList<SweepCount> ByLayer);
+                                           int Loose, int Bsa, IReadOnlyList<SweepCount> ByLayer,
+                                           IReadOnlyList<SweepCount> ByShadowed, ProviderCounts? Named);
 
-    /// <summary>What the axis is titled, and the note that keeps its two non-mod values honest. The note rides the axis, so it is written whatever the budget says.</summary>
+    /// <summary>One named provider over the selection: the paths it ships a copy of, and how many of those it wins and loses.</summary>
+    internal readonly record struct ProviderCounts(string Name, int Provides, int Wins, int Shadowed);
+
+    /// <summary>What the axes are titled, and the notes that keep them honest. A note rides its axis, so it is written whatever the budget says.</summary>
     const string AxisTitle = "winning layers";
     const string AxisNote = "a winning LAYER is a mod folder, the game's own Data folder, or overwrite — the last "
                           + "two are layers rather than mods, so they cannot be sorted or disabled.";
+    const string ShadowedTitle = "shadowed layers";
+    const string ShadowedNote = "a shadowed layer ships a copy another layer wins over; what a layer provides is its "
+                              + "winning count plus its shadowed count.";
 
     internal static Counts Tally(AssetStatusData d)
     {
-        int present = 0, absent = 0, errors = 0, loose = 0, bsa = 0;
+        int present = 0, absent = 0, errors = 0, loose = 0, bsa = 0, wins = 0, shadowed = 0;
         var byLayer = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var byShadowed = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var losers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var r in d.Results)
         {
             if (r.Error is not null) { errors++; continue; }
-            if (r.Hit is not { Exists: true, Winner: { } win }) { absent++; continue; }
+            if (r.Hit is not { Exists: true, Winner: { } win } hit) { absent++; continue; }
             present++;
             if (win.Kind == HousecarlCore.AssetKind.Bsa) bsa++; else loose++;
             var owner = AssetPathResult.Owner(win);
             byLayer[owner] = byLayer.GetValueOrDefault(owner) + 1;
+            // Each losing layer once per path: a mod's loose copy and its own archive's are one layer's two copies.
+            losers.Clear();
+            foreach (var p in hit.Providers)
+                if (AssetPathResult.Owner(p) is var o && !string.Equals(o, owner, StringComparison.OrdinalIgnoreCase) && losers.Add(o))
+                    byShadowed[o] = byShadowed.GetValueOrDefault(o) + 1;
+            switch (d.StandingOf(hit))
+            {
+                case ProviderStanding.Wins: wins++; break;
+                case ProviderStanding.Shadowed: shadowed++; break;
+            }
         }
-        var rows = byLayer.OrderByDescending(m => m.Value).ThenBy(m => m.Key, StringComparer.Ordinal)
-                          .Select(m => new SweepCount(m.Key, m.Value)).ToList();
         // The census always covers the whole selection, so its counters are the selection's — never a window's.
-        return new Counts(d.Selected, present, absent, errors, loose, bsa, rows);
+        return new Counts(d.Selected, present, absent, errors, loose, bsa, Ranked(byLayer), Ranked(byShadowed),
+                          d.Provider is { } name ? new ProviderCounts(name, wins + shadowed, wins, shadowed) : null);
     }
 
-    /// <summary>The axis this census renders, in one place so the two transports cannot title or note it differently.</summary>
-    internal static HistogramAxis Axis(Counts c) =>
-        new(SweepSubject.AssetWinnerRows, c.ByLayer, AxisTitle, Note: AxisNote);
+    static List<SweepCount> Ranked(Dictionary<string, int> counts) =>
+        counts.OrderByDescending(m => m.Value).ThenBy(m => m.Key, StringComparer.Ordinal)
+              .Select(m => new SweepCount(m.Key, m.Value)).ToList();
+
+    /// <summary>The axes this census renders, in one place so the two transports cannot title or note them differently.</summary>
+    internal static HistogramAxis[] Axes(Counts c) =>
+    [
+        new(SweepSubject.AssetWinnerRows, c.ByLayer, AxisTitle, Note: AxisNote),
+        new(SweepSubject.AssetShadowedRows, c.ByShadowed, ShadowedTitle, Note: ShadowedNote),
+    ];
 
     /// <summary>The rows one call may render, from its <c>limit=</c>: 0 is no limit.</summary>
     internal static int RowLimit(int limit) => limit > 0 ? limit : int.MaxValue;
 
-    /// <summary>The two counter lines — the census's whole answer, written whatever the budget says.</summary>
+    /// <summary>The counter lines — the census's whole answer, written whatever the budget says.</summary>
     static string Counters(Counts c) =>
         $"\ncensus: counted={c.Selected} present={c.Present} absent={c.Absent} errors={c.Errors}\n"
-        + $"winners: loose={c.Loose} BSA={c.Bsa}\n";
+        + $"winners: loose={c.Loose} BSA={c.Bsa}\n"
+        + (c.Named is { } n ? $"provider \"{n.Name}\": provides={n.Provides} wins={n.Wins} shadowed={n.Shadowed}\n" : "");
 
     /// <summary>The text census: the alarms an ABSENT count depends on, the counters, then the layer axis. The counters are exact whatever the axis's cut.</summary>
     public static string Render(AssetStatusData d, int cap, int limit)
@@ -426,7 +481,7 @@ static class AssetCensus
         var sb = new StringBuilder(AssetWire.Header(d)).Append('\n');
         // What this response writes whatever the budget says, held back BEFORE the alarms: uncharged, they take
         // the room the census's own answer needs and the response lands over the cap on a cut that would have fitted.
-        var room = RenderCap.For(cap, Counters(c).Length + Axis(c).TextFixed);
+        var room = RenderCap.For(cap, Counters(c).Length + Axes(c).Sum(a => a.TextFixed));
         // The alarms first, for the reason the path render puts them first: an ABSENT count is authoritative only where no archive read failed.
         BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
         BatchRender.AppendRootFailures(sb, d.RootFailures, "an asset", room);
@@ -437,7 +492,7 @@ static class AssetCensus
 
         // The one bounded emission path: the budget is the whole cap, because Outstanding reads the live builder.
         var body = new BoundedBody(acct: null, budget: cap, () => sb.Length);
-        CheckTextRender.AppendHistogramAxes(sb, body, RowLimit(limit), Axis(c));
+        CheckTextRender.AppendHistogramAxes(sb, body, RowLimit(limit), Axes(c));
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 }

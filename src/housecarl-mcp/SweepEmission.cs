@@ -52,6 +52,9 @@ internal enum SweepSubject
 
     /// <summary>Rows of <c>asset_status</c>'s <c>counts_only</c> histogram, by the MO2 layer that wins the path.</summary>
     AssetWinnerRows,
+
+    /// <summary>Rows of <c>asset_status</c>'s <c>counts_only</c> histogram, by the MO2 layer that ships a copy another layer wins over.</summary>
+    AssetShadowedRows,
 }
 
 /// <summary>Which subjects are histogram axes. Not accounting subjects: an axis discloses its own cut.</summary>
@@ -59,7 +62,8 @@ internal static class SweepSubjects
 {
     internal static bool IsHistogram(this SweepSubject s)
         => s is SweepSubject.HistogramByTarget or SweepSubject.HistogramBySource or SweepSubject.HistogramByProperty
-             or SweepSubject.FaceGenClassRows or SweepSubject.FaceGenModRows or SweepSubject.AssetWinnerRows;
+             or SweepSubject.FaceGenClassRows or SweepSubject.FaceGenModRows or SweepSubject.AssetWinnerRows
+             or SweepSubject.AssetShadowedRows;
 }
 
 /// <summary>ONE histogram axis's closing fact: how many rows are missing, and which knob moves them.</summary>
