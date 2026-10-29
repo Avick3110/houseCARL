@@ -38,7 +38,7 @@ internal sealed partial class AssetLayers
     /// path and the build-level caveats describe a single build; a bad path is a per-path error, never a batch
     /// failure. <paramref name="under"/> is the directory/glob SELECT (<see cref="AssetGlob"/>),
     /// <paramref name="seeds"/> the FaceGen one, <paramref name="wholeSelection"/> <see cref="AssetArtifact"/>'s never-a-window <c>to_file=</c> disposition,
-    /// and <paramref name="provider"/> the one provider whose files <paramref name="under"/> walks (all of them when <paramref name="under"/> is empty) and every row is read against.</summary>
+    /// and <paramref name="provider"/> the one provider whose files <paramref name="under"/> walks (all of them when no under=, asset_paths= or formids= is given) and every row is read against.</summary>
     public AssetStatusData AssetStatus(
         IReadOnlyList<string> relPaths,
         IReadOnlyList<string>? under,
