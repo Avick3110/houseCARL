@@ -308,7 +308,7 @@ static class AssetWire
         if (!hit.Exists)
         {
             sb.Append("  ABSENT — no active mod or BSA provides this path\n");
-            // Each suggestion was verified by re-resolving the prefixed form. Backticks, not single quotes — an asset path can carry the author's own apostrophes.
+            // Each suggestion was verified by re-resolving its Data form (root added or data\ dropped). Backticks, not single quotes — an asset path can carry the author's own apostrophes.
             if (r.PrefixSuggestions is { Count: > 0 } sug)
                 sb.Append("  did you mean ").Append(string.Join(" or ", sug.Select(s => "`" + s + "`")))
                   .Append(sug.All(s => AssetPathHint.AddsRootOnly(r.RelPath, s))
