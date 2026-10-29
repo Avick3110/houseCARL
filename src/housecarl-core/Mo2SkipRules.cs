@@ -22,34 +22,16 @@ public sealed record Mo2SkipRules(IReadOnlyList<string> FileSuffixes, IReadOnlyL
         return true;
     }
 
-    /// <summary>Read one skip list off its raw ini value, the way QSettings wrote a string list: unset is null, so
-    /// the caller keeps the default; <c>@Invalid()</c> or a blank value is the empty list; any other <c>@</c> form
-    /// throws, because it is not a list.</summary>
+    /// <summary>Read one skip list off its raw ini value, the way QSettings writes a string list (<c>a, b</c>): unset
+    /// is null, so the caller keeps the default; <c>@Invalid()</c> or a blank value is the empty list; any other
+    /// <c>@</c> form throws, because it is not a list. An item Qt had to quote or escape is read as written.</summary>
     internal static IReadOnlyList<string>? ParseList(string? raw)
     {
         if (raw is null) return null;
         var v = raw.Trim();
         if (v.Length == 0 || v.Equals("@Invalid()", StringComparison.OrdinalIgnoreCase)) return Array.Empty<string>();
         if (v[0] == '@') throw new FormatException($"'{v}' is not a list");
-        var items = new List<string>();
-        var cur = new System.Text.StringBuilder();
-        bool quoted = false;
-        foreach (var c in v)
-        {
-            if (c == '"') { quoted = !quoted; continue; }
-            if (c == ',' && !quoted) { Add(); continue; }
-            cur.Append(c);
-        }
-        if (quoted) throw new FormatException($"'{v}' has an unclosed quote");
-        Add();
-        return items;
-
-        // An empty entry would hide every file, and MO2 cannot have meant that.
-        void Add()
-        {
-            var item = QtIniEscapes.Unescape(cur.ToString().Trim());
-            if (item.Length > 0) items.Add(item);
-            cur.Clear();
-        }
+        // An empty item would hide every file, and MO2 cannot have meant that.
+        return v.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }
 }

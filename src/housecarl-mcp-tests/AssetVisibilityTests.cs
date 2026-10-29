@@ -84,6 +84,16 @@ public sealed class AssetVisibilityTests : IDisposable
     }
 
     [Fact]
+    public void AnEmptyItemHidesNothing()
+    {
+        Settings("skip_file_suffixes=.off,");
+        var svc = _p.Open();
+
+        Assert.True(Exists(svc, Shown));
+        Assert.False(Exists(svc, Off));
+    }
+
+    [Fact]
     public void AnEmptyListSkipsNothing()
     {
         Settings("skip_file_suffixes=@Invalid()");
