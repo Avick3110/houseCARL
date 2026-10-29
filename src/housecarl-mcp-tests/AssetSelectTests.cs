@@ -566,6 +566,21 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
                          root.GetProperty(axis).GetProperty("rendered").GetInt32());
     }
 
+    /// <summary>A cut on the second axis alone still marks the document truncated, not only a cut on the first.</summary>
+    [Fact]
+    public void AJsonCensusCutOnlyOnTheShadowedAxisIsTruncated()
+    {
+        string Census(int cap) => AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                                         counts_only: true, format: "json", max_chars: cap);
+        // A few chars short of the whole document: every winning row fits, the one shadowed row does not.
+        var root = System.Text.Json.JsonDocument.Parse(Census(Census(0).Length - 2)).RootElement;
+
+        var winners = root.GetProperty("winners_by_layer");
+        Assert.Equal(winners.GetProperty("distinct").GetInt32(), winners.GetProperty("rendered").GetInt32());
+        Assert.Equal(0, root.GetProperty("shadowed_by_layer").GetProperty("rendered").GetInt32());
+        Assert.True(root.GetProperty("truncated").GetBoolean());
+    }
+
     /// <summary>counts_only= and to_file= ask for opposite dispositions of the same result, so the pair is refused
     /// by name — the same refusal the records lanes make.</summary>
     [Fact]
