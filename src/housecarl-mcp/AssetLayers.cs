@@ -84,8 +84,8 @@ internal sealed partial class AssetLayers
         // The bound is on what this call RESOLVES: a window's walk runs to the end, while a whole-selection resolve stops the enumeration the moment it would cross it.
         bool wholeIsResolved = wholeSelection || limit <= 0;
         bool overBound = false;
-        // A provider with no under= walks everything it ships: '**', narrowed to that provider.
-        bool wholeProvider = provider is not null && under is not { Count: > 0 };
+        // A provider with no other selector walks everything it ships: '**', narrowed to that provider.
+        bool wholeProvider = provider is not null && under is not { Count: > 0 } && relPaths.Count == 0 && seeds is not { Count: > 0 };
         string NoMatchNote(string sel)
         {
             if (wholeProvider) return $"provider '{provider}' provides no file in the active load order.";

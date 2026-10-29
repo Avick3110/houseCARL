@@ -21,8 +21,9 @@ public static class AssetTools
          "winner; answers 'why isn't my override applying'. Use this instead of searching mods/ on disk, which misses " +
          "BSAs and MO2's priority; for SKSE plugins, which load only loose at the top level, use housecarl_skse. " +
          "Select with asset_paths=, under= (a folder, or a glob: 'meshes/**/*fur*.nif'; '**/*goldbrand*' finds a " +
-         "name in every folder), formids= (NPC FaceGen pairs) and provider= (every file one mod or archive ships, " +
-         "each row marked wins or shadowed by the winner); they compose. An archive that cannot be read, or a " +
+         "name in every folder), formids= (NPC FaceGen pairs) and provider= (alone, every file one mod or archive " +
+         "ships; beside another selector, it narrows that selection to the provider's files and marks each row's " +
+         "standing). An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
          "counts only the window, except under to_file= and counts_only=, which resolve the whole selection. A loose " +
@@ -67,8 +68,8 @@ public static class AssetTools
             string[]? formids = null,
         [Description("Optional. One provider, as a row's providers line spells it: an enabled mod folder (its loose " +
                      "files and the active archives it ships), 'overwrite', 'Data', or one archive's filename " +
-                     "('Foo - Textures.bsa'). Selects every file it provides, or with under= every file it provides " +
-                     "beneath those selectors, and marks every row with the provider's standing: wins, shadowed by " +
+                     "('Foo - Textures.bsa'). Alone, selects every file it provides; with under= every file it provides " +
+                     "beneath those selectors; with asset_paths= or formids= only those rows. Marks every row with the provider's standing: wins, shadowed by " +
                      "the winning copy, or does not provide this path. Under counts_only=true the census adds its " +
                      "provides / wins / shadowed counts, and the winning-layers table says who shadows it. A name " +
                      "that is not in the active order is refused.")]
