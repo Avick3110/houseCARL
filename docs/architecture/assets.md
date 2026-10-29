@@ -187,7 +187,7 @@ resolution, matched by name as the walk is: **wins** when the winning copy's nam
 when the provider ships a copy and the winning copy's does not (the row names that winner; an archive's copy is
 shadowed by its own mod's loose copy), **not provided** for an explicit path it does not ship. The standing rides the
 text row as one line, the json row as `provider_standing`, and the artifact as a `provider_standing` column (null with
-no provider). A mod's `.bsa` files are themselves loose files in its folder, and MO2 maps them into Data, so they are
+no provider and on an error row; the json member is absent in both cases). A mod's `.bsa` files are themselves loose files in its folder, and MO2 maps them into Data, so they are
 part of what the mod provides.
 
 The `counts_only=` census has two layer tables: the layers that **win** paths and the layers that ship a copy another
