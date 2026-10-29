@@ -42,7 +42,8 @@ public sealed class AssetLinkDataPathTests : IDisposable
         PlaceInstance.Loose(mod, Mesh, NifSetMeshes.Textured(Slots));
         PlaceInstance.Loose(mod, Deep, NifSetMeshes.Textured(DeepSlots));
         PlaceInstance.Loose(mod, @"meshes\armor\data\x.nif", NifSetMeshes.Textured());
-        _p.Profile(Array.Empty<string>(), Array.Empty<string>(), new[] { "+GuardFace" });
+        PlaceInstance.Loose(_p.Mod("LowerFace"), Head, "y"u8.ToArray());
+        _p.Profile(Array.Empty<string>(), Array.Empty<string>(), new[] { "+GuardFace", "+LowerFace" });
         _svc = _p.Open();
     }
 
@@ -120,6 +121,13 @@ public sealed class AssetLinkDataPathTests : IDisposable
             var answer = direct.Exists ? $"WINS: \"{direct.Winner!.Source}\" (loose)" : "ABSENT";
             Assert.Contains(": " + raw + "\n      data path: " + data + "  " + answer + "\n", text, StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    [Fact]
+    public void ASlotTwoModsProvideNamesTheWinnerNotTheLowerMod()
+    {
+        Assert.Equal(2, _svc.AssetStatus(new[] { Head }).Results[0].Hit!.Providers.Count);
+        Assert.Contains("data path: " + Head + "  WINS: \"GuardFace\" (loose)", PathsSection(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
