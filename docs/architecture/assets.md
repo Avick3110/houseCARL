@@ -262,10 +262,15 @@ one home, because the JSON transport carries them verbatim.
 
 A path a file names is not always Data-relative: one FaceGen NIF carries `Actors\…`, `textures\…` and
 `data\textures\…` in its slots. `AssetDataPath.For` is the one door from such a string to the Data path the game
-opens, keyed by link kind (texture, model): Mutagen's typed asset link, which drops a leading `data\` and adds the
-kind's root folder where it is missing, the same rule the record harvest takes through `DataRelativePath`. Its result
-then passes `NormalizeQueryPath`, so a rooted or `..` string is a named refusal that quotes the string, never a
-dropped link. `NormalizeQueryPath` itself is unchanged: a modder's own path is Data-relative as typed. `nif_inspect`'s
+opens, keyed by link kind (texture, model). A leading separator is dropped first, as `asset_status` drops it. A
+relative string loses a leading `data\`, and what follows must then start with the kind's root folder; with no leading
+`data\`, the root is added where it is missing, by Mutagen's root name and its test, which has no separator boundary
+(`TexturesHD\…` counts as rooted). A folder named `data` deeper in a relative string is part of the path:
+`textures\mymod\data\foo.dds` stays as it is. A drive-rooted string goes through Mutagen's typed asset link, which maps
+it through the first `\Data\` folder in it and needs the root folder after; one with no Data folder is refused. The
+record harvest still reads Mutagen's `DataRelativePath`, which also cuts at a deeper `data` folder. The door's result
+then passes `NormalizeQueryPath`, so a `..` or no-name segment is refused too. A refusal is one line naming the string,
+why, and to give the path from the root folder on, never a dropped link. `NormalizeQueryPath` itself is unchanged: a modder's own path is Data-relative as typed. `nif_inspect`'s
 paths section and the root-prefix hint below go through the door.
 
 ### Suggesting a root prefix
@@ -364,7 +369,8 @@ provided either; the generic lane does not, because it legitimately answers for 
 - *From a link to a Data path*: `AssetLinkDataPathTests` — a `data\textures\…` or `data\meshes\…` path gets the
   verified hint naming its Data form, with the `data\` reason, on `asset_status`, `nif_inspect` and `place`; a miss
   gets none; each NIF slot's Data path answers as a direct `asset_status` call; a slot the door refuses is its own
-  error line.
+  error line, saying why and what to give; a folder named `data` below the first segment stays in the path, a leading
+  separator is dropped, and a leading or drive-rooted Data folder is still cut.
 - *Suggesting a root prefix*: Pinned by `AssetPrefixHintTests` — the prefixed candidate is offered only when a real
   provider supplies it. Its non-asset-root cases (`sound\`) assert the same thing as its plain-miss cases, so it
   cannot see whether the generic lane prints the convention note: that half is not pinned.

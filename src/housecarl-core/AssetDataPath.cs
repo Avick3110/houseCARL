@@ -7,8 +7,8 @@ namespace HousecarlCore;
 public enum AssetLinkKind { Texture, Model }
 
 /// <summary>The one door from a path as a file names it (a NIF slot, or an ABSENT path the root hint maps) to the Data path the game opens:
-/// Mutagen's typed asset link, which drops a leading <c>data\</c> and adds the kind's root folder where it is missing
-/// (docs/architecture/assets.md, From a link to a Data path).</summary>
+/// a leading <c>data\</c> dropped or the kind's root added, and a drive-rooted string mapped through its Data folder by
+/// Mutagen's link (docs/architecture/assets.md, From a link to a Data path).</summary>
 public static class AssetDataPath
 {
     /// <summary>The Data-relative path <paramref name="raw"/> names as a <paramref name="kind"/> link; throws
