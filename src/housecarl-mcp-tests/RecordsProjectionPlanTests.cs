@@ -284,7 +284,7 @@ public sealed class RecordsProjectionPlanTests : RecordsTestBase
         var doc = Doc(RecordsTools.Records(Svc, conflicts_only: true, format: "json", project: Fields("ArmorRating")));
         var unplanned = Doc(RecordsTools.Records(Svc, conflicts_only: true, format: "json"));
         // The plan adds no note: the scan's notes are those of the same scan with no project.fields.
-        Assert.DoesNotContain(Notes(doc), n => n.StartsWith("project.fields", StringComparison.Ordinal));
+        Assert.DoesNotContain(Notes(doc), n => n.StartsWith("note: project.fields", StringComparison.Ordinal));
         Assert.Equal(Notes(unplanned), Notes(doc));
         Assert.Contains(doc.GetProperty("matches").EnumerateArray(), m => m.GetProperty("fields")[0].GetProperty("note").GetString() == Token);
     }
