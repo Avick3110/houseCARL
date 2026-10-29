@@ -96,7 +96,9 @@ answer that type exists to avoid.
 ### The Qt/QSettings value grammar
 
 `ModOrganizer.ini` and a mod's `meta.ini` are both QSettings files, and both readers go through
-`QtIniEscapes.Clean` so they cannot behave differently. One value is read in Qt's own order: trim
+`QtIniEscapes.Clean` so they cannot behave differently. The two skip lists (`skip_file_suffixes`,
+`skip_directories`) are the exception: `Mo2SkipRules.ParseList` reads them raw, split on commas, so
+an item Qt wrote quoted or escaped is matched as written. One value is read in Qt's own order: trim
 the raw line; take off a surrounding pair of double quotes FIRST (Qt quotes the whole serialized
 string, `@ByteArray(` prefix included, when the value holds `; , =` or an edge space); unwrap
 `@ByteArray(...)`, with `@Invalid()` meaning unset; undo the escaping.
