@@ -1,0 +1,1 @@
+- **`asset_status` finds a file by name in any folder (`under=["**/*goldbrand*"]`), and `provider=` shows what one mod or archive ships, which of those it wins and who shadows the rest, with a per-provider census.** Check: `provider="<mod>", counts_only=true` prints `provides= wins= shadowed=`.

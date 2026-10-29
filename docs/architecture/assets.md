@@ -169,9 +169,28 @@ refusal — the caller chooses), the VFS winner, or a named provider.
 
 `AssetGlob` turns one selector into the paths it names: enumerate the literal directory prefix, keep what the
 pattern matches. `*` within a segment, `?` one character, `**` across separators, case-insensitive against the whole
-Data-relative path, compiled `NonBacktracking` because `**` nests quantifiers. Two bounds are contracts: a selector
-with **no literal directory prefix** is refused, and the enumeration is **bounded by matches, not candidates** —
-the pattern filters inside the walk, which stops at the cap.
+Data-relative path, compiled `NonBacktracking` because `**` nests quantifiers. A selector with no literal directory
+prefix walks from the Data root: `**/*goldbrand*` is "where does a file with this name live", across every loose
+root and archive table. `*goldbrand*` stays one segment deep, and when it matches nothing the note names the `**/`
+form. The one bound is a contract: the enumeration is **bounded by matches, not candidates** — the pattern filters
+inside the walk, which stops at the cap. A whole-order walk measured 2.4 s warm loose and 0.4 s for every archive
+table over 326,491 paths, so the bound, not the prefix, is what keeps a sweep affordable.
+
+`provider=` narrows the same walk to one provider's files: a loose root by name, and every active archive whose
+filename it is or whose MO2 layer it names (`AssetSourceSelection.NameMatches`, the rule `source_provider=` uses), so
+a mod name covers the archives it ships. With no `under=` it walks the provider's whole tree; with `under=` it walks
+only beneath those selectors. A name the build does not have is refused, since it would walk nothing. Each row is
+still resolved against every root, so the provider's standing is a reading of `AssetHit.Providers`, no new
+resolution: **wins** when the winner is the provider's, **shadowed** when the provider ships a copy another layer
+wins over (the row names that winner), **not provided** for an explicit path it does not ship. The standing rides the
+text row as one line, the json row as `provider_standing`, and the artifact as a `provider_standing` column (null with
+no provider). A mod's `.bsa` files are themselves loose files in its folder, and MO2 maps them into Data, so they are
+part of what the mod provides.
+
+The `counts_only=` census has two layer tables: the layers that **win** paths and the layers that ship a copy another
+layer wins over (**shadowed**), each layer counted once per path, so a mod's loose copy beside its own archive's copy
+is one layer that wins. What a layer provides is its winning count plus its shadowed count. With `provider=` the
+census adds `provides / wins / shadowed` for that provider, and the winning-layers table names who shadows it.
 
 `bsa_list` and `bsa_extract` `under=` use the same grammar through `AssetGlob.Matcher`, over one archive's own
 listing. Neither bound applies there: the listing is already finite and already read, so an unanchored selector is
@@ -341,10 +360,15 @@ provided either; the generic lane does not, because it legitimately answers for 
   `source_provider=` accepts, and naming a mod reaches its loose files and its root archives.
 - *Naming a source*: `RawModsPathRefusalTests` — a raw path into MO2's mods tree is refused and handed the address
   form.
-- *Selecting a set of paths*: `AssetSelectTests.AnUnanchoredGlobIsRefusedRatherThanSweepingTheWholeLoadOrder` — a
-  selector with no literal directory prefix is refused; `AGlobNarrowsTheSweepToTheFilesItMatches` in the same class —
+- *Selecting a set of paths*: `AssetSelectTests.AnUnanchoredGlobFindsTheNameInEveryFolderLooseAndArchive` — a
+  selector with no literal directory prefix walks from the Data root; `AssetProviderSelectTests.AnUnanchoredGlobStillStopsAtTheMatchBound`
+  — that walk keeps the match bound; `AGlobNarrowsTheSweepToTheFilesItMatches` in the first class —
   `*` within a segment, `**` across separators; `AssetStatusSetTests.ANarrowGlobUnderAWideFolderIsNotRefusedForTheFoldersSize`
   — the enumeration is bounded by matches, not candidates.
+- *Selecting a set of paths*: `AssetProviderSelectTests` — a mod, an archive filename and a mod that ships archives
+  each select exactly their own files; an unknown name is refused; `under=` narrows a provider; each row's standing
+  (wins, shadowed by the named winner, not provided) on the text, json and artifact lanes; the census's
+  `provides / wins / shadowed` line and the shadowed-layers table, with a layer's own archive copy not shadowing it.
 - *Selecting a set of paths*: `BsaFilterTests` — `bsa_list` and `bsa_extract` `under=` keep an exact path, a `**` glob,
   a plain folder and everything beneath it but not a sibling prefix, and the union of several selectors; each selector
   that matches nothing is named, and a blank or bad one beside a usable one is noted; an extract writes only the matches
