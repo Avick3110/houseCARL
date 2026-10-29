@@ -16,6 +16,7 @@ public sealed class AssetVisibilityTests : IDisposable
     const string SvnEntry = @".svn\entries";
     const string HiddenFolderFile = @"interface\icons.mohidden\a.svg";
     const string RootFile = @"root\a.exe";
+    const string NestedGit = @"meshes\vis\.git\objects\a.nif";
 
     readonly PlaceInstance _p = new();
     readonly string _mod;
@@ -23,7 +24,7 @@ public sealed class AssetVisibilityTests : IDisposable
     public AssetVisibilityTests()
     {
         _mod = _p.Mod("VisMod");
-        foreach (var rel in new[] { Shown, Hidden, Off, GitHead, SvnEntry, HiddenFolderFile, RootFile })
+        foreach (var rel in new[] { Shown, Hidden, Off, GitHead, SvnEntry, HiddenFolderFile, RootFile, NestedGit })
             PlaceInstance.Loose(_mod, rel, "x"u8.ToArray());
         _p.Profile(Array.Empty<string>(), Array.Empty<string>(), new[] { "+VisMod" });
     }
@@ -44,6 +45,15 @@ public sealed class AssetVisibilityTests : IDisposable
 
         Assert.Equal(new[] { Off, Shown }, Under(svc, "meshes"));
         Assert.Empty(Under(svc, ".git"));
+    }
+
+    [Fact]
+    public void AGitFolderBelowTheFirstSegmentHidesItsFiles()
+    {
+        var svc = _p.Open();
+
+        Assert.False(Exists(svc, NestedGit));
+        Assert.DoesNotContain(NestedGit, Under(svc, "meshes"));
     }
 
     [Fact]
