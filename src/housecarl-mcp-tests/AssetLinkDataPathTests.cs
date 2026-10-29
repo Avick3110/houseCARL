@@ -19,7 +19,7 @@ public sealed class AssetLinkDataPathTests : IDisposable
     const string Foo = @"textures\foo.dds";
 
     // A folder named data below the first segment, kept, and one that would map onto an unrelated file if stripped.
-    static readonly string[] DeepSlots = { DeepTex, @"mymod\data\textures\foo.dds" };
+    static readonly string[] DeepSlots = { DeepTex, @"mymod\data\textures\foo.dds", @"\" + Foo };
 
     // The three forms one FaceGen NIF carries, an absent slot and one no Data path can be made of.
     static readonly string[] Slots =
@@ -148,7 +148,16 @@ public sealed class AssetLinkDataPathTests : IDisposable
 
         Assert.Contains(": " + DeepTex + "\n      data path: " + DeepTex + $"  WINS: \"{winner}\" (loose)\n", text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(": " + DeepSlots[1] + "\n      data path: " + @"textures\mymod\data\textures\foo.dds  ABSENT", text, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("data path: " + Foo + " ", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ASlotWithALeadingSeparatorResolvesAsAssetStatusDoesAndPrintsAsSpelt()
+    {
+        var text = PathsSection(Deep);
+        var direct = _svc.AssetStatus(new[] { DeepSlots[2] }).Results[0].Hit!;
+
+        Assert.True(direct.Exists);
+        Assert.Contains(": " + DeepSlots[2] + "\n      data path: " + Foo + $"  WINS: \"{direct.Winner!.Source}\" (loose)", text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
