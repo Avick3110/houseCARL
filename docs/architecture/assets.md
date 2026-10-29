@@ -196,8 +196,7 @@ is one layer that wins. What a layer provides is its winning count plus its shad
 census adds `provides / wins / shadowed` for that provider; the tables count by MO2 layer, not by provider name.
 
 `bsa_list` and `bsa_extract` `under=` use the same grammar through `AssetGlob.Matcher`, over one archive's own
-listing. Neither bound applies there: the listing is already finite and already read, so an unanchored selector is
-allowed. `*` still stays within one segment, so `**/*.pex` is the form that finds an archive's scripts. A plain path
+listing. The match bound does not apply there: the listing is already finite and already read. `*` still stays within one segment, so `**/*.pex` is the form that finds an archive's scripts. A plain path
 matches that file or everything beneath that folder. As in `asset_status`, each selector that matches nothing is named,
 and a blank or bad selector beside a usable one is noted while the rest answer; only a call with no usable selector refuses.
 
