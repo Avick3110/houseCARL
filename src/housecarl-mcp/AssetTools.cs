@@ -67,7 +67,8 @@ public static class AssetTools
                      "formids=[\"@<that file>\"] sweeps the whole order.")]
             string[]? formids = null,
         [Description("Optional. One provider, as a row's providers line spells it: an enabled mod folder (its loose " +
-                     "files and the active archives it ships), 'overwrite', 'Data', or one archive's filename " +
+                     "files and the active archives it ships), 'overwrite', 'Data' (the game's Data folder: its loose " +
+                     "files and the base-game archives), or one archive's filename " +
                      "('Foo - Textures.bsa'). Alone, selects every file it provides; with under= every file it provides " +
                      "beneath those selectors; with asset_paths= or formids= only those rows. Marks every row with the provider's standing: wins, shadowed by " +
                      "the winning copy, or does not provide this path. Under counts_only=true the census adds its " +
