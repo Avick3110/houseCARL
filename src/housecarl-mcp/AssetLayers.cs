@@ -692,7 +692,8 @@ internal sealed partial class AssetLayers
     /// then per path and outside it resolve through the VFS to the winning copy (or <paramref name="mod"/>'s), read the
     /// bytes in process — a loose file, or one BSA entry, no disk extraction — and hand them to
     /// <see cref="NifService.Inspect"/>. A per-path failure never aborts the batch; the build-level caveats ride it.</summary>
-    public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider)
+    /// <param name="slotLinks">Resolve each texture slot's Data path too, which only the paths section reads.</param>
+    public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool slotLinks = false)
     {
         var captured = _host.CaptureAssets();   // build/refresh the asset resolver under the gate, once per batch
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
@@ -710,14 +711,14 @@ internal sealed partial class AssetLayers
                 continue;
             }
             // Per-path isolation by construction: anything unexpected becomes that path's named error.
-            try { results.Add(NifInspectOne(view, rel, sourceProvider)); }
+            try { results.Add(NifInspectOne(view, rel, sourceProvider, slotLinks)); }
             catch (Exception ex) { results.Add(NifInspectData.Fail(rel, $"unexpected error inspecting this path — {ex.GetType().Name}: {ex.Message}")); }
         }
         return new NifInspectBatchData(results, view.BsaFailures, view.RootFailures, warnings, profileName);
     }
 
     /// <summary>One path's inspect against the already-captured view. Every failure is a named per-path outcome, never a throw.</summary>
-    static NifInspectData NifInspectOne(AssetResolver.AssetView view, string rel, string? sourceProvider)
+    static NifInspectData NifInspectOne(AssetResolver.AssetView view, string rel, string? sourceProvider, bool slotLinks = false)
     {
         if (rel.Length == 0)
             return NifInspectData.Fail("", "empty mesh path. Pass a Data-relative path, e.g. 'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'.");
@@ -756,7 +757,7 @@ internal sealed partial class AssetLayers
 
         var outcome = NifService.Inspect(bytes);
         return new NifInspectData(rel, NifProviderFor(chosen), providers, place.Ambiguous,
-            false, outcome.Inspect, outcome.Error, outcome.Inspect is null ? null : SlotLinks(view, outcome.Inspect));
+            false, outcome.Inspect, outcome.Error, slotLinks && outcome.Inspect is not null ? SlotLinks(view, outcome.Inspect) : null);
     }
 
     /// <summary>Every texture slot string of a mesh through the one link-to-Data-path door, resolved against the same view the mesh was.</summary>
@@ -769,9 +770,9 @@ internal sealed partial class AssetLayers
             try
             {
                 var data = AssetDataPath.For(t.Path, AssetLinkKind.Texture);
-                links[t.Path] = new NifSlotLink(data, view.Resolve(data), null);
+                links[t.Path] = new NifSlotLink(view.Resolve(data), null);
             }
-            catch (ArgumentException ex) { links[t.Path] = new NifSlotLink(null, null, ex.Message); }
+            catch (ArgumentException ex) { links[t.Path] = new NifSlotLink(null, ex.Message); }
         }
         return links;
     }

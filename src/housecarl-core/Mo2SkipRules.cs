@@ -13,12 +13,13 @@ public sealed record Mo2SkipRules(IReadOnlyList<string> FileSuffixes, IReadOnlyL
     /// <summary>Is this Data-relative loose path in the game's Data view?</summary>
     public bool Shows(string relPath)
     {
-        var segs = relPath.Split('\\');
-        for (int i = 0; i < segs.Length - 1; i++)
+        // Span segments, not Split: the folder walk asks this once per file.
+        var rest = relPath.AsSpan();
+        for (int sep; (sep = rest.IndexOf('\\')) >= 0; rest = rest[(sep + 1)..])
             foreach (var d in Directories)
-                if (segs[i].Equals(d, StringComparison.OrdinalIgnoreCase)) return false;
+                if (rest[..sep].Equals(d, StringComparison.OrdinalIgnoreCase)) return false;
         foreach (var s in FileSuffixes)
-            if (segs[^1].EndsWith(s, StringComparison.OrdinalIgnoreCase)) return false;
+            if (rest.EndsWith(s, StringComparison.OrdinalIgnoreCase)) return false;
         return true;
     }
 

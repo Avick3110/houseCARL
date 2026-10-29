@@ -121,17 +121,16 @@ public sealed class AssetLinkDataPathTests : IDisposable
         Assert.Contains(": " + Slots[8] + "\n      data path: none — '" + Slots[8] + "'", text, StringComparison.Ordinal);
     }
 
-    string PathsSection() => NifWire.Render(_svc.NifInspect(new[] { Mesh }, null),
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "paths" }, Array.Empty<string>(), 80_000);
-
     [Fact]
-    public void ThePathsSectionPrintsTheRawSlotAndItsDataPathAndWinner()
+    public void SlotsAreNotResolvedUnlessThePathsSectionIsAsked()
     {
-        var text = NifWire.Render(_svc.NifInspect(new[] { Mesh }, null),
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "paths" }, Array.Empty<string>(), 80_000);
+        var text = NifTools.NifInspect(_svc, mesh_paths: new[] { Mesh }, sections: "shapes");
 
-        Assert.Contains("tex[6] (TintMask): data\\" + Tint + "\n      data path: " + Tint + "  WINS: \"GuardFace\" (loose)", text, StringComparison.Ordinal);
-        Assert.Contains("data path: textures\\nowhere\\ghost.dds  ABSENT", text, StringComparison.Ordinal);
-        Assert.Contains("data path: none — ", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("data path:", text, StringComparison.Ordinal);
+        Assert.Null(_svc.NifInspect(new[] { Mesh }, null).Results[0].SlotLinks);
+        Assert.Contains("data path: ", NifTools.NifInspect(_svc, mesh_paths: new[] { Mesh }, sections: "paths"), StringComparison.Ordinal);
     }
+
+    string PathsSection() => NifWire.Render(_svc.NifInspect(new[] { Mesh }, null, slotLinks: true),
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "paths" }, Array.Empty<string>(), 80_000);
 }

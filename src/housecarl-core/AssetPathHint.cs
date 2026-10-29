@@ -75,5 +75,5 @@ public static class AssetPathHint
         return d.Length == root.Prefix.Length + norm.Length && d.EndsWith(norm, StringComparison.OrdinalIgnoreCase) ? root.Prefix + norm : d;
     }
 
-    static string Norm(string? rel) => (rel ?? "").Trim().Replace('/', '\\').TrimStart('\\');
+    static string Norm(string? rel) => AssetResolver.Normalize((rel ?? "").Trim());
 }

@@ -367,7 +367,7 @@ static class AssetWire
     static string Kind(HousecarlCore.AssetKind k) => k == HousecarlCore.AssetKind.Bsa ? "BSA" : "loose";
 
     /// <summary>One provider, spelled by the shared formatter: the name inside double quotes with the kind outside them, so the printed token is the token a selector accepts.</summary>
-    static string Provider(HousecarlCore.AssetProvider p)
+    internal static string Provider(HousecarlCore.AssetProvider p)
         => HousecarlCore.AssetSourceSelection.Describe(p.Source, Kind(p.Kind));
 }
 
