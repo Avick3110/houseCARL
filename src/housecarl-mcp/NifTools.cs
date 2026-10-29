@@ -29,7 +29,7 @@ public static class NifTools
          "Use it for 'what shapes / bones / textures / partitions / alpha does this mesh have', 'does it glow / use " +
          "soft lighting / subsurface skin / env-mapping', a facegen mesh's baked shape names and tint path, a " +
          "skeleton's bone names, or a dark-face mesh's flags, alpha and partitions. It reads inside a file; " +
-         ToolNames.AssetStatus + " says which mod's copy wins.\n\n" +
+         ToolNames.AssetStatus + " says which mod's copy wins, though sections=paths names each texture slot's winner.\n\n" +
          "Select — mesh_paths= | npc=; one is required, and the two compose into one batch.\n" +
          "Source — source_provider= (empty = the VFS winner).\n" +
          "Project — sections= (empty = the summary).\n" +
@@ -58,7 +58,8 @@ public static class NifTools
                      "scale, with that shape's partitions, alpha, texture-set paths and bones inline; 'partitions' " +
                      "the BSDismember partitions (decoded to SBP_* names); 'alpha' the alpha property (blend / test / " +
                      "threshold); 'paths' the embedded texture-set paths, with slot names where the shader determines " +
-                     "them; 'shader' the shader property (block type, the shader type such as SkinTint / FaceTint / " +
+                     "them, and under each the Data path it names with the load order's winner or ABSENT; " +
+                     "'shader' the shader property (block type, the shader type such as SkinTint / FaceTint / " +
                      "HairTint / EnvironmentMap / Parallax, the SLSF1+SLSF2 flags by name, and on a Skyrim-layout " +
                      "shader the lighting values: emissive colour and multiple, glossiness, specular strength and " +
                      "colour, alpha; anything not reported is named with its reason, either the library does not " +
