@@ -62,8 +62,10 @@ internal static class AssetArtifact
 
         // The SELECTION's total, not the rows written: a to_file= call resolved everything, and an auto-spilled
         // limit= window is the case where the two must differ.
+        // A links= row adds its links member; the schema names it only then, so a plain artifact is unchanged.
+        var schema = d.Results.Any(r => r.Links is not null || r.LinksError is not null) ? RowSchema.Append("links").ToArray() : RowSchema;
         var (manifest, err) = writer.Save(target, ToolNames.AssetStatus, query, identity: "path",
-                                          RowSchema, sort: "asset_paths= in the order given, then formids= (mesh then tint per NPC), then under= matches sorted",
+                                          schema, sort: "asset_paths= in the order given, then formids= (mesh then tint per NPC), then under= matches sorted",
                                           total: d.Selected, epoch: order?.Epoch ?? "", notes: notes,
                                           epochUncovered: uncovered, excludedPlugins: order?.ExcludedPlugins);
         return err is not null
@@ -150,6 +152,7 @@ internal static class AssetArtifact
         }
         // Null unless the call named a provider=.
         Str(w, "provider_standing", r.Standing?.Token());
+        JsonWire.WriteNifLinks(w, r);
         w.WriteEndObject();
     }
 

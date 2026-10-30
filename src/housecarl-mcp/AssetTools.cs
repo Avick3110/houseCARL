@@ -79,7 +79,8 @@ public static class AssetTools
         [Description("Optional. On every .nif row that resolves, list the files the winning copy names, each with the " +
                      "Data path it maps to and that path's winner: every texture-set slot, every effect-shader texture, " +
                      "and the root node's 'HDT Skinned Mesh Physics Object' (the HDT-SMP physics XML, Data-relative) " +
-                     "and 'BODYTRI' (meshes-relative) string extra data. A string that names no Data path says why.")]
+                     "and 'BODYTRI' (meshes-relative) string extra data. A string that names no Data path says why. A " +
+                     "to_file= or spilled file carries the same links on each row; refused with counts_only=.")]
             bool links = false,
         [Description("Optional. Walk from the selected paths and records= to every file they reach, returning one node " +
                      "per file: the paths a record lists, its implicit files (an NPC's FaceGen head and tint, or its " +
@@ -160,6 +161,9 @@ public static class AssetTools
                 return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a " +
                                          "window), so offset= has nothing to page — drop offset=.");
         }
+        if (counts_only && links)
+            return Wire.Refuse(json, "error: links= lists each mesh's files on its row, and counts_only= returns a census " +
+                                     "with no rows — drop one of them.");
         // A census covers the whole selection, so there is no selection window for offset= to move.
         if (counts_only && offset > 0)
             return Wire.Refuse(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only="));
