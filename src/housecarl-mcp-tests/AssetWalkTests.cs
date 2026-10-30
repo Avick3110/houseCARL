@@ -337,6 +337,33 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.All(rows, r => Assert.Contains("\"standing\":\"from_source\"", r));
     }
 
+    /// <summary>A walk past max_chars whose results file cannot be written, text and json, claims no file holds the
+    /// nodes or the place set.</summary>
+    [Fact]
+    public void AFailedWalkSpillNamesNoFile()
+    {
+        const int cap = 2500;
+        var dir = _w.Svc.ResultsDir;
+        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        File.WriteAllText(dir, "a file where the results folder goes");
+        try
+        {
+            var text = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: true,
+                                              source_provider: AssetWalkWorld.DonorMod, max_chars: cap);
+            Assert.Contains("could NOT be written", text);
+            Assert.DoesNotContain("Every node is in the file", text);
+            Assert.DoesNotContain("spilled file", text);
+            Assert.Contains("place set (60): not shown", text);
+
+            var json = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: true,
+                                              source_provider: AssetWalkWorld.DonorMod, format: "json", max_chars: cap);
+            using var doc = JsonDocument.Parse(json);
+            Assert.True(doc.RootElement.TryGetProperty("spill_error", out _), json);
+            Assert.False(doc.RootElement.TryGetProperty("place_set_in_file", out _), json);
+        }
+        finally { File.Delete(dir); }
+    }
+
     /// <summary>A dialogue line reaches the .fuz Mutagen resolves for its speaker, keyed.</summary>
     [Fact]
     public void ALineReachesItsVoiceFuz()

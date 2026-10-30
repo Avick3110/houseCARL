@@ -93,9 +93,11 @@ static class AssetWalkWire
         var tail = place.Count == 0 ? ""
             : $"\nplace set ({place.Count}): {ToolNames.Place} source_provider=\"{d.SourceProvider}\" assets={PlaceArray(place)}\n" + keyedNote;
         var spillText = Wire.SpillText(spill);
-        // A spilled walk whose array would not fit points at the file's from_source rows instead.
+        // A spilled walk whose array would not fit points at the file's from_source rows instead; a failed spill has no file.
         if (spill is not null && place.Count > 0 && cap > 0 && sb.Length + tail.Length + spillText.Length + 120 > cap)
-            tail = $"\nplace set ({place.Count}): the spilled file's rows with standing from_source, for {ToolNames.Place} source_provider=\"{d.SourceProvider}\".\n" + keyedNote;
+            tail = spill.Spill is not null
+                ? $"\nplace set ({place.Count}): the spilled file's rows with standing from_source, for {ToolNames.Place} source_provider=\"{d.SourceProvider}\".\n" + keyedNote
+                : $"\nplace set ({place.Count}): not shown — its array does not fit max_chars and no results file was written; raise max_chars.\n";
         int shown = 0;
         foreach (var n in d.Nodes)
         {
@@ -110,7 +112,7 @@ static class AssetWalkWire
         truncated = shown < d.Nodes.Count;
         if (truncated)
             sb.Append($"\n[!] {d.Nodes.Count - shown} of {d.Nodes.Count} node(s) not shown: max_chars was reached.")
-              .Append(spill is null ? " Raise max_chars, or narrow the seeds.\n" : " Every node is in the file below.\n");
+              .Append(spill?.Spill is null ? " Raise max_chars, or narrow the seeds.\n" : " Every node is in the file below.\n");
         sb.Append(tail).Append(spillText);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
@@ -157,8 +159,12 @@ static class AssetWalkWire
             using (var w = new Utf8JsonWriter(ms)) { w.WriteStartObject(); Artifacts.WriteSpillStateJson(w, spill); w.WriteEndObject(); }
             foreach (var p in JsonDocument.Parse(ms.ToArray()).RootElement.EnumerateObject()) doc[p.Name] = p.Value.Clone();
             doc["nodes_shown"] = 0;
-            // A spilled walk whose set would not fit leaves it to the file's from_source rows.
-            if (cap > 0 && JsonSerializer.Serialize(doc).Length > cap) { doc["place_set"] = null; doc["place_set_in_file"] = true; }
+            // A spilled walk whose set would not fit leaves it to the file's from_source rows; a failed spill has no file.
+            if (cap > 0 && JsonSerializer.Serialize(doc).Length > cap)
+            {
+                doc["place_set"] = null;
+                if (spill.Spill is not null) doc["place_set_in_file"] = true;
+            }
         }
         // The document with no nodes, then each node while the whole still fits.
         int size = JsonSerializer.Serialize(doc).Length + 16, shown = 0;
