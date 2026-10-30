@@ -3071,7 +3071,7 @@ static class JsonWire
             {
                 w.WriteStartObject();
                 w.WriteString("where", l.Link.Where);
-                w.WriteString("kind", l.Link.Kind.ToString().ToLowerInvariant());
+                w.WriteString("kind", l.Link.Kind.Token());
                 w.WriteString("raw", l.Link.Raw);
                 WriteNullable(w, "data_path", l.Link.DataPath);
                 if (l.Link.Error is not null) w.WriteString("error", l.Link.Error);

@@ -191,9 +191,7 @@ internal sealed partial class AssetLayers
     /// <summary>The files one copy of a mesh names, each resolved against the load order; or why they could not be read.</summary>
     internal static (IReadOnlyList<ResolvedNifLink>? Links, string? Error) ReadMeshLinks(AssetResolver.AssetView view, PlacementSource copy)
     {
-        var (bytes, readErr) = AssetResolver.ReadPlacementSource(copy);
-        if (bytes is null) return (null, readErr ?? "could not read the mesh bytes.");
-        var (links, err) = NifLinks.Read(bytes);
+        var (links, err) = MeshLinks(copy);
         if (links is null) return (null, err);
         return (links.Select(l => new ResolvedNifLink(l, l.DataPath is { } d ? view.Resolve(d) : null)).ToList(), null);
     }

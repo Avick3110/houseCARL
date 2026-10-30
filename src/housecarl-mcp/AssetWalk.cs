@@ -77,7 +77,7 @@ internal sealed partial class AssetLayers
             try { rel = AssetResolver.ValidateRelPath(raw); }
             catch (ArgumentException ex)
             {
-                nodes.Add(new AssetWalkNode(raw, edge, pulledBy, WalkStanding.Error, null, keyed, note, ex.Message));
+                nodes.Add(ErrorNode(raw, edge, pulledBy, ex.Message) with { Keyed = keyed, Note = note });
                 return;
             }
             if (!seen.Add(rel)) return;
@@ -106,25 +106,20 @@ internal sealed partial class AssetLayers
                 if (n.Copy is null) continue;
                 if (n.Path.EndsWith(".nif", StringComparison.OrdinalIgnoreCase))
                 {
-                    var (bytes, readErr) = AssetResolver.ReadPlacementSource(n.Copy);
-                    var (links, err) = bytes is null ? (null, readErr ?? "could not read the mesh bytes.") : NifLinks.Read(bytes);
+                    var (links, err) = MeshLinks(n.Copy);
                     if (links is null) { notes.Add($"{n.Path}: its links were not read — {err}"); continue; }
                     foreach (var l in links)
                     {
-                        var edge = l.Kind switch { NifLinkKind.Smp => "smp", NifLinkKind.BodyTri => "bodytri", _ => "texture" };
-                        if (l.DataPath is { } d) AddFile(d, edge, n.Path);
-                        else nodes.Add(new AssetWalkNode(l.Raw, edge, n.Path, WalkStanding.Error, null, Error: l.Error));
+                        if (l.DataPath is { } d) AddFile(d, l.Kind.Token(), n.Path);
+                        else nodes.Add(ErrorNode(l.Raw, l.Kind.Token(), n.Path, l.Error!));
                     }
                 }
                 else if (n.Path.EndsWith(".pex", StringComparison.OrdinalIgnoreCase))
                 {
                     var (bytes, readErr) = AssetResolver.ReadPlacementSource(n.Copy);
-                    try
-                    {
-                        if (bytes is null) throw new InvalidDataException(readErr ?? "could not read the script bytes.");
-                        if (AssetWalkEdges.ParentPex(bytes) is { } parent) AddFile(parent, "parent", n.Path);
-                    }
-                    catch (Exception ex) { nodes.Add(new AssetWalkNode(n.Path, "parent", n.Path, WalkStanding.Error, null, Error: $"its parent class was not read — {ex.Message}")); }
+                    if (bytes is null) { nodes.Add(ErrorNode(n.Path, "parent", n.Path, $"its parent class was not read — {readErr ?? "could not read the script bytes."}")); continue; }
+                    try { if (AssetWalkEdges.ParentPex(bytes) is { } parent) AddFile(parent, "parent", n.Path); }
+                    catch (Exception ex) { nodes.Add(ErrorNode(n.Path, "parent", n.Path, $"its parent class was not read — {ex.Message}")); }
                 }
             }
         }
@@ -133,6 +128,17 @@ internal sealed partial class AssetLayers
         if (filesCut)
             notes.Add($"the walk stopped at {cap} files (the asset_status path bound); what it reached so far is listed.");
         return Done(nodes, notes, truncated);
+    }
+
+    /// <summary>A node whose path could not be resolved or read on.</summary>
+    static AssetWalkNode ErrorNode(string path, string edge, string pulledBy, string error)
+        => new(path, edge, pulledBy, WalkStanding.Error, null, Error: error);
+
+    /// <summary>The files one copy of a mesh names, unresolved; or why they could not be read.</summary>
+    internal static (IReadOnlyList<NifLink>? Links, string? Error) MeshLinks(PlacementSource copy)
+    {
+        var (bytes, readErr) = AssetResolver.ReadPlacementSource(copy);
+        return bytes is null ? (null, readErr ?? "could not read the mesh bytes.") : NifLinks.Read(bytes);
     }
 
     /// <summary>One node's standing: the named source's copy if it ships the path, else the winner, else absent.</summary>
@@ -164,6 +170,7 @@ internal sealed partial class AssetLayers
         var boundaries = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var inferCache = AssetWalkEdges.EmptyCache();
         IAssetLinkCache? voiceCache = null;
+        var raceCaches = new Dictionary<FormKey, IAssetLinkCache?>();
         int entered = 0;
 
         IMajorRecordGetter? Fetch(FormKey fk) => chain.Fetch(fk).Hit?.Body;
@@ -181,14 +188,15 @@ internal sealed partial class AssetLayers
             }
             if (++entered > MaxWalkRecords) { truncated = true; notes.Add($"the walk stopped entering records at {MaxWalkRecords}."); break; }
             var body = hit.Body;
-            var label = $"{RecordNaming.StripOverlay(body.GetType().Name)} {body.EditorID ?? ""} [{FormIdToken.Of(fk)}]".Replace("  ", " ");
+            var type = RecordNaming.StripOverlay(body.GetType().Name);
+            var label = body.EditorID is { Length: > 0 } edid ? $"{type} {edid} [{FormIdToken.Of(fk)}]" : $"{type} [{FormIdToken.Of(fk)}]";
 
             foreach (var p in AssetLinkHarvest.HarvestAssetPaths(new[] { body })) addFile(p, "listed", label);
             try { foreach (var e in AssetWalkEdges.Inferred(body, inferCache)) addFile(e.Path, e.Edge, label, e.Keyed, e.Note); }
             catch (Exception ex) { notes.Add($"{label}: its inferred links were not read — {ex.Message}"); }
             foreach (var e in AssetWalkEdges.Fragments(body)) addFile(e.Path, e.Edge, label, e.Keyed, e.Note);
 
-            if (body is INpcGetter npc) FaceGenOf(npc, label, Fetch, addFile, notes);
+            if (body is INpcGetter npc) FaceGenOf(npc, label, Fetch, raceCaches, addFile, notes);
             if (body is IDialogResponsesGetter info)
             {
                 voiceCache ??= VoiceCache(session, overlays);
@@ -212,13 +220,17 @@ internal sealed partial class AssetLayers
 
     /// <summary>The FaceGen pair an NPC's face is drawn from: its own, or its template root's, each member of a
     /// leveled template marked one of N.</summary>
-    static void FaceGenOf(INpcGetter npc, string label, Func<FormKey, IMajorRecordGetter?> fetch, FileSink addFile, List<string> notes)
+    static void FaceGenOf(INpcGetter npc, string label, Func<FormKey, IMajorRecordGetter?> fetch,
+                          Dictionary<FormKey, IAssetLinkCache?> raceCaches, FileSink addFile, List<string> notes)
     {
         var (roots, err) = AssetWalkEdges.FaceRoots(npc, fetch);
         if (err is not null) { notes.Add($"{label}: no FaceGen node — {err}."); return; }
         foreach (var root in roots)
         {
-            var race = root.Race.IsNull ? null : fetch(root.Race.FormKey) as IRaceGetter;
+            // One cache per race per walk: a walk of many NPCs shares a few races.
+            IAssetLinkCache? race = null;
+            if (!root.Race.IsNull && !raceCaches.TryGetValue(root.Race.FormKey, out race))
+                raceCaches[root.Race.FormKey] = race = fetch(root.Race.FormKey) is IRaceGetter r ? AssetWalkEdges.RaceCache(r) : null;
             var why = root.FormKey == npc.FormKey ? null : $"the face of template root {FormIdToken.Of(root.FormKey)}"
                       + (roots.Count > 1 ? $", one of {roots.Count}" : "");
             foreach (var p in AssetWalkEdges.FaceGen(root, race)) addFile(p, "facegen", label, keyed: true, note: why);

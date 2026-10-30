@@ -12,8 +12,7 @@ static class AssetWalkWire
 
     /// <summary>The nodes a place call takes: the ones the named source ships, error nodes and duplicates out.</summary>
     internal static IReadOnlyList<string> PlaceSet(AssetWalkData d)
-        => d.SourceProvider is null ? Array.Empty<string>()
-         : d.Nodes.Where(n => n.Standing == WalkStanding.FromSource).Select(n => n.Path).ToList();
+        => d.Nodes.Where(n => n.Standing == WalkStanding.FromSource).Select(n => n.Path).ToList();
 
     /// <summary>The place call's assets= array for <see cref="PlaceSet"/>.</summary>
     internal static string PlaceArray(IReadOnlyList<string> paths)
@@ -29,8 +28,7 @@ static class AssetWalkWire
     };
 
     static string Copy(PlacementSource s)
-        => AssetSourceSelection.Describe(s.ProviderName, s.Kind == AssetKind.Bsa ? "BSA" : "loose")
-           + (s.OffOrder ? " (not loaded by the game)" : "");
+        => AssetSourceSelection.Describe(s) + (s.OffOrder ? " (not loaded by the game)" : "");
 
     static string Text(AssetWalkData d, IReadOnlyList<string>? selectorNotes, int cap)
     {
@@ -46,7 +44,7 @@ static class AssetWalkWire
         if (d.Notes.Count > 0)
         {
             sb.Append("\n[!] walk notes (").Append(d.Notes.Count).Append("):\n");
-            foreach (var n in d.Notes) sb.Append("  - ").Append(n).Append('\n');
+            BatchRender.AppendLines(sb, d.Notes, "note(s)", room);
         }
 
         var counts = d.Nodes.GroupBy(n => n.Standing).ToDictionary(g => g.Key, g => g.Count());
@@ -60,7 +58,7 @@ static class AssetWalkWire
         var place = PlaceSet(d);
         var tail = place.Count == 0 ? ""
             : $"\nplace set ({place.Count}): {ToolNames.Place} source_provider=\"{d.SourceProvider}\" assets={PlaceArray(place)}\n"
-              + (place.Any(p => d.Nodes.First(n => n.Path == p).Keyed)
+              + (d.Nodes.Any(n => n.Standing == WalkStanding.FromSource && n.Keyed)
                   ? "  keyed nodes keep their FormID-named path: place them as they are only for a copy that keeps the FormKeys; a renumbering copy carries them itself.\n"
                   : "");
         int shown = 0;
@@ -106,7 +104,7 @@ static class AssetWalkWire
                     WalkStanding.Present => "present", WalkStanding.Absent => "absent", _ => "error",
                 },
                 ["provider"] = n.Copy?.ProviderName,
-                ["provider_kind"] = n.Copy is null ? null : n.Copy.Kind == AssetKind.Bsa ? "BSA" : "loose",
+                ["provider_kind"] = n.Copy?.Kind == AssetKind.Bsa ? "BSA" : n.Copy is null ? null : "loose",
                 ["keyed"] = n.Keyed,
                 ["note"] = n.Note,
                 ["error"] = n.Error,
