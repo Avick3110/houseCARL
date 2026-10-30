@@ -144,6 +144,9 @@ public sealed class AssetWalkWorld : IDisposable
         var speaker = Add("HcWalkSpeaker", race);
         speaker.Voice.SetTo(voice);
         var mute = Add("HcWalkMute", race);
+        // An NPC whose race link names the voice type.
+        mod.Npcs.AddNew("HcWalkWrongRace").Race.SetTo(voice.FormKey);
+        Keys["HcWalkWrongRace"] = mod.Npcs.Single(n => n.EditorID == "HcWalkWrongRace").FormKey;
         var vq = mod.Quests.AddNew("HcWalkVoiceQuest");
         var topic = mod.DialogTopics.AddNew("HcWalkTopic");
         topic.Quest.SetTo(vq);

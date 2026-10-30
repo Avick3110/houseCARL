@@ -159,7 +159,7 @@ internal sealed partial class AssetLayers
                                  place.Sources[0], keyed, note);
     }
 
-    delegate void FileSink(string raw, string edge, string pulledBy, bool keyed = false, string? note = null);
+    internal delegate void FileSink(string raw, string edge, string pulledBy, bool keyed = false, string? note = null);
 
     /// <summary>The record half: every seed and every record its form links reach inside the seed's own plugin and the
     /// from_source plugins, each contributing the paths it lists and its implicit files.</summary>
@@ -180,17 +180,11 @@ internal sealed partial class AssetLayers
         var boundaries = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var inferCache = AssetWalkEdges.EmptyCache();
         IAssetLinkCache? voiceCache = null;
-        var raceCaches = new Dictionary<FormKey, IAssetLinkCache?>();
+        var raceCaches = new Dictionary<FormKey, (IAssetLinkCache?, string?)>();
         int entered = 0;
         var npcs = new List<(FormKey Key, string Label)>();
 
-        // A race or template member the record sources do not hold is read off the active order, as the game would.
-        IMajorRecordGetter? Fetch(FormKey fk)
-        {
-            if (chain.Fetch(fk).Hit?.Body is { } body) return body;
-            try { return index.ResolveWinner(fk) is { } w ? index.GetRecord(session, w.WinnerPlugin, fk) : null; }
-            catch { return null; }
-        }
+        var Fetch = WalkFetch(chain, fk => index.ResolveWinner(fk) is { } w ? index.GetRecord(session, w.WinnerPlugin, fk) : null);
 
         while (queue.Count > 0)
         {
@@ -258,24 +252,32 @@ internal sealed partial class AssetLayers
                       string.Join(", ", boundaries.OrderByDescending(b => b.Value).Select(b => $"{b.Key} ×{b.Value}")) + ".");
     }
 
+    /// <summary>A race, template member or speaker read through the record sources, else off the active order, as the
+    /// game would; null only when neither holds it. An arm that has it but cannot read it throws with why.</summary>
+    internal static Func<FormKey, IMajorRecordGetter?> WalkFetch(SourceChain chain, Func<FormKey, IMajorRecordGetter?> winner)
+        => fk =>
+        {
+            var got = chain.Fetch(fk);
+            if (got.Fault is { } f) throw new InvalidOperationException($"'{f.Arm.Spelling}' has it but could not read it — {f.Cause}");
+            return got.Hit?.Body ?? winner(fk);
+        };
+
     /// <summary>The FaceGen pair an NPC's face is drawn from: its own, or its template root's, each member of a
     /// leveled template marked one of N.</summary>
-    static void FaceGenOf(INpcGetter npc, string label, Func<FormKey, IMajorRecordGetter?> fetch,
-                          Dictionary<FormKey, IAssetLinkCache?> raceCaches, FileSink addFile, List<string> notes)
+    internal static void FaceGenOf(INpcGetter npc, string label, Func<FormKey, IMajorRecordGetter?> fetch,
+                                   Dictionary<FormKey, (IAssetLinkCache? Cache, string? Why)> raceCaches, FileSink addFile, List<string> notes)
     {
         var (roots, errs) = AssetWalkEdges.FaceRoots(npc, fetch);
         foreach (var err in errs) notes.Add($"{label}: " + (roots.Count == 0 ? "no FaceGen node" : "a template member has no FaceGen node") + $" — {err}.");
         foreach (var root in roots)
         {
+            if (root.Race.IsNull) { notes.Add($"{label}: no FaceGen node for {FormIdToken.Of(root.FormKey)} — it names no race."); continue; }
             // One cache per race per walk: a walk of many NPCs shares a few races.
-            IAssetLinkCache? race = null;
-            if (!root.Race.IsNull && !raceCaches.TryGetValue(root.Race.FormKey, out race))
-                raceCaches[root.Race.FormKey] = race = fetch(root.Race.FormKey) is IRaceGetter r ? AssetWalkEdges.RaceCache(r) : null;
-            if (race is null)
+            if (!raceCaches.TryGetValue(root.Race.FormKey, out var race))
+                raceCaches[root.Race.FormKey] = race = RaceOf(root.Race.FormKey, fetch);
+            if (race.Cache is null)
             {
-                notes.Add($"{label}: no FaceGen node for {FormIdToken.Of(root.FormKey)} — " + (root.Race.IsNull
-                    ? "it names no race."
-                    : $"its race {FormIdToken.Of(root.Race.FormKey)} is in none of the record sources nor the load order."));
+                notes.Add($"{label}: no FaceGen node for {FormIdToken.Of(root.FormKey)} — {race.Why}");
                 continue;
             }
             var why = root.FormKey != npc.FormKey
@@ -283,8 +285,22 @@ internal sealed partial class AssetLayers
                 : root.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits)
                     ? "the Traits template flag is set with no Template, so this is read as the NPC's own face"
                     : null;
-            foreach (var p in AssetWalkEdges.FaceGen(root, race)) addFile(p, "facegen", label, keyed: true, note: why);
+            foreach (var p in AssetWalkEdges.FaceGen(root, race.Cache)) addFile(p, "facegen", label, keyed: true, note: why);
         }
+    }
+
+    /// <summary>A race's FaceGen cache, or why there is none: not found, not read, or a link to a record of another type.</summary>
+    static (IAssetLinkCache? Cache, string? Why) RaceOf(FormKey fk, Func<FormKey, IMajorRecordGetter?> fetch)
+    {
+        IMajorRecordGetter? got;
+        try { got = fetch(fk); }
+        catch (Exception ex) { return (null, $"its race {FormIdToken.Of(fk)} was not read: {ex.Message}"); }
+        return got switch
+        {
+            IRaceGetter r => (AssetWalkEdges.RaceCache(r), null),
+            null => (null, $"its race {FormIdToken.Of(fk)} is in none of the record sources nor the load order."),
+            _ => (null, $"its race link {FormIdToken.Of(fk)} names a {RecordNaming.StripOverlay(got.GetType().Name)}, not a race."),
+        };
     }
 
     /// <summary>A dialogue line's voice files: the .fuz Mutagen resolves, or a same-stem .xwm / .wav with its .lip
@@ -322,7 +338,10 @@ internal sealed partial class AssetLayers
         if (info.Speaker.IsNull)
             return "no Speaker set, and Mutagen resolves no voice type for it from the rest of the line";
         var fk = info.Speaker.FormKey;
-        return fetch(fk) switch
+        IMajorRecordGetter? speaker;
+        try { speaker = fetch(fk); }
+        catch (Exception ex) { return $"its Speaker {FormIdToken.Of(fk)} was not read: {ex.Message}"; }
+        return speaker switch
         {
             null => $"its Speaker {FormIdToken.Of(fk)} is in none of the record sources nor the load order",
             INpcGetter npc when npc.Voice.IsNull => $"its Speaker NPC {FormIdToken.Of(fk)} has no Voice type set",
