@@ -18,8 +18,7 @@ namespace HousecarlMcpTests;
 ///   <see cref="BaseTex"/> (base mod) and <see cref="MissingTex"/> (nowhere).</item>
 /// <item><c>HcWalkBeast</c>, whose race has no FaceGenHead: no FaceGen node.</item>
 /// <item><c>HcWalkTemplated</c> (Traits) → <c>HcWalkMid</c> (Traits) → <c>HcWalkHero</c>; <c>HcWalkLeveled</c>
-///   (Traits) → a leveled list of <c>HcWalkHero</c> and <c>HcWalkBeast2</c>; <c>HcWalkLoopA</c> ↔ <c>HcWalkLoopB</c>
-///   in the disabled override plugin.</item>
+///   (Traits) → a leveled list of <c>HcWalkHero</c> and <c>HcWalkBeast2</c>.</item>
 /// <item><c>HcWalkSge</c>, a start-game-enabled quest whose <c>Seq\HcWalk.seq</c> is absent; <c>HcWalkPlain</c>, not.</item>
 /// <item><c>Cape</c>, an enabled mod with <see cref="CapeNif"/> naming <see cref="CapeXml"/>, which it also ships.</item>
 /// </list></summary>
@@ -225,17 +224,6 @@ public sealed class AssetWalkWorld : IDisposable
         ovNpc.HeadParts.Add(ovHair);
         ovNpc.Voice.SetTo(otherVoice);
         ov.Npcs.Add(ovNpc);
-        // The looping Traits pair lives off the order, so only a walk that reads this plugin as a source has it in the
-        // order its voice resolution reads (the template-loop test).
-        var loopA = ov.Npcs.AddNew("HcWalkLoopA");
-        var loopB = ov.Npcs.AddNew("HcWalkLoopB");
-        foreach (var (n, to) in new[] { (loopA, loopB), (loopB, loopA) })
-        {
-            n.Race.SetTo(race);
-            n.Template.SetTo(to);
-            n.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
-            Keys[n.EditorID!] = n.FormKey;
-        }
         ov.BeginWrite.ToPath(Path.Combine(overrideMod, OverridePlugin)).WithLoadOrder(new ISkyrimModGetter[] { other, mod, ov })
           .NoCheckIfLowerRangeDisallowed().Write();
         Write(overrideMod, OvHairNif, Mesh(new[] { OvHairTex }, null));
