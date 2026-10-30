@@ -94,7 +94,10 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     {
         var d = Walk(records: new[] { "HcWalkTemplated" });
         var face = d.Nodes.Where(n => n.Edge == "facegen").Select(n => n.Path).ToList();
-        Assert.Contains(FaceGenPath.For(_w.Keys["HcWalkHero"], FaceGenSlot.Mesh), face, StringComparer.OrdinalIgnoreCase);
+        // Pulled by the templated NPC itself, not reached later through its form links to the root.
+        var root = Node(d, FaceGenPath.For(_w.Keys["HcWalkHero"], FaceGenSlot.Mesh));
+        Assert.Contains("HcWalkTemplated", root.PulledBy);
+        Assert.Contains("template root " + _w.Id("HcWalkHero"), root.Note);
         Assert.DoesNotContain(face, p => p.Contains(_w.Keys["HcWalkTemplated"].ID.ToString("X6"), StringComparison.OrdinalIgnoreCase));
     }
 
