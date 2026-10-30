@@ -13,9 +13,9 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     readonly AssetWalkWorld _w;
     public AssetWalkTests(AssetWalkWorld w) => _w = w;
 
-    AssetWalkData Walk(string[]? paths = null, string[]? records = null, string? source = null)
+    AssetWalkData Walk(string[]? paths = null, string[]? records = null, string? source = null, string[]? fromSource = null)
         => _w.Svc.AssetWalk(paths ?? Array.Empty<string>(),
-                            (records ?? Array.Empty<string>()).Select(r => _w.Keys[r]).ToList(), null, source);
+                            (records ?? Array.Empty<string>()).Select(r => _w.Keys[r]).ToList(), fromSource, source);
 
     static AssetWalkNode Node(AssetWalkData d, string path)
         => d.Nodes.Single(n => string.Equals(n.Path, path, StringComparison.OrdinalIgnoreCase));
@@ -135,6 +135,19 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.EndsWith("HcWalk.seq", seq.Path, StringComparison.OrdinalIgnoreCase);
 
         Assert.DoesNotContain(Walk(records: new[] { "HcWalkPlain" }).Nodes, n => n.Edge == "seq");
+    }
+
+    /// <summary>An override donor read through from_source= enters the head part its own plugin defines, by the
+    /// master's FormKey, and walks on to its mesh's texture; a link into a third plugin stays a counted boundary.</summary>
+    [Fact]
+    public void AnOverrideDonorsOwnRecordsAreEntered()
+    {
+        var d = Walk(records: new[] { "HcWalkBeast2" }, source: AssetWalkWorld.OverrideMod,
+                     fromSource: new[] { AssetWalkWorld.OverridePlugin });
+        Assert.Equal(WalkStanding.FromSource, Node(d, AssetWalkWorld.OvHairNif).Standing);
+        Assert.Contains("HcWalkOvHair", Node(d, AssetWalkWorld.OvHairNif).PulledBy);
+        Assert.Equal(AssetWalkWorld.OvHairNif, Node(d, AssetWalkWorld.OvHairTex).PulledBy, ignoreCase: true);
+        Assert.Contains(d.Notes, n => n.Contains("boundaries") && n.Contains(AssetWalkWorld.OtherPlugin + " ×1"));
     }
 
     /// <summary>No seed is refused in one sentence; records= without walk= is refused.</summary>
