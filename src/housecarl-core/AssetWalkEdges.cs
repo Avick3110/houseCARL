@@ -82,7 +82,8 @@ public static class AssetWalkEdges
 
     /// <summary>The NPCs whose FaceGen an NPC's face is drawn from: itself with the Traits template flag off, else the
     /// first NPC down its Template chain with it off, every member of a leveled-list template once each, through nested
-    /// leveled lists. A loop or a link that does not resolve is an error naming the chain; the other members still count.</summary>
+    /// leveled lists. A loop, a link that does not resolve, or a record <paramref name="fetch"/> throws on is an error
+    /// naming the chain; the other members still count.</summary>
     public static (IReadOnlyList<INpcGetter> Roots, IReadOnlyList<string> Errors) FaceRoots(INpcGetter npc, Func<FormKey, IMajorRecordGetter?> fetch)
     {
         var roots = new List<INpcGetter>();
@@ -92,7 +93,9 @@ public static class AssetWalkEdges
             var link = chain.Append(FormIdToken.Of(next)).ToList();
             if (chain.Count >= TemplateChainCap || chain.Contains(FormIdToken.Of(next)))
             { errors.Add($"the Traits template chain loops: {string.Join(" → ", link)}"); return; }
-            var body = fetch(next);
+            IMajorRecordGetter? body;
+            try { body = fetch(next); }
+            catch (Exception ex) { errors.Add($"a record in the Traits template chain was not read: {string.Join(" → ", link)} — {ex.Message}"); return; }
             if (body is INpcGetter t) { Walk(t, link); return; }
             if (body is ILeveledNpcGetter lv)
             {

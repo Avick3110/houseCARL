@@ -4,6 +4,7 @@ using HousecarlMcp;
 using Xunit;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Skyrim;
+using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Plugins.Assets;
 
@@ -284,6 +285,31 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         var none = Walk(records: new[] { "HcWalkNoRace" });
         Assert.DoesNotContain(none.Nodes, n => n.Edge == "facegen");
         Assert.Contains(none.Notes, n => n.Contains("no FaceGen node") && n.Contains("race " + FormIdToken.Of(AssetWalkWorld.Missing)));
+    }
+
+    /// <summary>A from_source arm that has an NPC's race but cannot read it: a note naming the fault, and no FaceGen
+    /// node from the winner's copy of the race. A race link to a record of another type is a note naming that type.</summary>
+    [Fact]
+    public void ARaceTheWalkCannotReadIsNamedNotMissed()
+    {
+        var mod = new SkyrimMod(ModKey.FromFileName("HcWalkFault.esp"), SkyrimRelease.SkyrimSE);
+        var race = mod.Races.AddNew("HcWalkFaultRace");
+        race.Flags = Race.Flag.FaceGenHead;
+        var npc = mod.Npcs.AddNew("HcWalkFaultNpc");
+        npc.Race.SetTo(race);
+        var arm = new SourceArm("HcWalkFault.esp", SourceArmKind.File, "test",
+                                fk => fk == race.FormKey ? throw new IOException("the file is locked") : fk == npc.FormKey ? npc : null);
+        var fetch = AssetLayers.WalkFetch(SourceChain.Single(arm), fk => fk == race.FormKey ? race : null);
+        var added = new List<string>();
+        var notes = new List<string>();
+        AssetLayers.FaceGenOf(npc, "Npc HcWalkFaultNpc", fetch, new(), (raw, _, _, _, _) => added.Add(raw), notes);
+        Assert.Empty(added);
+        Assert.Contains(notes, n => n.Contains("'HcWalkFault.esp' has it but could not read it — the file is locked"));
+        Assert.DoesNotContain(notes, n => n.Contains("in none of the record sources"));
+
+        var wrong = Walk(records: new[] { "HcWalkWrongRace" });
+        Assert.DoesNotContain(wrong.Nodes, n => n.Edge == "facegen");
+        Assert.Contains(wrong.Notes, n => n.Contains("names a VoiceType, not a race"));
     }
 
     /// <summary>An NPC with the Traits flag and no Template draws its own face: both FaceGen nodes, with a note saying why.</summary>
