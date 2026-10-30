@@ -120,6 +120,7 @@ public sealed class AssetWalkWorld : IDisposable
         Templated("HcWalkNested", Lvl("HcWalkLvlOuter", hero.FormKey, inner.FormKey).FormKey);
         Templated("HcWalkPartial", Lvl("HcWalkLvlBad", hero.FormKey, beast2.FormKey, Missing).FormKey);
         Templated("HcWalkDangling", Missing);
+        Add("HcWalkTraitsAlone", race).Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
         var noRace = mod.Npcs.AddNew("HcWalkNoRace");
         noRace.Race.SetTo(Missing);
         Keys["HcWalkNoRace"] = noRace.FormKey;
@@ -158,7 +159,7 @@ public sealed class AssetWalkWorld : IDisposable
         Write(donor, HairXml, new byte[] { 1 });
         Write(donor, DonorTex, new byte[] { 1 });
         Write(baseMod, BaseTex, new byte[] { 1 });
-        foreach (var npc in new[] { "HcWalkHero", "HcWalkBeast2" })
+        foreach (var npc in new[] { "HcWalkHero", "HcWalkBeast2", "HcWalkTraitsAlone" })
             foreach (var slot in new[] { FaceGenSlot.Mesh, FaceGenSlot.Tint })
                 Write(baseMod, FaceGenPath.For(Keys[npc], slot), new byte[] { 1 });
         Write(cape, CapeNif, Mesh(new[] { @"data\textures\hcwalk\cape.dds" }, CapeXml));

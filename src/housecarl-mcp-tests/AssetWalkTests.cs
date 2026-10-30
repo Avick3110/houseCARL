@@ -188,6 +188,19 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Contains(none.Notes, n => n.Contains("no FaceGen node") && n.Contains("race " + FormIdToken.Of(AssetWalkWorld.Missing)));
     }
 
+    /// <summary>An NPC with the Traits flag and no Template draws its own face: both FaceGen nodes, with a note saying why.</summary>
+    [Fact]
+    public void TraitsWithNoTemplateGivesItsOwnFace()
+    {
+        var d = Walk(records: new[] { "HcWalkTraitsAlone" });
+        foreach (var slot in new[] { FaceGenSlot.Mesh, FaceGenSlot.Tint })
+        {
+            var n = Node(d, FaceGenPath.For(_w.Keys["HcWalkTraitsAlone"], slot));
+            Assert.Equal(WalkStanding.Present, n.Standing);
+            Assert.Contains("no Template", n.Note);
+        }
+    }
+
     /// <summary>No seed is refused in one sentence; records= without walk= is refused.</summary>
     [Fact]
     public void AWalkWithNoSeedIsRefused()
