@@ -150,24 +150,22 @@ static class AssetWalkWire
             ["selector_notes"] = selectorNotes ?? Array.Empty<string>(),
             ["notes"] = d.Notes,
             ["truncated"] = d.Truncated,
-            ["nodes"] = Array.Empty<object>(),
+            ["nodes"] = null,
             ["place_set"] = PlaceSet(d).Select(p => new Dictionary<string, string> { ["path"] = p }).ToList(),
         };
         if (spill is not null)
         {
-            using var ms = new MemoryStream();
-            using (var w = new Utf8JsonWriter(ms)) { w.WriteStartObject(); Artifacts.WriteSpillStateJson(w, spill); w.WriteEndObject(); }
-            foreach (var p in JsonDocument.Parse(ms.ToArray()).RootElement.EnumerateObject()) doc[p.Name] = p.Value.Clone();
+            doc[SpillMembers] = null;
             doc["nodes_shown"] = 0;
             // A spilled walk whose set would not fit leaves it to the file's from_source rows; a failed spill has no file.
-            if (cap > 0 && JsonSerializer.Serialize(doc).Length > cap)
+            if (cap > 0 && Emit(doc, nodes, 0, spill).Length > cap)
             {
                 doc["place_set"] = null;
                 if (spill.Spill is not null) doc["place_set_in_file"] = true;
             }
         }
         // The document with no nodes, then each node while the whole still fits.
-        int size = JsonSerializer.Serialize(doc).Length + 16, shown = 0;
+        int size = Emit(doc, nodes, 0, spill).Length + 16, shown = 0;
         foreach (var n in nodes)
         {
             if (cap > 0 && size + n.Length + 1 > cap) break;
@@ -175,8 +173,31 @@ static class AssetWalkWire
             shown++;
         }
         truncated = shown < nodes.Count;
-        doc["nodes"] = nodes.Take(shown).Select(n => JsonDocument.Parse(n).RootElement.Clone()).ToList();
         if (spill is not null) doc["nodes_shown"] = shown;
-        return JsonSerializer.Serialize(doc);
+        return Emit(doc, nodes, shown, spill);
+    }
+
+    /// <summary>The key in a walk document where the spill state's members are written.</summary>
+    const string SpillMembers = "\0spill";
+
+    /// <summary>The walk document in key order, its first <paramref name="shown"/> nodes written as serialized.</summary>
+    static string Emit(Dictionary<string, object?> doc, IReadOnlyList<string> nodes, int shown, SpillState? spill)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms))
+        {
+            w.WriteStartObject();
+            foreach (var (k, v) in doc)
+            {
+                if (k == SpillMembers) { Artifacts.WriteSpillStateJson(w, spill!); continue; }
+                w.WritePropertyName(k);
+                if (k != "nodes") { JsonSerializer.Serialize(w, v); continue; }
+                w.WriteStartArray();
+                foreach (var n in nodes.Take(shown)) w.WriteRawValue(n, skipInputValidation: true);
+                w.WriteEndArray();
+            }
+            w.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(ms.ToArray());
     }
 }
