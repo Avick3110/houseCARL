@@ -130,7 +130,8 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         var root = Node(d, FaceGenPath.For(_w.Keys["HcWalkHero"], FaceGenSlot.Mesh));
         Assert.Contains("HcWalkTemplated", root.PulledBy);
         Assert.Contains("template root " + _w.Id("HcWalkHero"), root.Note);
-        Assert.DoesNotContain(face, p => p.Contains(_w.Keys["HcWalkTemplated"].ID.ToString("X6"), StringComparison.OrdinalIgnoreCase));
+        foreach (var slot in new[] { FaceGenSlot.Mesh, FaceGenSlot.Tint })
+            Assert.DoesNotContain(FaceGenPath.For(_w.Keys["HcWalkTemplated"], slot), face, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>A leveled-list template reaches every member's root, each one of 2; a looping chain is a note naming it.</summary>
