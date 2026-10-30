@@ -41,7 +41,7 @@ static class AssetWalkWire
         {
             new("walk", "true"),
             new("source_provider", d.SourceProvider ?? "<none>"),
-            new("record_sources", string.Join(" > ", d.RecordSources)),
+            new("record_sources", d.RecordSources.Count > 0 ? string.Join(" > ", d.RecordSources) : "<none>"),
         };
         var (manifest, err) = writer.Save(target, ToolNames.AssetStatus, query, identity: "path", RowSchema,
                                           sort: "walk order", total: d.Nodes.Count, epoch: order?.Epoch ?? "", notes: notes,
@@ -66,7 +66,7 @@ static class AssetWalkWire
         var sb = new StringBuilder("asset walk — profile '").Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
             .Append("'  (").Append(d.Nodes.Count).Append(" node").Append(d.Nodes.Count == 1 ? "" : "s")
             .Append(d.SourceProvider is { } s ? $", source \"{s}\"" : "")
-            .Append(", records from ").Append(string.Join(" > ", d.RecordSources)).Append(")\n");
+            .Append(d.RecordSources.Count > 0 ? ", records from " + string.Join(" > ", d.RecordSources) : "").Append(")\n");
         var room = RenderCap.For(cap, 0);
         BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
         BatchRender.AppendRootFailures(sb, d.RootFailures, "an asset", room);
@@ -141,7 +141,7 @@ static class AssetWalkWire
             ["walk"] = true,
             ["profile"] = d.ProfileName,
             ["source_provider"] = d.SourceProvider,
-            ["record_sources"] = d.RecordSources,
+            ["record_sources"] = d.RecordSources.Count > 0 ? d.RecordSources : null,
             ["bsa_failures"] = d.BsaFailures,
             ["root_failures"] = d.RootFailures,
             ["warnings"] = d.Warnings,
