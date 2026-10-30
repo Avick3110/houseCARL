@@ -42,8 +42,8 @@ internal sealed partial class AssetLayers
     /// through the paths a record lists, its implicit files (FaceGen, scripts, fragments, .seq, voice) and the links a
     /// file names (a mesh's textures, SMP XML and BODYTRI, a script's parent), each node resolved against
     /// <paramref name="sourceProvider"/> first and then the load order. Records are read through
-    /// <paramref name="fromSource"/> (default the winner) and the walk follows form links only into records the seed's
-    /// own plugin or a from_source plugin defines; others are boundaries. <paramref name="keyedSeeds"/> are the seed
+    /// <paramref name="fromSource"/> (default the winner) and the walk follows form links only into records the
+    /// from_source plugins define, and for a seed read through 'winner' its own plugin's; others are boundaries. <paramref name="keyedSeeds"/> are the seed
     /// paths a formids= row derived from an NPC's id. Contract in docs/architecture/assets.md, Walking the links.</summary>
     public AssetWalkData AssetWalk(IReadOnlyList<string> seedPaths, IReadOnlyList<FormKey> seedRecords,
                                    IReadOnlyList<string>? fromSource, string? sourceProvider,
@@ -161,21 +161,22 @@ internal sealed partial class AssetLayers
 
     internal delegate void FileSink(string raw, string edge, string pulledBy, bool keyed = false, string? note = null);
 
-    /// <summary>The record half: every seed and every record its form links reach inside the seed's own plugin and the
-    /// from_source plugins, each contributing the paths it lists and its implicit files.</summary>
+    /// <summary>The record half: every seed and every record its form links reach inside the from_source plugins and,
+    /// for a seed read through 'winner', its own plugin, each contributing the paths it lists and its implicit files.</summary>
     void WalkRecords(AssetResolver.AssetView view, string? source, LoadOrderResolver.IndexView index, LoadOrderResolver.OverlaySession session, SourceChain chain, IReadOnlyList<FormKey> seeds, List<IDisposable> overlays, FileSink addFile,
                      List<string> notes, ref bool truncated)
     {
         var seenRec = new HashSet<FormKey>();
-        var queue = new Queue<(FormKey Key, string PulledBy, IReadOnlySet<ModKey> Home, int Depth)>();
-        // The plugins each from_source arm names, as copy binds them (RecordCopy): an override donor's own records are entered.
+        var queue = new Queue<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home, int Depth)>();
+        // The plugins each from_source arm names, as copy binds them (RecordCopy): an override donor's own records are
+        // entered. A seed read through 'winner' also enters its own plugin; one read through a named plugin does not.
         var named = new HashSet<ModKey>();
         foreach (var arm in chain.Arms)
         {
             if (string.Equals(arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)) continue;
             try { named.Add(ModKey.FromFileName(Path.GetFileName(arm.Spelling))); } catch { /* a spelling that names no plugin binds nothing */ }
         }
-        foreach (var s in seeds) if (seenRec.Add(s)) queue.Enqueue((s, "seed", new HashSet<ModKey>(named) { s.ModKey }, 0));
+        foreach (var s in seeds) if (seenRec.Add(s)) queue.Enqueue((s, "seed", null, 0));
         int pastDepth = 0;
         var boundaries = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var inferCache = AssetWalkEdges.EmptyCache();
@@ -198,6 +199,8 @@ internal sealed partial class AssetLayers
                 continue;
             }
             if (++entered > MaxWalkRecords) { truncated = true; notes.Add($"the walk stopped entering records at {MaxWalkRecords}."); break; }
+            home ??= string.Equals(hit.Arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)
+                ? new HashSet<ModKey>(named) { fk.ModKey } : named;
             var body = hit.Body;
             var type = RecordNaming.StripOverlay(body.GetType().Name);
             var label = body.EditorID is { Length: > 0 } edid ? $"{type} {edid} [{FormIdToken.Of(fk)}]" : $"{type} [{FormIdToken.Of(fk)}]";
@@ -251,7 +254,7 @@ internal sealed partial class AssetLayers
             catch (Exception ex) { notes.Add($"the dialogue lines naming the walked NPCs were not read — {ex.GetType().Name}: {ex.Message}"); }
         }
         if (pastDepth > 0)
-            notes.Add($"{pastDepth} record(s) of the seed's own plugin or a from_source plugin sit more than {RecordDepth} form-link hops from a seed and were not entered; seed them with records= to walk them.");
+            notes.Add($"{pastDepth} record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than {RecordDepth} form-link hops from a seed and were not entered; seed them with records= to walk them.");
         if (boundaries.Count > 0)
             notes.Add("form links into other plugins were kept as boundaries, not walked (their files are that plugin's): " +
                       string.Join(", ", boundaries.OrderByDescending(b => b.Value).Select(b => $"{b.Key} ×{b.Value}")) + ".");

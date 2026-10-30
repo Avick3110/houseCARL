@@ -273,6 +273,19 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Contains(d.Notes, n => n.Contains("boundaries") && n.Contains(AssetWalkWorld.OtherPlugin + " ×1"));
     }
 
+    /// <summary>A seed in a base master read through a from_source donor: the master's linked records are boundaries,
+    /// the donor's head part is entered. The same seed read through the winner enters its own plugin.</summary>
+    [Fact]
+    public void ABaseMasterSeedReadThroughADonorKeepsItsPluginAsABoundary()
+    {
+        var d = Walk(records: new[] { "HcWalkBeast2" }, fromSource: new[] { AssetWalkWorld.OverridePlugin });
+        Assert.Contains(d.Notes, n => n.Contains("boundaries") && n.Contains(AssetWalkWorld.Plugin + " ×"));
+        Assert.Contains("HcWalkOvHair", Node(d, AssetWalkWorld.OvHairNif).PulledBy);
+
+        var w = Walk(records: new[] { "HcWalkBeast2" });
+        Assert.DoesNotContain(w.Notes, n => n.Contains(AssetWalkWorld.Plugin + " ×"));
+    }
+
     /// <summary>An NPC read through a from_source plugin that does not hold its race still gets its FaceGen pair, the
     /// race read off the load order; a race nothing holds is a note naming it, never silence.</summary>
     [Fact]
