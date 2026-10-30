@@ -181,14 +181,14 @@ internal sealed partial class AssetLayers
         var boundaries = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var inferCache = AssetWalkEdges.EmptyCache();
         (IAssetLinkCache? Cache, string? Loop)? voice = null;
-        // The voice cache, built once; none when the order holds a Traits template loop, said once.
+        // The voice cache, built once; none when the mods it reads hold a Traits template loop, said once.
         IAssetLinkCache? Voice()
         {
             if (voice is null)
             {
                 voice = VoiceCache(session, overlays);
                 if (voice.Value.Loop is { } loop)
-                    notes.Add($"no dialogue line's voice was resolved — the order holds a Traits template loop ({loop}), which Mutagen's voice resolution cannot read through.");
+                    notes.Add($"no dialogue line's voice was resolved — the active order or a from_source= plugin outside it holds a Traits template loop ({loop}), which Mutagen's voice resolution cannot read through.");
             }
             return voice.Value.Cache;
         }
