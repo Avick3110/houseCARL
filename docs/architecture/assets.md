@@ -321,8 +321,8 @@ nothing is cut silently. Each record contributes:
 - each fragment `FileName` in its script adapter, found by reflection over the adapter, with a note that Mutagen
   infers none;
 - on an NPC, the FaceGen pair its face is drawn from: its own when the Traits template flag is off, else the first NPC
-  down the Template chain with it off, every member of a leveled-list template marked one of N; a loop or an
-  unresolved link is a note naming the chain. The pair is Mutagen's resolved link over a cache holding only the
+  down the Template chain with it off, every member of a leveled-list template (nested lists included) marked one
+  of N; a loop or an unresolved link is a note naming the chain, and the other members keep their pairs. The pair is Mutagen's resolved link over a cache holding only the
   root's race, so a race without `FaceGenHead` gives none, which `FaceGenPath.For` alone cannot tell;
 - on a dialogue line, the `.fuz` paths Mutagen resolves over the whole order (built once, when a line is reached), or
   the same-stem `.xwm` / `.wav` and `.lip` the line ships as when no `.fuz` does; both listed, with no claim on which

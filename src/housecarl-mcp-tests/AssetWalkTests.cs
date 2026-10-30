@@ -115,6 +115,30 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Contains(loop.Notes, n => n.Contains("loops"));
     }
 
+    /// <summary>A leveled template nesting another reaches both members' roots, each one of 2; a template list with an
+    /// entry that resolves to nothing keeps its good members' pairs and names the bad entry; a template that resolves
+    /// to nothing is a note naming the chain.</summary>
+    [Fact]
+    public void ANestedOrPartlyBadLeveledTemplateKeepsEveryGoodMember()
+    {
+        foreach (var npc in new[] { "HcWalkNested", "HcWalkPartial" })
+        {
+            var d = Walk(records: new[] { npc });
+            foreach (var member in new[] { "HcWalkHero", "HcWalkBeast2" })
+            {
+                var n = Node(d, FaceGenPath.For(_w.Keys[member], FaceGenSlot.Mesh));
+                Assert.Contains("one of 2", n.Note);
+                Assert.Contains(npc, n.PulledBy);
+            }
+            if (npc == "HcWalkPartial")
+                Assert.Contains(d.Notes, n => n.Contains("does not resolve") && n.Contains(FormIdToken.Of(AssetWalkWorld.Missing)));
+        }
+
+        var dangling = Walk(records: new[] { "HcWalkDangling" });
+        Assert.DoesNotContain(dangling.Nodes, n => n.Edge == "facegen");
+        Assert.Contains(dangling.Notes, n => n.Contains("no FaceGen node") && n.Contains(FormIdToken.Of(AssetWalkWorld.Missing)));
+    }
+
     /// <summary>A record's own script reaches its .pex and never the .psc source.</summary>
     [Fact]
     public void AScriptReachesItsPexOnly()

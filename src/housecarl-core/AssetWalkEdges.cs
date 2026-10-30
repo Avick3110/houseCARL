@@ -81,41 +81,38 @@ public static class AssetWalkEdges
     }
 
     /// <summary>The NPCs whose FaceGen an NPC's face is drawn from: itself with the Traits template flag off, else the
-    /// first NPC down its Template chain with it off, every member of a leveled-list template once each. A loop or a
-    /// link that does not resolve is an error naming the chain.</summary>
-    public static (IReadOnlyList<INpcGetter> Roots, string? Error) FaceRoots(INpcGetter npc, Func<FormKey, IMajorRecordGetter?> fetch)
+    /// first NPC down its Template chain with it off, every member of a leveled-list template once each, through nested
+    /// leveled lists. A loop or a link that does not resolve is an error naming the chain; the other members still count.</summary>
+    public static (IReadOnlyList<INpcGetter> Roots, IReadOnlyList<string> Errors) FaceRoots(INpcGetter npc, Func<FormKey, IMajorRecordGetter?> fetch)
     {
         var roots = new List<INpcGetter>();
-        string? error = null;
+        var errors = new List<string>();
+        void Follow(FormKey next, List<string> chain)
+        {
+            var link = chain.Append(FormIdToken.Of(next)).ToList();
+            if (chain.Count >= TemplateChainCap || chain.Contains(FormIdToken.Of(next)))
+            { errors.Add($"the Traits template chain loops: {string.Join(" → ", link)}"); return; }
+            var body = fetch(next);
+            if (body is INpcGetter t) { Walk(t, link); return; }
+            if (body is ILeveledNpcGetter lv)
+            {
+                foreach (var e in lv.Entries ?? Array.Empty<ILeveledNpcEntryGetter>())
+                    if (e.Data?.Reference is { IsNull: false } r) Follow(r.FormKey, link);
+                return;
+            }
+            errors.Add($"the Traits template chain ends on a record that does not resolve to an NPC or a leveled list: {string.Join(" → ", link)}");
+        }
         void Walk(INpcGetter n, List<string> chain)
         {
-            if (error is not null) return;
             if (!n.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits) || n.Template.IsNull)
             {
                 if (!roots.Any(r => r.FormKey == n.FormKey)) roots.Add(n);
                 return;
             }
-            var next = n.Template.FormKey;
-            var at = string.Join(" → ", chain.Append(FormIdToken.Of(next)));
-            if (chain.Count >= TemplateChainCap || chain.Contains(FormIdToken.Of(next)))
-            { error = $"the Traits template chain loops: {at}"; return; }
-            var body = fetch(next);
-            if (body is INpcGetter t) { Walk(t, chain.Append(FormIdToken.Of(next)).ToList()); return; }
-            if (body is ILeveledNpcGetter lv)
-            {
-                foreach (var e in lv.Entries ?? Array.Empty<ILeveledNpcEntryGetter>())
-                {
-                    if (e.Data?.Reference is not { IsNull: false } r) continue;
-                    var link = chain.Append(FormIdToken.Of(next)).Append(FormIdToken.Of(r.FormKey)).ToList();
-                    if (fetch(r.FormKey) is INpcGetter m) Walk(m, link);
-                    else { error = $"the Traits template chain ends on a record that does not resolve to an NPC: {string.Join(" → ", link)}"; return; }
-                }
-                return;
-            }
-            error = $"the Traits template chain ends on a record that does not resolve: {at}";
+            Follow(n.Template.FormKey, chain);
         }
         Walk(npc, new List<string> { FormIdToken.Of(npc.FormKey) });
-        return (roots, error);
+        return (roots, errors);
     }
 
     /// <summary>An NPC's own FaceGen files by Mutagen's resolved link, over a cache holding only its race: none when the
