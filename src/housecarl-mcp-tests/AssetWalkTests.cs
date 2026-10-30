@@ -2,6 +2,10 @@ using System.Text.Json;
 using HousecarlCore;
 using HousecarlMcp;
 using Xunit;
+using Mutagen.Bethesda;
+using Mutagen.Bethesda.Skyrim;
+using Mutagen.Bethesda.Plugins.Cache;
+using Mutagen.Bethesda.Plugins.Assets;
 
 namespace HousecarlMcpTests;
 
@@ -138,7 +142,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(2, face.Count);
         Assert.All(face, n => Assert.Contains("one of 2", n.Note));
 
-        var loop = Walk(records: new[] { "HcWalkLoopA" });
+        var loop = Walk(records: new[] { "HcWalkLoopA" }, fromSource: new[] { AssetWalkWorld.OverridePlugin });
         Assert.DoesNotContain(loop.Nodes, n => n.Edge == "facegen");
         Assert.Contains(loop.Notes, n => n.Contains("loops"));
     }
@@ -265,6 +269,25 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         var rows = Rows(doc.RootElement.GetProperty("spilled").GetProperty("path").GetString()!);
         Assert.Equal(AssetWalkWorld.ManyTex.Length, rows.Length);
         Assert.All(rows, r => Assert.Contains("\"standing\":\"from_source\"", r));
+    }
+
+    /// <summary>A dialogue line reaches the .fuz Mutagen resolves for its speaker, keyed.</summary>
+    [Fact]
+    public void ALineReachesItsVoiceFuz()
+    {
+        var d = Walk(records: new[] { "HcWalkLineSpeaker" });
+        var fuz = Node(d, _w.Voice("HcWalkLineSpeaker", VoiceFile.Fuz));
+        Assert.Equal("voice", fuz.Edge);
+        Assert.True(fuz.Keyed);
+    }
+
+    /// <summary>A line with no speaker and a line whose speaker has no voice type each get a note naming its own reason.</summary>
+    [Fact]
+    public void ALineWithNoVoiceSaysWhy()
+    {
+        Assert.Contains(Walk(records: new[] { "HcWalkLineNoSpeaker" }).Notes, n => n.Contains("no voice node — no Speaker set"));
+        Assert.Contains(Walk(records: new[] { "HcWalkLineMute" }).Notes,
+                        n => n.Contains($"no voice node — its Speaker NPC {_w.Id("HcWalkMute")} has no Voice type set"));
     }
 
     /// <summary>No seed is refused in one sentence; records= without walk= is refused.</summary>
