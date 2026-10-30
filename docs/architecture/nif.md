@@ -93,7 +93,8 @@ Data path), so a FaceGen head's three forms (`Actors\…`, `textures\…`, `data
 it, so an unread archive or an unlisted root is named only in the header's notes. A string the door refuses is its own
 `data path: none` line naming the slot string. The `shapes` section keeps the raw string only, and `nif_set` writes the string it is given (Pinned by: `AssetLinkDataPathTests`).
 
-`NifService.Load` is the one parse every read shares, `Inspect` and `NifLinks.Read` alike. `NifLinks` is the file
+`NifService.Load` is the parse the two reads share, `Inspect` and `NifLinks.Read`; `nif_set`'s write, its byte
+normalizer and its read-back each still load their own `NifFile`. `NifLinks` is the file
 layer's reader of a mesh's links (slots, effect-shader textures, the root's SMP and `BODYTRI` strings); its contract
 is in [assets.md](assets.md), A mesh's links. `nif_inspect` does not render it.
 
