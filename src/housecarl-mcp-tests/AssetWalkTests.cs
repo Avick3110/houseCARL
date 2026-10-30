@@ -89,7 +89,10 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(WalkStanding.FromSource, Node(d, AssetWalkWorld.HairNif).Standing);
         Assert.Equal(WalkStanding.FromSource, Node(d, AssetWalkWorld.HairXml).Standing);
         Assert.Equal("smp", Node(d, AssetWalkWorld.HairXml).Edge);
-        Assert.Equal(WalkStanding.FromSource, Node(d, AssetWalkWorld.DonorTex).Standing);
+        // The base mod ships this path too and wins it in the order; the named donor's copy still answers it.
+        var donorTex = Node(d, AssetWalkWorld.DonorTex);
+        Assert.Equal(WalkStanding.FromSource, donorTex.Standing);
+        Assert.Equal(AssetWalkWorld.DonorMod, donorTex.Copy!.ProviderName);
         var elsewhere = Node(d, AssetWalkWorld.BaseTex);
         Assert.Equal(WalkStanding.Elsewhere, elsewhere.Standing);
         Assert.Equal(AssetWalkWorld.BaseMod, elsewhere.Copy!.ProviderName);
@@ -100,6 +103,49 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         using var doc = JsonDocument.Parse(AssetWalkWire.PlaceArray(set));
         var placed = PlaceTools.Place(_w.Svc, doc.RootElement, source_provider: AssetWalkWorld.DonorMod, patch: "HcWalkPlaced");
         Assert.Contains("placed 3", placed, StringComparison.OrdinalIgnoreCase);
+        // The donor's bytes were placed, not the enabled base mod's older copy of the same path.
+        var placedTex = Path.Combine(_w.ModsDir, "houseCARL - HcWalkPlaced", AssetWalkWorld.DonorTex);
+        Assert.True(File.Exists(placedTex), placed);
+        Assert.Equal(AssetWalkWorld.DonorBytes, File.ReadAllBytes(placedTex));
+    }
+
+    /// <summary>A FaceGen head mesh walks on like any mesh: its texture slot and its root SMP string become nodes,
+    /// absent here, pulled by the head.</summary>
+    [Fact]
+    public void AFaceGenHeadWalksOnThroughItsLinks()
+    {
+        var d = Walk(records: new[] { "HcWalkHero" });
+        var head = FaceGenPath.For(_w.Keys["HcWalkHero"], FaceGenSlot.Mesh);
+        foreach (var (path, edge) in new[] { (AssetWalkWorld.FaceTex, "texture"), (AssetWalkWorld.FaceXml, "smp") })
+        {
+            var n = Node(d, path);
+            Assert.Equal(edge, n.Edge);
+            Assert.Equal(head, n.PulledBy, ignoreCase: true);
+            Assert.Equal(WalkStanding.Absent, n.Standing);
+        }
+    }
+
+    /// <summary>An effect-shader texture maps through the texture door and a BODYTRI string through the model door
+    /// (meshes-relative), each a link of its own kind.</summary>
+    [Fact]
+    public void LinksMapEffectTexturesAndBodyTri()
+    {
+        var links = _w.Svc.AssetStatus(new[] { AssetWalkWorld.FxNif }, links: true).Results.Single().Links!;
+        Assert.Equal(@"textures\hcwalk\fx.dds", links.Single(l => l.Link.Kind == NifLinkKind.Texture).Link.DataPath, ignoreCase: true);
+        Assert.Contains("effect source texture", links.Single(l => l.Link.Kind == NifLinkKind.Texture).Link.Where);
+        Assert.Equal(@"meshes\" + AssetWalkWorld.FxTri, links.Single(l => l.Link.Kind == NifLinkKind.BodyTri).Link.DataPath, ignoreCase: true);
+    }
+
+    /// <summary>The json lanes: a links= row carries each link's data_path, and a walk document carries its place_set.</summary>
+    [Fact]
+    public void TheJsonLanesCarryLinksAndThePlaceSet()
+    {
+        using var row = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, links: true, format: "json"));
+        Assert.Contains(row.RootElement.GetProperty("results")[0].GetProperty("links").EnumerateArray(),
+                        l => string.Equals(l.GetProperty("data_path").GetString(), AssetWalkWorld.CapeXml, StringComparison.OrdinalIgnoreCase));
+
+        using var walk = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: true, source_provider: "Cape", format: "json"));
+        Assert.Equal(3, walk.RootElement.GetProperty("place_set").GetArrayLength());
     }
 
     /// <summary>An NPC with a FaceGenHead race reaches its pair at FaceGenPath.For's paths, keyed; one whose race has no
@@ -179,6 +225,25 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         var d = Walk(records: new[] { "HcWalkHero" });
         Assert.Equal("script", Node(d, AssetWalkEdges.ScriptPex(AssetWalkWorld.OwnScript)).Edge);
         Assert.DoesNotContain(d.Nodes, n => n.Path.EndsWith(".psc", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>A quest alias's script reaches its .pex.</summary>
+    [Fact]
+    public void AnAliasScriptReachesItsPex()
+        => Assert.Equal("script", Node(Walk(records: new[] { "HcWalkAliased" }), AssetWalkEdges.ScriptPex(AssetWalkWorld.AliasScript)).Edge);
+
+    /// <summary>A walk seeded by a formids= artifact from another build is refused, epoch-checked as the row lane is.</summary>
+    [Fact]
+    public void AWalkFormidsArtifactIsEpochChecked()
+    {
+        var file = Path.Combine(_w.Root, "ids-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        using (var writer = new ResultArtifact.Writer())
+        {
+            writer.WriteRow((w, _) => { w.WriteStartObject(); w.WriteString("formid", _w.Id("HcWalkHero")); w.WriteEndObject(); });
+            Assert.Null(writer.Save(ArtifactTarget.Named(file), ToolNames.Records, Array.Empty<KeyValuePair<string, string>>(),
+                                    "formid", new[] { "formid" }, "input order", total: 1, epoch: "e2-deadbeef").Error);
+        }
+        Assert.Contains("e2-deadbeef", AssetTools.AssetStatus(_w.Svc, formids: new[] { "@" + file }, walk: true));
     }
 
     /// <summary>A start-game-enabled quest reaches its plugin's .seq, keyed and absent here; one without the flag none.</summary>
