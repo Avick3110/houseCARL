@@ -224,8 +224,8 @@ public sealed class AssetWalkWorld : IDisposable
         ovNpc.HeadParts.Add(ovHair);
         ovNpc.Voice.SetTo(otherVoice);
         ov.Npcs.Add(ovNpc);
-        // The looping Traits pair lives off the order: Mutagen's voice resolution overflows the stack on a looping
-        // template anywhere in the order it reads, so the active plugins carry none.
+        // The looping Traits pair lives off the order, so only a walk that reads this plugin as a source has it in the
+        // order its voice resolution reads (the template-loop test).
         var loopA = ov.Npcs.AddNew("HcWalkLoopA");
         var loopB = ov.Npcs.AddNew("HcWalkLoopB");
         foreach (var (n, to) in new[] { (loopA, loopB), (loopB, loopA) })

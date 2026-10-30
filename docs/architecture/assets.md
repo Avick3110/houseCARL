@@ -334,7 +334,9 @@ nothing is cut silently. Each record contributes:
   the same-stem `.xwm` / `.wav` and `.lip` the line ships as when no `.fuz` does (shipped by the order or by
   `source_provider=`, so a disabled donor's format counts); both listed, with no claim on which
   plays, when both ship. A line Mutagen finds no voice for is a note naming why (no Speaker, a speaker that is not an
-  NPC or has no voice type), and one that throws is a note;
+  NPC or has no voice type), and one that throws is a note. Mutagen's resolution overflows the stack, killing the
+  server, on a Traits template loop anywhere in the order it reads, so the order's winning NPCs are checked for one
+  first (`AssetWalkEdges.TraitsLoop`); with one, no line's voice is resolved and a note names the loop;
 - on an NPC, the voice of each dialogue line it speaks: the active order's referencers from the reverse-reference
   index whose winning copy names it as Speaker, or in a `GetIsID` run on the Subject that passes for it and fails for
   any other (`AssetWalkEdges.Speaks`), each line through the edge above. A line that only mentions it (a script

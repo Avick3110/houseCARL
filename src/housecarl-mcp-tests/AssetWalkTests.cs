@@ -458,6 +458,15 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(WalkStanding.FromSource, Node(d, _w.Voice("HcWalkLineCond", VoiceFile.Fuz)[..^4] + ".xwm").Standing);
     }
 
+    /// <summary>A walk whose voice resolution reads an order with a looping Traits template pair (the disabled override
+    /// plugin, read as a source) gives a note naming the loop instead of the server dying.</summary>
+    [Fact]
+    public void AnOrderWithATemplateLoopNamesItInsteadOfDying()
+    {
+        var d = Walk(records: new[] { "HcWalkLineSpeaker" }, fromSource: new[] { AssetWalkWorld.OverridePlugin, "winner" });
+        Assert.Contains(d.Notes, n => n.Contains("Traits template loop") && n.Contains(_w.Id("HcWalkLoopA")) && n.Contains(_w.Id("HcWalkLoopB")));
+    }
+
     /// <summary>A line with no speaker and a line whose speaker has no voice type each get a note naming its own reason.</summary>
     [Fact]
     public void ALineWithNoVoiceSaysWhy()
