@@ -156,6 +156,9 @@ public sealed class CopyServiceLaneTests : IDisposable
 
         CopyServiceWorld.Succeeded(o);
         Assert.Contains(o.AssetPaths, a => a.Contains("srchair.nif", StringComparison.OrdinalIgnoreCase));
+        // The list is first-hop, so the reply names the walk for what those files reach; with no assets it says nothing.
+        Assert.Contains("asset_status walk=true", CopyTools.Render(o));
+        Assert.DoesNotContain("walk=true", CopyTools.Render(o with { AssetPaths = Array.Empty<string>() }));
     }
 
     // probe arm 8: a refusal that happens AFTER the output folder is resolved removes the folder it created this
