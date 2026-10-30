@@ -53,7 +53,7 @@ public static class NifService
     internal static (NifFile? Nif, string? Error) Load(byte[] bytes)
     {
         if (bytes is null || bytes.Length == 0)
-            return (null, "the mesh is empty (0 bytes) — nothing to inspect.");
+            return (null, "the mesh is empty (0 bytes) — nothing to read.");
 
         var nif = new NifFile();
         try
