@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-29
-covers: [src/housecarl-core/NifService.cs, src/housecarl-mcp/NifTools.cs]
+updated: 2026-10-30
+covers: [src/housecarl-core/NifService.cs, src/housecarl-core/NifLinks.cs, src/housecarl-mcp/NifTools.cs]
 ---
 # The NIF layer: reading mesh values, and the two write gates
 
@@ -92,6 +92,10 @@ Data path), so a FaceGen head's three forms (`Actors\…`, `textures\…`, `data
 `asset_status` call on the mapped path names. A miss is a bare `ABSENT`: none of `asset_status`'s per-path hedges rides
 it, so an unread archive or an unlisted root is named only in the header's notes. A string the door refuses is its own
 `data path: none` line naming the slot string. The `shapes` section keeps the raw string only, and `nif_set` writes the string it is given (Pinned by: `AssetLinkDataPathTests`).
+
+`NifService.Load` is the one parse every read shares, `Inspect` and `NifLinks.Read` alike. `NifLinks` is the file
+layer's reader of a mesh's links (slots, effect-shader textures, the root's SMP and `BODYTRI` strings); its contract
+is in [assets.md](assets.md), A mesh's links. `nif_inspect` does not render it.
 
 An `INiShader` widening is narrowed back on read: emissive is a Color3 on disk and the interface widens it to Color4,
 so the fourth component is a synthetic 0 that would render as a fully transparent emissive. RGB only, on read, on
