@@ -3096,7 +3096,6 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    /// <summary>One provider. <paramref name="name"/> null writes it as an array element.</summary>
     /// <summary>A row's <c>links</c> and <c>links_error</c>, on a links= call only, so a plain row is byte-for-byte the
     /// row it always was; the inline document and the artifact row write the same members.</summary>
     internal static void WriteNifLinks(Utf8JsonWriter w, AssetPathResult r)
@@ -3122,6 +3121,7 @@ static class JsonWire
         w.WriteEndArray();
     }
 
+    /// <summary>One provider. <paramref name="name"/> null writes it as an array element.</summary>
     static void WriteAssetProvider(Utf8JsonWriter w, string? name, AssetProvider p)
     {
         if (name is null) w.WriteStartObject(); else w.WriteStartObject(name);
