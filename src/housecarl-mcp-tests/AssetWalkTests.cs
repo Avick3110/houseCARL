@@ -295,6 +295,23 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         }
     }
 
+    /// <summary>A disabled donor shipping a line as .xwm + .lip with nothing active: both from the source and in the
+    /// place set. An active .fuz beside a donor .xwm: both listed.</summary>
+    [Fact]
+    public void VoiceFormatIsReadAgainstTheSource()
+    {
+        var d = Walk(records: new[] { "HcWalkLineSpeaker", "HcWalkLineCond" }, source: AssetWalkWorld.DonorMod);
+        var xwm = _w.Voice("HcWalkLineSpeaker", VoiceFile.Fuz)[..^4] + ".xwm";
+        var lip = _w.Voice("HcWalkLineSpeaker", VoiceFile.Lip);
+        Assert.Equal(WalkStanding.FromSource, Node(d, xwm).Standing);
+        Assert.Equal(WalkStanding.FromSource, Node(d, lip).Standing);
+        Assert.Contains(xwm, AssetWalkWire.PlaceSet(d), StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(lip, AssetWalkWire.PlaceSet(d), StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(WalkStanding.Elsewhere, Node(d, _w.Voice("HcWalkLineCond", VoiceFile.Fuz)).Standing);
+        Assert.Equal(WalkStanding.FromSource, Node(d, _w.Voice("HcWalkLineCond", VoiceFile.Fuz)[..^4] + ".xwm").Standing);
+    }
+
     /// <summary>A line with no speaker and a line whose speaker has no voice type each get a note naming its own reason.</summary>
     [Fact]
     public void ALineWithNoVoiceSaysWhy()

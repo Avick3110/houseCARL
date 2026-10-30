@@ -329,7 +329,8 @@ nothing is cut silently. Each record contributes:
   root's race, so a race without `FaceGenHead` gives none, which `FaceGenPath.For` alone cannot tell. The race and the
   template members are read through the record sources, then the active order; a race neither holds is a note;
 - on a dialogue line, the `.fuz` paths Mutagen resolves over the whole order (built once, when a line is reached), or
-  the same-stem `.xwm` / `.wav` and `.lip` the line ships as when no `.fuz` does; both listed, with no claim on which
+  the same-stem `.xwm` / `.wav` and `.lip` the line ships as when no `.fuz` does (shipped by the order or by
+  `source_provider=`, so a disabled donor's format counts); both listed, with no claim on which
   plays, when both ship. A line Mutagen finds no voice for is a note naming why (no Speaker, a speaker that is not an
   NPC or has no voice type), and one that throws is a note;
 - on an NPC, the voice of each dialogue line that links it (a Speaker, a `GetIsID` condition): the active order's
