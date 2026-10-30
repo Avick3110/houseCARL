@@ -339,7 +339,8 @@ nothing is cut silently. Each record contributes:
   first (`AssetWalkEdges.TraitsLoop`); with one, no line's voice is resolved and a note names the loop;
 - on an NPC, the voice of each dialogue line it speaks: the active order's referencers from the reverse-reference
   index whose winning copy names it as Speaker, or in a `GetIsID` run on the Subject that passes for it and fails for
-  any other (`AssetWalkEdges.Speaks`), each line through the edge above. A line that only mentions it (a script
+  any other (`AssetWalkEdges.Speaks`), and the lines an off-order `from_source=` plugin defines, which no index
+  holds, read off that plugin by the same test; each line through the edge above. A line that only mentions it (a script
   property, a `GetIsID` on the Target) is not walked, nor is one reached only by voice type.
 
 Each file node then resolves: from-source when `source_provider=` ships it (`AssetSourceSelection`, so a disabled mod

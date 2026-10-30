@@ -86,7 +86,7 @@ public static class AssetTools
                      "per file: the paths a record lists, its implicit files (an NPC's FaceGen head and tint, or its " +
                      "Traits template root's, each member of a leveled template marked one of N; .pex scripts, fragment " +
                      ".pex files, a start-game-enabled quest's Seq\\<plugin>.seq; a dialogue line's voice .fuz, or the " +
-                     ".xwm/.wav and .lip it ships as; the lines an NPC speaks, as their Speaker or by a GetIsID on the Subject, by their voice), then the links each file names (a mesh's textures, SMP XML and " +
+                     ".xwm/.wav and .lip it ships as; the lines an NPC speaks, as their Speaker or by a GetIsID on the Subject, in the active order or a from_source= plugin outside it, by their voice), then the links each file names (a mesh's textures, SMP XML and " +
                      "BODYTRI, a script's parent .pex), recursively. Each node is marked from-source (source_provider= " +
                      "ships it), elsewhere (another provider wins it, named), present, or absent; keyed nodes sit at a " +
                      "FormID-named path, so a renumbering copy carries them rather than placing them. With " +

@@ -240,13 +240,19 @@ internal sealed partial class AssetLayers
             }
         }
         // An NPC's dialogue lines: the active order's lines whose winning copy it speaks (AssetWalkEdges.Speaks),
-        // found through the reverse index.
+        // found through the reverse index, and the lines an off-order source defines, which no index holds, read off it.
         if (npcs.Count > 0)
         {
             try
             {
-                index.EnsureReverseIndex();
                 var lines = new HashSet<FormKey>();
+                void Line(IDialogResponsesGetter line, string npcLabel)
+                {
+                    lines.Add(line.FormKey);
+                    var lineLabel = $"{RecordNaming.StripOverlay(line.GetType().Name)} [{FormIdToken.Of(line.FormKey)}], a line spoken by {npcLabel}";
+                    if (Voice() is { } vc) VoiceOf(view, source, line, lineLabel, vc, Fetch, addFile, notes);
+                }
+                index.EnsureReverseIndex();
                 var winners = new Dictionary<FormKey, IDialogResponsesGetter?>();
                 foreach (var (key, npcLabel) in npcs)
                     foreach (var r in index.ReverseIndex!.ReferencersOf(new[] { key }))
@@ -254,10 +260,13 @@ internal sealed partial class AssetLayers
                         if (seenRec.Contains(r) || lines.Contains(r)) continue;
                         if (!winners.TryGetValue(r, out var line))
                             winners[r] = line = (index.ResolveWinner(r) is { } w ? index.GetRecord(session, w.WinnerPlugin, r) : null) as IDialogResponsesGetter;
-                        if (line is null || !AssetWalkEdges.Speaks(line, key)) continue;
-                        lines.Add(r);
-                        var lineLabel = $"{RecordNaming.StripOverlay(line.GetType().Name)} [{FormIdToken.Of(r)}], a line spoken by {npcLabel}";
-                        if (Voice() is { } vc) VoiceOf(view, source, line, lineLabel, vc, Fetch, addFile, notes);
+                        if (line is not null && AssetWalkEdges.Speaks(line, key)) Line(line, npcLabel);
+                    }
+                foreach (var mod in overlays.OfType<ISkyrimModGetter>())
+                    foreach (var line in mod.EnumerateMajorRecords<IDialogResponsesGetter>())
+                    {
+                        if (seenRec.Contains(line.FormKey) || lines.Contains(line.FormKey) || index.ResolveWinner(line.FormKey) is not null) continue;
+                        if (npcs.FirstOrDefault(n => AssetWalkEdges.Speaks(line, n.Key)) is { Label: { } npcLabel }) Line(line, npcLabel);
                     }
             }
             catch (Exception ex) { notes.Add($"the dialogue lines naming the walked NPCs were not read — {ex.GetType().Name}: {ex.Message}"); }
