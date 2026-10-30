@@ -320,7 +320,8 @@ nothing is cut silently. Each record contributes:
   do), a start-game-enabled quest's `Seq\<plugin>.seq`, and any other inferred file;
 - each fragment `FileName` in its script adapter, found by reflection over the adapter, with a note that Mutagen
   infers none;
-- on an NPC, the FaceGen pair its face is drawn from: its own when the Traits template flag is off, else the first NPC
+- on an NPC, the FaceGen pair its face is drawn from: its own when the Traits template flag is off (or on with no
+  Template, said in a note, since Mutagen's link is gated on the flag), else the first NPC
   down the Template chain with it off, every member of a leveled-list template (nested lists included) marked one
   of N; a loop or an unresolved link is a note naming the chain, and the other members keep their pairs. The pair is Mutagen's resolved link over a cache holding only the
   root's race, so a race without `FaceGenHead` gives none, which `FaceGenPath.For` alone cannot tell. The race and the

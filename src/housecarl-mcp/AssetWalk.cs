@@ -251,8 +251,11 @@ internal sealed partial class AssetLayers
                     : $"its race {FormIdToken.Of(root.Race.FormKey)} is in none of the record sources nor the load order."));
                 continue;
             }
-            var why = root.FormKey == npc.FormKey ? null : $"the face of template root {FormIdToken.Of(root.FormKey)}"
-                      + (roots.Count > 1 ? $", one of {roots.Count}" : "");
+            var why = root.FormKey != npc.FormKey
+                ? $"the face of template root {FormIdToken.Of(root.FormKey)}" + (roots.Count > 1 ? $", one of {roots.Count}" : "")
+                : root.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits)
+                    ? "the Traits template flag is set with no Template, so this is read as the NPC's own face"
+                    : null;
             foreach (var p in AssetWalkEdges.FaceGen(root, race)) addFile(p, "facegen", label, keyed: true, note: why);
         }
     }

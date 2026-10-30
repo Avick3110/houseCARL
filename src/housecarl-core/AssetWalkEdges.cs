@@ -120,6 +120,13 @@ public static class AssetWalkEdges
     public static IReadOnlyList<string> FaceGen(INpcGetter npc, IAssetLinkCache? raceCache)
     {
         if (raceCache is null) return Array.Empty<string>();
+        // Mutagen gates the link on the Traits flag; a face root with the flag set has no Template, so it is asked flag off.
+        if (npc.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits))
+        {
+            var own = npc.DeepCopy();
+            own.Configuration.TemplateFlags &= ~NpcConfiguration.TemplateFlag.Traits;
+            npc = own;
+        }
         return npc.EnumerateAssetLinks(AssetLinkQuery.Resolved, raceCache)
                   .Select(l => l.DataRelativePath.Path)
                   .Where(p => p.Contains(@"\facegendata\", StringComparison.OrdinalIgnoreCase))
