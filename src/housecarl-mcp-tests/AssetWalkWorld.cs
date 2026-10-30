@@ -45,6 +45,9 @@ public sealed class AssetWalkWorld : IDisposable
     public const string OvHairNif = @"meshes\hcwalk\ovhair.nif";
     public const string OvHairTex = @"textures\hcwalk\ovhair.dds";
 
+    /// <summary>A key in the walk plugin that no record holds.</summary>
+    public static readonly FormKey Missing = new(ModKey.FromFileName(Plugin), 0xABCDE);
+
     public Dictionary<string, FormKey> Keys { get; } = new(StringComparer.Ordinal);
     public string Id(string editorId) => FormIdToken.Of(Keys[editorId]);
 
@@ -97,6 +100,27 @@ public sealed class AssetWalkWorld : IDisposable
         var leveled = Add("HcWalkLeveled", race);
         leveled.Template.SetTo(lvl);
         leveled.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+        LeveledNpc Lvl(string edid, params FormKey[] members)
+        {
+            var l = mod.LeveledNpcs.AddNew(edid);
+            l.Entries = new();
+            foreach (var m in members)
+                l.Entries.Add(new LeveledNpcEntry { Data = new LeveledNpcEntryData { Level = 1, Count = 1, Reference = new FormLink<INpcSpawnGetter>(m) } });
+            return l;
+        }
+        Npc Templated(string edid, FormKey template)
+        {
+            var n = Add(edid, race);
+            n.Template.SetTo(template);
+            n.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+            return n;
+        }
+        // A leveled template nesting another; one with an entry that resolves to nothing; a template that resolves to nothing.
+        var inner = Lvl("HcWalkLvlInner", beast2.FormKey);
+        Templated("HcWalkNested", Lvl("HcWalkLvlOuter", hero.FormKey, inner.FormKey).FormKey);
+        Templated("HcWalkPartial", Lvl("HcWalkLvlBad", hero.FormKey, beast2.FormKey, Missing).FormKey);
+        Templated("HcWalkDangling", Missing);
+
         var loopA = Add("HcWalkLoopA", race);
         var loopB = Add("HcWalkLoopB", race);
         loopA.Template.SetTo(loopB); loopA.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;

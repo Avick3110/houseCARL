@@ -230,8 +230,8 @@ internal sealed partial class AssetLayers
     static void FaceGenOf(INpcGetter npc, string label, Func<FormKey, IMajorRecordGetter?> fetch,
                           Dictionary<FormKey, IAssetLinkCache?> raceCaches, FileSink addFile, List<string> notes)
     {
-        var (roots, err) = AssetWalkEdges.FaceRoots(npc, fetch);
-        if (err is not null) { notes.Add($"{label}: no FaceGen node — {err}."); return; }
+        var (roots, errs) = AssetWalkEdges.FaceRoots(npc, fetch);
+        foreach (var err in errs) notes.Add($"{label}: " + (roots.Count == 0 ? "no FaceGen node" : "a template member has no FaceGen node") + $" — {err}.");
         foreach (var root in roots)
         {
             // One cache per race per walk: a walk of many NPCs shares a few races.
