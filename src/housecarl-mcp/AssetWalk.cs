@@ -360,7 +360,7 @@ internal sealed partial class AssetLayers
         if (info.Responses.Count == 0)
             return info.ResponseData.IsNull
                 ? "it has no responses of its own and no shared response data, so it speaks no line"
-                : $"it has no responses of its own: it draws its audio from shared response data {FormIdToken.Of(info.ResponseData.FormKey)}, whose voice files the walk does not follow";
+                : $"it has no responses of its own: it draws its audio from shared response data {FormIdToken.Of(info.ResponseData.FormKey)}, which the walk enters and voices as its own line when its plugin is walked, and counts as a boundary otherwise";
         if (info.Speaker.IsNull)
             return "no Speaker set, and Mutagen resolves no voice type for it from the rest of the line";
         var fk = info.Speaker.FormKey;
