@@ -123,7 +123,7 @@ public static class AssetTools
             bool counts_only = false,
         [Description("Optional. 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
-        [Description("Optional. Character ceiling on the whole response; the path whose block would cross it is not written. What it holds back is not lost: the resolved result (under limit=, the window) is written whole to a file in the server's results directory, and the response names it. counts_only= spills nothing: a cut census says how many layer rows it held back; raise max_chars or page the table with limit=. On a path-only sweep the first spill also builds the record index, which takes time on a large order. The alarms and the accounting line are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (~40k).")]
+        [Description("Optional. Character ceiling on the whole response; the path whose block would cross it is not written. What it holds back is not lost: the resolved result (under limit=, the window; under walk=true, every node) is written whole to a file in the server's results directory, and the response names it. counts_only= spills nothing: a cut census says how many layer rows it held back; raise max_chars or page the table with limit=. On a path-only sweep the first spill also builds the record index, which takes time on a large order. The alarms and the accounting line are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (~40k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.AssetStatus, () =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
@@ -276,7 +276,7 @@ public static class AssetTools
     {
         string Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
         if (wantFile || countsOnly)
-            return Refuse("walk=true renders its nodes inline; drop to_file= and counts_only=.");
+            return Refuse("walk=true renders its nodes inline and spills them whole to a results file past max_chars; drop to_file= and counts_only=.");
         // The same @file convention as the row lane, a formids= artifact epoch-checked the same way.
         var (pathTokens, _, _, perr) = Artifacts.ExpandListInput(asset_paths ?? Array.Empty<string>(), "asset_paths", identity: "path");
         if (perr is not null) return Wire.Refuse(json, perr);
@@ -316,7 +316,18 @@ public static class AssetTools
         }
         var w = svc.AssetWalk(paths, keys, from_source, source_provider, keyed);
         if (w.Refusal is { } wr) return Wire.Refuse(json, wr);
-        return AssetWalkWire.Render(w, selectorNotes, cap, json);
+        var rendered = AssetWalkWire.Render(w, selectorNotes, cap, json, null, out var cut);
+        if (!cut) return rendered;
+        // SPEC §2.1.1, as the row lane does: the whole walk to the results directory, the response naming it.
+        OrderStamp? order = null;
+        string? noEpochBecause = null;
+        try { order = svc.CaptureView().Stamp; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        { noEpochBecause = Guard.Flatten(ex.Message); }
+        using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? "none");
+        var (spill, spillErr) = AssetWalkWire.Write(w, reservation, order, noEpochBecause);
+        return AssetWalkWire.Render(w, selectorNotes, cap, json,
+                                    spillErr is null ? SpillState.Spilled(spill!, manifestOnly: false) : SpillState.WriteFailed(spillErr), out _);
     }
 }
 

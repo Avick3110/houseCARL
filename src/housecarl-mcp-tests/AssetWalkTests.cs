@@ -239,6 +239,34 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Contains("keyed nodes keep their FormID-named path", text);
     }
 
+    /// <summary>A walk past max_chars, text and json, stays within the cap and names a results-directory file holding
+    /// every node, even when the place set's array alone passes the cap.</summary>
+    [Fact]
+    public void AWalkPastTheCeilingSpillsEveryNode()
+    {
+        const int cap = 2500;
+        static string[] Rows(string file) => File.ReadAllLines(file).Skip(1).ToArray();
+
+        var text = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: true,
+                                          source_provider: AssetWalkWorld.DonorMod, max_chars: cap);
+        Assert.True(text.Length <= cap, text);
+        var at = text.IndexOf("spilled: complete result", StringComparison.Ordinal);
+        Assert.True(at >= 0, text);
+        var arrow = text.IndexOf(" -> ", at, StringComparison.Ordinal) + 4;
+        var file = text[arrow..text.IndexOf('\n', arrow)].Trim();
+        Assert.StartsWith(_w.Svc.ResultsDir, file, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(AssetWalkWorld.ManyTex.Length, Rows(file).Length);
+        Assert.Contains("place set (60): the spilled file's rows", text);
+
+        var json = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: true,
+                                          source_provider: AssetWalkWorld.DonorMod, format: "json", max_chars: cap);
+        Assert.True(json.Length <= cap, json);
+        using var doc = JsonDocument.Parse(json);
+        var rows = Rows(doc.RootElement.GetProperty("spilled").GetProperty("path").GetString()!);
+        Assert.Equal(AssetWalkWorld.ManyTex.Length, rows.Length);
+        Assert.All(rows, r => Assert.Contains("\"standing\":\"from_source\"", r));
+    }
+
     /// <summary>No seed is refused in one sentence; records= without walk= is refused.</summary>
     [Fact]
     public void AWalkWithNoSeedIsRefused()
