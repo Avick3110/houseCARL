@@ -174,6 +174,20 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Contains(d.Notes, n => n.Contains("boundaries") && n.Contains(AssetWalkWorld.OtherPlugin + " ×1"));
     }
 
+    /// <summary>An NPC read through a from_source plugin that does not hold its race still gets its FaceGen pair, the
+    /// race read off the load order; a race nothing holds is a note naming it, never silence.</summary>
+    [Fact]
+    public void ARaceOutsideTheRecordSourcesStillGivesTheFace()
+    {
+        var d = Walk(records: new[] { "HcWalkBeast2" }, fromSource: new[] { AssetWalkWorld.OverridePlugin });
+        foreach (var slot in new[] { FaceGenSlot.Mesh, FaceGenSlot.Tint })
+            Assert.Equal("facegen", Node(d, FaceGenPath.For(_w.Keys["HcWalkBeast2"], slot)).Edge);
+
+        var none = Walk(records: new[] { "HcWalkNoRace" });
+        Assert.DoesNotContain(none.Nodes, n => n.Edge == "facegen");
+        Assert.Contains(none.Notes, n => n.Contains("no FaceGen node") && n.Contains("race " + FormIdToken.Of(AssetWalkWorld.Missing)));
+    }
+
     /// <summary>No seed is refused in one sentence; records= without walk= is refused.</summary>
     [Fact]
     public void AWalkWithNoSeedIsRefused()

@@ -120,6 +120,9 @@ public sealed class AssetWalkWorld : IDisposable
         Templated("HcWalkNested", Lvl("HcWalkLvlOuter", hero.FormKey, inner.FormKey).FormKey);
         Templated("HcWalkPartial", Lvl("HcWalkLvlBad", hero.FormKey, beast2.FormKey, Missing).FormKey);
         Templated("HcWalkDangling", Missing);
+        var noRace = mod.Npcs.AddNew("HcWalkNoRace");
+        noRace.Race.SetTo(Missing);
+        Keys["HcWalkNoRace"] = noRace.FormKey;
 
         var loopA = Add("HcWalkLoopA", race);
         var loopB = Add("HcWalkLoopB", race);
