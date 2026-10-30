@@ -330,7 +330,11 @@ nothing is cut silently. Each record contributes:
   template members are read through the record sources, then the active order; a race neither holds is a note;
 - on a dialogue line, the `.fuz` paths Mutagen resolves over the whole order (built once, when a line is reached), or
   the same-stem `.xwm` / `.wav` and `.lip` the line ships as when no `.fuz` does; both listed, with no claim on which
-  plays, when both ship. A line Mutagen finds no voice for, or one that throws, is a note.
+  plays, when both ship. A line Mutagen finds no voice for is a note naming why (no Speaker, a speaker that is not an
+  NPC or has no voice type), and one that throws is a note;
+- on an NPC, the voice of each dialogue line that links it (a Speaker, a `GetIsID` condition): the active order's
+  referencers from the reverse-reference index, each line through the edge above. A line reached only by voice type
+  is not found from an NPC.
 
 Each file node then resolves: from-source when `source_provider=` ships it (`AssetSourceSelection`, so a disabled mod
 answers off its own disk), elsewhere when another provider wins it (named), present with no source named, or absent;
@@ -341,8 +345,7 @@ one carries them through the carry above. With a source, the response ends with 
 `assets=` array `place` takes in one call. The walk is bounded by the `asset_status` path bound and 2,000 records,
 each said when reached. A walk past `max_chars`, text or json, is written whole to a results-directory file (one row
 per node, SPEC §2.1.1) that the response names; when the `assets=` array itself would not fit, the response points at
-the file's `from_source` rows instead. Out, and said: reverse file edges, an NPC seed's voice lines (the reverse step is not wired
-to the file walk), SKSE configs and behaviour files.
+the file's `from_source` rows instead. Out, and said: reverse file edges, SKSE configs and behaviour files.
 
 ### Suggesting a root prefix
 
