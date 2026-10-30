@@ -147,10 +147,10 @@ public sealed class AssetWalkWorld : IDisposable
         var vq = mod.Quests.AddNew("HcWalkVoiceQuest");
         var topic = mod.DialogTopics.AddNew("HcWalkTopic");
         topic.Quest.SetTo(vq);
-        DialogResponses Line(string key)
+        DialogResponses Line(string key, bool spoken = true)
         {
             var info = new DialogResponses(mod.GetNextFormKey(), SkyrimRelease.SkyrimSE);
-            info.Responses.Add(new DialogResponse { ResponseNumber = 1, Text = key });
+            if (spoken) info.Responses.Add(new DialogResponse { ResponseNumber = 1, Text = key });
             topic.Responses.Add(info);
             Keys[key] = info.FormKey;
             return info;
@@ -161,6 +161,13 @@ public sealed class AssetWalkWorld : IDisposable
         Line("HcWalkLineCond").Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = isId });
         Line("HcWalkLineNoSpeaker");
         Line("HcWalkLineMute").Speaker.SetTo(mute);
+        // Lines with no responses of their own: two drawing on the speaker line's shared response data, one with a
+        // Speaker and one without, and one with no shared response data either.
+        var shared = Line("HcWalkLineShared", spoken: false);
+        shared.Speaker.SetTo(speaker);
+        shared.ResponseData.SetTo(Keys["HcWalkLineSpeaker"]);
+        Line("HcWalkLineSharedNoSpeaker", spoken: false).ResponseData.SetTo(Keys["HcWalkLineSpeaker"]);
+        Line("HcWalkLineBare", spoken: false);
 
         var sge = mod.Quests.AddNew("HcWalkSge");
         sge.Flags = Quest.Flag.StartGameEnabled;

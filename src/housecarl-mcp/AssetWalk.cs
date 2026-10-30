@@ -311,10 +311,14 @@ internal sealed partial class AssetLayers
         }
     }
 
-    /// <summary>Why Mutagen found no voice for a line, in VoiceCheck's terms: no speaker, a speaker that is not an NPC
-    /// or not found, or a speaker NPC with no voice type.</summary>
+    /// <summary>Why Mutagen found no voice for a line, in VoiceCheck's terms: no responses of its own, no speaker, a
+    /// speaker that is not an NPC or not found, or a speaker NPC with no voice type.</summary>
     static string NoVoiceReason(IDialogResponsesGetter info, Func<FormKey, IMajorRecordGetter?> fetch)
     {
+        if (info.Responses.Count == 0)
+            return info.ResponseData.IsNull
+                ? "it has no responses of its own and no shared response data, so it speaks no line"
+                : $"it has no responses of its own: it draws its audio from shared response data {FormIdToken.Of(info.ResponseData.FormKey)}, whose voice files the walk does not follow";
         if (info.Speaker.IsNull)
             return "no Speaker set and no condition Mutagen reads a speaker or voice type from, so the voice folder is assigned at runtime (from a quest alias)";
         var fk = info.Speaker.FormKey;
