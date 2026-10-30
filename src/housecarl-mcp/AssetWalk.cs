@@ -216,7 +216,7 @@ internal sealed partial class AssetLayers
             if (body is IDialogResponsesGetter info)
             {
                 voiceCache ??= VoiceCache(session, overlays);
-                VoiceOf(view, info, label, voiceCache, addFile, notes);
+                VoiceOf(view, info, label, voiceCache, Fetch, addFile, notes);
             }
 
             foreach (var link in body.EnumerateFormLinks())
@@ -265,12 +265,13 @@ internal sealed partial class AssetLayers
 
     /// <summary>A dialogue line's voice files: the .fuz Mutagen resolves, or a same-stem .xwm / .wav with its .lip
     /// when no .fuz ships; both listed when both ship, with no claim on which plays.</summary>
-    static void VoiceOf(AssetResolver.AssetView view, IDialogResponsesGetter info, string label, IAssetLinkCache cache, FileSink addFile, List<string> notes)
+    static void VoiceOf(AssetResolver.AssetView view, IDialogResponsesGetter info, string label, IAssetLinkCache cache,
+                        Func<FormKey, IMajorRecordGetter?> fetch, FileSink addFile, List<string> notes)
     {
         IReadOnlyList<string> fuzes;
         try { fuzes = AssetWalkEdges.Voice(info, cache); }
         catch (Exception ex) { notes.Add($"{label}: its voice paths were not resolved — {ex.GetType().Name}: {ex.Message}"); return; }
-        if (fuzes.Count == 0) { notes.Add($"{label}: Mutagen finds no speaker or voice type for this line, so it has no voice node."); return; }
+        if (fuzes.Count == 0) { notes.Add($"{label}: no voice node — {NoVoiceReason(info, fetch)}."); return; }
         foreach (var fuz in fuzes)
         {
             var stem = fuz[..^".fuz".Length];
@@ -282,6 +283,22 @@ internal sealed partial class AssetLayers
             foreach (var x in loose) addFile(x, "voice", label, keyed: true, note: hasFuz ? null : "no .fuz ships; this line plays from this file");
             if (!hasFuz && loose.Count > 0) addFile(stem + ".lip", "lip", label, keyed: true);
         }
+    }
+
+    /// <summary>Why Mutagen found no voice for a line, in VoiceCheck's terms: no speaker, a speaker that is not an NPC
+    /// or not found, or a speaker NPC with no voice type.</summary>
+    static string NoVoiceReason(IDialogResponsesGetter info, Func<FormKey, IMajorRecordGetter?> fetch)
+    {
+        if (info.Speaker.IsNull)
+            return "no Speaker set and no condition Mutagen reads a speaker or voice type from, so the voice folder is assigned at runtime (from a quest alias)";
+        var fk = info.Speaker.FormKey;
+        return fetch(fk) switch
+        {
+            null => $"its Speaker {FormIdToken.Of(fk)} is in none of the record sources nor the load order",
+            INpcGetter npc when npc.Voice.IsNull => $"its Speaker NPC {FormIdToken.Of(fk)} has no Voice type set",
+            INpcGetter => "Mutagen resolves no voice type for its speaker",
+            _ => $"its Speaker {FormIdToken.Of(fk)} is not an NPC, and the voice type is read off an NPC's Voice",
+        };
     }
 
     /// <summary>The whole order's link cache, with any off-order source overlays last, for Mutagen's voice resolution,

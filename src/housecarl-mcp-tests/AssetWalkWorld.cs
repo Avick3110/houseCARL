@@ -18,7 +18,8 @@ namespace HousecarlMcpTests;
 ///   <see cref="BaseTex"/> (base mod) and <see cref="MissingTex"/> (nowhere).</item>
 /// <item><c>HcWalkBeast</c>, whose race has no FaceGenHead: no FaceGen node.</item>
 /// <item><c>HcWalkTemplated</c> (Traits) → <c>HcWalkMid</c> (Traits) → <c>HcWalkHero</c>; <c>HcWalkLeveled</c>
-///   (Traits) → a leveled list of <c>HcWalkHero</c> and <c>HcWalkBeast2</c>; <c>HcWalkLoopA</c> ↔ <c>HcWalkLoopB</c>.</item>
+///   (Traits) → a leveled list of <c>HcWalkHero</c> and <c>HcWalkBeast2</c>; <c>HcWalkLoopA</c> ↔ <c>HcWalkLoopB</c>
+///   in the disabled override plugin.</item>
 /// <item><c>HcWalkSge</c>, a start-game-enabled quest whose <c>Seq\HcWalk.seq</c> is absent; <c>HcWalkPlain</c>, not.</item>
 /// <item><c>Cape</c>, an enabled mod with <see cref="CapeNif"/> naming <see cref="CapeXml"/>, which it also ships.</item>
 /// </list></summary>
@@ -53,6 +54,9 @@ public sealed class AssetWalkWorld : IDisposable
 
     public Dictionary<string, FormKey> Keys { get; } = new(StringComparer.Ordinal);
     public string Id(string editorId) => FormIdToken.Of(Keys[editorId]);
+
+    /// <summary>A fixture line's voice file, as VoicePath names it (Mutagen cuts the quest's EditorID to 10 characters).</summary>
+    public string Voice(string line, VoiceFile kind) => VoicePath.For(Keys[line], "HcWalkVoice", "HcWalkVoiceQuest", "HcWalkTopic", 1, kind);
 
     public AssetWalkWorld()
     {
@@ -128,10 +132,29 @@ public sealed class AssetWalkWorld : IDisposable
         noRace.Race.SetTo(Missing);
         Keys["HcWalkNoRace"] = noRace.FormKey;
 
-        var loopA = Add("HcWalkLoopA", race);
-        var loopB = Add("HcWalkLoopB", race);
-        loopA.Template.SetTo(loopB); loopA.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
-        loopB.Template.SetTo(loopA); loopB.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+        // Dialogue: a voiced speaker named by one line's Speaker and another line's GetIsID, a line with no speaker,
+        // and a line whose speaker has no voice type.
+        var voice = mod.VoiceTypes.AddNew("HcWalkVoice");
+        var speaker = Add("HcWalkSpeaker", race);
+        speaker.Voice.SetTo(voice);
+        var mute = Add("HcWalkMute", race);
+        var vq = mod.Quests.AddNew("HcWalkVoiceQuest");
+        var topic = mod.DialogTopics.AddNew("HcWalkTopic");
+        topic.Quest.SetTo(vq);
+        DialogResponses Line(string key)
+        {
+            var info = new DialogResponses(mod.GetNextFormKey(), SkyrimRelease.SkyrimSE);
+            info.Responses.Add(new DialogResponse { ResponseNumber = 1, Text = key });
+            topic.Responses.Add(info);
+            Keys[key] = info.FormKey;
+            return info;
+        }
+        Line("HcWalkLineSpeaker").Speaker.SetTo(speaker);
+        var isId = new GetIsIDConditionData { RunOnType = Condition.RunOnType.Subject };
+        isId.Object = new FormLinkOrIndex<IReferenceableObjectGetter>(isId, speaker.FormKey);
+        Line("HcWalkLineCond").Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = isId });
+        Line("HcWalkLineNoSpeaker");
+        Line("HcWalkLineMute").Speaker.SetTo(mute);
 
         var sge = mod.Quests.AddNew("HcWalkSge");
         sge.Flags = Quest.Flag.StartGameEnabled;
@@ -154,6 +177,17 @@ public sealed class AssetWalkWorld : IDisposable
         ovNpc.HeadParts.Add(ovHair);
         ovNpc.Voice.SetTo(otherVoice);
         ov.Npcs.Add(ovNpc);
+        // The looping Traits pair lives off the order: Mutagen's voice resolution overflows the stack on a looping
+        // template anywhere in the order it reads, so the active plugins carry none.
+        var loopA = ov.Npcs.AddNew("HcWalkLoopA");
+        var loopB = ov.Npcs.AddNew("HcWalkLoopB");
+        foreach (var (n, to) in new[] { (loopA, loopB), (loopB, loopA) })
+        {
+            n.Race.SetTo(race);
+            n.Template.SetTo(to);
+            n.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+            Keys[n.EditorID!] = n.FormKey;
+        }
         ov.BeginWrite.ToPath(Path.Combine(overrideMod, OverridePlugin)).WithLoadOrder(new ISkyrimModGetter[] { other, mod, ov })
           .NoCheckIfLowerRangeDisallowed().Write();
         Write(overrideMod, OvHairNif, Mesh(new[] { OvHairTex }, null));
