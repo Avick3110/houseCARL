@@ -40,6 +40,12 @@ public sealed class AssetWalkWorld : IDisposable
     public const string CapeNif = @"meshes\hcwalk\cape.nif";
     public const string CapeXml = @"SKSE\Plugins\hdtSkinnedMeshConfigs\hcwalk\cape.xml";
     public const string OwnScript = "HcWalkOwnScript";
+    public static readonly byte[] DonorBytes = { 7 };
+    public const string FxNif = @"meshes\hcwalk\fx.nif";
+    public const string FxTri = @"actors\character\hcwalk\body.tri";
+    public const string FaceTex = @"textures\hcwalk\face_d.dds";
+    public const string FaceXml = @"SKSE\Plugins\hdtSkinnedMeshConfigs\hcwalk\face.xml";
+    public const string AliasScript = "HcWalkAliasScript";
     public const string OtherPlugin = "HcWalkOther.esp";
     public const string OverridePlugin = "HcWalkOverride.esp";
     public const string OverrideMod = "HcWalkOverrideMod";
@@ -161,6 +167,13 @@ public sealed class AssetWalkWorld : IDisposable
         Keys["HcWalkSge"] = sge.FormKey;
         var plain = mod.Quests.AddNew("HcWalkPlain");
         Keys["HcWalkPlain"] = plain.FormKey;
+        var aliased = mod.Quests.AddNew("HcWalkAliased");
+        var adapter = new QuestAdapter();
+        var alias = new QuestFragmentAlias { Property = new ScriptObjectProperty { Alias = 0 } };
+        alias.Scripts.Add(new ScriptEntry { Name = AliasScript });
+        adapter.Aliases.Add(alias);
+        aliased.VirtualMachineAdapter = adapter;
+        Keys["HcWalkAliased"] = aliased.FormKey;
 
         var other = new SkyrimMod(ModKey.FromFileName(OtherPlugin), SkyrimRelease.SkyrimSE);
         var otherVoice = other.VoiceTypes.AddNew("HcWalkOtherVoice");
@@ -194,8 +207,11 @@ public sealed class AssetWalkWorld : IDisposable
 
         Write(donor, HairNif, Mesh(new[] { DonorTex, BaseTex, MissingTex }, HairXml));
         Write(donor, HairXml, new byte[] { 1 });
-        Write(donor, DonorTex, new byte[] { 1 });
+        // The donor's texture is also shipped, older, by an enabled mod: the donor's copy must still answer it.
+        Write(donor, DonorTex, DonorBytes);
+        Write(baseMod, DonorTex, new byte[] { 2 });
         Write(baseMod, BaseTex, new byte[] { 1 });
+        Write(cape, FxNif, FxMesh(@"textures\hcwalk\fx.dds", FxTri));
         foreach (var p in ManyTex) Write(donor, p, new byte[] { 1 });
         // The speaker line ships only in the donor, as .xwm + .lip; the GetIsID line's .fuz is active, its .xwm the donor's.
         Write(donor, Voice("HcWalkLineSpeaker", VoiceFile.Fuz)[..^4] + ".xwm", new byte[] { 1 });
@@ -205,6 +221,8 @@ public sealed class AssetWalkWorld : IDisposable
         foreach (var npc in new[] { "HcWalkHero", "HcWalkBeast2", "HcWalkTraitsAlone" })
             foreach (var slot in new[] { FaceGenSlot.Mesh, FaceGenSlot.Tint })
                 Write(baseMod, FaceGenPath.For(Keys[npc], slot), new byte[] { 1 });
+        // The hero's head mesh is a real one: its slot and its root SMP string walk on, both absent.
+        Write(baseMod, FaceGenPath.For(Keys["HcWalkHero"], FaceGenSlot.Mesh), Mesh(new[] { FaceTex }, FaceXml));
         Write(cape, CapeNif, Mesh(new[] { @"data\textures\hcwalk\cape.dds" }, CapeXml));
         Write(cape, CapeXml, new byte[] { 1 });
         Write(cape, @"textures\hcwalk\cape.dds", new byte[] { 1 });
@@ -243,6 +261,27 @@ public sealed class AssetWalkWorld : IDisposable
         }
         using var ms = new MemoryStream();
         if (f.Save(ms) != 0) throw new InvalidOperationException("authoring the walk mesh failed to save");
+        return ms.ToArray();
+    }
+
+    /// <summary>A one-shape SE mesh drawn by an effect shader with <paramref name="source"/>, whose root carries the
+    /// BODYTRI string <paramref name="bodyTri"/>.</summary>
+    public static byte[] FxMesh(string source, string bodyTri)
+    {
+        var f = new NifFile();
+        f.Create(new NiVersion { FileVersion = NiVersion.ToFile("20.2.0.7"), UserVersion = 12, StreamVersion = 100 }, withRootNode: true);
+        var root = f.GetRootNodes().First();
+        root.Name = new NiStringRef("FxRoot"); root.Flags_ui = 0xE;
+        var shape = new BSTriShape { Name = new NiStringRef("FxShape"), Flags_ui = 0xE, Scale = 1f };
+        root.Children.AddBlockRef(f.AddBlock(shape));
+        var shader = new BSEffectShaderProperty { Type = NiflySharp.Helpers.ShaderHelper.ShaderGameType.SK, SourceTexture = new NiString4(source, false) };
+        shape.ShaderPropertyRef = new NiBlockRef<BSShaderProperty>(f.AddBlock(shader));
+        var sd = new NiStringExtraData { Name = new NiStringRef(NifLinks.BodyTriKey), StringData = new NiStringRef(bodyTri) };
+        root.ExtraDataList ??= new NiBlockRefArray<NiExtraData>();
+        root.ExtraDataList.AddBlockRef(f.AddBlock(sd));
+        root.NumExtraDataList = (uint)root.ExtraDataList.Count;
+        using var ms = new MemoryStream();
+        if (f.Save(ms) != 0) throw new InvalidOperationException("authoring the effect mesh failed to save");
         return ms.ToArray();
     }
 
