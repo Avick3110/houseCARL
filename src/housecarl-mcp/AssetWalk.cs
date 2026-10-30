@@ -96,7 +96,7 @@ internal sealed partial class AssetLayers
             {
                 var chain = _host.BuildWalkSources(pin.View, session, captured.Roots, poles, overlays, out var chainErr);
                 if (chain is null) return Done(new(), new(), false, "error: " + chainErr);
-                WalkRecords(view, session, chain, seedRecords, overlays, AddFile, notes, ref truncated);
+                WalkRecords(view, pin.View, session, chain, seedRecords, overlays, AddFile, notes, ref truncated);
             }
 
             // File edges: a mesh's links and a script's parent, read off the copy that answers the node.
@@ -160,7 +160,7 @@ internal sealed partial class AssetLayers
 
     /// <summary>The record half: every seed and every record its form links reach inside the seed's own plugin and the
     /// from_source plugins, each contributing the paths it lists and its implicit files.</summary>
-    void WalkRecords(AssetResolver.AssetView view, LoadOrderResolver.OverlaySession session, SourceChain chain, IReadOnlyList<FormKey> seeds, List<IDisposable> overlays, FileSink addFile,
+    void WalkRecords(AssetResolver.AssetView view, LoadOrderResolver.IndexView index, LoadOrderResolver.OverlaySession session, SourceChain chain, IReadOnlyList<FormKey> seeds, List<IDisposable> overlays, FileSink addFile,
                      List<string> notes, ref bool truncated)
     {
         var seenRec = new HashSet<FormKey>();
@@ -180,7 +180,13 @@ internal sealed partial class AssetLayers
         var raceCaches = new Dictionary<FormKey, IAssetLinkCache?>();
         int entered = 0;
 
-        IMajorRecordGetter? Fetch(FormKey fk) => chain.Fetch(fk).Hit?.Body;
+        // A race or template member the record sources do not hold is read off the active order, as the game would.
+        IMajorRecordGetter? Fetch(FormKey fk)
+        {
+            if (chain.Fetch(fk).Hit?.Body is { } body) return body;
+            try { return index.ResolveWinner(fk) is { } w ? index.GetRecord(session, w.WinnerPlugin, fk) : null; }
+            catch { return null; }
+        }
 
         while (queue.Count > 0)
         {
@@ -238,6 +244,13 @@ internal sealed partial class AssetLayers
             IAssetLinkCache? race = null;
             if (!root.Race.IsNull && !raceCaches.TryGetValue(root.Race.FormKey, out race))
                 raceCaches[root.Race.FormKey] = race = fetch(root.Race.FormKey) is IRaceGetter r ? AssetWalkEdges.RaceCache(r) : null;
+            if (race is null)
+            {
+                notes.Add($"{label}: no FaceGen node for {FormIdToken.Of(root.FormKey)} — " + (root.Race.IsNull
+                    ? "it names no race."
+                    : $"its race {FormIdToken.Of(root.Race.FormKey)} is in none of the record sources nor the load order."));
+                continue;
+            }
             var why = root.FormKey == npc.FormKey ? null : $"the face of template root {FormIdToken.Of(root.FormKey)}"
                       + (roots.Count > 1 ? $", one of {roots.Count}" : "");
             foreach (var p in AssetWalkEdges.FaceGen(root, race)) addFile(p, "facegen", label, keyed: true, note: why);
