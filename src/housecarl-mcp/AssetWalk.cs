@@ -226,20 +226,25 @@ internal sealed partial class AssetLayers
                 if (seenRec.Add(link.FormKey)) queue.Enqueue((link.FormKey, label, home, depth + 1));
             }
         }
-        // An NPC's dialogue lines: the active order's records that link it (a Speaker, a GetIsID), through the reverse index.
+        // An NPC's dialogue lines: the active order's lines whose winning copy it speaks (AssetWalkEdges.Speaks),
+        // found through the reverse index.
         if (npcs.Count > 0)
         {
             try
             {
                 index.EnsureReverseIndex();
                 var lines = new HashSet<FormKey>();
+                var winners = new Dictionary<FormKey, IDialogResponsesGetter?>();
                 foreach (var (key, npcLabel) in npcs)
                     foreach (var r in index.ReverseIndex!.ReferencersOf(new[] { key }))
                     {
-                        if (seenRec.Contains(r) || !lines.Add(r)) continue;
-                        if ((index.ResolveWinner(r) is { } w ? index.GetRecord(session, w.WinnerPlugin, r) : null) is not IDialogResponsesGetter line) continue;
+                        if (seenRec.Contains(r) || lines.Contains(r)) continue;
+                        if (!winners.TryGetValue(r, out var line))
+                            winners[r] = line = (index.ResolveWinner(r) is { } w ? index.GetRecord(session, w.WinnerPlugin, r) : null) as IDialogResponsesGetter;
+                        if (line is null || !AssetWalkEdges.Speaks(line, key)) continue;
+                        lines.Add(r);
                         voiceCache ??= VoiceCache(session, overlays);
-                        var lineLabel = $"{RecordNaming.StripOverlay(line.GetType().Name)} [{FormIdToken.Of(r)}], a line naming {npcLabel}";
+                        var lineLabel = $"{RecordNaming.StripOverlay(line.GetType().Name)} [{FormIdToken.Of(r)}], a line spoken by {npcLabel}";
                         VoiceOf(view, source, line, lineLabel, voiceCache, Fetch, addFile, notes);
                     }
             }

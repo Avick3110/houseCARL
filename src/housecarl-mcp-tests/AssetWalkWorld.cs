@@ -47,6 +47,7 @@ public sealed class AssetWalkWorld : IDisposable
     public const string FaceXml = @"SKSE\Plugins\hdtSkinnedMeshConfigs\hcwalk\face.xml";
     public const string AliasScript = "HcWalkAliasScript";
     public const string OtherPlugin = "HcWalkOther.esp";
+    public const string LatePlugin = "HcWalkLate.esp";
     public const string OverridePlugin = "HcWalkOverride.esp";
     public const string OverrideMod = "HcWalkOverrideMod";
     public const string OvHairNif = @"meshes\hcwalk\ovhair.nif";
@@ -171,6 +172,27 @@ public sealed class AssetWalkWorld : IDisposable
         shared.ResponseData.SetTo(Keys["HcWalkLineSpeaker"]);
         Line("HcWalkLineSharedNoSpeaker", spoken: false).ResponseData.SetTo(Keys["HcWalkLineSpeaker"]);
         Line("HcWalkLineBare", spoken: false);
+        // Lines that link the speaker without it speaking them: a script property, a GetIsID run on the Target, a
+        // GetIsID == 0, a GetIsID >= 0 that any speaker passes; and a line whose winning override (HcWalkLate.esp) drops it as Speaker.
+        Line("HcWalkLineProp").VirtualMachineAdapter = new DialogResponsesAdapter
+        {
+            Scripts = { new ScriptEntry { Name = "HcWalkPropScript", Properties = { new ScriptObjectProperty { Name = "Who", Object = speaker.ToLink<ISkyrimMajorRecordGetter>() } } } },
+        };
+        foreach (var (key, runOn, op, value) in new[] { ("HcWalkLineTarget", Condition.RunOnType.Target, CompareOperator.EqualTo, 1f), ("HcWalkLineNotSpeaker", Condition.RunOnType.Subject, CompareOperator.EqualTo, 0f), ("HcWalkLineAnyone", Condition.RunOnType.Subject, CompareOperator.GreaterThanOrEqualTo, 0f) })
+        {
+            var id = new GetIsIDConditionData { RunOnType = runOn };
+            id.Object = new FormLinkOrIndex<IReferenceableObjectGetter>(id, speaker.FormKey);
+            Line(key).Conditions.Add(new ConditionFloat { CompareOperator = op, ComparisonValue = value, Data = id });
+        }
+        var dropped = Line("HcWalkLineDropped");
+        dropped.Speaker.SetTo(speaker);
+        var late = new SkyrimMod(ModKey.FromFileName(LatePlugin), SkyrimRelease.SkyrimSE);
+        var lateTopic = topic.DeepCopy();
+        lateTopic.Responses.Clear();
+        var droppedOverride = dropped.DeepCopy();
+        droppedOverride.Speaker.Clear();
+        lateTopic.Responses.Add(droppedOverride);
+        late.DialogTopics.Add(lateTopic);
 
         var sge = mod.Quests.AddNew("HcWalkSge");
         sge.Flags = Quest.Flag.StartGameEnabled;
@@ -191,6 +213,8 @@ public sealed class AssetWalkWorld : IDisposable
              .NoCheckIfLowerRangeDisallowed().Write();
         mod.BeginWrite.ToPath(Path.Combine(pluginMod, Plugin)).WithLoadOrder(Array.Empty<ISkyrimModGetter>())
            .NoCheckIfLowerRangeDisallowed().Write();
+        late.BeginWrite.ToPath(Path.Combine(pluginMod, LatePlugin)).WithLoadOrder(new ISkyrimModGetter[] { mod, late })
+            .NoCheckIfLowerRangeDisallowed().Write();
 
         // A disabled override donor: HcWalkBeast2 given a head part the override plugin defines, and a link into a third plugin.
         var ov = new SkyrimMod(ModKey.FromFileName(OverridePlugin), SkyrimRelease.SkyrimSE);
@@ -237,8 +261,8 @@ public sealed class AssetWalkWorld : IDisposable
         Write(cape, CapeXml, new byte[] { 1 });
         Write(cape, @"textures\hcwalk\cape.dds", new byte[] { 1 });
 
-        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + OtherPlugin + "\r\n" + Plugin + "\r\n");
-        File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + OtherPlugin + "\r\n*" + Plugin + "\r\n");
+        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + OtherPlugin + "\r\n" + Plugin + "\r\n" + LatePlugin + "\r\n");
+        File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + OtherPlugin + "\r\n*" + Plugin + "\r\n*" + LatePlugin + "\r\n");
         // The donors are listed but switched off: their files are reachable only by naming them.
         File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+Cape\r\n+HcWalkPlugin\r\n+" + BaseMod + "\r\n-" + DonorMod
                                                                 + "\r\n-" + OverrideMod + "\r\n");
