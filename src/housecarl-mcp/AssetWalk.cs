@@ -182,6 +182,7 @@ internal sealed partial class AssetLayers
         IAssetLinkCache? voiceCache = null;
         var raceCaches = new Dictionary<FormKey, IAssetLinkCache?>();
         int entered = 0;
+        var npcs = new List<(FormKey Key, string Label)>();
 
         // A race or template member the record sources do not hold is read off the active order, as the game would.
         IMajorRecordGetter? Fetch(FormKey fk)
@@ -212,7 +213,11 @@ internal sealed partial class AssetLayers
             catch (Exception ex) { notes.Add($"{label}: its inferred links were not read — {ex.Message}"); }
             foreach (var e in AssetWalkEdges.Fragments(body)) addFile(e.Path, e.Edge, label, e.Keyed, e.Note);
 
-            if (body is INpcGetter npc) FaceGenOf(npc, label, Fetch, raceCaches, addFile, notes);
+            if (body is INpcGetter npc)
+            {
+                FaceGenOf(npc, label, Fetch, raceCaches, addFile, notes);
+                npcs.Add((fk, label));
+            }
             if (body is IDialogResponsesGetter info)
             {
                 voiceCache ??= VoiceCache(session, overlays);
@@ -226,6 +231,25 @@ internal sealed partial class AssetLayers
                 if (depth >= RecordDepth) { if (seenRec.Add(link.FormKey)) pastDepth++; continue; }
                 if (seenRec.Add(link.FormKey)) queue.Enqueue((link.FormKey, label, home, depth + 1));
             }
+        }
+        // An NPC's dialogue lines: the active order's records that link it (a Speaker, a GetIsID), through the reverse index.
+        if (npcs.Count > 0)
+        {
+            try
+            {
+                index.EnsureReverseIndex();
+                var lines = new HashSet<FormKey>();
+                foreach (var (key, npcLabel) in npcs)
+                    foreach (var r in index.ReverseIndex!.ReferencersOf(new[] { key }))
+                    {
+                        if (seenRec.Contains(r) || !lines.Add(r)) continue;
+                        if ((index.ResolveWinner(r) is { } w ? index.GetRecord(session, w.WinnerPlugin, r) : null) is not IDialogResponsesGetter line) continue;
+                        voiceCache ??= VoiceCache(session, overlays);
+                        var lineLabel = $"{RecordNaming.StripOverlay(line.GetType().Name)} [{FormIdToken.Of(r)}], a line naming {npcLabel}";
+                        VoiceOf(view, line, lineLabel, voiceCache, Fetch, addFile, notes);
+                    }
+            }
+            catch (Exception ex) { notes.Add($"the dialogue lines naming the walked NPCs were not read — {ex.GetType().Name}: {ex.Message}"); }
         }
         if (pastDepth > 0)
             notes.Add($"{pastDepth} record(s) of the seed's own plugin or a from_source plugin sit more than {RecordDepth} form-link hops from a seed and were not entered; seed them with records= to walk them.");

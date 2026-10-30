@@ -281,6 +281,20 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.True(fuz.Keyed);
     }
 
+    /// <summary>An NPC seed reaches the voice files of the line that names it as Speaker and the line that names it
+    /// in a GetIsID condition.</summary>
+    [Fact]
+    public void AnNpcReachesItsLinesVoice()
+    {
+        var d = Walk(records: new[] { "HcWalkSpeaker" });
+        foreach (var line in new[] { "HcWalkLineSpeaker", "HcWalkLineCond" })
+        {
+            var fuz = Node(d, _w.Voice(line, VoiceFile.Fuz));
+            Assert.Equal("voice", fuz.Edge);
+            Assert.Contains("a line naming Npc HcWalkSpeaker", fuz.PulledBy);
+        }
+    }
+
     /// <summary>A line with no speaker and a line whose speaker has no voice type each get a note naming its own reason.</summary>
     [Fact]
     public void ALineWithNoVoiceSaysWhy()
