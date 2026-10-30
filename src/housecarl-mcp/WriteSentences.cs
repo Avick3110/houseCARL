@@ -306,6 +306,13 @@ internal static class WriteSentences
         "read FROM provides reads as absent in asset_status if MO2 does not load that mod, and is still placed by " +
         "naming it in source_provider=):";
 
+    /// <summary>After the copy's asset list, which is first-hop only.</summary>
+    [MustState("walk=true")]
+    internal const string CopyAssetPathsWalk =
+        "these are the files the records name, not the files those files need: " + ToolNames.AssetStatus +
+        " walk=true with these as asset_paths= (and source_provider= the mod you read from) lists what they reach in " +
+        "turn — a mesh's textures and SMP XML, a script's parent.";
+
     // ---- dry run -------------------------------------------------------------------------------------
     [MustState("NOTHING was written", "originals untouched")]
     internal const string DryRunHeader =

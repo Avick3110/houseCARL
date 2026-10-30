@@ -199,6 +199,7 @@ public static class CopyTools
         {
             sb.Append('\n').Append(WriteSentences.CopyAssetPathsHeader).Append('\n');
             foreach (var a in o.AssetPaths) sb.Append("  - ").Append(a).Append('\n');
+            sb.Append(WriteSentences.CopyAssetPathsWalk).Append('\n');
         }
         if (o.Stripped.Count > 0)
         {
