@@ -76,6 +76,32 @@ public static class AssetTools
                      "by its own mod's loose copy; the census tables count by MO2 layer, the mod an archive belongs to. A name " +
                      "that is not in the active order is refused.")]
             string? provider = null,
+        [Description("Optional. On every .nif row that resolves, list the files the winning copy names, each with the " +
+                     "Data path it maps to and that path's winner: every texture-set slot, every effect-shader texture, " +
+                     "and the root node's 'HDT Skinned Mesh Physics Object' (the HDT-SMP physics XML, Data-relative) " +
+                     "and 'BODYTRI' (meshes-relative) string extra data. A string that names no Data path says why.")]
+            bool links = false,
+        [Description("Optional. Walk from the selected paths and records= to every file they reach, returning one node " +
+                     "per file: the paths a record lists, its implicit files (an NPC's FaceGen head and tint, or its " +
+                     "Traits template root's, each member of a leveled template marked one of N; .pex scripts, fragment " +
+                     ".pex files, a start-game-enabled quest's Seq\\<plugin>.seq; a dialogue line's voice .fuz, or the " +
+                     ".xwm/.wav and .lip it ships as), then the links each file names (a mesh's textures, SMP XML and " +
+                     "BODYTRI, a script's parent .pex), recursively. Each node is marked from-source (source_provider= " +
+                     "ships it), elsewhere (another provider wins it, named), present, or absent; keyed nodes sit at a " +
+                     "FormID-named path, so a renumbering copy carries them rather than placing them. With " +
+                     "source_provider= the response ends with the from-source set as a housecarl_place assets= array. " +
+                     "Records are entered through form links only inside the seed's own plugin; links into other plugins " +
+                     "are counted as boundaries. Not with to_file= or counts_only=.")]
+            bool walk = false,
+        [Description("Optional, with walk=true. Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from.")]
+            string[]? records = null,
+        [Description("Optional, with records=. The ordered source list each record is read from, first hit wins: " +
+                     "'winner' (default) or a plugin filename, active or a file in a disabled mod folder.")]
+            string[]? from_source = null,
+        [Description("Optional, with walk=true. The provider the walk reads files from first: a mod folder, enabled or " +
+                     "not (the donor), 'overwrite', 'Data' or an archive's filename. Each node it ships is from-source; " +
+                     "one it does not is elsewhere or absent.")]
+            string? source_provider = null,
         [Description("Optional. Max paths to resolve and render. 0 = no limit. to_file= ignores it and covers the " +
                      "whole selection. Under counts_only=true it caps each census table's rows instead; the census " +
                      "still covers the whole selection.")]
@@ -106,6 +132,10 @@ public static class AssetTools
         // The read/write surface's one refusal shape, through its one owner: Wire.Refuse owns the prefix the json document strips.
         string Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
 
+        if (records is { Length: > 0 } && !walk)
+            return Refuse("records= seeds the walk — pass walk=true with it.");
+        if (walk) return Walk(svc, asset_paths, under, formids, provider, records, from_source, source_provider,
+                              wantFile: to_file is { Length: > 0 }, counts_only, json, Wire.Cap(max_chars));
         if ((asset_paths is null || asset_paths.Length == 0) && (under is null || under.Length == 0)
             && (formids is null || formids.Length == 0) && string.IsNullOrWhiteSpace(provider))
             return Refuse("asset_paths, under, formids and provider are all empty. Pass Data-relative asset path(s) in " +
@@ -182,7 +212,7 @@ public static class AssetTools
 
         // counts_only= resolves the WHOLE selection, as to_file= does: a census of a window would answer about a window while the rows that need paging had no knob.
         var data = svc.AssetStatus(pathTokens ?? Array.Empty<string>(), under, counts_only ? 0 : limit, offset, seeds,
-                                   wholeSelection: wantFile || counts_only, provider: provider);
+                                   wholeSelection: wantFile || counts_only, provider: provider, links: links);
         // The declared-cost refusal (the selection was counted and is past the bound) or an unknown provider: nothing was resolved.
         if (data.Refusal is { } refused) return Wire.Refuse(json, refused);
 
@@ -233,6 +263,42 @@ public static class AssetTools
         // The text lane's ceiling arm; the json document caps itself as it writes.
         return json ? manifestOnly : RenderCap.Settle(manifestOnly, cap);
     });
+
+    /// <summary>The walk=true lane: the selection's paths and the records= keys seed <see cref="LoadOrderService.AssetWalk"/>.</summary>
+    static string Walk(LoadOrderService svc, string[]? asset_paths, string[]? under, string[]? formids, string? provider,
+                       string[]? records, string[]? from_source, string? source_provider,
+                       bool wantFile, bool countsOnly, bool json, int cap)
+    {
+        string Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
+        if (wantFile || countsOnly)
+            return Refuse("walk=true renders its nodes inline; drop to_file= and counts_only=.");
+        var door = FormIdDoor.For(svc);
+        var keys = new List<Mutagen.Bethesda.Plugins.FormKey>();
+        foreach (var raw in records ?? Array.Empty<string>())
+        {
+            try { keys.Add(door.Parse(raw)); }
+            catch (Exception ex) { return Refuse($"records '{raw}' is not a FormID: {Guard.Flatten(ex.Message)} Expected 'XXXXXX:Plugin.esp'."); }
+        }
+        var seeds = new List<FaceGenSeed>();
+        foreach (var raw in formids ?? Array.Empty<string>())
+        {
+            try { seeds.Add(new FaceGenSeed(raw, door.Parse(raw), null)); }
+            catch (Exception ex) { return Refuse($"formids '{raw}' is not a FormID: {Guard.Flatten(ex.Message)}"); }
+        }
+        var paths = new List<string>();
+        IReadOnlyList<string>? selectorNotes = null;
+        if (asset_paths is { Length: > 0 } || under is { Length: > 0 } || seeds.Count > 0 || !string.IsNullOrWhiteSpace(provider))
+        {
+            var sel = svc.AssetStatus(asset_paths ?? Array.Empty<string>(), under, 0, 0, seeds, wholeSelection: true, provider: provider);
+            if (sel.Refusal is { } refused) return Wire.Refuse(json, refused);
+            selectorNotes = sel.SelectorNotes;
+            // A bad explicit path stays a seed, so the walk answers it as its own error node.
+            foreach (var r in sel.Results) paths.Add(r.RelPath);
+        }
+        var w = svc.AssetWalk(paths, keys, from_source, source_provider);
+        if (w.Refusal is { } wr) return Wire.Refuse(json, wr);
+        return AssetWalkWire.Render(w, selectorNotes, cap, json);
+    }
 }
 
 /// <summary>Renders <see cref="AssetStatusData"/>: the build-level alarms first, then one block per queried path —
@@ -344,6 +410,7 @@ static class AssetWire
             AppendPair(sb, r);
             return;
         }
+        AppendLinks(sb, r);
 
         // The provider token is spelled by the one formatter the asset surface uses, so the name printed here is
         // the name a source selector accepts. The owning mod rides the WINS: line only on a formids= row.
@@ -361,6 +428,21 @@ static class AssetWire
                       "beats BSA; among BSAs the latest-loaded plugin wins). Verify only if that's unexpected.\n");
         AppendStanding(sb, d, r);
         AppendPair(sb, r);
+    }
+
+    /// <summary>The files a mesh names, on a links= call only: where in the mesh, the string as stored, and the Data path with its winner.</summary>
+    static void AppendLinks(StringBuilder sb, AssetPathResult r)
+    {
+        if (r.LinksError is { } err) { sb.Append("  links: not read — ").Append(err).Append('\n'); return; }
+        if (r.Links is not { } links) return;
+        sb.Append("  links (").Append(links.Count).Append("):\n");
+        foreach (var l in links)
+        {
+            sb.Append("    ").Append(l.Link.Kind.ToString().ToLowerInvariant()).Append(" — ").Append(l.Link.Where).Append(": `").Append(l.Link.Raw).Append("`\n");
+            if (l.Link.Error is { } le) { sb.Append("      data path: none — ").Append(le).Append('\n'); continue; }
+            sb.Append("      data path: ").Append(l.Link.DataPath).Append("  ")
+              .Append(l.Hit is { Exists: true, Winner: { } w } ? "WINS: " + Provider(w) : "ABSENT").Append('\n');
+        }
     }
 
     /// <summary>The named provider's standing on this path, on a provider= call only.</summary>

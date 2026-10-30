@@ -3062,6 +3062,28 @@ static class JsonWire
         w.WriteBoolean("ambiguous", hit.Ambiguous);
         // On a provider= call only, so a plain row is byte-for-byte the document it always was.
         if (r.Standing is { } st) w.WriteString("provider_standing", st.Token());
+        // On a links= call only, so a plain row is byte-for-byte the document it always was.
+        if (r.LinksError is not null) w.WriteString("links_error", r.LinksError);
+        if (r.Links is { } links)
+        {
+            w.WriteStartArray("links");
+            foreach (var l in links)
+            {
+                w.WriteStartObject();
+                w.WriteString("where", l.Link.Where);
+                w.WriteString("kind", l.Link.Kind.ToString().ToLowerInvariant());
+                w.WriteString("raw", l.Link.Raw);
+                WriteNullable(w, "data_path", l.Link.DataPath);
+                if (l.Link.Error is not null) w.WriteString("error", l.Link.Error);
+                if (l.Hit is { } lh)
+                {
+                    w.WriteBoolean("exists", lh.Exists);
+                    if (lh.Winner is { } lw) WriteAssetProvider(w, "winner", lw); else w.WriteNull("winner");
+                }
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+        }
         // On a formids= row only: the OWNER the pair's `differs` verdict is decided on, not the bare OwningMod.
         if (r.FormId is not null)
             WriteNullable(w, "winner_mod", hit.Winner is { } owner ? AssetPathResult.Owner(owner) : null);

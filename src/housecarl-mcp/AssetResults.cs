@@ -20,7 +20,16 @@ public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Erro
 
     /// <summary>The named provider's standing on this path; null when the call named no provider or the row did not resolve.</summary>
     public ProviderStanding? Standing { get; init; }
+
+    /// <summary>The files this mesh names, each with its winner, on a links= call; null on any other row.</summary>
+    public IReadOnlyList<ResolvedNifLink>? Links { get; init; }
+
+    /// <summary>Why a links= call could not read this mesh's links; null when it did or was not asked.</summary>
+    public string? LinksError { get; init; }
 }
+
+/// <summary>One file a mesh names, with the load order's answer for its Data path; <see cref="Hit"/> is null when the string names no Data path.</summary>
+public sealed record ResolvedNifLink(NifLink Link, AssetHit? Hit);
 
 /// <summary>One entry of <c>asset_status</c>'s <c>formids=</c> SELECT: the caller's raw token, the FormKey it parsed to, or the sentence to report instead. A malformed token is ONE error row, never a failed call.</summary>
 public sealed record FaceGenSeed(string Token, FormKey? Key, string? Error);

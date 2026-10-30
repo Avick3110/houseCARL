@@ -35,23 +35,8 @@ public static class NifService
     /// <summary>Inspect a mesh from its raw bytes — the model, or a named error; never a throw and never a partial model.</summary>
     public static NifInspectOutcome Inspect(byte[] bytes)
     {
-        if (bytes is null || bytes.Length == 0)
-            return new NifInspectOutcome(null, "the mesh is empty (0 bytes) — nothing to inspect.");
-
-        var nif = new NifFile();
-        try
-        {
-            using var ms = new MemoryStream(bytes, writable: false);
-            int rc = nif.Load(ms);
-            if (rc != 0)
-                return new NifInspectOutcome(null,
-                    $"NiflySharp could not parse this mesh (Load returned {rc}) — it may be truncated, not a NIF, or a " +
-                    "format the library rejects. If NifSkope opens it, it is a valid-but-nonstandard file houseCARL will not guess at.");
-        }
-        catch (Exception ex)
-        {
-            return new NifInspectOutcome(null, DescribeLoadException(ex));
-        }
+        var (nif, loadErr) = Load(bytes);
+        if (nif is null) return new NifInspectOutcome(null, loadErr);
 
         try
         {
@@ -62,6 +47,29 @@ public static class NifService
             // The file loaded but reading its structure threw — a real defect, so fail loud with the type and message.
             return new NifInspectOutcome(null, $"the mesh parsed but reading its structure failed — {ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    /// <summary>Parse a mesh's bytes, or name why not; the one load every read shares.</summary>
+    internal static (NifFile? Nif, string? Error) Load(byte[] bytes)
+    {
+        if (bytes is null || bytes.Length == 0)
+            return (null, "the mesh is empty (0 bytes) — nothing to inspect.");
+
+        var nif = new NifFile();
+        try
+        {
+            using var ms = new MemoryStream(bytes, writable: false);
+            int rc = nif.Load(ms);
+            if (rc != 0)
+                return (null,
+                    $"NiflySharp could not parse this mesh (Load returned {rc}) — it may be truncated, not a NIF, or a " +
+                    "format the library rejects. If NifSkope opens it, it is a valid-but-nonstandard file houseCARL will not guess at.");
+        }
+        catch (Exception ex)
+        {
+            return (null, DescribeLoadException(ex));
+        }
+        return (nif, null);
     }
 
     /// <summary>Turn a load exception into a named, actionable error; the strict-boolean arm is kept against that rejection class returning.</summary>

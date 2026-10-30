@@ -13,6 +13,10 @@ internal interface IAssetHost : ILoadOrderHost
 
     /// <summary>The installed game runtime version, or null.</summary>
     string? InstalledGameRuntime();
+
+    /// <summary>A walk's ordered record source universe (the from_source= pole list), off-order overlays appended to <paramref name="overlays"/> open.</summary>
+    SourceChain? BuildWalkSources(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, Mo2Roots roots,
+                                  IReadOnlyList<string> poles, List<IDisposable> overlays, out string? error);
 }
 
 /// <summary>The assets area: asset status, the SKSE layer, NIF, the SkyPatcher layer scan and replay, place.</summary>
@@ -46,7 +50,8 @@ internal sealed partial class AssetLayers
         int offset,
         IReadOnlyList<FaceGenSeed>? seeds,
         bool wholeSelection,
-        string? provider = null)
+        string? provider = null,
+        bool links = false)
     {
         var captured = _host.CaptureAssets();   // the view is pinned and handle-free, so the body runs outside the gate
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
@@ -162,8 +167,14 @@ internal sealed partial class AssetLayers
                 var suggest = hit.Exists ? Array.Empty<string>()
                                          : AssetPathHint.VerifiedPrefixes(view, p, AssetPathHint.AssetRoots);
                 var pair = sel.PairPath is null ? null : Resolve(sel.PairPath);
-                results.Add(new AssetPathResult(p, hit, null, suggest, sel.FormId, sel.Slot, sel.PairPath, pair)
-                            { Standing = ProviderStandings.Of(hit, provider) });
+                var row = new AssetPathResult(p, hit, null, suggest, sel.FormId, sel.Slot, sel.PairPath, pair)
+                          { Standing = ProviderStandings.Of(hit, provider) };
+                if (links && hit.Exists && p.EndsWith(".nif", StringComparison.OrdinalIgnoreCase))
+                {
+                    var (read, readErr) = ReadMeshLinks(view, view.ResolveForPlacement(p).Sources[0]);
+                    row = row with { Links = read, LinksError = readErr };
+                }
+                results.Add(row);
                 seenA = p; seenAHit = hit;
                 seenB = sel.PairPath; seenBHit = pair;
             }
@@ -175,6 +186,16 @@ internal sealed partial class AssetLayers
                                    notes, total, Math.Max(offset, 0),    // the offset ASKED for, so a past-the-end page can say so
                                    Math.Max(limit, 0),                   // the limit ASKED for, so the next-page advice repeats it
                                    Provider: provider);
+    }
+
+    /// <summary>The files one copy of a mesh names, each resolved against the load order; or why they could not be read.</summary>
+    internal static (IReadOnlyList<ResolvedNifLink>? Links, string? Error) ReadMeshLinks(AssetResolver.AssetView view, PlacementSource copy)
+    {
+        var (bytes, readErr) = AssetResolver.ReadPlacementSource(copy);
+        if (bytes is null) return (null, readErr ?? "could not read the mesh bytes.");
+        var (links, err) = NifLinks.Read(bytes);
+        if (links is null) return (null, err);
+        return (links.Select(l => new ResolvedNifLink(l, l.DataPath is { } d ? view.Resolve(d) : null)).ToList(), null);
     }
 
     /// <summary>One entry of an <c>asset_status</c> selection: the path, and on a <c>formids=</c> row the NPC, the slot and the other half's path. <c>Error</c> answers as its own row.</summary>
