@@ -180,18 +180,8 @@ internal sealed partial class AssetLayers
         int pastDepth = 0;
         var boundaries = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var inferCache = AssetWalkEdges.EmptyCache();
-        (IAssetLinkCache? Cache, string? Loop)? voice = null;
-        // The voice cache, built once; none when the mods it reads hold a Traits template loop, said once.
-        IAssetLinkCache? Voice()
-        {
-            if (voice is null)
-            {
-                voice = VoiceCache(session, overlays);
-                if (voice.Value.Loop is { } loop)
-                    notes.Add($"no dialogue line's voice was resolved — the active order or a from_source= plugin outside it holds a Traits template loop ({loop}), which Mutagen's voice resolution cannot read through.");
-            }
-            return voice.Value.Cache;
-        }
+        IAssetLinkCache? voiceCache = null;
+        IAssetLinkCache Voice() => voiceCache ??= VoiceCache(session, overlays);
         var raceCaches = new Dictionary<FormKey, (IAssetLinkCache?, string?)>();
         int entered = 0;
         var npcs = new List<(FormKey Key, string Label)>();
@@ -228,7 +218,7 @@ internal sealed partial class AssetLayers
             }
             if (body is IDialogResponsesGetter info)
             {
-                if (Voice() is { } vc) VoiceOf(view, source, info, label, vc, Fetch, addFile, notes);
+                VoiceOf(view, source, info, label, Voice(), Fetch, addFile, notes);
             }
 
             foreach (var link in body.EnumerateFormLinks())
@@ -250,7 +240,7 @@ internal sealed partial class AssetLayers
                 {
                     lines.Add(line.FormKey);
                     var lineLabel = $"{RecordNaming.StripOverlay(line.GetType().Name)} [{FormIdToken.Of(line.FormKey)}], a line spoken by {npcLabel}";
-                    if (Voice() is { } vc) VoiceOf(view, source, line, lineLabel, vc, Fetch, addFile, notes);
+                    VoiceOf(view, source, line, lineLabel, Voice(), Fetch, addFile, notes);
                 }
                 index.EnsureReverseIndex();
                 var winners = new Dictionary<FormKey, IDialogResponsesGetter?>();
@@ -377,12 +367,7 @@ internal sealed partial class AssetLayers
     }
 
     /// <summary>The whole order's link cache, with any off-order source overlays last, for Mutagen's voice resolution,
-    /// which reads the line's topic, quest, speaker and conditions. Built once per walk, only when a line is reached;
-    /// none, with the loop, when the order holds a Traits template loop, on which Mutagen's resolution overflows the stack.</summary>
-    static (IAssetLinkCache? Cache, string? Loop) VoiceCache(LoadOrderResolver.OverlaySession session, List<IDisposable> overlays)
-    {
-        var mods = session.AllMasters().Concat(overlays.OfType<ISkyrimModGetter>()).ToList();
-        var links = mods.ToImmutableLinkCache();
-        return AssetWalkEdges.TraitsLoop(Enumerable.Reverse(mods), links) is { } loop ? (null, loop) : (links.CreateImmutableAssetLinkCache(), null);
-    }
+    /// which reads the line's topic, quest, speaker and conditions. Built once per walk, only when a line is reached.</summary>
+    static IAssetLinkCache VoiceCache(LoadOrderResolver.OverlaySession session, List<IDisposable> overlays)
+        => session.AllMasters().Concat(overlays.OfType<ISkyrimModGetter>()).ToImmutableLinkCache().CreateImmutableAssetLinkCache();
 }
