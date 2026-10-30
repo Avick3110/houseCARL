@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-29
-covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
+updated: 2026-10-30
+covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
 
@@ -296,6 +296,48 @@ then passes `NormalizeQueryPath`, so a `..` or no-name segment is refused too. A
 why, and to give the path from the root folder on, never a dropped link. `NormalizeQueryPath` itself is unchanged: a modder's own path is Data-relative as typed. `nif_inspect`'s
 paths section and the root-prefix hint below go through the door.
 
+### A mesh's links
+
+`NifLinks.Read` is every file one mesh names: each texture-set slot, each effect-shader texture (source, greyscale,
+env map, normal, env mask), and the root node's `HDT Skinned Mesh Physics Object` and `BODYTRI` string extra data.
+Only the roots are read for the two strings, because FSMP reads only the root's own extra data. Each string goes
+through the door above by kind: a texture as a texture, `BODYTRI` as a model (meshes-relative), an SMP XML as
+Data-relative through `ValidateRelPath`, never typed (a typed texture door would put it under `Textures\`). A string
+the door refuses is a link with its reason, never a dropped one. `asset_status links=true` reads the winning copy of
+every present `.nif` row and lists them, each Data path with its winner; a plain row is unchanged.
+
+### Walking the links
+
+`asset_status walk=true` is SPEC §3's construct with a second edge kind, record or file → file
+(`AssetLayers.AssetWalk`, `AssetWalkEdges`). It seeds from the selection (every row the selectors chose) and from
+`records=`, read through the `from_source=` pole list the copy uses (`BuildSourceChain`; default `winner`, a plugin
+in a disabled mod by name). From a record it enters form links only into records the seed's own plugin defines, to 3
+hops; links into other plugins are counted as boundaries in a note, and records past the depth are counted too, so
+nothing is cut silently. Each record contributes:
+
+- the paths it lists (`AssetLinkHarvest`);
+- Mutagen's inferred links: `Scripts\<name>.pex` (the `.psc` is dropped, a `:` maps to a folder as the script checks
+  do), a start-game-enabled quest's `Seq\<plugin>.seq`, and any other inferred file;
+- each fragment `FileName` in its script adapter, found by reflection over the adapter, with a note that Mutagen
+  infers none;
+- on an NPC, the FaceGen pair its face is drawn from: its own when the Traits template flag is off, else the first NPC
+  down the Template chain with it off, every member of a leveled-list template marked one of N; a loop or an
+  unresolved link is a note naming the chain. The pair is Mutagen's resolved link over a cache holding only the
+  root's race, so a race without `FaceGenHead` gives none, which `FaceGenPath.For` alone cannot tell;
+- on a dialogue line, the `.fuz` paths Mutagen resolves over the whole order (built once, when a line is reached), or
+  the same-stem `.xwm` / `.wav` and `.lip` the line ships as when no `.fuz` does; both listed, with no claim on which
+  plays, when both ship. A line Mutagen finds no voice for, or one that throws, is a note.
+
+Each file node then resolves: from-source when `source_provider=` ships it (`AssetSourceSelection`, so a disabled mod
+answers off its own disk), elsewhere when another provider wins it (named), present with no source named, or absent;
+a string that names no Data path is an error node. A present `.nif` walks on through its links, read off the copy
+that answers it, and a `.pex` through its parent class. FaceGen, `.seq` and voice nodes are **keyed**: they sit at a
+path named by the defining plugin and id, so a copy that keeps the FormKey places them as walked, and a renumbering
+one carries them through the carry above. With a source, the response ends with the from-source set as the
+`assets=` array `place` takes in one call. The walk is bounded by the `asset_status` path bound and 2,000 records,
+each said when reached. Out, and said: reverse file edges, an NPC seed's voice lines (the reverse step is not wired
+to the file walk), SKSE configs and behaviour files.
+
 ### Suggesting a root prefix
 
 A model path read off a record is stored relative to `meshes\`, so passing it verbatim returns a flat ABSENT that is
@@ -399,6 +441,12 @@ provided either; the generic lane does not, because it legitimately answers for 
   gets no hint on `asset_status`, and on a mesh tool the convention sentence names its Data form, unverified; each NIF slot's Data path answers as a direct `asset_status` call; a slot the door refuses is its own
   error line, saying why and what to give; a folder named `data` below the first segment stays in the path, a leading
   separator is dropped, and a leading or drive-rooted Data folder is still cut.
+- *A mesh's links* and *Walking the links*: `AssetWalkTests` — the root SMP string and a `data\` slot resolve with
+  their winners, and a row without `links=` is unchanged; a disabled donor's walk marks each node from-source,
+  elsewhere (named) or absent and `place` takes the set; the FaceGen pair is race-gated and keyed; a templated NPC
+  pulls its root's face itself; a leveled template reaches each member one of 2 and a loop is a note; a script reaches
+  its `.pex` and no `.psc`; a start-game-enabled quest reaches its keyed `.seq`. Voice, fragments and a `.pex`'s
+  parent are not pinned by a test; they were checked on the dev instance only.
 - *Suggesting a root prefix*: Pinned by `AssetPrefixHintTests` — the prefixed candidate is offered only when a real
   provider supplies it. Its non-asset-root cases (`sound\`) assert the same thing as its plain-miss cases, so it
   cannot see whether the generic lane prints the convention note: that half is not pinned.
