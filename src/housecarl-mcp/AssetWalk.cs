@@ -16,7 +16,8 @@ public sealed record AssetWalkNode(string Path, string Edge, string PulledBy, Wa
                                    PlacementSource? Copy, bool Keyed = false, string? Note = null, string? Error = null);
 
 /// <summary>The data behind <c>asset_status walk=true</c>: every node in walk order, what the walk noted (records not
-/// found, boundaries, gaps), the source it read files from, the record sources, and the build caveats.</summary>
+/// found, boundaries, gaps), the source it read files from, the record sources (none on a path-only walk), and the
+/// build caveats.</summary>
 public sealed record AssetWalkData(
     IReadOnlyList<AssetWalkNode> Nodes,
     IReadOnlyList<string> Notes,
@@ -54,7 +55,7 @@ internal sealed partial class AssetLayers
         if (sourceProvider is not null && AssetSourceChoice.Parse(sourceProvider).Pole != AssetSourcePole.Named) sourceProvider = null;
         var poles = fromSource is { Count: > 0 } ? fromSource : new[] { SourcePoles.Winner };
         AssetWalkData Done(List<AssetWalkNode> nodes, List<string> notes, bool truncated, string? refusal = null)
-            => new(nodes, notes, sourceProvider, poles, truncated, view.BsaFailures, view.RootFailures, captured.Warnings,
+            => new(nodes, notes, sourceProvider, seedRecords.Count > 0 ? poles : Array.Empty<string>(), truncated, view.BsaFailures, view.RootFailures, captured.Warnings,
                    captured.ProfileName, refusal);
 
         if (seedPaths.Count == 0 && seedRecords.Count == 0)

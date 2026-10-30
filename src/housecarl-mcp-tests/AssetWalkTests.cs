@@ -282,5 +282,11 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         var text = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: true, source_provider: "Cape");
         Assert.Contains("smp of " + AssetWalkWorld.CapeNif, text);
         Assert.Contains("place set (3)", text);
+        // A path-only walk read no record, so it names no record source, whatever from_source= says.
+        Assert.DoesNotContain("records from", text);
+        var json = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: true, from_source: new[] { "winner" }, format: "json");
+        Assert.Equal(JsonValueKind.Null, JsonDocument.Parse(json).RootElement.GetProperty("record_sources").ValueKind);
+        Assert.Contains("records from " + AssetWalkWorld.OverridePlugin,
+            AssetTools.AssetStatus(_w.Svc, records: new[] { _w.Id("HcWalkBeast2") }, walk: true, from_source: new[] { AssetWalkWorld.OverridePlugin }));
     }
 }
