@@ -152,6 +152,28 @@ public static class AssetWalkEdges
                .Where(p => p.StartsWith(@"Sound\Voice\", StringComparison.OrdinalIgnoreCase))
                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
+    /// <summary>The first looping Traits template chain among the winning NPCs of <paramref name="priorityOrder"/>, as
+    /// "A → B → A", or null. Mutagen's voice resolution reads every NPC's voice down that chain and overflows the stack
+    /// on a loop, which kills the process.</summary>
+    public static string? TraitsLoop(IEnumerable<ISkyrimModGetter> priorityOrder, ILinkCache cache)
+    {
+        var clear = new HashSet<FormKey>();
+        foreach (var npc in priorityOrder.WinningOverrides<INpcGetter>())
+        {
+            var chain = new List<FormKey>();
+            for (INpcGetter? at = npc; at is not null && !clear.Contains(at.FormKey);)
+            {
+                if (chain.IndexOf(at.FormKey) is var i and >= 0)
+                    return string.Join(" → ", chain.Skip(i).Append(at.FormKey).Select(FormIdToken.Of));
+                chain.Add(at.FormKey);
+                if (!at.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits) || at.Template.IsNull) break;
+                at = cache.TryResolve<INpcGetter>(at.Template.FormKey, out var next) ? next : null;
+            }
+            clear.UnionWith(chain);
+        }
+        return null;
+    }
+
     /// <summary>Whether <paramref name="npc"/> speaks this copy of a line: it is the line's Speaker, or a GetIsID run on
     /// the Subject names it and passes for that NPC and fails for any other.</summary>
     public static bool Speaks(IDialogResponsesGetter line, FormKey npc)
