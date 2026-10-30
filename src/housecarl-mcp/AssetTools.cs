@@ -295,6 +295,7 @@ public static class AssetTools
             catch (Exception ex) { return Refuse($"formids '{raw}' is not a FormID: {Guard.Flatten(ex.Message)}"); }
         }
         var paths = new List<string>();
+        var keyed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         IReadOnlyList<string>? selectorNotes = null;
         if (asset_paths is { Length: > 0 } || under is { Length: > 0 } || seeds.Count > 0 || !string.IsNullOrWhiteSpace(provider))
         {
@@ -302,9 +303,14 @@ public static class AssetTools
             if (sel.Refusal is { } refused) return Wire.Refuse(json, refused);
             selectorNotes = sel.SelectorNotes;
             // A bad explicit path stays a seed, so the walk answers it as its own error node.
-            foreach (var r in sel.Results) paths.Add(r.RelPath);
+            foreach (var r in sel.Results)
+            {
+                paths.Add(r.RelPath);
+                // A formids= row's path is named by the NPC's id, so a renumbering copy carries it.
+                if (r.Slot is not null) keyed.Add(r.RelPath);
+            }
         }
-        var w = svc.AssetWalk(paths, keys, from_source, source_provider);
+        var w = svc.AssetWalk(paths, keys, from_source, source_provider, keyed);
         if (w.Refusal is { } wr) return Wire.Refuse(json, wr);
         return AssetWalkWire.Render(w, selectorNotes, cap, json);
     }
