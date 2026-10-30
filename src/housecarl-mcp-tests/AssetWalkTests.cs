@@ -414,6 +414,23 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
                         n => n.Contains($"no voice node — its Speaker NPC {_w.Id("HcWalkMute")} has no Voice type set"));
     }
 
+    /// <summary>A line with no responses of its own names the shared response data it draws on, with a Speaker and
+    /// without; one with no shared response data either gets no Speaker or quest-alias reason.</summary>
+    [Fact]
+    public void ALineWithNoOwnResponsesSaysSo()
+    {
+        foreach (var line in new[] { "HcWalkLineShared", "HcWalkLineSharedNoSpeaker", "HcWalkLineBare" })
+        {
+            var notes = Walk(records: new[] { line }).Notes;
+            var note = Assert.Single(notes, n => n.StartsWith($"DialogResponses [{_w.Id(line)}]: no voice node"));
+            Assert.Contains("no responses of its own", note);
+            if (line != "HcWalkLineBare") Assert.Contains("shared response data " + _w.Id("HcWalkLineSpeaker"), note);
+            Assert.DoesNotContain("Speaker", note);
+            Assert.DoesNotContain("speaker", note);
+            Assert.DoesNotContain("alias", note);
+        }
+    }
+
     /// <summary>No seed is refused in one sentence; records= without walk= is refused.</summary>
     [Fact]
     public void AWalkWithNoSeedIsRefused()
