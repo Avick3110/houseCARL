@@ -16,6 +16,9 @@ public sealed record NifLink(string Where, string Raw, NifLinkKind Kind, string?
 /// link-to-Data-path door (docs/architecture/assets.md, From a link to a Data path).</summary>
 public static class NifLinks
 {
+    /// <summary>The kind as every surface spells it: texture, smp, bodytri.</summary>
+    public static string Token(this NifLinkKind kind) => kind.ToString().ToLowerInvariant();
+
     /// <summary>The string extra data FSMP reads off the root node for a mesh's physics XML.</summary>
     public const string SmpKey = "HDT Skinned Mesh Physics Object";
 
@@ -79,6 +82,6 @@ public static class NifLinks
     {
         NifLinkKind.Texture => AssetDataPath.For(raw, AssetLinkKind.Texture),
         NifLinkKind.BodyTri => AssetDataPath.For(raw, AssetLinkKind.Model),
-        _ => AssetResolver.ValidateRelPath(AssetResolver.Normalize(raw)),
+        _ => AssetResolver.ValidateRelPath(raw),
     };
 }

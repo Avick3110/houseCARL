@@ -100,7 +100,8 @@ public static class AssetTools
             string[]? from_source = null,
         [Description("Optional, with walk=true. The provider the walk reads files from first: a mod folder, enabled or " +
                      "not (the donor), 'overwrite', 'Data' or an archive's filename. Each node it ships is from-source; " +
-                     "one it does not is elsewhere or absent.")]
+                     "one it does not is elsewhere or absent. Omitted, or '" + AssetSourceChoice.WinnerToken + "', names no " +
+                     "source: each node is present or absent.")]
             string? source_provider = null,
         [Description("Optional. Max paths to resolve and render. 0 = no limit. to_file= ignores it and covers the " +
                      "whole selection. Under counts_only=true it caps each census table's rows instead; the census " +
@@ -272,6 +273,14 @@ public static class AssetTools
         string Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
         if (wantFile || countsOnly)
             return Refuse("walk=true renders its nodes inline; drop to_file= and counts_only=.");
+        // The same @file convention as the row lane, a formids= artifact epoch-checked the same way.
+        var (pathTokens, _, _, perr) = Artifacts.ExpandListInput(asset_paths ?? Array.Empty<string>(), "asset_paths", identity: "path");
+        if (perr is not null) return Wire.Refuse(json, perr);
+        var (idTokens, idDemand, _, ferr) = Artifacts.ExpandListInput(formids ?? Array.Empty<string>(), "formids");
+        if (ferr is not null) return Wire.Refuse(json, ferr);
+        if (idDemand is { } demand && svc.CaptureView().Stamp.Epoch is var epoch && demand.Epoch != epoch)
+            return Wire.Refuse(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
+        asset_paths = pathTokens; formids = idTokens;
         var door = FormIdDoor.For(svc);
         var keys = new List<Mutagen.Bethesda.Plugins.FormKey>();
         foreach (var raw in records ?? Array.Empty<string>())
@@ -438,7 +447,7 @@ static class AssetWire
         sb.Append("  links (").Append(links.Count).Append("):\n");
         foreach (var l in links)
         {
-            sb.Append("    ").Append(l.Link.Kind.ToString().ToLowerInvariant()).Append(" — ").Append(l.Link.Where).Append(": `").Append(l.Link.Raw).Append("`\n");
+            sb.Append("    ").Append(l.Link.Kind.Token()).Append(" — ").Append(l.Link.Where).Append(": `").Append(l.Link.Raw).Append("`\n");
             if (l.Link.Error is { } le) { sb.Append("      data path: none — ").Append(le).Append('\n'); continue; }
             sb.Append("      data path: ").Append(l.Link.DataPath).Append("  ")
               .Append(l.Hit is { Exists: true, Winner: { } w } ? "WINS: " + Provider(w) : "ABSENT").Append('\n');

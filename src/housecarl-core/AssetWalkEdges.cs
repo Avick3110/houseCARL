@@ -69,12 +69,14 @@ public static class AssetWalkEdges
         if (t.Namespace is null || !t.Namespace.StartsWith("Mutagen.Bethesda", StringComparison.Ordinal)) return;
         foreach (var prop in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
-            if (prop.GetIndexParameters().Length != 0) continue;
+            // Only a FileName string or a class worth descending is read, so no scalar is boxed or parsed for nothing.
+            bool fileName = prop.Name == "FileName" && prop.PropertyType == typeof(string);
+            if (prop.GetIndexParameters().Length != 0 || !(fileName || (prop.PropertyType.IsClass || prop.PropertyType.IsInterface) && prop.PropertyType != typeof(string))) continue;
             object? val;
             try { val = prop.GetValue(node); } catch { continue; }
             if (val is null) continue;
-            if (prop.Name == "FileName" && val is string s) { if (!string.IsNullOrWhiteSpace(s)) names.Add(s); }
-            else if (prop.PropertyType.IsClass && prop.PropertyType != typeof(string)) FileNames(val, names, seen, depth + 1);
+            if (fileName) { if (val is string s && !string.IsNullOrWhiteSpace(s)) names.Add(s); }
+            else FileNames(val, names, seen, depth + 1);
         }
     }
 
@@ -118,16 +120,21 @@ public static class AssetWalkEdges
 
     /// <summary>An NPC's own FaceGen files by Mutagen's resolved link, over a cache holding only its race: none when the
     /// race lacks FaceGenHead or does not resolve, which <see cref="FaceGenPath.For"/> cannot tell.</summary>
-    public static IReadOnlyList<string> FaceGen(INpcGetter npc, IRaceGetter? race)
+    public static IReadOnlyList<string> FaceGen(INpcGetter npc, IAssetLinkCache? raceCache)
     {
-        if (race is null) return Array.Empty<string>();
-        var mod = new SkyrimMod(race.FormKey.ModKey, SkyrimRelease.SkyrimSE);
-        mod.Races.Add(race.DeepCopy());
-        var cache = mod.ToImmutableLinkCache().CreateImmutableAssetLinkCache();
-        return npc.EnumerateAssetLinks(AssetLinkQuery.Resolved, cache)
+        if (raceCache is null) return Array.Empty<string>();
+        return npc.EnumerateAssetLinks(AssetLinkQuery.Resolved, raceCache)
                   .Select(l => l.DataRelativePath.Path)
                   .Where(p => p.Contains(@"\facegendata\", StringComparison.OrdinalIgnoreCase))
                   .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>An asset-link cache holding only <paramref name="race"/>, which is all the FaceGen link resolves.</summary>
+    public static IAssetLinkCache RaceCache(IRaceGetter race)
+    {
+        var mod = new SkyrimMod(race.FormKey.ModKey, SkyrimRelease.SkyrimSE);
+        mod.Races.Add(race.DeepCopy());
+        return mod.ToImmutableLinkCache().CreateImmutableAssetLinkCache();
     }
 
     /// <summary>The voice .fuz paths Mutagen resolves for one dialogue line through its context (speaker, conditions,
