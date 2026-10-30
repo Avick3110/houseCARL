@@ -410,7 +410,21 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         {
             var fuz = Node(d, _w.Voice(line, VoiceFile.Fuz));
             Assert.Equal("voice", fuz.Edge);
-            Assert.Contains("a line naming Npc HcWalkSpeaker", fuz.PulledBy);
+            Assert.Contains("a line spoken by Npc HcWalkSpeaker", fuz.PulledBy);
+        }
+    }
+
+    /// <summary>An NPC seed walks no line that only mentions it: a script property, a GetIsID run on the Target, a
+    /// GetIsID == 0, a GetIsID >= 0, or a line whose winning override no longer names it as Speaker.</summary>
+    [Fact]
+    public void AnNpcWalksOnlyTheLinesItSpeaks()
+    {
+        var d = Walk(records: new[] { "HcWalkSpeaker" });
+        foreach (var line in new[] { "HcWalkLineProp", "HcWalkLineTarget", "HcWalkLineNotSpeaker", "HcWalkLineAnyone", "HcWalkLineDropped" })
+        {
+            var label = $"[{_w.Id(line)}]";
+            Assert.DoesNotContain(d.Nodes, n => n.PulledBy.Contains(label));
+            Assert.DoesNotContain(d.Notes, n => n.Contains(label));
         }
     }
 

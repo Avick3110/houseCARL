@@ -152,6 +152,29 @@ public static class AssetWalkEdges
                .Where(p => p.StartsWith(@"Sound\Voice\", StringComparison.OrdinalIgnoreCase))
                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
+    /// <summary>Whether <paramref name="npc"/> speaks this copy of a line: it is the line's Speaker, or a GetIsID run on
+    /// the Subject names it and passes for that NPC and fails for any other.</summary>
+    public static bool Speaks(IDialogResponsesGetter line, FormKey npc)
+    {
+        if (!line.Speaker.IsNull && line.Speaker.FormKey == npc) return true;
+        foreach (var c in line.Conditions)
+            if (c is IConditionFloatGetter f && f.Data is IGetIsIDConditionDataGetter { RunOnType: Condition.RunOnType.Subject } id
+                && id.Object.Link.FormKey == npc && Holds(f.CompareOperator, 1f, f.ComparisonValue) && !Holds(f.CompareOperator, 0f, f.ComparisonValue))
+                return true;
+        return false;
+    }
+
+    static bool Holds(CompareOperator op, float x, float v) => op switch
+    {
+        CompareOperator.EqualTo => x == v,
+        CompareOperator.NotEqualTo => x != v,
+        CompareOperator.GreaterThan => x > v,
+        CompareOperator.GreaterThanOrEqualTo => x >= v,
+        CompareOperator.LessThan => x < v,
+        CompareOperator.LessThanOrEqualTo => x <= v,
+        _ => false,
+    };
+
     /// <summary>A compiled script's parent class as the .pex it runs from, or null for none; throws when the bytes are no .pex.</summary>
     public static string? ParentPex(byte[] bytes)
     {
