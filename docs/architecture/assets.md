@@ -339,7 +339,9 @@ that answers it, and a `.pex` through its parent class. FaceGen, `.seq` and voic
 path named by the defining plugin and id, so a copy that keeps the FormKey places them as walked, and a renumbering
 one carries them through the carry above. With a source, the response ends with the from-source set as the
 `assets=` array `place` takes in one call. The walk is bounded by the `asset_status` path bound and 2,000 records,
-each said when reached. Out, and said: reverse file edges, an NPC seed's voice lines (the reverse step is not wired
+each said when reached. A walk past `max_chars`, text or json, is written whole to a results-directory file (one row
+per node, SPEC §2.1.1) that the response names; when the `assets=` array itself would not fit, the response points at
+the file's `from_source` rows instead. Out, and said: reverse file edges, an NPC seed's voice lines (the reverse step is not wired
 to the file walk), SKSE configs and behaviour files.
 
 ### Suggesting a root prefix

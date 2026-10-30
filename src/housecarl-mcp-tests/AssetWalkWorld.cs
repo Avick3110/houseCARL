@@ -45,6 +45,9 @@ public sealed class AssetWalkWorld : IDisposable
     public const string OvHairNif = @"meshes\hcwalk\ovhair.nif";
     public const string OvHairTex = @"textures\hcwalk\ovhair.dds";
 
+    /// <summary>Sixty textures only the donor ships: a place set whose array alone passes a small max_chars.</summary>
+    public static readonly string[] ManyTex = Enumerable.Range(0, 60).Select(i => $@"textures\hcwalk\many\t{i:D2}.dds").ToArray();
+
     /// <summary>A key in the walk plugin that no record holds.</summary>
     public static readonly FormKey Missing = new(ModKey.FromFileName(Plugin), 0xABCDE);
 
@@ -159,6 +162,7 @@ public sealed class AssetWalkWorld : IDisposable
         Write(donor, HairXml, new byte[] { 1 });
         Write(donor, DonorTex, new byte[] { 1 });
         Write(baseMod, BaseTex, new byte[] { 1 });
+        foreach (var p in ManyTex) Write(donor, p, new byte[] { 1 });
         foreach (var npc in new[] { "HcWalkHero", "HcWalkBeast2", "HcWalkTraitsAlone" })
             foreach (var slot in new[] { FaceGenSlot.Mesh, FaceGenSlot.Tint })
                 Write(baseMod, FaceGenPath.For(Keys[npc], slot), new byte[] { 1 });
