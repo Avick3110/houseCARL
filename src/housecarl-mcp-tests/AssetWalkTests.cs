@@ -47,6 +47,34 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.DoesNotContain("links (", AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }));
     }
 
+    /// <summary>links= on the whole-selection arms: a to_file= file and a ceiling spill carry each mesh row's links, and
+    /// counts_only= is refused in one sentence.</summary>
+    [Fact]
+    public void LinksReachTheFileOrAreRefused()
+    {
+        static JsonElement CapeRow(string file)
+        {
+            var lines = File.ReadAllLines(file);
+            Assert.Contains("\"links\"", lines[0]);   // the manifest's row_schema names it
+            return lines.Skip(1).Select(l => JsonDocument.Parse(l).RootElement)
+                        .Single(r => string.Equals(r.GetProperty("path").GetString(), AssetWalkWorld.CapeNif, StringComparison.OrdinalIgnoreCase));
+        }
+        static void HasSmp(JsonElement row) => Assert.Contains(row.GetProperty("links").EnumerateArray(),
+            l => l.GetProperty("kind").GetString() == "smp" && string.Equals(l.GetProperty("data_path").GetString(), AssetWalkWorld.CapeXml, StringComparison.OrdinalIgnoreCase));
+
+        var file = Path.Combine(_w.Root, "links-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        AssetTools.AssetStatus(_w.Svc, under: new[] { "meshes/hcwalk" }, links: true, to_file: file);
+        HasSmp(CapeRow(file));
+
+        var spilled = AssetTools.AssetStatus(_w.Svc, under: new[] { "meshes/hcwalk", "textures/hcwalk" }, links: true, max_chars: 500);
+        var at = spilled.IndexOf(" -> ", StringComparison.Ordinal);
+        Assert.True(at > 0, spilled);
+        HasSmp(CapeRow(spilled[(at + 4)..spilled.IndexOf('\n', at)].Trim()));
+
+        Assert.Contains("counts_only= returns a census with no rows",
+                        AssetTools.AssetStatus(_w.Svc, under: new[] { "meshes/hcwalk" }, links: true, counts_only: true));
+    }
+
     /// <summary>A disabled donor: NPC → head part → hair mesh → SMP XML and three textures, each marked from the donor,
     /// elsewhere with its winner, or absent; and place takes the from-source set in one call.</summary>
     [Fact]

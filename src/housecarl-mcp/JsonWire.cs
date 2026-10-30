@@ -3062,28 +3062,7 @@ static class JsonWire
         w.WriteBoolean("ambiguous", hit.Ambiguous);
         // On a provider= call only, so a plain row is byte-for-byte the document it always was.
         if (r.Standing is { } st) w.WriteString("provider_standing", st.Token());
-        // On a links= call only, so a plain row is byte-for-byte the document it always was.
-        if (r.LinksError is not null) w.WriteString("links_error", r.LinksError);
-        if (r.Links is { } links)
-        {
-            w.WriteStartArray("links");
-            foreach (var l in links)
-            {
-                w.WriteStartObject();
-                w.WriteString("where", l.Link.Where);
-                w.WriteString("kind", l.Link.Kind.Token());
-                w.WriteString("raw", l.Link.Raw);
-                WriteNullable(w, "data_path", l.Link.DataPath);
-                if (l.Link.Error is not null) w.WriteString("error", l.Link.Error);
-                if (l.Hit is { } lh)
-                {
-                    w.WriteBoolean("exists", lh.Exists);
-                    if (lh.Winner is { } lw) WriteAssetProvider(w, "winner", lw); else w.WriteNull("winner");
-                }
-                w.WriteEndObject();
-            }
-            w.WriteEndArray();
-        }
+        WriteNifLinks(w, r);
         // On a formids= row only: the OWNER the pair's `differs` verdict is decided on, not the bare OwningMod.
         if (r.FormId is not null)
             WriteNullable(w, "winner_mod", hit.Winner is { } owner ? AssetPathResult.Owner(owner) : null);
@@ -3118,6 +3097,31 @@ static class JsonWire
     }
 
     /// <summary>One provider. <paramref name="name"/> null writes it as an array element.</summary>
+    /// <summary>A row's <c>links</c> and <c>links_error</c>, on a links= call only, so a plain row is byte-for-byte the
+    /// row it always was; the inline document and the artifact row write the same members.</summary>
+    internal static void WriteNifLinks(Utf8JsonWriter w, AssetPathResult r)
+    {
+        if (r.LinksError is not null) w.WriteString("links_error", r.LinksError);
+        if (r.Links is not { } links) return;
+        w.WriteStartArray("links");
+        foreach (var l in links)
+        {
+            w.WriteStartObject();
+            w.WriteString("where", l.Link.Where);
+            w.WriteString("kind", l.Link.Kind.Token());
+            w.WriteString("raw", l.Link.Raw);
+            WriteNullable(w, "data_path", l.Link.DataPath);
+            if (l.Link.Error is not null) w.WriteString("error", l.Link.Error);
+            if (l.Hit is { } lh)
+            {
+                w.WriteBoolean("exists", lh.Exists);
+                if (lh.Winner is { } lw) WriteAssetProvider(w, "winner", lw); else w.WriteNull("winner");
+            }
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+    }
+
     static void WriteAssetProvider(Utf8JsonWriter w, string? name, AssetProvider p)
     {
         if (name is null) w.WriteStartObject(); else w.WriteStartObject(name);

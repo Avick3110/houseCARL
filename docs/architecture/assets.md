@@ -304,7 +304,9 @@ Only the roots are read for the two strings, because FSMP reads only the root's 
 through the door above by kind: a texture as a texture, `BODYTRI` as a model (meshes-relative), an SMP XML as
 Data-relative through `ValidateRelPath`, never typed (a typed texture door would put it under `Textures\`). A string
 the door refuses is a link with its reason, never a dropped one. `asset_status links=true` reads the winning copy of
-every present `.nif` row and lists them, each Data path with its winner; a plain row is unchanged.
+every present `.nif` row and lists them, each Data path with its winner; a plain row is unchanged. A `to_file=` or
+ceiling-spill artifact row carries the same `links` member (and the manifest's row schema names it only then);
+`counts_only=` has no rows and refuses `links=`.
 
 ### Walking the links
 
