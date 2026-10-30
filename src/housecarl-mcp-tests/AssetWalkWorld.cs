@@ -48,6 +48,7 @@ public sealed class AssetWalkWorld : IDisposable
     public const string AliasScript = "HcWalkAliasScript";
     public const string OtherPlugin = "HcWalkOther.esp";
     public const string LatePlugin = "HcWalkLate.esp";
+    public const string OffPlugin = "HcWalkOffSpeaker.esp";
     public const string OverridePlugin = "HcWalkOverride.esp";
     public const string OverrideMod = "HcWalkOverrideMod";
     public const string OvHairNif = @"meshes\hcwalk\ovhair.nif";
@@ -238,6 +239,22 @@ public sealed class AssetWalkWorld : IDisposable
         ov.BeginWrite.ToPath(Path.Combine(overrideMod, OverridePlugin)).WithLoadOrder(new ISkyrimModGetter[] { other, mod, ov })
           .NoCheckIfLowerRangeDisallowed().Write();
         Write(overrideMod, OvHairNif, Mesh(new[] { OvHairTex }, null));
+
+        // A disabled donor defining a voiced NPC and a line it speaks: no active index holds that line.
+        var off = new SkyrimMod(ModKey.FromFileName(OffPlugin), SkyrimRelease.SkyrimSE);
+        var offNpc = off.Npcs.AddNew("HcWalkOffNpc");
+        offNpc.Race.SetTo(race);
+        offNpc.Voice.SetTo(off.VoiceTypes.AddNew("HcWalkOffVoice"));
+        Keys["HcWalkOffNpc"] = offNpc.FormKey;
+        var offTopic = off.DialogTopics.AddNew("HcWalkOffTopic");
+        offTopic.Quest.SetTo(off.Quests.AddNew("HcWalkOffQuest"));
+        var offLine = new DialogResponses(off.GetNextFormKey(), SkyrimRelease.SkyrimSE);
+        offLine.Responses.Add(new DialogResponse { ResponseNumber = 1, Text = "HcWalkOffLine" });
+        offLine.Speaker.SetTo(offNpc);
+        offTopic.Responses.Add(offLine);
+        Keys["HcWalkOffLine"] = offLine.FormKey;
+        off.BeginWrite.ToPath(Path.Combine(overrideMod, OffPlugin)).WithLoadOrder(new ISkyrimModGetter[] { mod, off })
+           .NoCheckIfLowerRangeDisallowed().Write();
 
         Write(donor, HairNif, Mesh(new[] { DonorTex, BaseTex, MissingTex }, HairXml));
         Write(donor, HairXml, new byte[] { 1 });

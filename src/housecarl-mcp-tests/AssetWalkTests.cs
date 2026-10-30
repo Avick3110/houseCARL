@@ -427,6 +427,16 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         }
     }
 
+    /// <summary>An NPC a disabled donor defines, read through from_source=, reaches the voice of the line the donor
+    /// gives it, which no active index holds.</summary>
+    [Fact]
+    public void AnOffOrderNpcReachesItsDonorsLines()
+    {
+        var d = Walk(records: new[] { "HcWalkOffNpc" }, fromSource: new[] { AssetWalkWorld.OffPlugin });
+        var voice = Assert.Single(d.Nodes, n => n.Edge == "voice");
+        Assert.Contains($"[{_w.Id("HcWalkOffLine")}], a line spoken by Npc HcWalkOffNpc", voice.PulledBy);
+    }
+
     /// <summary>An NPC seed walks no line that only mentions it: a script property, a GetIsID run on the Target, a
     /// GetIsID == 0, a GetIsID >= 0, or a line whose winning override no longer names it as Speaker.</summary>
     [Fact]
