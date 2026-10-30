@@ -65,7 +65,7 @@ internal sealed partial class AssetLayers
             && !(captured.ModsRootOrNull is { } mr && Directory.Exists(Path.Combine(mr, sourceProvider))))
             return Done(new(), new(), false,
                 $"error: source_provider '{sourceProvider}' is neither a provider in the active order nor a mod folder — name a " +
-                "mod folder (enabled or not), 'overwrite', 'Data' or an archive's filename.");
+                "mod folder (enabled or not), 'overwrite', 'Data' or an active archive's filename.");
 
         var nodes = new List<AssetWalkNode>();
         var notes = new List<string>();
