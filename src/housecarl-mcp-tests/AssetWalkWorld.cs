@@ -39,6 +39,11 @@ public sealed class AssetWalkWorld : IDisposable
     public const string CapeNif = @"meshes\hcwalk\cape.nif";
     public const string CapeXml = @"SKSE\Plugins\hdtSkinnedMeshConfigs\hcwalk\cape.xml";
     public const string OwnScript = "HcWalkOwnScript";
+    public const string OtherPlugin = "HcWalkOther.esp";
+    public const string OverridePlugin = "HcWalkOverride.esp";
+    public const string OverrideMod = "HcWalkOverrideMod";
+    public const string OvHairNif = @"meshes\hcwalk\ovhair.nif";
+    public const string OvHairTex = @"textures\hcwalk\ovhair.dds";
 
     public Dictionary<string, FormKey> Keys { get; } = new(StringComparer.Ordinal);
     public string Id(string editorId) => FormIdToken.Of(Keys[editorId]);
@@ -53,7 +58,8 @@ public sealed class AssetWalkWorld : IDisposable
         var donor = Path.Combine(ModsDir, DonorMod);
         var baseMod = Path.Combine(ModsDir, BaseMod);
         var cape = Path.Combine(ModsDir, "Cape");
-        foreach (var d in new[] { profile, pluginMod, donor, baseMod, cape, Path.Combine(Root, "game", "Data") }) Directory.CreateDirectory(d);
+        var overrideMod = Path.Combine(ModsDir, OverrideMod);
+        foreach (var d in new[] { profile, pluginMod, donor, baseMod, cape, overrideMod, Path.Combine(Root, "game", "Data") }) Directory.CreateDirectory(d);
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
@@ -102,8 +108,24 @@ public sealed class AssetWalkWorld : IDisposable
         var plain = mod.Quests.AddNew("HcWalkPlain");
         Keys["HcWalkPlain"] = plain.FormKey;
 
+        var other = new SkyrimMod(ModKey.FromFileName(OtherPlugin), SkyrimRelease.SkyrimSE);
+        var otherVoice = other.VoiceTypes.AddNew("HcWalkOtherVoice");
+        other.BeginWrite.ToPath(Path.Combine(pluginMod, OtherPlugin)).WithLoadOrder(Array.Empty<ISkyrimModGetter>())
+             .NoCheckIfLowerRangeDisallowed().Write();
         mod.BeginWrite.ToPath(Path.Combine(pluginMod, Plugin)).WithLoadOrder(Array.Empty<ISkyrimModGetter>())
            .NoCheckIfLowerRangeDisallowed().Write();
+
+        // A disabled override donor: HcWalkBeast2 given a head part the override plugin defines, and a link into a third plugin.
+        var ov = new SkyrimMod(ModKey.FromFileName(OverridePlugin), SkyrimRelease.SkyrimSE);
+        var ovHair = ov.HeadParts.AddNew("HcWalkOvHair");
+        ovHair.Model = new Model { File = OvHairNif };
+        var ovNpc = beast2.DeepCopy();
+        ovNpc.HeadParts.Add(ovHair);
+        ovNpc.Voice.SetTo(otherVoice);
+        ov.Npcs.Add(ovNpc);
+        ov.BeginWrite.ToPath(Path.Combine(overrideMod, OverridePlugin)).WithLoadOrder(new ISkyrimModGetter[] { other, mod, ov })
+          .NoCheckIfLowerRangeDisallowed().Write();
+        Write(overrideMod, OvHairNif, Mesh(new[] { OvHairTex }, null));
 
         Write(donor, HairNif, Mesh(new[] { DonorTex, BaseTex, MissingTex }, HairXml));
         Write(donor, HairXml, new byte[] { 1 });
@@ -116,10 +138,11 @@ public sealed class AssetWalkWorld : IDisposable
         Write(cape, CapeXml, new byte[] { 1 });
         Write(cape, @"textures\hcwalk\cape.dds", new byte[] { 1 });
 
-        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + Plugin + "\r\n");
-        File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + Plugin + "\r\n");
-        // The donor is listed but switched off: its files are reachable only by naming it.
-        File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+Cape\r\n+HcWalkPlugin\r\n+" + BaseMod + "\r\n-" + DonorMod + "\r\n");
+        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + OtherPlugin + "\r\n" + Plugin + "\r\n");
+        File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + OtherPlugin + "\r\n*" + Plugin + "\r\n");
+        // The donors are listed but switched off: their files are reachable only by naming them.
+        File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+Cape\r\n+HcWalkPlugin\r\n+" + BaseMod + "\r\n-" + DonorMod
+                                                                + "\r\n-" + OverrideMod + "\r\n");
         File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=Skyrim - Meshes0.bsa\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));

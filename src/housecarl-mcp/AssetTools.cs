@@ -90,8 +90,8 @@ public static class AssetTools
                      "ships it), elsewhere (another provider wins it, named), present, or absent; keyed nodes sit at a " +
                      "FormID-named path, so a renumbering copy carries them rather than placing them. With " +
                      "source_provider= the response ends with the from-source set as a housecarl_place assets= array. " +
-                     "Records are entered through form links only inside the seed's own plugin; links into other plugins " +
-                     "are counted as boundaries. Not with to_file= or counts_only=.")]
+                     "Records are entered through form links only inside the seed's own plugin and the from_source= " +
+                     "plugins; links into other plugins are counted as boundaries. Not with to_file= or counts_only=.")]
             bool walk = false,
         [Description("Optional, with walk=true. Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from.")]
             string[]? records = null,
