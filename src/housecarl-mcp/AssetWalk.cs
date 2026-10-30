@@ -42,9 +42,11 @@ internal sealed partial class AssetLayers
     /// file names (a mesh's textures, SMP XML and BODYTRI, a script's parent), each node resolved against
     /// <paramref name="sourceProvider"/> first and then the load order. Records are read through
     /// <paramref name="fromSource"/> (default the winner) and the walk follows form links only into records the seed's
-    /// own plugin or a from_source plugin defines; others are boundaries. Contract in docs/architecture/assets.md, Walking the links.</summary>
+    /// own plugin or a from_source plugin defines; others are boundaries. <paramref name="keyedSeeds"/> are the seed
+    /// paths a formids= row derived from an NPC's id. Contract in docs/architecture/assets.md, Walking the links.</summary>
     public AssetWalkData AssetWalk(IReadOnlyList<string> seedPaths, IReadOnlyList<FormKey> seedRecords,
-                                   IReadOnlyList<string>? fromSource, string? sourceProvider)
+                                   IReadOnlyList<string>? fromSource, string? sourceProvider,
+                                   IReadOnlySet<string>? keyedSeeds = null)
     {
         var (pin, captured) = _host.CapturePinAndAssets(null);
         var view = captured.View;
@@ -86,7 +88,7 @@ internal sealed partial class AssetLayers
             queue.Enqueue(nodes.Count - 1);
         }
 
-        foreach (var p in seedPaths) AddFile(p, "seed", "the selection");
+        foreach (var p in seedPaths) AddFile(p, "seed", "the selection", keyed: keyedSeeds?.Contains(p) == true);
 
         using var session = pin.Resolver.OpenSession();
         var overlays = new List<IDisposable>();

@@ -201,6 +201,16 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         }
     }
 
+    /// <summary>A formids= walk seed with a source: both FaceGen nodes keyed, and the place set carries the keyed warning.</summary>
+    [Fact]
+    public void AFormidsSeedIsKeyed()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { _w.Id("HcWalkHero") }, walk: true, source_provider: AssetWalkWorld.BaseMod);
+        foreach (var slot in new[] { FaceGenSlot.Mesh, FaceGenSlot.Tint })
+            Assert.Contains(FaceGenPath.For(_w.Keys["HcWalkHero"], slot) + "\n  seed of the selection   [keyed]", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("keyed nodes keep their FormID-named path", text);
+    }
+
     /// <summary>No seed is refused in one sentence; records= without walk= is refused.</summary>
     [Fact]
     public void AWalkWithNoSeedIsRefused()
