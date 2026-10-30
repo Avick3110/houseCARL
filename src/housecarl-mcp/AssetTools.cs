@@ -90,7 +90,8 @@ public static class AssetTools
                      "BODYTRI, a script's parent .pex), recursively. Each node is marked from-source (source_provider= " +
                      "ships it), elsewhere (another provider wins it, named), present, or absent; keyed nodes sit at a " +
                      "FormID-named path, so a renumbering copy carries them rather than placing them. With " +
-                     "source_provider= the response ends with the from-source set as a housecarl_place assets= array. " +
+                     "source_provider= shipping any node, the response ends with those nodes as a housecarl_place assets= " +
+                     "array (none ships: no such line, and the count reads from_source=0). " +
                      "Records are entered through form links only inside the seed's own plugin and the from_source= " +
                      "plugins; links into other plugins are counted as boundaries. Not with to_file= or counts_only=.")]
             bool walk = false,
@@ -100,7 +101,7 @@ public static class AssetTools
                      "'winner' (default) or a plugin filename, active or a file in a disabled mod folder.")]
             string[]? from_source = null,
         [Description("Optional, with walk=true. The provider the walk reads files from first: a mod folder, enabled or " +
-                     "not (the donor), 'overwrite', 'Data' or an archive's filename. Each node it ships is from-source; " +
+                     "not (the donor), 'overwrite', 'Data' or an active archive's filename. Each node it ships is from-source; " +
                      "one it does not is elsewhere or absent. Omitted, or '" + AssetSourceChoice.WinnerToken + "', names no " +
                      "source: each node is present or absent.")]
             string? source_provider = null,
