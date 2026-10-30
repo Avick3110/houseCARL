@@ -197,6 +197,11 @@ public sealed class AssetWalkWorld : IDisposable
         Write(donor, DonorTex, new byte[] { 1 });
         Write(baseMod, BaseTex, new byte[] { 1 });
         foreach (var p in ManyTex) Write(donor, p, new byte[] { 1 });
+        // The speaker line ships only in the donor, as .xwm + .lip; the GetIsID line's .fuz is active, its .xwm the donor's.
+        Write(donor, Voice("HcWalkLineSpeaker", VoiceFile.Fuz)[..^4] + ".xwm", new byte[] { 1 });
+        Write(donor, Voice("HcWalkLineSpeaker", VoiceFile.Lip), new byte[] { 1 });
+        Write(baseMod, Voice("HcWalkLineCond", VoiceFile.Fuz), new byte[] { 1 });
+        Write(donor, Voice("HcWalkLineCond", VoiceFile.Fuz)[..^4] + ".xwm", new byte[] { 1 });
         foreach (var npc in new[] { "HcWalkHero", "HcWalkBeast2", "HcWalkTraitsAlone" })
             foreach (var slot in new[] { FaceGenSlot.Mesh, FaceGenSlot.Tint })
                 Write(baseMod, FaceGenPath.For(Keys[npc], slot), new byte[] { 1 });

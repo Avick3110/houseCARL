@@ -99,7 +99,7 @@ internal sealed partial class AssetLayers
             {
                 var chain = _host.BuildWalkSources(pin.View, session, captured.Roots, poles, overlays, out var chainErr);
                 if (chain is null) return Done(new(), new(), false, "error: " + chainErr);
-                WalkRecords(view, pin.View, session, chain, seedRecords, overlays, AddFile, notes, ref truncated);
+                WalkRecords(view, sourceProvider, pin.View, session, chain, seedRecords, overlays, AddFile, notes, ref truncated);
             }
 
             // File edges: a mesh's links and a script's parent, read off the copy that answers the node.
@@ -163,7 +163,7 @@ internal sealed partial class AssetLayers
 
     /// <summary>The record half: every seed and every record its form links reach inside the seed's own plugin and the
     /// from_source plugins, each contributing the paths it lists and its implicit files.</summary>
-    void WalkRecords(AssetResolver.AssetView view, LoadOrderResolver.IndexView index, LoadOrderResolver.OverlaySession session, SourceChain chain, IReadOnlyList<FormKey> seeds, List<IDisposable> overlays, FileSink addFile,
+    void WalkRecords(AssetResolver.AssetView view, string? source, LoadOrderResolver.IndexView index, LoadOrderResolver.OverlaySession session, SourceChain chain, IReadOnlyList<FormKey> seeds, List<IDisposable> overlays, FileSink addFile,
                      List<string> notes, ref bool truncated)
     {
         var seenRec = new HashSet<FormKey>();
@@ -221,7 +221,7 @@ internal sealed partial class AssetLayers
             if (body is IDialogResponsesGetter info)
             {
                 voiceCache ??= VoiceCache(session, overlays);
-                VoiceOf(view, info, label, voiceCache, Fetch, addFile, notes);
+                VoiceOf(view, source, info, label, voiceCache, Fetch, addFile, notes);
             }
 
             foreach (var link in body.EnumerateFormLinks())
@@ -246,7 +246,7 @@ internal sealed partial class AssetLayers
                         if ((index.ResolveWinner(r) is { } w ? index.GetRecord(session, w.WinnerPlugin, r) : null) is not IDialogResponsesGetter line) continue;
                         voiceCache ??= VoiceCache(session, overlays);
                         var lineLabel = $"{RecordNaming.StripOverlay(line.GetType().Name)} [{FormIdToken.Of(r)}], a line naming {npcLabel}";
-                        VoiceOf(view, line, lineLabel, voiceCache, Fetch, addFile, notes);
+                        VoiceOf(view, source, line, lineLabel, voiceCache, Fetch, addFile, notes);
                     }
             }
             catch (Exception ex) { notes.Add($"the dialogue lines naming the walked NPCs were not read — {ex.GetType().Name}: {ex.Message}"); }
@@ -288,10 +288,12 @@ internal sealed partial class AssetLayers
     }
 
     /// <summary>A dialogue line's voice files: the .fuz Mutagen resolves, or a same-stem .xwm / .wav with its .lip
-    /// when no .fuz ships; both listed when both ship, with no claim on which plays.</summary>
-    static void VoiceOf(AssetResolver.AssetView view, IDialogResponsesGetter info, string label, IAssetLinkCache cache,
+    /// when no .fuz ships; both listed when both ship, with no claim on which plays. A file ships when the order or
+    /// the walk's source provides it.</summary>
+    static void VoiceOf(AssetResolver.AssetView view, string? source, IDialogResponsesGetter info, string label, IAssetLinkCache cache,
                         Func<FormKey, IMajorRecordGetter?> fetch, FileSink addFile, List<string> notes)
     {
+        bool Ships(string rel) => Stand(view, rel, "", "", false, null, source).Standing != WalkStanding.Absent;
         IReadOnlyList<string> fuzes;
         try { fuzes = AssetWalkEdges.Voice(info, cache); }
         catch (Exception ex) { notes.Add($"{label}: its voice paths were not resolved — {ex.GetType().Name}: {ex.Message}"); return; }
@@ -299,8 +301,8 @@ internal sealed partial class AssetLayers
         foreach (var fuz in fuzes)
         {
             var stem = fuz[..^".fuz".Length];
-            var loose = new[] { ".xwm", ".wav" }.Select(x => stem + x).Where(x => view.Resolve(x).Exists).ToList();
-            bool hasFuz = view.Resolve(fuz).Exists;
+            var loose = new[] { ".xwm", ".wav" }.Select(x => stem + x).Where(Ships).ToList();
+            bool hasFuz = Ships(fuz);
             if (hasFuz || loose.Count == 0)
                 addFile(fuz, "voice", label, keyed: true,
                         note: hasFuz && loose.Count > 0 ? "a same-stem " + string.Join(" and ", loose.Select(Path.GetExtension)) + " ships too; which one plays is not claimed" : null);
