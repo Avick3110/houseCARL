@@ -288,8 +288,11 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     // The assets area's tool-facing surface; the bodies are in AssetLayers.cs and SkyPatcherReplay.cs.
     public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under = null, int limit = 0, int offset = 0,
                                        IReadOnlyList<FaceGenSeed>? seeds = null, bool wholeSelection = false,
-                                       string? provider = null)
-        => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection, provider);
+                                       string? provider = null, bool links = false)
+        => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection, provider, links);
+    public AssetWalkData AssetWalk(IReadOnlyList<string> seedPaths, IReadOnlyList<FormKey> seedRecords,
+                                   IReadOnlyList<string>? fromSource, string? sourceProvider)
+        => _assetLayers.AssetWalk(seedPaths, seedRecords, fromSource, sourceProvider);
     public SkseInventoryData SkseInventory(string? peekFilter = null) => _assetLayers.SkseInventory(peekFilter);
     public SkseConfigAuditData SkseConfigAudit() => _assetLayers.SkseConfigAudit();
     public NativePairingAuditData NativePairingAudit() => _assetLayers.NativePairingAudit();
@@ -1085,6 +1088,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     }
 
     string? IAssetHost.InstalledGameRuntime() => InstalledGameRuntime();
+
+    SourceChain? IAssetHost.BuildWalkSources(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, Mo2Roots roots,
+                                            IReadOnlyList<string> poles, List<IDisposable> overlays, out string? error)
+        => _writes.BuildSourceChain(view, session, roots, poles, "from_source", overlays, out error);
 
     /// <summary>The game dirs to search for the Creation Kit's compiler, in priority order: the load order's own, then the located real Skyrim SE install. De-duplicated, best-effort.</summary>
     public IReadOnlyList<string> CompilerGameDirHints()
