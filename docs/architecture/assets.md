@@ -313,8 +313,10 @@ ceiling-spill artifact row carries the same `links` member (and the manifest's r
 `asset_status walk=true` is SPEC §3's construct with a second edge kind, record or file → file
 (`AssetLayers.AssetWalk`, `AssetWalkEdges`). It seeds from the selection (every row the selectors chose) and from
 `records=`, read through the `from_source=` pole list the copy uses (`BuildSourceChain`; default `winner`, a plugin
-in a disabled mod by name). From a record it enters form links only into records the seed's own plugin or a named
-`from_source=` plugin defines (the plugins copy binds, so an override donor's own head parts are entered), to 3 hops; links into other plugins are counted as boundaries in a note, and records past the depth are counted too, so
+in a disabled mod by name). From a record it enters form links only into records a named `from_source=` plugin
+defines (the plugins copy binds, so an override donor's own head parts are entered) or, for a seed read through
+`winner`, the seed's own plugin defines, to 3 hops, so a base master's records reached from a donor's override are
+boundaries; links into other plugins are counted as boundaries in a note, and records past the depth are counted too, so
 nothing is cut silently. Each record contributes:
 
 - the paths it lists (`AssetLinkHarvest`);
