@@ -197,7 +197,9 @@ internal sealed partial class AssetLayers
             var fetched = chain.FetchMany(frontier.Select(f => f.Key).ToList());
             var bodies = frontier.Select(f => fetched[f.Key].Hit?.Body).Where(b => b is INpcGetter or ILeveledNpcGetter or IRaceGetter).ToList();
             members.Know(bodies!);
-            members.Templates(bodies.OfType<INpcGetter>());
+            // Only the NPCs this depth enters, under the record cap, have their template chains read.
+            members.Templates(frontier.Select(f => fetched[f.Key]).Where(g => g.Fault is null && g.Hit is not null)
+                                      .Take(Math.Max(0, MaxWalkRecords - entered)).Select(g => g.Hit?.Body).OfType<INpcGetter>());
             var next = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
             foreach (var (fk, pulledBy, homeIn) in frontier)
             {
@@ -321,22 +323,26 @@ internal sealed partial class AssetLayers
             return body;
         }
 
-        /// <summary>The Traits template chains of <paramref name="npcs"/> (AssetWalkEdges.FaceRoots' hops), one round per
-        /// hop, with each NPC's race, so a face root and its race are in hand before FaceRoots asks.</summary>
+        /// <summary>The Traits template chains of <paramref name="npcs"/> (AssetWalkEdges.FaceRoots' hops, to its cap), one
+        /// round per hop, with each NPC's race, so a face root and its race are in hand before FaceRoots asks. A member
+        /// already read is still hopped from.</summary>
         public void Templates(IEnumerable<INpcGetter> npcs)
         {
+            var hopped = new HashSet<FormKey>();
             var round = new List<FormKey>();
-            void Hop(IMajorRecordGetter? body)
+            void Hop(IMajorRecordGetter? body, int hop)
             {
+                if (body is null || !hopped.Add(body.FormKey)) return;
                 if (body is INpcGetter { Race.IsNull: false } n) round.Add(n.Race.FormKey);
-                round.AddRange(AssetWalkEdges.TemplateHops(body));
+                if (hop < AssetWalkEdges.TemplateChainCap - 1) round.AddRange(AssetWalkEdges.TemplateHops(body));
             }
-            foreach (var npc in npcs) Hop(npc);
-            while (round.Count > 0)
+            foreach (var npc in npcs) Hop(npc, 0);
+            for (int hop = 1; round.Count > 0; hop++)
             {
-                var keys = Read(round);
+                var keys = round.Distinct().ToList();
                 round.Clear();
-                foreach (var k in keys) Hop(_read[k].Body);
+                Read(keys);
+                foreach (var k in keys) Hop(_read[k].Body, hop);
             }
         }
     }

@@ -20,7 +20,7 @@ public sealed record WalkEdge(string Path, string Edge, bool Keyed = false, stri
 public static class AssetWalkEdges
 {
     /// <summary>A cap on a Traits template chain, far past any real one, so a malformed order cannot spin.</summary>
-    const int TemplateChainCap = 64;
+    public const int TemplateChainCap = 64;
 
     /// <summary>Mutagen's inferred links of a record (scripts, a quest's .seq, weight-variant models), the .psc source
     /// dropped because the game reads the .pex, and a ':' in a script name mapped to a folder as the script checks do.</summary>
