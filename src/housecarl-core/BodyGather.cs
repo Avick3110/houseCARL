@@ -10,7 +10,7 @@ public sealed class BodyGather
     /// <summary>What <see cref="Body"/> answers for a pair this gather does not hold.</summary>
     public enum Absent
     {
-        /// <summary>Fetch it one at a time — the answer and the exception are the one-at-a-time path's.</summary>
+        /// <summary>Answer as the one-at-a-time path: a faulted group's key raises its recorded fault with no seek; any other pair is fetched one at a time.</summary>
         Seek,
         /// <summary>Answer null and let the caller's own read raise whatever it raises.</summary>
         Null,
