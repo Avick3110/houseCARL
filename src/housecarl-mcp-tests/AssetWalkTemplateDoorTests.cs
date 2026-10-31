@@ -18,6 +18,7 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     readonly FormKey[] _members = new FormKey[2];
     readonly FormKey _list, _plain, _templated, _nested;
     readonly FormKey[] _chains = new FormKey[2];
+    readonly FormKey[] _plains, _rooted;
     readonly LoadOrderService _svc;
 
     public AssetWalkTemplateDoorTests()
@@ -77,6 +78,25 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
         nested.Template.SetTo(middle);
         nested.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
         _nested = nested.FormKey;
+        // Two plain NPCs on two races, and two NPCs on one race templated on two roots on two more.
+        var race2 = a.Races.AddNew("HcTmplRace2");
+        race2.Flags = Race.Flag.Playable | Race.Flag.FaceGenHead;
+        var race3 = a.Races.AddNew("HcTmplRace3");
+        race3.Flags = Race.Flag.Playable | Race.Flag.FaceGenHead;
+        var plain2 = a.Npcs.AddNew("HcTmplPlain2");
+        plain2.Race.SetTo(race2);
+        _plains = new[] { _plain, plain2.FormKey };
+        _rooted = new FormKey[2];
+        foreach (var (i, rootRace) in new[] { (0, race2), (1, race3) })
+        {
+            var root = a.Npcs.AddNew("HcTmplRoot" + i);
+            root.Race.SetTo(rootRace);
+            var n = a.Npcs.AddNew("HcTmplRooted" + i);
+            n.Race.SetTo(race);
+            n.Template.SetTo(root);
+            n.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+            _rooted[i] = n.FormKey;
+        }
         a.BeginWrite.ToPath(_mo2.InMod("TmplA", A)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         var name = A.FileName.String;
         _mo2.Profile(name + "\r\n", "*" + name + "\r\n", "+TmplA\r\n");
@@ -90,12 +110,15 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     AssetWalkData Walk(IReadOnlyList<FormKey> seeds) => _svc.AssetWalk(Array.Empty<string>(), seeds, new[] { SourcePoles.Winner }, null);
 
     /// <summary>NPC group walks of a second walk over <paramref name="seeds"/>, the first paying the walk's one-time reads.</summary>
-    int NpcReads(IReadOnlyList<FormKey> seeds)
+    int NpcReads(IReadOnlyList<FormKey> seeds) => GroupReads(seeds, "Npcs");
+
+    /// <summary><paramref name="group"/> walks of a second walk over <paramref name="seeds"/>.</summary>
+    int GroupReads(IReadOnlyList<FormKey> seeds, string group)
     {
         Walk(seeds);
-        var before = _svc.Counters.GroupReads.GetValueOrDefault((A.FileName.String, "Npcs"));
+        var before = _svc.Counters.GroupReads.GetValueOrDefault((A.FileName.String, group));
         Walk(seeds);
-        return _svc.Counters.GroupReads.GetValueOrDefault((A.FileName.String, "Npcs")) - before;
+        return _svc.Counters.GroupReads.GetValueOrDefault((A.FileName.String, group)) - before;
     }
 
     /// <summary>The NPCs' template list and its members are read in one round per hop, with no single-key read; on
@@ -138,6 +161,17 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     /// NPC and then the members.</summary>
     [Fact]
     public void ANestedTemplateChainIsReadToItsLastHop() => Assert.Equal(5, NpcReads(new[] { _nested }));
+
+    /// <summary>Pins the faces' round reading the entered NPCs' own races: two plain NPCs on two races read both races in
+    /// that one round, then once more when the walk enters them, not each in a round of its own when FaceGenOf asks.</summary>
+    [Fact]
+    public void AnEnteredNpcsRaceIsReadInTheFacesRound() => Assert.Equal(2, GroupReads(_plains, "Races"));
+
+    /// <summary>Pins the faces' round reading each template root's race: two NPCs on one race, templated on two roots on
+    /// two more, read their own race with the roots, then both roots' races in one round, then the walk enters their own
+    /// race and, a depth later, the roots' races.</summary>
+    [Fact]
+    public void ATemplateRootsRaceIsReadInTheFacesRound() => Assert.Equal(4, GroupReads(_rooted, "Races"));
 
     /// <summary>An NPC past the record cap is not entered, so its template is not read: the walk reads the seeds' NPC
     /// group once.</summary>
