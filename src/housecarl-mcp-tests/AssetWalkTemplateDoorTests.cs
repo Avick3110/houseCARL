@@ -16,6 +16,8 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     static readonly ModKey A = new("HcTmplA", ModType.Master);
     readonly List<FormKey> _npcs = new();
     readonly FormKey[] _members = new FormKey[2];
+    readonly FormKey _list, _plain, _templated;
+    readonly FormKey[] _chains = new FormKey[2];
     readonly LoadOrderService _svc;
 
     public AssetWalkTemplateDoorTests()
@@ -24,6 +26,7 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
         var race = a.Races.AddNew("HcTmplRace");
         race.Flags = Race.Flag.Playable | Race.Flag.FaceGenHead;
         var lvln = a.LeveledNpcs.AddNew("HcTmplList");
+        _list = lvln.FormKey;
         lvln.Entries = new();
         for (int i = 0; i < 2; i++)
         {
@@ -40,6 +43,30 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
             n.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
             _npcs.Add(n.FormKey);
         }
+        // Two Traits chains, both past the template cap: 100 and 70 NPCs long.
+        foreach (var (at, length) in new[] { (0, 100), (1, 70) })
+        {
+            Npc? below = null;
+            for (int i = length - 1; i >= 0; i--)
+            {
+                var n = a.Npcs.AddNew($"HcTmplChain{at}_{i}");
+                n.Race.SetTo(race);
+                if (below is not null) { n.Template.SetTo(below); n.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits; }
+                below = n;
+            }
+            _chains[at] = below!.FormKey;
+        }
+        // An NPC with no template, and one whose template is reached only through it.
+        var plain = a.Npcs.AddNew("HcTmplPlain");
+        plain.Race.SetTo(race);
+        _plain = plain.FormKey;
+        var hidden = a.Npcs.AddNew("HcTmplHidden");
+        hidden.Race.SetTo(race);
+        var templated = a.Npcs.AddNew("HcTmplTemplated");
+        templated.Race.SetTo(race);
+        templated.Template.SetTo(hidden);
+        templated.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+        _templated = templated.FormKey;
         a.BeginWrite.ToPath(_mo2.InMod("TmplA", A)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         var name = A.FileName.String;
         _mo2.Profile(name + "\r\n", "*" + name + "\r\n", "+TmplA\r\n");
@@ -48,7 +75,18 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
 
     public void Dispose() { _svc.Dispose(); _mo2.Delete(); }
 
-    AssetWalkData Walk() => _svc.AssetWalk(Array.Empty<string>(), _npcs, new[] { SourcePoles.Winner }, null);
+    AssetWalkData Walk() => Walk(_npcs);
+
+    AssetWalkData Walk(IReadOnlyList<FormKey> seeds) => _svc.AssetWalk(Array.Empty<string>(), seeds, new[] { SourcePoles.Winner }, null);
+
+    /// <summary>NPC group walks of a second walk over <paramref name="seeds"/>, the first paying the walk's one-time reads.</summary>
+    int NpcReads(IReadOnlyList<FormKey> seeds)
+    {
+        Walk(seeds);
+        var before = _svc.Counters.GroupReads.GetValueOrDefault((A.FileName.String, "Npcs"));
+        Walk(seeds);
+        return _svc.Counters.GroupReads.GetValueOrDefault((A.FileName.String, "Npcs")) - before;
+    }
 
     /// <summary>The NPCs' template list and its members are read in one round per hop, with no single-key read; on
     /// the per-key read every NPC re-read the list and both members. The face still comes from both members.</summary>
@@ -67,5 +105,33 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
         foreach (var member in _members)
             Assert.Contains(walk.Nodes, n => n.Edge == "facegen" && n.PulledBy.Contains(FormIdToken.Of(_npcs[0]))
                                              && n.Note == $"the face of template root {FormIdToken.Of(member)}, one of 2");
+    }
+
+    /// <summary>A template list the walk reads as a seed is still hopped from: its members are read in the faces'
+    /// round, not one at a time when FaceRoots asks, so the NPC walks are those of the list not being a seed.</summary>
+    [Fact]
+    public void ATemplateListThatIsASeedHasItsMembersReadInOneRound()
+        => Assert.Equal(NpcReads(_npcs), NpcReads(_npcs.Append(_list).ToList()));
+
+    /// <summary>A Traits chain is read no further than FaceRoots follows it, so a chain of 100 reads as many NPC rounds
+    /// as one of 70, both past the cap.</summary>
+    [Fact]
+    public void ATemplateChainIsReadNoFurtherThanTheCap()
+        => Assert.Equal(NpcReads(new[] { _chains[1] }), NpcReads(new[] { _chains[0] }));
+
+    /// <summary>An NPC past the record cap is not entered, so its template is not read: the walk reads the seeds' NPC
+    /// group once.</summary>
+    [Fact]
+    public void AnNpcPastTheRecordCapHasNoTemplateRead()
+    {
+        var area = _svc.AssetArea;
+        var prior = area.MaxWalkRecords;
+        area.MaxWalkRecords = 1;
+        try
+        {
+            Assert.True(Walk(new[] { _plain, _templated }).Truncated);
+            Assert.Equal(1, NpcReads(new[] { _plain, _templated }));
+        }
+        finally { area.MaxWalkRecords = prior; }
     }
 }
