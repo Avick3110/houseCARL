@@ -43,8 +43,8 @@ normal files. `Mo2SkipRules.Shows` is that one predicate, applied to the loose l
   skips nothing; a value that is not a list keeps the default and is a build warning naming the key. An empty item is
   dropped, since it would hide every file. Explicit-paths mode has no ini and takes the defaults.
 - **Only file names and folder names.** A folder named `x.mohidden` and Root Builder's `root\` are real VFS paths, so
-  they stay listed. The three root names are MO2 constants, not list entries, so no skip list drops them. Archives are
-  not filtered; the watch baseline stays the full listing, so hiding or unhiding a file between two calls is seen.
+  they stay listed. The three root names are MO2 constants checked before the lists, so an empty or custom list does
+  not un-hide them. Archives are not filtered; the watch baseline stays the full listing, so hiding or unhiding a file between two calls is seen.
 - One limit, said rather than papered over: an edit to the skip lists alone, with no mod, profile or file change
   beside it, is read on the next asset rebuild, not the next call.
 
