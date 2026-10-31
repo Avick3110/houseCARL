@@ -311,7 +311,7 @@ public sealed class AssetResolver : IDisposable
         var fname = Path.GetFileName(opened);
         var st = snap.LooseCache.GetOrAdd(subtreeDir, d => WarmSubtree(d, snap, pass));
         var loose = new List<PlacementSource>();
-        // A file MO2 hides is not in the Data view, whichever root holds it; archives are not filtered.
+        // A file MO2 hides (a skip-list match, or a root meta.ini, readme.txt or fomod\) is not in the Data view, whichever root holds it; archives are not filtered.
         if (_skip.Shows(opened))
             foreach (var (rootIndex, files) in st.Present)           // Present is already in precedence order
                 if (files.Contains(fname))
