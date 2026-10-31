@@ -298,7 +298,7 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
 }
 
 /// <summary>A walk into a plugin whose NPC group broke after the index build: the door's walk of that group faults, so
-/// the NPC is read on its own and its fault is the note it always was, naming the arm, not a miss.</summary>
+/// the NPC answers the group's fault with no read of its own, the note it always was, naming the arm, not a miss.</summary>
 [Trait("tier", "integration")]
 public sealed class AssetWalkDoorFaultTests : IDisposable
 {
