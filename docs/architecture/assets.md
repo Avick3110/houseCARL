@@ -345,9 +345,9 @@ nothing is cut silently. Each record contributes:
 
 The walk reads its records in bulk (#1277). It walks breadth-first by depth, so it enters records in the order a
 queue would, and reads each depth's records at once through the record sources (`SourceChain.FetchMany`; its
-answers are walk-and-reverse.md's, the read door's and its faults read-engine.md's). A face or a voice that needs a
-race, or a template member or speaker the walk has not reached, reads it one key at a time: a race once per walk, a
-record the walk reached from its own read. The reverse step reads, all walked NPCs' at once through the door, the
+answers are walk-and-reverse.md's, the read door's and its faults read-engine.md's). A face's race (once per
+walk), a face's template member and a voice's speaker answer from the walk's own read when the walk reached them, and
+are read one key at a time otherwise. The reverse step reads, all walked NPCs' at once through the door, the
 referencers whose winning copy the index types as a line; one it types as anything else (a placed reference, a cell, a
 quest), or one with no winner, is never read.
 
