@@ -254,10 +254,11 @@ public static class ClosureWalk
             {
                 // This depth's keys still to be entered are read at once, at most as many as the node cap leaves room for.
                 var round = new List<FormKey> { key };
+                var inRound = new HashSet<FormKey> { key };
                 foreach (var (k, _, d) in queue)
                 {
-                    if (round.Count > nodeCap - reached.Count) break;
-                    if (d == depth && !k.IsNull && !seen.Contains(k) && !read.ContainsKey(k) && !round.Contains(k) && scope.ShouldExpand(k)) round.Add(k);
+                    if (d > depth || round.Count >= nodeCap - reached.Count) break;
+                    if (!k.IsNull && !seen.Contains(k) && !read.ContainsKey(k) && scope.ShouldExpand(k) && inRound.Add(k)) round.Add(k);
                 }
                 foreach (var (k, answer) in sources.FetchMany(round)) read[k] = answer;
                 fetched = read[key];

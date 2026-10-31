@@ -856,10 +856,6 @@ public sealed class LoadOrderResolver : IDisposable
         internal IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
             => _r.GetRecord(session, pluginName, fk, _s);
 
-        /// <summary>One record's body from a plugin the index says HOLDS it — the per-record fallback a chunked gather needs; it THROWS the inconsistency rather than answering null.</summary>
-        internal IMajorRecordGetter FetchRecord(OverlaySession session, string pluginName, FormKey fk)
-            => _r.FetchRecord(session, pluginName, fk, _s);
-
         public void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
                                    IDictionary<FormKey, IMajorRecordGetter> sink)
             => _r.CollectRecords(session, pluginName, wanted, sink, _s);

@@ -97,25 +97,33 @@ public static class AssetWalkEdges
             try { body = fetch(next); }
             catch (Exception ex) { errors.Add($"a record in the Traits template chain was not read: {string.Join(" → ", link)} — {ex.Message}"); return; }
             if (body is INpcGetter t) { Walk(t, link); return; }
-            if (body is ILeveledNpcGetter lv)
+            if (body is ILeveledNpcGetter)
             {
-                foreach (var e in lv.Entries ?? Array.Empty<ILeveledNpcEntryGetter>())
-                    if (e.Data?.Reference is { IsNull: false } r) Follow(r.FormKey, link);
+                foreach (var r in TemplateHops(body)) Follow(r, link);
                 return;
             }
             errors.Add($"the Traits template chain ends on a record that does not resolve to an NPC or a leveled list: {string.Join(" → ", link)}");
         }
         void Walk(INpcGetter n, List<string> chain)
         {
-            if (!n.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits) || n.Template.IsNull)
-            {
-                if (!roots.Any(r => r.FormKey == n.FormKey)) roots.Add(n);
-                return;
-            }
-            Follow(n.Template.FormKey, chain);
+            if (TemplateHops(n).FirstOrDefault() is { IsNull: false } next) { Follow(next, chain); return; }
+            if (!roots.Any(r => r.FormKey == n.FormKey)) roots.Add(n);
         }
         Walk(npc, new List<string> { FormIdToken.Of(npc.FormKey) });
         return (roots, errors);
+    }
+
+    /// <summary>The next hop of a Traits template chain from <paramref name="body"/>: an NPC's Template when its Traits
+    /// flag is set, every member of a leveled list; none for anything else.</summary>
+    public static IEnumerable<FormKey> TemplateHops(IMajorRecordGetter? body)
+    {
+        if (body is INpcGetter n)
+        {
+            if (n.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits) && !n.Template.IsNull) yield return n.Template.FormKey;
+        }
+        else if (body is ILeveledNpcGetter lv)
+            foreach (var e in lv.Entries ?? Array.Empty<ILeveledNpcEntryGetter>())
+                if (e.Data?.Reference is { IsNull: false } r) yield return r.FormKey;
     }
 
     /// <summary>An NPC's own FaceGen files by Mutagen's resolved link, over a cache holding only its race: none when the

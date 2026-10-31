@@ -266,39 +266,37 @@ internal sealed partial class AssetLayers
             return eids.TryGetValue(editorId, out var fk) ? fk : null;
         }
 
-        // Donors, keyword lists and EditorIDs the lines name, each read once per replay context through the door, so
-        // the same donor named for every record and line is read once.
-        readonly Dictionary<FormKey, (IMajorRecordGetter? Body, Exception? Error)> _donors = new();
-        readonly Dictionary<FormKey, (IReadOnlyList<FormKey>? Keywords, Exception? Error)> _keywords = new();
-        readonly Dictionary<FormKey, (string? EditorId, Exception? Error)> _editorIds = new();
+        // The winners the lines name (donors, keyword sources, EditorID targets), each read once per replay context
+        // through the door, so the same donor named for every record and line is read once.
+        readonly Dictionary<FormKey, (IMajorRecordGetter? Body, Exception? Error)> _named = new();
 
-        T Memo<T>(Dictionary<FormKey, (T, Exception?)> memo, FormKey fk, Func<IMajorRecordGetter, T> of) where T : class?
+        IMajorRecordGetter? Named(FormKey fk)
         {
-            if (!memo.TryGetValue(fk, out var got))
+            if (!_named.TryGetValue(fk, out var got))
             {
-                try { got = (BodyGather.Winners(_view, _session, new[] { fk })(fk) is { } body ? of(body) : null!, null); }
-                catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException or LoadOrderChangedMidCallException)) { got = (null!, ex); }
-                memo[fk] = got;
+                try { got = (BodyGather.Winners(_view, _session, new[] { fk })(fk), null); }
+                catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException or LoadOrderChangedMidCallException)) { got = (null, ex); }
+                _named[fk] = got;
             }
-            if (got.Item2 is { } error) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
-            return got.Item1;
+            if (got.Error is { } error) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+            return got.Body;
         }
 
         public string? ReadWinnerLeaf(FormKey donor, string path)
         {
-            var rec = Memo(_donors, donor, b => (IMajorRecordGetter?)b);
+            var rec = Named(donor);
             if (rec is null) return null;
             var leaf = ReadEngine.ReadFields(rec, new[] { path }).Fields.FirstOrDefault();
             return leaf is { HasValue: true } ? leaf.Token : null;
         }
 
         public IReadOnlyList<FormKey>? KeywordsOf(FormKey record)
-            => Memo(_keywords, record, b => (IReadOnlyList<FormKey>?)ReadEngine.KeywordKeys(b));   // the ONE keyword walk (shared)
+            => Named(record) is { } rec ? ReadEngine.KeywordKeys(rec) : null;   // the ONE keyword walk (shared)
 
         public bool PluginPresent(string pluginName) => _view.ContainsPlugin(pluginName);
 
         public string? WinnerPluginOf(FormKey record) => _view.ResolveWinner(record)?.WinnerPlugin;
 
-        public string? EditorIdOf(FormKey record) => Memo(_editorIds, record, b => b.EditorID);
+        public string? EditorIdOf(FormKey record) => Named(record)?.EditorID;
     }
 }
