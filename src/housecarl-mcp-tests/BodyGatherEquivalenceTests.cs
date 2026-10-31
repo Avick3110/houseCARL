@@ -159,11 +159,9 @@ public sealed class BodyGatherEquivalenceTests : IDisposable
             Assert.Contains(_replName, gather.Faulted);
             Assert.IsType<PluginUnreadableException>(gather.Faults[_replName]);
 
-            // The fallback IS the one-at-a-time path, so the caller sees the fault its own loop always saw — the
-            // same type, in the same words — rather than an up-front throw naming no record. Not the same
-            // exception the gather RECORDS: CollectRecords names the open failure itself, while the per-record
-            // fetch lets the underlying fault out raw, and that asymmetry is the pre-existing one this fold left
-            // alone.
+            // The plugin will not open, so the gather raises the recorded fault's inner exception with no seek: the
+            // fault the per-record fetch lets out raw, the same type in the same words. The fault the gather
+            // RECORDS names the open failure itself.
             var direct = Assert.ThrowsAny<Exception>(() => view.GetRecord(session, _replName, _keys[0]));
             var through = Assert.ThrowsAny<Exception>(() => gather.Body(_replName, _keys[0]));
             Assert.Equal(direct.GetType(), through.GetType());
