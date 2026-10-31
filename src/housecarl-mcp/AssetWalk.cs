@@ -254,14 +254,14 @@ internal sealed partial class AssetLayers
                     VoiceOf(view, source, line, lineLabel, Voice(), Fetch, addFile, notes);
                 }
                 index.EnsureReverseIndex();
-                // Only referencers whose winning copy is a line are read, all at once through the door; the index types them with no body read.
+                // Only referencers whose winning copy is a line are read, all at once through the door; the index types them with no body read, and `read` answers null for any other key.
                 var referencers = npcs.Select(n => (n.Key, n.Label, Refs: index.ReverseIndex!.ReferencersOf(new[] { n.Key }).ToList())).ToList();
                 var candidates = referencers.SelectMany(n => n.Refs).Where(r => !seenRec.Contains(r)).Distinct()
                                             .Where(r => index.WinnerClassOf(r) is not { } cls || typeof(IDialogResponsesGetter).IsAssignableFrom(cls)).ToList();
                 var read = BodyGather.Winners(index, session, candidates);
                 foreach (var (key, npcLabel, refs) in referencers)
                     foreach (var r in refs)
-                        if (!seenRec.Contains(r) && !lines.Contains(r) && read(r) is IDialogResponsesGetter line && AssetWalkEdges.Speaks(line, key))
+                        if (!lines.Contains(r) && read(r) is IDialogResponsesGetter line && AssetWalkEdges.Speaks(line, key))
                             Line(line, npcLabel);
                 foreach (var mod in overlays.OfType<ISkyrimModGetter>())
                     foreach (var line in mod.EnumerateMajorRecords<IDialogResponsesGetter>())
