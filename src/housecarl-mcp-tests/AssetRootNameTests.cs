@@ -137,10 +137,13 @@ public sealed class AssetRootNameTests : IDisposable
         Assert.DoesNotContain("no active mod or BSA provides", text);
     }
 
-    [Fact]
-    public void AProviderOnAHiddenRootPathIsNotSaidNotToProvideIt()
+    [Theory]
+    [InlineData("meta.ini")]
+    [InlineData("readme.txt")]
+    [InlineData("fomod/info.xml")]
+    public void AProviderOnAHiddenRootPathIsNotSaidNotToProvideIt(string rel)
     {
-        var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { "meta.ini" }, provider: "A");
+        var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { rel }, provider: "A");
 
         Assert.Contains("ABSENT — MO2 hides", text);
         Assert.DoesNotContain("does not provide this path", text);
