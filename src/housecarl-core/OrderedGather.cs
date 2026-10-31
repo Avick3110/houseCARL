@@ -39,6 +39,21 @@ public static class OrderedGather
         }
     }
 
+    /// <summary>Each key's copy in <paramref name="pluginOf"/>'s plugin read through the door at once, then answered as
+    /// <c>GetRecord</c> answers it: a plugin whose walk faulted is read one key at a time, so its fault comes back as before.</summary>
+    public static Func<FormKey, IMajorRecordGetter?> Copies(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                                                            IEnumerable<FormKey> keys, Func<FormKey, string?> pluginOf)
+    {
+        var plugins = new Dictionary<FormKey, string>();
+        foreach (var fk in keys) if (pluginOf(fk) is { } p) plugins[fk] = p;
+        var held = new Dictionary<FormKey, IMajorRecordGetter>(plugins.Count);
+        var faults = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
+        ForEachGroup(view, session, plugins.Select(kv => (kv.Value, kv.Key)),
+                     (_, bodies, _) => { foreach (var (fk, body) in bodies) held[fk] = body; }, faults);
+        return fk => held.TryGetValue(fk, out var body) ? body
+                   : plugins.TryGetValue(fk, out var p) && faults.ContainsKey(p) ? view.GetRecord(session, p, fk) : null;
+    }
+
     /// <summary>The door's order: <paramref name="items"/> bucketed by (plugin, Mutagen group), by load position then group.</summary>
     public static List<(string Plugin, List<T> Items)> Sort<T>(LoadOrderResolver.IndexView view, IEnumerable<T> items,
                                                                Func<T, string> pluginOf, Func<T, FormKey> keyOf)
