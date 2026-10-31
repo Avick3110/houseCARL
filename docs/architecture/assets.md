@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-30
+updated: 2026-10-31
 covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
@@ -342,6 +342,15 @@ nothing is cut silently. Each record contributes:
   holds, read off that plugin by the same test; each line through the edge above. A line that only mentions it (a script
   property, a `GetIsID` on the Target) is not walked, nor is one tied to it through a quest alias or reached only by
   voice type.
+
+The walk reads its records through the read door (read-engine.md), never one key at a time (#1277). It walks
+breadth-first by depth, so it enters records in the order a queue would, and reads each depth's records at once
+through the record sources (`SourceChain.FetchMany`): an active-order arm reads the keys still unanswered through
+the door, a `winner` arm from each key's winner, a named plugin from that plugin, and an off-order arm off its own
+overlay's link cache. A plugin whose group faults is read one key at a time, so its fault is the note it always was.
+The reverse step reads only the referencers the index types as lines, all walked NPCs' at once through the door; a
+placed reference, a cell or a quest naming the NPC is never read. A template member or speaker the walk reached comes
+from its own read; a race, which faces need before the walk reaches it, is read once per walk.
 
 Each file node then resolves: from-source when `source_provider=` ships it (`AssetSourceSelection`, so a disabled mod
 answers off its own disk), elsewhere when another provider wins it (named), present with no source named, or absent;
