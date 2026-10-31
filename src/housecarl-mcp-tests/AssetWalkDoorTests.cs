@@ -16,6 +16,8 @@ public sealed class AssetWalkDoorWorld : IDisposable
     readonly ScratchMo2 _mo2 = new("hc-walk-door-");
     public static readonly ModKey A = new("HcDoorA", ModType.Master), B = new("HcDoorB", ModType.Plugin);
     public LoadOrderService Svc { get; }
+    public string PathA { get; }
+    public string PathB { get; }
     public Dictionary<string, FormKey> Keys { get; } = new(StringComparer.Ordinal);
 
     public AssetWalkDoorWorld()
@@ -62,7 +64,10 @@ public sealed class AssetWalkDoorWorld : IDisposable
         sub.Cells.Add(cell);
         block.SubBlocks.Add(sub);
         a.Cells.Records.Add(block);
-        a.BeginWrite.ToPath(_mo2.InMod("DoorA", A)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        var faction = a.Factions.AddNew("HcDoorFaction");
+        var arrow = a.Ammunitions.AddNew("HcDoorArrow");
+        PathA = _mo2.InMod("DoorA", A);
+        a.BeginWrite.ToPath(PathA).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         var b = new SkyrimMod(B, SkyrimRelease.SkyrimSE);
         var b1 = NpcIn(b, "HcDoorB1", b.VoiceTypes.AddNew("HcDoorVoiceB"));
@@ -83,7 +88,19 @@ public sealed class AssetWalkDoorWorld : IDisposable
             Keys[l.EditorID!] = l.FormKey;
             below = l;
         }
-        b.BeginWrite.ToPath(_mo2.InMod("DoorB", B)).WithLoadOrder(new ISkyrimModGetter[] { a }).Write();
+        // A list whose entry a faction owns at rank 7: the rank is a number, not a link to walk.
+        var owned = b.LeveledItems.AddNew("HcDoorOwned");
+        owned.Entries = new()
+        {
+            new LeveledItemEntry
+            {
+                Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = arrow.ToLink<IItemGetter>() },
+                ExtraData = new ExtraData { ItemCondition = 1f, Owner = new FactionOwner { Faction = faction.ToLink<IFactionGetter>(), RequiredRank = 7 } },
+            },
+        };
+        Keys["HcDoorOwned"] = owned.FormKey;
+        PathB = _mo2.InMod("DoorB", B);
+        b.BeginWrite.ToPath(PathB).WithLoadOrder(new ISkyrimModGetter[] { a }).Write();
 
         var names = new[] { A, B }.Select(k => k.FileName.String).ToList();
         _mo2.Profile(string.Join("\r\n", names) + "\r\n", string.Join("", names.Select(n => "*" + n + "\r\n")), "+DoorB\r\n+DoorA\r\n");
@@ -103,25 +120,29 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
 
     static readonly string[] BothPlugins = { AssetWalkDoorWorld.A.FileName.String, AssetWalkDoorWorld.B.FileName.String };
 
-    AssetWalkData Walk(string seed) => _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[seed] }, BothPlugins, null);
+    AssetWalkData Walk(string seed, IReadOnlyList<string>? fromSource = null)
+        => _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[seed] }, fromSource ?? BothPlugins, null);
 
-    (AssetWalkData Data, Dictionary<(string Plugin, string Group), int> Reads, long Seeks) Measured(string seed)
+    (AssetWalkData Data, Dictionary<(string Plugin, string Group), int> Reads, long Seeks) Measured(string seed, IReadOnlyList<string>? fromSource = null)
     {
-        var walk = Walk(seed);   // the reverse index and the voice cache's own reads, paid once
+        var walk = Walk(seed, fromSource);   // the reverse index and the voice cache's own reads, paid once
         var before = new Dictionary<(string Plugin, string Group), int>(_w.Svc.Counters.GroupReads);
         var seeks = _w.Svc.Counters.BodySeeks;
-        walk = Walk(seed);
+        walk = Walk(seed, fromSource);
         var reads = _w.Svc.Counters.GroupReads.Where(kv => kv.Value != before.GetValueOrDefault(kv.Key))
                                               .ToDictionary(kv => kv.Key, kv => kv.Value - before.GetValueOrDefault(kv.Key));
         return (walk, reads, _w.Svc.Counters.BodySeeks - seeks);
     }
 
     /// <summary>The seed list's five NPCs sit in two plugins' NPC groups and reach a race and two voice types: each
-    /// (plugin, group) is read once per depth, the race once more for the faces, before the walk reaches it.</summary>
-    [Fact]
-    public void EachDepthReadsEachGroupOnce()
+    /// (plugin, group) is read once per depth, the race once more for the faces, before the walk reaches it; the same
+    /// with the plugins named by their paths.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EachDepthReadsEachGroupOnce(bool byPath)
     {
-        var (_, reads, _) = Measured("HcDoorSeed");
+        var (_, reads, _) = Measured("HcDoorSeed", byPath ? new[] { _w.PathA, _w.PathB } : null);
         string a = BothPlugins[0], b = BothPlugins[1];
         Assert.Equal(1, reads[(b, "FormLists")]);
         Assert.Equal(1, reads[(a, "Npcs")]);
@@ -129,6 +150,23 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Equal(1, reads[(a, "VoiceTypes")]);
         Assert.Equal(1, reads[(b, "VoiceTypes")]);
         Assert.Equal(2, reads[(a, "Races")]);
+    }
+
+    /// <summary>Read through 'winner', the seed list enters its own plugin's two NPCs, read in one pass of its NPC group.</summary>
+    [Fact]
+    public void AWinnerWalkReadsTheGroupOnce()
+    {
+        var (data, reads, _) = Measured("HcDoorSeed", new[] { SourcePoles.Winner });
+        Assert.Contains(data.Nodes, n => n.PulledBy.StartsWith("Npc HcDoorB1 "));
+        Assert.Equal(1, reads[(BothPlugins[1], "Npcs")]);
+    }
+
+    /// <summary>A list entry a faction owns at a rank: the walk follows the faction and the item, and reads the rank as
+    /// a number, as the record sources settle it, so no note names a record the rank seemed to link.</summary>
+    [Fact]
+    public void AnOwnerRankIsNotWalkedAsALink()
+    {
+        Assert.Empty(Walk("HcDoorOwned").Notes);
     }
 
     /// <summary>The NPCs' referencers are a placed reference in a cell, the seed list and four lines in two plugins:
