@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-30
+updated: 2026-10-31
 covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
@@ -43,8 +43,8 @@ normal files. `Mo2SkipRules.Shows` is that one predicate, applied to the loose l
   skips nothing; a value that is not a list keeps the default and is a build warning naming the key. An empty item is
   dropped, since it would hide every file. Explicit-paths mode has no ini and takes the defaults.
 - **Only file names and folder names.** A folder named `x.mohidden` and Root Builder's `root\` are real VFS paths, so
-  they stay listed. The three root names are MO2 constants, not list entries, so no skip list drops them. Archives are
-  not filtered; the watch baseline stays the full listing, so hiding or unhiding a file between two calls is seen.
+  they stay listed. The three root names are MO2 constants checked before the lists, so an empty or custom list does
+  not un-hide them. Archives are not filtered; the watch baseline stays the full listing, so hiding or unhiding a file between two calls is seen.
 - One limit, said rather than papered over: an edit to the skip lists alone, with no mod, profile or file change
   beside it, is read on the next asset rebuild, not the next call.
 
