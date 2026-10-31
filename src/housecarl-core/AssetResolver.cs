@@ -860,7 +860,7 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>Does this Data-relative path, as Windows opens it, name what MO2 hides at the root whatever the skip lists say?</summary>
-    public static bool NamesHiddenRoot(string relPath) => Mo2SkipRules.NamesHiddenRoot(AsWindowsOpens(ValidateRelPath(relPath).TrimEnd('\\')));
+    public static bool NamesHiddenRoot(string relPath) => Mo2SkipRules.NamesHiddenRoot(AsWindowsOpens(ValidateRelPath(relPath)));
 
     /// <summary>A normalized path spelt segment by segment as Windows opens it, for the loose lookup.</summary>
     static string AsWindowsOpens(string rel)
