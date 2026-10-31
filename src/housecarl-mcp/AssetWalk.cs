@@ -193,59 +193,52 @@ internal sealed partial class AssetLayers
         IMajorRecordGetter? Fetch(FormKey fk) => reached.TryGetValue(fk, out var body) ? body : walkFetch(fk);
 
         // Breadth-first by depth, each depth's records read at once through the door: the order a queue would enter them.
-        bool capped = false;
-        for (int depth = 0; frontier.Count > 0 && !capped; depth++)
+        for (int depth = 0; frontier.Count > 0; depth++)
         {
             var fetched = chain.FetchMany(frontier.Select(f => f.Key).ToList());
             var next = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
-            foreach (var (fk, pulledBy, home) in frontier)
-                if (!Enter(fk, pulledBy, home, fetched[fk], depth, next)) { capped = true; break; }
+            foreach (var (fk, pulledBy, homeIn) in frontier)
+            {
+                var got = fetched[fk];
+                if (got.Fault is { } fault) { notes.Add($"record {FormIdToken.Of(fk)} (pulled by {pulledBy}): '{fault.Arm.Spelling}' has it but could not read it — {fault.Cause}"); continue; }
+                if (got.Hit is not { } hit)
+                {
+                    notes.Add($"record {FormIdToken.Of(fk)} (pulled by {pulledBy}) is in none of the sources consulted: " +
+                              string.Join(", ", chain.Arms.Select(a => a.Where)) + ".");
+                    continue;
+                }
+                if (++entered > MaxWalkRecords) { truncated = true; notes.Add($"the walk stopped entering records at {MaxWalkRecords}."); next.Clear(); break; }
+                var home = homeIn ?? (string.Equals(hit.Arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)
+                    ? new HashSet<ModKey>(named) { fk.ModKey } : named);
+                var body = hit.Body;
+                if (body is INpcGetter or ILeveledNpcGetter or IRaceGetter) reached[fk] = body;
+                var type = RecordNaming.StripOverlay(body.GetType().Name);
+                var label = body.EditorID is { Length: > 0 } edid ? $"{type} {edid} [{FormIdToken.Of(fk)}]" : $"{type} [{FormIdToken.Of(fk)}]";
+
+                foreach (var p in AssetLinkHarvest.HarvestAssetPaths(new[] { body })) addFile(p, "listed", label);
+                try { foreach (var e in AssetWalkEdges.Inferred(body, inferCache)) addFile(e.Path, e.Edge, label, e.Keyed, e.Note); }
+                catch (Exception ex) { notes.Add($"{label}: its inferred links were not read — {ex.Message}"); }
+                foreach (var e in AssetWalkEdges.Fragments(body)) addFile(e.Path, e.Edge, label, e.Keyed, e.Note);
+
+                if (body is INpcGetter npc)
+                {
+                    FaceGenOf(npc, label, Fetch, raceCaches, addFile, notes);
+                    npcs.Add((fk, label));
+                }
+                if (body is IDialogResponsesGetter info)
+                {
+                    VoiceOf(view, source, info, label, Voice(), Fetch, addFile, notes);
+                }
+
+                foreach (var link in body.EnumerateFormLinks())
+                {
+                    if (link.IsNull || link.FormKey == fk) continue;
+                    if (!home.Contains(link.FormKey.ModKey)) { boundaries[link.FormKey.ModKey.FileName] = boundaries.GetValueOrDefault(link.FormKey.ModKey.FileName) + 1; continue; }
+                    if (depth >= RecordDepth) { if (seenRec.Add(link.FormKey)) pastDepth++; continue; }
+                    if (seenRec.Add(link.FormKey)) next.Add((link.FormKey, label, home));
+                }
+            }
             frontier = next;
-        }
-        if (capped) truncated = true;
-
-        // One record: its files, its face or voice, and its links onto the next depth; false once past the cap.
-        bool Enter(FormKey fk, string pulledBy, IReadOnlySet<ModKey>? homeIn, SourceFetch got, int depth,
-                   List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)> next)
-        {
-            if (got.Fault is { } fault) { notes.Add($"record {FormIdToken.Of(fk)} (pulled by {pulledBy}): '{fault.Arm.Spelling}' has it but could not read it — {fault.Cause}"); return true; }
-            if (got.Hit is not { } hit)
-            {
-                notes.Add($"record {FormIdToken.Of(fk)} (pulled by {pulledBy}) is in none of the sources consulted: " +
-                          string.Join(", ", chain.Arms.Select(a => a.Where)) + ".");
-                return true;
-            }
-            if (++entered > MaxWalkRecords) { notes.Add($"the walk stopped entering records at {MaxWalkRecords}."); return false; }
-            var home = homeIn ?? (string.Equals(hit.Arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)
-                ? new HashSet<ModKey>(named) { fk.ModKey } : named);
-            var body = hit.Body;
-            if (body is INpcGetter or ILeveledNpcGetter or IRaceGetter) reached[fk] = body;
-            var type = RecordNaming.StripOverlay(body.GetType().Name);
-            var label = body.EditorID is { Length: > 0 } edid ? $"{type} {edid} [{FormIdToken.Of(fk)}]" : $"{type} [{FormIdToken.Of(fk)}]";
-
-            foreach (var p in AssetLinkHarvest.HarvestAssetPaths(new[] { body })) addFile(p, "listed", label);
-            try { foreach (var e in AssetWalkEdges.Inferred(body, inferCache)) addFile(e.Path, e.Edge, label, e.Keyed, e.Note); }
-            catch (Exception ex) { notes.Add($"{label}: its inferred links were not read — {ex.Message}"); }
-            foreach (var e in AssetWalkEdges.Fragments(body)) addFile(e.Path, e.Edge, label, e.Keyed, e.Note);
-
-            if (body is INpcGetter npc)
-            {
-                FaceGenOf(npc, label, Fetch, raceCaches, addFile, notes);
-                npcs.Add((fk, label));
-            }
-            if (body is IDialogResponsesGetter info)
-            {
-                VoiceOf(view, source, info, label, Voice(), Fetch, addFile, notes);
-            }
-
-            foreach (var link in body.EnumerateFormLinks())
-            {
-                if (link.IsNull || link.FormKey == fk) continue;
-                if (!home.Contains(link.FormKey.ModKey)) { boundaries[link.FormKey.ModKey.FileName] = boundaries.GetValueOrDefault(link.FormKey.ModKey.FileName) + 1; continue; }
-                if (depth >= RecordDepth) { if (seenRec.Add(link.FormKey)) pastDepth++; continue; }
-                if (seenRec.Add(link.FormKey)) next.Add((link.FormKey, label, home));
-            }
-            return true;
         }
         // An NPC's dialogue lines: the active order's lines whose winning copy it speaks (AssetWalkEdges.Speaks),
         // found through the reverse index, and the lines an off-order source defines, which no index holds, read off it.
