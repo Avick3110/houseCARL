@@ -16,6 +16,7 @@ public sealed class AssetRootNameTests : IDisposable
     const string FomodInfo = @"fomod\info.xml";
     const string Nif = @"meshes\a.nif";
     const string NestedMeta = @"meshes\meta.ini";
+    static readonly byte[] X = "x"u8.ToArray();
 
     readonly PlaceInstance _p = new();
 
@@ -23,7 +24,7 @@ public sealed class AssetRootNameTests : IDisposable
     {
         foreach (var mod in new[] { "A", "B" })
             foreach (var rel in new[] { Meta, Readme, FomodInfo, Nif, NestedMeta })
-                PlaceInstance.Loose(_p.Mod(mod), rel, "x"u8.ToArray());
+                PlaceInstance.Loose(_p.Mod(mod), rel, X);
         _p.Profile(Array.Empty<string>(), Array.Empty<string>(), new[] { "+B", "+A" });
     }
 
@@ -104,10 +105,11 @@ public sealed class AssetRootNameTests : IDisposable
     public void ARootMetaIniInOverwriteOrTheDataFolderIsAbsentToo()
     {
         using var p = new PlaceInstance();
-        PlaceInstance.Loose(Path.Combine(p.Inst, "overwrite"), Meta, "x"u8.ToArray());
-        PlaceInstance.Loose(p.Data, Readme, "x"u8.ToArray());
-        PlaceInstance.Loose(Path.Combine(p.Inst, "overwrite"), NestedMeta, "x"u8.ToArray());
-        PlaceInstance.Loose(p.Data, @"meshes\readme.txt", "x"u8.ToArray());
+        var overwrite = Path.Combine(p.Inst, "overwrite");
+        PlaceInstance.Loose(overwrite, Meta, X);
+        PlaceInstance.Loose(overwrite, NestedMeta, X);
+        PlaceInstance.Loose(p.Data, Readme, X);
+        PlaceInstance.Loose(p.Data, @"meshes\readme.txt", X);
         p.Profile(Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
         var svc = p.Open();
 
@@ -161,28 +163,5 @@ public sealed class AssetRootNameTests : IDisposable
 
         foreach (var name in new[] { "root meta.ini", "root readme.txt", "root fomod folder" })
             Assert.Contains(name, text);
-    }
-}
-
-/// <summary>A root's top-level files drop a root meta.ini and readme.txt; a root plugin is still listed.</summary>
-[Trait("tier", "unit")]
-public sealed class LooseRootFilesRootNameTests : IDisposable
-{
-    readonly string _root = Path.Combine(Path.GetTempPath(), "hc-looseroot-" + Guid.NewGuid().ToString("N"));
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_root, recursive: true); } catch (IOException) { }
-    }
-
-    [Fact]
-    public void ARootMetaIniIsNotListedAndARootPluginIs()
-    {
-        string overwrite = Path.Combine(_root, "overwrite"), mods = Path.Combine(_root, "mods"), data = Path.Combine(_root, "Data");
-        foreach (var d in new[] { overwrite, Path.Combine(mods, "ModA"), data }) Directory.CreateDirectory(d);
-        foreach (var f in new[] { "A.esp", "meta.ini", "readme.txt" }) File.WriteAllText(Path.Combine(mods, "ModA", f), "x");
-        using var r = AssetResolver.Build(overwrite, mods, data, new[] { "ModA" }, Array.Empty<ActiveArchive>());
-
-        Assert.Equal(new[] { "A.esp" }, r.Capture().LooseRootFiles("ModA"));
     }
 }

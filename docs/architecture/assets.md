@@ -32,7 +32,8 @@ Precedence decides which copy wins among files the VFS holds; visibility decides
 folder, and USVFS skips two things: a file whose name ends with a skip suffix, and anything under a folder named as a
 skip directory. MO2 also leaves three root names out of its own Data view (its Data and Conflicts tabs), though USVFS
 still maps them: a root `meta.ini`, a root `readme.txt` and anything in a root `fomod\` folder. houseCARL follows MO2's
-view, so these answer absent; a launched process can still open `Data\meta.ini`. `Mo2SkipRules.Shows` is that one predicate, applied to the loose layer where a path is resolved
+view, so these answer absent; a launched process can still open `Data\meta.ini`. The same names below the root are
+normal files. `Mo2SkipRules.Shows` is that one predicate, applied to the loose layer where a path is resolved
 (`ResolveProviders`), where a folder is walked (`EnumerateUnder`) and where a root's top-level files are listed
 (`LooseRootFiles`), so every consumer of any of them sees the same Data view. It is applied on the Data-relative path and not inside a directory listing, because one listing cannot see a
 `.git` segment above it.
@@ -42,9 +43,8 @@ view, so these answer absent; a launched process can still open `Data\meta.ini`.
   skips nothing; a value that is not a list keeps the default and is a build warning naming the key. An empty item is
   dropped, since it would hide every file. Explicit-paths mode has no ini and takes the defaults.
 - **Only file names and folder names.** A folder named `x.mohidden` and Root Builder's `root\` are real VFS paths, so
-  they stay listed. The exception is the three root names, which are MO2 constants, not list entries: a skip list the
-  instance sets cannot drop them, and the same names below the root are normal files. Archives are not filtered; the watch baseline stays the full listing, so hiding or unhiding a file
-  between two calls is seen.
+  they stay listed. The three root names are MO2 constants, not list entries, so no skip list drops them. Archives are
+  not filtered; the watch baseline stays the full listing, so hiding or unhiding a file between two calls is seen.
 - One limit, said rather than papered over: an edit to the skip lists alone, with no mod, profile or file change
   beside it, is read on the next asset rebuild, not the next call.
 

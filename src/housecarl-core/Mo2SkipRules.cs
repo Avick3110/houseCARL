@@ -25,7 +25,7 @@ public sealed record Mo2SkipRules(IReadOnlyList<string> FileSuffixes, IReadOnlyL
         return true;
     }
 
-    /// <summary>MO2's constant root names, not read from the ini: a root meta.ini or readme.txt, or anything in a root fomod folder.</summary>
+    // MO2 constants, not read from the ini.
     static bool HiddenAtRoot(ReadOnlySpan<char> path)
     {
         var sep = path.IndexOf('\\');
