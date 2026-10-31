@@ -343,14 +343,13 @@ nothing is cut silently. Each record contributes:
   property, a `GetIsID` on the Target) is not walked, nor is one tied to it through a quest alias or reached only by
   voice type.
 
-The walk reads its records through the read door (read-engine.md), never one key at a time (#1277). It walks
-breadth-first by depth, so it enters records in the order a queue would, and reads each depth's records at once
-through the record sources (`SourceChain.FetchMany`): an active-order arm reads the keys still unanswered through
-the door, a `winner` arm from each key's winner, a named plugin from that plugin, and an off-order arm off its own
-overlay's link cache. A plugin whose group faults is read one key at a time, so its fault is the note it always was.
-The reverse step reads only the referencers the index types as lines, all walked NPCs' at once through the door; a
-placed reference, a cell or a quest naming the NPC is never read. A template member or speaker the walk reached comes
-from its own read; a race, which faces need before the walk reaches it, is read once per walk.
+The walk reads its records in bulk (#1277). It walks breadth-first by depth, so it enters records in the order a
+queue would, and reads each depth's records at once through the record sources (`SourceChain.FetchMany`; its
+answers are walk-and-reverse.md's, the read door's and its faults read-engine.md's). A face or a voice that needs a
+race, or a template member or speaker the walk has not reached, reads it one key at a time: a race once per walk, a
+record the walk reached from its own read. The reverse step reads, all walked NPCs' at once through the door, the
+referencers whose winning copy the index types as a line or cannot type; one it types as anything else (a placed
+reference, a cell, a quest) is never read.
 
 Each file node then resolves: from-source when `source_provider=` ships it (`AssetSourceSelection`, so a disabled mod
 answers off its own disk), elsewhere when another provider wins it (named), present with no source named, or absent;
