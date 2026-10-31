@@ -106,6 +106,10 @@ public sealed class AssetRootNameTests : IDisposable
         Assert.DoesNotContain(Meta, Under(svc, Meta));
     }
 
+    [Fact]
+    public void ARootMetaIniSpeltWithATrailingDotIsAbsent()
+        => Assert.False(Hit(_p.Open(), "meta.ini.").Exists);
+
     [Theory]
     [InlineData("meta.ini")]
     [InlineData("readme.txt")]
