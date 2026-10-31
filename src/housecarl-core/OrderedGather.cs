@@ -20,7 +20,7 @@ public static class OrderedGather
     }
 
     /// <summary>The same door over named copies: each (plugin, key) is read from that plugin, not its winner.
-    /// <paramref name="faulted"/> is handed each group whose walk faulted, or that a plugin which will not open left unread, with that group's fault.</summary>
+    /// <paramref name="faulted"/> is handed each group whose walk faulted, or, when <paramref name="unreadable"/> is passed, that a plugin which will not open left unread, with that group's fault.</summary>
     public static void ForEachGroup(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                     IEnumerable<(string Plugin, FormKey Key)> pairs,
                                     Action<string, IReadOnlyDictionary<FormKey, IMajorRecordGetter>, IReadOnlyCollection<FormKey>> perGroup,
