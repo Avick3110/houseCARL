@@ -1,1 +1,0 @@
-- **`asset_status links=true` lists the files a mesh names, each with its Data path and winner; `walk=true` follows the selected paths and `records=` to every file they reach, each from-source, elsewhere, present or absent.** Check: walk an SMP mesh with its mod as `source_provider=`; a `place set` line ends it.

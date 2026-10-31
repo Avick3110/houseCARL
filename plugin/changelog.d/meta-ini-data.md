@@ -1,1 +1,0 @@
-- **`asset_status` no longer lists, counts or finds a loose root `meta.ini`, `readme.txt` or `fomod` folder in any mod, overwrite or Data, matching MO2's Data tab; archives are unchanged.** Check: `asset_paths=["meta.ini"]` answers ABSENT, saying MO2 hides it.

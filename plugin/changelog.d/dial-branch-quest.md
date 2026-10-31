@@ -1,1 +1,0 @@
-- **The dialogue check now warns when a topic's quest differs from its branch's quest, and says a top-level branch can show its menu entry twice.** Check: validate the topic, or its quest; the warning names both quests and the branch.
