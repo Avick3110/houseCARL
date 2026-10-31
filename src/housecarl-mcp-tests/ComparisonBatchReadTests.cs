@@ -48,6 +48,22 @@ public sealed class ComparisonBatchReadTests : IClassFixture<OwnedChildFixture>
         finally { _w.Svc.ReadArea.AfterReadPinForGuard = null; }
     }
 
+    /// <summary>The overlay source in its post state reads the winners it replays through the door, each winner
+    /// plugin once for its rows, with no seek per row (#1282).</summary>
+    [Fact]
+    public void ThePostOverlaySourceReadsItsWinnersThroughTheDoor()
+    {
+        var view = _w.Svc.CaptureView();
+        var keys = new[] { _w.Weapon, _w.CellG };
+        int winners = keys.Select(k => view.ResolveWinner(k)!.Value.WinnerPlugin).Distinct().Count();
+        long passes = _w.Svc.Counters.CollectPasses, seeks = _w.Svc.Counters.BodySeeks;
+        var r = RecordsTools.Records(_w.Svc, formids: keys.Select(OwnedChildWorld.Fid).ToArray(), source: Je(Post),
+                                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "EditorID" } });
+        Assert.False(r.StartsWith("error:"), r);
+        Assert.Equal(0, _w.Svc.Counters.BodySeeks - seeks);
+        Assert.Equal(winners, _w.Svc.Counters.CollectPasses - passes);
+    }
+
     /// <summary>A post-state subject that holds its records reads the winners it replays through its gather, and still
     /// gathers the reference: each winner plugin is walked once per pole.</summary>
     [Fact]
