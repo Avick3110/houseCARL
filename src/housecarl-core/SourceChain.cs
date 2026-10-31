@@ -41,7 +41,7 @@ public sealed record SourceLayer(
     SourceLayerKind Kind, string Name, ModFolderStanding Folder = ModFolderStanding.Live);
 
 /// <summary>One element of an ordered source universe: the caller's verbatim spelling, how it resolved, where it resolved to, the fetch, and the MO2 layer behind it.
-/// <paramref name="Batch"/>, when set, reads many keys at once through the read door and answers a fetch over what it read, with <paramref name="Fetch"/>'s answers.</summary>
+/// <paramref name="Batch"/>, when set, reads many keys at once through the read door and answers a fetch over what it read; contract in docs/architecture/walk-and-reverse.md.</summary>
 public sealed record SourceArm(
     string Spelling,
     SourceArmKind Kind,
@@ -96,7 +96,7 @@ public sealed class SourceChain
         return new SourceFetch(null, null);
     }
 
-    /// <summary>Resolve many keys with <see cref="Fetch"/>'s answers, each arm reading the keys still unanswered at once through its batch read.</summary>
+    /// <summary>Resolve many keys, each arm reading the keys still unanswered at once through its batch read; how its answers differ from <see cref="Fetch"/>'s is in docs/architecture/walk-and-reverse.md.</summary>
     public IReadOnlyDictionary<FormKey, SourceFetch> FetchMany(IReadOnlyCollection<FormKey> keys)
     {
         var got = new Dictionary<FormKey, SourceFetch>(keys.Count);
