@@ -21,4 +21,11 @@ public sealed class DoorSurfaceTests
     [InlineData(typeof(SourceChain), "Fetch")]
     [InlineData(typeof(SourceArm), "Fetch")]
     public void NoPublicSingleKeyRead(Type type, string member) => Assert.DoesNotContain(member, Public(type));
+
+    /// <summary>The door's own walk primitives are no public read around it.</summary>
+    [Theory]
+    [InlineData(typeof(BodyGather), "WalkOnce")]
+    [InlineData(typeof(LoadOrderResolver.IndexView), "CollectRecords")]
+    [InlineData(typeof(LoadOrderResolver), "CollectRecords")]
+    public void NoPublicWalkAroundTheDoor(Type type, string member) => Assert.DoesNotContain(member, Public(type));
 }

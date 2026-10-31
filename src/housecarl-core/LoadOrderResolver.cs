@@ -856,7 +856,7 @@ public sealed class LoadOrderResolver : IDisposable
         internal IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
             => _r.GetRecord(session, pluginName, fk, _s);
 
-        public void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
+        internal void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
                                    IDictionary<FormKey, IMajorRecordGetter> sink)
             => _r.CollectRecords(session, pluginName, wanted, sink, _s);
 
@@ -1002,7 +1002,7 @@ public sealed class LoadOrderResolver : IDisposable
 
     /// <summary>The bodies ONE plugin holds for a KNOWN set of FormKeys into <paramref name="sink"/>: one typed walk per seek type the wanted copies carry in this build, however many
     /// are wanted (#251). A key this plugin does not hold is simply absent; only the OPEN faults as <see cref="PluginUnreadableException"/>, and a walk fault is left as it came.</summary>
-    public void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
+    internal void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
                                IDictionary<FormKey, IMajorRecordGetter> sink)
         => CollectRecords(session, pluginName, wanted, sink, _snap);
 

@@ -142,7 +142,7 @@ public sealed class BodyGather
     /// <summary>One plugin's walk, guarded: every declared key into <paramref name="sink"/> in one enumeration,
     /// answering the fault that stopped it or null. Out-of-memory and cancellation are rethrown — neither is this
     /// plugin's fault.</summary>
-    public static PluginUnreadableException? WalkOnce(
+    internal static PluginUnreadableException? WalkOnce(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, string plugin,
         IReadOnlyCollection<FormKey> keys, IDictionary<FormKey, IMajorRecordGetter> sink)
     {
