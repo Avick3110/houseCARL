@@ -66,4 +66,29 @@ public sealed class SharedGroupFaultTests : IDisposable
         Assert.IsType<OverflowException>(scan.InnerException);
         Assert.DoesNotContain(nameof(System.Reflection.TargetInvocationException), scan.Message);
     }
+
+    /// <summary>The broken group joins two seek types (the cell and its reference), so the gather leaves the reference
+    /// to the per-record seek, which walks its own type's groups, and raises what that seek raises.</summary>
+    [Fact]
+    public void AJoinedFaultedGroupLeavesItsKeysToTheSeek()
+    {
+        using var svc = _mo2.Open();
+        var pin = svc.CapturePin();
+        var stamp = File.GetLastWriteTimeUtc(_path);
+        BreakFirstCellBlock();
+        File.SetLastWriteTimeUtc(_path, stamp);
+        using var session = pin.Resolver.OpenSession();
+        var gather = new BodyGather(pin.View, session);
+        gather.Want(_key.FileName, _cell);
+        gather.Want(_key.FileName, _ref);
+        gather.Gather();
+        Assert.Contains(_key.FileName.String, gather.Faulted);
+
+        var direct = Record.Exception(() => pin.View.GetRecord(session, _key.FileName, _ref));
+        long seeks = pin.Resolver.Counters.BodySeeks;
+        var through = Record.Exception(() => gather.Body(_key.FileName, _ref));
+        Assert.Equal(seeks + 1, pin.Resolver.Counters.BodySeeks);
+        Assert.Equal(direct?.GetType(), through?.GetType());
+        Assert.Equal(direct?.Message, through?.Message);
+    }
 }
