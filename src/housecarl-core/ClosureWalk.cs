@@ -211,6 +211,8 @@ public static class ClosureWalk
 
         var queue = new Queue<(FormKey Key, string PulledBy, int Depth)>();
         foreach (var s in seeds) queue.Enqueue((s.Key, s.Label, 0));
+        // Bodies read ahead for keys still queued at the current depth, each dropped once its key is entered.
+        var read = new Dictionary<FormKey, SourceFetch>();
 
         List<FormKey> ChainTo(FormKey k)
         {
@@ -248,11 +250,23 @@ public static class ClosureWalk
                     WalkRefusalKind.NodeCap, key, pulledBy, ChainTo(key),
                     $"the walk reached more than {nodeCap} records", Cap: nodeCap));
 
-            var fetched = sources.Fetch(key, pulledBy);
+            if (!read.TryGetValue(key, out var fetched))
+            {
+                // This depth's keys still to be entered are read at once, at most as many as the node cap leaves room for.
+                var round = new List<FormKey> { key };
+                foreach (var (k, _, d) in queue)
+                {
+                    if (round.Count > nodeCap - reached.Count) break;
+                    if (d == depth && !k.IsNull && !seen.Contains(k) && !read.ContainsKey(k) && !round.Contains(k) && scope.ShouldExpand(k)) round.Add(k);
+                }
+                foreach (var (k, answer) in sources.FetchMany(round)) read[k] = answer;
+                fetched = read[key];
+            }
+            read.Remove(key);
             if (fetched.Fault is { } fault)
                 return WalkResult.Fail(new WalkRefusal(
                     WalkRefusalKind.SourceFault, key, pulledBy, ChainTo(key),
-                    fault.Cause, Fault: fault));
+                    fault.Cause, Fault: fault with { PulledBy = pulledBy }));
             if (fetched.Hit is not { } hit)
                 return WalkResult.Fail(new WalkRefusal(
                     WalkRefusalKind.SourceMiss, key, pulledBy, ChainTo(key),

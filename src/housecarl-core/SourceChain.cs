@@ -40,15 +40,14 @@ public enum ModFolderStanding
 public sealed record SourceLayer(
     SourceLayerKind Kind, string Name, ModFolderStanding Folder = ModFolderStanding.Live);
 
-/// <summary>One element of an ordered source universe: the caller's verbatim spelling, how it resolved, where it resolved to, the fetch, and the MO2 layer behind it.
-/// <paramref name="Batch"/>, when set, reads many keys at once through the read door and answers a fetch over what it read; contract in docs/architecture/walk-and-reverse.md.</summary>
+/// <summary>One element of an ordered source universe: the caller's verbatim spelling, how it resolved, where it resolved to, the read, and the MO2 layer behind it.
+/// <paramref name="Batch"/> reads a set of keys at once (an active-order arm through the read door) and answers a lookup over what it read; contract in docs/architecture/walk-and-reverse.md.</summary>
 public sealed record SourceArm(
     string Spelling,
     SourceArmKind Kind,
     string Where,
-    Func<FormKey, IMajorRecordGetter?> Fetch,
-    SourceLayer? Layer = null,
-    Func<IReadOnlyCollection<FormKey>, Func<FormKey, IMajorRecordGetter?>>? Batch = null);
+    Func<IReadOnlyCollection<FormKey>, Func<FormKey, IMajorRecordGetter?>> Batch,
+    SourceLayer? Layer = null);
 
 /// <summary>One arm as a READBACK names it, with the fetch left off; <paramref name="Kind"/> travels because a null <paramref name="Layer"/> means two different things.</summary>
 public sealed record SourceArmRef(string Spelling, SourceArmKind Kind, SourceLayer? Layer)
@@ -88,25 +87,19 @@ public sealed class SourceChain
 
     public static SourceChain Single(SourceArm arm) => new(new[] { arm });
 
-    /// <summary>Resolve one key: try each arm IN ORDER and return the FIRST that produces a body, naming which arm produced it; a parse fault stops the chain, and neither is a miss.</summary>
-    public SourceFetch Fetch(FormKey key, string pulledBy = "")
-    {
-        for (int i = 0; i < Arms.Count; i++)
-            if (Ask(i, Arms[i].Fetch, key, pulledBy) is { } answered) return answered;
-        return new SourceFetch(null, null);
-    }
-
-    /// <summary>Resolve many keys, each arm reading the keys still unanswered at once through its batch read; how its answers differ from <see cref="Fetch"/>'s is in docs/architecture/walk-and-reverse.md.</summary>
+    /// <summary>Resolve a set of keys: each arm IN ORDER reads the keys still unanswered at once, and each key takes the FIRST arm that produces a
+    /// body, naming which arm produced it; a parse fault stops that key's chain, and neither is a miss. One key is a set of one.
+    /// A fault's <see cref="SourceFault.PulledBy"/> is empty: the caller holds who pulled it. Contract in docs/architecture/walk-and-reverse.md.</summary>
     public IReadOnlyDictionary<FormKey, SourceFetch> FetchMany(IReadOnlyCollection<FormKey> keys)
     {
         var got = new Dictionary<FormKey, SourceFetch>(keys.Count);
         var left = keys.Distinct().ToList();
         for (int i = 0; i < Arms.Count && left.Count > 0; i++)
         {
-            var fetch = Arms[i].Batch?.Invoke(left) ?? Arms[i].Fetch;
+            var fetch = Arms[i].Batch(left);
             var next = new List<FormKey>();
             foreach (var key in left)
-                if (Ask(i, fetch, key, "") is { } answered) got[key] = answered;
+                if (Ask(i, fetch, key) is { } answered) got[key] = answered;
                 else next.Add(key);
             left = next;
         }
@@ -115,11 +108,11 @@ public sealed class SourceChain
     }
 
     /// <summary>One arm's answer for one key: a hit, a fault, or null when the arm does not have it.</summary>
-    SourceFetch? Ask(int i, Func<FormKey, IMajorRecordGetter?> fetch, FormKey key, string pulledBy)
+    SourceFetch? Ask(int i, Func<FormKey, IMajorRecordGetter?> fetch, FormKey key)
     {
         IMajorRecordGetter? body;
         try { body = fetch(key); }
-        catch (Exception ex) { return new SourceFetch(null, new SourceFault(key, pulledBy, i, Arms[i], ex.Message)); }
+        catch (Exception ex) { return new SourceFetch(null, new SourceFault(key, "", i, Arms[i], ex.Message)); }
         return body is null ? null : new SourceFetch(new SourceHit(body, i, Arms[i]), null);
     }
 

@@ -320,8 +320,8 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         var npc = mod.Npcs.AddNew("HcWalkFaultNpc");
         npc.Race.SetTo(race);
         var arm = new SourceArm("HcWalkFault.esp", SourceArmKind.File, "test",
-                                fk => fk == race.FormKey ? throw new IOException("the file is locked") : fk == npc.FormKey ? npc : null);
-        var fetch = AssetLayers.WalkFetch(SourceChain.Single(arm), fk => fk == race.FormKey ? race : null);
+                                _ => fk => fk == race.FormKey ? throw new IOException("the file is locked") : fk == npc.FormKey ? npc : null);
+        var fetch = new AssetLayers.MemberReads(SourceChain.Single(arm), _ => fk => fk == race.FormKey ? race : null).Get;
         var added = new List<string>();
         var notes = new List<string>();
         AssetLayers.FaceGenOf(npc, "Npc HcWalkFaultNpc", fetch, new(), (raw, _, _, _, _) => added.Add(raw), notes);

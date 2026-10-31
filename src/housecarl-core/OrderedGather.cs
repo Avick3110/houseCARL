@@ -19,13 +19,16 @@ public static class OrderedGather
         ForEachGroup(view, session, pairs, (_, bodies, asked) => perGroup(bodies, asked), unreadable, ct, stop);
     }
 
-    /// <summary>The same door over named copies: each (plugin, key) is read from that plugin, not its winner.</summary>
+    /// <summary>The same door over named copies: each (plugin, key) is read from that plugin, not its winner.
+    /// <paramref name="faulted"/> is handed each group whose walk faulted, or that a plugin which will not open left unread, with that group's fault.</summary>
     public static void ForEachGroup(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                     IEnumerable<(string Plugin, FormKey Key)> pairs,
                                     Action<string, IReadOnlyDictionary<FormKey, IMajorRecordGetter>, IReadOnlyCollection<FormKey>> perGroup,
                                     Dictionary<string, PluginUnreadableException>? unreadable = null,
-                                    CancellationToken ct = default, Func<bool>? stop = null)
+                                    CancellationToken ct = default, Func<bool>? stop = null,
+                                    Action<string, IReadOnlyCollection<FormKey>, PluginUnreadableException>? faulted = null)
     {
+        var opens = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
         foreach (var (plugin, items) in Sort(view, pairs, p => p.Plugin, p => p.Key))
         {
             ct.ThrowIfCancellationRequested();
@@ -33,8 +36,14 @@ public static class OrderedGather
             var asked = new HashSet<FormKey>(items.Select(p => p.Key));
             var bodies = new Dictionary<FormKey, IMajorRecordGetter>(asked.Count);
             // A plugin that will not open is skipped from then on; a broken group leaves its other groups to be walked.
-            if (unreadable is null || !unreadable.TryGetValue(plugin, out var prior) || prior is PluginUnscannableException)
-                if (BodyGather.WalkOnce(view, session, plugin, asked, bodies) is { } fault) unreadable?.TryAdd(plugin, fault);
+            if (unreadable is not null && unreadable.TryGetValue(plugin, out var prior) && prior is not PluginUnscannableException) opens.TryAdd(plugin, prior);
+            if (opens.TryGetValue(plugin, out var open)) faulted?.Invoke(plugin, asked, open);
+            else if (BodyGather.WalkOnce(view, session, plugin, asked, bodies) is { } fault)
+            {
+                unreadable?.TryAdd(plugin, fault);
+                if (fault is not PluginUnscannableException) opens[plugin] = fault;
+                faulted?.Invoke(plugin, asked, fault);
+            }
             perGroup(plugin, bodies, asked);
         }
     }

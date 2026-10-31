@@ -58,7 +58,7 @@ public static class OwnedChildUnion
             IMajorRecordGetter? body;
             if (string.Equals(plugin, subjectPlugin, StringComparison.OrdinalIgnoreCase)) body = subjectBody;
             else
-                try { body = view.GetRecord(session, plugin, fk); }
+                try { body = BodyGather.Copies(view, session, new[] { fk }, _ => plugin)(fk); }
                 catch { body = null; }
             foreach (var f in fields.Keys)
             {

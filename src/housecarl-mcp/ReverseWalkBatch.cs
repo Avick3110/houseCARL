@@ -159,7 +159,7 @@ public static class ReverseWalkBatch
                             // Any throw out of the lazy overlay seek is a coverage gap on that one record, counted and
                             // skipped, never the end of the walk.
                             IMajorRecordGetter? body = null;
-                            try { body = view.GetRecord(session, w, candidate); }
+                            try { body = BodyGather.Copies(view, session, new[] { candidate }, _ => w)(candidate); }
                             catch (Exception) { }
                             pj = Judge(body);
                         }

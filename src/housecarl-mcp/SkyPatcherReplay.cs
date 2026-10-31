@@ -134,7 +134,7 @@ internal sealed partial class AssetLayers
             if (winner is null)
                 return SkyPatcherReplayResult.Fail(RecordReads.UnresolvedFormId(_view, fk));
 
-            var body = read ?? _view.GetRecord(_session, winner.Value.WinnerPlugin, fk);   // read: the winner's body, already read through the door
+            var body = read ?? BodyGather.Winners(_view, _session, new[] { fk })(fk);   // read: the winner's body, already read through the door
             if (body is null)
                 return SkyPatcherReplayResult.Fail($"Winner '{winner.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch — a load-order inconsistency.",
                                                    winnerPlugin: winner.Value.WinnerPlugin);
@@ -266,33 +266,39 @@ internal sealed partial class AssetLayers
             return eids.TryGetValue(editorId, out var fk) ? fk : null;
         }
 
+        // Donors, keyword lists and EditorIDs the lines name, each read once per replay context through the door, so
+        // the same donor named for every record and line is read once.
+        readonly Dictionary<FormKey, (IMajorRecordGetter? Body, Exception? Error)> _donors = new();
+        readonly Dictionary<FormKey, (IReadOnlyList<FormKey>? Keywords, Exception? Error)> _keywords = new();
+        readonly Dictionary<FormKey, (string? EditorId, Exception? Error)> _editorIds = new();
+
+        T Memo<T>(Dictionary<FormKey, (T, Exception?)> memo, FormKey fk, Func<IMajorRecordGetter, T> of) where T : class?
+        {
+            if (!memo.TryGetValue(fk, out var got))
+            {
+                try { got = (BodyGather.Winners(_view, _session, new[] { fk })(fk) is { } body ? of(body) : null!, null); }
+                catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException or LoadOrderChangedMidCallException)) { got = (null!, ex); }
+                memo[fk] = got;
+            }
+            if (got.Item2 is { } error) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+            return got.Item1;
+        }
+
         public string? ReadWinnerLeaf(FormKey donor, string path)
         {
-            var w = _view.ResolveWinner(donor);
-            if (w is null) return null;
-            var rec = _view.GetRecord(_session, w.Value.WinnerPlugin, donor);
+            var rec = Memo(_donors, donor, b => (IMajorRecordGetter?)b);
             if (rec is null) return null;
             var leaf = ReadEngine.ReadFields(rec, new[] { path }).Fields.FirstOrDefault();
             return leaf is { HasValue: true } ? leaf.Token : null;
         }
 
         public IReadOnlyList<FormKey>? KeywordsOf(FormKey record)
-        {
-            var w = _view.ResolveWinner(record);
-            if (w is null) return null;
-            var rec = _view.GetRecord(_session, w.Value.WinnerPlugin, record);
-            return rec is null ? null : ReadEngine.KeywordKeys(rec);   // the ONE keyword walk (shared)
-        }
+            => Memo(_keywords, record, b => (IReadOnlyList<FormKey>?)ReadEngine.KeywordKeys(b));   // the ONE keyword walk (shared)
 
         public bool PluginPresent(string pluginName) => _view.ContainsPlugin(pluginName);
 
         public string? WinnerPluginOf(FormKey record) => _view.ResolveWinner(record)?.WinnerPlugin;
 
-        public string? EditorIdOf(FormKey record)
-        {
-            var w = _view.ResolveWinner(record);
-            if (w is null) return null;
-            return _view.GetRecord(_session, w.Value.WinnerPlugin, record)?.EditorID;
-        }
+        public string? EditorIdOf(FormKey record) => Memo(_editorIds, record, b => b.EditorID);
     }
 }

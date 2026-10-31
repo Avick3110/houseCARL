@@ -189,13 +189,16 @@ internal sealed partial class AssetLayers
         // Template members and speakers: the walk's own read when it reached them. Only these types are kept, so no
         // cell or worldspace body holds its group's bytes past its depth.
         var reached = new Dictionary<FormKey, IMajorRecordGetter>();
-        var walkFetch = WalkFetch(chain, fk => index.ResolveWinner(fk) is { } w ? index.GetRecord(session, w.WinnerPlugin, fk) : null);
-        IMajorRecordGetter? Fetch(FormKey fk) => reached.TryGetValue(fk, out var body) ? body : walkFetch(fk);
+        var members = new MemberReads(chain, keys => BodyGather.Winners(index, session, keys));
+        IMajorRecordGetter? Fetch(FormKey fk) => reached.TryGetValue(fk, out var body) ? body : members.Get(fk);
 
         // Breadth-first by depth, each depth's records read at once through the door: the order a queue would enter them.
         for (int depth = 0; frontier.Count > 0; depth++)
         {
             var fetched = chain.FetchMany(frontier.Select(f => f.Key).ToList());
+            var bodies = frontier.Select(f => fetched[f.Key].Hit?.Body).Where(b => b is INpcGetter or ILeveledNpcGetter or IRaceGetter).ToList();
+            members.Know(bodies!);
+            members.Templates(bodies.OfType<INpcGetter>());
             var next = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
             foreach (var (fk, pulledBy, homeIn) in frontier)
             {
@@ -279,15 +282,72 @@ internal sealed partial class AssetLayers
                       string.Join(", ", boundaries.OrderByDescending(b => b.Value).Select(b => $"{b.Key} ×{b.Value}")) + ".");
     }
 
-    /// <summary>A race, template member or speaker read through the record sources, else off the active order, as the
-    /// game would; null only when neither holds it. An arm that has it but cannot read it throws with why.</summary>
-    internal static Func<FormKey, IMajorRecordGetter?> WalkFetch(SourceChain chain, Func<FormKey, IMajorRecordGetter?> winner)
-        => fk =>
+    /// <summary>Races, template members and speakers, read through the record sources, else off the active order, as the
+    /// game would, a round of keys at a time, and kept by key for the whole walk. A key neither holds is null; one an arm
+    /// has but cannot read throws with why, each time it is asked.</summary>
+    internal sealed class MemberReads(SourceChain chain, Func<IReadOnlyCollection<FormKey>, Func<FormKey, IMajorRecordGetter?>> winners)
+    {
+        readonly Dictionary<FormKey, (IMajorRecordGetter? Body, Exception? Error)> _read = new();
+
+        /// <summary>Bodies the walk read itself through the same sources, kept so no round reads them again.</summary>
+        public void Know(IEnumerable<IMajorRecordGetter> bodies)
         {
-            var got = chain.Fetch(fk);
-            if (got.Fault is { } f) throw new InvalidOperationException($"'{f.Arm.Spelling}' has it but could not read it — {f.Cause}");
-            return got.Hit?.Body ?? winner(fk);
-        };
+            foreach (var body in bodies) _read.TryAdd(body.FormKey, (body, null));
+        }
+
+        /// <summary>Read every key not read yet, at once.</summary>
+        public void Read(IEnumerable<FormKey> keys)
+        {
+            var want = keys.Where(k => !_read.ContainsKey(k)).Distinct().ToList();
+            if (want.Count == 0) return;
+            var got = chain.FetchMany(want);
+            var misses = new List<FormKey>();
+            foreach (var k in want)
+                if (got[k].Fault is { } f) _read[k] = (null, new InvalidOperationException($"'{f.Arm.Spelling}' has it but could not read it — {f.Cause}"));
+                else if (got[k].Hit is { } hit) _read[k] = (hit.Body, null);
+                else misses.Add(k);
+            if (misses.Count == 0) return;
+            var winner = winners(misses);
+            foreach (var k in misses)
+                try { _read[k] = (winner(k), null); }
+                catch (Exception ex) { _read[k] = (null, ex); }
+        }
+
+        /// <summary>One key's body, read as a round of one if no round has read it.</summary>
+        public IMajorRecordGetter? Get(FormKey fk)
+        {
+            Read(new[] { fk });
+            var (body, error) = _read[fk];
+            if (error is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+            return body;
+        }
+
+        /// <summary>The Traits template chains of <paramref name="npcs"/> (AssetWalkEdges.FaceRoots' hops), one round per
+        /// hop, with each NPC's race, so a face root and its race are in hand before FaceRoots asks.</summary>
+        public void Templates(IEnumerable<INpcGetter> npcs)
+        {
+            var round = new List<FormKey>();
+            void Hop(IMajorRecordGetter? body)
+            {
+                if (body is INpcGetter n)
+                {
+                    if (!n.Race.IsNull) round.Add(n.Race.FormKey);
+                    if (n.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits) && !n.Template.IsNull) round.Add(n.Template.FormKey);
+                }
+                else if (body is ILeveledNpcGetter lv)
+                    foreach (var e in lv.Entries ?? Array.Empty<ILeveledNpcEntryGetter>())
+                        if (e.Data?.Reference is { IsNull: false } r) round.Add(r.FormKey);
+            }
+            foreach (var npc in npcs) Hop(npc);
+            while (round.Count > 0)
+            {
+                var keys = round.Where(k => !_read.ContainsKey(k)).Distinct().ToList();
+                round.Clear();
+                Read(keys);
+                foreach (var k in keys) Hop(_read[k].Body);
+            }
+        }
+    }
 
     /// <summary>The FaceGen pair an NPC's face is drawn from: its own, or its template root's, each member of a
     /// leveled template marked one of N.</summary>

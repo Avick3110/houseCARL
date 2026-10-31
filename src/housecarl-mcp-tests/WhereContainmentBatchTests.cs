@@ -221,30 +221,32 @@ public sealed class RecordsContainmentBatchTests : IClassFixture<OwnedChildFixtu
         Assert.True(d[2] > 0 && d[2] == d[3], string.Join(",", d));   // the gathers ran, every one typed
     }
 
-    /// <summary>The second hop of a projection, which the chunk does not gather, seeks its container typed.
-    /// Fails on an untyped <c>FetchContainer</c>.</summary>
+    /// <summary>The second hop of a projection, which the chunk does not gather, reads its container through the door,
+    /// typed, with no seek.</summary>
     [Fact]
-    public void ASecondHopProjectionSeeksTyped()
+    public void ASecondHopProjectionReadsTyped()
     {
         var before = Costs();
         var r = RecordsTools.Records(_w.Svc, formids: new[] { OwnedChildWorld.Fid(_w.WorldCellRef) },
                                      project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "*parent.*parent.EditorID" } });
         Assert.Contains("HcOcWrld", r);
         var d = Since(before);
-        Assert.True(d[0] > 0, string.Join(",", d));
-        Assert.Equal(d[0], d[1]);                                   // every seek typed
+        Assert.Equal(0, d[0]);                                      // no seek
+        Assert.True(d[2] > 0 && d[2] == d[3], string.Join(",", d));   // every door pass typed
     }
 
-    /// <summary>A walk's <c>*parent</c> hop seeks the containing cell typed. Fails on the untyped walk fetch.</summary>
+    /// <summary>A walk's <c>*parent</c> hop reads the containing cell through the door, typed, with no seek.</summary>
     [Fact]
-    public void AWalksParentHopSeeksTyped()
+    public void AWalksParentHopReadsTyped()
     {
         var before = Costs();
         var r = RecordsTools.Records(_w.Svc, formids: new[] { OwnedChildWorld.Fid(_w.WorldCellRef) },
                                      walk: new RecordsTools.RecordsWalk { seed_paths = new[] { "*parent.*parent" }, depth = 1 },
                                      project: new RecordsTools.RecordsProject { form = "summary" });
         Assert.Contains(OwnedChildWorld.Fid(_w.Worldspace), r);
-        Assert.Equal(1, Since(before)[1]);                          // the one hop, to the cell
+        var d = Since(before);
+        Assert.Equal(0, d[0]);                                      // no seek
+        Assert.True(d[2] > 0 && d[2] == d[3], string.Join(",", d));   // the hop to the cell, typed
     }
 
     /// <summary>The type lane's chunk spans all three plugins, so it drains after the stream has closed the

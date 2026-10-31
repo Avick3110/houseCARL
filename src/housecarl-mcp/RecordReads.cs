@@ -104,7 +104,7 @@ internal sealed partial class RecordReads
         var session = batchSession ?? ownSession!;
         // A body the caller already gathered for THIS row and THIS source is used as it stands; without one this
         // is the per-record whole-overlay seek.
-        var rec = prefetched ?? view.GetRecord(session, source, fk);       // excluded-check pinned to the same view the winner came from
+        var rec = prefetched ?? BodyGather.Copies(view, session, new[] { fk }, _ => source)(fk);       // excluded-check pinned to the same view the winner came from
         if (rec is null)
         {
             if (plugin is null)
@@ -309,7 +309,7 @@ internal sealed partial class RecordReads
         var w = view.ResolveWinner(fk);
         if (w is null) return new RecordSummary(fk, "?", null, "?", 0, $"{FormIdToken.Of(fk)} not in the load order");
         using var session = resolver.OpenSession();
-        var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
+        var body = BodyGather.Winners(view, session, new[] { fk })(fk);
         if (body is null)
             return new RecordSummary(fk, "?", null, w.Value.WinnerPlugin, w.Value.OverrideDepth,
                 $"winner '{w.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch");
@@ -424,7 +424,7 @@ internal sealed partial class RecordReads
                 : new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Error: UnresolvedFormId(view, fk));
         else
         {
-            var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
+            var body = BodyGather.Winners(view, session, new[] { fk })(fk);
             result = body is null
                 ? new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Winner: w.Value.WinnerPlugin)   // winner named but the fetch didn't yield it
                 : RefOf(fk, body, w.Value.WinnerPlugin);

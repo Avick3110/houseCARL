@@ -335,7 +335,7 @@ public sealed class TwinRenderSweep : IDisposable
                 walk: new WalkRefusal(WalkRefusalKind.SourceFault, new FormKey(src, 0x821), "Npc.HeadParts",
                     Array.Empty<FormKey>(), "the record could not be parsed",
                     Fault: new SourceFault(new FormKey(src, 0x821), "Npc.HeadParts", 0,
-                        new SourceArm("CopySrc.esp", SourceArmKind.File, "on disk", _ => null,
+                        new SourceArm("CopySrc.esp", SourceArmKind.File, "on disk", _ => _ => null,
                             new SourceLayer(SourceLayerKind.ModFolder, "TheDonorMod")), "the record could not be parsed")),
                 sources: manySources)),
             CopyTools.Render(ClosureCopyOutcome.Fail(

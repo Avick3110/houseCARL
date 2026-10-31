@@ -40,11 +40,9 @@ internal sealed partial class RecordWrites
             catch { return null; }
         }
 
-        // An active-order arm reading each key from the plugin pluginOf names: one key at a time, or many through the read door.
+        // An active-order arm reading each key from the plugin pluginOf names, a set of keys at a time through the read door.
         SourceArm InOrder(string spelling, string where, Func<FormKey, string?> pluginOf, SourceLayer? layer = null)
-            => new(spelling, SourceArmKind.ActiveOrder, where,
-                   fk => pluginOf(fk) is { } p ? view.GetRecord(session, p, fk) : null, layer,
-                   keys => BodyGather.Copies(view, session, keys, pluginOf));
+            => new(spelling, SourceArmKind.ActiveOrder, where, keys => BodyGather.Copies(view, session, keys, pluginOf), layer);
 
         // A THROW out of the loop would bypass every Fail path and leak the overlays opened so far.
         try
@@ -136,8 +134,9 @@ internal sealed partial class RecordWrites
                     OutputLocations.ServedStanding.ModUnregisteredLayer => layer with { Folder = ModFolderStanding.Unregistered },
                     _ => layer,
                 };
+            // Off the order, so not the door: the link cache builds one lookup per type and answers every key from it.
             arms.Add(new SourceArm(spelling, SourceArmKind.File, where,
-                fk => cache.TryResolve(fk, out var body) ? body : null, layer));
+                _ => fk => cache.TryResolve(fk, out var body) ? body : null, layer));
         }
 
         overlays.AddRange(openedHere);
@@ -145,8 +144,7 @@ internal sealed partial class RecordWrites
         var isFaction = OwnerRanks.FactionIn(view);
         return new SourceChain(arms.Select(a => a with
         {
-            Fetch = fk => OwnerRanks.Settled(a.Fetch(fk), isFaction),
-            Batch = a.Batch is { } batch ? keys => { var read = batch(keys); return fk => OwnerRanks.Settled(read(fk), isFaction); } : null,
+            Batch = keys => { var read = a.Batch(keys); return fk => OwnerRanks.Settled(read(fk), isFaction); },
         }).ToList());
         }
         catch { foreach (var d in openedHere) { try { d.Dispose(); } catch { } } throw; }
@@ -174,11 +172,11 @@ internal sealed partial class RecordWrites
                 if (chain is null) return ClosureCopyOutcome.Fail(engine: chainError);
                 var consulted = chain.Arms.Select(SourceArmRef.Of).ToList();
 
-                var srcFetch = chain.Fetch(sourceKey, "from");
+                var srcFetch = chain.FetchMany(new[] { sourceKey })[sourceKey];
                 if (srcFetch.Fault is { } f)
                     return ClosureCopyOutcome.Fail(
                         walk: new WalkRefusal(WalkRefusalKind.SourceFault, sourceKey, "from",
-                            new[] { sourceKey }, f.Cause, Fault: f), sources: consulted);
+                            new[] { sourceKey }, f.Cause, Fault: f with { PulledBy = "from" }), sources: consulted);
                 if (srcFetch.Hit is not { } srcHit)
                     return ClosureCopyOutcome.Fail(
                         walk: new WalkRefusal(WalkRefusalKind.SourceMiss, sourceKey, "from",
@@ -221,7 +219,7 @@ internal sealed partial class RecordWrites
                 if (targetKey is { } tk && tk.ModKey != patchModKey)
                 {
                     var tw = view.ResolveWinner(tk);
-                    targetActiveBody = tw is null ? null : view.GetRecord(session, tw.Value.WinnerPlugin, tk);
+                    targetActiveBody = tw is null ? null : BodyGather.Winners(view, session, new[] { tk })(tk);
                     if (targetActiveBody is null)
                     {
                         if (created) RemoveFolderCreatedThisCall(outPath);

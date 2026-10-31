@@ -104,7 +104,7 @@ public static class DialogueValidate
         {
             if (k.IsNull || view.ResolveWinner(k) is not { } w) return null;
             if (!loCache.TryGetValue(k, out var g))
-                loCache[k] = g = view.GetRecord(session, w.WinnerPlugin, k);
+                loCache[k] = g = BodyGather.Winners(view, session, new[] { k })(k);
             return g is IDialogResponsesGetter r
                 ? (DialogueInfoOrder.LineOf(r), w.WinnerPlugin)      // the ONE projection, shared with LinesOf
                 : null;
@@ -221,7 +221,7 @@ public static class DialogueValidate
                 if (k.IsNull) return null;
                 if (FoldWins(k) && fold!.Record(k) is { } folded) return folded;
                 if (loCache.TryGetValue(k, out var c)) return c;
-                IMajorRecordGetter? g = view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
+                IMajorRecordGetter? g = BodyGather.Winners(view, session, new[] { k })(k);
                 loCache[k] = g;
                 return g;
             }
@@ -245,7 +245,7 @@ public static class DialogueValidate
                 var g = (foldDefines ? fold!.Record(k) as IDialogTopicGetter : null)
                      ?? (foldDefines && !view.ContainsPlugin(fold!.Plugin)
                             ? null
-                            : view.GetRecord(session, k.ModKey.FileName.String, k) as IDialogTopicGetter);
+                            : BodyGather.Copies(view, session, new[] { k }, _ => k.ModKey.FileName.String)(k) as IDialogTopicGetter);
                 baseCache[k] = g;
                 return g;
             }
@@ -259,7 +259,7 @@ public static class DialogueValidate
                     + (fold is null ? "" : $" The folded file '{fold.Plugin}' carries no version of it either."));
 
             var provider = ProviderOf(fk)!;
-            var body = seedFoldBody ?? view.GetRecord(session, win!.Value.WinnerPlugin, fk);
+            var body = seedFoldBody ?? BodyGather.Winners(view, session, new[] { fk })(fk);
             if (body is null)
                 return DialogueValidationReport.ForError(fk,
                     $"{FormIdToken.Of(fk)} resolves to a winner in {win!.Value.WinnerPlugin} but its body could not be fetched (the plugin may have changed since the index was built) — re-run to rebuild and try again.");
