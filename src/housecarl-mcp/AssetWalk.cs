@@ -186,11 +186,10 @@ internal sealed partial class AssetLayers
         int entered = 0;
         var npcs = new List<(FormKey Key, string Label)>();
 
-        // Template members and speakers: the walk's own read when it reached them. Only these types are kept, so no
-        // cell or worldspace body holds its group's bytes past its depth.
-        var reached = new Dictionary<FormKey, IMajorRecordGetter>();
+        // Template members, races and speakers: the walk's own read when it reached them, else a round of their own.
+        // Only these types are kept, so no cell or worldspace body holds its group's bytes past its depth.
         var members = new MemberReads(chain, keys => BodyGather.Winners(index, session, keys));
-        IMajorRecordGetter? Fetch(FormKey fk) => reached.TryGetValue(fk, out var body) ? body : members.Get(fk);
+        IMajorRecordGetter? Fetch(FormKey fk) => members.Get(fk);
 
         // Breadth-first by depth, each depth's records read at once through the door: the order a queue would enter them.
         for (int depth = 0; frontier.Count > 0; depth++)
@@ -214,7 +213,6 @@ internal sealed partial class AssetLayers
                 var home = homeIn ?? (string.Equals(hit.Arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)
                     ? new HashSet<ModKey>(named) { fk.ModKey } : named);
                 var body = hit.Body;
-                if (body is INpcGetter or ILeveledNpcGetter or IRaceGetter) reached[fk] = body;
                 var type = RecordNaming.StripOverlay(body.GetType().Name);
                 var label = body.EditorID is { Length: > 0 } edid ? $"{type} {edid} [{FormIdToken.Of(fk)}]" : $"{type} [{FormIdToken.Of(fk)}]";
 
@@ -295,28 +293,29 @@ internal sealed partial class AssetLayers
             foreach (var body in bodies) _read.TryAdd(body.FormKey, (body, null));
         }
 
-        /// <summary>Read every key not read yet, at once.</summary>
-        public void Read(IEnumerable<FormKey> keys)
+        /// <summary>Read every key not read yet, at once; answers the keys it read.</summary>
+        public List<FormKey> Read(IEnumerable<FormKey> keys)
         {
             var want = keys.Where(k => !_read.ContainsKey(k)).Distinct().ToList();
-            if (want.Count == 0) return;
+            if (want.Count == 0) return want;
             var got = chain.FetchMany(want);
             var misses = new List<FormKey>();
             foreach (var k in want)
                 if (got[k].Fault is { } f) _read[k] = (null, new InvalidOperationException($"'{f.Arm.Spelling}' has it but could not read it — {f.Cause}"));
                 else if (got[k].Hit is { } hit) _read[k] = (hit.Body, null);
                 else misses.Add(k);
-            if (misses.Count == 0) return;
+            if (misses.Count == 0) return want;
             var winner = winners(misses);
             foreach (var k in misses)
                 try { _read[k] = (winner(k), null); }
                 catch (Exception ex) { _read[k] = (null, ex); }
+            return want;
         }
 
         /// <summary>One key's body, read as a round of one if no round has read it.</summary>
         public IMajorRecordGetter? Get(FormKey fk)
         {
-            Read(new[] { fk });
+            if (!_read.ContainsKey(fk)) Read(new[] { fk });
             var (body, error) = _read[fk];
             if (error is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
             return body;
@@ -329,21 +328,14 @@ internal sealed partial class AssetLayers
             var round = new List<FormKey>();
             void Hop(IMajorRecordGetter? body)
             {
-                if (body is INpcGetter n)
-                {
-                    if (!n.Race.IsNull) round.Add(n.Race.FormKey);
-                    if (n.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits) && !n.Template.IsNull) round.Add(n.Template.FormKey);
-                }
-                else if (body is ILeveledNpcGetter lv)
-                    foreach (var e in lv.Entries ?? Array.Empty<ILeveledNpcEntryGetter>())
-                        if (e.Data?.Reference is { IsNull: false } r) round.Add(r.FormKey);
+                if (body is INpcGetter { Race.IsNull: false } n) round.Add(n.Race.FormKey);
+                round.AddRange(AssetWalkEdges.TemplateHops(body));
             }
             foreach (var npc in npcs) Hop(npc);
             while (round.Count > 0)
             {
-                var keys = round.Where(k => !_read.ContainsKey(k)).Distinct().ToList();
+                var keys = Read(round);
                 round.Clear();
-                Read(keys);
                 foreach (var k in keys) Hop(_read[k].Body);
             }
         }

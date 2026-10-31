@@ -525,22 +525,16 @@ internal sealed partial class RecordReads
         var replayMemo = new Dictionary<FormKey, ReadOutcome>();
         LinkMemo? overlayLinkMemo = null;   // resolve_names cache, one per batch
         var outcomes = new List<ReadOutcome>(formids.Count);
+        var keys = formids.Select(raw => { try { return (Key: (FormKey?)view.ParseFormId(raw), Error: (string?)null); }
+                                           catch (Exception ex) { return (Key: null, Error: $"bad FormID '{raw}': {ex.Message}"); } }).ToList();
         Func<FormKey, IMajorRecordGetter?> winners = _ => null;
-        for (int at = 0; at < formids.Count; at++)
+        for (int at = 0; at < keys.Count; at++)
         {
-            var raw = formids[at];
             ct.ThrowIfCancellationRequested();   // a client that aborted stops the replay inside one record
             // Each chunk's winners are read at once through the door, before its rows replay.
             if (at % BodyPrefetch.ChunkRows == 0)
-            {
-                var chunk = new List<FormKey>();
-                foreach (var id in formids.Skip(at).Take(BodyPrefetch.ChunkRows))
-                    try { chunk.Add(view.ParseFormId(id)); } catch { /* its row says why */ }
-                winners = BodyGather.Winners(view, session, chunk);
-            }
-            FormKey fk;
-            try { fk = view.ParseFormId(raw); }
-            catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
+                winners = BodyGather.Winners(view, session, keys.Skip(at).Take(BodyPrefetch.ChunkRows).Where(k => k.Key is not null).Select(k => k.Key!.Value).ToList());
+            if (keys[at].Key is not { } fk) { outcomes.Add(ReadOutcome.Fail(default, keys[at].Error!)); continue; }
             if (replayMemo.TryGetValue(fk, out var memoized)) { outcomes.Add(memoized); continue; }
             var winner = view.ResolveWinner(fk);
             if (winner is null)
