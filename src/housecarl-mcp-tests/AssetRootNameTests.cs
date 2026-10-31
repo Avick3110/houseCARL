@@ -105,6 +105,30 @@ public sealed class AssetRootNameTests : IDisposable
         Assert.DoesNotContain(Meta, Under(svc, Meta));
     }
 
+    [Theory]
+    [InlineData("meta.ini")]
+    [InlineData("readme.txt")]
+    [InlineData("fomod/info.xml")]
+    public void AHiddenRootPathRendersAbsentSayingMo2HidesIt(string rel)
+    {
+        var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { rel });
+
+        Assert.Contains("ABSENT — MO2 hides a root meta.ini, readme.txt or fomod folder", text);
+        Assert.DoesNotContain("no active mod or BSA provides", text);
+    }
+
+    /// <summary>Pins unchanged behaviour: a path no mod ships keeps the plain absent line, and a nested meta.ini wins.</summary>
+    [Fact]
+    public void AMissingPathKeepsThePlainAbsentLine()
+    {
+        var svc = _p.Open();
+
+        var text = AssetTools.AssetStatus(svc, asset_paths: new[] { "meshes/nosuch.nif" });
+        Assert.Contains("ABSENT — no active mod or BSA provides this path", text);
+        Assert.DoesNotContain("MO2 hides", text);
+        Assert.Contains("WINS", AssetTools.AssetStatus(svc, asset_paths: new[] { "meshes/meta.ini" }));
+    }
+
     [Fact]
     public void AMetaIniBelowTheRootStillResolves()
     {
