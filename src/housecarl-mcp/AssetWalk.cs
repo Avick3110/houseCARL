@@ -197,21 +197,26 @@ internal sealed partial class AssetLayers
             var fetched = chain.FetchMany(frontier.Select(f => f.Key).ToList());
             var bodies = frontier.Select(f => fetched[f.Key].Hit?.Body).Where(b => b is INpcGetter or ILeveledNpcGetter or IRaceGetter).ToList();
             members.Know(bodies!);
-            // Only the NPCs this depth enters, under the record cap, have their template chains read.
-            members.Templates(frontier.Select(f => fetched[f.Key]).Where(g => g.Fault is null && g.Hit is not null)
-                                      .Take(Math.Max(0, MaxWalkRecords - entered)).Select(g => g.Hit?.Body).OfType<INpcGetter>());
-            var next = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
+            // What this depth does with each record, in order: a fault or a miss is a note, the rest are entered until the
+            // record cap, where the walk stops.
+            var steps = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home, SourceHit? Hit, string? Note)>();
+            bool capped = false;
             foreach (var (fk, pulledBy, homeIn) in frontier)
             {
                 var got = fetched[fk];
-                if (got.Fault is { } fault) { notes.Add($"record {FormIdToken.Of(fk)} (pulled by {pulledBy}): '{fault.Arm.Spelling}' has it but could not read it — {fault.Cause}"); continue; }
-                if (got.Hit is not { } hit)
-                {
-                    notes.Add($"record {FormIdToken.Of(fk)} (pulled by {pulledBy}) is in none of the sources consulted: " +
-                              string.Join(", ", chain.Arms.Select(a => a.Where)) + ".");
-                    continue;
-                }
-                if (++entered > MaxWalkRecords) { truncated = true; notes.Add($"the walk stopped entering records at {MaxWalkRecords}."); next.Clear(); break; }
+                if (got.Fault is { } fault) steps.Add((fk, pulledBy, homeIn, null, $"record {FormIdToken.Of(fk)} (pulled by {pulledBy}): '{fault.Arm.Spelling}' has it but could not read it — {fault.Cause}"));
+                else if (got.Hit is null)
+                    steps.Add((fk, pulledBy, homeIn, null, $"record {FormIdToken.Of(fk)} (pulled by {pulledBy}) is in none of the sources consulted: " +
+                                                           string.Join(", ", chain.Arms.Select(a => a.Where)) + "."));
+                else if (++entered > MaxWalkRecords) { capped = true; break; }
+                else steps.Add((fk, pulledBy, homeIn, got.Hit, null));
+            }
+            // Only the NPCs this depth enters have their template chains read.
+            members.Templates(steps.Select(s => s.Hit?.Body).OfType<INpcGetter>());
+            var next = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
+            foreach (var (fk, pulledBy, homeIn, entry, note) in steps)
+            {
+                if (entry is not { } hit) { notes.Add(note!); continue; }
                 var home = homeIn ?? (string.Equals(hit.Arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)
                     ? new HashSet<ModKey>(named) { fk.ModKey } : named);
                 var body = hit.Body;
@@ -241,6 +246,7 @@ internal sealed partial class AssetLayers
                     if (seenRec.Add(link.FormKey)) next.Add((link.FormKey, label, home));
                 }
             }
+            if (capped) { truncated = true; notes.Add($"the walk stopped entering records at {MaxWalkRecords}."); next.Clear(); }
             frontier = next;
         }
         // An NPC's dialogue lines: the active order's lines whose winning copy it speaks (AssetWalkEdges.Speaks),
@@ -323,26 +329,30 @@ internal sealed partial class AssetLayers
             return body;
         }
 
-        /// <summary>The Traits template chains of <paramref name="npcs"/> (AssetWalkEdges.FaceRoots' hops, to its cap), one
-        /// round per hop, with each NPC's race, so a face root and its race are in hand before FaceRoots asks. A member
-        /// already read is still hopped from.</summary>
+        /// <summary>The records AssetWalkEdges.FaceRoots asks for <paramref name="npcs"/>, with each NPC's race, read a
+        /// round per hop: FaceRoots runs over what is read so far, and every key it asks that is not read yet is the next
+        /// round, so a face root and its race are in hand before FaceGenOf asks.</summary>
         public void Templates(IEnumerable<INpcGetter> npcs)
         {
-            var hopped = new HashSet<FormKey>();
-            var round = new List<FormKey>();
-            void Hop(IMajorRecordGetter? body, int hop)
+            var pending = npcs.ToList();
+            while (pending.Count > 0)
             {
-                if (body is null || !hopped.Add(body.FormKey)) return;
-                if (body is INpcGetter { Race.IsNull: false } n) round.Add(n.Race.FormKey);
-                if (hop < AssetWalkEdges.TemplateChainCap - 1) round.AddRange(AssetWalkEdges.TemplateHops(body));
-            }
-            foreach (var npc in npcs) Hop(npc, 0);
-            for (int hop = 1; round.Count > 0; hop++)
-            {
-                var keys = round.Distinct().ToList();
-                round.Clear();
-                Read(keys);
-                foreach (var k in keys) Hop(_read[k].Body, hop);
+                var round = new List<FormKey>();
+                var unread = new List<INpcGetter>();
+                foreach (var npc in pending)
+                {
+                    bool asked = false;
+                    if (!npc.Race.IsNull) round.Add(npc.Race.FormKey);
+                    AssetWalkEdges.FaceRoots(npc, k =>
+                    {
+                        if (!_read.TryGetValue(k, out var r)) { round.Add(k); asked = true; return null; }
+                        if (r.Body is INpcGetter { Race.IsNull: false } n) round.Add(n.Race.FormKey);
+                        return r.Body;
+                    });
+                    if (asked) unread.Add(npc);
+                }
+                Read(round);
+                pending = unread;
             }
         }
     }
