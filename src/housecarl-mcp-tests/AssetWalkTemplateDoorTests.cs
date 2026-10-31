@@ -124,10 +124,14 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
         => Assert.Equal(NpcReads(_npcs), NpcReads(_npcs.Append(_list).ToList()));
 
     /// <summary>A Traits chain is read no further than FaceRoots follows it, so a chain of 100 reads as many NPC rounds
-    /// as one of 70, both past the cap.</summary>
+    /// as one of 70, both past the cap: a round per hop below the seed to the cap, one more for the chain member each later
+    /// depth enters, whose own cap ends a hop further, and the walk's own read at each depth.</summary>
     [Fact]
     public void ATemplateChainIsReadNoFurtherThanTheCap()
-        => Assert.Equal(NpcReads(new[] { _chains[1] }), NpcReads(new[] { _chains[0] }));
+    {
+        Assert.Equal(AssetWalkEdges.TemplateChainCap - 1 + AssetLayers.RecordDepth + (AssetLayers.RecordDepth + 1), NpcReads(new[] { _chains[0] }));
+        Assert.Equal(NpcReads(new[] { _chains[1] }), NpcReads(new[] { _chains[0] }));
+    }
 
     /// <summary>A chain three hops deep is read a round per hop to its leveled list's members, not the members one at a
     /// time when FaceRoots asks: the seed, the middle NPC's round, the members' round, and the walk entering the middle
