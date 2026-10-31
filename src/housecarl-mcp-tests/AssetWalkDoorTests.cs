@@ -258,7 +258,8 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
 
     /// <summary>Pins the chain's order and its fault: a key the first arm has but cannot read is that arm's fault even
     /// when a later arm holds it, a key only the later arm holds is its hit, and a key neither holds is a miss — the
-    /// same answers one key at a time gives, with each batch read once.</summary>
+    /// same answers one key at a time gives, with each batch read once and the later arm's over only the keys the
+    /// first left unanswered.</summary>
     [Fact]
     public void ManyKeysAnswerAsOneKeyAtATime()
     {
@@ -267,15 +268,18 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         var later = mod.Keywords.AddNew("HcDoorLater");
         var none = mod.GetNextFormKey();
         int batches = 0;
+        IReadOnlyCollection<FormKey>? secondAsked = null;
         Func<FormKey, IMajorRecordGetter?> First = fk => fk == faulted.FormKey ? throw new IOException("the file is locked") : null;
+        Func<FormKey, IMajorRecordGetter?> Second = fk => fk == faulted.FormKey ? faulted : fk == later.FormKey ? later : null;
         var chain = new SourceChain(new[]
         {
             new SourceArm("first", SourceArmKind.File, "first", First, Batch: _ => { batches++; return First; }),
-            new SourceArm("second", SourceArmKind.File, "second", fk => fk == faulted.FormKey ? faulted : fk == later.FormKey ? later : null),
+            new SourceArm("second", SourceArmKind.File, "second", Second, Batch: asked => { secondAsked = asked.ToList(); return Second; }),
         });
         var keys = new[] { faulted.FormKey, later.FormKey, none };
         var many = chain.FetchMany(keys);
         Assert.Equal(1, batches);
+        Assert.Equal(new[] { later.FormKey, none }, secondAsked);
         foreach (var k in keys)
         {
             var one = chain.Fetch(k);
