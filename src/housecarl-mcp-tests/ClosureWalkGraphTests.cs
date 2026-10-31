@@ -75,7 +75,7 @@ public sealed class ClosureWalkGraphTests
     }
 
     SourceChain OneArm() => SourceChain.Single(new SourceArm("WalkFix.esp", SourceArmKind.File, "file 'WalkFix.esp'",
-        fk => _bodies.TryGetValue(fk, out var b) ? b : null));
+        _ => fk => _bodies.TryGetValue(fk, out var b) ? b : null));
 
     WalkResult Walk(WalkExclusion[]? excl = null, int? nodeCap = null, int? depthCap = null)
         => ClosureWalk.Run(Seeds(), OneArm(), _scope, excl ?? NoExcl,
@@ -143,9 +143,9 @@ public sealed class ClosureWalkGraphTests
         var split = new SourceChain(new[]
         {
             new SourceArm("Override.esp", SourceArmKind.File, "file 'Override.esp'",
-                fk => fk == Txst ? null : (_bodies.TryGetValue(fk, out var b) ? b : null)),
+                _ => fk => fk == Txst ? null : (_bodies.TryGetValue(fk, out var b) ? b : null)),
             new SourceArm("Defining.esp", SourceArmKind.File, "file 'Defining.esp'",
-                fk => _bodies.TryGetValue(fk, out var b) ? b : null),
+                _ => fk => _bodies.TryGetValue(fk, out var b) ? b : null),
         });
         var rs = ClosureWalk.Run(Seeds(), split, _scope, NoExcl);
         Assert.True(rs.Success, rs.Refusal?.Detail);
@@ -186,7 +186,7 @@ public sealed class ClosureWalkGraphTests
         mod.HeadParts.Add(a); mod.HeadParts.Add(x); mod.HeadParts.Add(y);
         var cache = mod.ToImmutableLinkCache();
         var arm = new SourceChain(new[] { new SourceArm("Sib.esp", SourceArmKind.File, "the sibling fixture",
-            fk => cache.TryResolve(fk, out var b) ? b : null) });
+            _ => fk => cache.TryResolve(fk, out var b) ? b : null) });
 
         var r = ClosureWalk.Run(new[] { new WalkSeed(sibA, "HeadParts", "Npc.HeadParts") }, arm,
             WalkScope.StandaloneFrom(new HashSet<ModKey> { Fix }, _ => true), NoExcl);
@@ -263,7 +263,7 @@ public sealed class ClosureWalkGraphTests
     [Fact]
     public void ARecordNoSourceHasRefusesAsAMiss()
     {
-        var empty = SourceChain.Single(new SourceArm("Empty.esp", SourceArmKind.File, "file 'Empty.esp'", _ => null));
+        var empty = SourceChain.Single(new SourceArm("Empty.esp", SourceArmKind.File, "file 'Empty.esp'", _ => _ => null));
         var r = ClosureWalk.Run(Seeds(), empty, _scope, NoExcl);
         Assert.Equal(WalkRefusalKind.SourceMiss, r.Refusal?.Kind);
         Assert.Equal(1, r.Refusal?.Miss?.Consulted.Count);
@@ -274,7 +274,7 @@ public sealed class ClosureWalkGraphTests
     public void AnUnreadableRecordRefusesAsAFaultNamingTheSource()
     {
         var bad = SourceChain.Single(new SourceArm("Bad.esp", SourceArmKind.File, "file 'Bad.esp'",
-            _ => throw new InvalidOperationException("a record Mutagen cannot parse")));
+            _ => _ => throw new InvalidOperationException("a record Mutagen cannot parse")));
         var r = ClosureWalk.Run(Seeds(), bad, _scope, NoExcl);
         Assert.Equal(WalkRefusalKind.SourceFault, r.Refusal?.Kind);
         Assert.Equal("Bad.esp", r.Refusal?.Fault?.Arm.Spelling);

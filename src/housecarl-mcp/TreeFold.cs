@@ -114,18 +114,15 @@ internal sealed partial class RecordReads
                 var want = new HashSet<FormKey>();
                 foreach (var (r, _) in hits) if (!stopped[r]) want.Add(keys[r]);
                 if (want.Count == 0) continue;
-                var sink = new Dictionary<FormKey, IMajorRecordGetter>(want.Count);
-                // The one gather rule, owned by BodyGather.WalkOnce; a fault there leaves the sink empty and every
-                // row falls back to the per-record fetch. Which ROW a fault names, and why, is in
-                // docs/architecture/read-engine.md.
-                if (BodyGather.WalkOnce(view, session, plugin, want, sink) is not null) sink.Clear();
+                // The plugin's rows read through the door, a group at a time; a key a faulted group did not yield answers
+                // the per-record seek's fault. Which ROW a fault names, and why, is in docs/architecture/read-engine.md.
+                var read = BodyGather.Copies(view, session, want, _ => plugin);
 
                 foreach (var (r, node) in hits)
                 {
                     if (stopped[r]) continue;
-                    var body = sink.TryGetValue(keys[r], out var got)
-                             ? got
-                             : view.FetchRecord(session, plugin, keys[r]);
+                    var body = read(keys[r]) ?? throw new InvalidOperationException(
+                        $"body-fetch inconsistency: {plugin} is indexed as containing {FormIdToken.Of(keys[r])} but did not yield it on re-enumeration.");
                     Interlocked.Increment(ref p.Resolver.Counters.TreeBodiesRead);
                     // A partial form above the winner waits for it, since the winner is the row's baseline; only
                     // its materialised fields and child answers wait, so its plugin's share is still released below.
@@ -138,7 +135,6 @@ internal sealed partial class RecordReads
                         held[r] = null;
                     }
                 }
-                sink.Clear();                                // this plugin's share of the chunk is done with
             }
         }
 

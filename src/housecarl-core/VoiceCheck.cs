@@ -89,7 +89,7 @@ public static class VoiceCheck
         {
             if (patchByKey.TryGetValue(fk, out var p)) return p;
             if (loCache.TryGetValue(fk, out var c)) return c;
-            IMajorRecordGetter? g = view.ResolveWinner(fk) is { } w ? view.GetRecord(session, w.WinnerPlugin, fk) : null;
+            IMajorRecordGetter? g = BodyGather.Winners(view, session, new[] { fk })(fk);
             loCache[fk] = g;
             return g;
         }

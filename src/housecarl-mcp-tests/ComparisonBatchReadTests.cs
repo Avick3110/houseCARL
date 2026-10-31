@@ -48,13 +48,14 @@ public sealed class ComparisonBatchReadTests : IClassFixture<OwnedChildFixture>
         finally { _w.Svc.ReadArea.AfterReadPinForGuard = null; }
     }
 
-    /// <summary>A post-state subject that holds its records still gathers the reference.</summary>
+    /// <summary>A post-state subject that holds its records reads the winners it replays through its gather, and still
+    /// gathers the reference: each winner plugin is walked once per pole.</summary>
     [Fact]
     public void APostStateSubjectThatHoldsItsRecordsGathersTheReference()
     {
         var view = _w.Svc.CaptureView();
         int winners = new[] { _w.Weapon, _w.CellG }.Select(k => view.ResolveWinner(k)!.Value.WinnerPlugin).Distinct().Count();
-        Assert.Equal(winners, Walks(new[] { OwnedChildWorld.Fid(_w.Weapon), OwnedChildWorld.Fid(_w.CellG) }, Post, "\"winner\"",
+        Assert.Equal(2 * winners, Walks(new[] { OwnedChildWorld.Fid(_w.Weapon), OwnedChildWorld.Fid(_w.CellG) }, Post, "\"winner\"",
                                     r => r.Contains(" 0 error(s)")));
     }
 

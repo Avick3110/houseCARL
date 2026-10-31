@@ -181,14 +181,14 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     }
 
     /// <summary>A template member and a speaker the walk reached come from its own read, and the race its NPCs share
-    /// is read once: one single-key read in the whole walk.</summary>
+    /// is read in the faces' round through the door: no single-key read in the whole walk.</summary>
     [Fact]
-    public void OnlyTheRaceIsReadOnItsOwn()
+    public void NoRecordIsReadOnItsOwn()
     {
         var (data, _, seeks) = Measured("HcDoorSeed");
         Assert.Contains(data.Notes, n => n.Contains(FormIdToken.Of(_w.Keys["HcDoorLineA3"])) && n.Contains("has no Voice type set"));
         Assert.DoesNotContain(data.Notes, n => n.Contains("HcDoorB2"));
-        Assert.Equal(1, seeks);
+        Assert.Equal(0, seeks);
     }
 
     /// <summary>The reverse step voices the lines of every NPC the walk enters, not the seeds alone (DECISIONS
@@ -274,8 +274,8 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         Func<FormKey, IMajorRecordGetter?> Second = fk => fk == faulted.FormKey ? faulted : fk == later.FormKey ? later : null;
         var chain = new SourceChain(new[]
         {
-            new SourceArm("first", SourceArmKind.File, "first", First, Batch: _ => { batches++; return First; }),
-            new SourceArm("second", SourceArmKind.File, "second", Second, Batch: asked => { secondBatches++; secondAsked = asked.ToList(); return Second; }),
+            new SourceArm("first", SourceArmKind.File, "first", _ => { batches++; return First; }),
+            new SourceArm("second", SourceArmKind.File, "second", asked => { secondBatches++; secondAsked = asked.ToList(); return Second; }),
         });
         var keys = new[] { faulted.FormKey, later.FormKey, none };
         var many = chain.FetchMany(keys);

@@ -158,14 +158,14 @@ internal sealed partial class RecordReads
         IMajorRecordGetter? Fetch(FormKey k)
         {
             if (bodyCache.TryGetValue(k, out var c)) return c;
-            IMajorRecordGetter? g = view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
+            IMajorRecordGetter? g = BodyGather.Winners(view, session, new[] { k })(k);
             bodyCache[k] = g;
             return g;
         }
         // The same read WITHOUT the cache — for the template chain, whose nodes are read once and dropped.
         IMajorRecordGetter? FetchTransient(FormKey k)
             => bodyCache.TryGetValue(k, out var c) ? c
-             : view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
+             : BodyGather.Winners(view, session, new[] { k })(k);
 
         // One node's template facts, memoised BY VALUE: nothing is pinned between seeds, and the walk fills this
         // as it reads, so the report only reads a chain node the walk did not reach itself.

@@ -51,15 +51,15 @@ public sealed class FaceGenPoleBatchTests : IDisposable
     public void AWholeOrderCheckReadsThePolePluginsNpcGroupOnce()
     {
         var (passes, seeks) = Cost(null);
-        Assert.Equal(1, passes);                                                // the master's NPC group, for every pole
-        Assert.Equal(1, seeks);                                                 // the race alone
+        Assert.Equal(2, passes);                                                // the master's NPC group, for every pole, and the race
+        Assert.Equal(0, seeks);
     }
 
     [Fact]
     public void APluginScopedCheckReadsTheWinnerAndPolePluginsOnceEach()
     {
         var (passes, seeks) = Cost(new[] { OverhaulName });
-        Assert.Equal(2, passes);                                                // the overhaul's winners, the master's poles
-        Assert.Equal(1, seeks);                                                 // the race alone
+        Assert.Equal(3, passes);                                                // the overhaul's winners, the master's poles, the race
+        Assert.Equal(0, seeks);
     }
 }

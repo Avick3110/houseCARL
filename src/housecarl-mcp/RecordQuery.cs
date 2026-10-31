@@ -224,7 +224,7 @@ internal sealed partial class RecordReads
                         ? fk =>
                         {
                             var w = view.ResolveWinner(fk);
-                            return w is null ? null : view.GetRecord(sess, w.Value.WinnerPlugin, fk);
+                            return w is null ? null : BodyGather.Winners(view, sess, new[] { fk })(fk);
                         }
                         : null,
                     predicate.NeedsContainment ? fk => view.ParentOf(fk) : null,
@@ -310,7 +310,7 @@ internal sealed partial class RecordReads
                 // A kept row that reached the page after its held summary was given up, read again from its winner.
                 (List<FormKey>?, RecordSummary) Refetch(FormKey fk, WinnerInfo w)
                 {
-                    var body = view.GetRecord(sess, w.WinnerPlugin, fk)
+                    var body = BodyGather.Winners(view, sess, new[] { fk })(fk)
                                ?? throw new InvalidOperationException($"winner '{w.WinnerPlugin}' did not yield the record on fetch");
                     ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null, out var hit, out _);
                     return (hit, Summarize(fk, body, w));
@@ -412,7 +412,7 @@ internal sealed partial class RecordReads
                     ? fk =>
                     {
                         var w = view.ResolveWinner(fk);
-                        return w is null ? null : view.GetRecord(winnerSession!, w.Value.WinnerPlugin, fk);
+                        return w is null ? null : BodyGather.Winners(view, winnerSession!, new[] { fk })(fk);
                     }
                     : null,
                 // The containment map is WHOLE-ORDER and later-wins on both lanes, including plugins=, because
@@ -867,7 +867,7 @@ internal sealed partial class RecordReads
                         ? fk =>
                         {
                             var w = view.ResolveWinner(fk);
-                            return w is null ? null : view.GetRecord(sess!, w.Value.WinnerPlugin, fk);
+                            return w is null ? null : BodyGather.Winners(view, sess!, new[] { fk })(fk);
                         }
                         : null,
                     parentOf: null);   // refused above: this file's containment is not in the active order's map

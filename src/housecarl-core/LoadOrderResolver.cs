@@ -851,12 +851,13 @@ public sealed class LoadOrderResolver : IDisposable
             IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
             => _r.RecordsIn(plugins, getterTypes, _s, _absences);
 
-        /// <summary>One record's body from a named plugin, with the excluded-plugin check judged against THIS view's build, so a winner and its body are never vetted by two builds.</summary>
-        public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
+        /// <summary>One record's body from a named plugin, with the excluded-plugin check judged against THIS view's build, so a winner and its body are never vetted by two builds.
+        /// The single-key seek: internal to the read door (BodyGather), which every lane reads through.</summary>
+        internal IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
             => _r.GetRecord(session, pluginName, fk, _s);
 
         /// <summary>One record's body from a plugin the index says HOLDS it — the per-record fallback a chunked gather needs; it THROWS the inconsistency rather than answering null.</summary>
-        public IMajorRecordGetter FetchRecord(OverlaySession session, string pluginName, FormKey fk)
+        internal IMajorRecordGetter FetchRecord(OverlaySession session, string pluginName, FormKey fk)
             => _r.FetchRecord(session, pluginName, fk, _s);
 
         public void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
@@ -878,7 +879,11 @@ public sealed class LoadOrderResolver : IDisposable
         /// except one excluded for a parse failure when <paramref name="parseExcluded"/> is set, whose header still reads.</summary>
         public IReadOnlyList<string> DeclaredMasters(string pluginName, bool parseExcluded = false) => _r.DeclaredMasters(pluginName, _s, _absences, parseExcluded);
 
-        public ConflictTree? ResolveTree(OverlaySession session, FormKey fk) => _r.ResolveTree(session, fk, _s);
+        internal ConflictTree? ResolveTree(OverlaySession session, FormKey fk) => _r.ResolveTree(session, fk, _s);
+
+        /// <summary>True when this build says <paramref name="pluginName"/> holds no copy of <paramref name="fk"/>, so a seek answers absent with no read.</summary>
+        internal bool LacksCopy(string pluginName, FormKey fk)
+            => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.CopyType(fk, i, out bool known) is null && known;
     }
 
     // ---- Queries: single-shot conveniences, each delegating to a fresh Capture() — one call, one build ----
@@ -890,7 +895,7 @@ public sealed class LoadOrderResolver : IDisposable
     public IReadOnlyList<string>? TouchingPlugins(FormKey fk) => Capture(null).TouchingPlugins(fk);
 
     /// <summary>The full conflict tree: every touching plugin's body, in priority order with the winner at <see cref="ConflictTree.WinnerAt"/> (a partial form above it does not win), fetched on demand into <paramref name="session"/>. null if the FormKey isn't in the order.</summary>
-    public ConflictTree? ResolveTree(OverlaySession session, FormKey fk) => ResolveTree(session, fk, _snap);
+    internal ConflictTree? ResolveTree(OverlaySession session, FormKey fk) => ResolveTree(session, fk, _snap);
 
     /// <summary>The snapshot-pinned body of <see cref="ResolveTree(OverlaySession, FormKey)"/>, so a caller that already pinned a build reads the tree off the build its epoch stamp names.</summary>
     internal ConflictTree? ResolveTree(OverlaySession session, FormKey fk, IndexSnapshot s)
@@ -936,7 +941,7 @@ public sealed class LoadOrderResolver : IDisposable
     }
 
     /// <summary>Fetch one record's body from a NAMED plugin in the order; null if the plugin isn't in the order or doesn't define this FormKey. Read it before the session disposes.</summary>
-    public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
+    internal IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
         => GetRecord(session, pluginName, fk, _snap);                      // single-shot: this call = its own build (the IndexView overload pins a whole operation)
 
     IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, IndexSnapshot s)

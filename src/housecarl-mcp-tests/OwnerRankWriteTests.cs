@@ -346,7 +346,7 @@ public sealed class OwnerRankWriteTests : IDisposable
     {
         var cache = mod.ToImmutableLinkCache();
         IMajorRecordGetter? Raw(FormKey fk) => cache.TryResolve(fk, out var body) ? body : null;
-        var chain = SourceChain.Single(new SourceArm(mod.ModKey.FileName, SourceArmKind.File, "test", fk => OwnerRanks.Settled(Raw(fk), f => f == _faction)));
+        var chain = SourceChain.Single(new SourceArm(mod.ModKey.FileName, SourceArmKind.File, "test", _ => fk => OwnerRanks.Settled(Raw(fk), f => f == _faction)));
         return Assert.IsType<SourceFault>(chain.Fetch(key).Fault).Cause;
     }
 

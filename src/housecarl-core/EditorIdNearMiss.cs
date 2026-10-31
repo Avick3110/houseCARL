@@ -36,7 +36,7 @@ public static class EditorIdNearMiss
                     if (view.ResolveWinner(fk) is not { } w) continue;
                     if (string.Equals(w.WinnerPlugin, source, StringComparison.OrdinalIgnoreCase)) continue;   // this IS the winner — the scan saw this name and judged it
                     // A winner body that will not fetch skips this candidate, not the walk.
-                    var winnerBody = view.GetRecord(session, w.WinnerPlugin, fk);
+                    var winnerBody = BodyGather.Winners(view, session, new[] { fk })(fk);
                     if (winnerBody is null) continue;
                     var winnerEid = winnerBody.EditorID;
                     if (winnerEid is null)

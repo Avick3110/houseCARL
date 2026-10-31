@@ -125,13 +125,13 @@ public sealed class SourceChainTests : IClassFixture<SourceChainWorld>
     {
         Assert.Equal("D", NameVia(W.Shared, "Donor.esp"));
         Assert.Equal("D", NameVia(W.Shared, "Donor.esp", "Over.esp"));
-        Assert.Equal("D", _w.Chain(new[] { "Over.esp", "Donor.esp" }, (c, e) => (c!.Arms[1].Fetch(W.Shared) as INpcGetter)?.Name?.String));
+        Assert.Equal("D", _w.Chain(new[] { "Over.esp", "Donor.esp" }, (c, e) => (c!.Arms[1].Batch(new[] { W.Shared })(W.Shared) as INpcGetter)?.Name?.String));
     }
 
     static SourceChain Faulting(INpcGetter fallback) => new(new[]
     {
-        new SourceArm("Faulty.esp", SourceArmKind.File, "file 'Faulty.esp'", _ => throw new InvalidOperationException("a record Mutagen cannot parse")),
-        new SourceArm("Fallback.esp", SourceArmKind.File, "file 'Fallback.esp'", _ => fallback),
+        new SourceArm("Faulty.esp", SourceArmKind.File, "file 'Faulty.esp'", _ => _ => throw new InvalidOperationException("a record Mutagen cannot parse")),
+        new SourceArm("Fallback.esp", SourceArmKind.File, "file 'Fallback.esp'", _ => _ => fallback),
     });
 
     // a FAULTING arm produces a fault, and NOT a hit from the arm behind it (no silent substitution);

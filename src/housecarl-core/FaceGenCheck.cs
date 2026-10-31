@@ -150,7 +150,7 @@ public static class FaceGenCheck
             if (raceMemo.TryGetValue(raceKey, out var had)) return had;
             bool? answer = null;
             if (view.ResolveWinner(raceKey) is { } rw
-                && view.GetRecord(session, rw.WinnerPlugin, raceKey) is IRaceGetter race)
+                && BodyGather.Winners(view, session, new[] { raceKey })(raceKey) is IRaceGetter race)
                 answer = race.Flags.HasFlag(Race.Flag.FaceGenHead);
             return raceMemo[raceKey] = answer;
         }

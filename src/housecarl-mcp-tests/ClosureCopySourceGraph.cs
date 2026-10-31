@@ -54,7 +54,7 @@ sealed class ClosureCopySourceGraph
         Array.Empty<WalkExclusion>());
 
     public static SourceArm FileArm(string spelling, Func<FormKey, IMajorRecordGetter?> fetch) =>
-        new(spelling, SourceArmKind.File, $"file '{spelling}'", fetch);
+        new(spelling, SourceArmKind.File, $"file '{spelling}'", _ => fetch);
 
     public static SkyrimMod SourceMod()
     {
