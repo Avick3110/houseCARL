@@ -45,6 +45,7 @@ public sealed class AssetRootNameTests : IDisposable
     [InlineData(@"meshes\fomod\x.xml", true)]
     [InlineData(@"root\readme.txt", true)]
     [InlineData("meta.ini.bak", true)]
+    [InlineData(@"fomodx\a.xml", true)]
     public void TheRootNamesAreHiddenUnderTheDefaultAndEmptyLists(string rel, bool shown)
     {
         Assert.Equal(shown, Mo2SkipRules.Default.Shows(rel));
