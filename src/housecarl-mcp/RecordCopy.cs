@@ -61,7 +61,8 @@ internal sealed partial class RecordWrites
                     {
                         var w = view.ResolveWinner(fk);
                         return w is null ? null : view.GetRecord(session, w.Value.WinnerPlugin, fk);
-                    }));
+                    },
+                    Batch: keys => OrderedGather.Copies(view, session, keys, fk => view.ResolveWinner(fk)?.WinnerPlugin)));
                 continue;
             }
 
@@ -83,14 +84,16 @@ internal sealed partial class RecordWrites
             {
                 var active = spelling;
                 arms.Add(new SourceArm(spelling, SourceArmKind.ActiveOrder, $"'{active}' (active in the load order)",
-                    fk => view.GetRecord(session, active, fk), ActiveLayer(active)));
+                    fk => view.GetRecord(session, active, fk), ActiveLayer(active),
+                    keys => OrderedGather.Copies(view, session, keys, _ => active)));
                 continue;
             }
             // A path that names the order's own copy of an active plugin is that plugin, not an off-order file.
             if (PluginPaths.LooksLikePath(spelling) && PluginPaths.ActiveNameForPath(view, spelling) is { } activeName)
             {
                 arms.Add(new SourceArm(activeName, SourceArmKind.ActiveOrder, $"'{activeName}' (active in the load order; named by path)",
-                    fk => view.GetRecord(session, activeName, fk), ActiveLayer(activeName)));
+                    fk => view.GetRecord(session, activeName, fk), ActiveLayer(activeName),
+                    keys => OrderedGather.Copies(view, session, keys, _ => activeName)));
                 continue;
             }
 
@@ -143,7 +146,11 @@ internal sealed partial class RecordWrites
         overlays.AddRange(openedHere);
         // Each record as the copy takes it, faction owners settled, so no walk follows a rank word as a link.
         var isFaction = OwnerRanks.FactionIn(view);
-        return new SourceChain(arms.Select(a => a with { Fetch = fk => OwnerRanks.Settled(a.Fetch(fk), isFaction) }).ToList());
+        return new SourceChain(arms.Select(a => a with
+        {
+            Fetch = fk => OwnerRanks.Settled(a.Fetch(fk), isFaction),
+            Batch = a.Batch is { } batch ? keys => { var read = batch(keys); return fk => OwnerRanks.Settled(read(fk), isFaction); } : null,
+        }).ToList());
         }
         catch { foreach (var d in openedHere) { try { d.Dispose(); } catch { } } throw; }
     }

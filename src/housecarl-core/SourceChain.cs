@@ -40,13 +40,15 @@ public enum ModFolderStanding
 public sealed record SourceLayer(
     SourceLayerKind Kind, string Name, ModFolderStanding Folder = ModFolderStanding.Live);
 
-/// <summary>One element of an ordered source universe: the caller's verbatim spelling, how it resolved, where it resolved to, the fetch, and the MO2 layer behind it.</summary>
+/// <summary>One element of an ordered source universe: the caller's verbatim spelling, how it resolved, where it resolved to, the fetch, and the MO2 layer behind it.
+/// <paramref name="Batch"/>, when set, reads many keys at once through the read door and answers a fetch over what it read, with <paramref name="Fetch"/>'s answers.</summary>
 public sealed record SourceArm(
     string Spelling,
     SourceArmKind Kind,
     string Where,
     Func<FormKey, IMajorRecordGetter?> Fetch,
-    SourceLayer? Layer = null);
+    SourceLayer? Layer = null,
+    Func<IReadOnlyCollection<FormKey>, Func<FormKey, IMajorRecordGetter?>>? Batch = null);
 
 /// <summary>One arm as a READBACK names it, with the fetch left off; <paramref name="Kind"/> travels because a null <paramref name="Layer"/> means two different things.</summary>
 public sealed record SourceArmRef(string Spelling, SourceArmKind Kind, SourceLayer? Layer)
@@ -100,6 +102,29 @@ public sealed class SourceChain
             if (body is not null) return new SourceFetch(new SourceHit(body, i, Arms[i]), null);
         }
         return new SourceFetch(null, null);
+    }
+
+    /// <summary>Resolve many keys with <see cref="Fetch"/>'s answers, each arm reading the keys still unanswered at once through its batch read.</summary>
+    public IReadOnlyDictionary<FormKey, SourceFetch> FetchMany(IReadOnlyCollection<FormKey> keys)
+    {
+        var got = new Dictionary<FormKey, SourceFetch>(keys.Count);
+        var left = keys.Distinct().ToList();
+        for (int i = 0; i < Arms.Count && left.Count > 0; i++)
+        {
+            var fetch = Arms[i].Batch is { } batch ? batch(left) : Arms[i].Fetch;
+            var next = new List<FormKey>();
+            foreach (var key in left)
+            {
+                IMajorRecordGetter? body;
+                try { body = fetch(key); }
+                catch (Exception ex) { got[key] = new SourceFetch(null, new SourceFault(key, "", i, Arms[i], ex.Message)); continue; }
+                if (body is not null) got[key] = new SourceFetch(new SourceHit(body, i, Arms[i]), null);
+                else next.Add(key);
+            }
+            left = next;
+        }
+        foreach (var key in left) got[key] = new SourceFetch(null, null);
+        return got;
     }
 
     public SourceMiss Miss(FormKey key, string pulledBy) => new(key, pulledBy, Arms);

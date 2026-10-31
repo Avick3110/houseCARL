@@ -167,7 +167,7 @@ internal sealed partial class AssetLayers
                      List<string> notes, ref bool truncated)
     {
         var seenRec = new HashSet<FormKey>();
-        var queue = new Queue<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home, int Depth)>();
+        var frontier = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
         // The plugins each from_source arm names, as copy binds them (RecordCopy): an override donor's own records are
         // entered. A seed read through 'winner' also enters its own plugin; one read through a named plugin does not.
         var named = new HashSet<ModKey>();
@@ -176,7 +176,7 @@ internal sealed partial class AssetLayers
             if (string.Equals(arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)) continue;
             try { named.Add(ModKey.FromFileName(Path.GetFileName(arm.Spelling))); } catch { /* a spelling that names no plugin binds nothing */ }
         }
-        foreach (var s in seeds) if (seenRec.Add(s)) queue.Enqueue((s, "seed", null, 0));
+        foreach (var s in seeds) if (seenRec.Add(s)) frontier.Add((s, "seed", null));
         int pastDepth = 0;
         var boundaries = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var inferCache = AssetWalkEdges.EmptyCache();
@@ -186,12 +186,21 @@ internal sealed partial class AssetLayers
         int entered = 0;
         var npcs = new List<(FormKey Key, string Label)>();
 
-        var Fetch = WalkFetch(chain, fk => index.ResolveWinner(fk) is { } w ? index.GetRecord(session, w.WinnerPlugin, fk) : null);
+        // Template members and speakers: the walk's own read when it reached them. Only these types are kept, so no
+        // cell or worldspace body holds its group's bytes past its depth.
+        var reached = new Dictionary<FormKey, IMajorRecordGetter>();
+        var walkFetch = WalkFetch(chain, fk => index.ResolveWinner(fk) is { } w ? index.GetRecord(session, w.WinnerPlugin, fk) : null);
+        IMajorRecordGetter? Fetch(FormKey fk) => reached.TryGetValue(fk, out var body) ? body : walkFetch(fk);
 
-        while (queue.Count > 0)
+        // Breadth-first by depth, each depth's records read at once through the door: the order a queue would enter them.
+        for (int depth = 0; frontier.Count > 0; depth++)
         {
-            var (fk, pulledBy, home, depth) = queue.Dequeue();
-            var got = chain.Fetch(fk, pulledBy);
+        var fetched = chain.FetchMany(frontier.Select(f => f.Key).ToList());
+        var next = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
+        foreach (var (fk, pulledBy, homeIn) in frontier)
+        {
+            var home = homeIn;
+            var got = fetched[fk];
             if (got.Fault is { } fault) { notes.Add($"record {FormIdToken.Of(fk)} (pulled by {pulledBy}): '{fault.Arm.Spelling}' has it but could not read it — {fault.Cause}"); continue; }
             if (got.Hit is not { } hit)
             {
@@ -199,10 +208,11 @@ internal sealed partial class AssetLayers
                           string.Join(", ", chain.Arms.Select(a => a.Where)) + ".");
                 continue;
             }
-            if (++entered > MaxWalkRecords) { truncated = true; notes.Add($"the walk stopped entering records at {MaxWalkRecords}."); break; }
+            if (++entered > MaxWalkRecords) { truncated = true; notes.Add($"the walk stopped entering records at {MaxWalkRecords}."); next.Clear(); break; }
             home ??= string.Equals(hit.Arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)
                 ? new HashSet<ModKey>(named) { fk.ModKey } : named;
             var body = hit.Body;
+            if (body is INpcGetter or ILeveledNpcGetter or IRaceGetter) reached[fk] = body;
             var type = RecordNaming.StripOverlay(body.GetType().Name);
             var label = body.EditorID is { Length: > 0 } edid ? $"{type} {edid} [{FormIdToken.Of(fk)}]" : $"{type} [{FormIdToken.Of(fk)}]";
 
@@ -226,8 +236,10 @@ internal sealed partial class AssetLayers
                 if (link.IsNull || link.FormKey == fk) continue;
                 if (!home.Contains(link.FormKey.ModKey)) { boundaries[link.FormKey.ModKey.FileName] = boundaries.GetValueOrDefault(link.FormKey.ModKey.FileName) + 1; continue; }
                 if (depth >= RecordDepth) { if (seenRec.Add(link.FormKey)) pastDepth++; continue; }
-                if (seenRec.Add(link.FormKey)) queue.Enqueue((link.FormKey, label, home, depth + 1));
+                if (seenRec.Add(link.FormKey)) next.Add((link.FormKey, label, home));
             }
+        }
+        frontier = next;
         }
         // An NPC's dialogue lines: the active order's lines whose winning copy it speaks (AssetWalkEdges.Speaks),
         // found through the reverse index, and the lines an off-order source defines, which no index holds, read off it.
@@ -243,13 +255,18 @@ internal sealed partial class AssetLayers
                     VoiceOf(view, source, line, lineLabel, Voice(), Fetch, addFile, notes);
                 }
                 index.EnsureReverseIndex();
+                // Only referencers whose winning copy is a line are read, all at once through the door; the index types them with no body read.
+                var referencers = npcs.Select(n => (n.Key, n.Label, Refs: index.ReverseIndex!.ReferencersOf(new[] { n.Key }).ToList())).ToList();
+                var candidates = referencers.SelectMany(n => n.Refs).Where(r => !seenRec.Contains(r)).Distinct()
+                                            .Where(r => index.WinnerClassOf(r) is not { } cls || typeof(IDialogResponsesGetter).IsAssignableFrom(cls)).ToList();
+                var read = OrderedGather.Copies(index, session, candidates, r => index.ResolveWinner(r)?.WinnerPlugin);
                 var winners = new Dictionary<FormKey, IDialogResponsesGetter?>();
-                foreach (var (key, npcLabel) in npcs)
-                    foreach (var r in index.ReverseIndex!.ReferencersOf(new[] { key }))
+                foreach (var (key, npcLabel, refs) in referencers)
+                    foreach (var r in refs)
                     {
                         if (seenRec.Contains(r) || lines.Contains(r)) continue;
                         if (!winners.TryGetValue(r, out var line))
-                            winners[r] = line = (index.ResolveWinner(r) is { } w ? index.GetRecord(session, w.WinnerPlugin, r) : null) as IDialogResponsesGetter;
+                            winners[r] = line = read(r) as IDialogResponsesGetter;
                         if (line is not null && AssetWalkEdges.Speaks(line, key)) Line(line, npcLabel);
                     }
                 foreach (var mod in overlays.OfType<ISkyrimModGetter>())
