@@ -239,7 +239,7 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     }
 
     /// <summary>Pins the record cap and its note: at three records the seed list and the first two NPCs are entered,
-    /// in queue order, and the walk says where it stopped.</summary>
+    /// in queue order, and the walk says where it stopped, once: nothing past the cap is entered at a later depth.</summary>
     [Fact]
     public void TheCapStopsAtTheSameRecord()
     {
@@ -252,6 +252,7 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
             Assert.True(d.Truncated);
             Assert.Equal(new[] { "HcDoorA1", "HcDoorA2" }, d.Nodes.Where(n => n.Edge == "facegen").Select(n => n.PulledBy.Split(' ')[1]).Distinct());
             Assert.Equal("the walk stopped entering records at 3.", d.Notes[0]);
+            Assert.Single(d.Notes, n => n.StartsWith("the walk stopped entering records"));
         }
         finally { area.MaxWalkRecords = prior; }
     }
