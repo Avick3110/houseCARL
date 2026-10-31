@@ -28,7 +28,6 @@ public static class OrderedGather
                                     CancellationToken ct = default, Func<bool>? stop = null,
                                     Action<string, IReadOnlyCollection<FormKey>, PluginUnreadableException>? faulted = null)
     {
-        var opens = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
         foreach (var (plugin, items) in Sort(view, pairs, p => p.Plugin, p => p.Key))
         {
             ct.ThrowIfCancellationRequested();
@@ -36,12 +35,11 @@ public static class OrderedGather
             var asked = new HashSet<FormKey>(items.Select(p => p.Key));
             var bodies = new Dictionary<FormKey, IMajorRecordGetter>(asked.Count);
             // A plugin that will not open is skipped from then on; a broken group leaves its other groups to be walked.
-            if (unreadable is not null && unreadable.TryGetValue(plugin, out var prior) && prior is not PluginUnscannableException) opens.TryAdd(plugin, prior);
-            if (opens.TryGetValue(plugin, out var open)) faulted?.Invoke(plugin, asked, open);
+            if (unreadable is not null && unreadable.TryGetValue(plugin, out var prior) && prior is not PluginUnscannableException)
+                faulted?.Invoke(plugin, asked, prior);
             else if (BodyGather.WalkOnce(view, session, plugin, asked, bodies) is { } fault)
             {
                 unreadable?.TryAdd(plugin, fault);
-                if (fault is not PluginUnscannableException) opens[plugin] = fault;
                 faulted?.Invoke(plugin, asked, fault);
             }
             perGroup(plugin, bodies, asked);
