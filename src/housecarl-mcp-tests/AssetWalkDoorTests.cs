@@ -180,8 +180,8 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         Assert.DoesNotContain(reads.Keys, k => k.Group is "Cells" or "Worldspaces" || k.Group.StartsWith('*'));
     }
 
-    /// <summary>A template member and a speaker the walk reached come from its own read, and the race its NPCs share
-    /// is read in the faces' round through the door: no single-key read in the whole walk.</summary>
+    /// <summary>A template member and a speaker the walk reached resolve, and no body in the whole walk is read by a
+    /// single-key seek; which round reads a race is pinned in AssetWalkTemplateDoorTests.</summary>
     [Fact]
     public void NoRecordIsReadOnItsOwn()
     {
