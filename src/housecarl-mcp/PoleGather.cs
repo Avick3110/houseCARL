@@ -30,6 +30,12 @@ internal sealed class PoleGather
     /// <summary>Whether this pole holds a version of the record, for an arm with no in-order plugin (the post replay, an off-order file); null leaves it to <see cref="PluginOf"/>.</summary>
     internal Func<FormKey, bool>? Holds;
 
+    /// <summary>Run on each row's key in row order once <see cref="Each"/> has read the window, for what the arm raises in row order.</summary>
+    internal Action<FormKey>? Settle;
+
+    /// <summary>Whether <see cref="Each"/> is reading, so rows run in door order rather than row order.</summary>
+    internal bool InEach { get; private set; }
+
     BodyGather? _gather;
 
     /// <summary>Whether this chunk is gathered, so a caller reads through it rather than seeking per record.</summary>
@@ -58,9 +64,15 @@ internal sealed class PoleGather
         var rowsOf = new Dictionary<FormKey, List<int>>();
         var rest = Declare(g, rows, rowsOf);
         _gather = g;
-        try { g.Gather(asked => { foreach (var key in asked) rowsOf[key].ForEach(read); }); }
-        finally { _gather = null; }
-        rest.ForEach(read);
+        InEach = true;
+        try
+        {
+            try { g.Gather(asked => { foreach (var key in asked) rowsOf[key].ForEach(read); }); }
+            finally { _gather = null; }
+            rest.ForEach(read);
+        }
+        finally { InEach = false; }
+        if (Settle is { } settle) foreach (var r in rows) settle(r.Key);
     }
 
     /// <summary>Declare each row's body on <paramref name="g"/>, filing the row under its key in <paramref name="rowsOf"/>;
