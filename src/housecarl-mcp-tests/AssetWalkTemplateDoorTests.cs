@@ -16,7 +16,7 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     static readonly ModKey A = new("HcTmplA", ModType.Master);
     readonly List<FormKey> _npcs = new();
     readonly FormKey[] _members = new FormKey[2];
-    readonly FormKey _list, _plain, _templated;
+    readonly FormKey _list, _plain, _templated, _nested;
     readonly FormKey[] _chains = new FormKey[2];
     readonly LoadOrderService _svc;
 
@@ -67,6 +67,16 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
         templated.Template.SetTo(hidden);
         templated.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
         _templated = templated.FormKey;
+        // An NPC templated on an NPC templated on the leveled list: the members are three hops down.
+        var middle = a.Npcs.AddNew("HcTmplMiddle");
+        middle.Race.SetTo(race);
+        middle.Template.SetTo(lvln);
+        middle.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+        var nested = a.Npcs.AddNew("HcTmplNested");
+        nested.Race.SetTo(race);
+        nested.Template.SetTo(middle);
+        nested.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+        _nested = nested.FormKey;
         a.BeginWrite.ToPath(_mo2.InMod("TmplA", A)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         var name = A.FileName.String;
         _mo2.Profile(name + "\r\n", "*" + name + "\r\n", "+TmplA\r\n");
@@ -118,6 +128,12 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     [Fact]
     public void ATemplateChainIsReadNoFurtherThanTheCap()
         => Assert.Equal(NpcReads(new[] { _chains[1] }), NpcReads(new[] { _chains[0] }));
+
+    /// <summary>A chain three hops deep is read a round per hop to its leveled list's members, not the members one at a
+    /// time when FaceRoots asks: the seed, the middle NPC's round, the members' round, and the walk entering the middle
+    /// NPC and then the members.</summary>
+    [Fact]
+    public void ANestedTemplateChainIsReadToItsLastHop() => Assert.Equal(5, NpcReads(new[] { _nested }));
 
     /// <summary>An NPC past the record cap is not entered, so its template is not read: the walk reads the seeds' NPC
     /// group once.</summary>
