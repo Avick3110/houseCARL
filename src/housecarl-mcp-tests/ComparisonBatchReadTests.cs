@@ -64,6 +64,17 @@ public sealed class ComparisonBatchReadTests : IClassFixture<OwnedChildFixture>
         Assert.Equal(winners, _w.Svc.Counters.CollectPasses - passes);
     }
 
+    /// <summary>Many post-state rows in a few winner groups walk each group once per pole, not once per row (#1282).</summary>
+    [Fact]
+    public void APostStateSubjectReadsItsWinnersAGroupAtATime()
+    {
+        var view = _w.Svc.CaptureView();
+        var keys = new[] { _w.CellA, _w.CellB, _w.CellC, _w.CellD, _w.CellE, _w.Weapon };
+        int groups = HousecarlCore.OrderedGather.Sort(view, keys, k => view.ResolveWinner(k)!.Value.WinnerPlugin, k => k).Count;
+        Assert.True(keys.Length > groups);
+        Assert.Equal(2 * groups, Walks(keys.Select(OwnedChildWorld.Fid).ToArray(), Post, "\"winner\""));
+    }
+
     /// <summary>A post-state subject that holds its records reads the winners it replays through its gather, and still
     /// gathers the reference: each winner plugin is walked once per pole.</summary>
     [Fact]
