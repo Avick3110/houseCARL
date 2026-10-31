@@ -1,1 +1,0 @@
-- **A merge, rename, clone or patch now writes a translated plugin's text as UTF-8 when it copies UTF-8 text, replacing 2.0.1's any-contributor rule.** Check: under English, rename a UTF-8 plugin with Japanese names; it writes instead of refusing. Reported by @rontarun (#1254).
