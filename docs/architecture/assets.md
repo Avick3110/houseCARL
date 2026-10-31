@@ -349,9 +349,11 @@ nothing is cut silently. Each record contributes:
 
 The walk reads its records in bulk (#1277). It walks breadth-first by depth, so it enters records in the order a
 queue would, and reads each depth's records at once through the record sources (`SourceChain.FetchMany`; its
-answers are walk-and-reverse.md's, the read door's and its faults read-engine.md's). A face's race (once per
-walk), a face's template member and a voice's speaker answer from the walk's own read when the walk reached them, and
-are read one key at a time otherwise. The reverse step reads, all walked NPCs' at once through the door, the
+answers are walk-and-reverse.md's, the read door's and its faults read-engine.md's). A face's template members and race
+answer from the walk's own read when the walk reached them, else from rounds read before a depth is entered: the
+Traits template chains of the NPCs that depth enters (none past the record cap), one round per hop up to the chain
+cap, each round with its NPCs' races (`MemberReads.Templates`). A voice's speaker answers from the walk's read, else
+is read as a set of one. Every member read is kept by key for the whole walk. The reverse step reads, all walked NPCs' at once through the door, the
 referencers whose winning copy the index types as a line; one it types as anything else (a placed reference, a cell, a
 quest), or one with no winner, is never read.
 
@@ -476,8 +478,10 @@ provided either; the generic lane does not, because it legitimately answers for 
   its `.pex` and no `.psc`; a start-game-enabled quest reaches its keyed `.seq`. `AssetWalkDoorTests` — each depth
   reads each (plugin, group) once and the lines once per plugin, with no cell group; the lines of every NPC the walk
   enters are voiced (`TheLinesOfEveryEnteredNpcAreVoiced`) and the nodes, edges and notes are a queue's
-  (`TheAnswerIsTheOneAQueueGave`); a reached template member and speaker come from the walk's read and the race is
-  read once (`OnlyTheRaceIsReadOnItsOwn`); an owner rank is not walked as a link (`AnOwnerRankIsNotWalkedAsALink`);
+  (`TheAnswerIsTheOneAQueueGave`); a reached template member and speaker come from the walk's read and the race its NPCs
+  share is read in the faces' round, with no single-key read in the walk (`NoRecordIsReadOnItsOwn`);
+  `AssetWalkTemplateDoorTests.ATemplateSharedByManyNpcsIsReadOncePerHop` — a template six NPCs share is read once
+  per hop; an owner rank is not walked as a link (`AnOwnerRankIsNotWalkedAsALink`);
   the depth bound and the record cap stop where they did; `AssetWalkDoorFaultTests`
   — a broken NPC group is the arm's fault note. Fragments and a `.pex`'s parent are not pinned by a test; they were
   checked on the dev instance only.
