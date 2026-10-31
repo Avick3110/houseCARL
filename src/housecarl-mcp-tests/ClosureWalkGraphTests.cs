@@ -292,6 +292,9 @@ public sealed class ClosureWalkGraphTests
         var r = ClosureWalk.Run(Seeds(), bad, _scope, NoExcl);
         Assert.Equal(WalkRefusalKind.SourceFault, r.Refusal?.Kind);
         Assert.Equal("Bad.esp", r.Refusal?.Fault?.Arm.Spelling);
+        // the batch read names no puller, so the walk names who pulled the faulted record
+        Assert.False(string.IsNullOrEmpty(r.Refusal?.PulledBy));
+        Assert.Equal(r.Refusal?.PulledBy, r.Refusal?.Fault?.PulledBy);
     }
 
     // a walk with NO seed links refuses
