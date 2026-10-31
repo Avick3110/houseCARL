@@ -183,9 +183,9 @@ public sealed class AssetRootNameTests : IDisposable
         Assert.True(Hit(svc, NestedMeta).Exists);
     }
 
-    /// <summary>Pins unchanged behaviour: the root names are a loose-layer rule, so an archive's root readme.txt still lists.</summary>
+    /// <summary>Pins unchanged behaviour: the root names are a loose-layer rule, so an archive's root readme.txt still lists and resolves.</summary>
     [Fact]
-    public void AnArchiveRootReadmeIsStillListed()
+    public void AnArchiveRootReadmeIsStillListedAndResolves()
     {
         using var p = new PlaceInstance();
         var body = HousecarlGenerator.BsaBuilder.Bytes("RDM", 8);
@@ -196,7 +196,9 @@ public sealed class AssetRootNameTests : IDisposable
             }));
         p.ProfileWithDummy("ArchHost", "+ArchHost");
 
-        Assert.Contains(Readme, Under(p.Open(), "*"));
+        var svc = p.Open();
+        Assert.Contains(Readme, Under(svc, "*"));
+        Assert.True(Hit(svc, Readme).Exists);
     }
 
     [Fact]
