@@ -58,6 +58,9 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
 
 - `ClosureWalkGraphTests` / `SourceChainTests` — the walk's caps, cycles and refusals, and the chain's
   first-hit-wins, fault-stops and miss-names-every-arm rules.
+- `AssetWalkDoorTests.ManyKeysAnswerAsOneKeyAtATime` — `FetchMany`'s hit, fault and miss are `Fetch`'s, each batch
+  is read once and a later arm reads only the keys still unanswered; `AssetWalkDoorFaultTests.ABrokenGroupIsTheArmsFaultNotAMiss`
+  — a group the door's walk faults on is the arm's fault, not a miss.
 - `RecordsWalkCycleTests` / `RecordsWalkCostTests` / `RecordsWalkUnscannableTests` — the walk lanes.
 - `RecordsReverseIndexTests` — the unbounded reverse selection, the orphan sweep and the index's
   in-band accounting line.
