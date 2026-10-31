@@ -81,6 +81,20 @@ public sealed class ClosureWalkGraphTests
         => ClosureWalk.Run(Seeds(), OneArm(), _scope, excl ?? NoExcl,
             nodeCap ?? ClosureWalk.DefaultNodeCap, depthCap ?? ClosureWalk.DefaultDepthCap);
 
+    // each depth's keys are read in one batch (#1282), and the walk reaches what a key-at-a-time read reaches
+    [Fact]
+    public void EachDepthIsReadInOneBatch()
+    {
+        var asked = new List<int>();
+        var counting = SourceChain.Single(new SourceArm("WalkFix.esp", SourceArmKind.File, "file 'WalkFix.esp'",
+            keys => { asked.Add(keys.Count); return fk => _bodies.TryGetValue(fk, out var b) ? b : null; }));
+        var rs = ClosureWalk.Run(Seeds(), counting, _scope, NoExcl);
+        Assert.True(rs.Success);
+        Assert.Equal(rs.Reached.Select(n => n.Depth).Distinct().Count(), asked.Count);
+        Assert.Equal(Walk().Reached.Select(n => (n.Key, n.Depth, n.PulledBy)), rs.Reached.Select(n => (n.Key, n.Depth, n.PulledBy)));
+        Assert.True(asked[0] > 1, string.Join(",", asked));
+    }
+
     // seed paths resolve to their links, each carrying its own provenance label ('Npc.HeadParts')
     [Fact]
     public void SeedPathsResolveToTheirLinksEachLabelledWithItsPath()

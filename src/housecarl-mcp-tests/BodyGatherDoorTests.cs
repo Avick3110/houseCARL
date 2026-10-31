@@ -208,4 +208,52 @@ public sealed class BodyGatherDoorTests : IDisposable
         gather.Gather(_ => { });
         Assert.Equal(pin.View.GetRecord(session, Name(1), fk)!.EditorID, gather.Body(Name(1), fk)?.EditorID);
     }
+
+    /// <summary>A group the door's walk faulted on is walked once: each key it did not yield answers the fault a
+    /// per-record seek raises, in the same words, with no seek per key, and its healthy group answers as before.</summary>
+    [Fact]
+    public void AFaultedGroupIsWalkedOnceAndEachKeyAnswersTheSeeksFault()
+    {
+        using var svc = _mo2.Open();
+        var pin = svc.CapturePin();
+        BreakWeapons(1);
+        using var session = pin.Resolver.OpenSession();
+        var gather = new BodyGather(pin.View, session);
+        var keys = _keys[_mods[1]].Npcs.Concat(_keys[_mods[1]].Weapons).ToList();
+        foreach (var fk in keys) gather.Want(Name(1), fk);
+        gather.Gather();
+
+        var seeks = svc.Counters.BodySeeks;
+        var answers = keys.Select(fk => Answer(() => gather.Body(Name(1), fk))).ToList();
+        Assert.Equal(seeks, svc.Counters.BodySeeks);
+
+        using var plain = pin.Resolver.OpenSession();
+        Assert.Equal(keys.Select(fk => Answer(() => pin.View.GetRecord(plain, Name(1), fk))), answers);
+        Assert.All(answers.Skip(2), a => Assert.False(a.Contains('|') || a == "(absent)", a));   // the weapons fault
+    }
+
+    /// <summary>A plugin that will not open is not reopened per key: each declared key answers the open's fault, the
+    /// type and words a per-record seek raises.</summary>
+    [Fact]
+    public void APluginThatWillNotOpenIsNotReopenedPerKey()
+    {
+        using var svc = _mo2.Open();
+        var pin = svc.CapturePin();
+        var keys = _keys[_mods[1]].Npcs.Concat(_keys[_mods[1]].Weapons).ToList();
+        List<string> answers, direct;
+        using (HeldOpen.Hold(Path.Combine(_mo2.ModsDir, _mods[1].Name, Name(1))))
+        {
+            using var session = pin.Resolver.OpenSession();
+            var gather = new BodyGather(pin.View, session);
+            foreach (var fk in keys) gather.Want(Name(1), fk);
+            gather.Gather();
+            var opens = svc.Counters.SessionOverlayOpens;
+            answers = keys.Select(fk => Answer(() => gather.Body(Name(1), fk))).ToList();
+            Assert.Equal(opens, svc.Counters.SessionOverlayOpens);
+            using var plain = pin.Resolver.OpenSession();
+            direct = keys.Select(fk => Answer(() => pin.View.GetRecord(plain, Name(1), fk))).ToList();
+        }
+        Assert.Equal(direct, answers);
+        Assert.All(answers, a => Assert.DoesNotContain("(absent)", a));
+    }
 }
