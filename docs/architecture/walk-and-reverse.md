@@ -15,12 +15,16 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
 - The closure walk's source universe is an ORDERED list of poles tried in order, first hit wins. It
   is fallback, never merge, and never the set-valued SOURCE a comparison uses. An arm that HAS the
   record but cannot parse it STOPS the chain rather than answering with a later arm's bytes; a miss
-  names every arm consulted, not the last one tried. `FetchMany` answers many keys at once: each arm
-  reads the keys still unanswered in one batch (an active-order arm through the read door,
-  `BodyGather.Copies`) and falls back to its single-key fetch where it has no batch. Each key's hit,
-  fault or miss is the one `Fetch` gives, with two differences: its `PulledBy` is empty (the caller
-  holds who pulled it), and a throw out of an arm's batch read itself, such as the mid-call change,
-  cancellation or out-of-memory the door rethrows, leaves the call rather than becoming one key's fault.
+  names every arm consulted, not the last one tried. `FetchMany` is the chain's only read, and one key
+  is a set of one: each arm reads the keys still unanswered in one batch (an active-order arm through
+  the read door, `BodyGather.Copies`; an off-order file arm off the Mutagen link cache it builds once).
+  A fault's `PulledBy` is empty (the caller holds who pulled it), and a throw out of an arm's batch read
+  itself, such as the mid-call change, cancellation or out-of-memory the door rethrows, leaves the call
+  rather than becoming one key's fault.
+- The closure walk reads by depth: when it reaches a key it has not read, it reads that key and every
+  key still queued at the same depth that it would enter (not seen, inside the scope), at most as many
+  as the node cap leaves room for, in one `FetchMany`. The answers, nodes, refusals and their order are
+  the key-at-a-time walk's.
 - Walk provenance is per node: each reached node records which arm produced its body and the full
   pull chain from a seed, which is what makes a cap refusal actionable.
 - A seed path's shape is decided off the DECLARED type before any value is read, so a null cannot be
@@ -57,7 +61,8 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
 ## Pinned by
 
 - `ClosureWalkGraphTests` / `SourceChainTests` — the walk's caps, cycles and refusals, and the chain's
-  first-hit-wins, fault-stops and miss-names-every-arm rules.
+  first-hit-wins, fault-stops and miss-names-every-arm rules; `ClosureWalkGraphTests.EachDepthIsReadInOneBatch`
+  — one batch per depth, reaching what the key-at-a-time walk reaches.
 - `AssetWalkDoorTests.ManyKeysAnswerAsOneKeyAtATime` — `FetchMany`'s hit, fault and miss are `Fetch`'s, each batch
   is read once and a later arm reads only the keys still unanswered; `AssetWalkDoorFaultTests.ABrokenGroupIsTheArmsFaultNotAMiss`
   — a group the door's walk faults on is the arm's fault, not a miss.
