@@ -427,7 +427,7 @@ static class AssetWire
         {
             var hiddenRoot = AssetResolver.NamesHiddenRoot(r.RelPath);
             sb.Append(hiddenRoot
-                ? "  ABSENT — MO2 hides a root meta.ini, readme.txt or fomod folder from its Data view whatever the skip lists say\n"
+                ? "  ABSENT — " + Mo2SkipRules.HiddenRootSentence + "\n"
                 : "  ABSENT — no active mod or BSA provides this path\n");
             // Each suggestion was verified by re-resolving its Data form (root added or data\ dropped). Backticks, not single quotes — an asset path can carry the author's own apostrophes.
             if (r.PrefixSuggestions is { Count: > 0 } sug)

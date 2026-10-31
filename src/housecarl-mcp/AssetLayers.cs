@@ -98,7 +98,7 @@ internal sealed partial class AssetLayers
             var lit = AssetGlob.LiteralPrefix(AssetResolver.ValidateRelPath(sel));
             var hidden = lit.Length > 0 ? AssetResolver.NamesHiddenRoot(lit) : Mo2SkipRules.MatchesHiddenRootFile(AssetGlob.Matcher(sel));
             var why = hidden
-                ? " — MO2 hides a root meta.ini, readme.txt or fomod folder from its Data view whatever the skip lists say; the same name below the root is a normal file."
+                ? $" — {Mo2SkipRules.HiddenRootSentence}; the same name below the root is a normal file."
                 : " — check the spelling, or nothing enabled provides that folder.";
             return $"under '{sel}' matched no file in {scope}{why}" + AssetGlob.BareNameHint(view, sel, provider);
         }

@@ -29,6 +29,9 @@ public sealed record Mo2SkipRules(IReadOnlyList<string> FileSuffixes, IReadOnlyL
     public static bool NamesHiddenRoot(string path) =>
         HiddenAtRoot(path) || path.Equals("fomod", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The one sentence saying why a hidden root name is not found.</summary>
+    public const string HiddenRootSentence = "MO2 hides a root meta.ini, readme.txt or fomod folder from its Data view whatever the skip lists say";
+
     /// <summary>Does this test over paths match a root file MO2 hides by name?</summary>
     public static bool MatchesHiddenRootFile(Func<string, bool> matches) => matches(MetaIni) || matches(ReadmeTxt);
 
