@@ -63,7 +63,7 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
 - `ClosureWalkGraphTests` / `SourceChainTests` — the walk's caps, cycles and refusals, and the chain's
   first-hit-wins, fault-stops and miss-names-every-arm rules; `ClosureWalkGraphTests.EachDepthIsReadInOneBatch`
   — one batch per depth, reaching what the key-at-a-time walk reaches.
-- `AssetWalkDoorTests.ManyKeysAnswerAsOneKeyAtATime` — `FetchMany`'s hit, fault and miss are `Fetch`'s, each batch
+- `AssetWalkDoorTests.ManyKeysAnswerAsOneKeyAtATime` — `FetchMany` over many keys answers each key's hit, fault and miss as it does over that key alone (a set of one; no other per-key read exists), each batch
   is read once and a later arm reads only the keys still unanswered; `AssetWalkDoorFaultTests.ABrokenGroupIsTheArmsFaultNotAMiss`
   — a group the door's walk faults on is the arm's fault, not a miss.
 - `RecordsWalkCycleTests` / `RecordsWalkCostTests` / `RecordsWalkUnscannableTests` — the walk lanes.
