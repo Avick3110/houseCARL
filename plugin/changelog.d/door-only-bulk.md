@@ -1,0 +1,1 @@
+- **An asset walk over many templated NPCs reads each template list and its members once per hop, not once per NPC, with the same nodes and notes.** On a 1,410-plugin order, `asset_status walk=true` over 500 templated Skyrim.esm NPCs went from about 105 s to 35 s.
