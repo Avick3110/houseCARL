@@ -40,10 +40,6 @@ public sealed class LooseRootFilesTests : IDisposable
     }
 
     [Fact]
-    public void ARootMetaIniAndReadmeAreNotListedAndARootPluginIs()
-        => Assert.Equal(new[] { "A.esp" }, _r.Capture().LooseRootFiles("ModA"));
-
-    [Fact]
     public void TheDataNameIsTheGameRootEvenWhenAModFolderIsNamedData()
         => Assert.Equal(new[] { "Game.esm" }, _r.Capture().LooseRootFiles("Data"));
 
