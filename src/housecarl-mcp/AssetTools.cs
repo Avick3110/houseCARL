@@ -425,7 +425,8 @@ static class AssetWire
         var hit = r.Hit!;
         if (!hit.Exists)
         {
-            sb.Append(AssetResolver.NamesHiddenRoot(r.RelPath)
+            var hiddenRoot = AssetResolver.NamesHiddenRoot(r.RelPath);
+            sb.Append(hiddenRoot
                 ? "  ABSENT — MO2 hides a root meta.ini, readme.txt or fomod folder from its Data view whatever the skip lists say\n"
                 : "  ABSENT — no active mod or BSA provides this path\n");
             // Each suggestion was verified by re-resolving its Data form (root added or data\ dropped). Backticks, not single quotes — an asset path can carry the author's own apostrophes.
@@ -444,7 +445,8 @@ static class AssetWire
             if (d.RootFailures.Count > 0)
                 sb.Append("  [!] but a loose root failed to read this build (see the root note above), so " +
                           "\"absent\" may be incomplete — the asset could live in the root that was not read.\n");
-            AppendStanding(sb, d, r);
+            // A hidden root name is absent for every provider, so the line above already says why.
+            if (!hiddenRoot) AppendStanding(sb, d, r);
             AppendPair(sb, r);
             return;
         }
