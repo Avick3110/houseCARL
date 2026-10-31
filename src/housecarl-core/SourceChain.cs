@@ -49,7 +49,7 @@ public sealed record SourceArm(
     Func<IReadOnlyCollection<FormKey>, Func<FormKey, IMajorRecordGetter?>> Batch,
     SourceLayer? Layer = null);
 
-/// <summary>One arm as a READBACK names it, with the fetch left off; <paramref name="Kind"/> travels because a null <paramref name="Layer"/> means two different things.</summary>
+/// <summary>One arm as a READBACK names it, with the batch read left off; <paramref name="Kind"/> travels because a null <paramref name="Layer"/> means two different things.</summary>
 public sealed record SourceArmRef(string Spelling, SourceArmKind Kind, SourceLayer? Layer)
 {
     public static SourceArmRef Of(SourceArm arm) => new(arm.Spelling, arm.Kind, arm.Layer);
