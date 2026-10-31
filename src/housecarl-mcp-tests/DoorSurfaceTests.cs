@@ -28,4 +28,9 @@ public sealed class DoorSurfaceTests
     [InlineData(typeof(LoadOrderResolver.IndexView), "CollectRecords")]
     [InlineData(typeof(LoadOrderResolver), "CollectRecords")]
     public void NoPublicWalkAroundTheDoor(Type type, string member) => Assert.DoesNotContain(member, Public(type));
+
+    /// <summary>The resolver keeps no single-key fetch at all; its last caller read through the door instead.</summary>
+    [Fact]
+    public void TheResolverHasNoFetchRecord()
+        => Assert.Empty(typeof(LoadOrderResolver).GetMember("FetchRecord", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static));
 }

@@ -1075,14 +1075,6 @@ public sealed class LoadOrderResolver : IDisposable
         }
     }
 
-    internal IMajorRecordGetter FetchRecord(OverlaySession session, string pluginName, FormKey fk, IndexSnapshot s)
-    {
-        if (!_nameToIdx.TryGetValue(pluginName, out int idx) || s.Excluded.Contains(idx))
-            throw new InvalidOperationException(
-                $"body-fetch inconsistency: {pluginName} is indexed as containing {FormIdToken.Of(fk)} but is not readable on this build.");
-        return FetchBody(session, idx, fk, s);
-    }
-
     /// <summary>Fetch one record body from one overlay by re-enumerating it into the session; throws if the overlay cannot yield a FormKey the index says it contains.</summary>
     IMajorRecordGetter FetchBody(OverlaySession session, int overlayIdx, FormKey fk, IndexSnapshot s)
     {
