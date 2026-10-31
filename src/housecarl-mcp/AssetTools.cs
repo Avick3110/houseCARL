@@ -43,7 +43,8 @@ public static class AssetTools
                      "sweep re-enters after the order changes.")]
             string[]? asset_paths = null,
         [Description("Optional. Data-relative directory or glob selector(s): every file the load order provides " +
-                     "beneath it, loose and BSA, is resolved, e.g. " +
+                     "beneath it, loose and BSA, is resolved, leaving out a loose file MO2 hides (a skip-list " +
+                     "match, or a root meta.ini, readme.txt or fomod folder), e.g. " +
                      "'meshes/actors/character/facegendata/facegeom/Skyrim.esm' for one master's facegen set. '*' " +
                      "matches within one path segment, '?' one character, '**' across separators: " +
                      "'textures/actors/character/**/*.dds'. A glob needs no folder in front: '**/*goldbrand*' finds " +
