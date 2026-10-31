@@ -70,7 +70,7 @@ public sealed class PostPoleWarningOrderTests : IDisposable
         try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ }
     }
 
-    /// <summary>Rows in the reverse of door order keep the first row's warnings and the first of the second's up to
+    /// <summary>Rows in the reverse of door order keep the first row's warnings and the second's first lines up to
     /// the cap, as main lists them, and still walk each winner plugin once per pole.</summary>
     [Fact]
     public void ADeltaListsItsPostWarningsInRowOrder()
@@ -88,7 +88,7 @@ public sealed class PostPoleWarningOrderTests : IDisposable
         var late = Enumerable.Range(1, LastLines).Select(i => At(r, $"HcNoSuchLate{i}")).ToList();
         var early = Enumerable.Range(1, FirstLines).Select(i => At(r, $"HcNoSuchEarly{i}")).ToList();
         Assert.All(late, at => Assert.True(at >= 0, r));
-        Assert.Equal(keptEarly, early.Count(at => at >= 0));
+        Assert.Equal(Enumerable.Range(0, keptEarly), early.Select((at, i) => (at, i)).Where(e => e.at >= 0).Select(e => e.i));
         Assert.True(late.Max() < early.Where(at => at >= 0).Min(), r);
         Assert.Contains($"{FirstLines - keptEarly} further warning(s) not listed", r);
     }
