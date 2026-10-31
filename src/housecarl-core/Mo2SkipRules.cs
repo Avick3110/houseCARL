@@ -25,6 +25,10 @@ public sealed record Mo2SkipRules(IReadOnlyList<string> FileSuffixes, IReadOnlyL
         return true;
     }
 
+    /// <summary>Does this normalized path name a root meta.ini, readme.txt or fomod folder, or something in that folder?</summary>
+    public static bool NamesHiddenRoot(string path) =>
+        HiddenAtRoot(path) || path.Equals("fomod", StringComparison.OrdinalIgnoreCase);
+
     // MO2 constants, not read from the ini.
     static bool HiddenAtRoot(ReadOnlySpan<char> path)
     {

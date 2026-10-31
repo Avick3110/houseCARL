@@ -95,8 +95,11 @@ internal sealed partial class AssetLayers
         {
             if (wholeProvider) return $"provider '{provider}' provides no file in the active load order.";
             var scope = provider is null ? "the active load order" : $"provider '{provider}'";
-            return $"under '{sel}' matched no file in {scope} — check the spelling, or nothing enabled provides that folder."
-                   + AssetGlob.BareNameHint(view, sel, provider);
+            var lit = AssetGlob.LiteralPrefix(AssetResolver.ValidateRelPath(sel));
+            var why = lit.Length > 0 && AssetResolver.NamesHiddenRoot(lit)
+                ? " — MO2 hides a root meta.ini, readme.txt or fomod folder from its Data view whatever the skip lists say; the same name below the root is a normal file."
+                : " — check the spelling, or nothing enabled provides that folder.";
+            return $"under '{sel}' matched no file in {scope}{why}" + AssetGlob.BareNameHint(view, sel, provider);
         }
         foreach (var raw in wholeProvider ? new[] { "**" } : under ?? Array.Empty<string>())
         {
