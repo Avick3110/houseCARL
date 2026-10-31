@@ -472,7 +472,9 @@ provided either; the generic lane does not, because it legitimately answers for 
   its `.pex` and no `.psc`; a start-game-enabled quest reaches its keyed `.seq`. `AssetWalkDoorTests` — each depth
   reads each (plugin, group) once and the lines once per plugin, with no cell group; the lines of every NPC the walk
   enters are voiced (`TheLinesOfEveryEnteredNpcAreVoiced`) and the nodes, edges and notes are a queue's
-  (`TheAnswerIsTheOneAQueueGave`); the depth bound and the record cap stop where they did; `AssetWalkDoorFaultTests`
+  (`TheAnswerIsTheOneAQueueGave`); a reached template member and speaker come from the walk's read and the race is
+  read once (`OnlyTheRaceIsReadOnItsOwn`); an owner rank is not walked as a link (`AnOwnerRankIsNotWalkedAsALink`);
+  the depth bound and the record cap stop where they did; `AssetWalkDoorFaultTests`
   — a broken NPC group is the arm's fault note. Fragments and a `.pex`'s parent are not pinned by a test; they were
   checked on the dev instance only.
 - *Suggesting a root prefix*: Pinned by `AssetPrefixHintTests` — the prefixed candidate is offered only when a real
