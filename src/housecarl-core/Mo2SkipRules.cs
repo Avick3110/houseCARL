@@ -29,12 +29,17 @@ public sealed record Mo2SkipRules(IReadOnlyList<string> FileSuffixes, IReadOnlyL
     public static bool NamesHiddenRoot(string path) =>
         HiddenAtRoot(path) || path.Equals("fomod", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Does this test over paths match a root file MO2 hides by name?</summary>
+    public static bool MatchesHiddenRootFile(Func<string, bool> matches) => matches(MetaIni) || matches(ReadmeTxt);
+
     // MO2 constants, not read from the ini.
+    const string MetaIni = "meta.ini", ReadmeTxt = "readme.txt";
+
     static bool HiddenAtRoot(ReadOnlySpan<char> path)
     {
         var sep = path.IndexOf('\\');
         return sep < 0
-            ? path.Equals("meta.ini", StringComparison.OrdinalIgnoreCase) || path.Equals("readme.txt", StringComparison.OrdinalIgnoreCase)
+            ? path.Equals(MetaIni, StringComparison.OrdinalIgnoreCase) || path.Equals(ReadmeTxt, StringComparison.OrdinalIgnoreCase)
             : path[..sep].Equals("fomod", StringComparison.OrdinalIgnoreCase);
     }
 

@@ -85,11 +85,26 @@ public sealed class AssetRootNameTests : IDisposable
         Assert.DoesNotContain("info.xml", text);
     }
 
-    /// <summary>Pins unchanged behaviour: a selector that matches nothing real keeps the spelling note.</summary>
-    [Fact]
-    public void AMissingFolderStillSaysCheckTheSpelling()
+    [Theory]
+    [InlineData("meta*", null)]
+    [InlineData("readme.???", null)]
+    [InlineData("*.ini", "A")]
+    public void AWildcardRootGlobOverAHiddenNameSaysMo2HidesIt(string sel, string? provider)
     {
-        var text = AssetTools.AssetStatus(_p.Open(), under: new[] { "nosuchdir" });
+        var text = AssetTools.AssetStatus(_p.Open(), under: new[] { sel }, provider: provider);
+
+        Assert.Contains("matched no file", text);
+        Assert.Contains("MO2 hides a root meta.ini, readme.txt or fomod folder", text);
+        Assert.DoesNotContain("nothing enabled provides", text);
+    }
+
+    /// <summary>Pins unchanged behaviour: a selector that matches nothing real keeps the spelling note.</summary>
+    [Theory]
+    [InlineData("nosuchdir")]
+    [InlineData("zzz*")]
+    public void AMissingFolderStillSaysCheckTheSpelling(string sel)
+    {
+        var text = AssetTools.AssetStatus(_p.Open(), under: new[] { sel });
 
         Assert.Contains("check the spelling, or nothing enabled provides that folder", text);
         Assert.DoesNotContain("MO2 hides", text);
