@@ -17,7 +17,7 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
   record but cannot parse it STOPS the chain rather than answering with a later arm's bytes; a miss
   names every arm consulted, not the last one tried. `FetchMany` gives the same answers for many keys
   at once: each arm reads the keys still unanswered in one batch (an active-order arm through the read
-  door, `OrderedGather.Copies`) and falls back to its single-key fetch where it has no batch.
+  door, `BodyGather.Copies`) and falls back to its single-key fetch where it has no batch.
 - Walk provenance is per node: each reached node records which arm produced its body and the full
   pull chain from a seed, which is what makes a cap refusal actionable.
 - A seed path's shape is decided off the DECLARED type before any value is read, so a null cannot be
