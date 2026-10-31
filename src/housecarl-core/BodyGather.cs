@@ -84,12 +84,7 @@ public sealed class BodyGather
         OrderedGather.ForEachGroup(_view, _session, pairs, (plugin, bodies, asked) =>
         {
             foreach (var (fk, body) in bodies) _held[plugin][fk] = body;
-            if (perGroup is null)
-            {
-                // A group walked to the end settles its keys even in a plugin another group faulted in.
-                foreach (var fk in asked) if (!_faultOf.ContainsKey((plugin, fk))) _settled.Add((plugin, fk));
-                return;
-            }
+            if (perGroup is null) return;
             perGroup(asked);
             _held[plugin].Clear();
         }, faults, _ct, faulted: OnFaulted);
@@ -108,14 +103,12 @@ public sealed class BodyGather
         if (_absent == Absent.Null) return null;
         // Gathered and still absent IS the answer: the walk saw the whole plugin, so a second one cannot find it.
         if (_walked.Contains(pluginName) && _declared.TryGetValue(pluginName, out var keys) && keys.Contains(fk)) return null;
-        if (_settled.Contains((pluginName, fk))) return null;
-        if (_faultOf.TryGetValue((pluginName, fk), out var group)) return group.Answer(this, pluginName, fk);
+        if (_faultOf.TryGetValue((pluginName, fk), out var raised)) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(raised).Throw();
         return _view.GetRecord(_session, pluginName, fk);
     }
 
-    // Each key a faulted group did not yield, with that group: its answer is the per-record seek's, worked out once per group.
-    readonly Dictionary<(string, FormKey), FaultedGroup> _faultOf = new(PairComparer.Instance);
-    readonly HashSet<(string, FormKey)> _settled = new(PairComparer.Instance);
+    // Each key a faulted group did not yield, with the fault a per-record seek raises for it, so the group is not walked again per key.
+    readonly Dictionary<(string, FormKey), Exception> _faultOf = new(PairComparer.Instance);
 
     sealed class PairComparer : IEqualityComparer<(string Plugin, FormKey Key)>
     {
@@ -128,49 +121,12 @@ public sealed class BodyGather
 
     void OnFaulted(string plugin, IReadOnlyCollection<FormKey> asked, PluginUnreadableException fault)
     {
-        var group = new FaultedGroup(asked, fault);
-        foreach (var fk in asked) _faultOf.TryAdd((plugin, fk), group);
-    }
-
-    /// <summary>A group the door's walk faulted on. A seek for one of its keys walks only that key's seek type, so a group
-    /// joined from several types is walked again once per type to learn which keys each type's own walk reaches; a group
-    /// of one type, or a plugin that will not open, already raised what each seek would.</summary>
-    sealed class FaultedGroup(IReadOnlyCollection<FormKey> asked, PluginUnreadableException fault)
-    {
-        Dictionary<FormKey, IMajorRecordGetter>? _found;
-        Dictionary<FormKey, Exception>? _raised;
-
-        public IMajorRecordGetter? Answer(BodyGather g, string plugin, FormKey fk)
-        {
-            if (g._view.LacksCopy(plugin, fk)) return null;
-            if (fault is PluginUnscannableException)
-            {
-                if (_found is null) Split(g, plugin);
-                if (_found!.TryGetValue(fk, out var body)) return body;
-                if (_raised!.TryGetValue(fk, out var ex)) Rethrow(ex);
-                return null;
-            }
-            Rethrow(fault.InnerException ?? fault);
-            return null;
-        }
-
-        void Split(BodyGather g, string plugin)
-        {
-            _found = new(); _raised = new();
-            var types = asked.GroupBy(fk => g._view.GroupOf(plugin, fk).Seek).ToList();
-            if (types.Count == 1) { foreach (var fk in asked) _raised[fk] = fault.InnerException ?? fault; return; }
-            foreach (var type in types)
-            {
-                var keys = type.ToHashSet();
-                var sink = new Dictionary<FormKey, IMajorRecordGetter>(keys.Count);
-                var walk = WalkOnce(g._view, g._session, plugin, keys, sink);
-                foreach (var fk in keys)
-                    if (sink.TryGetValue(fk, out var body)) _found[fk] = body;
-                    else if (walk is not null) _raised[fk] = walk.InnerException ?? walk;
-            }
-        }
-
-        static void Rethrow(Exception ex) => System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex).Throw();
+        // A seek walks only its key's seek type, so a group joined from several (cells, worldspaces) leaves its keys to
+        // the seek; a plugin that will not open, or a group of one type, already raised what each seek would.
+        if (fault is PluginUnscannableException && asked.Select(fk => _view.GroupOf(plugin, fk).Seek).Distinct().Skip(1).Any()) return;
+        var raised = fault.InnerException ?? fault;
+        foreach (var fk in asked)
+            if (!_view.LacksCopy(plugin, fk)) _faultOf.TryAdd((plugin, fk), raised);
     }
 
     public void CopyInto(IDictionary<FormKey, IMajorRecordGetter> sink)
