@@ -373,6 +373,7 @@ internal sealed partial class RecordReads
         // Per-key memo: the scratch mod is shared across the reader's lifetime, so a repeated key's second replay
         // would re-apply every INI line onto the already-mutated copy.
         var postMemo = new Dictionary<FormKey, PoleReading>();
+        var pendingWarnings = new Dictionary<FormKey, IReadOnlyList<SkyPatcherFolderOutcome>>();
         string? setupError = null;
         void Setup()
         {
@@ -394,6 +395,8 @@ internal sealed partial class RecordReads
         {
             gather.Prime = Setup; gather.Holds = fk => view.ResolveWinner(fk) is not null && SetupHolds();
             gather.PluginOf = (fk, _) => view.ResolveWinner(fk)?.WinnerPlugin;
+            // A delta replays in door order, so its warnings are raised in row order after the window is read.
+            gather.Settle = fk => { if (pendingWarnings.Remove(fk, out var folders)) CollectOverlayWarnings(folders, overlayWarnings); };
         }
         bool SetupHolds() { Setup(); return setupError is null; }
         // A draft is folded up front rather than on the first record: whether it can be folded at all is a fact
@@ -412,7 +415,8 @@ internal sealed partial class RecordReads
             Setup();
             if (setupError is not null) return new PoleReading(null, null, null, setupError);
             var r = replay!.Replay(fk, gather is { Live: true } && view.ResolveWinner(fk) is { } w ? gather.Body(w.WinnerPlugin, fk) : null);
-            CollectOverlayWarnings(r.Folders, overlayWarnings);
+            if (gather is { InEach: true }) pendingWarnings[fk] = r.Folders;
+            else CollectOverlayWarnings(r.Folders, overlayWarnings);
             if (r.Error is not null) return postMemo[fk] = new PoleReading(null, null, null, r.Error);
             // An unpatchable type is an answer, not a failure: the layer cannot touch it, so post IS pre.
             if (r.IsUnpatchable)
