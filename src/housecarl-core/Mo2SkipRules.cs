@@ -1,7 +1,8 @@
 namespace HousecarlCore;
 
 /// <summary>MO2's two USVFS skip lists: a loose file whose name ends with a skip suffix, or that sits under a folder
-/// named as a skip directory, is not in the game's Data view (docs/architecture/assets.md, Visibility).</summary>
+/// named as a skip directory, is not in the game's Data view; nor, whatever the lists say, is a root meta.ini,
+/// readme.txt or fomod folder, which MO2 leaves out of its own Data view (docs/architecture/assets.md, Visibility).</summary>
 public sealed record Mo2SkipRules(IReadOnlyList<string> FileSuffixes, IReadOnlyList<string> Directories)
 {
     public const string SuffixesKey = "skip_file_suffixes";
@@ -15,12 +16,22 @@ public sealed record Mo2SkipRules(IReadOnlyList<string> FileSuffixes, IReadOnlyL
     {
         // Span segments, not Split: the folder walk asks this once per file.
         var rest = relPath.AsSpan();
+        if (HiddenAtRoot(rest)) return false;
         for (int sep; (sep = rest.IndexOf('\\')) >= 0; rest = rest[(sep + 1)..])
             foreach (var d in Directories)
                 if (rest[..sep].Equals(d, StringComparison.OrdinalIgnoreCase)) return false;
         foreach (var s in FileSuffixes)
             if (rest.EndsWith(s, StringComparison.OrdinalIgnoreCase)) return false;
         return true;
+    }
+
+    /// <summary>MO2's constant root names, not read from the ini: a root meta.ini or readme.txt, or anything in a root fomod folder.</summary>
+    static bool HiddenAtRoot(ReadOnlySpan<char> path)
+    {
+        var sep = path.IndexOf('\\');
+        return sep < 0
+            ? path.Equals("meta.ini", StringComparison.OrdinalIgnoreCase) || path.Equals("readme.txt", StringComparison.OrdinalIgnoreCase)
+            : path[..sep].Equals("fomod", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Read one skip list off its raw ini value, the way QSettings writes a string list (<c>a, b</c>): unset

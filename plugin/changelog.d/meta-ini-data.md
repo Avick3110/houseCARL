@@ -1,0 +1,1 @@
+- **`asset_status` no longer lists, counts or finds each mod's root `meta.ini`, root `readme.txt` or root `fomod` folder, matching MO2's own Data tab.** A `provider=` census now counts only the mod's game files: no `meta.ini` row and no shadowed layer from one.

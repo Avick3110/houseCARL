@@ -29,7 +29,8 @@ public static class AssetTools
          "counts only the window, except under to_file= and counts_only=, which resolve the whole selection. A loose " +
          "file MO2 hides (by default a .mohidden name or anything under .git; a skip list the instance sets replaces that " +
          "default) is not in the VFS and " +
-         "answers absent. " +
+         "answers absent. A root meta.ini, root readme.txt or anything in a root fomod folder is left out the same " +
+         "way, as MO2's own Data tab leaves it out, whatever the skip lists say; one below the root is a normal file. " +
          "Read-only.")]
     public static string AssetStatus(
         LoadOrderService svc,
