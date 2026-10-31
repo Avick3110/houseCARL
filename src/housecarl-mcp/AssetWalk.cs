@@ -301,23 +301,22 @@ internal sealed partial class AssetLayers
             foreach (var body in bodies) _read.TryAdd(body.FormKey, (body, null));
         }
 
-        /// <summary>Read every key not read yet, at once; answers the keys it read.</summary>
-        public List<FormKey> Read(IEnumerable<FormKey> keys)
+        /// <summary>Read every key not read yet, at once.</summary>
+        public void Read(IEnumerable<FormKey> keys)
         {
             var want = keys.Where(k => !_read.ContainsKey(k)).Distinct().ToList();
-            if (want.Count == 0) return want;
+            if (want.Count == 0) return;
             var got = chain.FetchMany(want);
             var misses = new List<FormKey>();
             foreach (var k in want)
                 if (got[k].Fault is { } f) _read[k] = (null, new InvalidOperationException($"'{f.Arm.Spelling}' has it but could not read it — {f.Cause}"));
                 else if (got[k].Hit is { } hit) _read[k] = (hit.Body, null);
                 else misses.Add(k);
-            if (misses.Count == 0) return want;
+            if (misses.Count == 0) return;
             var winner = winners(misses);
             foreach (var k in misses)
                 try { _read[k] = (winner(k), null); }
                 catch (Exception ex) { _read[k] = (null, ex); }
-            return want;
         }
 
         /// <summary>One key's body, read as a round of one if no round has read it.</summary>
