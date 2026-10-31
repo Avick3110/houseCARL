@@ -469,8 +469,12 @@ provided either; the generic lane does not, because it legitimately answers for 
   their winners, and a row without `links=` is unchanged; a disabled donor's walk marks each node from-source,
   elsewhere (named) or absent and `place` takes the set; the FaceGen pair is race-gated and keyed; a templated NPC
   pulls its root's face itself; a leveled template reaches each member one of 2 and a loop is a note; a script reaches
-  its `.pex` and no `.psc`; a start-game-enabled quest reaches its keyed `.seq`. Voice, fragments and a `.pex`'s
-  parent are not pinned by a test; they were checked on the dev instance only.
+  its `.pex` and no `.psc`; a start-game-enabled quest reaches its keyed `.seq`. `AssetWalkDoorTests` — each depth
+  reads each (plugin, group) once and the lines once per plugin, with no cell group; the lines of every NPC the walk
+  enters are voiced (`TheLinesOfEveryEnteredNpcAreVoiced`) and the nodes, edges and notes are a queue's
+  (`TheAnswerIsTheOneAQueueGave`); the depth bound and the record cap stop where they did; `AssetWalkDoorFaultTests`
+  — a broken NPC group is the arm's fault note. Fragments and a `.pex`'s parent are not pinned by a test; they were
+  checked on the dev instance only.
 - *Suggesting a root prefix*: Pinned by `AssetPrefixHintTests` — the prefixed candidate is offered only when a real
   provider supplies it. Its non-asset-root cases (`sound\`) assert the same thing as its plain-miss cases, so it
   cannot see whether the generic lane prints the convention note: that half is not pinned.
