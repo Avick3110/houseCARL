@@ -137,6 +137,25 @@ public sealed class AssetRootNameTests : IDisposable
         Assert.DoesNotContain("no active mod or BSA provides", text);
     }
 
+    [Fact]
+    public void AProviderOnAHiddenRootPathIsNotSaidNotToProvideIt()
+    {
+        var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { "meta.ini" }, provider: "A");
+
+        Assert.Contains("ABSENT — MO2 hides", text);
+        Assert.DoesNotContain("does not provide this path", text);
+    }
+
+    /// <summary>Pins unchanged behaviour: a provider's standing on a path no mod ships, and on a nested meta.ini.</summary>
+    [Fact]
+    public void AProviderKeepsItsStandingOffTheHiddenRootNames()
+    {
+        var svc = _p.Open();
+
+        Assert.Contains("provider \"A\": does not provide this path", AssetTools.AssetStatus(svc, asset_paths: new[] { "meshes/nosuch.nif" }, provider: "A"));
+        Assert.Contains("provider \"A\": shadowed by", AssetTools.AssetStatus(svc, asset_paths: new[] { "meshes/meta.ini" }, provider: "A"));
+    }
+
     /// <summary>Pins unchanged behaviour: a path no mod ships keeps the plain absent line, and a nested meta.ini wins.</summary>
     [Fact]
     public void AMissingPathKeepsThePlainAbsentLine()
