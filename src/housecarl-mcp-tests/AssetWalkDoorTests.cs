@@ -268,18 +268,19 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         var faulted = mod.Keywords.AddNew("HcDoorFaulted");
         var later = mod.Keywords.AddNew("HcDoorLater");
         var none = mod.GetNextFormKey();
-        int batches = 0;
+        int batches = 0, secondBatches = 0;
         IReadOnlyCollection<FormKey>? secondAsked = null;
         Func<FormKey, IMajorRecordGetter?> First = fk => fk == faulted.FormKey ? throw new IOException("the file is locked") : null;
         Func<FormKey, IMajorRecordGetter?> Second = fk => fk == faulted.FormKey ? faulted : fk == later.FormKey ? later : null;
         var chain = new SourceChain(new[]
         {
             new SourceArm("first", SourceArmKind.File, "first", First, Batch: _ => { batches++; return First; }),
-            new SourceArm("second", SourceArmKind.File, "second", Second, Batch: asked => { secondAsked = asked.ToList(); return Second; }),
+            new SourceArm("second", SourceArmKind.File, "second", Second, Batch: asked => { secondBatches++; secondAsked = asked.ToList(); return Second; }),
         });
         var keys = new[] { faulted.FormKey, later.FormKey, none };
         var many = chain.FetchMany(keys);
         Assert.Equal(1, batches);
+        Assert.Equal(1, secondBatches);
         Assert.Equal(new[] { later.FormKey, none }, secondAsked);
         foreach (var k in keys)
         {
