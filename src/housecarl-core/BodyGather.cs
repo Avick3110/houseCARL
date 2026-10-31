@@ -42,6 +42,23 @@ public sealed class BodyGather
         _absent = absent; _onDemand = onDemand; _ct = ct;
     }
 
+    /// <summary>Each key's copy in <paramref name="pluginOf"/>'s plugin, gathered at once and answered by <see cref="Body"/>
+    /// under <see cref="Absent.Seek"/>, so a faulted plugin's key raises the per-record fault it always did.</summary>
+    public static Func<FormKey, IMajorRecordGetter?> Copies(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                                                            IEnumerable<FormKey> keys, Func<FormKey, string?> pluginOf)
+    {
+        var gather = new BodyGather(view, session);
+        var plugins = new Dictionary<FormKey, string>();
+        foreach (var fk in keys)
+            if (pluginOf(fk) is { } p) { plugins[fk] = p; gather.Want(p, fk); }
+        gather.Gather();
+        return fk => plugins.TryGetValue(fk, out var p) ? gather.Body(p, fk) : null;
+    }
+
+    /// <summary><see cref="Copies"/> of each key's winning copy.</summary>
+    public static Func<FormKey, IMajorRecordGetter?> Winners(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IEnumerable<FormKey> keys)
+        => Copies(view, session, keys, fk => view.ResolveWinner(fk)?.WinnerPlugin);
+
     /// <summary>Declare a body this call will need, per (plugin, record), not per record.</summary>
     public void Want(string pluginName, FormKey fk)
     {

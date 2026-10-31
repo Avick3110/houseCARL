@@ -92,15 +92,7 @@ public sealed class SourceChain
     public SourceFetch Fetch(FormKey key, string pulledBy = "")
     {
         for (int i = 0; i < Arms.Count; i++)
-        {
-            IMajorRecordGetter? body;
-            try { body = Arms[i].Fetch(key); }
-            catch (Exception ex)
-            {
-                return new SourceFetch(null, new SourceFault(key, pulledBy, i, Arms[i], ex.Message));
-            }
-            if (body is not null) return new SourceFetch(new SourceHit(body, i, Arms[i]), null);
-        }
+            if (Ask(i, Arms[i].Fetch, key, pulledBy) is { } answered) return answered;
         return new SourceFetch(null, null);
     }
 
@@ -111,20 +103,24 @@ public sealed class SourceChain
         var left = keys.Distinct().ToList();
         for (int i = 0; i < Arms.Count && left.Count > 0; i++)
         {
-            var fetch = Arms[i].Batch is { } batch ? batch(left) : Arms[i].Fetch;
+            var fetch = Arms[i].Batch?.Invoke(left) ?? Arms[i].Fetch;
             var next = new List<FormKey>();
             foreach (var key in left)
-            {
-                IMajorRecordGetter? body;
-                try { body = fetch(key); }
-                catch (Exception ex) { got[key] = new SourceFetch(null, new SourceFault(key, "", i, Arms[i], ex.Message)); continue; }
-                if (body is not null) got[key] = new SourceFetch(new SourceHit(body, i, Arms[i]), null);
+                if (Ask(i, fetch, key, "") is { } answered) got[key] = answered;
                 else next.Add(key);
-            }
             left = next;
         }
         foreach (var key in left) got[key] = new SourceFetch(null, null);
         return got;
+    }
+
+    /// <summary>One arm's answer for one key: a hit, a fault, or null when the arm does not have it.</summary>
+    SourceFetch? Ask(int i, Func<FormKey, IMajorRecordGetter?> fetch, FormKey key, string pulledBy)
+    {
+        IMajorRecordGetter? body;
+        try { body = fetch(key); }
+        catch (Exception ex) { return new SourceFetch(null, new SourceFault(key, pulledBy, i, Arms[i], ex.Message)); }
+        return body is null ? null : new SourceFetch(new SourceHit(body, i, Arms[i]), null);
     }
 
     public SourceMiss Miss(FormKey key, string pulledBy) => new(key, pulledBy, Arms);
