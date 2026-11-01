@@ -1,0 +1,47 @@
+{
+  "_comment": "The framework versions houseCARL's skills and readers were written against. scripts/upstream_watch.py opens an issue when upstream moves past a pin. pinned is read from the dependent skill; null means nothing depends on it yet, so the watch only logs the current version.",
+  "pins": [
+    {
+      "name": "SPID",
+      "pinned": "7.3.0",
+      "source": { "type": "github", "repo": "powerof3/Spell-Perk-Item-Distributor" },
+      "depends": [".claude/skills/spid-authoring"]
+    },
+    {
+      "name": "KID",
+      "pinned": "3.5.0",
+      "source": { "type": "github", "repo": "powerof3/Keyword-Item-Distributor" },
+      "depends": [".claude/skills/kid-authoring"]
+    },
+    {
+      "name": "SkyPatcher",
+      "pinned": "6.4.1",
+      "source": { "type": "nexus", "game_id": 1704, "game": "skyrimspecialedition", "mod_id": 106659 },
+      "depends": [".claude/skills/skypatcher-authoring", "src/housecarl-mcp/SkyPatcherReplay.cs"]
+    },
+    {
+      "name": "Open Animation Replacer",
+      "pinned": "3.0.0",
+      "source": { "type": "nexus", "game_id": 1704, "game": "skyrimspecialedition", "mod_id": 92109 },
+      "depends": [".claude/skills/open-animation-replacer"]
+    },
+    {
+      "name": "CommonLibSSE-NG",
+      "pinned": "4.x",
+      "source": { "type": "github", "repo": "alandtse/CommonLibSSE-NG" },
+      "depends": [".claude/skills/skse-plugin-authoring"]
+    },
+    {
+      "name": "Base Object Swapper",
+      "pinned": null,
+      "source": { "type": "github", "repo": "powerof3/BaseObjectSwapper" },
+      "depends": []
+    },
+    {
+      "name": "Form List Manipulator",
+      "pinned": null,
+      "source": { "type": "nexus", "game_id": 1704, "game": "skyrimspecialedition", "mod_id": 74037 },
+      "depends": []
+    }
+  ]
+}
