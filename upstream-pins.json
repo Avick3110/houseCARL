@@ -1,5 +1,5 @@
 {
-  "_comment": "The framework versions houseCARL's skills and readers were written against. scripts/upstream_watch.py opens an issue when upstream moves past a pin. pinned is read from the dependent skill; null means nothing depends on it yet, or what depends on it records no version, so the watch only logs the current version.",
+  "_comment": "The framework versions houseCARL's skills and readers were written against. scripts/upstream_watch.py opens an issue when upstream moves past a pin. pinned is read from the dependent skill, or from pinned_from where the skill's own files do not record it; null means nothing depends on it yet, or what depends on it records no version, so the watch only logs the current version.",
   "pins": [
     {
       "name": "SPID",
@@ -45,39 +45,45 @@
     },
     {
       "name": "SKSE64",
-      "pinned": null,
+      "pinned": "2.2.6",
       "source": { "type": "github", "repo": "ianpatt/skse64", "tags": true },
-      "depends": [".claude/skills/papyrus-reference"]
+      "depends": [".claude/skills/papyrus-reference"],
+      "pinned_from": "indexedVersion in BellCubeDev/papyrus-index data/SkyrimSE/<source>/meta.yaml, the snapshot the papyrus-reference corpus was generated from on 2026-06-04"
     },
     {
       "name": "PapyrusUtil SE",
-      "pinned": null,
+      "pinned": "4.6",
       "source": { "type": "nexus", "game_id": 1704, "game": "skyrimspecialedition", "mod_id": 13048 },
-      "depends": [".claude/skills/papyrus-reference"]
+      "depends": [".claude/skills/papyrus-reference"],
+      "pinned_from": "indexedVersion in BellCubeDev/papyrus-index data/SkyrimSE/<source>/meta.yaml, the snapshot the papyrus-reference corpus was generated from on 2026-06-04"
     },
     {
       "name": "JContainers",
-      "pinned": null,
+      "pinned": "4.1.13",
       "source": { "type": "github", "repo": "ryobg/JContainers" },
-      "depends": [".claude/skills/papyrus-reference"]
+      "depends": [".claude/skills/papyrus-reference"],
+      "pinned_from": "indexedVersion in BellCubeDev/papyrus-index data/SkyrimSE/<source>/meta.yaml, the snapshot the papyrus-reference corpus was generated from on 2026-06-04"
     },
     {
       "name": "MCM Helper",
-      "pinned": null,
+      "pinned": "1.3.0",
       "source": { "type": "github", "repo": "Exit-9B/MCM-Helper" },
-      "depends": [".claude/skills/papyrus-reference"]
+      "depends": [".claude/skills/papyrus-reference"],
+      "pinned_from": "indexedVersion in BellCubeDev/papyrus-index data/SkyrimSE/<source>/meta.yaml, the snapshot the papyrus-reference corpus was generated from on 2026-06-04"
     },
     {
       "name": "powerofthree's Papyrus Extender",
-      "pinned": null,
+      "pinned": "6.1.0",
       "source": { "type": "github", "repo": "powerof3/PapyrusExtenderSSE" },
-      "depends": [".claude/skills/papyrus-reference"]
+      "depends": [".claude/skills/papyrus-reference"],
+      "pinned_from": "indexedVersion in BellCubeDev/papyrus-index data/SkyrimSE/<source>/meta.yaml, the snapshot the papyrus-reference corpus was generated from on 2026-06-04"
     },
     {
       "name": "SkyUI",
-      "pinned": null,
+      "pinned": "5.1",
       "source": { "type": "nexus", "game_id": 1704, "game": "skyrimspecialedition", "mod_id": 12604 },
-      "depends": [".claude/skills/papyrus-reference"]
+      "depends": [".claude/skills/papyrus-reference"],
+      "pinned_from": "indexedVersion in BellCubeDev/papyrus-index data/SkyrimSE/<source>/meta.yaml, the snapshot the papyrus-reference corpus was generated from on 2026-06-04"
     },
     {
       "name": "Mod Organizer 2",
