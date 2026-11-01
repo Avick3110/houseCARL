@@ -51,9 +51,11 @@ def http_json(url, data=None, method=None, token=None):
 
 
 def fetch_github(source, token):
-    """(latest version string, [(version, notes)] for every release) from a repo's releases, else its tags."""
+    """(latest version string, [(version, notes)] for every release) from a repo's releases, else its tags.
+    "tags": true reads tags only, for a repo whose releases stopped while its tags went on."""
     repo = source["repo"]
-    releases = http_json(f"{GITHUB_API}/repos/{repo}/releases?per_page=100", token=token) or []
+    releases = [] if source.get("tags") else \
+        http_json(f"{GITHUB_API}/repos/{repo}/releases?per_page=100", token=token) or []
     found = [(r["tag_name"], r.get("body") or "") for r in releases
              if not r.get("draft") and not r.get("prerelease") and version_key(r["tag_name"])]
     if not found:
@@ -62,7 +64,7 @@ def fetch_github(source, token):
     if not found:
         raise RuntimeError(f"{repo} has no versioned releases or tags")
     latest = max(found, key=lambda f: version_key(f[0]))[0]
-    return latest, found, f"https://github.com/{repo}/releases"
+    return latest, found, f"https://github.com/{repo}/{'tags' if source.get('tags') else 'releases'}"
 
 
 def fetch_nexus(source, token):
@@ -176,7 +178,8 @@ def main():
             continue
 
         if pin["pinned"] is None:
-            print(f"{name}: latest {latest} (not pinned; nothing depends on it yet)")
+            why = "no version recorded where it is used" if pin["depends"] else "nothing depends on it yet"
+            print(f"{name}: latest {latest} (not pinned; {why})")
             continue
         if version_key(latest) <= version_key(pin["pinned"]):
             print(f"{name}: up to date ({latest}, pinned {pin['pinned']})")
