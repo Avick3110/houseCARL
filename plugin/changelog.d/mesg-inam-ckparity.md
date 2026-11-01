@@ -1,0 +1,1 @@
+- **A Message created by `housecarl_create` now carries INAM as 4 zero bytes, as the Creation Kit writes it, instead of a 0-byte INAM that Wrye Bash refused to load.** The create result reports the fill.
