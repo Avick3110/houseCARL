@@ -68,11 +68,12 @@ def fetch_github(source, token):
 
 
 def fetch_nexus(source, token):
-    """(latest version string, [(version, changelog)] per file version) from the keyless Nexus GraphQL API."""
+    """(latest version string, [(version, changelog)] per file version) from the keyless Nexus GraphQL API.
+    The latest is the newest MAIN file, since a mod page's own version field can lag its files (SkyUI: 6.9 vs 6.11)."""
     game_id, mod_id = source["game_id"], source["mod_id"]
     query = ("query($ids:[CompositeIdInput!]!,$modId:ID!,$gameId:ID!){"
              "legacyMods(ids:$ids){nodes{modId name version}}"
-             "modFiles(modId:$modId,gameId:$gameId){version changelogText}}")
+             "modFiles(modId:$modId,gameId:$gameId){name version category changelogText}}")
     variables = {"ids": [{"gameId": game_id, "modId": mod_id}], "modId": str(mod_id), "gameId": str(game_id)}
     result = http_json(NEXUS_GRAPHQL, data={"query": query, "variables": variables})
     if result.get("errors"):
@@ -80,17 +81,22 @@ def fetch_nexus(source, token):
     nodes = result["data"]["legacyMods"]["nodes"]
     if not nodes or not nodes[0].get("version"):
         raise RuntimeError(f"Nexus mod {mod_id} returned no version")
+    files = result["data"].get("modFiles") or []
+    main = [f for f in files if f.get("category") == "MAIN" and version_key(f.get("version"))]
+    latest = max((f["version"].strip() for f in main), key=version_key, default=nodes[0]["version"].strip())
+    main_names = {f.get("name") for f in main}
     notes = {}
-    for f in result["data"].get("modFiles") or []:
+    for f in files:
         v = (f.get("version") or "").strip()
-        if v and version_key(v):
+        # notes come only from the main file's own line, not from patches or SDKs uploaded beside it
+        if v and version_key(v) and (not main_names or f.get("name") in main_names):
             lines = notes.setdefault(v, [])
             for line in (html.unescape(t) for t in f.get("changelogText") or []):
                 if line not in lines:
                     lines.append(line)
     found = [(v, "\n".join("- " + line for line in lines)) for v, lines in notes.items()]
     url = f"https://www.nexusmods.com/{source.get('game', 'skyrimspecialedition')}/mods/{mod_id}"
-    return nodes[0]["version"].strip(), found, url
+    return latest, found, url
 
 
 FETCHERS = {"github": fetch_github, "nexus": fetch_nexus}
