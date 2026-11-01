@@ -1,5 +1,5 @@
 {
-  "_comment": "The framework versions houseCARL's skills and readers were written against. scripts/upstream_watch.py opens an issue when upstream moves past a pin. pinned is read from the dependent skill; null means nothing depends on it yet, so the watch only logs the current version.",
+  "_comment": "The framework versions houseCARL's skills and readers were written against. scripts/upstream_watch.py opens an issue when upstream moves past a pin. pinned is read from the dependent skill; null means nothing depends on it yet, or what depends on it records no version, so the watch only logs the current version.",
   "pins": [
     {
       "name": "SPID",
@@ -42,6 +42,48 @@
       "pinned": null,
       "source": { "type": "nexus", "game_id": 1704, "game": "skyrimspecialedition", "mod_id": 74037 },
       "depends": []
+    },
+    {
+      "name": "SKSE64",
+      "pinned": null,
+      "source": { "type": "github", "repo": "ianpatt/skse64", "tags": true },
+      "depends": [".claude/skills/papyrus-reference"]
+    },
+    {
+      "name": "PapyrusUtil SE",
+      "pinned": null,
+      "source": { "type": "nexus", "game_id": 1704, "game": "skyrimspecialedition", "mod_id": 13048 },
+      "depends": [".claude/skills/papyrus-reference"]
+    },
+    {
+      "name": "JContainers",
+      "pinned": null,
+      "source": { "type": "github", "repo": "ryobg/JContainers" },
+      "depends": [".claude/skills/papyrus-reference"]
+    },
+    {
+      "name": "MCM Helper",
+      "pinned": null,
+      "source": { "type": "github", "repo": "Exit-9B/MCM-Helper" },
+      "depends": [".claude/skills/papyrus-reference"]
+    },
+    {
+      "name": "powerofthree's Papyrus Extender",
+      "pinned": null,
+      "source": { "type": "github", "repo": "powerof3/PapyrusExtenderSSE" },
+      "depends": [".claude/skills/papyrus-reference"]
+    },
+    {
+      "name": "SkyUI",
+      "pinned": null,
+      "source": { "type": "nexus", "game_id": 1704, "game": "skyrimspecialedition", "mod_id": 12604 },
+      "depends": [".claude/skills/papyrus-reference"]
+    },
+    {
+      "name": "Mod Organizer 2",
+      "pinned": null,
+      "source": { "type": "github", "repo": "ModOrganizer2/modorganizer" },
+      "depends": ["docs/architecture/mo2-instance.md"]
     }
   ]
 }
