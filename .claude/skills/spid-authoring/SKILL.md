@@ -142,9 +142,10 @@ measure.
 ## Bundled-or-warn, and the version window
 
 The `references/` corpus documents SPID **7.3.0**. If a form type, filter, trait or behaviour is not
-in it, **say so — do not fabricate a plausible token.** There is no backstop on this path: SPID
-skips an unparseable line, an unknown filter term or an unresolvable form with no error, so a
-guessed token yields a file that quietly distributes nothing. The only checks that exist are the three under *Check the reach before you write it*.
+in it, **say so — do not fabricate a plausible token.** SPID skips an unparseable line, an unknown
+filter term or an unresolvable form with no error, so a guessed token yields a file that quietly
+distributes nothing. Before the write, the checks are the three under *Check the reach before you
+write it*; after launch, the log and live actors under *Verifying a distribution actually happened*.
 
 The window runs **both** ways. Above 7.3.0 the corpus may be behind — surface that and offer to
 re-derive. **Below 7.3.0 a documented feature may not exist yet**: `references/filters.md` marks the
