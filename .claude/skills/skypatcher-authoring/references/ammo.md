@@ -34,3 +34,8 @@ filterByKeywords=Skyrim.esm|000917E7:setNewProjectile=myMod.esp|331155
 restrictToBolts=false
 filterByAmmos=Skyrim.esm|6BBD2:setFlags=nonplayable
 ```
+
+## Added since 6.4.1 (8.0.1 articles)
+
+- Filters: `filterByAmmosExcluded`; `filterByKeywords` / `…Or` / `…Excluded`.
+- Operations: `addToFormList`.

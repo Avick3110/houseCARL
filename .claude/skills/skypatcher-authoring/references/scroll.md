@@ -11,6 +11,9 @@ Shared mechanics → `grammar-core.md`. Shared enums → `value-tables.md`.
 - `filterByKeywords` / `…Or` / `…Excluded`.
 - `filterByMgefs` / `…Or` / `…Excluded`.
 - `filterByEditorIdContains` / `…Or` / `…Excluded`.
+- `filterByFlags` / `…Or` / `…Excluded` — by spell flags (the spell-flag set below).
+- `filterByMinimumSkillLevel` · `filterByType` (works since 8.0.1) · `restrictToCastingType` ·
+  `restrictToSchool` (narrower).
 
 ## Operations
 
@@ -21,6 +24,7 @@ Shared mechanics → `grammar-core.md`. Shared enums → `value-tables.md`.
   ignoreresistance, noabsorb, nodualcastmods`.)
 - `keywordsToAdd` / `keywordsToRemove`.
 - `mgefsToAdd` / `mgefsToChange` / `mgefsToChangeAdd` / `mgefsToRemove` — see `grammar-core.md` §7.
+- `mgefsToChangeFirst` · `mgefsToChangeDamageHealthEffects`.
 - `baseCost=<n>` · `halfCostPerk=<form>` · `castType=<castType>` · `chargeTime=<n>`.
 - `clear=true` — remove all magic effects.
 - `model=<form|path>`.

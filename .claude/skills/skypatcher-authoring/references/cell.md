@@ -55,3 +55,13 @@ encounterZone=Skyrim.esm|0001C84E
 waterHeight=512.0
 skipRecordByLightingTemplateFromMod=ELFX.esp, Lux.esp
 ```
+
+## Added since 6.4.1 (8.0.1 articles)
+
+- A line without any filter patches all cells (8.0.1). The Cell patcher does not read
+  `filterByModNames`. `filterByCellsExcluded`, `skipRecordByLightingTemplateFromMod` and
+  `skipRecordByModNameContains` also skip cells of `filterByCells`.
+- Filters: `filterByCellsExcluded`, `filterByLocations`, `filterByAcousticSpace`,
+  `filterByMusicType`, `filterBySkyRegion`, `filterByImageSpace`.
+- Operations: `fullName`, `location`. `waterHeight=null` removes the water; `waterHeight=default`
+  brings back the water height of the worldspace (8.0.1).

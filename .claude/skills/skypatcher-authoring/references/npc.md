@@ -20,14 +20,25 @@ perks, spells · identity & appearance refs · AI · attack data) · Examples.
 - `filterByClass` / `filterByClassExclude` — by class.
 - `filterByKeywords` / `…Or` / `…Excluded`.
 - `filterByEditorIdContains` / `…Or` / `…Excluded`.
-- `filterByGender=<female|male>`.
+- `filterByCombatStyle=<form,…>` — finds NPCs with one of these combat styles (can find the player).
+- `filterByTemplate=<form,…>` — finds NPCs built on one of these templates; a template can be an
+  NPC or a leveled NPC list (LVLN). Can find the player. New in 8.0.0.
+- `filterByGender=<female|male>` — narrower: removes NPCs of the other sex, like `restrictToGender`.
 - Boolean flag filters: `filterByPCLevelMult`, `filterByAutoCalc`, `filterByEssential`,
-  `filterByProtected` (e.g. `filterByPCLevelMult=true`).
-- **restrictTo… (post-match):** `restrictToRaces` · `restrictToGender=<male|female>` ·
+  `filterByProtected` (e.g. `filterByPCLevelMult=true`) — narrowers since 8.0.1: they narrow the
+  NPCs the other filters found; without other filters they take all NPCs (not the player). Value:
+  `true` or `false`; `yes` and `no` do not work here.
+- `filterByTemplateFlagExclude=<template flag,…>` — narrower: removes NPCs that have a template and
+  take the named data from it (flags as for `setTemplateFlags`). New in 8.0.0.
+- Keyword filters also look at the keywords of the NPC's race.
+- **restrictTo… (narrowers):** `restrictToRaces` · `restrictToGender=<male|female>` ·
+  `restrictToKeywords=<form,…>` · `restrictToCombatStyle=<form,…>` ·
   `restrictToVoiceType=<form>` · `restrictToFlags=<flag>` (NPC actor flags) ·
   `restrictToTemplateFlags=<traits,stats,factions,…>` · `restrictToMaleModelContains=<text>`
   (skeleton path substring, e.g. `werewolf`) · `restrictToSkill=<skill~min~max>` ·
-  `rvsRestrictToTraits=true` (limit `setRandomVisualStyle` to matching-trait NPCs).
+  `rvsRestrictToTraits=true` (only NPCs whose placed record takes its looks from a template,
+  template flag traits, then get a random look). Without filters a restriction works on all NPCs
+  except the player.
 
 ## Operations
 
@@ -35,10 +46,19 @@ perks, spells · identity & appearance refs · AI · attack data) · Examples.
 - `fullName=~Name~` · `shortName=~Short~`.
 - `copyVisualStyle=<form>` — copy face+hair from another NPC. **Match gender & race too** (also
   patchable here) or crashes can occur.
-- `setRandomVisualStyle=<formlist[~chance][~copyVoice]>` — pick a random style from a form list
-  (race, sex, skin, face, hair, height, weight, body tint, optional voice). `chance` is a %;
-  `~true`/`~false` controls voice copy (omit the voice part to never copy). Saved with the save.
-- `addRandomVisualStyle=<formlist>` — add styles instead of replacing.
+- `setRandomVisualStyle=<formlist[~chance][~voice][~protected]>` — pick a random style from a form
+  list (race, sex, skin, face, hair, hair color, height, weight, body tint, optional voice). Only the
+  form list is needed; `chance` is a %. Voice: `false` keeps the NPC's voice, so does leaving the
+  value out; any other value changes the voice (before 8.0.0 `false` also changed it). Add
+  `protected` as fourth value to pick only looks that fit the NPC; when none fits, the NPC keeps its
+  own look. Random looks only reach NPCs built from a template or from a leveled list; unique NPCs
+  without a template keep their look. Needs `iUpdateNPC=1`. Saved with the save.
+- `addRandomVisualStyle=<formlist>` — add styles instead of replacing; the added looks only reach
+  the NPCs of this line. Its voice and protected values can only turn those on, never off.
+- `haircolor=<CLFM form>` — set the hair color; also works on NPCs with a pre-made face and on NPCs
+  that take their look from a template. Wins over the hair color a visual style brings along.
+- `copyVisualStyle` copies face, head parts, hair color, face details, body tint, height and
+  weight; race and sex are not copied.
 
 ### Level & stats
 - `level=<n>` · `calcLevelMin=<n>` · `calcLevelMax=<n>` (with kPCLevelMult).
@@ -52,14 +72,17 @@ perks, spells · identity & appearance refs · AI · attack data) · Examples.
   ranged form `health=625~900` with `levelRange`.
 - `healthBonus` / `magickaBonus` / `staminaBonus` — bonus applied when using the matching `calc…`.
 - `changeSkills=<skill=val,…>` — skills → `value-tables.md`.
+- `speedMultiplier=<n>` · `clearClassFromAttributes`.
+- `setEssential`, `setProtected`, `setAutoCalcStats` and `setPcLevelMult` never change the player.
 
 ### Flags
 - `setFlags` / `removeFlags` — NPC actor flags (list below).
 - `setTemplateFlags` / `removeTemplateFlags` — template flags (list below).
 
 ```
-NPC flags:  female  essential  ischargenfacepreset  respawn  autocalcstats  unique
-            doesntaffectstealthmeter  pclevelmult  usestemplate  calcforalltemplates
+NPC flags (`calcfalltemplates` is written exactly like this):
+            female  essential  ischargenfacepreset  respawn  autocalcstats  unique
+            doesntaffectstealthmeter  pclevelmult  usestemplate  calcfalltemplates
             protected  norumors  summonable  doesntbleed  bleedoutoverride
             oppositegenderanims  simpleactor  loopedscript  noactivation  loopedaudio
             isghost  invulnerable
@@ -79,6 +102,7 @@ Template flags:  traits  stats  factions  spells  aidata  aipackages  unused  ba
 - `spellsToAdd` / `spellsToRemove` · `levSpellsToAdd` / `levSpellsToRemove` · `shoutsToAdd` / `shoutsToRemove`.
 
 ### Identity & appearance refs
+- `setRandomCombatStyle=<form,…>` — a random combat style from the list (runtime pick).
 - `race=<form>` · `voiceType=<form>` · `class=<form>` · `skin=<form>` (`null` disables) ·
   `deathItem=<form>` (`null` disables) · `outfitDefault=<form>` · `outfitSleep=<form>` ·
   `weight=<n>` · `height=<n>`.
@@ -93,7 +117,10 @@ Template flags:  traits  stats  factions  spells  aidata  aipackages  unused  ba
 
 ### Attack data
 - `attackDataToAdd` / `attackDataToChange` / `attackDataToRemove` — full spec (options, flags,
-  defaults) in `race-hook.md`; same syntax here.
+  defaults) in `race-hook.md`; same syntax here. They only change NPCs that use their own attack
+  data; NPCs that take it from their race or template are skipped. An attack with the same event
+  name is replaced.
+- `raceAttack`, `changeBaseObject` — read but do nothing in this version.
 
 ## Examples
 

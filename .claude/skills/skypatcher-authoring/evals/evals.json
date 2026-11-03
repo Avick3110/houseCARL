@@ -271,11 +271,11 @@
     },
     {
       "id": 31,
-      "prompt": "does this ini still work on skypatcher 6.4.1 or has the grammar changed since?",
+      "prompt": "does this ini still work on skypatcher 8.0.1 or has the grammar changed since?",
       "expected_output": "Load skypatcher-authoring.",
       "expectations": ["picks skypatcher-authoring", "reasoning names the version floor"],
       "should_trigger": true,
-      "evidence": "NEW 2026-09-08, never measured. Measures the '(SkyPatcher 6.4.1 grammar)' clause newly in the description."
+      "evidence": "NEW 2026-09-08, never measured. Measures the '(SkyPatcher 8.0.1 grammar)' clause newly in the description."
     },
     {
       "id": 32,

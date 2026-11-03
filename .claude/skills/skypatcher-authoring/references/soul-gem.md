@@ -8,7 +8,8 @@ Shared mechanics → `grammar-core.md`. Shared enums → `value-tables.md` (soul
 - `filterBySoulGems` / `…Excluded` — target soul gems by form.
 - `filterByModNames` — restrict by source plugin.
 - `filterByAlternateTextures` — match gems carrying a given texture set.
-- `filterByKeywords` / `…Or` / `…Excluded`.
+
+Soul gems have no keyword filters.
 
 ## Operations
 

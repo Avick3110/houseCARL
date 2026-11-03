@@ -1,7 +1,7 @@
 ---
 name: skypatcher-authoring
 description: >-
-  Authors and interprets SkyPatcher INI patches — runtime, no-ESP edits that filter Bethesda records and set, add or remove those records' own fields (SkyPatcher 6.4.1 grammar). Load before any SkyPatcher line — the `Plugin.esp|FormID` addressing, the per-type subfolder and the filename gate are non-obvious, and a wrong token fails silently. Use when writing or auditing a SkyPatcher `.ini`, rebalancing weapons, armor, NPCs or leveled lists without an ESP, putting items into a container or chest, or asking why a patch line isn't applying. Not for distribution — distribution to NPCs by group (faction, race, level, trait) is SPID, keywords onto item records is KID.
+  Authors and interprets SkyPatcher INI patches — runtime, no-ESP edits that filter Bethesda records and set, add or remove those records' own fields (SkyPatcher 8.0.1 grammar). Load before any SkyPatcher line — the `Plugin.esp|FormID` addressing, the per-type subfolder and the filename gate are non-obvious, and a wrong token fails silently. Use when writing or auditing a SkyPatcher `.ini`, rebalancing weapons, armor, NPCs or leveled lists without an ESP, putting items into a container or chest, or asking why a patch line isn't applying. Not for distribution — distribution to NPCs by group (faction, race, level, trait) is SPID, keywords onto item records is KID.
 compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
@@ -49,6 +49,7 @@ file is authoritative; do not carry one across from another type. Read one recor
 | Faction (FACT) | `faction` | `filterByFactions` | `references/faction.md` |
 | Movement Type (MOVT) | `movementType` | `filterByMovementTypes` | `references/movement-type.md` |
 | Projectile (PROJ) | `projectile` | `filterByProjectiles` | `references/projectile.md` |
+| Light (LIGH) | `light` | `filterByLights` | `references/light.md` |
 | Race (RACE) | `race` | `filterByRaces` | `references/race.md` |
 | Race Hook (RACE) | `raceHook` | `filterByRaces` | `references/race-hook.md` |
 | Object Modification (OMOD) | `objectModification` *(unconfirmed)* | *(undocumented)* | `references/object-modification.md` |
@@ -60,11 +61,16 @@ Shared enums — cast types, actor values, soul types, the biped slot index — 
 
 ## Compose the patch
 
-1. **Pick the filter.** The primary filter by form from the table, or a cross-cutting one the record
-   file lists (`filterByKeywords`, `filterByEditorIdContains`, `filterByModNames`, `hasPlugins`).
-   A line with no filter patches every record of that type.
+1. **Pick the filter.** The primary filter by form from the table (the direct list), or a finder
+   the record file lists (`filterByKeywords`, `filterByEditorIdContains`, …). Finders on one line
+   add up: each finds records on its own, so two finders patch both sets, not their overlap.
+   Narrow with a restriction, an `…Excluded` key or `filterByModNames`; none of them touch the
+   direct list. A line with no filter patches every record of that type, except in the Leveled
+   List and Reference patchers, where it patches nothing. `grammar-core.md` §5 has the full rule.
 2. **Address the forms** as `Plugin.esp|FormID`, copied whole from xEdit or the Creation Kit, or by
-   EditorID — except on the FormID-only operations, which the record file and `grammar-core.md` name.
+   EditorID — except on the FormID-only keys, which the record file and `grammar-core.md` name. An
+   EditorID of anything but keywords, globals, races, quests, voice types, head parts, cells,
+   worldspaces, idles and music types needs powerofthree's Tweaks.
 3. **Build the string:** chain segments with `:`, list values with `,`, pack compound values with
    `~` (`mgefsToAdd=Plugin.esp|id~Magnitude~Duration~Area`). Rename with `fullName=~New Name~`;
    clear a form field with `null`.
@@ -90,10 +96,12 @@ The INI goes at `Data/SKSE/Plugins/SkyPatcher/<subfolder>/<name>.ini`, with `<su
 the table. A plain filename always loads; a filename that matches a plugin (`Plugin.esp.ini`) loads
 only when that plugin is active, so it self-gates — the right shape for a patch against one mod, the
 wrong shape when the targets span many plugins. Nest a plugin-named INI in a mod-specific subfolder
-so another mod shipping the same filename cannot overwrite it. Comments start with `;`.
+so another mod shipping the same filename cannot overwrite it. Any name with `.ini` in it is read
+(`x.ini.bak` too); a name ending `.INI` is not. Comments start with `;`.
 
 Read `references/placement-and-conflicts.md` before naming the file — the exact subfolder casing,
-the per-type toggles, the global `SkyPatcher.ini` switches and the filename-order conflict rule.
+the per-type toggles (a missing toggle is **off**, Light excepted), the global `SkyPatcher.ini`
+switches and the read-order conflict rule.
 
 The job needs three things from the user: which records to hit, what the field change is, and
 whether the INI may be installed into the live setup or only written to a working folder.
@@ -111,10 +119,11 @@ Stop when the count is what you meant and every address resolves.
 ## Never invent a token
 
 Every filter, operation and value comes from the bundled reference. If a token is not there, say so
-rather than writing a plausible-sounding one: in game SkyPatcher skips a line it cannot parse and
-skips a FormID it cannot resolve, both silently and with no log line, so a fabricated token costs a
-debugging session and produces nothing to debug. Object Modification (OMOD) is enabled in SkyPatcher
-but has no documented grammar — hand the user the gap and the leads in its row above, never a guess.
+rather than writing a plausible-sounding one: in game SkyPatcher ignores a key it does not know
+without a message, so the line can then patch every record of its type, and it skips a missing
+EditorID silently (a broken FormID logs "Invalid form identifier"). A fabricated token costs a
+debugging session or patches far more than meant. Object Modification (OMOD) has a toggle but "has
+no effect in Skyrim" and no documented grammar — hand the user the gap, never a guess.
 
 Two soft spots in the corpus, and how to read them. Where a worked example disagrees with its own
 file's filter list, the primary filter in the table above wins and the example is a carried-over
@@ -129,19 +138,24 @@ warn case, not a use case.
   every type. Read it out of that record's own file.
 - **A truncated or wrong FormID.** Copy it whole; an unresolvable form is skipped in silence and
   looks exactly like a syntax bug.
-- **Forgetting the player exception.** Race and keyword filters always exclude the player. Patch the
-  player with `filterByNpcs=Skyrim.esm|7` alone, no other filter on the line.
-- **An EditorID on a FormID-only operation** (NPC `objectsToAdd` / `factionsToAdd`, Outfit /
-  FormList / Leveled List `formsToReplace`) — these take `Plugin.esp|FormID` only.
+- **Forgetting the player exception.** Keyword, race, faction and EditorID filters never find the
+  player, and a filterless line skips him. Patch the player by naming him in
+  `filterByNpcs=Skyrim.esm|7`.
+- **Reading two filters as AND.** `filterByRaces=…:filterByFactions=…` patches every Nord and every
+  bandit. To narrow, use a `restrictTo…` key or an `…Excluded` key.
+- **An EditorID on a FormID-only key** (NPC `objectsToAdd` / `factionsToAdd`, Reference
+  `filterByRefs` / `filterByRefsExcluded`) — these take `Plugin.esp|FormID` only.
 
 ## Notes
 
 - **Provenance and floor.** The reference corpus is reconstructed from SkyPatcher's official Nexus
-  documentation at **v6.4.1**, covering 27 record types plus one documented gap (OMOD). On a
-  SkyPatcher version bump, re-derive from the updated articles before trusting it for new
-  operations.
+  documentation at **v8.0.1** (re-derived 2026-11-03 from the 6.4.1 transcription), covering 28
+  record types plus one documented gap (OMOD). Enchantment has no 8.0.1 article and keeps its
+  6.4.1 text. On a SkyPatcher version bump, re-derive from the updated articles before trusting it
+  for new operations.
 - **Conflict model.** SkyPatcher's low-conflict property is real but not magic: same-field set
-  operations still resolve by filename order, and only add/remove operations truly accumulate.
+  operations still resolve by read order (folder first, then subfolders level by level, A to Z),
+  and only add/remove operations truly accumulate.
   Say so when a user layers several patches on one record.
 - **Lookup without authoring.** The same corpus answers "what filters does this record type
   support" or "what are the legal cast types" with no patch written at all.

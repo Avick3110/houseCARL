@@ -8,12 +8,16 @@ Shared mechanics → `grammar-core.md`.
 
 **Item lists (LVLI):**
 - `filterByLLs` — target item leveled lists by form.
-- `noFilterLL=true` — apply to all item lists (explicit no-filter).
+- `noFilterLL=true` — apply to all item lists (role *all*). Only `true` or `yes` work; every
+  other value, also `1` or `on`, does nothing. Lists with more than 120 entries are skipped.
 - `filterByEditorIdContains` / `…Or` / `…Excluded`.
 
 **Character lists (LVLN):**
 - `filterByLLNPCs` — target character leveled lists by form.
-- `noFilterLLNPC=true` — apply to all character lists.
+- `noFilterLLNPC=true` — apply to all character lists (same values and 120-entry rule).
+
+A line without filters patches nothing here. The Leveled List patcher does not read
+`filterByModNames`. Lists named in `filterByLLs` are always patched.
 
 ## Operations (shared by item & character lists)
 
@@ -29,12 +33,16 @@ Shared mechanics → `grammar-core.md`.
 - `chanceGlobal=<form>` — set the chance global.
 - `clear=yes` — clear all entries.
 - **Flags (only one at a time):** `calcForLevel=true` (calc from all levels ≤ player),
-  `calcEachItem=true` (calc for each item in count), `calcForLevelAndEachItem=true`,
+  `calcEachItem=true` (calc for each item in count), `calcLevelAndEachItem=true` (both),
   `calcUseAll=true` (use all), `clearFlags=true` (remove all flags).
 
 > Adding leveled lists to **containers** can CTD for some users; the global
-> `iAllowLeveledListsAddedToContainers` (in `SkyPatcher.ini`) is **off by default**. See
-> `container.md`.
+> `iAllowLeveledListsAddedToContainers` (in `SkyPatcher.ini`) is **on by default** (1, since
+> 7.1.3); 0 skips them. See `container.md`.
+
+- `addTemplateKeywords` is read but does nothing in this version.
+- Since 8.0.1 a leveled list is changed only once per line, and `removeFromLLs` works with `<=`
+  and `>=`.
 
 ## Examples
 

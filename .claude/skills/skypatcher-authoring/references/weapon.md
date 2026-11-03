@@ -63,3 +63,9 @@ filterByWeapons=Skyrim.esm|4822:weaponHitType=dismember
 filterByWeapons=Skyrim.esm|4822:soundLevel=silent
 filterByWeapons=Skyrim.esm|13988:mirrorWeapon=Skyrim.esm|000139B9
 ```
+
+## Added since 6.4.1 (8.0.1 articles; value syntax as the article gives it)
+
+- Filters: `filterByNameContains` / `…Or` / `…Excluded` (7.1.0), substring match on the full name.
+- Operations: `setFlags` / `removeFlags`, `attackDamageMatch`, `valueMatch`, `dwMatch`, `acswMatch`.
+- `filterByHasAmmoFromWeaponList` is not in the 8.0.1 article; unproven against the DLL.
