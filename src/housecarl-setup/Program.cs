@@ -15,8 +15,8 @@ namespace HousecarlSetup;
 ///   [1] Claude Code - copies the bundled plugin into ~/.claude/skills/housecarl/ (the desktop app
 ///                     auto-loads its skills) and registers the MCP server in ~/.claude.json (the
 ///                     desktop spawns it per session). UNCHANGED from the proven desktop install.
-///   [2] Codex       - installs the server under %LOCALAPPDATA%\houseCARL\server\, copies the helper
-///                     skills FLAT into ~/.agents/skills/ (the location a fresh Codex install was
+///   [2] Codex       - installs the server under %LOCALAPPDATA%\houseCARL\server\, copies every skill
+///                     in the package FLAT into ~/.agents/skills/ (the location a fresh Codex install was
 ///                     confirmed to scan), and registers the server as [mcp_servers.housecarl] in
 ///                     ~/.codex/config.toml.
 ///   [3] Both        - both of the above.
