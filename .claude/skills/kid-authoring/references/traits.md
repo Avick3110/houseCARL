@@ -19,14 +19,13 @@ section on them is ignored. **[source]**
 **Trait classes in this file:** Armor · Weapon · Ammo · Magic Effect · Potion · Ingredient · Book ·
 Soul Gem · Spell / Enchantment / Scroll (shared) · Furniture · Worked examples.
 
-**The record field column.** Each table below names the record field the trait reads, so a census can
-be written without a second lookup — that is the field path to hand `housecarl_records`'s `where=`.
-The field names are the schema's, read off `housecarl:mutagen-reference`; KID's own source is not
+**The record field column.** Each table below names the record field the trait reads.
+The field names are the schema's, read off `mutagen-reference`; KID's own source is not
 bundled here, so the column says *which field holds that property*, not that KID's C++ reads it by
 that name. Where the schema holds no single field for a trait the column says so rather than guessing
-a path — resolve those against the record with `housecarl:mutagen-reference` before you census them.
+a path — resolve those against the record with `mutagen-reference` before you census them.
 The spellings differ in places: KID writes `HandToHandMelee` where the schema writes `HandToHand`, so
-a `where=` clause uses the schema's spelling and the INI line uses KID's.
+the record field takes the schema's spelling and the INI line takes KID's.
 
 ---
 
@@ -90,7 +89,7 @@ a `where=` clause uses the schema's spelling and the INI line uses KID's.
 |---|---|---|
 | `S` / `-S` | teaches a spell / doesn't | `Teaches`, a polymorphic field, sitting on its `BookSpell` arm |
 | `AV` / `-AV` | teaches a skill (actor value) / doesn't | `Teaches` sitting on its `BookSkill` arm (the third arm is `BookTeachesNothing`) |
-| `<av>` | a numeric actor value = the specific skill/spell-type the book is associated with (e.g. `20` = Destruction). Names→numbers in `value-tables.md`. | `Teaches.Skill` on the `BookSkill` arm — typed `Skill`, not `ActorValue`, and the two numberings differ: `Skill` runs `OneHanded` 0 … `Destruction` **14** … `Enchanting` 17, while KID's `<av>` is the ActorValue number (Destruction **20**). Census by name — `where=["Teaches.Skill = Destruction"]` — because the KID number compared as a `Skill` selects a different skill, or none, with no error |
+| `<av>` | a numeric actor value = the specific skill/spell-type the book is associated with (e.g. `20` = Destruction). Names→numbers in `value-tables.md`. | `Teaches.Skill` on the `BookSkill` arm — typed `Skill`, not `ActorValue`, and the two numberings differ: `Skill` runs `OneHanded` 0 … `Destruction` **14** … `Enchanting` 17, while KID's `<av>` is the ActorValue number (Destruction **20**). Census by name (`Destruction`), because the KID number compared as a `Skill` selects a different skill, or none, with no error |
 
 ## Soul Gem (SLGM)
 
@@ -116,7 +115,7 @@ a `where=` clause uses the schema's spelling and the INI line uses KID's.
 |---|---|---|
 | `T(value)` | furniture type — `value-tables.md` → Furniture Types (0–3) | **not one scalar field** — FURN carries `Flags` (which has `IsPerch`) and a `Markers` list; resolve against the record before you census it |
 | `BT(value)` | workbench type — `value-tables.md` → Bench Types (1–7) | `WorkbenchData.BenchType`, whose enum runs `None` 0 … `SmithingArmor` 7, so KID's 1–7 line up |
-| `US(value)` | workbench use-skill — `value-tables.md` → Actor Values gives the KID number | `WorkbenchData.UsesSkill`, typed `Skill`, not `ActorValue`, and the two numberings differ the same way the BOOK `<av>` row describes. Census by name — `where=["WorkbenchData.UsesSkill = Smithing"]` — because the KID number compared as a `Skill` selects a different skill, or none, with no error |
+| `US(value)` | workbench use-skill — `value-tables.md` → Actor Values gives the KID number | `WorkbenchData.UsesSkill`, typed `Skill`, not `ActorValue`, and the two numberings differ the same way the BOOK `<av>` row describes. Census by name (`Smithing`), because the KID number compared as a `Skill` selects a different skill, or none, with no error |
 
 ---
 

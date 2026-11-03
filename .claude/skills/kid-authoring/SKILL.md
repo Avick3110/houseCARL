@@ -27,9 +27,7 @@ fabricated token fails silently.
 ## This skill's lane
 
 KID's lane is **a keyword onto an item record**. A keyword onto an NPC is SPID: load
-`housecarl:spid-authoring` for that job instead. Sibling skills are written `housecarl:<name>`, the
-Claude Code plugin form; a Codex install sees the same skill under its bare folder name
-(`spid-authoring`). MCP tool names are bare — `housecarl_records` — on every host.
+`spid-authoring` for that job instead.
 
 ## Which file answers which question
 
@@ -48,11 +46,10 @@ Read what your task needs, not everything.
 1. **Identify the keyword.** Reference it by EditorID (`WeapMaterialDwarven`) or FormID
    (`0x12345~Plugin.esp`). An EditorID resolving to nothing is not an error: KID **creates the
    keyword at runtime**, so a custom tag like `MyCursedGear` is valid. A runtime keyword has no
-   persistent FormID, so when other tooling must point at the tag, author the record instead —
-   `housecarl_create` with `records=[{"record_type": "Keyword", "editorid": "MyCursedGear"}]` and
-   `patch` naming the new plugin. Convert the FormID it reports, `XXXXXX:Plugin.esp`, to KID's tilde
-   form `0xXXXXX~Plugin.esp` (leading zeros stripped) before it goes in the line: pasted as reported
-   it reads as an EditorID and quietly creates an empty runtime keyword.
+   persistent FormID, so when other tooling must point at the tag, author the Keyword record in a
+   plugin instead. Write its FormID in KID's tilde form `0xXXXXX~Plugin.esp` (leading zeros
+   stripped): written as `XXXXXX:Plugin.esp` it reads as an EditorID and quietly creates an empty
+   runtime keyword.
 
 2. **Identify the item type.** One of the 19 listed in the types file, written **exactly** as given
    (`Magic Effect`, not `MagicEffect`). One line targets one type; repeat the line per type.
@@ -63,11 +60,10 @@ Read what your task needs, not everything.
    matches → wildcards.
 
 4. **Add traits if the narrowing is a property of the item.** Only the 12 trait-bearing types accept
-   them. `references/traits.md` names the record field behind each trait in its own column — that is
-   the path step 6's census puts in `where=`. Where the column says the schema holds no single field
-   for a trait, resolve it against the record with `housecarl:mutagen-reference` before composing.
-   Mind the spelling split the column flags: the INI takes KID's token, a `where=` takes the
-   schema's (`HandToHandMelee` against `HandToHand`).
+   them. `references/traits.md` names the record field behind each trait in its own column. Where the
+   column says the schema holds no single field for a trait, resolve it against the record with
+   `mutagen-reference` before composing. Mind the spelling split the column flags: the INI takes
+   KID's token, the record field the schema's (`HandToHandMelee` against `HandToHand`).
 
 5. **Compose the line, and count the pipes.**
    ```
@@ -78,46 +74,21 @@ Read what your task needs, not everything.
    `NONE`; a trailing unused section can be dropped. Set `chance` (0–100, default 100) only when you
    want less than guaranteed.
 
-6. **Ground the line.** Measure the reach before the file ships, and report the number with the call
-   that produced it rather than as a claim. The census is `housecarl_records` with `types=["WEAP"]`,
-   `where=["Data.AnimationType = OneHandDagger"]` and `counts_only=true`. To let the user eyeball
-   the set, drop `counts_only` and pass a `limit` — the default `summary` rows carry each match's
-   type, editorid, name and winner, and other field paths live inside `project={"form": "fields",
-   "fields": [...]}`, never flat. For a set too large to render inline, pass `to_file` an absolute `.jsonl` path and
-   re-enter it later as
-   `formids=["@<that absolute path>"]`; a long plugin scope takes the same spelling,
-   `plugins={"names": ["@<absolute path of a file, one plugin filename per line>"]}`, as do
-   `housecarl_check`'s `plugins=` and `exclude=`, and an inline plugin filename that itself starts
-   with `@` is written `@@` (a file's lines are read as written). Leave `source` omitted, or pass
-   `"winner"` — the load-order winner is the record KID acts on. To show what a String filter would
-   have caught instead, scan
+6. **Ground the line.** Measure the reach before the file ships. Count the load-order winners — the
+   winner is the record KID acts on. To show what a String filter would have caught instead, count
    the channels that filter actually tests (`references/filters.md` §1 and §3), which is more than
    the display name: a bare term is an exact test on the EditorID or the name, and a `*wildcard` is
    a substring test on the EditorID, the name **and** the item's own keyword EditorIDs. So a
-   wildcard census is three scans — `where=["Name contains Dagger"]`,
-   `where=["editorid contains Dagger"]` and
-   `where=["Keywords[*any]->editorid contains Dagger"]` — and the reach is their **union**, which
-   `where=` cannot express in one call because its terms are ANDed. Get the union by
-   inclusion-exclusion over the three counts and their four intersections, or by writing each scan
-   to a `to_file` artifact and merging the identity columns. A single `Name contains` count
-   under-reports a wildcard line, usually by a lot: the keyword channel alone catches everything
-   carrying `WeapTypeDagger`.
-   A `-exclusion` term grounds the same way, with the complement spelled on the operator: `not`
-   leads a string operator, so `where=["Name not contains Dagger"]` is the census for `-*Dagger` on
-   the name channel. On a **field** path it is the complement over records that field READS A VALUE
-   on — a record with no `Name` is in neither count — so a line whose reach depends on the no-value
-   records needs the `missing` term beside it, and `contains` + `not contains` + `missing`
-   partitions the scope. The identity term `editorid` is the exception: it always gives a verdict,
-   so a record with no EditorID lands on the `not contains` side (where `!=` and `not in` already
-   put it) and is counted twice if you add `editorid missing` to the arithmetic.
+   wildcard's reach is the **union** of three channels. A name-only count under-reports a wildcard
+   line, usually by a lot: the keyword channel alone catches everything carrying `WeapTypeDagger`.
+   A `-exclusion` term on a **field** excludes only records that carry a value on that field — a
+   record with no `Name` is never excluded by a name term — so a line whose reach depends on the
+   no-value records has to count them too.
    When the line carries a **plugin-name** filter, count by the **defining** plugin, not the winner:
    KID tests `TESFile::IsFormInMod` on the item's own FormID (`references/filters.md` §2), so the
    filter catches only records that plugin defines, and a patch that overrides them changes nothing
    about the set. Count the records that plugin defines — on a patched order that is a different
    number from "records this plugin wins", and it is the first one the filter means.
-   **This grounds one type-plus-trait predicate, not the whole line:** nothing on the 2.0
-   surface replays KID's evaluation order or `chance` — that is issue **#614**, not in 2.0, so say
-   so rather than implying the whole line was proved.
 
 7. **Place the file** at `Data\<name>_KID.ini`. The `_KID` substring is **mandatory** — a file
    without it is never read — and the file sits flat in `Data\`, not under
@@ -130,7 +101,7 @@ Read what your task needs, not everything.
    is step 6's count:** if the census is zero, or is a number the user did not expect, do not ship
    the line — say what it reached and re-cut the filter. After the next launch the deterministic
    backstop is `po3_KeywordItemDistributor.log` in `Documents\My Games\Skyrim Special Edition\SKSE\`
-   — read it and check each line matched. No houseCARL tool reads that log; open it as a file.
+   — read it and check each line matched.
 
 ## Worked lines, end to end
 
@@ -141,7 +112,7 @@ Keyword = HC_AuditDaggerTag|Weapon|NONE|OneHandDagger
 ```
 
 Grounded on a 3,801-plugin order this reaches 786 WEAP records, defined across 54 plugins and won by
-39 (`project={"form": "aggregate", "group_by": "defined_in"}`, then `"winner"`). A `*Dagger`
+39. A `*Dagger`
 wildcard is wrong in **both** directions on the same order. Its three channels reach 676 records by
 name, 702 by EditorID and 773 by keyword EditorID — 778 in union, and 772 of those are also
 `OneHandDagger`, so it **misses 14** of the trait's 786 and **over-catches 6**. The 14 it misses are
