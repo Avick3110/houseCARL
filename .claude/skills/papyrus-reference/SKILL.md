@@ -22,27 +22,20 @@ types, flags and doc-comments — for vanilla scripts, SKSE's additions, and the
 this skill ships. It is generated from BellCube's
 [papyrus-index](https://github.com/BellCubeDev/papyrus-index) and lives under `references/`.
 
-The lookup itself is offline: the index and the reference files ship inside this skill, and reading
-them needs no server and no configured instance. The frontmatter's compatibility line is the
-prerequisite for the availability half only — the checks that ask whether a function is real on this
-machine call the houseCARL MCP server, and a lookup never has to wait on one.
+The lookup itself is offline: the index and the reference files ship inside this skill.
 
-This covers the **API surface**. Reading a modlist's actual `.psc` source is a file job (ask
-`housecarl_asset_status` which mod or BSA wins a `Scripts\...` path first, then read it with your
-own file tool — or, when the winner is inside an archive, which is where most framework scripts
-ship, `housecarl_bsa_extract` with `archive=`, `out_path=` and `under=` the script's path first,
-and read the extracted file);
-compiling is `housecarl_compile_script`.
+This covers the **API surface**. Reading a modlist's actual `.psc` source is a file job (the winner
+of its `Scripts\...` path, which for most framework scripts is inside an archive); compiling is
+another.
 
 The corpus is the cheap route to a signature, not the only one and not the proof. The deterministic
-check is the compile: `housecarl_compile_script` binds every call against the real sources on the
-import path, so a signature it rejects is wrong whatever a lookup said, and one it accepts that the
-corpus lacks is a corpus hole worth reporting. That is what stands behind "never invent a
-signature" — the corpus gets you there in three greps instead of a build.
+check is the compile: it binds every call against the real sources on the import path, so a
+signature it rejects is wrong whatever a lookup said, and one it accepts that the corpus lacks is a
+corpus hole worth reporting. That is what stands behind "never invent a signature" — the corpus
+gets you there in three greps instead of a build.
 
-Invoked directly with a name (`/housecarl:papyrus-reference Substring`), treat the argument as the
-function to look up. On Codex the skill is the bare folder name, `papyrus-reference`, and the same
-text arrives as prose.
+Invoked directly with a name (`papyrus-reference Substring`), treat the argument as the function to
+look up.
 
 ## Look it up
 
@@ -150,25 +143,14 @@ I will not invent a signature.
 Then work the checks, in cost order:
 
 1. **Spelling and the grep pattern.** A typo and a spaced pattern produce the same empty result.
-2. **Is the function real on this machine?** `housecarl_skse` with `findings='pairing'` and
-   `filter=<Class or providing mod>` lists the native function names the winning compiled script
-   actually declares for that class. That is a declaration, not a runtime guarantee: the tool
-   answers whether a pairing is plausible and healthy, never whether the DLL registers exactly
-   these functions, and the absence of a token proves nothing.
-3. **The declaration itself.** `housecarl_decompile_script` with `pex=` recovers the real
-   declaration — names, types, properties, states, events and docstrings all survive. Add
-   `out_path=` an absolute folder to land the `.psc` there instead of in a new mod folder, which is
-   what you want when you are only reading a signature. Give each lookup its own empty folder: a
-   `.psc` already at that path is refused, never overwritten, so a reused folder stops the second
-   lookup. For a class inside an archive, `housecarl_bsa_extract` with `archive=`, `out_path=` and
-   `under=` its `scripts/<name>.pex` path first (a path or glob, as `asset_status` takes), then
-   decompile the extracted path with `out_path=` a different, empty folder.
+2. **The declaration itself.** Decompiling the winning `.pex` recovers the real declaration —
+   names, types, properties, states, events and docstrings all survive.
    **Parameter defaults do not survive a decompile** — they
    never existed in the `.pex` — so a decompiled declaration answers arity and types and cannot
    answer a default.
-4. **Compile it.** `housecarl_compile_script` with `script=` is the deterministic answer: it puts
-   the enabled mods' own Papyrus sources on the import path and returns per-line errors. A call
-   that compiles binds; a call the corpus lacks that compiles is a corpus hole to report.
+3. **Compile it.** A compile with the enabled mods' own Papyrus sources on the import path is the
+   deterministic answer. A call that compiles binds; a call the corpus lacks that compiles is a
+   corpus hole to report.
 
 Never invent a signature, including under pressure to "just guess". A confidently wrong signature
 ships code that compiles and misbehaves at runtime, or turns an authoring error into a filed
@@ -187,17 +169,10 @@ third-party function as always present and skips the availability check below.
 `requires_plugin` is an **indicative hint, not a gate**. The filename it carries differs between
 builds: StorageUtil rows name `PapyrusUtilSE.dll` while the AE build installs `PapyrusUtil.dll`,
 so matching that filename against the load order fails on a plugin that is present and working.
-Match on the mod or plugin *name* when you need a quick read, and defer the real question to
-`housecarl_skse` with `findings='pairing'` and `filter=<class or providing mod>`, which pairs the
-declaring scripts to the DLLs the providing mod ships and leads with **PAIRED-BUT-DEAD** and
-**UNPAIRED**.
+Match on the mod or plugin *name* instead.
 
-Installed is not the same as working. `findings='pairing'` calls a plugin PAIRED-BUT-DEAD when
-every candidate DLL statically cannot load — wrong game runtime, BSA-only, subfolder-shipped,
-32-bit, unreadable, debug-built. `findings='inventory'` leads with its own diagnostics over the
-whole SKSE layer: version-LOCKED plugins, legacy query-only plugins, non-plugin DLLs, subfolder
-DLLs, DLLs contested by more than one mod, and debug-build plugins. Report either answer as a
-verify flag, not as a promise about a running game.
+Installed is not the same as working. A providing DLL that statically cannot load — wrong game
+runtime, BSA-only, subfolder-shipped, 32-bit, unreadable, debug-built — is dead.
 
 A Tier-2 function whose provider is missing or dead is not a corpus miss: the signature is correct
 and the call will no-op at runtime. Say that, rather than the bundled-or-warn warning.
