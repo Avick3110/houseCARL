@@ -40,9 +40,9 @@ internal sealed class SetupInstallerSandbox : IDisposable
     public SetupProgram.InstallResult Install(SetupProgram.Target target)
         => SetupProgram.TryInstall(target, Src, Home, Home);
 
-    /// <summary>The state a 2.x Codex install left: its umbrella skill under the shared root, and its name on
-    /// the record. Call after an install has written the record.</summary>
-    public void Seed2xUmbrella()
+    /// <summary>The state a v2.0.0-v2.1.2 Codex install left: its umbrella skill under the shared root, and its
+    /// name on the record. Call after an install has written the record.</summary>
+    public void SeedRecordedUmbrella()
     {
         WriteFile(Path.Combine(SetupProgram.CodexSkillsRoot(Home), "housecarl", "SKILL.md"), "umbrella");
         string record = SetupProgram.CodexSkillRecord(Home, Home);
