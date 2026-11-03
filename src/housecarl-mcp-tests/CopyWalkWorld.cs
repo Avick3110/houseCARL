@@ -76,7 +76,7 @@ public sealed class CopyWalkWorld : IDisposable
             mod.HeadParts.Add(hp);
             return hp;
         }
-        FormKey Chain(int n, string name, out FormKey last)
+        FormKey Chain(int n, string name)
         {
             var list = new FormList(NextKey(), SkyrimRelease.SkyrimSE) { EditorID = name };
             HeadPart? prev = null;
@@ -87,13 +87,12 @@ public sealed class CopyWalkWorld : IDisposable
                 else prev.ExtraParts.Add(hp.FormKey);
                 prev = hp;
             }
-            last = prev!.FormKey;
             mod.FormLists.Add(list);
             return list.FormKey;
         }
-        Chain33 = Chain(33, "Depth32", out _);
-        Chain34 = Chain(34, "Depth33", out var chain34Last);
-        Chain34Last = chain34Last;
+        Chain33 = Chain(33, "Depth32");
+        Chain34 = Chain(34, "Depth33");
+        Chain34Last = new FormKey(walkKey, next - 1);
 
         Dangling = new FormKey(walkKey, 0xFFF);
         var dangling = new FormList(NextKey(), SkyrimRelease.SkyrimSE) { EditorID = "DanglingList" };
@@ -124,10 +123,7 @@ public sealed class CopyWalkWorld : IDisposable
 
     /// <summary>Clones <paramref name="from"/> out of Walk.esp through the tool, seeded by the FormList's Items.</summary>
     public string Clone(FormKey from, string stem)
-        => CopyTools.Copy(Svc, Token(from), new[] { "Walk.esp" }, new[] { "Items" }, null, null, stem, stem);
-
-    /// <summary>The 'XXXXXX:Plugin.esp' spelling of <paramref name="key"/>.</summary>
-    public static string Token(FormKey key) => $"{key.ID:X6}:{key.ModKey.FileName}";
+        => CopyTools.Copy(Svc, FormIdToken.Of(from), new[] { "Walk.esp" }, new[] { "Items" }, null, null, stem, stem);
 
     void Write(SkyrimMod mod, string folder)
     {
