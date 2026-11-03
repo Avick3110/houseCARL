@@ -1,5 +1,4 @@
 using Xunit;
-using System.Text.RegularExpressions;
 using SetupProgram = HousecarlSetup.Program;
 
 namespace HousecarlMcpTests;
@@ -19,7 +18,6 @@ internal sealed class SetupInstallerSandbox : IDisposable
     public string Package { get; }
     public string Src { get; }
     public string Home { get; }
-    public string UmbrellaPackageDir { get; }
 
     readonly string? savedCodexHome = Environment.GetEnvironmentVariable("CODEX_HOME");
 
@@ -30,37 +28,27 @@ internal sealed class SetupInstallerSandbox : IDisposable
         Package = Path.Combine(Root, "package");
         Src = Path.Combine(Package, "housecarl");
         Home = Path.Combine(Root, "home");
-        var (packaged, why) = CodexPackagePath();
-        if (packaged is null) throw new InvalidOperationException("Codex umbrella package path: " + why);
-        UmbrellaPackageDir = Path.Combine(new[] { Package }.Concat(packaged.Split('/')).Append("housecarl").ToArray());
     }
 
-    /// <summary>A package with a manifest, a server exe, these skills, and the Codex umbrella.</summary>
+    /// <summary>A package with a manifest, a server exe, and these skills.</summary>
     public void WritePackage(params string[] skills)
     {
         WriteFile(Path.Combine(Src, ".claude-plugin", "plugin.json"), "{}");
         WriteFile(Path.Combine(Src, "server", "housecarl-mcp.exe"), "exe");
         foreach (string s in skills)
             WriteFile(Path.Combine(Src, "skills", s, "SKILL.md"), s);
-        WriteFile(Path.Combine(UmbrellaPackageDir, "SKILL.md"), "umbrella");
     }
 
     public SetupProgram.InstallResult Install(SetupProgram.Target target)
         => SetupProgram.TryInstall(target, Src, Home, Home);
 
-    /// <summary>Where the packager puts the Codex skills root, relative to the package root, read out of
-    /// scripts/build-plugin.ps1 so the fixture ships the umbrella where the real package does.</summary>
-    public static (string? Path, string Why) CodexPackagePath()
+    /// <summary>The state a 2.x Codex install left: its umbrella skill under the shared root, and its name on
+    /// the record. Call after an install has written the record.</summary>
+    public void Seed2xUmbrella()
     {
-        string script = Path.Combine(HarnessPaths.RepoRoot, "scripts", "build-plugin.ps1");
-        if (!File.Exists(script)) return (null, "no " + script);
-        string text = File.ReadAllText(script);
-        var root = Regex.Match(text, @"^\s*\$CodexRoot\s*=\s*Join-Path\s+\$PkgRoot\s+'([^']+)'", RegexOptions.Multiline);
-        var skills = Regex.Match(text, @"^\s*\$CodexSkills\s*=\s*Join-Path\s+\$CodexRoot\s+'([^']+)'", RegexOptions.Multiline);
-        if (!root.Success) return (null, "no '$CodexRoot = Join-Path $PkgRoot ...' assignment found");
-        if (!skills.Success) return (null, "no '$CodexSkills = Join-Path $CodexRoot ...' assignment found");
-        string path = $"{root.Groups[1].Value}/{skills.Groups[1].Value}";
-        return (path, path);
+        WriteFile(Path.Combine(SetupProgram.CodexSkillsRoot(Home), "housecarl", "SKILL.md"), "umbrella");
+        string record = SetupProgram.CodexSkillRecord(Home, Home);
+        File.WriteAllLines(record, File.ReadAllLines(record).Append("housecarl"));
     }
 
     public static void WriteFile(string path, string text)

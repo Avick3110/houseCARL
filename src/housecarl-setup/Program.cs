@@ -16,8 +16,8 @@ namespace HousecarlSetup;
 ///                     auto-loads its skills) and registers the MCP server in ~/.claude.json (the
 ///                     desktop spawns it per session). UNCHANGED from the proven desktop install.
 ///   [2] Codex       - installs the server under %LOCALAPPDATA%\houseCARL\server\, copies the helper
-///                     skills + the houseCARL umbrella skill FLAT into ~/.agents/skills/ (the location
-///                     a fresh Codex install was confirmed to scan), and registers the server as
+///                     skills FLAT into ~/.agents/skills/ (the location a fresh Codex install was
+///                     confirmed to scan), and registers the server as
 ///                     [mcp_servers.housecarl] in ~/.codex/config.toml.
 ///   [3] Both        - both of the above.
 ///   [4] Uninstall   - takes back what an install wrote, for either host or both. It is its own file,
@@ -665,21 +665,6 @@ public static class Program
             foreach (string skillDir in Directory.GetDirectories(skillsSrc))
                 CopyDirectory(skillDir, Path.Combine(skillsRoot, Path.GetFileName(skillDir)));
 
-        // Codex-only umbrella skill: the $housecarl entry point (a top-level SKILL.md routing to the
-        // helpers + an agents/openai.yaml declaring the MCP-server dependency). It ships beside the plugin
-        // in the package (codex/skills/housecarl, the skill dir an immediate child of a skills/ root), NOT
-        // inside it, so the Claude install never sees it. Placed in ~/.agents/skills/ alongside the helpers
-        // - the location a fresh Codex install was confirmed to scan (the helpers there are discovered and
-        // working).
-        string umbrellaSrc = Path.Combine(Path.GetDirectoryName(pluginSrc)!, "codex", "skills", "housecarl");
-        bool shipsUmbrella = Directory.Exists(umbrellaSrc);
-        if (shipsUmbrella)
-        {
-            string umbrellaDest = Path.Combine(skillsRoot, PluginFolderName);
-            Ui.Step("Codex", "installing the houseCARL umbrella skill", umbrellaDest);
-            CopyDirectory(umbrellaSrc, umbrellaDest);
-        }
-
         // Drop the folders a previous version put here and this package no longer ships. ~/.agents/skills is
         // shared with every other agent's skills, so this prunes ONLY the folder names houseCARL recorded
         // installing — never a directory diff of a dir we do not own. A package with no skills folder ships no
@@ -691,14 +676,11 @@ public static class Program
         }
         else
         {
-            // Everything this install put under the shared root, the umbrella included, so a later upgrade
-            // can take back exactly those.
-            List<string> installedNames = new(shippedSkills);
-            if (shipsUmbrella) installedNames.Add(PluginFolderName);
-
+            // The record names everything this install put under the shared root, so a later upgrade can
+            // take back exactly those.
             string recordPath = CodexSkillRecord(home, homeOverride);
             List<string> staleSkills = ReadSkillRecord(recordPath)
-                .Where(n => !installedNames.Contains(n, StringComparer.OrdinalIgnoreCase))
+                .Where(n => !shippedSkills.Contains(n, StringComparer.OrdinalIgnoreCase))
                 .ToList();
             var prune = RemoveSkillDirs(skillsRoot, staleSkills, keptBack);
             ReportRemoved("Codex", skillsRoot, prune.Removed);
@@ -706,7 +688,7 @@ public static class Program
             // A folder the prune could not take back stays on the record, so the next upgrade tries it again
             // instead of forgetting a leftover houseCARL put there.
             Directory.CreateDirectory(Path.GetDirectoryName(recordPath)!);
-            File.WriteAllLines(recordPath, installedNames.Concat(prune.Failed));
+            File.WriteAllLines(recordPath, shippedSkills.Concat(prune.Failed));
         }
 
         Ui.Step("Codex", "registering the MCP server", configToml);

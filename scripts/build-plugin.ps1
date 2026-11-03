@@ -10,7 +10,6 @@
 
   Outputs (all gitignored build artifacts, reproducible on demand):
       dist/housecarl/                         the plugin tree (what `claude plugin validate` checks)
-      dist/codex/skills/housecarl/            the Codex umbrella skill, under a skills/ root
       dist/houseCARL-Setup.exe                the no-CLI desktop installer
       dist/START-HERE.txt                     friend-facing note (version stamped from plugin.json)
       dist/.claude-plugin/marketplace.json    CLI-install descriptor (local marketplace)
@@ -22,9 +21,8 @@
   After it succeeds, run the validation gate (necessary, not sufficient):
       claude plugin validate ./dist/housecarl --strict
 
-  -PluginTreeOnly assembles just dist/housecarl (skills + plugin files) and the Codex skill tree,
-  runs the skill leak-check over both, and stops: no corpus, no server publish, no setup exe, no
-  zip. dist/housecarl is the whole tree `claude plugin validate` reads, and it is what CI runs the
+  -PluginTreeOnly assembles just dist/housecarl (skills + plugin files), runs the skill leak-check
+  over it, and stops: no corpus, no server publish, no setup exe, no zip. dist/housecarl is the whole tree `claude plugin validate` reads, and it is what CI runs the
   real validator against; the leak-check runs here so CI runs it too.
 
   Reference:
@@ -43,8 +41,6 @@ $PkgRoot      = Join-Path $RepoRoot 'dist'              # package root: ships ho
 $DistRoot     = Join-Path $PkgRoot 'housecarl'          # the plugin tree (what `claude plugin validate` checks)
 $ServerDir    = Join-Path $DistRoot 'server'
 $SkillsDir    = Join-Path $DistRoot 'skills'
-$CodexRoot    = Join-Path $PkgRoot 'codex'              # the Codex bundle root (beside, not inside, the plugin tree)
-$CodexSkills  = Join-Path $CodexRoot 'skills'           # Codex skill dirs are immediate children of a skills/ root
 $PluginSrc    = Join-Path $RepoRoot 'plugin'
 $GeneratedDir = Join-Path $RepoRoot 'generated'
 $CorpusSrc    = Join-Path $GeneratedDir 'corpus.json'
@@ -70,9 +66,9 @@ if (-not $Version) { throw "could not read 'version' from $PluginManifest" }
 Write-Host ("Building houseCARL v{0}" -f $Version) -ForegroundColor Green
 
 # ---- 0. clean --------------------------------------------------------------
-# Clean the WHOLE package root, not just dist/housecarl: stale package-root extras (codex/,
-# START-HERE.txt, a previous setup exe) would otherwise survive into the zip - a stale nested
-# codex/codex/ subtree did exactly that at the 1.2.2 build.
+# Clean the WHOLE package root, not just dist/housecarl: stale package-root extras (START-HERE.txt,
+# a previous setup exe, a folder an older build wrote) would otherwise survive into the zip - a stale
+# nested codex/codex/ subtree did exactly that at the 1.2.2 build.
 Step '0/12' 'Clean dist/ (package root)'
 if (Test-Path $PkgRoot) { Remove-Item $PkgRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $DistRoot -Force | Out-Null
@@ -115,37 +111,18 @@ if (-not $PluginTreeOnly) {
   Copy-Item $CorpusSrc (Join-Path $ServerDir 'corpus.json') -Force
 }
 
-# ---- 5. bundle the skills, both trees (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
-# The Codex umbrella skill (the $housecarl entry point for Codex) ships at the PACKAGE ROOT, beside -
-# not inside - dist/housecarl/, so the Claude install (which copies the housecarl/ plugin tree
-# wholesale) never picks it up; only the setup utility's Codex path places it. Its skill dir is an
-# immediate child of a skills/ root (dist/codex/skills/housecarl), the shape Codex accepts. The whole
-# plugin/codex tree ships - a loose file at its root lands beside skills/, not inside it.
-Step '5/12' 'Bundle skills (plugin tree + Codex umbrella)'
+# ---- 5. bundle the skills (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
+Step '5/12' 'Bundle skills'
 New-Item -ItemType Directory -Path $SkillsDir -Force | Out-Null
 foreach ($s in $Skills) {
   $src = Join-Path $RepoRoot ".claude\skills\$s"
   if (-not (Test-Path $src)) { throw "skill not found: $src" }
   Copy-Item $src (Join-Path $SkillsDir $s) -Recurse -Force
 }
-$CodexSrc = Join-Path $PluginSrc 'codex'
-$SkillRoots = @($SkillsDir)   # skill-directory roots: the markdown pointer scan walks these
-$LeakRoots  = @($SkillsDir)   # excluded-file scan: wider, so a loose Codex package file is covered too
-if (Test-Path $CodexSrc) {
-  New-Item -ItemType Directory -Path $CodexSkills -Force | Out-Null
-  # the whole plugin/codex tree ships: every directory (hidden ones too) as a skill under skills/, and
-  # any loose file at the Codex package root, where a package-level Codex file belongs.
-  Get-ChildItem $CodexSrc -Directory -Force | ForEach-Object { Copy-Item $_.FullName $CodexSkills -Recurse -Force }
-  Get-ChildItem $CodexSrc -File -Force | ForEach-Object { Copy-Item $_.FullName $CodexRoot -Force }
-  $SkillRoots += $CodexSkills
-  $LeakRoots  += $CodexRoot
-}
 # prune dev/QA meta from the copies (index.jsonl + the mutagen shards stay - load-bearing). The eval
 # file is evals/evals.json (dev/DECISIONS.md, 2026-09-07, ruling 3); the whole directory is stripped.
-foreach ($r in $LeakRoots) {
-  Get-ChildItem $r -Directory -Recurse -Filter 'evals' | Remove-Item -Recurse -Force
-  Get-ChildItem $r -File -Recurse -Filter '_CORPUS_STATUS.md' | Remove-Item -Force
-}
+Get-ChildItem $SkillsDir -Directory -Recurse -Filter 'evals' | Remove-Item -Recurse -Force
+Get-ChildItem $SkillsDir -File -Recurse -Filter '_CORPUS_STATUS.md' | Remove-Item -Force
 
 # ---- 6. plugin source files ------------------------------------------------
 Step '6/12' 'Copy plugin files'
@@ -156,8 +133,8 @@ foreach ($f in @('.mcp.json','LICENSE','THIRD-PARTY-NOTICES.txt','README.md')) {
 # the shipped changelog carries plugin/changelog.d's fragments under Unreleased; the repo file and fragments stay as they are
 & (Join-Path $PSScriptRoot 'fold-changelog.ps1') -Version Unreleased -OutFile (Join-Path $DistRoot 'CHANGELOG.md')
 
-# ---- 7. leak-check the shipped skill trees (excluded files + markdown pointers) ----
-# Runs on both trees before the -PluginTreeOnly return, so CI (which assembles with that switch)
+# ---- 7. leak-check the shipped skill tree (excluded files + markdown pointers) ----
+# Runs before the -PluginTreeOnly return, so CI (which assembles with that switch)
 # runs it too. Two invariants, from dev/DECISIONS.md 2026-09-07 ruling 2: nothing this script
 # excludes may survive into a shipped copy, and every file a shipped markdown file points at must
 # exist in that same copy and must not be a file this script excludes. Both pointer forms are read:
@@ -169,52 +146,48 @@ foreach ($f in @('.mcp.json','LICENSE','THIRD-PARTY-NOTICES.txt','README.md')) {
 # that skill's rewrite wave, not here.
 Step '7/12' 'Leak-check skills (excluded files + markdown pointers)'
 $skillLeaks = @()
-foreach ($r in $LeakRoots) {
-  $skillLeaks += Get-ChildItem $r -Recurse -Force -File -Filter '_CORPUS_STATUS.md'
-  $skillLeaks += Get-ChildItem $r -Recurse -Force -Directory -Filter 'evals'
-}
+$skillLeaks += Get-ChildItem $SkillsDir -Recurse -Force -File -Filter '_CORPUS_STATUS.md'
+$skillLeaks += Get-ChildItem $SkillsDir -Recurse -Force -Directory -Filter 'evals'
 if ($skillLeaks.Count -gt 0) {
   $skillLeaks | ForEach-Object { Write-Host "  LEAK (excluded file present): $($_.FullName)" -ForegroundColor Red }
   throw "leak-check failed: excluded files present in dist"
 }
 $pointerFails = @()
 $docCount = 0
-foreach ($r in $SkillRoots) {
-  foreach ($skillDir in (Get-ChildItem $r -Directory)) {
-    # every file name this skill ships - what a bare sibling pointer has to resolve to
-    $shipped = @{}
-    Get-ChildItem $skillDir.FullName -Recurse -Force -File | ForEach-Object { $shipped[$_.Name] = $true }
-    foreach ($doc in (Get-ChildItem $skillDir.FullName -Recurse -Force -File -Filter '*.md')) {
-      $docCount++
-      $rel     = ($doc.FullName.Substring($skillDir.FullName.Length).TrimStart('\')) -replace '\\','/'
-      $docText = Get-Content $doc.FullName -Raw
-      if (-not $docText) { $pointerFails += ("{0} ships an empty {1}." -f $skillDir.Name, $rel); continue }
-      # a references/ or evals/ pointer in any spelling, plus a bare mention of the stripped status note
-      $hits  = @([regex]::Matches($docText, '(?<![A-Za-z0-9_./\\-])(?:references|evals)[/\\][A-Za-z0-9_./\\-]+', 'IgnoreCase') | ForEach-Object { $_.Value })
-      $hits += @([regex]::Matches($docText, '(?<![A-Za-z0-9_./\\-])_CORPUS_STATUS\.md', 'IgnoreCase') | ForEach-Object { $_.Value })
-      foreach ($hit in $hits) {
-        $ptr = $hit.TrimEnd('.', ',', ';', ':', ')')
-        if ($ptr -match '\\') {
-          $pointerFails += ("{0} ({1}) writes {2} with a backslash; skill pointers use forward slashes." -f $skillDir.Name, $rel, $ptr)
-          continue
-        }
-        $leaf = Split-Path $ptr -Leaf
-        if ($ptr.EndsWith('/') -or ($leaf -notmatch '\.')) { continue }   # names the directory, not a file
-        if ($ptr -like 'evals/*' -or $leaf -eq '_CORPUS_STATUS.md') {
-          $pointerFails += ("{0} ({1}) points at {2}, which this script strips from every shipped copy." -f $skillDir.Name, $rel, $ptr)
-        } elseif (-not (Test-Path (Join-Path $skillDir.FullName $ptr))) {
-          $pointerFails += ("{0} ({1}) points at {2}, which is not in the shipped copy." -f $skillDir.Name, $rel, $ptr)
-        }
+foreach ($skillDir in (Get-ChildItem $SkillsDir -Directory)) {
+  # every file name this skill ships - what a bare sibling pointer has to resolve to
+  $shipped = @{}
+  Get-ChildItem $skillDir.FullName -Recurse -Force -File | ForEach-Object { $shipped[$_.Name] = $true }
+  foreach ($doc in (Get-ChildItem $skillDir.FullName -Recurse -Force -File -Filter '*.md')) {
+    $docCount++
+    $rel     = ($doc.FullName.Substring($skillDir.FullName.Length).TrimStart('\')) -replace '\\','/'
+    $docText = Get-Content $doc.FullName -Raw
+    if (-not $docText) { $pointerFails += ("{0} ships an empty {1}." -f $skillDir.Name, $rel); continue }
+    # a references/ or evals/ pointer in any spelling, plus a bare mention of the stripped status note
+    $hits  = @([regex]::Matches($docText, '(?<![A-Za-z0-9_./\\-])(?:references|evals)[/\\][A-Za-z0-9_./\\-]+', 'IgnoreCase') | ForEach-Object { $_.Value })
+    $hits += @([regex]::Matches($docText, '(?<![A-Za-z0-9_./\\-])_CORPUS_STATUS\.md', 'IgnoreCase') | ForEach-Object { $_.Value })
+    foreach ($hit in $hits) {
+      $ptr = $hit.TrimEnd('.', ',', ';', ':', ')')
+      if ($ptr -match '\\') {
+        $pointerFails += ("{0} ({1}) writes {2} with a backslash; skill pointers use forward slashes." -f $skillDir.Name, $rel, $ptr)
+        continue
       }
-      # the bare sibling form, the dominant one in the corpus (a plain value-tables.md, no references/ hop):
-      # it resolves against every name the skill ships. Only .md and .jsonl are candidates - those are the
-      # extensions shipped skill files use, so a bare .json/.ini/.psc name here is a file in the modded game
-      # (OAR's config.json, SPID's _DISTR.ini, a vanilla Form.psc), never a pointer at a sibling document.
-      foreach ($m in [regex]::Matches($docText, '(?<![A-Za-z0-9_./\\-])[A-Za-z0-9_-]+\.(?:md|jsonl)(?![A-Za-z0-9])', 'IgnoreCase')) {
-        if ($m.Value -eq '_CORPUS_STATUS.md') { continue }   # the stripped-file rule above owns this name
-        if (-not $shipped.ContainsKey($m.Value)) {
-          $pointerFails += ("{0} ({1}) points at {2}, which is not in the shipped copy." -f $skillDir.Name, $rel, $m.Value)
-        }
+      $leaf = Split-Path $ptr -Leaf
+      if ($ptr.EndsWith('/') -or ($leaf -notmatch '\.')) { continue }   # names the directory, not a file
+      if ($ptr -like 'evals/*' -or $leaf -eq '_CORPUS_STATUS.md') {
+        $pointerFails += ("{0} ({1}) points at {2}, which this script strips from every shipped copy." -f $skillDir.Name, $rel, $ptr)
+      } elseif (-not (Test-Path (Join-Path $skillDir.FullName $ptr))) {
+        $pointerFails += ("{0} ({1}) points at {2}, which is not in the shipped copy." -f $skillDir.Name, $rel, $ptr)
+      }
+    }
+    # the bare sibling form, the dominant one in the corpus (a plain value-tables.md, no references/ hop):
+    # it resolves against every name the skill ships. Only .md and .jsonl are candidates - those are the
+    # extensions shipped skill files use, so a bare .json/.ini/.psc name here is a file in the modded game
+    # (OAR's config.json, SPID's _DISTR.ini, a vanilla Form.psc), never a pointer at a sibling document.
+    foreach ($m in [regex]::Matches($docText, '(?<![A-Za-z0-9_./\\-])[A-Za-z0-9_-]+\.(?:md|jsonl)(?![A-Za-z0-9])', 'IgnoreCase')) {
+      if ($m.Value -eq '_CORPUS_STATUS.md') { continue }   # the stripped-file rule above owns this name
+      if (-not $shipped.ContainsKey($m.Value)) {
+        $pointerFails += ("{0} ({1}) points at {2}, which is not in the shipped copy." -f $skillDir.Name, $rel, $m.Value)
       }
     }
   }
@@ -223,14 +196,12 @@ if ($pointerFails.Count -gt 0) {
   $pointerFails | Sort-Object -Unique | ForEach-Object { Write-Host "  SKILL DOC: $_" -ForegroundColor Red }
   throw "leak-check failed: a shipped skill markdown file is empty or points at a file that does not ship beside it"
 }
-Write-Host ("skill leak-check clean ({0} skills, {1} markdown files, across {2} tree(s))." -f ($SkillRoots | ForEach-Object { (Get-ChildItem $_ -Directory).Count } | Measure-Object -Sum).Sum, $docCount, $SkillRoots.Count) -ForegroundColor Green
+$skillCount = (Get-ChildItem $SkillsDir -Directory).Count
+Write-Host ("skill leak-check clean ({0} skills, {1} markdown files)." -f $skillCount, $docCount) -ForegroundColor Green
 
 # The validator's whole input is assembled now. Stop here when only that was asked for.
 if ($PluginTreeOnly) {
-  $skillCount = (Get-ChildItem $SkillsDir -Directory).Count
   Write-Host ("`nPlugin tree assembled: {0}   skills: {1}" -f $DistRoot, $skillCount) -ForegroundColor Green
-  if (Test-Path $CodexSkills) { Write-Host ("Codex skill tree:      {0}" -f $CodexSkills) }
-  else                        { Write-Host "Codex skill tree:      (none - plugin/codex not found)" }
   Write-Host "Server, setup utility and zip were skipped (-PluginTreeOnly)."
   return
 }
@@ -270,7 +241,7 @@ if (-not (Test-Path $SetupExe)) { throw "setup utility not produced at $SetupExe
 Write-Host ("houseCARL-Setup.exe: {0:N2} MB" -f ((Get-Item $SetupExe).Length / 1MB))
 
 # ---- 10. leak-check the server half + the whole package root ----------------
-# The skill trees were leak-checked at step 7 (excluded files + markdown pointers); this covers what
+# The skill tree was leak-checked at step 7 (excluded files + markdown pointers); this covers what
 # only a full build produces: the published server, and every shipped text file under the package
 # root. All three excluded-file scans walk the whole package root, so an excluded file that lands
 # outside dist/housecarl - a stray copy under .claude-plugin/, or an appsettings.json the setup-utility
@@ -332,7 +303,6 @@ Write-Host ("packed {0} entries -> {1} ({2} MB)" -f $ZipEntryCount, $ZipPath, $Z
 Step '12/12' 'Summary'
 $fileCount  = (Get-ChildItem $DistRoot -Recurse -Force -File).Count
 $totalMB    = (Get-ChildItem $DistRoot -Recurse -Force -File | Measure-Object Length -Sum).Sum / 1MB
-$skillCount = (Get-ChildItem $SkillsDir -Directory).Count
 Write-Host ("houseCARL v{0}" -f $Version)
 Write-Host ("Assembled plugin: {0}" -f $DistRoot)
 Write-Host ("  files: {0}   size: {1:N1} MB   skills: {2}" -f $fileCount, $totalMB, $skillCount)
@@ -342,7 +312,6 @@ Write-Host ("  manifest:    {0}" -f (Test-Path (Join-Path $DistRoot '.claude-plu
 Write-Host ("  setup util:  {0}   ({1})" -f (Test-Path $SetupExe), (Split-Path $SetupExe -Leaf))
 Write-Host ("  start-here:  {0}" -f (Test-Path (Join-Path $PkgRoot 'START-HERE.txt')))
 Write-Host ("  marketplace: {0}" -f (Test-Path (Join-Path $PkgRoot '.claude-plugin\marketplace.json')))
-Write-Host ("  codex skill: {0}" -f (Test-Path (Join-Path $CodexSkills 'housecarl\SKILL.md')))
 Write-Host ("Shippable zip:    {0}  ({1} MB, {2} entries)" -f $ZipPath, $ZipMB, $ZipEntryCount)
 Write-Host "`nDONE." -ForegroundColor Green
 Write-Host "Next - validation gate (necessary, not sufficient):" -ForegroundColor Yellow

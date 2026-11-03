@@ -21,16 +21,12 @@ public sealed class SetupUpdateLockTests
         SetupInstallerSandbox.WriteFile(Path.Combine(box.Src, "server", "housecarl-mcp.exe"), ExeV1);
         SetupInstallerSandbox.WriteFile(Path.Combine(box.Src, "server", "Mutagen.Bethesda.dll"), new byte[] { 9 });
         SetupInstallerSandbox.WriteFile(Path.Combine(box.Src, "skills", "demo-skill", "SKILL.md"), "demo");
-        SetupInstallerSandbox.WriteFile(Path.Combine(box.UmbrellaPackageDir, "SKILL.md"), "umbrella");
     }
 
-    // T1: a clean first install succeeds, and the umbrella packed where the packager puts it lands at ~/.agents/skills/housecarl.
+    // T1: a clean first install succeeds and lands both server copies.
     [Fact]
-    public void ACleanInstallLandsTheUmbrellaWhereThePackagerPutsIt()
+    public void ACleanInstallSucceeds()
     {
-        var (packaged, why) = SetupInstallerSandbox.CodexPackagePath();
-        Assert.True(packaged is not null, why);
-
         using var box = new SetupInstallerSandbox();
         WriteLockPackage(box);
 
@@ -39,7 +35,6 @@ public sealed class SetupUpdateLockTests
         Assert.Equal(SetupProgram.InstallOutcome.Installed, clean.Outcome);
         Assert.True(File.Exists(SetupProgram.ClaudeDestExe(box.Home)));
         Assert.True(File.Exists(SetupProgram.CodexDestExe(box.Home, box.Home)));
-        Assert.True(File.Exists(Path.Combine(SetupProgram.CodexSkillsRoot(box.Home), "housecarl", "SKILL.md")));
     }
 
     // T2: with the Claude server exe held, the re-install refuses at pre-flight: no copy ran and the exe is byte-intact.
