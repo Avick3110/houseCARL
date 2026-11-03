@@ -117,13 +117,14 @@ public sealed class SetupSkillPruneTests
         Assert.Contains("no skills folder", said);
     }
 
-    // T7: a 2.x umbrella on the record goes on the next upgrade, since no package ships it now.
+    // T7: an umbrella a v2.0.0-v2.1.2 install put on the record goes on the next upgrade, since no package ships
+    // it now.
     [Fact]
-    public void A2xUmbrellaOnTheRecordGoesOnUpgrade()
+    public void ARecordedUmbrellaGoesOnUpgrade()
     {
         using var box = new SetupInstallerSandbox();
         UpgradeDroppingOne(box);
-        box.Seed2xUmbrella();
+        box.SeedRecordedUmbrella();
 
         string said = SetupInstallerSandbox.Capture(() => box.Install(SetupProgram.Target.Both));
 
