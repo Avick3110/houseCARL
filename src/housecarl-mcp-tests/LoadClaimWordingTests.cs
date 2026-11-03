@@ -36,7 +36,6 @@ public sealed class LoadClaimWordingTests
     // probe: #271 sweep: shipped doc present to sweep / does not assert the overclaim either
     [Theory]
     [InlineData("plugin/README.md")]
-    [InlineData("plugin/codex/housecarl/SKILL.md")]
     public void NoShippedDocAssertsTheOverclaim(string doc)
     {
         var path = Path.Combine(HarnessPaths.RepoRoot, doc);

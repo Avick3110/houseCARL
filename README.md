@@ -131,7 +131,7 @@ Dialogue records have bookkeeping that a byte-valid insert does not satisfy: [do
 
 ## Skills
 
-Seven skills ship with the plugin: `/housecarl:<name>` in Claude Code, `$housecarl` in Codex. Each is a `SKILL.md` and a `references/` tree. Reference corpora are read by grep, never loaded whole. Four of the seven — `mutagen-reference`, `papyrus-reference`, `spid-authoring`, `kid-authoring` — carry a `references/index.jsonl` mapping a name to the file that holds it; the two generated corpora carry the line as well.
+Seven skills ship with the plugin: `/housecarl:<name>` in Claude Code, `$<name>` in Codex. Each is a `SKILL.md` and a `references/` tree. Reference corpora are read by grep, never loaded whole. Four of the seven — `mutagen-reference`, `papyrus-reference`, `spid-authoring`, `kid-authoring` — carry a `references/index.jsonl` mapping a name to the file that holds it; the two generated corpora carry the line as well.
 
 | Skill | Carries |
 |---|---|
@@ -161,7 +161,7 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping, and the 
 2. Extract it and run `houseCARL-Setup.exe`.
 3. Select the host: `[1] Claude Code`, `[2] Codex`, `[3] Both`, `[4] Uninstall`.
    - Claude Code: skills to `~/.claude/skills/housecarl/`, server registered in `~/.claude.json`. The terminal CLI and the desktop app's Code tab both read these.
-   - Codex: server under `%LOCALAPPDATA%\houseCARL\server\`, skills flat under `~/.agents/skills/` with a `$housecarl` entry point, server registered as `[mcp_servers.housecarl]` in `~/.codex/config.toml`.
+   - Codex: server under `%LOCALAPPDATA%\houseCARL\server\`, skills flat under `~/.agents/skills/`, server registered as `[mcp_servers.housecarl]` in `~/.codex/config.toml`.
 4. Read the plan. Setup prints what it found on the machine and then every path it is about to write, and writes nothing until Enter; `q` quits.
 5. Restart the host. The closing block says what was written and what to do next. On first use, houseCARL asks for the MO2 instance folder, the one containing `ModOrganizer.ini`. The instance can be changed at any time by asking.
 
