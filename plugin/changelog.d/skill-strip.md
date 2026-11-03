@@ -1,0 +1,1 @@
+- **The SPID, KID, SkyPatcher and Papyrus skills now carry the framework knowledge only, and Codex no longer gets a `$housecarl` umbrella skill.** The skills no longer name houseCARL tools or parameters; the tools' own descriptions say how to call them.
