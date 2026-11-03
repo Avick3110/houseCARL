@@ -25,8 +25,7 @@ this skill ships. It is generated from BellCube's
 The lookup itself is offline: the index and the reference files ship inside this skill.
 
 This covers the **API surface**. Reading a modlist's actual `.psc` source is a file job (the winner
-of its `Scripts\...` path, which for most framework scripts is inside an archive); compiling is
-another.
+of its `Scripts\...` path, which for most framework scripts is inside an archive).
 
 The corpus is the cheap route to a signature, not the only one and not the proof. The deterministic
 check is the compile: it binds every call against the real sources on the import path, so a
@@ -34,8 +33,7 @@ signature it rejects is wrong whatever a lookup said, and one it accepts that th
 corpus hole worth reporting. That is what stands behind "never invent a signature" — the corpus
 gets you there in three greps instead of a build.
 
-Invoked directly with a name (`papyrus-reference Substring`), treat the argument as the function to
-look up.
+Invoked directly with a name, treat the argument as the function to look up.
 
 ## Look it up
 
@@ -144,13 +142,11 @@ Then work the checks, in cost order:
 
 1. **Spelling and the grep pattern.** A typo and a spaced pattern produce the same empty result.
 2. **The declaration itself.** Decompiling the winning `.pex` recovers the real declaration —
-   names, types, properties, states, events and docstrings all survive.
-   **Parameter defaults do not survive a decompile** — they
-   never existed in the `.pex` — so a decompiled declaration answers arity and types and cannot
-   answer a default.
-3. **Compile it.** A compile with the enabled mods' own Papyrus sources on the import path is the
-   deterministic answer. A call that compiles binds; a call the corpus lacks that compiles is a
-   corpus hole to report.
+   names, types, properties, states, events and docstrings all survive. **Parameter defaults do
+   not survive a decompile** — they never existed in the `.pex` — so a decompiled declaration
+   answers arity and types and cannot answer a default.
+3. **Compile it** with the enabled mods' own Papyrus sources on the import path — the deterministic
+   check above.
 
 Never invent a signature, including under pressure to "just guess". A confidently wrong signature
 ships code that compiles and misbehaves at runtime, or turns an authoring error into a filed

@@ -11,10 +11,10 @@ SkyPatcher is an SKSE plugin that edits Bethesda records at runtime from plain-t
 ESP or ESL is produced for the edit itself. This skill composes and reads those patch strings and
 places the file where SkyPatcher will read it. SkyPatcher edits a record's own fields, an individual
 NPC's included; it does not distribute. Two neighbouring jobs are someone else's: what fields a
-record has at the Mutagen/xEdit level, with their types and writability, is
-`mutagen-reference`; distributing a form to NPCs is `spid-authoring`, which is
-*best* for groups — faction, race, level, trait — and can also name one NPC, though for a single NPC
-SkyPatcher is usually the *better* fit; a keyword onto item records is `kid-authoring`.
+record has at the Mutagen/xEdit level, with their types and writability, is `mutagen-reference`;
+distributing a form to NPCs is `spid-authoring`, which is *best* for groups — faction, race, level,
+trait — and can also name one NPC, though for a single NPC SkyPatcher is usually the *better* fit; a
+keyword onto item records is `kid-authoring`.
 
 ## Route to the record type
 

@@ -1,6 +1,6 @@
 {
  "skill_name": "kid-authoring",
- "about": "The TRIGGER arm (cases T1-T26) measures routing: does this skill get loaded for the queries it owns, and stay unloaded for the near-misses. Every case runs in both a with-skill and a without-skill configuration; a positive case that is answered equally well in both is reported as no evidence for the skill, not as a pass.",
+ "about": "Cases T1-T26 measure routing: does this skill get loaded for the queries it owns, and stay unloaded for the near-misses. Every case runs in both a with-skill and a without-skill configuration; a positive case that routes the same in both is reported as no evidence for the skill, not as a pass.",
  "tree_under_test": "dist/housecarl/skills/kid-authoring/ -- the PACKAGED tree produced by scripts/build-plugin.ps1, never .claude/skills/. The packager strips evals/ and references/_CORPUS_STATUS.md, so a body pointer at either is dead in the shipped copy and only a packaged-tree run sees it.",
  "gate": {
   "recall_threshold": 0.8,

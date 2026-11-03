@@ -49,8 +49,7 @@ A bare word/phrase matched against the item, by these channels: **[desc]**
   everything up to and including `meshes\`. The **item's model** is put through
   `Filter::SanitizeString` (`Item::Data::Data`), which only lowercases. So a model path stored with
   forward slashes, or with a `meshes\` prefix the term no longer carries, will not match a term that
-  looks correct. Write the term the way the record stores the path, minus `meshes\`, and check the
-  record's stored path rather than assuming the normalizer closes the gap.
+  looks correct. Write the term the way the record stores the path, minus `meshes\`.
 
 ---
 
