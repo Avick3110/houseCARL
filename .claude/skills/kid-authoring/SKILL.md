@@ -81,9 +81,9 @@ Read what your task needs, not everything.
    a substring test on the EditorID, the name **and** the item's own keyword EditorIDs. So a
    wildcard's reach is the **union** of three channels. A name-only count under-reports a wildcard
    line, usually by a lot: the keyword channel alone catches everything carrying `WeapTypeDagger`.
-   A `-exclusion` term on a **field** excludes only records that carry a value on that field — a
-   record with no `Name` is never excluded by a name term — so a line whose reach depends on the
-   no-value records has to count them too.
+   A `-exclusion` term is tested like a bare term, on the EditorID **or** the name, so a record with
+   no `Name` is still excluded when its EditorID equals the term — count what an exclusion removes
+   on every channel a bare term tests (`references/filters.md` §1), not on the name alone.
    When the line carries a **plugin-name** filter, count by the **defining** plugin, not the winner:
    KID tests `TESFile::IsFormInMod` on the item's own FormID (`references/filters.md` §2), so the
    filter catches only records that plugin defines, and a patch that overrides them changes nothing
