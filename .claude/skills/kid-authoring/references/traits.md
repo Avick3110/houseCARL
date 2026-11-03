@@ -19,9 +19,8 @@ section on them is ignored. **[source]**
 **Trait classes in this file:** Armor · Weapon · Ammo · Magic Effect · Potion · Ingredient · Book ·
 Soul Gem · Spell / Enchantment / Scroll (shared) · Furniture · Worked examples.
 
-**The record field column.** Each table below names the record field the trait reads.
-The field names are the schema's, read off `mutagen-reference`; KID's own source is not
-bundled here, so the column says *which field holds that property*, not that KID's C++ reads it by
+**The record field column.** Each table below names the record field the trait reads. The field
+names are the schema's, read off `mutagen-reference`; KID's own source is not bundled here, so the column says *which field holds that property*, not that KID's C++ reads it by
 that name. Where the schema holds no single field for a trait the column says so rather than guessing
 a path — resolve those against the record with `mutagen-reference` before you census them.
 The spellings differ in places: KID writes `HandToHandMelee` where the schema writes `HandToHand`, so

@@ -121,13 +121,12 @@ are empty; every pipe before Chance is still written.
 A SPID line is written blind unless you measure the population first. Three checks, all read-only:
 
 1. **Size the group the filter names**, before composing: count the NPCs whose faction or keyword
-   list holds the group (`Factions[*any].Faction` for a faction). Resolve the field path with
-   `mutagen-reference` rather than guessing it.
+   list holds the group. Resolve the field path with `mutagen-reference` rather than guessing it.
 2. **Count how many of those are on a PC level multiplier**, when a Level Filter is in play: check
-   1's group **and** a `Configuration.Level` that is a PC level multiplier, together. Dropping check
-   1's term counts every scaling NPC in the order instead of the group the line names. That is the
-   population the re-distribution pass covers, not the population the line reaches — see
-   *Verifying a distribution actually happened*.
+   1's group **and** a PC level multiplier, together. Without the group it counts every scaling NPC
+   in the order instead of the group the line names. That is the population the re-distribution
+   pass covers, not the population the line reaches — see *Verifying a distribution actually
+   happened*.
 3. **Prove the file is the one the game reads**, after placing it: `<name>_DISTR.ini` is a
    Data-relative path like any other asset. Find the winning source, every source that provides it,
    and whether more than one contends.
@@ -144,8 +143,8 @@ measure.
 
 The `references/` corpus documents SPID **7.3.0**. If a form type, filter, trait or behaviour is not
 in it, **say so — do not fabricate a plausible token.** There is no backstop on this path: SPID
-skips an unparseable line, an unknown filter term or an unresolvable form with no error, so a guessed token yields a file that quietly distributes
-nothing. The only checks that exist are the three under *Check the reach before you write it*.
+skips an unparseable line, an unknown filter term or an unresolvable form with no error, so a
+guessed token yields a file that quietly distributes nothing. The only checks that exist are the three under *Check the reach before you write it*.
 
 The window runs **both** ways. Above 7.3.0 the corpus may be behind — surface that and offer to
 re-derive. **Below 7.3.0 a documented feature may not exist yet**: `references/filters.md` marks the
