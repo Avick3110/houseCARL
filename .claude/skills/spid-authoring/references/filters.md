@@ -183,10 +183,10 @@ adds re-evaluation to an already-distributed population, it does not shrink the 
 reached in the first place.
 
 **Why it matters in numbers.** These numbers are **instance-derived**: they were measured once, on
-one heavily overhauled 3,801-plugin order, with `housecarl_records` at a stamped epoch. They are here
+one heavily overhauled 3,801-plugin order. They are here
 to show the *shape* of the gap — hundreds-fold, not a rounding error — and nothing else. They are not
 a constant, not a baseline for another order, and not a number to quote as a finding. Measure your own
-order at the epoch you are working against, and quote that.
+order, and quote that.
 
 On such an order the two populations are nowhere near each other. **The bandit census** found 17 of
 24,782 bandit-faction NPC records on a PC level multiplier, against 4,040 matching the line's own level
@@ -201,8 +201,7 @@ stats) — a census is a floor, and the source below, not the ratio, is what set
 (`CWImperialFaction` + `CWSonsFaction`) instead of bandits, found 2,249 NPC records in those factions,
 155 of them on a PC level multiplier, and 917 of them inheriting stats from a template. Different
 group, different predicates: none of those three is comparable with a bandit number or with the 963,
-which is why each count here names both. Count both of yours with
-`housecarl_records` (`counts_only=true`) before quoting a reach.
+which is why each count here names both. Count both of yours before quoting a reach.
 
 > **Source.** `powerof3/Spell-Perk-Item-Distributor`: `DistributeManager.cpp`
 > `detail::distribute_on_load` calls `Distribute(npcData, false)` for every NPC passing
