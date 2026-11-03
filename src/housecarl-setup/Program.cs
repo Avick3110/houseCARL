@@ -676,8 +676,8 @@ public static class Program
         }
         else
         {
-            // The record names everything this install put under the shared root, so a later upgrade can
-            // take back exactly those.
+            // The record names the skills this package ships plus any old folder the prune could not take back,
+            // so the next upgrade retries that folder and an uninstall takes back exactly those names.
             string recordPath = CodexSkillRecord(home, homeOverride);
             List<string> staleSkills = ReadSkillRecord(recordPath)
                 .Where(n => !shippedSkills.Contains(n, StringComparer.OrdinalIgnoreCase))
@@ -685,8 +685,6 @@ public static class Program
             var prune = RemoveSkillDirs(skillsRoot, staleSkills, keptBack);
             ReportRemoved("Codex", skillsRoot, prune.Removed);
 
-            // A folder the prune could not take back stays on the record, so the next upgrade tries it again
-            // instead of forgetting a leftover houseCARL put there.
             Directory.CreateDirectory(Path.GetDirectoryName(recordPath)!);
             File.WriteAllLines(recordPath, shippedSkills.Concat(prune.Failed));
         }
