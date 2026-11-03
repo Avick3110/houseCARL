@@ -33,7 +33,7 @@ Every operation is one call composed from orthogonal axes: select a set of recor
 
 ## Skills
 
-Seven skills ship with the plugin: `/housecarl:<name>` in Claude Code, `$housecarl` in Codex. Each is a `SKILL.md` and a `references/` tree. Reference corpora are read by grep, never loaded whole.
+Seven skills ship with the plugin: `/housecarl:<name>` in Claude Code, `$<name>` in Codex. Each is a `SKILL.md` and a `references/` tree. Reference corpora are read by grep, never loaded whole.
 
 | Skill | Carries |
 |---|---|
@@ -62,7 +62,7 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping: `check f
 2. Extract it and run `houseCARL-Setup.exe`.
 3. Select the host: `[1] Claude Code`, `[2] Codex`, `[3] Both`, `[4] Uninstall`.
    - Claude Code: skills to `~/.claude/skills/housecarl/`, server registered in `~/.claude.json`. The terminal CLI and the desktop app's Code tab both read these.
-   - Codex: server under `%LOCALAPPDATA%\houseCARL\server\`, skills flat under `~/.agents/skills/` with a `$housecarl` entry point, server registered as `[mcp_servers.housecarl]` in `~/.codex/config.toml`.
+   - Codex: server under `%LOCALAPPDATA%\houseCARL\server\`, skills flat under `~/.agents/skills/`, server registered as `[mcp_servers.housecarl]` in `~/.codex/config.toml`.
 4. Read the plan. Setup prints what it found on the machine and then every path it is about to write, and writes nothing until Enter; `q` quits.
 5. Restart the host. The closing block says what was written and what to do next.
 

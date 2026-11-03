@@ -4,10 +4,9 @@ using YamlDotNet.Serialization;
 
 namespace HousecarlMcpTests;
 
-/// <summary>Every shipped SKILL.md frontmatter, the Codex umbrella's included, parses as YAML with a name and a
-/// description of at most the loader's 1024 characters, and plugin.json carries a name and a version. CI's
-/// `claude plugin validate` reads only the bundled plugin tree, so the Codex umbrella is checked here or
-/// nowhere. Migrated from the plugin-validate-guard probe.</summary>
+/// <summary>Every shipped SKILL.md frontmatter parses as YAML with a name and a description of at most the
+/// loader's 1024 characters, and plugin.json carries a name and a version. Migrated from the
+/// plugin-validate-guard probe.</summary>
 [Trait("tier", "unit")]
 public sealed class PluginValidateFrontmatterTests
 {
@@ -16,17 +15,16 @@ public sealed class PluginValidateFrontmatterTests
 
     public static IEnumerable<object[]> SkillFiles()
     {
-        var roots = new[] { Path.Combine(HarnessPaths.RepoRoot, ".claude", "skills"), Path.Combine(HarnessPaths.RepoRoot, "plugin") };
-        foreach (var r in roots)
-            if (!Directory.Exists(r)) throw new InvalidOperationException($"skill root '{r}' does not exist");
-        var files = roots.SelectMany(r => Directory.GetFiles(r, "SKILL.md", SearchOption.AllDirectories))
+        var root = Path.Combine(HarnessPaths.RepoRoot, ".claude", "skills");
+        if (!Directory.Exists(root)) throw new InvalidOperationException($"skill root '{root}' does not exist");
+        var files = Directory.GetFiles(root, "SKILL.md", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(HarnessPaths.RepoRoot, f).Replace('\\', '/'))
-            .Distinct().OrderBy(p => p, StringComparer.Ordinal).ToList();
-        if (files.Count == 0) throw new InvalidOperationException("no SKILL.md under .claude/skills or plugin/");
+            .OrderBy(p => p, StringComparer.Ordinal).ToList();
+        if (files.Count == 0) throw new InvalidOperationException("no SKILL.md under .claude/skills");
         return files.Select(f => new object[] { f });
     }
 
-    // INV1-GREEN: every shipped skill frontmatter parses and has name/description (both trees).
+    // INV1-GREEN: every shipped skill frontmatter parses and has name/description.
     [Theory]
     [MemberData(nameof(SkillFiles))]
     public void AShippedSkillFrontmatterParsesWithANameAndADescription(string relPath)
@@ -34,11 +32,6 @@ public sealed class PluginValidateFrontmatterTests
         var v = ValidateSkillFrontmatter(File.ReadAllText(Path.Combine(HarnessPaths.RepoRoot, relPath)));
         Assert.True(v.Count == 0, $"{relPath}: " + string.Join("; ", v));
     }
-
-    // INV1-GREEN: the Codex umbrella, which ships outside the tree the CLI validator reads, is in the set.
-    [Fact]
-    public void TheCodexUmbrellaIsAmongTheValidatedFiles() =>
-        Assert.Contains(SkillFiles(), row => (string)row[0] == "plugin/codex/housecarl/SKILL.md");
 
     // INV1-RED: a colon-space description (the 1.3 pre-release bug) is caught.
     [Fact]
