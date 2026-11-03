@@ -300,21 +300,5 @@
       "new_in": "2026-09-08 review of PR #649",
       "evidence": "Added as an unbiased MEASUREMENT of the group/individual split, which cases 1-28 never reach — every one of them is a group prompt or a named-framework audit. Aaron's call is that SkyPatcher is the better fit for one NPC but SPID can still name one (references/filters.md §1 and §2), so a decline here is the failure to catch: it would mean the description's SkyPatcher clause reads as a boundary rather than the preference the body states. If this row declines, the fix is in the description, not in the row."
     }
-  ],
-  "output_quality": {
-    "description": "The audit's own with/without task, run twice against the live ARR 2.0 order, fresh context each, one arm with the packaged skill in the catalogue and one with no skill at all — the control the audit's veto skipped.",
-    "task": "write `HC_Audit_DISTR.ini` granting vanilla perk \"Juggernaut\" rank 1 (Skyrim.esm) to every NPC in the bandit faction at level 20+, never the player, never unique NPCs. Ground it in the live load order; estimate reach.",
-    "task_provenance": "Quoted verbatim from dev/skill-validation/audit-2026-09/spid-authoring/with-skill/log.md. Not restated: the 'never unique NPCs' clause is what produces the -U trait term, and the reach estimate is what assertion 2 scores.",
-    "assertions": [
-      "1. The line's faction term sits in the Form section (position 2), not the String section, and the FormID carries the suffix-tilde form 0xBCD2A~Skyrim.esm, not SkyPatcher's prefix-pipe. The unique exclusion is written -U in the Trait section.",
-      "2. The answer states, as a number taken from housecarl_records with counts_only=true, both the population the filter names and how many of them are on a PC level multiplier (where=[\"Configuration.Level.LevelMult >= 0\"]) — and does not assert a reach it did not measure.",
-      "3. The answer states the player exclusion as a property of SPID (no filter is needed and none exists) rather than hunting for a token, and — where the perk was chosen by name — records that the winning override may have renamed the record."
-    ],
-    "beating_the_control": "The without-skill arm misses at least one assertion and the with-skill arm carries all three, with the misses named. On the audit's own account the control is expected to fail 1 (the faction written as a String filter, where it would have matched nothing and logged nothing) and 3 (the player-token hunt); assertion 2 is what this rewrite adds, and an arm that does not run the census cannot satisfy it. If the control satisfies all three, the skill's value on this task is not demonstrated and that result is reported as-is.",
-    "per_run_record": [
-      "total_tokens",
-      "duration_ms",
-      "skill invocations and reference reads, against substantive houseCARL calls"
-    ]
-  }
+  ]
 }
