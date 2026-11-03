@@ -1,8 +1,8 @@
 namespace HousecarlGenerator;
 
 /// <summary>
-/// Whole-identifier matching for tool and skill names, shared by every guard that asks "does this text name
-/// THIS tool".
+/// Whole-identifier matching for tool and skill names, used by the tests that ask "does this refusal name THIS
+/// tool".
 ///
 /// The 2.0 surface renamed tools onto PREFIXES of the 1.x names they absorbed — <c>housecarl_create</c> is a
 /// prefix of <c>housecarl_create_record</c>, and the same for remove/forward — so a bare <c>Contains</c> answers
