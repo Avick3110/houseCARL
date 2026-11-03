@@ -78,7 +78,7 @@ the per-record files.
     `v.PluginVersion(Version::MAJOR)` (`SPID/src/main.cpp`, 7.3.0, commit `31e76d3`; unchanged at
     7.3.3), so every SPID 7.x declares 7.0.0 to SKSE while the Win32 version resource
     (`SPID/cmake/version.rc.in`) carries the full `MAJOR.MINOR.PATCH.0`. This is why the manifest and
-    MO2's `meta.ini` disagree; see `SKILL.md` and houseCARL issue #667. Read 2026-09-09.
+    MO2's `meta.ini` disagree; see `SKILL.md`. Read 2026-09-09.
 - **One residual confidence caveat:** comment syntax. SPID parses configs via **CSimpleIniA**
   (source-confirmed); the **`;`** line-comment character is CSimpleIni's documented *library default*
   rather than a SPID line of code we read. Stated in the corpus as "standard INI `;` comments (via
@@ -132,8 +132,8 @@ cannot reach is a fact the skill will not find.
   no-guesswork gate.
 - **Layer 2 — done.** `SKILL.md` (the lookup + bundled-or-warn playbook, modeled on
   `papyrus-reference`), `index.jsonl` (routing kept consistent with the `skypatcher-authoring`
-  sibling), and `evals/` (trigger + author-output eval sets per HOUSECARL_SKILL_AUTHORING.md
-  §6.4/§6.5) all ship. The skill is live as `/housecarl:spid-authoring`.
+  sibling), and `evals/` (the trigger eval set per HOUSECARL_SKILL_AUTHORING.md §6.5) all
+  ship. The skill is live as `/housecarl:spid-authoring`.
 
 ## Cluster note
 

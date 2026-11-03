@@ -112,8 +112,8 @@ references/
   project's no-guesswork gate.
 - **Layer 2 — DONE, rewritten 2026-09-08.** `SKILL.md` (procedural + bundled-or-warn; frontmatter is
   `name` / `description` / `compatibility`), `index.jsonl` (router, consistent with the siblings), and
-  `evals/evals.json` (the published eval shape: 26 trigger cases — 14 positive, 12 negative — plus one
-  output-quality case, each run in a with-skill and a without-skill arm from the packaged tree).
+  `evals/evals.json` (the published eval shape: 26 trigger cases — 14 positive, 12 negative —
+  each run in a with-skill and a without-skill arm from the packaged tree).
   Measured after the rewrite: `SKILL.md` **181 lines**, body **171 lines / 10,664 bytes**, `description`
   **441 characters**. The pre-rewrite file was 135 lines with a 383-character description; the
   "133 lines; 1029 chars" figures this row used to carry were wrong in both columns.
