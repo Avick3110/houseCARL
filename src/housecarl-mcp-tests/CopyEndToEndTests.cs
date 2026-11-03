@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using HousecarlCore;
 using HousecarlMcp;
 using Mutagen.Bethesda.Plugins;
 using Xunit;
@@ -11,16 +12,14 @@ namespace HousecarlMcpTests;
 [Trait("tier", "integration")]
 public sealed class CopyEndToEndTests
 {
-    static readonly string[] HeadParts = { "HeadParts" };
-
     static string Copy(CopyServiceWorld w, FormKey from, string[] sources, string stem)
-        => CopyTools.Copy(w.Svc, CopyWalkWorld.Token(from), sources, HeadParts, null, null, stem, stem);
+        => CopyTools.Copy(w.Svc, FormIdToken.Of(from), sources, CopyServiceWorld.HeadParts, null, null, stem, stem);
 
     /// <summary>The refusal says so, and mods/ holds the same entries and nothing named for the patch.</summary>
     static void NothingWritten(string text, string modsDir, int entriesBefore, string stem)
     {
         Assert.EndsWith("Nothing was written.", text);
-        Assert.Equal(entriesBefore, Directory.GetFileSystemEntries(modsDir).Length);
+        Assert.Equal(entriesBefore, Entries(modsDir));
         Assert.Empty(Directory.EnumerateFileSystemEntries(modsDir, "*" + stem + "*", SearchOption.AllDirectories));
     }
 
@@ -37,7 +36,7 @@ public sealed class CopyEndToEndTests
 
         var text = Copy(w, w.WideNpc, new[] { "Extra.esp" }, "MissFrom");
 
-        Assert.Contains("no source produced 000804:Src.esp (reached via from)", text);
+        Assert.Contains($"no source produced {FormIdToken.Of(w.WideNpc)} (reached via from)", text);
         NothingWritten(text, w.ModsDir, before, "MissFrom");
     }
 
@@ -50,7 +49,7 @@ public sealed class CopyEndToEndTests
 
         var text = w.Clone(w.DanglingList, "MissWalk");
 
-        Assert.Contains($"no source produced {CopyWalkWorld.Token(w.Dangling)} (reached via FormList.Items)", text);
+        Assert.Contains($"no source produced {FormIdToken.Of(w.Dangling)} (reached via FormList.Items)", text);
         NothingWritten(text, w.ModsDir, before, "MissWalk");
     }
 
@@ -69,7 +68,7 @@ public sealed class CopyEndToEndTests
         string text;
         using (HeldOpen.Hold(ShadowPath(w))) text = Copy(w, w.ShadowNpc, new[] { "Shadow.esp" }, "FaultFrom");
 
-        Assert.Contains("carries 000801:Shadow.esp but it could not be read", text);
+        Assert.Contains($"carries {FormIdToken.Of(w.ShadowNpc)} but it could not be read", text);
         NothingWritten(text, w.ModsDir, before, "FaultFrom");
     }
 
@@ -114,7 +113,7 @@ public sealed class CopyEndToEndTests
         var text = w.Clone(w.List129, "Nodes129");
 
         Assert.Contains("the walk passed 128 records", text);
-        Assert.Contains($"Last pull: {CopyWalkWorld.Token(w.Keyword129)}", text);
+        Assert.Contains($"Last pull: {FormIdToken.Of(w.Keyword129)}", text);
         NothingWritten(text, w.ModsDir, before, "Nodes129");
     }
 
@@ -142,7 +141,7 @@ public sealed class CopyEndToEndTests
         var text = w.Clone(w.Chain34, "Depth33");
 
         Assert.Contains("the walk went deeper than 32 hops", text);
-        Assert.Contains($"Last pull: {CopyWalkWorld.Token(w.Chain34Last)}", text);
+        Assert.Contains($"Last pull: {FormIdToken.Of(w.Chain34Last)}", text);
         NothingWritten(text, w.ModsDir, before, "Depth33");
     }
 
@@ -163,11 +162,11 @@ public sealed class CopyEndToEndTests
         Assert.Equal(new[] { "000800", "000801", "000802", "000803", "000804", "000805" }.Select(id => id + ":OrderPatch.esp"),
             rows.Select(r => r.To));
         Assert.EndsWith("(OrdA)", rows[3].Via);   // OrdB links OrdA2 too, after OrdA did
-        Assert.StartsWith($"CLONED {CopyWalkWorld.Token(w.OrderList)} -> 000806:OrderPatch.esp", text);
+        Assert.StartsWith($"CLONED {FormIdToken.Of(w.OrderList)} -> 000806:OrderPatch.esp", text);
 
         var written = CopyServiceWorld.ReadBack(
             Directory.EnumerateFiles(w.ModsDir, "OrderPatch.esp", SearchOption.AllDirectories).Single(),
-            m => m.EnumerateMajorRecords().ToDictionary(r => r.EditorID!, r => CopyWalkWorld.Token(r.FormKey)));
+            m => m.EnumerateMajorRecords().ToDictionary(r => r.EditorID!, r => FormIdToken.Of(r.FormKey)));
         Assert.All(rows, r => Assert.Equal(r.To, written[r.Eid]));
         Assert.Equal("000806:OrderPatch.esp", written["OrderPatch"]);   // the clone, under its new EditorID
     }
