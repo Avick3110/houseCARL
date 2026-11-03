@@ -17,8 +17,8 @@ namespace HousecarlSetup;
 ///                     desktop spawns it per session). UNCHANGED from the proven desktop install.
 ///   [2] Codex       - installs the server under %LOCALAPPDATA%\houseCARL\server\, copies the helper
 ///                     skills FLAT into ~/.agents/skills/ (the location a fresh Codex install was
-///                     confirmed to scan), and registers the server as
-///                     [mcp_servers.housecarl] in ~/.codex/config.toml.
+///                     confirmed to scan), and registers the server as [mcp_servers.housecarl] in
+///                     ~/.codex/config.toml.
 ///   [3] Both        - both of the above.
 ///   [4] Uninstall   - takes back what an install wrote, for either host or both. It is its own file,
 ///                     <see cref="Uninstall"/>, which says exactly what comes off per host.

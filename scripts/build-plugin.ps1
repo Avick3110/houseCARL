@@ -22,8 +22,9 @@
       claude plugin validate ./dist/housecarl --strict
 
   -PluginTreeOnly assembles just dist/housecarl (skills + plugin files), runs the skill leak-check
-  over it, and stops: no corpus, no server publish, no setup exe, no zip. dist/housecarl is the whole tree `claude plugin validate` reads, and it is what CI runs the
-  real validator against; the leak-check runs here so CI runs it too.
+  over it, and stops: no corpus, no server publish, no setup exe, no zip. dist/housecarl is the
+  whole tree `claude plugin validate` reads, and it is what CI runs the real validator against;
+  the leak-check runs here so CI runs it too.
 
   Reference:
       dev/plans/PLUGIN_BUILD_EXECUTION_2026-06-03.md   (the checklist this implements)
