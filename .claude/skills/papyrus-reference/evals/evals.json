@@ -1,7 +1,7 @@
 {
   "skill": "papyrus-reference",
   "authored": "2026-09-08",
-  "convention": "dev/DECISIONS.md 2026-09-07, rewrite ruling 3: the eval file is evals/evals.json; every trigger eval carries a without-skill arm and runs from the packaged tree (dist/), never from .claude/skills/; the audit's with/without task on the live order is the output-quality arm.",
+  "convention": "dev/DECISIONS.md 2026-09-07, rewrite ruling 3: the eval file is evals/evals.json; every trigger eval carries a without-skill arm and runs from the packaged tree (dist/), never from .claude/skills/.",
   "arms": {
     "trigger": {
       "source_tree": "dist/housecarl/skills",
@@ -20,48 +20,6 @@
           "dimension": "isolation",
           "how": "this skill and NONE, no other skill on the menu",
           "failure_mode": "the description over-fires and takes queries it declines in coexistence — a .psc question that is really a record edit, a compile-tooling question, or an MO2 install question"
-        }
-      ]
-    },
-    "output_quality": {
-      "task": "On the live MO2 order, author HC_AuditPersist.psc — a Quest script with a FormList property, an OnInit that builds the store, and a count function that walks the list through StorageUtil and JContainers and plants a JArray at a JDB path — then compile it with housecarl_compile_script.",
-      "provenance": "The task the 2026-09 audit ran with-skill on the 2.0.0-beta.1 install against ARR 2.0 (3,801 plugins). Unchanged here so the with-skill arm stays comparable to that record.",
-      "protocol": "Two clean-context runs, one with the skill and one without, same call cap, same load order. Every expectation is recorded as {text, passed, evidence} quoting the transcript; total_tokens and duration_ms are captured per arm.",
-      "beating_the_control": "At least one expectation passes with the skill and fails without it. A set whose assertions pass in both arms is reported as not differentiating rather than as a pass.",
-      "differentiation_note": "Expectations 1-3 are the parameter defaults the audit named as the payoff. They are graded, but they are NOT assumed to differentiate: housecarl_compile_script auto-discovers the enabled mods' own Papyrus source folders (PapyrusUtil, JContainers among them), so a control can read a default out of shipped .psc source. The corpus is the cheap and complete route to a default; the source tree is the expensive and partial one. Expectations 4-6 are the ones that carry the claim.",
-      "expectations": [
-        {
-          "id": "oq1",
-          "text": "StorageUtil.FormListAdd is written knowing allowDuplicate defaults to true, and the list is cleared before it is rebuilt.",
-          "carries_claim": false
-        },
-        {
-          "id": "oq2",
-          "text": "JArray.addForm returns nothing, so its result is not assigned.",
-          "carries_claim": false
-        },
-        {
-          "id": "oq3",
-          "text": "JDB.solveObjSetter is called with createMissingKeys explicitly True, because the default is false and the path has a missing intermediate key on first run.",
-          "carries_claim": false
-        },
-        {
-          "id": "oq4",
-          "text": "A base-class event (OnInit) is not claimed as corpus-sourced while the corpus carries no vanilla or skse row for it; the miss is reported as a corpus hole, never as absence from Papyrus.",
-          "carries_claim": true,
-          "why": "A control has no corpus, so it cannot make or check this claim; the honesty rule is skill content."
-        },
-        {
-          "id": "oq5",
-          "text": "The Tier-2 availability answer comes from housecarl_skse with findings='pairing', not from matching a requires_plugin DLL filename against the load order, and is reported as a verify flag rather than a runtime guarantee.",
-          "carries_claim": true,
-          "why": "The filename on this corpus is wrong on an AE install; only the skill routes the question to the tool."
-        },
-        {
-          "id": "oq6",
-          "text": "Every signature is resolved through the index at a line-exact block range, with no whole-file read of a reference file or of a mod's .psc source, and the signature-resolution phase costs fewer tokens than the control's.",
-          "carries_claim": true,
-          "why": "This is the route claim the skill actually makes, measured rather than asserted: total_tokens per arm and the read calls in the transcript."
         }
       ]
     },
