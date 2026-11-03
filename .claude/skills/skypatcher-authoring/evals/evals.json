@@ -3,10 +3,9 @@
   "authored": "2026-09-08",
   "status": "AUTHORED, NOT YET RUN against the rewritten description. The shipped 26 cases carry their last measured verdicts (2026-07-28 revalidation, recall 14/14, specificity 12/12) as a baseline only; the six added cases have never been measured, and the description they measure changed in this rewrite. The suite must be run before the rewrite is graded.",
   "run_from": "dist/housecarl/skills/skypatcher-authoring/ — the PACKAGED tree, not .claude/skills/. Running from dist/ is also the check that the flattened references/ and the deleted index.jsonl did not orphan a pointer.",
-  "promotion_gate": "The suite runs on a version promotion and on a package build, not only on a description change. The dead tool (housecarl_skypatcher_read) shipped because the suite ran on description changes alone.",
+  "promotion_gate": "The suite runs on a version promotion and on a package build, not only on a description change.",
   "arms": {
-    "trigger": "Which ONE skill a fresh-context agent loads for a query, measured with-skill and without-skill.",
-    "output_quality": "The audit's own authoring task on the live order, run as a pair: control (no skill in the catalogue) against with-skill."
+    "trigger": "Which ONE skill a fresh-context agent loads for a query, measured with-skill and without-skill."
   },
   "method": {
     "cases": "32 — 18 should-trigger, 14 should-not. The shipped 26 (14/12) survive with their queries unchanged; 6 are added for the description's changed clauses (three distribution-shaped cases for the exclusion clause, three positives naming the newly front-loaded terms). Case 29 moved from should-not to should-trigger on 2026-09-08 when the 'items into containers is CID' clause was dropped from the routing, and the description gained a container token the same day so the case is reachable in an arm that shows descriptions only; 27 and 28 stay should-not, reworded for the new routing.",
@@ -286,20 +285,5 @@
       "should_trigger": true,
       "evidence": "NEW 2026-09-08, never measured. Measures the 'per-type subfolder' term newly front-loaded, on the audit's own ~40-plugin shape."
     }
-  ],
-  "output_quality_eval": {
-    "prompt": "Double the damage of every iron-material weapon in the load order as a SkyPatcher INI. Do not put anything into the load order.",
-    "expected_output": "A relative-multiply weapon patch line, a stated destination under the weapon subfolder with a plain always-loading filename nested in a mod-specific folder, every token traceable to the bundled reference, and a target count proved by a houseCARL call and reported with its epoch.",
-    "setup": "The ARR 2.0 order (3801 plugins), 40-call cap, fresh context, both arms identical. Control: no skill in the catalogue. With-skill: told to load housecarl:skypatcher-authoring first. This is the audit's own task, run as a PAIR for the first time — the control the 2026-09 audit's veto skipped.",
-    "expectations": [
-      "RELATIVE, NOT ABSOLUTE. The composed line uses attackDamageMult=2, not attackDamage=<n>. The control's predicted failure is an absolute set, which flattens a whole tier ladder to one number.",
-      "SUBFOLDER. The stated destination is under SkyPatcher/weapon/, and the answer says why the wrong folder fails silently.",
-      "FILENAME SHAPE. A plain (always-loading) filename, nested in a mod-specific subfolder, with the reason: the targets span ~40 plugins, so the Plugin.esp.ini gate would be actively wrong, and a bare plugin-named INI collides with another mod at the same path.",
-      "NO INVENTED TOKEN. Every filter and operation in the output appears in references/weapon.md or references/grammar-core.md. filterByMaterial= appearing anywhere is an automatic fail.",
-      "PROVED, NOT ASSERTED. The target count comes from a housecarl_records call and is reported with its epoch, and EVERY houseCARL call named in the output exists on the 2.0 surface."
-    ],
-    "scoring": "The with-skill arm beats the control when it passes expectations the control fails. An expectation both arms pass is recorded as NOT ATTRIBUTABLE to the skill; if all five land there, the procedure half of this skill has no measured value and the next review decides whether it survives as a corpus alone.",
-    "recorded_per_arm": ["total_tokens", "duration_ms", "call count", "the calls named"],
-    "cost_baseline": "The audit's with-skill run took three calls to load the skill and its references and read grammar-core.md whole (~250 lines) for a one-line patch. After the reference split a one-line weapon patch should read the body's router table plus references/weapon.md (65 lines) and nothing else; per-record files range 26-113 lines, npc.md the outlier."
-  }
+  ]
 }

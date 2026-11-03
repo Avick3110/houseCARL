@@ -12,11 +12,9 @@ ESP or ESL is produced for the edit itself. This skill composes and reads those 
 places the file where SkyPatcher will read it. SkyPatcher edits a record's own fields, an individual
 NPC's included; it does not distribute. Two neighbouring jobs are someone else's: what fields a
 record has at the Mutagen/xEdit level, with their types and writability, is
-`housecarl:mutagen-reference`; distributing a form to NPCs is `housecarl:spid-authoring`, which is
+`mutagen-reference`; distributing a form to NPCs is `spid-authoring`, which is
 *best* for groups — faction, race, level, trait — and can also name one NPC, though for a single NPC
-SkyPatcher is usually the *better* fit; a keyword onto item records is `housecarl:kid-authoring`. On
-a Codex flat install these siblings are the bare folder names — `mutagen-reference`, `spid-authoring`,
-`kid-authoring`.
+SkyPatcher is usually the *better* fit; a keyword onto item records is `kid-authoring`.
 
 ## Route to the record type
 
@@ -102,49 +100,20 @@ whether the INI may be installed into the live setup or only written to a workin
 
 ## Check before you install
 
-Prove the target set, every address, and the draft file itself before anything is placed in a mod.
+Prove the target set and every address before anything is placed in a mod.
 
-- The set: `housecarl_records` with `types=`, `plugins=` and `where=` for the set the filter means to
-  hit, plus `counts_only=true` for the cheap census. Record the count and the epoch stamp beside it.
-- Each address: `housecarl_records` with `formids=["012EB7:Skyrim.esm"]` and the default summary
-  rows — a FormID that resolves to nothing here resolves to nothing in
-  game, silently.
-- The draft: `housecarl_records` with `formids=` a target and `source={"overlay": "skypatcher",
-  "state": "post", "ini": "<absolute path to the draft .ini>", "subfolder": "weapon"}` reads the
-  record as the game would see it once that draft is placed — the live layer plus the draft, sorted
-  into its type folder by filename. Drop `subfolder` when the draft already sits in a folder of that
-  name. Keep that pole on `source=` and pass the plain post pole,
-  `versus={"overlay": "skypatcher", "state": "post"}`, with `project={"form": "delta"}` for the
-  draft's own effect and nothing else. Warnings the replay produces for a draft line — an unknown
-  key, an op with no field mapping, a filter it cannot evaluate — render beside the answer under
-  the draft's path.
+- The set: count the records the filter means to hit, and record the count beside the line.
+- Each address: resolve each `Plugin.esp|FormID` against the load order — a FormID that resolves to
+  nothing here resolves to nothing in game, silently.
 
-Stop when the count is what you meant, every address resolves, the delta is the change you intended,
-and the replay warned on none of your lines.
-
-## Check after you install
-
-Once the INI is installed, three reads prove it landed.
-
-- `housecarl_skypatcher_layer` with `filter=` the type folder or the INI filename, for the
-  file-level verdict — whether the file is read at all, where it sorts, what it conflicts with, and
-  which of its ITM findings (an intra-file dead write, a cross-INI duplicate, a no-op write) name
-  your file. The first two are authoring slips to fix at the source, and a dead write hides from the
-  delta below, which shows only the value that survived it.
-- `housecarl_records` with `formids=` a target, `source={"overlay": "skypatcher", "state": "post"}`,
-  `versus={"overlay": "skypatcher", "state": "pre"}` and `project={"form": "delta"}`, for the
-  before → after on that record, with the replay's warnings for the placed file's lines beside it.
-- `housecarl_skse` with `findings='config'` and `filter=` the INI filename, which resolves every
-  `Plugin.esp|FormID` the file contains to OK, PLUGIN MISSING, DANGLING or UNPARSEABLE — the machine
-  check for a truncated or wrong FormID.
+Stop when the count is what you meant and every address resolves.
 
 ## Never invent a token
 
 Every filter, operation and value comes from the bundled reference. If a token is not there, say so
 rather than writing a plausible-sounding one: in game SkyPatcher skips a line it cannot parse and
 skips a FormID it cannot resolve, both silently and with no log line, so a fabricated token costs a
-debugging session and produces nothing to debug. The replay warns where the game does not, which is
-a net under a mistake, not a licence to guess. Object Modification (OMOD) is enabled in SkyPatcher
+debugging session and produces nothing to debug. Object Modification (OMOD) is enabled in SkyPatcher
 but has no documented grammar — hand the user the gap and the leads in its row above, never a guess.
 
 Two soft spots in the corpus, and how to read them. Where a worked example disagrees with its own
