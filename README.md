@@ -137,7 +137,7 @@ Seven skills ship with the plugin: `/housecarl:<name>` in Claude Code, `$houseca
 |---|---|
 | `mutagen-reference` | The schema of every modelled record type: fields, types, cardinality, writability, enum values. Emitted by the same generator pass as the server's rulebook. |
 | `papyrus-reference` | Papyrus, SKSE and shipped SKSE-plugin API signatures (PapyrusUtil, JContainers, MCMHelper, po3, SkyUI), 7,345 entries, from [papyrus-index](https://github.com/BellCubeDev/papyrus-index). A function the corpus does not carry is reported as absent. |
-| `skypatcher-authoring` | SkyPatcher 6.4.1 INI grammar and the offline check of a draft INI through the overlay. |
+| `skypatcher-authoring` | SkyPatcher 6.4.1 INI grammar. |
 | `spid-authoring` | SPID 7.3.0 `_DISTR.ini` grammar. |
 | `kid-authoring` | KID 3.5.0 `_KID.ini` grammar. |
 | `open-animation-replacer` | OAR 3.0.0 `config.json` / `user.json` conditions, submod priorities, DAR `_conditions.txt` conversion. |
