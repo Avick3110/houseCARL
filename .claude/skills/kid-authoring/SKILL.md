@@ -111,9 +111,10 @@ Read what your task needs, not everything.
 Keyword = HC_AuditDaggerTag|Weapon|NONE|OneHandDagger
 ```
 
-Grounded on a 3,801-plugin order this reaches 786 WEAP records, defined across 54 plugins and won by
-39. A `*Dagger` wildcard is wrong in **both** directions on the same order. Its three channels reach 676 records by
-name, 702 by EditorID and 773 by keyword EditorID — 778 in union, and 772 of those are also
+Grounded on a 3,801-plugin order this reaches 786 WEAP records, defined across 54 plugins and won
+by 39. A `*Dagger` wildcard is wrong in **both** directions on the same order. Its three channels
+reach 676 records by name, 702 by EditorID and 773 by keyword EditorID — 778 in union, and 772 of
+those are also
 `OneHandDagger`, so it **misses 14** of the trait's 786 and **over-catches 6**. The 14 it misses are
 the ones carrying no dagger keyword and no "dagger" text: `ccBGSSSE019_ForkofHorripilation` ("Fork of
 Horripilation") and its replica/spoon variants, `zzzCOWitchKnife01` ("Witch Knife"),
