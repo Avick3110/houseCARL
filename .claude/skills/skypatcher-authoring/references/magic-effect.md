@@ -62,3 +62,12 @@ modNamesLastOverriddenExcluded=SomePatch.esp, MyBalanceOverhaul.esp
 > list and is not a documented MGEF filter; the primary filter here is `filterByMgefs`. The example
 > is preserved verbatim from the source article, typo and all. Where an example disagrees with the
 > filter list, the filter list and the router table in `SKILL.md` win.
+
+## Added since 6.4.1 (8.0.1 articles)
+
+- `filterByMgefs` is the direct list here.
+- Filters: `filterByModNamesExcluded` (also spelled `modNamesExcluded`),
+  `filterByModNamesLastOverriddenExcluded` (spelling of `modNamesLastOverriddenExcluded`),
+  `filterByDamageHealthMgefs` (`=false` still counts as a filter, so a line with only this filter
+  patches nothing), `restrictToMagicSkill`.
+- Operations: `magicItemDescription`.

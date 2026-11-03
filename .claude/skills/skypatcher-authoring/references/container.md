@@ -20,7 +20,7 @@ Shared mechanics → `grammar-core.md`.
 - `clear=true` — remove all objects.
 
 > **Leveled Lists in containers can CTD** for some users. Adding LLs is gated by the global
-> `iAllowLeveledListsAddedToContainers` (off by default in `SkyPatcher.ini`). If you ship a patch
+> `iAllowLeveledListsAddedToContainers` in `SkyPatcher.ini` (default 1, on, since 7.1.3; 0 skips them). If you ship a patch
 > that relies on it, add a disclaimer to your mod.
 
 ## Examples
@@ -33,3 +33,9 @@ filterByContainers=Skyrim.esm|1338A7:removeContainerObjectsByKeywords=Skyrim.esm
 objectMultCount=2.0
 clear=true
 ```
+
+## Added since 6.4.1 (8.0.1 articles)
+
+- Filters: `filterByModNames`.
+- A line without `filterByContainers`, `filterByEditorIdContains` and `filterByEditorIdContainsOr`
+  changes every container in the game.

@@ -24,3 +24,11 @@ filterByRefs=JKs Skyrim.esp|D61, JKs Skyrim.esp|D6D:disable=true
 ; Disable flowers and clutter across two plugins:
 filterByRefs=Update.esm|109B, Update.esm|13D8, Skyrim.esm|000BCC81, Skyrim.esm|000BC725:disable=true
 ```
+
+## Added since 6.4.1 (8.0.1 articles)
+
+- A line without filters patches nothing. The Reference patcher does not read `filterByModNames`.
+  It needs `iUpdateRefs=1` in the `[Features]` section.
+- Filters: `filterByRefsExcluded` — removes these references from those of `filterByRefs` on the
+  same line. `filterByRefs` and `filterByRefsExcluded` take `Plugin|FormID` only.
+- Operations: `replaceBaseObject`.

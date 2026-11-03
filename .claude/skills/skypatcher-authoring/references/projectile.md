@@ -32,3 +32,9 @@ filterByProjectiles=Skyrim.esm|13988:setFlags=supersonic, canpickup
 filterByProjectiles=Skyrim.esm|13988:type=missile
 filterByProjectiles=Skyrim.esm|123:explosion=Skyrim.esm|321
 ```
+
+## Added since 6.4.1 (8.0.1 articles)
+
+- Filters: `filterByAlternateTextures` — finds no projectiles; a line with only this filter patches
+  nothing.
+- Operations: `model`, the `alternateTextures…` family.

@@ -37,3 +37,8 @@ weight=0.5
 value=25
 clear=true
 ```
+
+## Added since 6.4.1 (8.0.1 articles)
+
+- Filters: `filterByType` (works since 8.0.1).
+- Operations: `mgefsToChangeFirst`, `mgefsToChangeDamageHealthEffects`.

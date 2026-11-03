@@ -42,3 +42,6 @@ clear=true
 > carried over verbatim from the source article; `filterByAlchs` belongs to ALCH
 > (`alchemy-ingestible.md`). On an ENCH record the primary filter is `filterByEnchs`. Where an
 > example disagrees with the filter list, the filter list and the router table in `SKILL.md` win.
+
+> 8.0.1: no Enchantment article exists (the article titled "Enchantment Patcher" holds Encounter
+> Zone text), so this file is still the 6.4.1 transcription.

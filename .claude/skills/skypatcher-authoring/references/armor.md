@@ -54,3 +54,8 @@ filterByArmors=Skyrim.esm|6BBD2:bipedSlotsToRemove=11:bipedSlotsToAdd=12
 filterByArmors=Skyrim.esm|1395C:mirrorArmor=Skyrim.esm|12E49
 filterByArmorTypes=heavy, light
 ```
+
+## Added since 6.4.1 (8.0.1 articles)
+
+- Operations: `reCalcArmorRating`, `reCalcArmorRatingv2`, `valueMatch`, `armaRaceToAdd`,
+  `modelMale`, `modelFemale`.

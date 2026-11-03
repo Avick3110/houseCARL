@@ -1,8 +1,9 @@
 # Object Modification Patcher — OMOD  ⚠️ DOCUMENTATION GAP
 
-`iEnableObjectModificationPatching` (enabled by default in `SkyPatcher.ini` 6.4.1)
+`iEnableObjectModificationPatching` — "has no effect in Skyrim" (SkyPatcher 8.0.1 General
+Information).
 
-**There is no verified grammar for this patcher.** It is enabled in the shipped DLL but:
+**There is no verified grammar for this patcher.** The toggle exists in the shipped `SkyPatcher.ini`, but:
 
 - has **no documentation article** in the SkyPatcher Articles tab, and
 - has **no source file** in SkyPatcher's public repo (`Zzyxz/SkyPatcher`) — the public source

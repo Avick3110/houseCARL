@@ -26,8 +26,15 @@ over the live load order, two INIs that touch *different* fields of the same rec
 conflict, which is what makes SkyPatcher low-conflict compared to ESP overrides.
 
 The set of record types it can patch is fixed by the DLL and surfaced as `iEnable<Type>Patching`
-toggles in `SkyPatcher.ini` (`placement-and-conflicts.md` §6). This corpus documents 27 of those
-types; the one gap is Object Modification (OMOD) — see `object-modification.md`.
+toggles in `SkyPatcher.ini` (`placement-and-conflicts.md` §6). This corpus documents 28 of those
+types (Light is new in 7.1.0); Object Modification (OMOD) has a toggle but "has no effect in
+Skyrim" — see `object-modification.md`.
+
+Patchers run in a fixed order, and a later patcher sees the changes of an earlier one: Magic Effect,
+Ammo, Weapon, Armor, Race, NPC, Alchemy, Ingredient, Spell, Enchantment, Projectile, Light, Outfit,
+Scroll, Misc, Soul Gem, Faction, Constructible Object, Book, Movement Type, Leveled List, Container,
+FormList, Reference, Cell, Location, Encounter Zone. The Race Hook patcher runs earlier, while the
+races load.
 
 ---
 
@@ -50,8 +57,17 @@ filter1=val1 : filter2=val2 : op1=val1 : op2=val2
 
 - `:` separates every segment (filter or operation).
 - Strings are **modular** — include only the segments you need. A line with no operation does
-  nothing; a line with no filter targets *all* records of that type (§5).
-- Whitespace around values is generally tolerated, but copy FormIDs exactly (§4).
+  nothing; a line with no filter targets *all* records of that type, with the exceptions in §5.
+- A space after a comma is fine; do not put spaces around `|` (§4). A value can never contain `:`;
+  only a name written between `~` and `~` can.
+- Write each key once per line: a second copy of the same key is ignored.
+- A comment starts with `;`. Since 8.0.1 a comment may also follow a rule on the same line
+  (`level=10 ; Nazeem`).
+- `null`, `true` and `false` work in any case. `false`, `no`, `0` and `off` stay off. A value that
+  is not a number skips only its own key, not the whole line (8.0.1).
+- A key the patcher does not know is ignored without a message, so a misspelled filter does
+  nothing and the line can then patch every record of its type. Write every key exactly as in the
+  record file.
 
 Example (weapon): filter two weapons, change damage and weight, add a keyword:
 
@@ -67,28 +83,43 @@ A form is referenced as **`PluginName|FormID`**:
 
 ```
 Skyrim.esm|0001396B        ; full 8-hex FormID
-myMod.esp|800123           ; ESL-flagged plugins keep their full load-indexed FormID
+myMod.esl|FE012800         ; ESL-flagged plugin: only the last three digits count
+myMod.esl|800              ; the same form, written with only the last three digits
 ```
 
 - **Copy the full FormID from xEdit or the Creation Kit** to avoid transcription errors.
 - Leading zeros can be trimmed (`myMod.esp|08000223` → `myMod.esp|223`), but the full form is
   safest and always correct.
-- **EditorID** is accepted in place of `Plugin|FormID` for almost every filter and operation:
-  `filterByAmmos=IronArrow:weight=0.5` is equivalent to `filterByAmmos=Skyrim.esm|1397D:weight=0.5`.
+- For ESL-flagged (light) plugins only the last three digits count: write the whole number or only
+  those three digits.
+- Do not put spaces around `|`.
+- **EditorID** can stand in place of `Plugin|FormID` (`filterByAmmos=IronArrow:weight=0.5`), but
+  the game keeps EditorIDs only for keywords, globals, races, quests, voice types, head parts,
+  cells, worldspaces, idles and music types. For every other record — NPCs, weapons, armors,
+  spells, … — an EditorID needs **powerofthree's Tweaks** (`po3_Tweaks.dll`, Nexus 51073, with
+  `[Fixes] bLoadEditorIDs` left on). Without it the EditorID is not found and the entry is skipped
+  without a message. The same holds for `filterByEditorIdContains` / `…Or` / `…Excluded`: without
+  Tweaks they find nothing for most record types.
 
 ### FormID-only operations (EditorID not supported)
 
-| Patcher | Operation |
+| Patcher | Key |
 |---|---|
 | NPC | `objectsToAdd`, `factionsToAdd` |
-| Outfit | `formsToReplace` |
-| FormList | `formsToReplace` |
-| Leveled List | `formsToReplace` |
+| Reference | `filterByRefs`, `filterByRefsExcluded` |
+
+`formsToReplace` in the Outfit and FormList patchers takes `Plugin|FormID` and EditorID.
 
 ### The player
 
-The player actor is **always excluded** from race and keyword filtering. To patch the player,
-use `filterByNpcs=Skyrim.esm|7` **alone** (no other filter).
+In the NPC patcher keyword, race, faction and EditorID filters never find the player, and a line
+without filters skips him too. Outfit (`filterByDefaultOutfits`), class, combat style and template
+filters can find him, and naming him in `filterByNpcs=Skyrim.esm|7` patches him; other filters may
+sit on the same line. The Excluded keys of keywords, factions and EditorIDs never remove the
+player; `filterByNpcsExcluded`, `filterByClassExclude` and restrictions can. `setEssential`,
+`setProtected`, `setAutoCalcStats` and `setPcLevelMult` never change the player.
+(The NPC article also says the player "is only patched through filterByNpcs"; the filters article's
+rule above is the fuller one.)
 
 ---
 
@@ -109,19 +140,61 @@ Most filters come in three connectives, by suffix:
 > `startingHealthMult`). A few filters use `…Exclude` (no "d") — the record file shows the exact
 > spelling.
 
-Rules:
+### How the filters of one line combine
 
-- **Different filter families are independent**, but **every filter family present on the line
-  must pass** for the operation to run. `filterByKeywords` (AND, 2 keywords) +
-  `filterByKeywordsOr` (5 keywords) + `filterByKeywordsExcluded` (10 keywords) all evaluate;
-  if the AND group fails, the line fails even when the others pass.
-- **No filter set → every record of that type is patched.** (For collection patchers like
-  FormList/Outfit, that means *all* lists — usually not what you want.)
-- **Multi-value** filters take a comma-separated list: `filterByKeywords=a,b,c`.
-- `restrictTo…` filters are a post-match narrowing: when no match is found the record is
-  *ignored* rather than failing the whole line. Common forms: `restrictToKeywords`,
-  `restrictToFlags`, `restrictToRaces`, `restrictToGender`, `restrictToBipedSlots`,
-  `restrictToCastingType`. Per-record files list the ones each type supports.
+Every filter key has one of five roles. The record files mark the roles that are not *finder*.
+
+| Role | Keys | What it does |
+|---|---|---|
+| **direct** | the type's own `filterBy<Type>s` (the router table's primary filter) | These records are always patched. Excluded keys, restrictions and `filterByModNames` do not apply to them. |
+| **finder** | every other `filterByX` / `filterByXOr` | Finds records on its own. |
+| **narrower** | `restrictTo…`, every `…Excluded` / `…Exclude`, `filterByModNames`, `skipRecordBy…`, `modNamesLastOverridden…`; NPC `filterByGender`, `filterByPCLevelMult`, `filterByAutoCalc`, `filterByEssential`, `filterByProtected`, `filterByTemplateFlagExclude` | Never finds records; only removes them from what the other filters found. |
+| **gate** | `hasPlugins` / `hasPluginsOr` (Weapon, Armor and Ammo only) | When the plugins are missing, the line patches nothing, its direct list included. |
+| **all** | `noFilterLL`, `noFilterLLNPC` (Leveled List) | Finds every leveled item list / leveled NPC list. |
+
+The order of checks, for one record against one line:
+
+1. **Gate:** `hasPlugins` (all present) / `hasPluginsOr` (one present) fails → nothing.
+2. **Direct list:** the record is named there → patched. Nothing else is checked for it.
+3. **`filterByModNames`:** records added by other plugins are out.
+4. **Finders:** the record must match at least one finder. A second filter does not narrow the
+   first one, it adds its own records: `filterByRaces=<Nord>:filterByFactions=<Bandit>` patches all
+   Nords **and** all bandits, not only Nord bandits.
+5. **No finder and no direct list on the line:** every record passes.
+6. **Narrowers:** each one can only remove records; several restrictions on one line must all
+   match.
+
+A line with only a direct list patches only those records; a direct list next to other filters
+patches the named records plus what the other filters find. A record is patched once per line,
+even when several filters find it.
+
+Within one filter family the AND key and the Or key work as a pair: when a line has both
+`filterByKeywords` and `filterByKeywordsOr`, a record must match both.
+
+When none of the records a filter names exist, that filter finds nothing. A missing keyword in
+`filterByKeywords` does not stop the other keywords from working.
+
+**Multi-value** filters take a comma-separated list: `filterByKeywords=a,b,c`.
+
+### Differences between patchers
+
+| Patcher | Rule |
+|---|---|
+| Leveled List, Reference | A line without filters patches nothing. Leveled List uses `noFilterLL=true` for all leveled item lists and `noFilterLLNPC=true` for all leveled NPC lists. |
+| NPC | A line without filters skips the player (§4). |
+| Cell | A line without any filter patches all cells (8.0.1). |
+| Cell, Leveled List, Reference | Do not read `filterByModNames`. |
+| FormList | `filterByModNames` also limits the direct list. |
+| Cell | `filterByCellsExcluded`, `skipRecordByLightingTemplateFromMod` and `skipRecordByModNameContains` also skip cells of `filterByCells`. |
+| Race Hook | The Excluded keys and `filterByModNames` also remove races of `filterByRaces`. |
+| Reference | `filterByRefsExcluded` removes references from `filterByRefs` on the same line. |
+| Leveled List | `noFilterLL`, `noFilterLLNPC` and the EditorID filters skip lists with more than 120 entries; lists named in `filterByLLs` are always patched. |
+| NPC | Keyword filters also look at the keywords of the NPC's race. |
+| Spell | Keyword filters also look at the keywords of the spell's magic effects. |
+| Magic Effect | `filterByMgefs` is the direct list; in other patchers it finds records that use these magic effects. |
+| Constructible Object | `filterByKeywords` looks at the keywords of the created item; `filterByIngredients` looks at the items of the recipe. |
+
+Soul gems, lights and projectiles have no keyword filters.
 
 ---
 
@@ -130,13 +203,13 @@ Rules:
 | Filter | Meaning |
 |---|---|
 | `filterBy<Type>s` / `…Excluded` | The record's **primary filter** (e.g. `filterByWeapons`). See the router table in `SKILL.md`. |
-| `filterByModNames` / `…Excluded` | Restrict to records that come from / aren't from the named plugin(s). |
+| `filterByModNames` | Narrower: only patches records added by these plugins. Write the names with the exact upper and lower case of the file names. Not read by Cell, Leveled List and Reference; `…Excluded` exists only in Magic Effect. |
 | `filterByEditorIdContains` / `…Or` / `…Excluded` | Substring match on the record's EditorID. |
 | `filterByKeywords` / `…Or` / `…Excluded` | Match by attached keywords. |
 | `filterByNameContains` / `…Or` / `…Excluded` | Substring match on the record's full name. |
 | `filterByMgefs` / `…Or` / `…Excluded` | Match by attached magic effects (spell/scroll/ench/alch/ingredient/mgef). |
 | `filterByAlternateTextures` | Match items carrying a given texture set (ammo/alch/book/ingredient/misc/scroll/soulGem). |
-| `hasPlugins` / `hasPluginsOr` | Gate the **line** on the user having plugin(s) in the load order (AND / OR). |
+| `hasPlugins` / `hasPluginsOr` | Gate the **line** on the user having plugin(s) in the load order (AND / OR), the direct list included. Weapon, Armor and Ammo only. |
 
 **Override-aware filters** (advanced, on a few types): `modNamesLastOverriddenExcluded` (skip
 records whose last override is from a named mod — Magic Effect), `skipRecordByModNameContains`

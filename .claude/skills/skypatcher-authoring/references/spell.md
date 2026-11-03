@@ -7,11 +7,13 @@ Shared mechanics → `grammar-core.md`. Shared enums → `value-tables.md`.
 
 - `filterBySpells` / `…Excluded` — target spells by form. (AND / exclude.)
 - `filterByModNames` — restrict by source plugin.
-- `filterByKeywords` / `…Or` / `…Excluded` — by attached keyword.
+- `filterByKeywords` / `…Or` / `…Excluded` — by attached keyword; a keyword on one of the spell's
+  magic effects counts too.
 - `filterByMgefs` / `…Or` / `…Excluded` — by attached magic effect.
 - `filterByEditorIdContains` / `…Or` / `…Excluded` — EditorID substring.
 - `restrictToCastingType=<castType>` — narrow to a cast type (post-match). Values → `value-tables.md` (cast type).
 - `filterByFlags` / `…Or` / `…Excluded` — by spell flags (AND / OR / exclude). Flags below.
+- `filterByCastingPerk` · `filterByType` (works since 8.0.1) · `restrictToSchool` (narrower).
 
 **Spell flags** (also the legal values for `setFlags`/`removeFlags`):
 
@@ -32,6 +34,7 @@ ignoreloscheck ignoreresistance   noabsorb    nodualcastmods
 - `castType=<castType>` — see `value-tables.md`.
 - `chargeTime=<n>`.
 - `clear=true` — remove all magic effects.
+- `mgefsToChangeFirst` · `mgefsToChangeDamageHealthEffects` · `equipSlot=<form>`.
 
 ## Examples
 
