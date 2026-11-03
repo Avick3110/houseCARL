@@ -40,7 +40,7 @@ public sealed class SetupSkillPruneTests
         Assert.True(Directory.Exists(Path.Combine(ClaudeSkills(box), "kept-two")));
     }
 
-    // T3: the shared Codex root loses the dropped skill and nothing else: the umbrella and a foreign skill stay.
+    // T3: the shared Codex root loses the dropped skill and nothing else: a foreign skill stays.
     [Fact]
     public void AnUpgradePrunesOnlyTheRecordedDroppedSkillFromTheSharedCodexRoot()
     {
@@ -50,7 +50,6 @@ public sealed class SetupSkillPruneTests
         Assert.False(Directory.Exists(Path.Combine(CodexSkills(box), "dropped-skill")));
         Assert.True(Directory.Exists(Path.Combine(CodexSkills(box), "kept-one")));
         Assert.True(Directory.Exists(Path.Combine(CodexSkills(box), "kept-two")));
-        Assert.True(Directory.Exists(Path.Combine(CodexSkills(box), "housecarl")));
         Assert.True(Directory.Exists(Path.Combine(CodexSkills(box), "someone-elses-skill")));
     }
 
@@ -74,7 +73,6 @@ public sealed class SetupSkillPruneTests
         using var box = new SetupInstallerSandbox();
         UpgradeDroppingOne(box);
         string record = Record(box);
-        Assert.Contains("housecarl", File.ReadAllLines(record));
 
         foreach (string skillRoot in new[] { ClaudeSkills(box), CodexSkills(box) })
         {
@@ -115,18 +113,17 @@ public sealed class SetupSkillPruneTests
         Assert.True(Directory.Exists(Path.Combine(ClaudeSkills(box), "kept-two")));
         Assert.True(Directory.Exists(Path.Combine(CodexSkills(box), "kept-one")));
         Assert.True(Directory.Exists(Path.Combine(CodexSkills(box), "kept-two")));
-        Assert.True(Directory.Exists(Path.Combine(CodexSkills(box), "housecarl")));
         Assert.Contains("kept-one", File.ReadAllLines(Record(box)));
         Assert.Contains("no skills folder", said);
     }
 
-    // T7: the umbrella is on the record, and goes when a later package stops shipping it.
+    // T7: a 2.x umbrella on the record goes on the next upgrade, since no package ships it now.
     [Fact]
-    public void TheUmbrellaGoesWhenThePackageStopsShippingIt()
+    public void A2xUmbrellaOnTheRecordGoesOnUpgrade()
     {
         using var box = new SetupInstallerSandbox();
         UpgradeDroppingOne(box);
-        Directory.Delete(box.UmbrellaPackageDir, recursive: true);
+        box.Seed2xUmbrella();
 
         string said = SetupInstallerSandbox.Capture(() => box.Install(SetupProgram.Target.Both));
 

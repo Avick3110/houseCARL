@@ -27,7 +27,8 @@ public sealed class SetupUninstallTests
     const string ExistingToml = "# my own config\n[other]\nkey = 1\n";
 
     /// <summary>T1: two pre-existing host configs, a foreign shared skill, an install for Both with a saved MO2
-    /// instance beside each server, then an uninstall of Both. Returns the uninstall's result.</summary>
+    /// instance beside each server and a 2.x umbrella on the record, then an uninstall of Both. Returns the
+    /// uninstall's result.</summary>
     static SetupUninstall.Result InstallThenUninstallBoth(SetupInstallerSandbox box)
     {
         box.WritePackage("skill-one", "skill-two");
@@ -39,6 +40,7 @@ public sealed class SetupUninstallTests
         Assert.True(File.Exists(SetupProgram.ClaudeSkillRecord(box.Home)));
         Assert.Contains("housecarl", File.ReadAllText(SetupProgram.ClaudeJson(box.Home)));
         Assert.Contains("[mcp_servers.housecarl]", File.ReadAllText(SetupProgram.CodexConfigToml(box.Home)));
+        box.Seed2xUmbrella();
         SetupInstallerSandbox.WriteFile(Path.Combine(SetupProgram.CodexServerDir(box.Home, box.Home), "houseCARL.user.json"), "{}");
         SetupInstallerSandbox.WriteFile(Path.Combine(SetupProgram.ClaudeSkillsDest(box.Home), "server", "houseCARL.user.json"), "{}");
 
@@ -73,7 +75,8 @@ public sealed class SetupUninstallTests
         Assert.False(Directory.Exists(Path.GetDirectoryName(codexServer)));
     }
 
-    // T4: under the shared skills root only the recorded folders go; a foreign skill is untouched.
+    // T4: under the shared skills root only the recorded folders go, a 2.x umbrella among them; a foreign skill
+    // is untouched.
     [Fact]
     public void UninstallRemovesOnlyRecordedSkillsFromTheSharedRoot()
     {
