@@ -15,7 +15,6 @@ public sealed class SetupInstallerCollection
 internal sealed class SetupInstallerSandbox : IDisposable
 {
     public string Root { get; }
-    public string Package { get; }
     public string Src { get; }
     public string Home { get; }
 
@@ -25,8 +24,7 @@ internal sealed class SetupInstallerSandbox : IDisposable
     {
         Environment.SetEnvironmentVariable("CODEX_HOME", null);
         Root = Path.Combine(Path.GetTempPath(), "hc-setup-test-" + Guid.NewGuid().ToString("N"));
-        Package = Path.Combine(Root, "package");
-        Src = Path.Combine(Package, "housecarl");
+        Src = Path.Combine(Root, "package", "housecarl");
         Home = Path.Combine(Root, "home");
     }
 
