@@ -203,7 +203,8 @@ internal sealed partial class RecordWrites
                     return ClosureCopyOutcome.Fail(walk: seedRefusal.Refusal, sources: consulted);
 
                 var scope = WalkScope.StandaloneFrom(bound, fk => view.ResolveWinner(fk) is not null);
-                var walk = ClosureWalk.Run(seeds, chain, scope, exclusions);
+                // Copy's own caps, by value, so a change to the shared engine's defaults does not move them.
+                var walk = ClosureWalk.Run(seeds, chain, scope, exclusions, nodeCap: 128, depthCap: 32);
                 if (!walk.Success) return ClosureCopyOutcome.Fail(walk: walk.Refusal, sources: consulted);
 
                 string outPath; bool extend, created;
