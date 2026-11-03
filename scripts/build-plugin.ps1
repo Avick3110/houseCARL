@@ -146,9 +146,8 @@ foreach ($f in @('.mcp.json','LICENSE','THIRD-PARTY-NOTICES.txt','README.md')) {
 # form half - that a pointer is written as references/<file> - is enforced per skill by the regrade in
 # that skill's rewrite wave, not here.
 Step '7/12' 'Leak-check skills (excluded files + markdown pointers)'
-$skillLeaks = @()
-$skillLeaks += Get-ChildItem $SkillsDir -Recurse -Force -File -Filter '_CORPUS_STATUS.md'
-$skillLeaks += Get-ChildItem $SkillsDir -Recurse -Force -Directory -Filter 'evals'
+$skillLeaks = @(Get-ChildItem $SkillsDir -Recurse -Force -File -Filter '_CORPUS_STATUS.md') +
+              @(Get-ChildItem $SkillsDir -Recurse -Force -Directory -Filter 'evals')
 if ($skillLeaks.Count -gt 0) {
   $skillLeaks | ForEach-Object { Write-Host "  LEAK (excluded file present): $($_.FullName)" -ForegroundColor Red }
   throw "leak-check failed: excluded files present in dist"
