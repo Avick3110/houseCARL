@@ -15,7 +15,7 @@ public sealed class TypedAnswerTests : IDisposable
 
     /// <summary>The call's text and whether Guard marked it refused, as the call-tool filter reads it; run on its own
     /// context so the verdict opened here ends with the call.</summary>
-    static (string Text, bool Refused) Answer(Func<string> call) => Task.Run(() =>
+    internal static (string Text, bool Refused) Answer(Func<string> call) => Task.Run(() =>
     {
         var verdict = CallVerdict.Begin();
         var text = call();
@@ -69,6 +69,16 @@ public sealed class TypedAnswerTests : IDisposable
         var (text, refused) = Answer(() => Guard.Tool("housecarl_probe", Boom));
         Assert.True(refused, text);
         Assert.StartsWith("error: housecarl_probe failed unexpectedly — InvalidOperationException: boom.", text);
+    }
+
+    /// <summary>The Guard's named-transient arm (a locked profile, a refused game language) is refused, text unchanged.</summary>
+    [Fact]
+    public void TheGuardsRefusedGameLanguageIsMarkedRefused()
+    {
+        static ToolAnswer Refuse(ToolCall _) => throw new HousecarlCore.GameLanguageRefusedException("the language is refused.");
+        var (text, refused) = Answer(() => Guard.Tool("housecarl_probe", Refuse));
+        Assert.True(refused, text);
+        Assert.Equal("error: the language is refused.", text);
     }
 }
 

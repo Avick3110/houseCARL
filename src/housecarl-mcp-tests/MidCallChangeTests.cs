@@ -91,6 +91,21 @@ public sealed class MidCallChangeTests : IDisposable
         Assert.Contains("99", retry);
     }
 
+    /// <summary>The mid-call refusal is a refusal: Guard marks it, so the result carries isError.</summary>
+    [Fact]
+    public void AMidCallChangeIsMarkedRefused()
+    {
+        var svc = Service(out var resolver);
+        using var _ = resolver;
+        bool saved = false;
+        var (answer, refused) = TypedAnswerTests.Answer(() =>
+            During(name => { if (!saved && name == AName) { Save(_aNew, _a); saved = true; } },
+                   () => RecordsTools.Records(svc, formids: Fids, project: Damage)));
+        Assert.True(saved);
+        Assert.True(refused, answer);
+        Assert.Contains($"'{AName}' changed on disk during this call", answer);
+    }
+
     [Fact]
     public void AChangeBetweenTwoGroupsRefusesTheCall()
     {
