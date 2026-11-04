@@ -40,6 +40,31 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenClassFixture>
         Assert.Contains("[STALE_BAKE]", RowFor(text, "HcFgStale"));
     }
 
+    /// <summary>A mesh half nothing holds, hidden or not, carries no detail line.</summary>
+    [Fact]
+    public void AMeshAbsentRowWithNothingHiddenCarriesNoDetail()
+    {
+        var json = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" }, format: "json", max_chars: 60000);
+        var row = System.Text.Json.JsonDocument.Parse(json).RootElement.EnumerateObject()
+            .SelectMany(Rows).Single(r => r.TryGetProperty("editorid", out var e) && e.GetString() == "HcFgMeshAbsentPlain");
+        Assert.Equal("mesh_absent", row.GetProperty("class").GetString());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, row.GetProperty("detail").ValueKind);
+    }
+
+    /// <summary>Every object in the document that carries a 'class' member.</summary>
+    static IEnumerable<System.Text.Json.JsonElement> Rows(System.Text.Json.JsonProperty p) => Rows(p.Value);
+
+    static IEnumerable<System.Text.Json.JsonElement> Rows(System.Text.Json.JsonElement e)
+    {
+        if (e.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            if (e.TryGetProperty("class", out _)) yield return e;
+            foreach (var c in e.EnumerateObject().SelectMany(Rows)) yield return c;
+        }
+        else if (e.ValueKind == System.Text.Json.JsonValueKind.Array)
+            foreach (var c in e.EnumerateArray().SelectMany(Rows)) yield return c;
+    }
+
     [Fact]
     public void AMatchedPairWhoseRecordAgreesIsNotReported()
         => Assert.DoesNotContain("'HcFgClean'", Sweep("facegen"), StringComparison.Ordinal);
