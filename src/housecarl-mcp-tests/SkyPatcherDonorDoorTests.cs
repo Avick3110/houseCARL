@@ -35,6 +35,7 @@ public sealed class SkyPatcherDonorDoorTests : IDisposable
         }
         b.BeginWrite.ToPath(_mo2.InMod("SpB", B)).WithLoadOrder(new ISkyrimModGetter[] { a }).Write();
         var ini = Path.Combine(_mo2.ModsDir, "SpIni", "SKSE", "Plugins", "SkyPatcher", "constructibleObject");
+        SkyPatcherSwitchesFile.Write(Path.Combine(_mo2.ModsDir, "SpIni"));
         Directory.CreateDirectory(ini);
         File.WriteAllText(Path.Combine(ini, "donor.ini"), $"filterByKeywords={A.FileName}|{kw.FormKey.ID:X}:count=5\r\n");
         var names = new[] { A, B }.Select(k => k.FileName.String).ToList();

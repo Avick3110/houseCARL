@@ -24,7 +24,7 @@ internal sealed partial class RecordReads
         /// <summary>The overlay's arm statement, one wording for every lane; null on any other pole.</summary>
         public string? OverlayStatement => State switch
         {
-            "post" => "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays" + (Draft is null ? "" : $", with {Draft.Arm}"),
+            "post" => $"skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays (SkyPatcher {SkyPatcherCatalog.Load().Version} model)" + (Draft is null ? "" : $", with {Draft.Arm}"),
             "pre" => "skypatcher overlay (pre) = winner — the body the INI layer starts from",
             _ => null,
         };

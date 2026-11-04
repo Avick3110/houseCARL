@@ -29,6 +29,7 @@ public sealed class PostPoleWarningOrderTests : IDisposable
         var profileDir = Path.Combine(instance, "profiles", "Default");
         var mods = Path.Combine(instance, "mods");
         var iniDir = Path.Combine(mods, "HcWoIni", "SKSE", "Plugins", "SkyPatcher", "armor");
+        SkyPatcherSwitchesFile.Write(Path.Combine(mods, "HcWoIni"));
         foreach (var d in new[] { profileDir, Path.Combine(_root, "game", "Data"), Path.Combine(mods, "HcWoPlugins"), iniDir })
             Directory.CreateDirectory(d);
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),

@@ -88,6 +88,9 @@ public sealed class RecordsWorld : IDisposable
 
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
+    /// <summary>A record as a SkyPatcher line addresses it: <c>Plugin|FormID</c>, which needs no po3 Tweaks, unlike an EditorID.</summary>
+    public static string Sp(FormKey fk) => $"{fk.ModKey.FileName}|{fk.ID:X}";
+
     public RecordsWorld()
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-records-tests-" + Guid.NewGuid().ToString("N"));
@@ -242,10 +245,9 @@ public sealed class RecordsWorld : IDisposable
         Directory.CreateDirectory(Path.Combine(spDir, "MyMod"));
         NestedSkyPatcherIniPath = Path.Combine(spDir, "MyMod", "nested.ini");
         File.WriteAllText(NestedSkyPatcherIniPath, "; placed under a mod subfolder, and patches nothing either\r\n");
-        // The [Patcher] toggles, with 'armor' switched off and no live armor folder at all: the type a draft can
-        // be folded into that the DLL would skip wholesale. 'weapon' is left at its default (on).
-        File.WriteAllText(Path.Combine(ModsDir, "MasterMod", "SKSE", "Plugins", "SkyPatcher.ini"),
-            "[Patcher]\r\niEnable" + ToggledOffSkyPatcherType + "Patching=0\r\n");
+        // The [Patcher] switches, with 'armor' switched off and no live armor folder at all: the type a draft can
+        // be folded into that the DLL would skip wholesale. Every other patcher, 'weapon' included, is on.
+        SkyPatcherSwitchesFile.Write(Path.Combine(ModsDir, "MasterMod"), ToggledOffSkyPatcherType);
 
         File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("

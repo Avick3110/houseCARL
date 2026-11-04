@@ -42,6 +42,7 @@ public sealed class SkyPatcherUnpatchableLayerCountTests : IDisposable
         var profileDir = Path.Combine(instance, "profiles", "Default");
         var mods = Path.Combine(instance, "mods");
         var iniDir = Path.Combine(mods, "HcUnpatchableIni", "SKSE", "Plugins", "SkyPatcher", "weapon");
+        SkyPatcherSwitchesFile.Write(Path.Combine(mods, "HcUnpatchableIni"));
         foreach (var d in new[] { profileDir, Path.Combine(_root, "game", "Data"), Path.Combine(mods, "HcUnpatchablePlugins"), iniDir })
             Directory.CreateDirectory(d);
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),

@@ -29,7 +29,7 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
     JsonElement DraftPost(string dir)
     {
         var path = W.Scratch(dir, "weapon", "ScanDraft.ini");
-        File.WriteAllText(path, "filterByWeapons=HcRecW0:attackDamage=123\r\n");
+        File.WriteAllText(path, $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=123\r\n");
         return Je("{\"overlay\": \"skypatcher\", \"state\": \"post\", \"ini\": " + JsonSerializer.Serialize(path) + "}");
     }
 

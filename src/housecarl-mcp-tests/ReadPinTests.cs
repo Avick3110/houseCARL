@@ -41,6 +41,7 @@ public sealed class ReadPinTests : IDisposable
         _dataA = Path.Combine(_root, "gameA", "Data");
         _dataB = Path.Combine(_root, "gameB", "Data");
         var iniDir = Path.Combine(mods, IniMod, "SKSE", "Plugins", "SkyPatcher", "weapon");
+        SkyPatcherSwitchesFile.Write(Path.Combine(mods, IniMod));
         foreach (var d in new[] { _dataA, _dataB, Path.Combine(mods, "BaseMod"), Path.Combine(mods, OffMod), iniDir })
             Directory.CreateDirectory(d);
         _ini = Path.Combine(_instance, "ModOrganizer.ini");
