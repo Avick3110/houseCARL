@@ -1042,9 +1042,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         lock (_gate)
         {
             EnsurePathsDerived();
-            if (HeldPinLocked() is { } call) return call.Roots;
-            GameLanguage.Bind(_text);
-            return HeldBuildLocked()?.Roots ?? RootsLocked();
+            var call = HeldBuildLocked();
+            if (call?.Pin is null) GameLanguage.Bind(_text);
+            return call?.Roots ?? RootsLocked();
         }
     }
 
