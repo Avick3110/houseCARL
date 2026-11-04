@@ -56,11 +56,13 @@ public static class MidCallChange
                     : AfterWrites($"'{p}' changed on disk during this call", m);
         }
 
-        /// <summary><paramref name="change"/> as the refusal of a call that committed a write, naming what it wrote; null when it wrote nothing.</summary>
+        /// <summary><paramref name="change"/> as the refusal of a call that committed a write, naming what it wrote and any
+        /// plugin that changed on disk; null when it wrote nothing.</summary>
         public string? AfterWrites(string change)
         {
             if (Current.Value is not { } m) return null;
-            lock (m) return m.Written.Count == 0 ? null : AfterWrites(change, m);
+            lock (m) return m.Written.Count == 0 ? null
+                : AfterWrites(m.Plugin is { } p ? $"{change}, and '{p}' changed on disk during this call" : change, m);
         }
 
         static string AfterWrites(string change, Mark m) =>
