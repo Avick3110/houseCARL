@@ -448,8 +448,9 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Refused(RecordsTools.Records(Svc, types: Weap, source: draft, walk: new RecordsTools.RecordsWalk()),
                 "a walk reads every record it reaches", "formids=[\"@<file>\"] in place of types=");
         var path = PlainScanFile("route-walk");
-        Served(RecordsTools.Records(Svc, formids: new[] { "@" + path }, source: draft, walk: new RecordsTools.RecordsWalk()),
-               "skypatcher overlay (post)");
+        Served(RecordsTools.Records(Svc, formids: new[] { "@" + path }, source: draft, walk: new RecordsTools.RecordsWalk(),
+                                    project: Fields("BasicStats.Damage")),
+               "skypatcher overlay (post)", "editorid=HcRecW0", "BasicStats.Damage = 123");
     }
 
     /// <summary>An off-order file scanned against the overlay: the plain scan keeps the file as its source=, and
