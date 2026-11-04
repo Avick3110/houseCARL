@@ -15,7 +15,8 @@ Shared mechanics → `grammar-core.md`.
 
 - `formsToAdd=<form,…>` — add objects to the outfit.
 - `formsToRemove=<form,…>` — remove objects from the outfit.
-- `formsToReplace=<formA=formB>` — replace in place. **FormID only.** (Docs write the pair with
+- `formsToReplace=<formA=formB>` — replace in place. Takes `Plugin|FormID` or EditorID (an
+  EditorID needs po3 Tweaks for most record types; see `grammar-core.md`). (Docs write the pair with
   `=`; Leveled List uses `~` for the same op.)
 - `clear=true` — empty the outfit (remove all records).
 
