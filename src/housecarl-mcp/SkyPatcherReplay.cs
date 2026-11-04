@@ -61,7 +61,7 @@ internal sealed partial class AssetLayers
             _host = layers._host; _view = view; _session = session;
             Assets = assets; AssetWarnings = assetWarnings; ProfileName = profileName;
             Catalog = catalog; FieldMap = fieldMap; Scan = scan;
-            _formResolver = new SkyPatcherServiceResolver(layers, view, session);
+            _formResolver = new SkyPatcherServiceResolver(layers, view, session, SkyPatcherEditorIds.Read(assets));
         }
 
         /// <summary>Per folder, the lines checked against every record and the lines that can touch only the records they name.</summary>
@@ -91,21 +91,18 @@ internal sealed partial class AssetLayers
             return merged;
         }
 
-        /// <summary>The records a patch line can touch when its only filter is one bare primary filter naming FormIDs; null for any other line, or one carrying a parse note, which the overlay must see on every record.</summary>
+        /// <summary>The records a patch line can touch when its only filter is one direct list naming FormIDs; null for any other line, or one carrying a parse note, which the overlay must see on every record.</summary>
         HashSet<FormKey>? NamedTargets(SkyPatcherLine line, SkyPatcherRecordCatalog recordCatalog)
         {
             if (line.Kind != SkyPatcherLineKind.Patch || line.Note is not null) return null;
-            HashSet<FormKey>? keys = null;
-            foreach (var seg in line.Segments)
-            {
-                var cls = Catalog.Classify(recordCatalog, seg.Key);
-                if (cls.Role == SkyPatcherKeyRole.Operation) continue;
-                if (!SkyPatcherConflicts.IsBarePrimary(cls) || keys is not null || seg.Values.Count == 0) return null;
-                keys = new HashSet<FormKey>();
-                foreach (var v in seg.Values)
-                    if (v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var k)) keys.Add(k);
-                    else return null;
-            }
+            var filters = SkyPatcherConflicts.Filters(line, Catalog, recordCatalog, out _);
+            if (filters is null || filters.Count != 1) return null;
+            var shape = SkyPatcherLineShape.Of(filters, recordCatalog);
+            if (!shape.OnlyDirect || shape.Direct[0].seg.Values.Count == 0) return null;
+            var keys = new HashSet<FormKey>();
+            foreach (var v in shape.Direct[0].seg.Values)
+                if (v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var k)) keys.Add(k);
+                else return null;
             return keys;
         }
 
@@ -242,12 +239,17 @@ internal sealed partial class AssetLayers
 
         public void WatchLookups() => _consumedIncomplete = false;
 
-        public SkyPatcherServiceResolver(AssetLayers layers, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session)
-        { _layers = layers; _view = view; _session = session; }
+        readonly string? _tweaksMissing;
+
+        public SkyPatcherServiceResolver(AssetLayers layers, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, string? tweaksMissing)
+        { _layers = layers; _view = view; _session = session; _tweaksMissing = tweaksMissing; }
+
+        public string? EditorIdGap(string? mutagenType) => SkyPatcherEditorIds.Gap(_tweaksMissing, mutagenType);
 
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
         {
             if (mutagenType is null || string.IsNullOrWhiteSpace(editorId)) return null;
+            if (EditorIdGap(mutagenType) is not null) return null;   // the game cannot see this name, so neither does the replay
             if (!_eidsByType.TryGetValue(mutagenType, out var eids))
             {
                 eids = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);

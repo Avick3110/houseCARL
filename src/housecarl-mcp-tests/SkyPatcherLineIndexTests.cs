@@ -28,11 +28,13 @@ public sealed class SkyPatcherLineIndexTests : IDisposable
         Assert.Contains("Weight = 0", Post(_w.Heel));
     }
 
+    // a direct list next to a finder reaches the named records plus the found ones: HcHeelBoots by name, HcBothBoots by both
     [Fact]
-    public void ATwoFilterLineReachesTheRecordBothFiltersMatch()
+    public void ATwoFilterLineReachesTheNamedAndTheFoundRecords()
     {
         Assert.Contains("Value = 9", Post(_w.Both));
-        Assert.Contains("Value = 0", Post(_w.Heel));
+        Assert.Contains("Value = 9", Post(_w.Heel));
+        Assert.Contains("Value = 0", Post(_w.Plain));
     }
 
     [Fact]

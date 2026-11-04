@@ -20,13 +20,15 @@ sealed class SkyPatcherRelevanceWorld : IDisposable
     public readonly LoadOrderService Svc;
     public readonly string Heel, Both, Plain;
 
-    public SkyPatcherRelevanceWorld(IEnumerable<(string Name, string Text)> inis, bool otherPlugin = false)
+    public SkyPatcherRelevanceWorld(IEnumerable<(string Name, string Text)> inis, bool otherPlugin = false, bool tweaks = true)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-skypatcher-relevance-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
         var profileDir = Path.Combine(instance, "profiles", "Default");
         var mods = Path.Combine(instance, "mods");
         var iniDir = Path.Combine(mods, "HcSpRelIni", "SKSE", "Plugins", "SkyPatcher", "armor");
+        SkyPatcherSwitchesFile.Write(Path.Combine(mods, "HcSpRelIni"));
+        if (tweaks) SkyPatcherSwitchesFile.WriteTweaks(Path.Combine(mods, "HcSpRelIni"));
         foreach (var d in new[] { profileDir, Path.Combine(Root, "game", "Data"), Path.Combine(mods, "HcSpRelPlugins"), iniDir })
             Directory.CreateDirectory(d);
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
@@ -104,7 +106,7 @@ public sealed class SkyPatcherWarningRelevanceTests : IDisposable
     const string RidingIni = "HcRiding.ini";
     readonly SkyPatcherRelevanceWorld _w;
 
-    // HcRelevance :1 an Or list (a missing keyword cannot flip it), :2 a bare list (a missing keyword forces NoMatch), :3 an unknown key.
+    // HcRelevance :1 an Or list (a missing keyword cannot flip it), :2 a bare list (a missing keyword drops out), :3 an unknown key.
     // HcRiding: two Or lines sharing one missing keyword; HcBothBoots meets both, HcHeelBoots only the first.
     public SkyPatcherWarningRelevanceTests() => _w = new SkyPatcherRelevanceWorld(new[]
     {
@@ -133,9 +135,9 @@ public sealed class SkyPatcherWarningRelevanceTests : IDisposable
     public void ARecordTheOrLineMatchesGetsItsWarnings()
         => Assert.Contains("keyword 'HcNoSuchA' (in a filterByKeywordsOr) resolves to nothing", Read(_w.Heel));
 
-    // the bare list's resolved keyword is on the record, so only the missing one stops the line
+    // the bare list's missing keyword drops out and its resolved one is on the record, so the line reaches it and the warning rides
     [Fact]
-    public void AMissingKeywordThatStopsABareLineRidesTheRead()
+    public void AMissingKeywordOnABareLineThatReachesTheRecordRidesTheRead()
         => Assert.Contains("keyword 'HcNoSuchC' (in a filterByKeywords) resolves to nothing", Read(_w.Heel));
 
     [Fact]
@@ -231,11 +233,11 @@ public sealed class SkyPatcherLineLevelWarningTests : IDisposable
     const string IniName = "HcLineLevel.ini";
     readonly SkyPatcherRelevanceWorld _w;
 
-    // :1 the bare list's missing keyword would decide, but the EditorID filter misses HcHeelBoots anyway; :2 the EditorID filter passes.
+    // :1 the bare list's missing keyword would decide, but its Excluded key removes HcHeelBoots anyway; :2 the Excluded key passes it.
     public SkyPatcherLineLevelWarningTests() => _w = new SkyPatcherRelevanceWorld(new[]
     {
-        (IniName, "filterByKeywords=HcHeelKw,HcNoSuchF:filterByEditorIdContains=Cuirass:keywordsToAdd=HcAddKw\r\n"
-                  + "filterByKeywords=HcHeelKw,HcNoSuchG:filterByEditorIdContains=Heel:keywordsToAdd=HcAddKw\r\n"),
+        (IniName, "filterByKeywords=HcNoSuchF:filterByArmorsExcluded=HcSpRel.esp|810:keywordsToAdd=HcAddKw\r\n"
+                  + "filterByKeywords=HcNoSuchG:filterByArmorsExcluded=HcSpRel.esp|811:keywordsToAdd=HcAddKw\r\n"),
     }, otherPlugin: true);
 
     public void Dispose() => _w.Dispose();
