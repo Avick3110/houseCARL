@@ -344,6 +344,16 @@ public sealed class HiddenReasonTests : IDisposable
         Assert.DoesNotContain(WriteSentences.PlaceSourceFolderHidden, t);
     }
 
+    /// <summary>Forward slashes and a trailing dot name the same file, so the sentence does not name it again as another one.</summary>
+    [Fact]
+    public void ANamedHiddenFileAskedWithForwardSlashesIsNotNamedTwice()
+    {
+        var t = NifTools.NifInspect(_p.Open(), new[] { "meshes/c.nif.mohidden." }, source_provider: "ModC");
+
+        Assert.Contains(@"in 'ModC'. ", t);
+        Assert.DoesNotContain(", as '", t);
+    }
+
     [Fact]
     public void PlaceNamingAFolderDoesNotReadItsHiddenFile()
     {

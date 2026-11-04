@@ -411,7 +411,7 @@ public sealed class AssetResolver : IDisposable
     /// lane; the <see cref="PlacementSource.OwnerEnabled"/> qualifier for a copy in an enabled mod is set here.</summary>
     public OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath)
     {
-        var look = OffOrderAssetSource.Resolve(_modsDir, IsReservedProviderName, providerName, AsWindowsOpens(relPath), relPath, _skip);
+        var look = OffOrderAssetSource.Resolve(_modsDir, IsReservedProviderName, providerName, AsWindowsOpens(Normalize(relPath)), relPath, _skip);
         return look.Source is { } s && IsEnabledMod(s.ProviderName)
             ? look with { Source = s with { OwnerEnabled = true } }
             : look;
