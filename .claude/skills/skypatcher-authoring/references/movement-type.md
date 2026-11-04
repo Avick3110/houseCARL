@@ -28,6 +28,6 @@ rotateWhileMovingRun
 filterByMovementTypes=Skyrim.esm|123:walkLeft=35
 ```
 
-## Added since 6.4.1 (8.0.1 articles)
+## Keys from the 8.0.1 articles
 
 - Filters: `filterByModNames`.

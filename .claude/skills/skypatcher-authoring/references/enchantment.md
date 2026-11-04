@@ -44,4 +44,4 @@ clear=true
 > example disagrees with the filter list, the filter list and the router table in `SKILL.md` win.
 
 > 8.0.1: no Enchantment article exists (the article titled "Enchantment Patcher" holds Encounter
-> Zone text), so this file is still the 6.4.1 transcription.
+> Zone text), so this file keeps the earlier transcription.

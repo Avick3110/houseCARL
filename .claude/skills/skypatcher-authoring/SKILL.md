@@ -149,9 +149,9 @@ warn case, not a use case.
 ## Notes
 
 - **Provenance and floor.** The reference corpus is reconstructed from SkyPatcher's official Nexus
-  documentation at **v8.0.1** (re-derived 2026-11-03 from the 6.4.1 transcription), covering 28
+  documentation at **v8.0.1** (re-derived 2026-11-03), covering 28
   record types plus one documented gap (OMOD). Enchantment has no 8.0.1 article and keeps its
-  6.4.1 text. On a SkyPatcher version bump, re-derive from the updated articles before trusting it
+  earlier text. On a SkyPatcher version bump, re-derive from the updated articles before trusting it
   for new operations.
 - **Conflict model.** SkyPatcher's low-conflict property is real but not magic: same-field set
   operations still resolve by read order (folder first, then subfolders level by level, A to Z),

@@ -15,7 +15,7 @@
     },
     {
       "name": "SkyPatcher",
-      "pinned": "6.4.1",
+      "pinned": "8.0.1",
       "source": { "type": "nexus", "game_id": 1704, "game": "skyrimspecialedition", "mod_id": 106659 },
       "depends": [".claude/skills/skypatcher-authoring", "src/housecarl-mcp/SkyPatcherReplay.cs"]
     },

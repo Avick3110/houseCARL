@@ -63,7 +63,7 @@ modNamesLastOverriddenExcluded=SomePatch.esp, MyBalanceOverhaul.esp
 > is preserved verbatim from the source article, typo and all. Where an example disagrees with the
 > filter list, the filter list and the router table in `SKILL.md` win.
 
-## Added since 6.4.1 (8.0.1 articles)
+## Keys from the 8.0.1 articles
 
 - `filterByMgefs` is the direct list here.
 - Filters: `filterByModNamesExcluded` (also spelled `modNamesExcluded`),

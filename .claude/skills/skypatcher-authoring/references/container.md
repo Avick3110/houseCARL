@@ -34,7 +34,7 @@ objectMultCount=2.0
 clear=true
 ```
 
-## Added since 6.4.1 (8.0.1 articles)
+## Keys from the 8.0.1 articles
 
 - Filters: `filterByModNames`.
 - A line without `filterByContainers`, `filterByEditorIdContains` and `filterByEditorIdContainsOr`

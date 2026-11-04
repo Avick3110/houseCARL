@@ -42,7 +42,7 @@ filterByRaces=Skyrim.esm|D53:spellsToAdd=Skyrim.esm|6F6FE, Skyrim.esm|C5A9F
 filterByRaces=Skyrim.esm|D53:keywordsToAdd=Skyrim.esm|13796, Skyrim.esm|13795
 ```
 
-## Added since 6.4.1 (8.0.1 articles)
+## Keys from the 8.0.1 articles
 
 - Filters: `filterByEditorIdContains` / `…Or` / `…Excluded` (race EditorIDs need no Tweaks).
 - Operations: `changeStats` (works for races since 8.0.1), `voiceTypeMale`, `voiceTypeFemale`,

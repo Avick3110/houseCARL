@@ -55,7 +55,7 @@ filterByArmors=Skyrim.esm|1395C:mirrorArmor=Skyrim.esm|12E49
 filterByArmorTypes=heavy, light
 ```
 
-## Added since 6.4.1 (8.0.1 articles)
+## Keys from the 8.0.1 articles
 
 - Operations: `reCalcArmorRating`, `reCalcArmorRatingv2`, `valueMatch`, `armaRaceToAdd`,
   `modelMale`, `modelFemale`.
