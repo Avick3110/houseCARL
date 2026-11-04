@@ -173,11 +173,15 @@ them intersects them, so the plain scan carries it with them and the re-run repl
 term stays out. A tree's route carries the overlay on `versus=` with no `source=`,
 since the list lane refuses `source=` on a tree. `where_source=` rides with `where=`: the plain scan keeps it, so it
 matches what the refused call matched, and the re-run drops it with `where=`. The route is named from the call's terms
-as written: a term the plain scan itself refuses (an unknown type, a `where=` field or value, an in-order
-`where_source=`, a `references=` or `formids=` entry, `defined_in` without names) answers on that plain scan, by its
-own sentence. Only the faults that would change the route answer ahead of it: `fields_source='winner'` (the two
-display poles), a `where=` nothing bounds, and an off-order `source=`'s own refusals (`conflicts_only=`,
-`where_source=`).
+as written: with no named `source=`, a term the plain scan itself refuses (an unknown type, a `where=` field or value,
+an unknown `where_source=` value, a `references=` or `formids=` entry, `defined_in` without names) answers on that
+plain scan, by its own sentence. What answers ahead of the route, in order: before the scan lane, `fields_source=` on
+a walk, a bad `to_file=` path or `to_file=` with `offset=`, the aggregate form or `counts_only`, and `where_source=`
+without `where=`; then a `where=` nothing bounds; then, with no named `source=`, the comparison refusals, then
+`fields_source='winner'` (the two display poles), then the `to_file=` and walk refusals. A named `source=` meets only
+the comparison refusal on `versus=`, and later: after `defined_in` without names, a bad or empty `formids=` and the
+source probe, on an in-order file straight after the probe, on an off-order file after that file's own refusals
+(`conflicts_only=`, the info_order form, a walk, a `where_source=` of `winner` or an unknown value).
 
 ### Reports and drafts
 
