@@ -354,7 +354,10 @@ public sealed record NifInspectBatchData(
     IReadOnlyList<string> Warnings,
     string ProfileName);
 
-/// <summary>The data behind housecarl_nif_set: the VFS resolution joined to the verified write outcome, described by exactly one of <see cref="Report"/>, a named <see cref="Error"/> with nothing written, and <see cref="NeedsAcknowledge"/>, the in-place first-touch consent prompt.</summary>
+/// <summary>A nif_set result's kind: the in-place consent prompt, a refusal with nothing written, or a verified write.</summary>
+public enum NifSetState { Consent, Refused, Written }
+
+/// <summary>The data behind housecarl_nif_set:the VFS resolution joined to the verified write outcome, described by exactly one of <see cref="Report"/>, a named <see cref="Error"/> with nothing written, and <see cref="NeedsAcknowledge"/>, the in-place first-touch consent prompt.</summary>
 public sealed record NifSetResult(
     string RelPath,
     NifProvider? Edited,
@@ -377,6 +380,11 @@ public sealed record NifSetResult(
 
     public static NifSetResult NeedsAck(string prompt, NifProvider edited, IReadOnlyList<NifProvider> providers, string profileName)
         => new("", edited, providers, false, null, null, true, prompt, true, false, null, null, null, Array.Empty<string>(), profileName);
+
+    /// <summary>Which of the three this result is; the tool's verdict and its render both branch on it.</summary>
+    public NifSetState State => NeedsAcknowledge ? NifSetState.Consent
+        : Report is null || Error is not null ? NifSetState.Refused
+        : NifSetState.Written;
 
     /// <summary>True when the edited mesh landed in a mod folder this call CREATED, which MO2 registers at the highest priority, so it out-ranks the current winner on enable while an into= folder has to be sorted above it.</summary>
     public bool FreshFolder { get; init; }
