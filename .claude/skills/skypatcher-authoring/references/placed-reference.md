@@ -25,7 +25,7 @@ filterByRefs=JKs Skyrim.esp|D61, JKs Skyrim.esp|D6D:disable=true
 filterByRefs=Update.esm|109B, Update.esm|13D8, Skyrim.esm|000BCC81, Skyrim.esm|000BC725:disable=true
 ```
 
-## Added since 6.4.1 (8.0.1 articles)
+## Keys from the 8.0.1 articles
 
 - A line without filters patches nothing. The Reference patcher does not read `filterByModNames`.
   It needs `iUpdateRefs=1` in the `[Features]` section.

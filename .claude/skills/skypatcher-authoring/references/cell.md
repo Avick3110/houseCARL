@@ -56,7 +56,7 @@ waterHeight=512.0
 skipRecordByLightingTemplateFromMod=ELFX.esp, Lux.esp
 ```
 
-## Added since 6.4.1 (8.0.1 articles)
+## Keys from the 8.0.1 articles
 
 - A line without any filter patches all cells (8.0.1). The Cell patcher does not read
   `filterByModNames`. `filterByCellsExcluded`, `skipRecordByLightingTemplateFromMod` and

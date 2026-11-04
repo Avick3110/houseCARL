@@ -44,7 +44,7 @@ replaceInCobjs=Skyrim.esm|0005ACE5~Skyrim.esm|0005ACE4
 filterByCobjs=Skyrim.esm|13988:restrictToKeywords=Skyrim.esm|34d7
 ```
 
-## Added since 6.4.1 (8.0.1 articles)
+## Keys from the 8.0.1 articles
 
 - `filterByKeywords` looks at the keywords of the created item; `filterByIngredients` looks at the
   items of the recipe.

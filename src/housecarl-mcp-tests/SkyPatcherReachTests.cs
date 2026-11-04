@@ -188,9 +188,9 @@ public sealed class SkyPatcherReachTests
         Assert.Equal(new[] { 2 }, AppliedLines(r, "height"));
     }
 
-    // the dev lines that skipped as unknown keys under 6.4.1 (SkyTactics, Spell Absorption Rework) now classify and evaluate
+    // the dev lines that skipped as unknown keys before this catalog (SkyTactics, Spell Absorption Rework) now classify and evaluate
     [Fact]
-    public void TheKeysAddedSince641Classify()
+    public void TheKeysAddedFor801Classify()
     {
         var npc = NewMod().Npcs.AddNew();
         npc.EditorID = "HcTacticsNpc";

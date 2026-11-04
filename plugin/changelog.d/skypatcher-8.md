@@ -1,0 +1,1 @@
+- **The SkyPatcher layer now reads INIs as SkyPatcher 8.0.1 does: filters on one line add up instead of all having to match, keys added since 6.4.1 are known, and a missing `SkyPatcher.ini` switch is off.** Check: `housecarl_skypatcher_layer` opens with "SkyPatcher 8.0.1 model".
