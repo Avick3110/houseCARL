@@ -467,6 +467,17 @@ public sealed class HiddenReasonTests : IDisposable
     }
 
     [Fact]
+    public void ANamedFoldersHiddenCopyBesideAnArchiveThatWillNotReadNamesTheArchive()
+    {
+        File.WriteAllBytes(Path.Combine(_p.Mods, "ModC", "ModC.bsa"), X);   // not an archive
+
+        var t = NifTools.NifInspect(_p.Open(), new[] { @"meshes\c.nif.mohidden" }, source_provider: "ModC");
+
+        Assert.Contains(WriteSentences.PlaceSourceFolderHidden, t);
+        Assert.Contains("NOTE: 'ModC.bsa' could not be read", t);
+    }
+
+    [Fact]
     public void PlaceNamingAFolderDoesNotReadItsHiddenFile()
     {
         var t = PlaceTools.Place(_p.Open(), Assets("""[{"path":"textures/x.dds.mohidden"}]"""), source_provider: "ModA");
