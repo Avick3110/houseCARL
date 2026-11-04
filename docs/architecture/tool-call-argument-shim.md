@@ -84,8 +84,10 @@ makes each return name its kind. It does not check the kind: `Served` takes any 
 by `Guard` per transport — text keeps the message as written, json is `{ok:false, error, epoch}` with the
 `error: ` prefix stripped, `epoch` the stamp or null — and `epochLine: true` also puts the stamp on the text,
 on its own line, for the lanes that did so before. `ToolAnswer.Refusal(message)` is text on every transport:
-a tool with no `format=`, the `format=` error itself, the config prompt and the tool-path prompt (so
-`records`, `check` and `skse` send the config prompt as text to a `format=json` caller), and the Guard's own.
+a tool with no `format=`, the `format=` error itself, the config prompt on `records`, `check` and `skse`
+(text to a `format=json` caller), the tool-path prompt, and the Guard's own. The other `format=` tools
+(`apply`, `create`, `forward`, `remove`, `place`, `asset_status`, `write_seq`) refuse the config prompt with
+`Refusal(json, prompt)`, so a json caller gets `{ok:false, …}`.
 A refused outcome keeps the document its lane renders (`ToolAnswer.Outcome`), so a
 failed write's json keeps `lane`, `dry_run` and `ok` on both outcomes, and a scan or check whose outcome
 carries the whole-call error is refused exactly where its json writes `ok:false`.
