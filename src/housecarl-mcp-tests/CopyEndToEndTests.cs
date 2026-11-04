@@ -94,7 +94,7 @@ public sealed class CopyEndToEndTests
 
     static int Rows(string text, string type) => Regex.Matches(text, $"^  - {type} ", RegexOptions.Multiline).Count;
 
-    // 128 records reached copies all 128
+    // 128 records reached copies all 128, in the answer and in the written patch beside the clone
     [Fact]
     public void AWalkOf128RecordsCopiesThemAll()
     {
@@ -104,6 +104,7 @@ public sealed class CopyEndToEndTests
 
         Assert.StartsWith("CLONED", text);
         Assert.Equal(128, Rows(text, "Keyword"));
+        Assert.Equal((128, 1), w.Patch("Nodes128", m => (m.Keywords.Count, m.FormLists.Count)));
     }
 
     // the 129th record refuses the copy at the cap, naming 128 and that record, writing nothing
@@ -122,7 +123,7 @@ public sealed class CopyEndToEndTests
 
     // ---- the depth cap: 32 -------------------------------------------------------------------------
 
-    // a chain reaching depth 32 copies every link of it
+    // a chain reaching depth 32 copies every link of it, in the answer and in the written patch beside the clone
     [Fact]
     public void AChainToDepth32CopiesThemAll()
     {
@@ -132,6 +133,7 @@ public sealed class CopyEndToEndTests
 
         Assert.StartsWith("CLONED", text);
         Assert.Equal(33, Rows(text, "HeadPart"));
+        Assert.Equal((33, 1), w.Patch("Depth32", m => (m.HeadParts.Count, m.FormLists.Count)));
     }
 
     // the record at depth 33 refuses the copy at the cap, naming 32 and that record, writing nothing
@@ -167,8 +169,7 @@ public sealed class CopyEndToEndTests
         Assert.EndsWith("(OrdA)", rows[3].Via);   // OrdB links OrdA2 too, after OrdA did
         Assert.StartsWith($"CLONED {FormIdToken.Of(w.OrderList)} -> 000806:OrderPatch.esp", text);
 
-        var written = CopyServiceWorld.ReadBack(
-            Directory.EnumerateFiles(w.ModsDir, "OrderPatch.esp", SearchOption.AllDirectories).Single(),
+        var written = w.Patch("OrderPatch",
             m => m.EnumerateMajorRecords().Select(r => (Eid: r.EditorID!, To: FormIdToken.Of(r.FormKey))).ToList());
         // exactly the answer's rows and the clone, under its new EditorID: no record the answer does not list
         Assert.Equal(rows.Select(r => (r.Eid, r.To)).Append(("OrderPatch", "000806:OrderPatch.esp")).Order(),

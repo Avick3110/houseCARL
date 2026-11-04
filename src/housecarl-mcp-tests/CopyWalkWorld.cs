@@ -125,6 +125,10 @@ public sealed class CopyWalkWorld : IDisposable
     public string Clone(FormKey from, string stem)
         => CopyTools.Copy(Svc, FormIdToken.Of(from), new[] { "Walk.esp" }, new[] { "Items" }, null, null, stem, stem);
 
+    /// <summary>Opens the patch a copy wrote as <c>&lt;stem&gt;.esp</c>, wherever under mods it landed, and reads it.</summary>
+    public T Patch<T>(string stem, Func<ISkyrimModGetter, T> read) => CopyServiceWorld.ReadBack(
+        Directory.EnumerateFiles(ModsDir, stem + ".esp", SearchOption.AllDirectories).Single(), read);
+
     void Write(SkyrimMod mod, string folder)
     {
         var dir = Path.Combine(ModsDir, folder);
