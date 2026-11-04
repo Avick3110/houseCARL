@@ -219,6 +219,32 @@ public sealed class CallContextTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ASplitAfterAWriteCommittedNamesTheFilesWritten(bool pluginChangedToo)
+    {
+        Call(() => Host.CaptureAssets());                       // warm both sides on Default
+        var written = Path.Combine(_mo2.ModsDir, "CcOut", "HcCcOut.esp");
+        var offOrder = Path.Combine(_mo2.ModsDir, "CcBase", "hc_cc.txt");
+        var answer = Answer(() =>
+        {
+            _svc.CapturePin();
+            HousecarlCore.MidCallChange.AfterCommit(written);
+            if (pluginChangedToo)
+            {
+                HousecarlCore.MidCallChange.Open(offOrder, () => 0);
+                File.WriteAllText(offOrder, "changed after the commit");
+                try { HousecarlCore.MidCallChange.Open(offOrder, () => 0); } catch (HousecarlCore.LoadOrderChangedMidCallException) { }
+            }
+            SelectOther();
+            try { Host.CaptureAssets(); } catch (LoadOrderMovedMidCallException) { }
+        });
+        Assert.StartsWith(Wire.RefusalPrefix + "the load order changed while this call was running", answer);
+        Assert.Contains("after houseCARL had written HcCcOut.esp", answer);
+        Assert.DoesNotContain("nothing was answered or written", answer);
+    }
+
+    [Theory]
     [InlineData("switch")]
     [InlineData("plugin")]
     public void AProfileChangeBetweenTheFirstFileReadAndTheRecordPinRefusesTheCall(string kind)

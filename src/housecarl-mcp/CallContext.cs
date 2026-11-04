@@ -1,4 +1,5 @@
 // The per-call context: one load-order view per tool call; contract in docs/architecture/load-order-service.md.
+using HousecarlCore;
 namespace HousecarlMcp;
 
 /// <summary>One tool call's view of the load order, opened by <see cref="ToolCall"/>: the record pin, whose view carries
@@ -50,16 +51,23 @@ internal sealed class CallContext
     /// <summary>Hold the file view for the rest of the call; the first view taken sets the build.</summary>
     internal void HoldFiles(FileView files, Mo2Roots roots, LoadOrderResolver? order) { Files = files; Build ??= (roots, order); }
 
-    /// <summary>The call's refusal once its record view and file view were found to describe two profiles, else null.</summary>
-    internal string? Refusal { get; private set; }
+    /// <summary>True once the call's two views were found to describe two builds.</summary>
+    bool _split;
 
     /// <summary>Refuse the whole call, even where a lane folds the throw into a row.</summary>
-    internal Exception Refuse() { Refusal = MovedBetweenViews; return new LoadOrderMovedMidCallException(); }
+    internal Exception Refuse() { _split = true; return new LoadOrderMovedMidCallException(); }
 
-    /// <summary>The refusal when the roots or the order moved between the call's two views.</summary>
-    internal const string MovedBetweenViews =
+    /// <summary>The call's refusal once its views split, naming what it wrote if a write committed first; else null.</summary>
+    internal string? Refusal(MidCallChange.Scope mark) => !_split ? null : mark.AfterWrites(Moved) ?? MovedBetweenViews;
+
+    /// <summary>What moved when the roots or the order moved between the call's two views.</summary>
+    const string Moved =
         "the load order changed while this call was running (the MO2 profile, or the plugins it enables, changed between " +
-        "reading its records and reading its files) — the response would describe two builds; nothing was answered or written. Retry the call.";
+        "reading its records and reading its files)";
+
+    /// <summary>The refusal when the views split before anything was written.</summary>
+    internal const string MovedBetweenViews =
+        Moved + " — the response would describe two builds; nothing was answered or written. Retry the call.";
 }
 
 /// <summary>The load order moved between a call's record view and its file view, so the call refuses whole.</summary>
