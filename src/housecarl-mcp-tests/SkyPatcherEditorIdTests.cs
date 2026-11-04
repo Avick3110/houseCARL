@@ -57,6 +57,18 @@ public sealed class SkyPatcherEditorIdTests
         Assert.DoesNotContain("powerofthree", with.Text);
     }
 
+    // a po3_Tweaks.ini that turns bLoadEditorIDs off hides the armor EditorID as a missing DLL does, and the warning names the key
+    [Fact]
+    public void ATweaksIniWithEditorIdsOffHidesTheArmorEditorId()
+    {
+        using var w = new SkyPatcherRelevanceWorld(Inis);
+        File.WriteAllText(Path.Combine(w.Root, "instance", "mods", "HcSpRelIni", "SKSE", "Plugins", "po3_Tweaks.ini"),
+            "[Fixes]\r\nbLoadEditorIDs = false\r\n");
+        var heel = Post(w, w.Heel);
+        Assert.Contains("Keywords = [list: 1 item(s)]", heel);
+        Assert.Contains("EditorID 'HcHeelBoots' (in a filterByArmors) finds nothing: powerofthree's Tweaks has [Fixes] bLoadEditorIDs=false", heel);
+    }
+
     // an unreadable po3_Tweaks.ini beside the DLL is replayed as the DLL's default, and the read says the state is unknown, not that the name finds nothing
     [Fact]
     public void AnUnreadableTweaksIniResolvesEditorIdsAndSaysTheStateIsUnknown()
