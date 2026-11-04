@@ -104,7 +104,7 @@ static class SkyPatcherWire
         {
             if (filter is { } sel && !f.Files.Any(x => Matches(sel, f, x))) continue;
             if (listCut) { sb.Append(folderCut); break; }
-            var head = FolderHead(f, filter);
+            var head = FolderHead(f, filter, d.Scan.PatcherSwitches);
             if (sb.Length + head.Length > listRoom) { sb.Append(folderCut); break; }
             sb.Append(head);
             foreach (var file in f.Files)
@@ -195,7 +195,7 @@ static class SkyPatcherWire
         "  ... [" + missed.Count + " section(s) omitted at max_chars=" + cap + " (" + string.Join(", ", missed) + "); raise max_chars to see them]\n";
 
     /// <summary>A type folder's heading line, with its counts and flags.</summary>
-    static string FolderHead(SkyPatcherDiscovery.FolderScan f, string? filter)
+    static string FolderHead(SkyPatcherDiscovery.FolderScan f, string? filter, SkyPatcherDiscovery.Switches switches)
     {
         int fLines = f.Files.Sum(x => x.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch));
         int fMatched = filter is { } fq ? f.Files.Count(x => Matches(fq, f, x)) : f.Files.Count;
@@ -203,7 +203,7 @@ static class SkyPatcherWire
         sb.Append("\n").Append(f.Subfolder).Append(": ").Append(f.Files.Count).Append(" INI(s)");
         if (fMatched != f.Files.Count) sb.Append(" (").Append(fMatched).Append(" matching, expanded)");   // the header must describe the listing under it
         sb.Append(", ").Append(fLines).Append(" patch line(s)");
-        if (!f.PatchingEnabled) sb.Append("  [!] toggled OFF in SkyPatcher.ini — the DLL skips this whole folder");
+        if (!f.PatchingEnabled) sb.Append("  [!] SkyPatcher.ini ").Append(SkyPatcherDiscovery.SwitchOffReason(switches, f.Subfolder)).Append(" — the DLL skips this whole folder");
         if (f.SwitchUnknown) sb.Append("  [!] SkyPatcher.ini could not be read — whether the DLL runs this patcher is unknown; its lines are replayed as if it does");
         if (f.Catalog is null) sb.Append("  [!] not a documented SkyPatcher record type — content listed, not interpreted");
         return sb.Append('\n').ToString();
