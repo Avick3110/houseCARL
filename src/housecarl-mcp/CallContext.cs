@@ -4,7 +4,7 @@ namespace HousecarlMcp;
 
 /// <summary>One tool call's view of the load order, opened by <see cref="ToolCall"/>: the record pin, whose view carries
 /// the epoch, taken at the call's first record read; the file view, taken only at its first file read; and the roots and
-/// order the first of the two was taken against. The service's getters fill and serve it under their own lock; outside a
+/// order the latest record pin was taken against, else the file view's. The service's getters fill and serve it under their own lock; outside a
 /// call there is none and every getter refreshes.</summary>
 internal sealed class CallContext
 {
@@ -16,7 +16,7 @@ internal sealed class CallContext
     /// <summary>The call's file view; null until its first file read, so a records-only call never builds one.</summary>
     internal FileView? Files { get; private set; }
 
-    /// <summary>The roots and order the call's views were taken against; the order is null when files came first, before any index.</summary>
+    /// <summary>The roots and order the latest record pin was taken against, else the file view's, whose order is null before any index.</summary>
     internal (Mo2Roots Roots, LoadOrderResolver? Order)? Build { get; private set; }
 
     /// <summary>The call's roots, once it holds a view.</summary>
