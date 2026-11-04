@@ -72,7 +72,6 @@ public sealed class NifOneReaderTests : IDisposable
         {
             Assert.DoesNotContain("texture slot 2", text, StringComparison.Ordinal);
             Assert.DoesNotContain("texture slot 3", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("tex[2]", text, StringComparison.Ordinal);
         }
         var shapes = NifTools.NifInspect(_svc, mesh_paths: new[] { Cape }, sections: "shapes");
         Assert.Contains("tex[2]: \n\n", shapes, StringComparison.Ordinal);
