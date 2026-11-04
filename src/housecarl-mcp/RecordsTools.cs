@@ -437,7 +437,7 @@ public static partial class RecordsTools
         // The scan terms this call passed, as a sentence spells them; any one makes the call a scan.
         string[] scanTerms = new[] { (types is { Length: > 0 }, "types="), (plugins?.names is { Length: > 0 }, "plugins="),
                                      (where is { Length: > 0 }, "where="), (references is { Length: > 0 }, "references="),
-                                     (conflicts_only, "conflicts_only") }.Where(t => t.Item1).Select(t => t.Item2).ToArray();
+                                     (conflicts_only, "conflicts_only=true") }.Where(t => t.Item1).Select(t => t.Item2).ToArray();
         bool hasScan = scanTerms.Length > 0;
         if (!hasFormids && !hasScan)
             return Wire.Refuse(json, "error: select something — formids= (a record list), or a scan scope: types=, plugins=, conflicts_only=true, where=, references=.");
