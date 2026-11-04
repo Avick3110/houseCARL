@@ -14,7 +14,8 @@ Shared mechanics → `grammar-core.md`.
 
 - `formsToAdd=<form,…>` — add entries.
 - `formsToRemove=<form,…>` — remove entries.
-- `formsToReplace=<formA=formB>` — replace in place. **FormID only.** (The docs write the pair
+- `formsToReplace=<formA=formB>` — replace in place. Takes `Plugin|FormID` or EditorID (an
+  EditorID needs po3 Tweaks for most record types; see `grammar-core.md`). (The docs write the pair
   with `=`; Leveled List uses `~` for the same op — verify empirically if unsure.)
 - `clear=true` — remove all forms.
 

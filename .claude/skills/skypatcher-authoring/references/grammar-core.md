@@ -246,7 +246,7 @@ Per-record files list each type's actual operations; these are the recurring *sh
 | Op | Shape | Meaning |
 |---|---|---|
 | `formsToAdd` / `formsToRemove` | `form, form` | Add/remove entries (FormList, Outfit). |
-| `formsToReplace` | `formA~formB` *(FormID only)* | Replace in place. |
+| `formsToReplace` | `formA=formB` (FormList, Outfit: `Plugin\|FormID` or EditorID) · `formA~formB` (Leveled List, FormID only) | Replace in place. |
 | `addToX` / `addOnceToX` | `obj~count` (containers) · `obj~level~count` (LLs) · `item~count` (cobj) | Add (the `Once` form skips if already present). |
 | `removeFromX` | `obj` (+ optional `~level~count`, operators `<,>,<=,>=`) | Remove matching entries. |
 | `removeFromXByCount` | `obj~count` | Remove a specific count. |
