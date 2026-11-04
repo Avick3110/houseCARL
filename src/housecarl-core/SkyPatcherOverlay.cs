@@ -537,7 +537,7 @@ public static class SkyPatcherOverlay
         {
             case SkyPatcherFilterEval.FormEquals:
             {
-                // Single-valued form field against a value list: any-of, with no early break so every unresolvable token still warns once. A token that resolves to nothing drops out; a finder whose tokens all miss finds nothing, and its warnings decide that.
+                // Single-valued form field against a value list: any-of, every unresolvable token warning once; the missing-token rule is FormSetVerdict's (docs/architecture/skypatcher-layer.md).
                 var current = spec.Paths.Select(p => TryLeafToken(record, p)).Where(t => t is not null).ToList();
                 bool matched = false;
                 int resolved = 0;
@@ -549,9 +549,10 @@ public static class SkyPatcherOverlay
                     resolved++;
                     matched |= current.Any(t => string.Equals(t, k.Value.ToString(), StringComparison.OrdinalIgnoreCase));
                 }
-                bool decides = finder && !excluded && resolved == 0;
+                bool allMissed = resolved == 0 && missing.Count > 0;
                 foreach (var v in missing)
-                    warn.Add($"fe:{cls.Filter!.Name}:{v.Raw}", UnresolvedText(tokens!, v, seg, resolver), decides);
+                    warn.Add($"fe:{cls.Filter!.Name}:{v.Raw}", UnresolvedText(tokens!, v, seg, resolver), finder && !excluded && allMissed && conn == "");
+                if (!finder && allMissed) return FilterVerdict.Match;
                 return (excluded ? !matched : matched) ? FilterVerdict.Match : FilterVerdict.NoMatch;
             }
             case SkyPatcherFilterEval.FormInList:
