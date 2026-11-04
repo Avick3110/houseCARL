@@ -195,7 +195,7 @@ EditorIDs`) off. When it is missing, an EditorID value of any other type resolve
 record's own EditorID matches no direct-list name or `filterByEditorIdContains`, and the warning
 names po3 Tweaks. Every op miss words it the same way: an EditorID value or entry key of a typed op is
 not applied and its warning names po3 Tweaks, and an op with a donor type (npc `skin`) names the donor
-type too. An op with no form type (the outfit and form-list item ops, `formsToReplace` among them) never
+type too. An op with no form type (the leveled item and leveled NPC entry ops, and the outfit and form-list item ops, `formsToReplace` among them) never
 resolves an EditorID, Tweaks or not (#1334), so its miss does not name Tweaks. The ten kept types answer as before. A `po3_Tweaks.ini` that cannot be read is
 replayed as the DLL's default (EditorIDs load), and the read and the layer say the state is unknown.
 
