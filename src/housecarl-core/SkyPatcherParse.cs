@@ -21,7 +21,11 @@ public static class SkyPatcherParse
         if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Label, Array.Empty<SkyPatcherSegment>(), null);
 
+        // Since 8.0.1 a comment may follow a rule: the text from the first ';' outside a ~name~ literal is dropped.
+        trimmed = StripTrailingComment(trimmed);
+
         var segments = new List<SkyPatcherSegment>();
+        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? note = null;
 
         foreach (var rawSeg in trimmed.Split(':'))
@@ -50,10 +54,32 @@ public static class SkyPatcherParse
                 continue;
             }
 
+            // SkyPatcher ignores a second copy of a key on one line.
+            if (!keys.Add(key))
+            {
+                note = Append(note, $"key '{key}' appears twice; SkyPatcher ignores the second copy ('{seg}')");
+                continue;
+            }
             segments.Add(new SkyPatcherSegment(key, rawValue, ParseValueList(rawValue, ref note)));
         }
 
         return new SkyPatcherLine(raw, SkyPatcherLineKind.Patch, segments, note);
+    }
+
+    /// <summary>The line up to its first ';' that is not inside a <c>=~…~</c> name literal, trimmed; a compound's '~' never opens one.</summary>
+    static string StripTrailingComment(string line)
+    {
+        bool inName = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            if (line[i] == '~')
+            {
+                if (inName) inName = false;
+                else if (line[..i].TrimEnd() is { Length: > 0 } before && before[^1] == '=') inName = true;
+            }
+            else if (line[i] == ';' && !inName) return line[..i].TrimEnd();
+        }
+        return line;
     }
 
     /// <summary>Parse a whole INI file's text into its lines (blank/comment/patch), in order.</summary>

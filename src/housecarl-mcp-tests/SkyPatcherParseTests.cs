@@ -205,4 +205,24 @@ public sealed class SkyPatcherParseTests
         Assert.Equal("5", l.Segments[0].RawValue);
         Assert.Equal("weight", l.Segments[1].Key);
     }
+
+    // 8.0.1: a comment after a rule is not part of the value; a ';' inside a ~name~ literal is not a comment
+    [Fact]
+    public void ATrailingCommentIsNotPartOfTheValue()
+    {
+        var l = SkyPatcherParse.ParseLine("filterByNpcs=Skyrim.esm|13BBF:level=10 ; Nazeem");
+        Assert.Equal("10", l.Segments[1].RawValue);
+        Assert.Null(l.Note);
+        Assert.Equal("~A; B~", SkyPatcherParse.ParseLine("fullName=~A; B~ ; renamed").Segments[0].RawValue);
+        Assert.Equal("X|800~20~5~0", SkyPatcherParse.ParseLine("mgefsToAdd=X|800~20~5~0 ; add one").Segments[0].RawValue);
+    }
+
+    // a duplicate key's second copy is ignored, and the note says so
+    [Fact]
+    public void ADuplicateKeysSecondCopyIsIgnored()
+    {
+        var l = SkyPatcherParse.ParseLine("weight=1:WEIGHT=2");
+        Assert.Equal("1", Assert.Single(l.Segments).RawValue);
+        Assert.Contains("appears twice", l.Note);
+    }
 }
