@@ -40,6 +40,7 @@ public sealed class CopyEndToEndTests
         var text = Copy(w, w.WideNpc, new[] { "Extra.esp" }, "MissFrom");
 
         Assert.Contains($"no source produced {FormIdToken.Of(w.WideNpc)} (reached via from)", text);
+        Assert.Contains("Consulted, in order: Extra.esp (MO2 mod folder \"ExtraMod\")", text);
         NothingWritten(w.Root, before);
     }
 
@@ -53,6 +54,7 @@ public sealed class CopyEndToEndTests
         var text = w.Clone(w.DanglingList, "MissWalk");
 
         Assert.Contains($"no source produced {FormIdToken.Of(w.Dangling)} (reached via FormList.Items)", text);
+        Assert.Contains("Consulted, in order: Walk.esp (MO2 mod folder \"WalkMod\")", text);
         NothingWritten(w.Root, before);
     }
 
