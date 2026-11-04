@@ -1044,13 +1044,16 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             EnsurePathsDerived();
             if (HeldPinLocked() is { } call) return call.Roots;
             GameLanguage.Bind(_text);
-            return RootsLocked();
+            return HeldBuildLocked()?.Roots ?? RootsLocked();
         }
     }
 
     /// <summary>The call's context once it holds a pin, or null outside a call, before its first record read, or inside
     /// the write gate, where every read is taken as it is outside a call. Caller holds <see cref="_gate"/>.</summary>
-    CallContext? HeldPinLocked() => CallContext.Open is { Pin: not null } call && !Monitor.IsEntered(_writeGate) ? call : null;
+    CallContext? HeldPinLocked() => HeldBuildLocked() is { Pin: not null } call ? call : null;
+
+    /// <summary>The call's context once it holds either view, else null as <see cref="HeldPinLocked"/>. Caller holds <see cref="_gate"/>.</summary>
+    CallContext? HeldBuildLocked() => CallContext.Open is { Build: not null } call && !Monitor.IsEntered(_writeGate) ? call : null;
 
     /// <summary>One <c>_gate</c> hold: the configured check, the roots and the built plugin names; throws the unconfigured prompt when there is no instance.</summary>
     internal OutputRoots ConfiguredRoots()
@@ -1061,7 +1064,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             EnsurePathsDerived();
             if (HeldPinLocked() is { } call) return new OutputRoots(call.Roots, call.Pin!.Resolver.PluginNames);
             GameLanguage.Bind(_text);
-            return new OutputRoots(RootsLocked(), _resolver?.PluginNames);
+            return new OutputRoots(HeldBuildLocked()?.Roots ?? RootsLocked(), _resolver?.PluginNames);
         }
     }
 
