@@ -158,7 +158,7 @@ public sealed class SkyPatcherDiscoveryTests : IDisposable
         Assert.DoesNotContain(scan.Notes, n => n.Contains("iEnable…Patching"));
     }
 
-    // an unreadable SkyPatcher.ini is said and every folder marked, never assumed either way
+    // an unreadable SkyPatcher.ini is said and every folder marked; its patchers are replayed as running
     [Fact]
     public void AnUnreadableSwitchFileIsSaidAndMarksEveryFolder()
     {

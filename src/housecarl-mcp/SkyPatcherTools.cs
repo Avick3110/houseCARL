@@ -16,7 +16,7 @@ public static class SkyPatcherTools
          "miss. Scans Data\\SKSE\\Plugins\\SkyPatcher as the DLL reads it: every loose file with '.ini' in its name per type folder in the DLL's " +
          "read order (the folder's own files, then each depth of subfolders, A to Z; folders in patcher order) (BSA-packed INIs are flagged as not applied), the mod that wins each file, same-path collisions " +
          "(the loser's content is never read; flagged), Plugin.esp.ini filename gates evaluated against the load " +
-         "order (a name ending in an upper-case '.INI', or naming a plugin with more text after it, is flagged as not read), and SkyPatcher.ini per-type switches (a missing switch is off, Light excepted). Then reports conflicts between INIs: two files setting the same " +
+         "order (a name ending in '.ini' spelt in any case but lower ('.INI', '.Ini'), or naming a plugin with more text after it, is flagged as not read), and SkyPatcher.ini per-type switches (a missing switch is off, Light excepted). Then reports conflicts between INIs: two files setting the same " +
          "field of the same record to different values (the later-read file wins; add and remove ops accumulate and " +
          "are not conflicts), and three ITM classes: dead writes (a later line of the same file unconditionally " +
          "re-covers every target of an earlier set, whatever the value; partial or conditional-only overwrites are not " +

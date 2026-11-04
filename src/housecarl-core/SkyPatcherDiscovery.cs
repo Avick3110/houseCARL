@@ -150,7 +150,7 @@ public static class SkyPatcherDiscovery
     /// <summary>Whether a file name is one SkyPatcher looks at: '.ini' anywhere in it.</summary>
     public static bool HasIniName(string fileName) => fileName.Contains(".ini", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Why SkyPatcher does not read a file of this name, or null when it does: a name ending in an upper-case '.INI', a gate that is not exactly a plugin name, or a gate plugin not in the active order.</summary>
+    /// <summary>Why SkyPatcher does not read a file of this name, or null when it does: a name ending in '.ini' spelt in any case but lower ('.INI', '.Ini'), a gate that is not exactly a plugin name, or a gate plugin not in the active order.</summary>
     public static string? NotReadReason(string fileName, Func<string, bool> pluginPresent)
     {
         if (fileName.EndsWith(".ini", StringComparison.OrdinalIgnoreCase) && !fileName.EndsWith(".ini", StringComparison.Ordinal))
@@ -215,7 +215,7 @@ public static class SkyPatcherDiscovery
             : !switches.Loose ? $"is not loose in this order, which leaves '{subfolder}' patching off"
             : $"has no iEnable…Patching key for '{subfolder}', which leaves that patcher off";
 
-    /// <summary>Read the winning loose SkyPatcher.ini's [Patcher] section; no loose copy means every key is missing, and an unreadable one is named, never assumed either way.</summary>
+    /// <summary>Read the winning loose SkyPatcher.ini's [Patcher] section; no loose copy means every key is missing, and an unreadable one is named, and <see cref="PatcherRuns"/> replays every patcher as running.</summary>
     static Switches ReadSwitches(AssetResolver.AssetView view, List<string> notes, bool noteMissing)
     {
         var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
