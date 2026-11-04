@@ -166,7 +166,11 @@ note says that. A walk or `to_file=` with the post state on a scan is refused, b
 every record reached (a walk would replay its whole reached set, not the window), as is `fields_source='winner'`, a
 second display pole. The pre state on a scan is the winner scan, said in its source statement, so it serves a walk
 and `to_file=`. A comparison form over a scan takes neither state: the post refusal names the replay, the pre one
-says pre is the winner and to pass `"winner"`.
+says pre is the winner and to pass `"winner"`. Each post refusal of a comparison, a walk or `to_file=` names the
+list-lane route that serves the same call, built from the call's own scan terms: a plain scan of those terms (keeping a
+named `source=`) with `to_file=`, then the call re-run with `formids=["@<file>"]` in their place; when `formids=` is
+already beside them, dropping them is the route. A tree's route carries the overlay on `versus=` with no `source=`,
+since the list lane refuses `source=` on a tree.
 
 ### Reports and drafts
 
