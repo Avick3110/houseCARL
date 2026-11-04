@@ -137,7 +137,7 @@ static class SkyPatcherWire
                 c => "  - [" + c.Subfolder + "] " + c.Field + " @ " + c.Target + ":\n",
                 c => c.Entries.Select((e, i) => "      " + Path.GetFileName(e.File) + ":" + e.Line + "  " + e.Op + "=" + e.Value
                     + (i == c.Entries.Count - 1 ? "   ← WINS (last in apply order)" : "")   // by index: value-equal entries must not both claim the win
-                    + (e.Conditional ? "   [conditional — the line carries further filters]" : "") + "\n")))
+                    + (e.Conditional ? "   [conditional — a gate, finder or narrower on the line decides whether it reaches this target]" : "") + "\n")))
             missed.Add(ReportNames[0]);
 
         if (deadWrites > 0 && !Section(sb, budget,
@@ -157,7 +157,7 @@ static class SkyPatcherWire
                 d.Duplicates, "",
                 c => "  - [" + c.Subfolder + "] " + c.Field + " @ " + c.Target + ":\n",
                 c => c.Entries.Select(e => "      " + Path.GetFileName(e.File) + ":" + e.Line + "  " + e.Op + "=" + e.Value
-                    + (e.Conditional ? "   [conditional — the line carries further filters]" : "") + "\n")))
+                    + (e.Conditional ? "   [conditional — a gate, finder or narrower on the line decides whether it reaches this target]" : "") + "\n")))
             missed.Add(ReportNames[2]);
 
         if (d.NoOps.Count > 0 && !Section(sb, budget,
