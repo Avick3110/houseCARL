@@ -65,6 +65,17 @@ public sealed class SkyPatcherReachTests
         Assert.Equal(new[] { 1, 2, 3 }, AppliedLines(r, "weight"));
     }
 
+    // a narrower with no static evaluation beside the direct list does not stop it: the listed NPC is patched
+    [Fact]
+    public void AnUnevaluableNarrowerDoesNotStopTheDirectList()
+    {
+        var n = NewMod().Npcs.AddNew();
+        n.EditorID = "HcDirectNpc";
+        var r = Apply(n, n.FormKey, n.EditorID, "npc", "Npc", new StubResolver(),
+            L(1, $"filterByNpcs={Sp(n.FormKey)}:restrictToSkill=onehanded~20~60:weight=5"));
+        Assert.Equal(new[] { 1 }, AppliedLines(r, "weight"));
+    }
+
     // filterByModNames is case-exact
     [Fact]
     public void ModNamesAreCaseExact()
