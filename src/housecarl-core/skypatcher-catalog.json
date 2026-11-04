@@ -3746,7 +3746,7 @@
     "shape": "collection",
     "tractability": "COLLECTION",
     "stateful": false,
-    "note": "FormID-only; pair written formA=formB"
+    "note": "Plugin|FormID or EditorID; pair written formA=formB"
    },
    {
     "name": "clear",
@@ -3802,7 +3802,7 @@
     "shape": "collection",
     "tractability": "COLLECTION",
     "stateful": false,
-    "note": "FormID-only; pair written formA=formB"
+    "note": "Plugin|FormID or EditorID; pair written formA=formB"
    },
    {
     "name": "clear",
