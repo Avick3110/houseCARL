@@ -363,6 +363,8 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
                 "drop types= and where= (formids= beside them makes this call a scan), with the overlay on versus= and no source=");
         Served(RecordsTools.Records(Svc, formids: w0, source: draft, versus: Je("\"winner\""), project: Form("delta")),
                "HcRecW0", "BasicStats.Damage=123 (HcRecOverride.esp 99)");
+        Served(RecordsTools.Records(Svc, formids: w0, versus: draft, project: Form("tree")),
+               "HcRecW0", "HcRecMid.esp: BasicStats.Damage=50 (HcRecOverride.esp 123)");
     }
 
     /// <summary>to_file= with the post overlay on a scan: the route writes the plain scan, then re-runs the call,
