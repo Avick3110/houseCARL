@@ -65,7 +65,7 @@ static class SkyPatcherWire
         int appliedLines = folders.Sum(f => f.PatchingEnabled
             ? f.Files.Where(x => x.NotApplied is null).Sum(x => x.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch)) : 0);
 
-        sb.Append("SkyPatcher layer — profile '").Append(d.ProfileName).Append("' — ")
+        sb.Append("SkyPatcher layer (SkyPatcher ").Append(SkyPatcherCatalog.Load().Version).Append(" model) — profile '").Append(d.ProfileName).Append("' — ")
           .Append(folders.Count).Append(" type folder(s), ").Append(files).Append(" INI(s) (")
           .Append(applied).Append(" applied), ").Append(lines).Append(" patch line(s)");
         if (appliedLines != lines) sb.Append(" (").Append(appliedLines).Append(" in applied files)");   // a gated file's lines must not read as live
@@ -204,6 +204,7 @@ static class SkyPatcherWire
         if (fMatched != f.Files.Count) sb.Append(" (").Append(fMatched).Append(" matching, expanded)");   // the header must describe the listing under it
         sb.Append(", ").Append(fLines).Append(" patch line(s)");
         if (!f.PatchingEnabled) sb.Append("  [!] toggled OFF in SkyPatcher.ini — the DLL skips this whole folder");
+        if (f.SwitchUnknown) sb.Append("  [!] SkyPatcher.ini could not be read — whether the DLL runs this patcher is unknown; its lines are replayed as if it does");
         if (f.Catalog is null) sb.Append("  [!] not a documented SkyPatcher record type — content listed, not interpreted");
         return sb.Append('\n').ToString();
     }

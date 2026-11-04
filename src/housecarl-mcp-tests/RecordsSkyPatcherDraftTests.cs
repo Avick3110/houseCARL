@@ -34,14 +34,14 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void ADraftThatSetsALeafIsReadInThePostState()
     {
-        var ini = Draft("draft-set", "MyWeapons.ini", "filterByWeapons=HcRecW0:attackDamage=123\r\n");
+        var ini = Draft("draft-set", "MyWeapons.ini", $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=123\r\n");
         Served(ReadW0(DraftPole(ini, "weapon")), "BasicStats.Damage = 123", ini);
     }
 
     [Fact]
     public void TheSubfolderIsTakenFromTheDraftsParentDirectoryAndTheArmSaysSo()
     {
-        var ini = Draft("weapon", "Inferred.ini", "filterByWeapons=HcRecW0:attackDamage=77\r\n");
+        var ini = Draft("weapon", "Inferred.ini", $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=77\r\n");
         Served(ReadW0(DraftPole(ini)), "BasicStats.Damage = 77", "parent directory");
     }
 
@@ -50,7 +50,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void TheDraftsPostVersusThePlainPostIsTheDraftsOwnEffect()
     {
-        var ini = Draft("draft-delta", "Delta.ini", "filterByWeapons=HcRecW0:attackDamage=140\r\n");
+        var ini = Draft("draft-delta", "Delta.ini", $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=140\r\n");
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, source: DraftPole(ini, "weapon"),
                                      versus: Overlay("post"), project: DamageDelta);
         Served(r, "BasicStats.Damage", "140", "1 difference");
@@ -59,7 +59,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void ADraftLineWithAnUnknownKeyWarnsAndNamesTheDraftsPath()
     {
-        var ini = Draft("draft-typo", "Typo.ini", "filterByWeapons=HcRecW0:attakDamage=5\r\n");
+        var ini = Draft("draft-typo", "Typo.ini", $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attakDamage=5\r\n");
         Served(ReadW0(DraftPole(ini, "weapon")), ini, "not in the SkyPatcher reference");
     }
 
@@ -70,7 +70,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     public void AFilterTheLayerCannotEvaluateWarnsWithTheDraftsPathAndLine()
     {
         var ini = Draft("draft-filter", "Unmapped.ini",
-                        "filterByWeapons=HcRecW0:filterByHasAmmoFromWeaponList=x:attackDamage=9\r\n");
+                        "filterByHasAmmoFromWeaponList=x:attackDamage=9\r\n");
         Served(ReadW0(DraftPole(ini, "weapon")), ini + ":1: filter 'filterByHasAmmoFromWeaponList'");
     }
 
@@ -79,7 +79,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void ADraftGatedOnAnInactivePluginIsNotAppliedAndSaysSo()
     {
-        var ini = Draft("draft-gate", "NotHere.esp.ini", "filterByWeapons=HcRecW0:attackDamage=131\r\n");
+        var ini = Draft("draft-gate", "NotHere.esp.ini", $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=131\r\n");
         var r = ReadW0(DraftPole(ini, "weapon"));
         Served(r, "not in the active load order");
         Assert.DoesNotContain("BasicStats.Damage = 131", r);
@@ -90,7 +90,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void ADraftLineTheLayerSkipsIsNamedOnTheTreeFormToo()
     {
-        var ini = Draft("draft-tree", "TreeTypo.ini", "filterByWeapons=HcRecW0:attakDamage=5\r\n");
+        var ini = Draft("draft-tree", "TreeTypo.ini", $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attakDamage=5\r\n");
         Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, versus: DraftPole(ini, "weapon"),
                                     project: DamageTree), ini, "not in the SkyPatcher reference");
     }
@@ -99,7 +99,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void ADraftGatedOnAnInactivePluginSaysSoOnTheTreeFormToo()
     {
-        var ini = Draft("draft-tree-gate", "AlsoNotHere.esp.ini", "filterByWeapons=HcRecW0:attackDamage=131\r\n");
+        var ini = Draft("draft-tree-gate", "AlsoNotHere.esp.ini", $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=131\r\n");
         Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, versus: DraftPole(ini, "weapon"),
                                     project: DamageTree), "not in the active load order");
     }
@@ -110,7 +110,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void ADraftInATypeToggledOffInSkyPatcherIniAppliesNothingAndSaysSo()
     {
-        var ini = Draft("draft-toggle", "Armors.ini", "filterByArmors=HcRecA0:damageResist=99\r\n");
+        var ini = Draft("draft-toggle", "Armors.ini", $"filterByArmors={RecordsWorld.Sp(W.Armor)}:damageResist=99\r\n");
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Armor) }, source: DraftPole(ini, "armor"),
                                      project: new() { form = "fields", fields = new[] { "ArmorRating" } });
         Served(r, "disables 'armor' patching");
@@ -120,21 +120,21 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void AnUndocumentedSubfolderIsRefusedNamingTheDocumentedFolders()
     {
-        var ini = Draft("draft-sub", "Bad.ini", "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        var ini = Draft("draft-sub", "Bad.ini", $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=1\r\n");
         Refused(ReadW0(DraftPole(ini, "weapons")), "weapons", "documented folders are");
     }
 
     [Fact]
     public void ASubfolderThatCannotBeInferredIsRefusedAskingForOne()
     {
-        var ini = Draft("draft-nofolder", "Loose.ini", "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        var ini = Draft("draft-nofolder", "Loose.ini", $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=1\r\n");
         Refused(ReadW0(DraftPole(ini)), "subfolder");
     }
 
     [Fact]
     public void TheDraftIsRefusedOnThePreState()
     {
-        var ini = Draft("draft-pre", "Pre.ini", "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        var ini = Draft("draft-pre", "Pre.ini", $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=1\r\n");
         Refused(ReadW0(DraftPole(ini, "weapon", state: "pre")), "\"post\"");
     }
 
@@ -143,7 +143,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void ADraftWhoseFilenameIsAlreadyPlacedIsRefused()
     {
-        var ini = Draft("draft-clash", RecordsWorld.LiveSkyPatcherIni, "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        var ini = Draft("draft-clash", RecordsWorld.LiveSkyPatcherIni, $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=1\r\n");
         Refused(ReadW0(DraftPole(ini, "weapon")), RecordsWorld.LiveSkyPatcherIni, "shadow", "not yet placed");
     }
 
@@ -158,7 +158,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void ADraftTheFoldRefusesRefusesTheDeltaCall()
     {
-        var ini = Draft("draft-delta-clash", RecordsWorld.LiveSkyPatcherIni, "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        var ini = Draft("draft-delta-clash", RecordsWorld.LiveSkyPatcherIni, $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=1\r\n");
         Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, source: DraftPole(ini, "weapon"),
                                      versus: Overlay("post"), project: DamageDelta, counts_only: true),
                 RecordsWorld.LiveSkyPatcherIni);
@@ -168,7 +168,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void ADraftTheFoldRefusesRefusesTheTreeCall()
     {
-        var ini = Draft("draft-tree-clash", RecordsWorld.LiveSkyPatcherIni, "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        var ini = Draft("draft-tree-clash", RecordsWorld.LiveSkyPatcherIni, $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=1\r\n");
         Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, versus: DraftPole(ini, "weapon"),
                                      project: DamageTree, counts_only: true),
                 RecordsWorld.LiveSkyPatcherIni);
@@ -179,7 +179,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     [Fact]
     public void TheDraftKeysOnAPluginPoleAreRefusedNamingTheOverlayPole()
     {
-        var ini = Draft("draft-wrong-pole", "Mixed.ini", "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        var ini = Draft("draft-wrong-pole", "Mixed.ini", $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=1\r\n");
         Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) },
                                      source: Je("{\"file\": \"" + W.OverrideName + "\", \"ini\": " + JsonSerializer.Serialize(ini) + "}"),
                                      project: Damage), "overlay");

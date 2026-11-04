@@ -29,6 +29,7 @@ public sealed class SkyPatcherLayerPinTests : IDisposable
         var mods = Path.Combine(instance, "mods");
         var data = Path.Combine(_root, "game", "Data");
         var iniDir = Path.Combine(mods, IniMod, "SKSE", "Plugins", "SkyPatcher", "weapon");
+        SkyPatcherSwitchesFile.Write(Path.Combine(mods, IniMod));
         foreach (var d in new[] { _profileDir, data, Path.Combine(mods, PluginMod), iniDir })
             Directory.CreateDirectory(d);
 

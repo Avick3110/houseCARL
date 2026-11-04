@@ -132,6 +132,7 @@ sealed class BlockedModWorld : IDisposable
 
         // A readable mod provides each layer too, so no lane answers "nothing here" instead of scanning.
         Write(assetMod, @"SKSE\Plugins\readable.ini", "[General]\r\n");
+        SkyPatcherSwitchesFile.Write(assetMod);
         Write(assetMod, @"SKSE\Plugins\SkyPatcher\npc\readable.ini", "filterByNpcs=HcRootOne.esm|000800:health=10\r\n");
         Write(assetMod, @"Scripts\readable.pex", "not a real pex");
         Write(assetMod, @"meshes\hcblocked\other.nif", "x");
