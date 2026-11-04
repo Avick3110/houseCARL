@@ -113,6 +113,14 @@ public sealed class NifOneReaderTests : IDisposable
         Assert.DoesNotMatch(@"texture slot \d+ \(", fo4);
     }
 
+    /// <summary>A links= line carries no slot name: the whole texture line, pinned.</summary>
+    [Fact]
+    public void ALinksTextureLineIsTheSiteTheStringAndTheStanding()
+    {
+        Assert.Contains("\n    texture — shape 'Body' texture slot 0: `" + Diffuse + "`\n      data path: " + Diffuse + "  WINS: \"Top\" (loose)\n",
+                        Links(Cape), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void AHiddenLinkPrintsTheSameAbsentSentenceOnBothSurfaces()
     {
