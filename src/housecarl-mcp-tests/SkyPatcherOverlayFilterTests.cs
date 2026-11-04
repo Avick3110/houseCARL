@@ -34,6 +34,28 @@ public sealed class SkyPatcherOverlayFilterTests
     [Fact] // flagAnyOf: boundweapon flag matched (weight=3)
     public void AFlagAnyOfFilterMatchesIgnoringCase() => Assert.Equal(3f, Bow().BasicStats!.Weight, 3);
 
+    [Fact] // formEquals keeps the keyword filters' missing-token rule: a narrower whose tokens all miss removes nothing, an Or finder's misses do not decide, a bare finder's still do (unchanged)
+    public void AFormEqualsFiltersMissingTokensFollowTheOneRule()
+    {
+        var n = NewMod().Npcs.AddNew();
+        n.EditorID = "HcMissNpc";
+        n.Configuration.Flags |= NpcConfiguration.Flag.Female;
+        n.Race.SetTo(new FormKey(new ModKey("HcRace", ModType.Plugin), 0xC01));
+        var npc = Apply(n, n.FormKey, n.EditorID, "npc", "Npc", new StubResolver(),
+            L(1, "filterByGender=female:restrictToRaces=HcNoSuchRace:height=2"),
+            L(2, "filterByRaces=HcNoSuchRace:weight=9"));
+        Assert.Equal(2f, n.Height, 3);
+        Assert.NotEqual(9f, n.Weight, 3);
+        Assert.Contains(npc.Warnings, w => w.Contains("f.ini:2") && w.Contains("HcNoSuchRace"));
+
+        var w = NewMod().Weapons.AddNew();
+        w.EditorID = "HcMissBow";
+        var weapon = Apply(w, w.FormKey, w.EditorID, "weapon", "Weapon", new StubResolver(),
+            L(1, "filterByFirstPersonModelOr=HcNoSuchStatic:attackDamage=9"));
+        Assert.DoesNotContain(weapon.Warnings, x => x.Contains("HcNoSuchStatic"));
+        Assert.Contains(("f.ini", 1), weapon.NoteLines);
+    }
+
     static IEnumerable<int> AppliedLines(SkyPatcherOverlay.SkyPatcherOverlayResult r, string op)
         => r.Applied.Where(a => a.Op == op).Select(a => a.LineNumber);
 
