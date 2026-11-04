@@ -170,7 +170,10 @@ says pre is the winner and to pass `"winner"`. Each post refusal of a comparison
 list-lane route that serves the same call, built from the call's own scan terms: a plain scan of those terms (keeping a
 named `source=`) with `to_file=`, then the call re-run with `formids=["@<file>"]` in their place; when `formids=` is
 already beside them, dropping them is the route. A tree's route carries the overlay on `versus=` with no `source=`,
-since the list lane refuses `source=` on a tree.
+since the list lane refuses `source=` on a tree. `where_source=` rides with `where=`: the plain scan keeps it, so it
+matches what the refused call matched, and the re-run drops it with `where=`. A fault of the call's own answers ahead
+of the route, whose plain scan would meet it: `fields_source='winner'` (the two display poles), a `where=` nothing
+bounds, and an off-order `source=`'s own refusals (`conflicts_only=`, `where_source=`).
 
 ### Reports and drafts
 
