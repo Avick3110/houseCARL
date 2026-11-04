@@ -272,7 +272,14 @@ hardened.
   over a scan in text, json and dense; `limit=1` opens one replay context and reads one body; `where=` drops a record
   its winner fails though the draft would pass it, and says so, as `references=` does; a count opens no replay and
   carries the note, as does an empty window; a walk, `to_file=` and `fields_source='winner'` with the post state are
-  refused and served with pre; a summary keeps `matches=` and is bounded.
+  refused and served with pre; a summary keeps `matches=` and is bounded. The route each post refusal names is run as
+  served in `OverlayScanDelta_NamesTheFileRouteAndItRuns`, `OverlayScanTree_NamesTheVersusRouteAndItRuns`,
+  `OverlayScanDeltaBesideFormids_NamesDroppingTheScanTermsAndThatRuns`, `OverlayScanToFile_NamesTheFileRouteAndItRuns`,
+  `OverlayScanDeltaWithWhereSource_NamesARouteThatKeepsItOnTheScanAndRuns`, `OverlayScanWalk_NamesTheFileRouteAndItRuns`
+  and `OffOrderScanDeltaVersusOverlay_NamesTheFileRouteOnTheSameSource`; the call's own fault answering ahead of it in
+  `OverlayScanWinnerFieldsToFile_NamesTheTwoDisplayPolesAndTheWinnerCallRuns`,
+  `OverlayScanDeltaOverWhereAlone_IsTheBoundRefusalNotARoute` and
+  `OffOrderConflictsOnlyVersusOverlay_IsTheOffOrderRefusalNotARoute`.
 - *Reports and drafts*: `SkyPatcherConflictsTests` — SET collisions with the later
   file winning, accumulating ops not conflicts, and the ITM classes.
 - *Reports and drafts*: `RecordsSkyPatcherDraftTests.ADraftThatSetsALeafIsReadInThePostState` — a draft is folded into
