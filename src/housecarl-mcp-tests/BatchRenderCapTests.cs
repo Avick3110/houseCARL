@@ -376,6 +376,33 @@ public class BatchRenderCapTests
         if (text.Contains("--- shapes (") || text.Contains("--- paths ("))
             Assert.Contains("slot names are NOT DERIVED", text);
     }
+
+    /// <summary>A paths section past its budget cuts at a link and counts the links it did not print, swept over caps
+    /// so a change in what the response reserves cannot move the cut out from under the test.</summary>
+    [Fact]
+    public void APathsSectionPastItsBudgetCountsTheLinksItHeldBack()
+    {
+        const int total = 60;
+        int cuts = 0;   // cuts after at least one link printed
+        for (int cap = 1_200; cap <= 6_000; cap += 50)
+        {
+            var text = RenderNif(WithLinks(MeshWithForeignShader(1), Links(total)), cap, "paths");
+            var m = System.Text.RegularExpressions.Regex.Match(text, @"\[(\d+) more omitted at max_chars=");
+            if (!m.Success) continue;
+            int shown = System.Text.RegularExpressions.Regex.Matches(text, "    texture — ").Count;
+            if (shown > 0) cuts++;
+            Assert.Equal(total - shown, int.Parse(m.Groups[1].Value));
+        }
+        Assert.True(cuts > 0, "no cap in the sweep cut the paths section at a link");
+    }
+
+    static ResolvedNifLink[] Links(int n) => Enumerable.Range(0, n)
+        .Select(i => new ResolvedNifLink(new NifLink($"shape 'S{i:D3}' texture slot 0", $@"textures\mod\t{i:D3}.dds",
+                                                     NifLinkKind.Texture, $@"textures\mod\t{i:D3}.dds", null), null))
+        .ToArray();
+
+    static NifInspectBatchData WithLinks(NifInspectBatchData b, IReadOnlyList<ResolvedNifLink> links)
+        => b with { Results = new[] { b.Results[0] with { Links = links } } };
     /// <summary>An item nothing can make room for is named wherever it falls in the list, not only when it is first:
     /// the cut marker's "raise max_chars to see all" sends the caller round a raise that cannot work, because the
     /// items before it grow into whatever they are given and the same item crosses again. Swept over caps rather than
