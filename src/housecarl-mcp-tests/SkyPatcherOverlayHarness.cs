@@ -31,9 +31,14 @@ static class SkyPatcherOverlayHarness
         public Dictionary<FormKey, IReadOnlyList<FormKey>> Keywords = new();
         public Dictionary<FormKey, string> Winners = new();
         public Dictionary<FormKey, string> Eids = new();
+        // why po3 Tweaks loads no EditorIDs, or null when it does; set, it hides the non-kept types as the replay's resolver does.
+        public string? TweaksMissing;
+
+        public string? EditorIdGap(string? mutagenType) => SkyPatcherEditorIds.Gap(TweaksMissing, mutagenType);
 
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
         {
+            if (EditorIdGap(mutagenType) is not null) return null;
             if (!EditorIds.TryGetValue(editorId, out var fk)) return null;
             if (EditorIdTypes.TryGetValue(editorId, out var t) && mutagenType is not null
                 && !t.Equals(mutagenType, StringComparison.OrdinalIgnoreCase))

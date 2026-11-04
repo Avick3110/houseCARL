@@ -990,7 +990,12 @@ public static class SkyPatcherOverlay
                 {
                     // A dot-less token can never be a valid .nif path, so an unresolvable donor fails LOUD rather than being written verbatim as a model path.
                     var donor = ResolveFormValue(v, map.FormType, resolver);
-                    if (donor is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — donor form not resolvable (and '{v.Raw}' is not a model path); skipped."); return; }
+                    if (donor is null)
+                    {
+                        warnings.Add(HiddenOpValue(where, seg.Key, v, map.FormType, resolver)
+                            ?? $"{where}: '{seg.Key}={v.Raw}' — donor form not resolvable (and '{v.Raw}' is not a model path); skipped.");
+                        return;
+                    }
                     pathToken = resolver.ReadWinnerLeaf(donor.Value, map.Path);
                     if (pathToken is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — donor {donor.Value}'s '{map.Path}' unreadable; skipped."); return; }
                     note = $"model path copied from donor {donor.Value}";
@@ -1049,7 +1054,12 @@ public static class SkyPatcherOverlay
                 foreach (var v in seg.Values)
                 {
                     var key = ResolveFormValue(v, map.FormType, resolver);
-                    if (key is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — form not resolvable ({FormHint(v, map)}); that item skipped."); continue; }
+                    if (key is null)
+                    {
+                        warnings.Add(HiddenOpValue(where, seg.Key, v, map.FormType, resolver)
+                            ?? $"{where}: '{seg.Key}={v.Raw}' — form not resolvable ({FormHint(v, map)}); that item skipped.");
+                        continue;
+                    }
                     var list = FormLinkList(record, segs) ?? throw new InvalidOperationException($"'{map.Path}' is not a formlink list");
                     bool present = list.Contains(key.Value);
                     string note;
@@ -1168,7 +1178,12 @@ public static class SkyPatcherOverlay
                 if (map.Semantic == SkyPatcherOpSemantic.TeachSpell)
                 {
                     var spell = ResolveFormValue(v, map.FormType, resolver);
-                    if (spell is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — spell not resolvable; skipped."); return; }
+                    if (spell is null)
+                    {
+                        warnings.Add(HiddenOpValue(where, seg.Key, v, map.FormType, resolver)
+                            ?? $"{where}: '{seg.Key}={v.Raw}' — spell not resolvable; skipped.");
+                        return;
+                    }
                     armType = "BookSpell";
                     armSet = new WriteRequest { RecordType = armType, Path = new[] { "Spell" }, Verb = "Set", Value = spell.Value.ToString() };
                 }
@@ -1250,13 +1265,15 @@ public static class SkyPatcherOverlay
             else
             {
                 // A value that fails as FormType but resolves as the op's donorType is a runtime donor-copy the static model does not cover — named honestly, never a thrown malformed-FormKey.
-                if (map.DonorType is { } dt && v.Address is not { IsFormId: true }
-                    && resolver.ResolveEditorId(v.Raw, dt) is not null)
+                bool byEid = v.Address is not { IsFormId: true };
+                if (map.DonorType is { } dt && byEid && resolver.ResolveEditorId(v.Raw, dt) is not null)
                     warnings.Add($"{where}: '{opKey}={v.Raw}' — '{v.Raw}' is a {dt}, not a {map.FormType}. " +
                         $"'{opKey}=<donor {dt}>' copies the donor's {map.Path} at runtime — a donor-copy houseCARL does not " +
                         $"statically model (like copyVisualStyle); the INI line is valid, but its post-state is NOT computed here.");
-                else if (v.Address is not { IsFormId: true } && resolver.EditorIdGap(map.FormType) is { } gap)
-                    warnings.Add($"{where}: '{opKey}={v.Raw}' — EditorID '{v.Raw}' finds nothing: {gap}; not applied.");
+                else if (map.DonorType is { } hiddenDonor && byEid && resolver.EditorIdGap(hiddenDonor) is { } donorGap)
+                    warnings.Add($"{where}: '{opKey}={v.Raw}' — EditorID '{v.Raw}' finds nothing (neither {map.FormType} nor donor {hiddenDonor}): {donorGap}; not applied.");
+                else if (HiddenOpValue(where, opKey, v, map.FormType, resolver) is { } hidden)
+                    warnings.Add(hidden);
                 else
                     warnings.Add($"{where}: '{opKey}={v.Raw}' — does not resolve to a {map.FormType} in the active order; " +
                         $"not applied (named gap, never a malformed-form guess).");
@@ -1299,7 +1316,12 @@ public static class SkyPatcherOverlay
                         if (f.Path == el.KeyPath || LooksLikeForm(raw))
                         {
                             var k = ResolveFormToken(raw, f.Path == el.KeyPath ? map.FormType : null, resolver);
-                            if (k is null && f.Path == el.KeyPath) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — entry form '{raw}' not resolvable; entry skipped."); bad = true; break; }
+                            if (k is null && f.Path == el.KeyPath)
+                            {
+                                warnings.Add(HiddenOpValue(where, seg.Key, v.Raw, raw, map.FormType, resolver)
+                                    ?? $"{where}: '{seg.Key}={v.Raw}' — entry form '{raw}' not resolvable; entry skipped.");
+                                bad = true; break;
+                            }
                             if (k is not null) { valueToken = k.Value.ToString(); if (f.Path == el.KeyPath) keyForm = k; }
                         }
                         sets.Add(new WriteRequest { RecordType = el.Type, Path = SplitPath(f.Path), Verb = "Set", Value = valueToken });
@@ -1328,7 +1350,12 @@ public static class SkyPatcherOverlay
                         continue;
                     }
                     var k = ResolveFormToken(args[0], map.FormType, resolver);
-                    if (k is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — form not resolvable; skipped."); continue; }
+                    if (k is null)
+                    {
+                        warnings.Add(HiddenOpValue(where, seg.Key, v.Raw, args[0], map.FormType, resolver)
+                            ?? $"{where}: '{seg.Key}={v.Raw}' — form not resolvable; skipped.");
+                        continue;
+                    }
                     int n = RemoveEntriesByKey(record, fieldMap.RecordType, segs, el, k.Value);
                     applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null,
                         n > 0 ? $"removed {n} entr(ies)" : "no matching entry — no change"));
@@ -1338,7 +1365,11 @@ public static class SkyPatcherOverlay
                 {
                     var k = ResolveFormToken(args[0], map.FormType, resolver);
                     if (k is null || args.Count < 2 || !int.TryParse(args[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var dec))
-                    { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — expected form~count; skipped."); continue; }
+                    {
+                        warnings.Add((k is null ? HiddenOpValue(where, seg.Key, v.Raw, args[0], map.FormType, resolver) : null)
+                            ?? $"{where}: '{seg.Key}={v.Raw}' — expected form~count; skipped.");
+                        continue;
+                    }
                     var countPath = el.CountPath ?? throw new InvalidOperationException($"'{seg.Key}' element has no countPath");
                     int touched = AdjustEntryCounts(record, fieldMap.RecordType, segs, el, k.Value, countPath, c => c - dec);
                     applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null,
@@ -1350,7 +1381,12 @@ public static class SkyPatcherOverlay
                     var (aTok, bTok) = SplitPair(v, map.EqPacked);
                     var a = aTok is null ? null : ResolveFormToken(aTok, map.FormType, resolver);
                     var b = bTok is null ? null : ResolveFormToken(bTok, map.FormType, resolver);
-                    if (a is null || b is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — expected formA{(map.EqPacked ? "=" : "~")}formB; skipped."); continue; }
+                    if (a is null || b is null)
+                    {
+                        warnings.Add(HiddenOpValue(where, seg.Key, v.Raw, a is null ? aTok : bTok, map.FormType, resolver)
+                            ?? $"{where}: '{seg.Key}={v.Raw}' — expected formA{(map.EqPacked ? "=" : "~")}formB; skipped.");
+                        continue;
+                    }
                     int n = RetargetEntriesByKey(record, segs, el, a.Value, b.Value);
                     applied.Add(new SkyPatcherAppliedOp(line.File, line.LineNumber, seg.Key, opName, v.Raw, map.Path, null, null,
                         n > 0 ? $"retargeted {n} entr(ies)" : "form A not present — no change"));
@@ -1365,7 +1401,11 @@ public static class SkyPatcherOverlay
                     {
                         scope = ResolveFormToken(args[0], map.FormType, resolver);
                         if (scope is null || !double.TryParse(args[1], NumberStyles.Float, CultureInfo.InvariantCulture, out mult))
-                        { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — expected form~mult or mult; skipped."); continue; }
+                        {
+                            warnings.Add((scope is null ? HiddenOpValue(where, seg.Key, v.Raw, args[0], map.FormType, resolver) : null)
+                                ?? $"{where}: '{seg.Key}={v.Raw}' — expected form~mult or mult; skipped.");
+                            continue;
+                        }
                     }
                     else if (!double.TryParse(args[0], NumberStyles.Float, CultureInfo.InvariantCulture, out mult))
                     { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — expected form~mult or mult; skipped."); continue; }
@@ -1386,8 +1426,13 @@ public static class SkyPatcherOverlay
                     else
                     {
                         var k = ResolveFormToken(args[0], map.FormType, resolver);
-                        if (k is null) { warnings.Add($"{where}: '{seg.Key}={v.Raw}' — form not resolvable; skipped."); continue; }
-                        idx = EntryIndicesByKey(record, segs, el, k.Value);
+                        if (k is null)
+                        {
+                            warnings.Add(HiddenOpValue(where, seg.Key, v.Raw, args[0], map.FormType, resolver)
+                                ?? $"{where}: '{seg.Key}={v.Raw}' — form not resolvable; skipped.");
+                            continue;
+                        }
+                        idx =EntryIndicesByKey(record, segs, el, k.Value);
                     }
                     var list = ListAt(record, segs);
                     var cSegs = SplitPath(countPath);
@@ -1487,6 +1532,16 @@ public static class SkyPatcherOverlay
 
     /// <summary>A sub-arg that IS the unambiguous <c>Plugin|FormID</c> form, via <see cref="SkyPatcherParse.TryParseAddress"/> rather than a '|' sniff.</summary>
     static bool LooksLikeForm(string raw) => SkyPatcherParse.TryParseAddress(raw) is { IsFormId: true };
+
+    /// <summary>The warning for an op's form token that missed because the EditorID gap hides its typed op's names, or null when the gap is not why; every op miss asks it first.</summary>
+    static string? HiddenOpValue(string where, string opKey, string raw, string? token, string? formType, IFormResolver resolver)
+        => token is null || formType is null || SkyPatcherParse.TryParseAddress(token) is { IsFormId: true }
+            || resolver.EditorIdGap(formType) is not { } gap
+            ? null
+            : $"{where}: '{opKey}={raw}' — EditorID '{token}' finds nothing: {gap}; not applied.";
+
+    static string? HiddenOpValue(string where, string opKey, SkyPatcherValue v, string? formType, IFormResolver resolver)
+        => v.IsNameLiteral || v.Address is { IsFormId: true } ? null : HiddenOpValue(where, opKey, v.Raw, v.Raw, formType, resolver);
 
     static string FormHint(SkyPatcherValue v, OpMap map)
         => v.Address is { IsFormId: true }
