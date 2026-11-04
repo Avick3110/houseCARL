@@ -78,8 +78,8 @@ the shim.
 
 ### The typed answer, and `isError`
 
-A tool body returns a `ToolAnswer`, never a string, and nothing converts a string into one: the body says
-which it is. `ToolAnswer.Served` is the call's answer. A refusal is `ToolAnswer.Refusal(json, message,
+A tool body returns a `ToolAnswer`, never a string, and nothing converts a string into one, so the compiler
+makes each return name its kind. It does not check the kind: `Served` takes any string, an "error: …" too. `ToolAnswer.Served` is the call's answer. A refusal is `ToolAnswer.Refusal(json, message,
 epoch)`, rendered by `Guard` per transport — text keeps the
 message as written, json is `{ok:false, error, epoch}` with the `error: ` prefix stripped, `epoch` the stamp
 or null — and `epochLine: true` also puts the stamp on the text, on its own line, for the lanes that did so

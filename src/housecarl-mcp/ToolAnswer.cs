@@ -3,7 +3,7 @@ namespace HousecarlMcp;
 
 /// <summary>What a tool body returns: an answer served or refused, which <see cref="Guard"/> renders once — the
 /// document as the call's text, a refusal as <c>isError</c>; contract in docs/architecture/tool-call-argument-shim.md.</summary>
-/// <remarks>No conversion from <see cref="string"/>: a body says which one it is, so a refusal cannot go out as a served answer.</remarks>
+/// <remarks>No conversion from <see cref="string"/>: each return names its kind; <see cref="Served"/> takes any string, so the kind is the body's word.</remarks>
 internal sealed class ToolAnswer
 {
     readonly string? _document;
