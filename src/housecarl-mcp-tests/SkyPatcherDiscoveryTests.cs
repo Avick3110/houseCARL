@@ -1,4 +1,5 @@
 using HousecarlCore;
+using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
@@ -151,6 +152,36 @@ public sealed class SkyPatcherDiscoveryTests : IDisposable
         Assert.Contains(scan.Notes, n => n.Contains("SkyPatcher.ini could not be read") && n.Contains("UNKNOWN"));
         Assert.All(scan.Folders, f => Assert.True(f.SwitchUnknown, f.Subfolder));
         Assert.DoesNotContain(scan.Notes, n => n.Contains("assumed"));
+    }
+
+    // an unreadable SkyPatcher.ini replays every folder, as its note says: none reads off, the counts hold every line, and a draft into a new folder replays
+    [Fact]
+    public void AnUnreadableSwitchFileReplaysEveryFolder()
+    {
+        using var locked = new FileStream(Path.Combine(_mods, "ModA", "SKSE", "Plugins", "SkyPatcher.ini"), FileMode.Open, FileAccess.Read, FileShare.None);
+        var scan = Scan();
+        Assert.All(scan.Folders, f => Assert.True(f.PatchingEnabled, f.Subfolder));
+        Assert.NotEmpty(SkyPatcherDiscovery.OrderedLines(Folder(scan, "npc")));
+        Assert.NotEmpty(SkyPatcherDiscovery.OrderedLines(Folder(scan, "armor")));
+        Assert.DoesNotContain(scan.Notes, n => n.Contains("iEnable…Patching"));
+
+        var text = SkyPatcherWire.RenderLayer(new SkyPatcherLayerData(scan,
+            Array.Empty<SkyPatcherConflicts.SkyPatcherConflict>(), Array.Empty<SkyPatcherConflicts.SkyPatcherItm>(),
+            Array.Empty<SkyPatcherConflicts.SkyPatcherDuplicate>(), Array.Empty<SkyPatcherNoOpWrite>(),
+            Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>(), "Default"), null, 40_000);
+        Assert.DoesNotContain("toggled OFF", text);
+        Assert.Contains($"({scan.Folders.Sum(f => f.Files.Count(x => x.NotApplied is null))} applied)", text);
+
+        var path = Path.Combine(_root, "drafts", "ammo", "d.ini");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "damage=9");
+        Assert.Null(SkyPatcherDraft.Prepare(path, "ammo", SkyPatcherCatalog.Load(), out var plan));
+        var warnings = new SkyPatcherOverlay.WarningSink();
+        var folded = plan!.Fold(scan, SkyPatcherCatalog.Load(), _ => true, out var refusal, warnings);
+        Assert.Null(refusal);
+        Assert.True(Folder(folded, "ammo").PatchingEnabled);
+        Assert.NotEmpty(SkyPatcherDiscovery.OrderedLines(Folder(folded, "ammo")));
+        Assert.DoesNotContain(warnings.Kept, w => w.Contains("iEnable…Patching"));
     }
 
     // a draft folds in with the same order, gate and switch answers a placed file of its name gets

@@ -204,9 +204,10 @@ public static class SkyPatcherDiscovery
         });
     }
 
-    /// <summary>Whether a subfolder's patcher runs: its <c>iEnable…Patching</c> key when present (the token matches the subfolder case-insensitively), otherwise only a patcher that runs without its switch (Light).</summary>
+    /// <summary>Whether a subfolder's patcher runs: replayed as running when SkyPatcher.ini could not be read; else its <c>iEnable…Patching</c> key when present (the token matches the subfolder case-insensitively), otherwise only a patcher that runs without its switch (Light).</summary>
     public static bool PatcherRuns(Switches switches, SkyPatcherRecordCatalog? catalog, string subfolder)
-        => switches.Keys.TryGetValue(subfolder, out var on) ? on : catalog?.EnabledWithoutSwitch == true;
+        => switches.Unreadable is not null
+           || (switches.Keys.TryGetValue(subfolder, out var on) ? on : catalog?.EnabledWithoutSwitch == true);
 
     /// <summary>The clause naming why a patcher that does not run is off: its switch at 0, or no switch at all.</summary>
     public static string SwitchOffReason(Switches switches, string subfolder)
