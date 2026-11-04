@@ -34,7 +34,7 @@ public sealed class SkyPatcherConflictsTests
         Ini("m.ini",
             $"filterByWeapons={Other}:attackDamage=99",
             $"filterByWeapons={Target}:weight=5",
-            $"filterByWeapons={Target}:filterByKeywords=Some.esp|200:speed=2"),
+            "filterByKeywords=Some.esp|200:speed=2"),
         Ini("z.ini",
             $"filterByWeapons={Target}:attackDamage=60",
             "reach=1.5",
@@ -67,9 +67,20 @@ public sealed class SkyPatcherConflictsTests
             "weight=2"),
         Ini("cond.ini",
             $"filterByWeapons={Target}:speed=7",
-            $"filterByWeapons={Target}:filterByKeywords=Some.esp|200:speed=9",
-            $"filterByWeapons={Target}:filterByKeywords=Some.esp|200:reach=1.0",
-            $"filterByWeapons={Target}:reach=2.0")).Itms;
+            "filterByKeywords=Some.esp|200:speed=9",
+            $"hasPlugins=Some.esp:filterByWeapons={Target}:reach=1.0",
+            $"filterByWeapons={Target}:reach=2.0"),
+        Ini("excl.ini",
+            $"filterByWeapons={Target}:attackDamage=1",
+            $"filterByWeapons={Target}:filterByKeywordsExcluded=Some.esp|200:attackDamage=2"),
+        Ini("found.ini",
+            $"filterByWeapons={Target}:filterByKeywords=Some.esp|200:weight=1",
+            $"filterByWeapons={Target}:weight=2")).Itms;
+
+    // A direct list next to a finder: the finder's reach meets a broad line in another file.
+    static readonly SkyPatcherConflicts.Report Union = Detect(
+        Ini("a.ini", $"filterByWeapons={Target}:filterByKeywords=Some.esp|200:value=1"),
+        Ini("b.ini", "filterByKeywords=Some.esp|200:value=2"));
 
     static SkyPatcherConflicts.SkyPatcherConflict? Conflict(string field) =>
         Cross.Conflicts.FirstOrDefault(c => c.Field == field);
@@ -233,6 +244,27 @@ public sealed class SkyPatcherConflictsTests
     [Fact]
     public void AConditionalOverwriterKillsNothing() => Assert.DoesNotContain(Itms, m => m.Field == "Data.Speed");
 
+    // a direct list ignores an Excluded key beside it, so its targets are unconditional and a later same-file set kills the earlier one
+    [Fact]
+    public void ADirectListBesideAnExcludedKeyKillsAnEarlierWrite()
+    {
+        var e = Assert.Single(Itm("BasicStats.Damage", "excl.ini")!.Entries);
+        Assert.Equal(1, e.Line);
+        Assert.Equal(new[] { 2 }, e.KillerLines);
+    }
+
+    // a line that names a record and also finds others is not dead when a later line covers only the named one
+    [Fact]
+    public void AFinderLinesReachOutlivesALaterWriteToItsNamedRecord() => Assert.Null(Itm("BasicStats.Weight", "found.ini"));
+
+    // a primary + finder line's finder reach is broad, so it collides with a broad line of another file
+    [Fact]
+    public void ADirectPlusFinderLineConflictsWithABroadLineOnTheFoundRecords()
+    {
+        var c = Assert.Single(Union.Conflicts, c => c.Field == "BasicStats.Value" && c.Target == "(all weapon records)");
+        Assert.Equal(new[] { "a.ini", "b.ini" }, c.Entries.Select(e => Path.GetFileName(e.File)));
+    }
+
     // a conditional EARLIER write killed unconditionally IS dead (flagged informational)
     [Fact]
     public void AConditionalEarlierWriteKilledUnconditionallyIsDead()
@@ -260,11 +292,12 @@ public sealed class SkyPatcherConflictsTests
             $"filterByWeaponsExcluded={Target}:reach=2",
             $"filterByWeapons={Target}",
             $"filterByWeaponsExcluded={Target}",   // op-less with no bare primary: not a broad write either
+            $"filterByWeapons={Target}:filterByKeywords=Some.esp|200:attackDamage=1",   // a direct list beside a finder is broad too
         })
             SkyPatcherConflicts.CollectExplicitPrimaryTargets(SkyPatcherParse.ParseLine(line), Catalog, WeapCat, forms, eids, ref broad);
         Assert.Single(forms);
         Assert.True(eids.SetEquals(new[] { "IronSword1H", "SteelSword1H" }), string.Join(",", eids));
-        Assert.Equal(2, broad);
+        Assert.Equal(3, broad);
     }
 
     static SkyPatcherOverlay.SkyPatcherAppliedOp Ap(string op, string raw, string? before, string? after) =>

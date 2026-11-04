@@ -67,6 +67,8 @@ public sealed class WinnerScanCoverageTests
             // sweep the order's weapon winners to resolve it. The INI lives in the OTHER mod, so holding the plugin
             // affects the lookup and nothing else.
             var iniDir = Path.Combine(mods, "BaseMod", "SKSE", "Plugins", "SkyPatcher", "weapon");
+            SkyPatcherSwitchesFile.Write(Path.Combine(mods, "BaseMod"));
+            SkyPatcherSwitchesFile.WriteTweaks(Path.Combine(mods, "BaseMod"));
             Directory.CreateDirectory(iniDir);
             File.WriteAllText(Path.Combine(iniDir, "hcws.ini"), "filterByWeapons=HcWsHeldWeapon:attackDamage=20\r\n");
 

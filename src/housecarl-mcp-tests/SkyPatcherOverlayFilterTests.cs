@@ -108,12 +108,12 @@ public sealed class SkyPatcherOverlayFilterTests
         return new(player, r);
     }
 
-    [Fact] // player rule: only the lone bare primary applied (weight=7, not 9/3/5)
-    public void OnlyALoneBarePrimaryReachesThePlayer()
+    [Fact] // player rule: the direct list naming him applies with a narrower beside it (3, 4); the filterless and gender-only lines skip him (1, 2)
+    public void TheDirectListReachesThePlayerAndAFilterlessLineDoesNot()
     {
         var run = Player();
         Assert.Equal(7f, run.Npc.Weight, 3);
-        Assert.Equal(new[] { 4 }, AppliedLines(run.Result, "weight"));
+        Assert.Equal(new[] { 3, 4 }, AppliedLines(run.Result, "weight"));
     }
 
     [Fact] // hasPlugins on an npc line is not in the reference: unknown-key LOUD skip, player untouched
