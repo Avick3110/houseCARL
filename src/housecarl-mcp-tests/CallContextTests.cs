@@ -279,6 +279,25 @@ public sealed class CallContextTests : IDisposable
         else Assert.DoesNotContain("changed on disk", answer);
     }
 
+    // A write's first file read, inside the gate after its commit, is checked against its in-gate pin.
+    [Fact]
+    public void AFirstFileReadInsideTheWriteGateAfterACommitRefusesASwitch()
+    {
+        Call(() => Host.CaptureAssets());                       // warm both sides on Default
+        var answer = Answer(() =>
+        {
+            lock (Host.WriteGate)
+            {
+                _svc.CapturePin();
+                HousecarlCore.MidCallChange.AfterCommit(Path.Combine(_mo2.ModsDir, "CcOut", "HcCcOut.esp"));
+                SelectOther();
+                try { Host.CaptureAssets(); } catch (LoadOrderMovedMidCallException) { }
+            }
+        });
+        Assert.StartsWith(Wire.RefusalPrefix + "the load order changed while this call was running", answer);
+        Assert.Contains("after houseCARL had written HcCcOut.esp", answer);
+    }
+
     [Theory]
     [InlineData("switch")]
     [InlineData("plugin")]
