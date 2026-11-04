@@ -463,7 +463,7 @@ public static class SkyPatcherOverlay
 
             case "filterByEditorIdContains":
                 if (resolver.EditorIdGap(fieldMap?.RecordType) is { } gap)
-                    warn.Add($"eg:{seg.Key}", $"filter '{seg.Key}' reads the record's EditorID, and {gap}, so it finds nothing.");
+                    warn.Add($"eg:{seg.Key}", $"filter '{seg.Key}' reads the record's EditorID, and {gap}, so it {(conn is "Excluded" or "Exclude" ? "removes nothing" : "finds nothing")}.");
                 return ContainsVerdict(seg, conn, editorId ?? "") ? FilterVerdict.Match : FilterVerdict.NoMatch;
 
             case "filterByNameContains":
