@@ -413,9 +413,8 @@ internal static class WriteSentences
     internal const string PlaceSourceFolderUnreadable =
         "houseCARL also looked in the MO2 mod folder of that name, and something there could not be read";
 
-    [MustState("holds it, but MO2 hides it", "does not read a hidden file")]
-    internal const string PlaceSourceFolderHidden =
-        "the MO2 mod folder of that name holds it, but MO2 hides it, ticked or not, and houseCARL does not read a hidden file";
+    [MustState("ticked or not", "does not read a hidden file")]
+    internal const string PlaceSourceFolderHidden = "ticked or not, and houseCARL does not read a hidden file";
 
     [MustState("active load order already provides")]
     internal const string PlaceSourceReservedName =
@@ -425,7 +424,10 @@ internal static class WriteSentences
                                                   OffOrderReason reason, string? unreadableName = null,
                                                   string? unreadableCause = null, string? pathHint = null,
                                                   bool scanIncomplete = false, HiddenCopies? hidden = null) =>
-        $"'{provider}' does not supply '{rel}'"
+        // A folder that holds it hidden is said to hold it, the rule once, not to lack it.
+        (reason == OffOrderReason.Hidden && hidden is { } h
+            ? $"'{provider}' holds '{rel}', {h.Unnamed()}, {PlaceSourceFolderHidden}. "
+            : $"'{provider}' does not supply '{rel}'"
         // ONE sentence per reason, and a switch expression with NO default arm: CS8509 makes a new outcome a build diagnostic.
       + reason switch
         {
@@ -436,8 +438,8 @@ internal static class WriteSentences
             OffOrderReason.NoSuchFolder     => $" — {PlaceSourceNoSuchFolder}. ",
             OffOrderReason.NoCopyInFolder   => $" — {PlaceSourceDiskFolderSearched}. ",
             OffOrderReason.FolderUnreadable => $" — {PlaceSourceFolderUnreadable}. ",
-            OffOrderReason.Hidden           => $" — {PlaceSourceFolderHidden}: {hidden?.Sentence()}. ",
-        }
+            OffOrderReason.Hidden           => $" — the MO2 mod folder of that name holds it hidden by MO2, {PlaceSourceFolderHidden}. ",
+        })
       + (unreadableName is null ? "" : $"NOTE: '{unreadableName}' could not be read ({unreadableCause}), so this may be unscanned rather than absent. ")
       + (scanIncomplete ? PlaceSourceScanIncomplete + " " : "")
       + (pathHint is null ? "" : pathHint + " ")

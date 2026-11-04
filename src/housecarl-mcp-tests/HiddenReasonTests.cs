@@ -440,9 +440,10 @@ public sealed class HiddenReasonTests : IDisposable
         var svc = _p.Open();
 
         var t = NifTools.NifInspect(svc, new[] { "meshes/c.nif.mohidden." }, source_provider: "ModC");
-        Assert.Contains(@"in 'ModC'. ", t);
+        Assert.True(t.Contains("by the '.mohidden' suffix), ticked or not"), t);
         Assert.DoesNotContain(", as '", t);
-        Assert.Contains(@"in 'ModC', as 'meshes\c.nif.mohidden'", NifTools.NifInspect(svc, new[] { "meshes/c.nif" }, source_provider: "ModC"));
+        Assert.Contains(@"by the '.mohidden' suffix), as 'meshes\c.nif.mohidden', ticked or not",
+                        NifTools.NifInspect(svc, new[] { "meshes/c.nif" }, source_provider: "ModC"));
     }
 
     [Fact]
