@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using HousecarlCore;
 using HousecarlMcp;
@@ -15,15 +16,17 @@ public sealed class CopyEndToEndTests
     static string Copy(CopyServiceWorld w, FormKey from, string[] sources, string stem)
         => CopyTools.Copy(w.Svc, FormIdToken.Of(from), sources, CopyServiceWorld.HeadParts, null, null, stem, stem);
 
-    /// <summary>The refusal says so, and mods/ holds the same entries and nothing named for the patch.</summary>
-    static void NothingWritten(string text, string modsDir, int entriesBefore, string stem)
-    {
-        Assert.EndsWith("Nothing was written.", text);
-        Assert.Equal(entriesBefore, Entries(modsDir));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(modsDir, "*" + stem + "*", SearchOption.AllDirectories));
-    }
+    /// <summary>Every file and folder under <paramref name="root"/>: a file with its length, last write and content hash.</summary>
+    static string[] Snapshot(string root) =>
+        Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
+            .Select(p => File.Exists(p)
+                ? $"{p} {new FileInfo(p).Length} {File.GetLastWriteTimeUtc(p):O} {Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p)))}"
+                : p + Path.DirectorySeparatorChar)
+            .ToArray();
 
-    static int Entries(string modsDir) => Directory.GetFileSystemEntries(modsDir).Length;
+    /// <summary>The world's whole root, the instance and the user config with it, is as it was: nothing added, removed
+    /// or rewritten. The answer's closing "Nothing was written." is not a check: the render appends it to every failure.</summary>
+    static void NothingWritten(string root, string[] before) => Assert.Equal(before, Snapshot(root));
 
     // ---- source missing -----------------------------------------------------------------------------
 
@@ -32,12 +35,12 @@ public sealed class CopyEndToEndTests
     public void AFromNoSourceHasRefusesAsAMissAndWritesNothing()
     {
         using var w = new CopyServiceWorld();
-        var before = Entries(w.ModsDir);
+        var before = Snapshot(w.Root);
 
         var text = Copy(w, w.WideNpc, new[] { "Extra.esp" }, "MissFrom");
 
         Assert.Contains($"no source produced {FormIdToken.Of(w.WideNpc)} (reached via from)", text);
-        NothingWritten(text, w.ModsDir, before, "MissFrom");
+        NothingWritten(w.Root, before);
     }
 
     // a walked link no source has: refuses as a miss pulled by the seed, writing nothing
@@ -45,12 +48,12 @@ public sealed class CopyEndToEndTests
     public void AWalkedLinkNoSourceHasRefusesAsAMissAndWritesNothing()
     {
         using var w = new CopyWalkWorld();
-        var before = Entries(w.ModsDir);
+        var before = Snapshot(w.Root);
 
         var text = w.Clone(w.DanglingList, "MissWalk");
 
         Assert.Contains($"no source produced {FormIdToken.Of(w.Dangling)} (reached via FormList.Items)", text);
-        NothingWritten(text, w.ModsDir, before, "MissWalk");
+        NothingWritten(w.Root, before);
     }
 
     // ---- source fault -------------------------------------------------------------------------------
@@ -63,13 +66,13 @@ public sealed class CopyEndToEndTests
     {
         using var w = new CopyServiceWorld();
         Assert.Contains("CLONED", Copy(w, w.ShadowNpc, new[] { "Shadow.esp" }, "WarmFrom"));   // the index is built first
-        var before = Entries(w.ModsDir);
+        var before = Snapshot(w.Root);
 
         string text;
         using (HeldOpen.Hold(ShadowPath(w))) text = Copy(w, w.ShadowNpc, new[] { "Shadow.esp" }, "FaultFrom");
 
         Assert.Contains($"carries {FormIdToken.Of(w.ShadowNpc)} but it could not be read", text);
-        NothingWritten(text, w.ModsDir, before, "FaultFrom");
+        NothingWritten(w.Root, before);
     }
 
     // a walked record in a plugin held open by another process: refuses as a fault naming that record, writing nothing
@@ -78,13 +81,13 @@ public sealed class CopyEndToEndTests
     {
         using var w = new CopyServiceWorld();
         Assert.Contains("CLONED", Copy(w, w.ShadowNpc, new[] { "Shadow.esp" }, "WarmWalk"));
-        var before = Entries(w.ModsDir);
+        var before = Snapshot(w.Root);
 
         string text;
         using (HeldOpen.Hold(ShadowPath(w))) text = Copy(w, w.R5Npc, new[] { "Src.esp", "Shadow.esp" }, "FaultWalk");
 
         Assert.Contains("carries 000800:Shadow.esp but it could not be read", text);
-        NothingWritten(text, w.ModsDir, before, "FaultWalk");
+        NothingWritten(w.Root, before);
     }
 
     // ---- the node cap: 128 -------------------------------------------------------------------------
@@ -108,13 +111,13 @@ public sealed class CopyEndToEndTests
     public void TheRecord129RefusesAtTheNodeCapAndWritesNothing()
     {
         using var w = new CopyWalkWorld();
-        var before = Entries(w.ModsDir);
+        var before = Snapshot(w.Root);
 
         var text = w.Clone(w.List129, "Nodes129");
 
         Assert.Contains("the walk passed 128 records", text);
         Assert.Contains($"Last pull: {FormIdToken.Of(w.Keyword129)}", text);
-        NothingWritten(text, w.ModsDir, before, "Nodes129");
+        NothingWritten(w.Root, before);
     }
 
     // ---- the depth cap: 32 -------------------------------------------------------------------------
@@ -136,13 +139,13 @@ public sealed class CopyEndToEndTests
     public void TheRecordAtDepth33RefusesAtTheDepthCapAndWritesNothing()
     {
         using var w = new CopyWalkWorld();
-        var before = Entries(w.ModsDir);
+        var before = Snapshot(w.Root);
 
         var text = w.Clone(w.Chain34, "Depth33");
 
         Assert.Contains("the walk went deeper than 32 hops", text);
         Assert.Contains($"Last pull: {FormIdToken.Of(w.Chain34Last)}", text);
-        NothingWritten(text, w.ModsDir, before, "Depth33");
+        NothingWritten(w.Root, before);
     }
 
     // ---- the reached order -------------------------------------------------------------------------
