@@ -349,22 +349,31 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
                "HcRecW0", "HcRecMid.esp: BasicStats.Damage=50 (HcRecOverride.esp 123)");
     }
 
-    /// <summary>formids= beside the scan terms is already the record list, so the route is dropping the terms, not
-    /// the file; with one term the sentence says "it", with two "them", and the formids-only call runs.</summary>
+    /// <summary>formids= beside the scan terms intersects them: the route's plain scan carries formids= with the terms,
+    /// so a listed id that fails a term (an armor under types=WEAP; a weapon where= drops) stays out of the re-run.</summary>
     [Fact]
-    public void OverlayScanDeltaBesideFormids_NamesDroppingTheScanTermsAndThatRuns()
+    public void OverlayScanBesideFormids_NamesTheFileRouteAndItAnswersTheIntersection()
     {
         var draft = DraftPost("route-formids");
-        var w0 = new[] { Fid(W.Weapons[0]) };
-        var one = RecordsTools.Records(Svc, types: Weap, formids: w0, source: draft, versus: Je("\"winner\""), project: Form("delta"));
-        Refused(one, "drop types= (formids= beside it makes this call a scan)");
-        Assert.DoesNotContain("to_file=", one);
-        Refused(RecordsTools.Records(Svc, types: Weap, where: new[] { "editorid = HcRecW0" }, formids: w0, versus: draft, project: Form("tree")),
-                "drop types= and where= (formids= beside them makes this call a scan), with the overlay on versus= and no source=");
-        Served(RecordsTools.Records(Svc, formids: w0, source: draft, versus: Je("\"winner\""), project: Form("delta")),
-               "HcRecW0", "BasicStats.Damage=123 (HcRecOverride.esp 99)");
-        Served(RecordsTools.Records(Svc, formids: w0, versus: draft, project: Form("tree")),
-               "HcRecW0", "HcRecMid.esp: BasicStats.Damage=50 (HcRecOverride.esp 123)");
+        var winner = Je("\"winner\"");
+        var w0Armor = new[] { Fid(W.Weapons[0]), Fid(W.Armor) };
+        Refused(RecordsTools.Records(Svc, types: Weap, formids: w0Armor, source: draft, versus: winner, project: Form("delta")),
+                "plain scan of formids= and types= with to_file=", "in place of formids= and types=");
+        var path = W.Scratch("route-formids", "delta.jsonl");
+        Served(RecordsTools.Records(Svc, types: Weap, formids: w0Armor, to_file: path), "complete result");
+        var delta = RecordsTools.Records(Svc, formids: new[] { "@" + path }, source: draft, versus: winner, project: Form("delta"));
+        Served(delta, "1 record(s)", "HcRecW0", "BasicStats.Damage=123 (HcRecOverride.esp 99)");
+        Assert.DoesNotContain(Fid(W.Armor), delta);
+
+        var where = new[] { "editorid = HcRecW0" };
+        var w0w1 = new[] { Fid(W.Weapons[0]), Fid(W.Weapons[1]) };
+        Refused(RecordsTools.Records(Svc, types: Weap, where: where, formids: w0w1, versus: draft, project: Form("tree")),
+                "plain scan of formids=, types= and where= with to_file=", "in place of formids=, types= and where=, with the overlay on versus= and no source=");
+        path = W.Scratch("route-formids", "tree.jsonl");
+        Served(RecordsTools.Records(Svc, types: Weap, where: where, formids: w0w1, to_file: path), "complete result");
+        var tree = RecordsTools.Records(Svc, formids: new[] { "@" + path }, versus: draft, project: Form("tree"));
+        Served(tree, "HcRecW0", "HcRecMid.esp: BasicStats.Damage=50 (HcRecOverride.esp 123)");
+        Assert.DoesNotContain("HcRecW1", tree);
     }
 
     /// <summary>to_file= with the post overlay on a scan: the route writes the plain scan, then re-runs the call,
@@ -394,7 +403,7 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
                 "plain scan of types=, where= and where_source= with to_file=", "in place of types=, where= and where_source=");
         Refused(RecordsTools.Records(Svc, types: Weap, where: where, where_source: "winner", formids: new[] { Fid(W.Weapons[0]) },
                                      source: draft, versus: Je("\"winner\""), project: Form("delta")),
-                "drop types=, where= and where_source= (formids= beside them makes this call a scan)");
+                "plain scan of formids=, types=, where= and where_source= with to_file=", "in place of formids=, types=, where= and where_source=");
         var path = W.Scratch("route-wheresrc", "matches.jsonl");
         Served(RecordsTools.Records(Svc, types: Weap, where: where, where_source: "winner", to_file: path), "complete result");
         var r = RecordsTools.Records(Svc, formids: new[] { "@" + path }, source: draft, versus: Je("\"winner\""), project: Form("delta"));
