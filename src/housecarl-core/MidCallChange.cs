@@ -53,9 +53,19 @@ public static class MidCallChange
             lock (m)
                 return (m.Written.Count > 0 ? m.Plugin : Moved(m, commit: false)) is not { } p ? null
                     : m.Written.Count == 0 ? new LoadOrderChangedMidCallException(p).Message
-                    : $"'{p}' changed on disk during this call, after houseCARL had written {string.Join(", ", m.Written.Select(Path.GetFileName))}; " +
-                      "the rest was not done. Check those files before rerunning.";
+                    : AfterWrites($"'{p}' changed on disk during this call", m);
         }
+
+        /// <summary><paramref name="change"/> as the refusal of a call that committed a write, naming what it wrote; null when it wrote nothing.</summary>
+        public string? AfterWrites(string change)
+        {
+            if (Current.Value is not { } m) return null;
+            lock (m) return m.Written.Count == 0 ? null : AfterWrites(change, m);
+        }
+
+        static string AfterWrites(string change, Mark m) =>
+            $"{change}, after houseCARL had written {string.Join(", ", m.Written.Select(Path.GetFileName))}; " +
+            "the rest was not done. Check those files before rerunning.";
 
         public void Dispose() { if (owns) Current.Value = null; }
     }
