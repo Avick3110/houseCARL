@@ -187,15 +187,15 @@ public static class SkyPatcherOverlay
     {
         var lint = new List<string>();
         if (line.Parsed.Kind != SkyPatcherLineKind.Patch) return lint;
-        var classes = line.Parsed.Segments.Select(s => (seg: s, cls: catalog.Classify(recordCatalog, s.Key))).ToList();
-        if (classes.Any(c => c.cls.Role == SkyPatcherKeyRole.Unknown))
+        var classified = SkyPatcherClassifiedLine.Of(line.Parsed, catalog, recordCatalog);
+        if (classified.UnknownKey)
         {
             lint.Add(UnknownKeyText(line, catalog, recordCatalog));
             return lint;
         }
-        foreach (var (seg, cls) in classes)
+        foreach (var (seg, cls) in classified.Filters)
         {
-            if (cls.Role != SkyPatcherKeyRole.Filter || FormTokens(cls, fieldMap) is not { } ft) continue;
+            if (FormTokens(cls, fieldMap) is not { } ft) continue;
             foreach (var v in seg.Values)
                 if (ResolveFormValue(v, ft.FormType, resolver) is null)
                     lint.Add(UnresolvedText(ft, v, seg, resolver));
