@@ -47,9 +47,7 @@ public sealed class CopyWalkWorld : IDisposable
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(inst, "game").Replace(@"\", @"\\") + ")\r\n");
 
-        var baseMod = new SkyrimMod(new ModKey("HcBase", ModType.Master), SkyrimRelease.SkyrimSE);
-        baseMod.Keywords.Add(new Keyword(new FormKey(baseMod.ModKey, 0x800), SkyrimRelease.SkyrimSE) { EditorID = "HcKeyword" });
-        Write(baseMod, "BaseMod");
+        Write(new SkyrimMod(new ModKey("HcBase", ModType.Master), SkyrimRelease.SkyrimSE), "BaseMod");
 
         var walkKey = new ModKey("Walk", ModType.Plugin);
         var mod = new SkyrimMod(walkKey, SkyrimRelease.SkyrimSE);
