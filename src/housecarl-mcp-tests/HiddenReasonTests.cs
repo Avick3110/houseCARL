@@ -340,7 +340,7 @@ public sealed class HiddenReasonTests : IDisposable
         var t = PlaceTools.Place(_p.Open(), Assets($$"""[{"path":"{{PlaceInstance.FacegenRel.Replace("\\", "/")}}"}]"""),
                                  source_provider: "ArchC");
 
-        Assert.Contains("read from 'ArchC'", t);
+        Assert.True(t.Contains("read from 'ArchC'"), t);
         Assert.DoesNotContain(WriteSentences.PlaceSourceFolderHidden, t);
     }
 
