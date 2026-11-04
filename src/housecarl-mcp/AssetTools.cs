@@ -80,9 +80,12 @@ public static class AssetTools
                      "that is not in the active order is refused.")]
             string? provider = null,
         [Description("Optional. On every .nif row that resolves, list the files the winning copy names, each with the " +
-                     "Data path it maps to and that path's winner: every texture-set slot, every effect-shader texture, " +
-                     "and the root node's 'HDT Skinned Mesh Physics Object' (the HDT-SMP physics XML, Data-relative) " +
-                     "and 'BODYTRI' (meshes-relative) string extra data. A string that names no Data path says why. A " +
+                     "Data path it maps to and that path's winner, each file once at its first site (one line per kind " +
+                     "and stored string, matched ignoring case): texture-set slots, effect-shader textures, and the root node's " +
+                     "'HDT Skinned Mesh Physics Object' (the HDT-SMP physics XML, Data-relative) and 'BODYTRI' " +
+                     "(meshes-relative) string extra data. With provider=, the links are still the winning copy's, " +
+                     "and the heading names it. A string that names no Data path says why. " + ToolNames.NifInspect +
+                     " sections=paths lists every site. A " +
                      "to_file= or spilled file carries the same links on each row; refused with counts_only=.")]
             bool links = false,
         [Description("Optional. Walk from the selected paths and records= to every file they reach, returning one node " +
