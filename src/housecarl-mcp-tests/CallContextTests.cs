@@ -220,17 +220,20 @@ public sealed class CallContextTests : IDisposable
     }
 
     // Pins unchanged behaviour: a file read inside the write gate re-takes the files, and the call keeps that view after
-    // the gate (known limit r1 #5: across a profile switch it adopts the new profile).
+    // the gate; with no pin its roots stay the first file view's (known limits r1 #5, r2 #1).
     [Fact]
     public void AFileReadInsideTheWriteGateReplacesTheCallsFiles()
     {
         Call(() => { _ = Host.Resolver; Host.CaptureAssets(); });   // warm both sides on Default
         Call(() =>
         {
-            Assert.Equal("Default", Host.CaptureAssets().ProfileName);
+            var first = Host.CaptureAssets();
+            Assert.Equal("Default", first.ProfileName);
             SelectOther();
             lock (Host.WriteGate) Assert.Equal("Other", Host.CaptureAssets().ProfileName);
             Assert.Equal("Other", Host.CaptureAssets().ProfileName);
+            Assert.Equal(first.Roots, Host.CaptureAssets().Roots);
+            Assert.Equal(first.Roots, Host.CaptureRoots());
         });
     }
 
