@@ -33,10 +33,22 @@ folder, and USVFS skips two things: a file whose name ends with a skip suffix, a
 skip directory. MO2 also leaves three root names out of its own Data view (its Data and Conflicts tabs), though USVFS
 still maps them: a root `meta.ini`, a root `readme.txt` and anything in a root `fomod\` folder. houseCARL follows MO2's
 view, so these answer absent; a launched process can still open `Data\meta.ini`. The same names below the root are
-normal files. `Mo2SkipRules.Shows` is that one predicate, applied to the loose layer where a path is resolved
-(`ResolveProviders`), where a folder is walked (`EnumerateUnder`) and where a root's top-level files are listed
-(`LooseRootFiles`), so every consumer of any of them sees the same Data view. It is applied on the Data-relative path and not inside a directory listing, because one listing cannot see a
-`.git` segment above it.
+normal files. `Mo2SkipRules.Hides` is that one predicate, and it says WHICH rule hid a path (`HiddenRule`: root name,
+then skip folder, then skip suffix). It is asked where a path is resolved (`ResolveProviders`), where a folder is
+walked (`EnumerateUnder`), where a root's top-level files are listed (`LooseRootFiles`) and before the named-folder
+lane's loose probe (`OffOrderAssetSource`), so every consumer sees the same Data view. It is applied on the
+Data-relative path and not inside a directory listing, because one listing cannot see a `.git` segment above it.
+
+- **The skip lists apply to linked roots only**: a mod folder and overwrite. USVFS never links the game's own Data
+  folder, so a real `Data\x.mohidden` is visible to the game and resolves like any Data file; the root names apply to
+  Data too, as MO2's merged view drops them there.
+- **Hidden is carried, not re-derived.** `ResolveProviders` keeps the roots whose listing holds the hidden name, and,
+  for a shown name `x`, those holding only `x` + a skip suffix (MO2's Hide renames `x` to `x.mohidden`), off the same
+  warm listing. `AssetHit.Hidden` and `PlacementResolution.Hidden` carry the rule and those holders (`HiddenCopies`);
+  `Exists`, `Winner`, `Providers` and `Ambiguous` are unchanged, so a hidden copy counts nowhere. `EnumerateUnder`
+  and `AssetGlob.Select` fill a `HiddenTally` with what the rule dropped in scope. Every render that says a path is
+  absent reads that value through `AbsentWords`: "hidden by MO2 (rule) in 'Mod'" where a root holds it, "no active
+  mod or BSA provides" where none does. No render probes a name.
 
 - **The lists are MO2's own**, read off `ModOrganizer.ini` (`skip_file_suffixes`, `skip_directories`) at each asset
   build: unset keeps MO2's defaults, `.mohidden` and `.git`; `@Invalid()` or a blank value is the empty list, which
@@ -151,7 +163,13 @@ refusal — the caller chooses), the VFS winner, or a named provider.
 - **Naming is the consent, and the only door.** `OffOrderAssetSource` reads a named mod folder's disk directly —
   loose file first, then its root archives — and is consulted only under that pole, so a mod nobody named can never
   contend silently or be reported as the winner. `PlacementSource.OffOrder`/`OwnerEnabled` carry that the copy is
-  one the game is not loading, and which of the two reasons it is.
+  one the game is not loading, and which reason it is: an unticked folder, or an enabled one whose archive no plugin
+  binds or whose folder did not list this build. `OwnerEnabled` is set for every find in an enabled mod, so an
+  enabled mod is never called unticked.
+- **Hiding applies to a named folder whatever its tick.** The lane asks `Mo2SkipRules.Hides` before its loose probe; a
+  loose file it hides (or the folder's `x.mohidden` when `x` is asked) is never read, and the lookup ends
+  `OffOrderReason.Hidden` with the rule, unless one of the folder's root archives has the path, which answers as
+  before.
 - **Reserved names mean the layer, never a folder.** `overwrite`, `Data` and an active archive's filename are
   answered by the built universe and never reach disk, so a mod folder called `Data` cannot shadow the layer. An
   *enabled* mod folder name is deliberately not reserved: falling through reaches that folder's own root archives,
@@ -465,7 +483,10 @@ provided either; the generic lane does not, because it legitimately answers for 
   census does not count them; a hidden file asked by name is absent; custom suffix and directory lists replace the
   defaults; `@Invalid()` skips nothing; an empty item hides nothing; an unreadable list keeps the default with a warning
   naming the key; hiding and unhiding between calls is seen; a hidden folder and `root\` stay listed;
-  `LooseRootFilesTests.AModRootListsItsOwnTopLevelFilesWithoutCountingAWarmListing` — a hidden root file is not listed.
+  `LooseRootFilesTests.AModRootListsItsOwnTopLevelFilesWithoutCountingAWarmListing` — a hidden root file is not listed;
+  `HiddenReasonTests` — each rule and its holders on the hit, the unhidden name, the game Data folder, the under= and
+  census notes, every absent render (row, json, to_file=, pair, links, nif, walk, place), the named folder and the
+  enabled-but-unread folder.
 - *From a link to a Data path*: `AssetLinkDataPathTests` — a `data\textures\…` or `data\meshes\…` path gets the
   verified hint naming its Data form, with the `data\` reason, on `asset_status`, `nif_inspect` and `place`; a miss
   gets no hint on `asset_status`, and on a mesh tool the convention sentence names its Data form, unverified; each NIF slot's Data path answers as a direct `asset_status` call; a slot the door refuses is its own
