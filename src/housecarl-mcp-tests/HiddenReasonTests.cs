@@ -281,6 +281,15 @@ public sealed class HiddenReasonTests : IDisposable
     }
 
     [Fact]
+    public void ABareGlobMatchingOnlyHiddenFilesTeachesNoOtherFolder()
+    {
+        var text = Status(_p.Open(), under: new[] { "*.ini" });
+
+        Assert.Contains("MO2 hides 1 matching path (left out of MO2's Data view as a root meta.ini", text);
+        Assert.DoesNotContain("stay inside one folder", text);
+    }
+
+    [Fact]
     public void AFolderGlobNamedLikeARootFileDoesNotSayItIsHidden()
     {
         var text = Status(_p.Open(), under: new[] { "meta.ini/**" });
@@ -334,6 +343,7 @@ public sealed class HiddenReasonTests : IDisposable
         var pole = NifTools.NifInspect(svc, new[] { "meta.ini" }, source_provider: AssetSourceChoice.WinnerToken);
         Assert.Contains("ABSENT — hidden by MO2", pole);
         Assert.Contains("so there is no winner to read", pole);
+        Assert.DoesNotContain("not under meshes", pole);   // a hidden path's spelling is not what is wrong
     }
 
     [Fact]
