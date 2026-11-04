@@ -450,7 +450,7 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Assert.DoesNotContain("The list lane serves it", r);
     }
 
-    /// <summary>conflicts_only= on an off-order source= is that file's own fault, said ahead of the overlay route
+    /// <summary>conflicts_only= or where_source= on an off-order source= is that file's own fault, said ahead of the overlay route
     /// whose plain scan on the same source= would refuse it; an in-order source= still gets the route.</summary>
     [Fact]
     public void OffOrderConflictsOnlyVersusOverlay_IsTheOffOrderRefusalNotARoute()
@@ -461,6 +461,10 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Assert.DoesNotContain("The list lane serves it", r);
         Refused(RecordsTools.Records(Svc, types: Weap, conflicts_only: true, source: Plugin(W.OverrideName), versus: draft, project: Form("delta")),
                 "plain scan of types= and conflicts_only=true on the same source= with to_file=");
+        var ws = RecordsTools.Records(Svc, types: Weap, where: new[] { "editorid = HcRecW0" }, where_source: "winner",
+                                      source: Plugin(W.OldName), versus: draft, project: Form("delta"));
+        Refused(ws, "where_source=winner matches on the live load-order winner");
+        Assert.DoesNotContain("The list lane serves it", ws);
     }
 
     /// <summary>A scan-seeded walk under the post overlay: the route walks the file's records under the same pole.</summary>
