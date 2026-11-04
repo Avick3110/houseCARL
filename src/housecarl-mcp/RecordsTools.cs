@@ -1330,8 +1330,19 @@ public static partial class RecordsTools
         // ================================================================================================
         string ScanLane()
         {
+            bool hasBodyFilter = where is { Length: > 0 } || references is { Length: > 0 };
+            bool hasTypes = types is { Length: > 0 };
+            bool hasScope = plugins?.names is { Length: > 0 };
+            // An unbounded references= is answered off the reverse-reference index, which knows links, not values.
+            bool onlyReverseFilter = where is not { Length: > 0 };
+            // Ahead of the overlay refusals, whose route's plain scan this would refuse.
+            if (hasBodyFilter && !hasTypes && !hasScope && !hasFormids && !onlyReverseFilter)
+                return Wire.Refuse(json, "error: where= is a body scan and must be combined with types=, plugins=, or a formids= set to bound the work " +
+                       "(conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). " +
+                       "Only references= is unbounded, off the reverse-reference index.");
             var overlayRoute = new ScanCall(form, scanTerms, hasFormids, srcSpec.Kind == RecordReads.PoleKind.Named, where_source is not null);
-            if (versusSpec?.Kind == RecordReads.PoleKind.Overlay)
+            // A named source= meets this after its probe, so an off-order file's own refusals come first.
+            if (versusSpec?.Kind == RecordReads.PoleKind.Overlay && srcName is null)
                 return Wire.Refuse(json, OverlayComparisonRefusal(versusSpec, overlayRoute));
             if (srcOverlay && comparisonForm)
                 return Wire.Refuse(json, OverlayComparisonRefusal(srcSpec, overlayRoute));
@@ -1344,9 +1355,6 @@ public static partial class RecordsTools
                 return Wire.Refuse(json, OverlayScanRefusal("a walk reads every record it reaches", overlayRoute));
             // What the pole did not decide on this call, carried on the scan's own note.
             string? poleNote = null;
-            bool hasBodyFilter = where is { Length: > 0 } || references is { Length: > 0 };
-            bool hasTypes = types is { Length: > 0 };
-            bool hasScope = plugins?.names is { Length: > 0 };
             bool scopePlusPole = false;
             // The count forms count the scan's own matches and read no pole body.
             bool census = walk is null && !comparisonForm && (form == "aggregate" || counts_only);
@@ -1355,12 +1363,6 @@ public static partial class RecordsTools
             // The scan states the source itself except for forms whose own pipeline states one; the tree has no
             // subject, so the scan's selection statement stays and discloses the selection universe.
             bool pipelineArms = form == "delta" || form == "info_order" || walk is not null;
-            // An unbounded references= is answered off the reverse-reference index, which knows links, not values.
-            bool onlyReverseFilter = where is not { Length: > 0 };
-            if (hasBodyFilter && !hasTypes && !hasScope && !hasFormids && !onlyReverseFilter)
-                return Wire.Refuse(json, "error: where= is a body scan and must be combined with types=, plugins=, or a formids= set to bound the work " +
-                       "(conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). " +
-                       "Only references= is unbounded, off the reverse-reference index.");
             if (plugins is { defined_in: true } && !hasScope)
                 return Wire.Refuse(json, "error: plugins.defined_in=true keeps records DEFINED in the scoped plugins, so plugins.names must name that scope.");
 
@@ -1395,7 +1397,9 @@ public static partial class RecordsTools
                 srcName = probe!.Plugin;   // a path pole resolves back to its plugin name; every consumer below uses the resolved name
                 probeEpoch = probe.Stamp;
                 if (!probe.InOrder)
-                    return OffOrderScan(probe);
+                    return OffOrderScan(probe, overlayRoute);
+                if (versusSpec?.Kind == RecordReads.PoleKind.Overlay)
+                    return Wire.Refuse(json, OverlayComparisonRefusal(versusSpec, overlayRoute));
                 if (hasScope)
                 {
                     if (winnerFields)
@@ -1782,7 +1786,7 @@ public static partial class RecordsTools
         // ================================================================================================
         //  OFF-ORDER scan: the file's own records are the universe.
         // ================================================================================================
-        string OffOrderScan(RecordReads.PoleInfo pole)
+        string OffOrderScan(RecordReads.PoleInfo pole, ScanCall overlayRoute)
         {
             // The file is the SELECTION statement, stated for every form except delta, whose pipeline names the
             // same file as its subject.
@@ -1804,6 +1808,9 @@ public static partial class RecordsTools
                 if (ws is not ("scoped" or "scanned"))
                     return Wire.Refuse(json, $"error: where_source='{where_source}' is not a known source — over an out-of-load-order file the match reads the FILE's own bodies ('scoped', the default); drop where_source=, or use 'winner' on an in-order scan.", pole.Stamp);
             }
+            // After the file's own refusals, so the route's plain scan on this source= is one that runs.
+            if (versusSpec?.Kind == RecordReads.PoleKind.Overlay)
+                return Wire.Refuse(json, OverlayComparisonRefusal(versusSpec, overlayRoute), pole.Stamp);
 
             // The off-order lane runs the in-order filter grammar over the file's own records, with provenance
             // terms still bound to the active view the response declares.
