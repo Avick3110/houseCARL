@@ -104,6 +104,7 @@ public sealed class HiddenReasonTests : IDisposable
         Assert.Equal("Data", hit.Winner!.Source);
         Assert.Null(hit.Hidden);
         Assert.False(Hit(svc, "meta.ini").Exists);
+        Assert.Contains(@"textures\d.dds.mohidden", svc.AssetStatus(Array.Empty<string>(), new[] { "textures" }).Results.Select(r => r.RelPath));
     }
 
     [Fact]
@@ -345,6 +346,14 @@ public sealed class HiddenReasonTests : IDisposable
         Assert.DoesNotContain("FROM SOURCE", t);
         Assert.Contains("ABSENT — hidden by MO2 (skipped by MO2's VFS, under a '.git' folder) in 'ModA'", t);
         Assert.DoesNotContain("does not ship it", t);
+    }
+
+    [Fact]
+    public void AWalkFromAnUntickedFolderSaysItsCopyIsHidden()
+    {
+        var t = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { @"meshes\c.nif.mohidden" }, walk: true, source_provider: "ModC");
+
+        Assert.Contains("ABSENT — hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix) in 'ModC'", t);
     }
 
     // ---- R12: an enabled mod is never called unticked -----------------------------------------------
