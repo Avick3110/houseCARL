@@ -89,6 +89,11 @@ public sealed class SkyPatcherOpEditorIdGapTests
         Assert.DoesNotContain("powerofthree", w);
     }
 
+    [Fact] // pins unchanged behaviour: a teachSpell name that finds nothing with Tweaks names where, the op and its value, and that it is skipped
+    public void WithTweaksAMissingTeachSpellNamesTheWholeLine() =>
+        Assert.Equal("g.ini:1: 'teachSpell=HcTypo' — spell not resolvable; skipped.",
+            Assert.Single(Run("book", "Book", "teachSpell=HcTypo", tweaks: true).Warnings));
+
     [Fact] // skin=<donor NPC EditorID> without Tweaks names the donor type's gap; with Tweaks it is the donor-copy warning, unchanged
     public void WithoutTweaksASkinDonorNpcEditorIdNamesTheNpcType()
     {
