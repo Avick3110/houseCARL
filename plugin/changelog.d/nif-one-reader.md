@@ -1,0 +1,1 @@
+- **`housecarl_nif_inspect sections=paths` now lists every file a mesh names, as `housecarl_asset_status links=true` does: texture slots, effect-shader textures, and the root's HDT-SMP XML and BODYTRI, each with its Data path and winner.** Check: a cape with an SMP config shows the `smp —` line in both.

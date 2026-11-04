@@ -447,7 +447,7 @@ static class AssetWire
             AppendPair(sb, r);
             return;
         }
-        AppendLinks(sb, r);
+        AppendLinks(sb, r, d.Provider is null ? null : hit.Winner);
 
         // The provider token is spelled by the one formatter the asset surface uses, so the name printed here is
         // the name a source selector accepts. The owning mod rides the WINS: line only on a formids= row.
@@ -470,20 +470,33 @@ static class AssetWire
         AppendPair(sb, r);
     }
 
-    /// <summary>The files a mesh names, on a links= call only: where in the mesh, the string as stored, and the Data path with its winner.</summary>
-    static void AppendLinks(StringBuilder sb, AssetPathResult r)
+    /// <summary>The files a mesh names, on a links= call only: where in the mesh, the string as stored, and the Data path
+    /// with its winner. On a provider= call the heading names the copy read, the winner's, whatever provider= names.</summary>
+    static void AppendLinks(StringBuilder sb, AssetPathResult r, AssetProvider? copy)
     {
-        if (r.LinksError is { } err) { sb.Append("  links: not read — ").Append(err).Append('\n'); return; }
+        if (r.LinksError is { } err) { sb.Append("  ").Append(LinksNotRead).Append(err).Append('\n'); return; }
         if (r.Links is not { } links) return;
-        sb.Append("  links (").Append(links.Count).Append("):\n");
-        foreach (var l in links)
-        {
-            sb.Append("    ").Append(l.Link.Kind.Token()).Append(" — ").Append(l.Link.Where).Append(": `").Append(l.Link.Raw).Append("`\n");
-            if (l.Link.Error is { } le) { sb.Append("      data path: none — ").Append(le).Append('\n'); continue; }
-            sb.Append("      data path: ").Append(l.Link.DataPath).Append("  ")
-              .Append(l.Hit is { Exists: true, Winner: { } w } ? "WINS: " + Provider(w)
-                      : l.Hit?.Hidden is { } h ? "ABSENT — " + h.Sentence() : "ABSENT").Append('\n');
-        }
+        sb.Append("  links (").Append(links.Count).Append(')');
+        if (copy is not null) sb.Append(", of the winning copy ").Append(Provider(copy));
+        sb.Append(":\n");
+        foreach (var l in links) AppendLink(sb, l, slotName: false);
+    }
+
+    /// <summary>The line a mesh's unreadable links start with, on both surfaces that list them.</summary>
+    internal const string LinksNotRead = "links: not read — ";
+
+    /// <summary>One file a mesh names, as both asset_status links= and nif_inspect's paths section print it: the kind,
+    /// where in the mesh (with the slot's name when asked and known), the string as stored, then the Data path with its
+    /// winner, ABSENT with the reason a hidden copy gives, or why the string names no Data path.</summary>
+    internal static void AppendLink(StringBuilder sb, ResolvedNifLink l, bool slotName)
+    {
+        sb.Append("    ").Append(l.Link.Kind.Token()).Append(" — ").Append(l.Link.Where);
+        if (slotName && l.Link.SlotName is { } name) sb.Append(" (").Append(name).Append(')');
+        sb.Append(": `").Append(l.Link.Raw).Append("`\n");
+        if (l.Link.Error is { } le) { sb.Append("      data path: none — ").Append(le).Append('\n'); return; }
+        sb.Append("      data path: ").Append(l.Link.DataPath).Append("  ")
+          .Append(l.Hit is { Exists: true, Winner: { } w } ? "WINS: " + Provider(w)
+                  : l.Hit?.Hidden is { } h ? "ABSENT — " + h.Sentence() : "ABSENT").Append('\n');
     }
 
     /// <summary>The named provider's standing on this path, on a provider= call only.</summary>

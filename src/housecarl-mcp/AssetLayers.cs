@@ -197,13 +197,14 @@ internal sealed partial class AssetLayers
                                    Provider: provider);
     }
 
-    /// <summary>The files one copy of a mesh names, each resolved against the load order; or why they could not be read.</summary>
+    /// <summary>The files one copy of a mesh names, each once, resolved against the load order; or why they could not be read.</summary>
     internal static (IReadOnlyList<ResolvedNifLink>? Links, string? Error) ReadMeshLinks(AssetResolver.AssetView view, PlacementSource copy)
-    {
-        var (links, err) = MeshLinks(copy);
-        if (links is null) return (null, err);
-        return (links.Select(l => new ResolvedNifLink(l, l.DataPath is { } d ? view.Resolve(d) : null)).ToList(), null);
-    }
+        => ResolveLinks(view, MeshLinks(copy));
+
+    /// <summary>Each link's Data path resolved against the load order, whatever copy the links were read from.</summary>
+    static (IReadOnlyList<ResolvedNifLink>? Links, string? Error) ResolveLinks(AssetResolver.AssetView view, (IReadOnlyList<NifLink>? Links, string? Error) read)
+        => read.Links is not { } links ? (null, read.Error)
+         : (links.Select(l => new ResolvedNifLink(l, l.DataPath is { } d ? view.Resolve(d) : null)).ToList(), null);
 
     /// <summary>One entry of an <c>asset_status</c> selection: the path, and on a <c>formids=</c> row the NPC, the slot and the other half's path. <c>Error</c> answers as its own row.</summary>
     readonly record struct Selection(string Path, string? FormId, FaceGenSlot? Slot, string? PairPath, string? Error = null);
@@ -741,8 +742,8 @@ internal sealed partial class AssetLayers
     /// then per path and outside it resolve through the VFS to the winning copy (or <paramref name="mod"/>'s), read the
     /// bytes in process — a loose file, or one BSA entry, no disk extraction — and hand them to
     /// <see cref="NifService.Inspect"/>. A per-path failure never aborts the batch; the build-level caveats ride it.</summary>
-    /// <param name="slotLinks">Resolve each texture slot's Data path too, which only the paths section reads.</param>
-    public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool slotLinks = false)
+    /// <param name="links">Read the files the copy names too, through <see cref="NifLinks"/>, which only the paths section reads.</param>
+    public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool links = false)
     {
         var captured = _host.CaptureAssets();   // build/refresh the asset resolver under the gate, once per batch
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
@@ -760,14 +761,14 @@ internal sealed partial class AssetLayers
                 continue;
             }
             // Per-path isolation by construction: anything unexpected becomes that path's named error.
-            try { results.Add(NifInspectOne(view, rel, sourceProvider, slotLinks)); }
+            try { results.Add(NifInspectOne(view, rel, sourceProvider, links)); }
             catch (Exception ex) { results.Add(NifInspectData.Fail(rel, $"unexpected error inspecting this path — {ex.GetType().Name}: {ex.Message}")); }
         }
         return new NifInspectBatchData(results, view.BsaFailures, view.RootFailures, warnings, profileName);
     }
 
     /// <summary>One path's inspect against the already-captured view. Every failure is a named per-path outcome, never a throw.</summary>
-    static NifInspectData NifInspectOne(AssetResolver.AssetView view, string rel, string? sourceProvider, bool slotLinks = false)
+    static NifInspectData NifInspectOne(AssetResolver.AssetView view, string rel, string? sourceProvider, bool links = false)
     {
         if (rel.Length == 0)
             return NifInspectData.Fail("", "empty mesh path. Pass a Data-relative path, e.g. 'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'.");
@@ -805,25 +806,11 @@ internal sealed partial class AssetLayers
                 false, null, readErr ?? "could not read the resolved mesh bytes.");
 
         var outcome = NifService.Inspect(bytes);
-        return new NifInspectData(rel, NifProviderFor(chosen), providers, place.Ambiguous,
-            false, outcome.Inspect, outcome.Error, slotLinks && outcome.Inspect is not null ? SlotLinks(view, outcome.Inspect) : null);
-    }
-
-    /// <summary>Every texture slot string of a mesh through the one link-to-Data-path door, resolved against the load order whatever source the mesh was read from.</summary>
-    static Dictionary<string, NifSlotLink> SlotLinks(AssetResolver.AssetView view, NifInspect nif)
-    {
-        var links = new Dictionary<string, NifSlotLink>(StringComparer.OrdinalIgnoreCase);
-        foreach (var t in nif.Shapes.SelectMany(s => s.Textures))
-        {
-            if (links.ContainsKey(t.Path)) continue;
-            try
-            {
-                var data = AssetDataPath.For(t.Path, AssetLinkKind.Texture);
-                links[t.Path] = new NifSlotLink(view.Resolve(data), null);
-            }
-            catch (ArgumentException ex) { links[t.Path] = new NifSlotLink(null, ex.Message); }
-        }
-        return links;
+        var data = new NifInspectData(rel, NifProviderFor(chosen), providers, place.Ambiguous, false, outcome.Inspect, outcome.Error);
+        if (!links || outcome.Inspect is null) return data;
+        // The links of the copy read, every site, through the reader and resolve links= uses.
+        var (read, linksErr) = ResolveLinks(view, NifLinks.Read(bytes));
+        return data with { Links = read, LinksError = linksErr };
     }
 
     /// <summary>The provider record for a CHOSEN source, carrying the off-order provenance only the copy actually read can have.</summary>

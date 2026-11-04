@@ -119,7 +119,7 @@ public sealed class AssetLinkDataPathTests : IDisposable
             var direct = _svc.AssetStatus(new[] { data }).Results[0].Hit!;
             Assert.Equal(exists, direct.Exists);
             var answer = direct.Exists ? $"WINS: \"{direct.Winner!.Source}\" (loose)" : "ABSENT";
-            Assert.Contains(": " + raw + "\n      data path: " + data + "  " + answer + "\n", text, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(Site(raw) + data + "  " + answer + "\n", text, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -135,7 +135,7 @@ public sealed class AssetLinkDataPathTests : IDisposable
     {
         var text = PathsSection();
 
-        Assert.Contains(": " + Slots[8] + "\n      data path: none — '" + Slots[8] + "' names no texture Data path: it has a '..' segment, "
+        Assert.Contains(Site(Slots[8]) + "none — '" + Slots[8] + "' names no texture Data path: it has a '..' segment, "
             + @"or one of only dots or spaces. Give the path from textures\ on, as it sits under Data.", text, StringComparison.Ordinal);
     }
 
@@ -145,7 +145,7 @@ public sealed class AssetLinkDataPathTests : IDisposable
         var text = NifTools.NifInspect(_svc, mesh_paths: new[] { Mesh }, sections: "shapes");
 
         Assert.DoesNotContain("data path:", text, StringComparison.Ordinal);
-        Assert.Null(_svc.NifInspect(new[] { Mesh }, null).Results[0].SlotLinks);
+        Assert.Null(_svc.NifInspect(new[] { Mesh }, null).Results[0].Links);
         Assert.Contains("data path: ", NifTools.NifInspect(_svc, mesh_paths: new[] { Mesh }, sections: "paths"), StringComparison.Ordinal);
     }
 
@@ -155,8 +155,8 @@ public sealed class AssetLinkDataPathTests : IDisposable
         var text = PathsSection(Deep);
         var winner = _svc.AssetStatus(new[] { DeepTex }).Results[0].Hit!.Winner!.Source;
 
-        Assert.Contains(": " + DeepTex + "\n      data path: " + DeepTex + $"  WINS: \"{winner}\" (loose)\n", text, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(": " + DeepSlots[1] + "\n      data path: " + @"textures\mymod\data\textures\foo.dds  ABSENT", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(Site(DeepTex) + DeepTex + $"  WINS: \"{winner}\" (loose)\n", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(Site(DeepSlots[1]) + @"textures\mymod\data\textures\foo.dds  ABSENT", text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class AssetLinkDataPathTests : IDisposable
         var direct = _svc.AssetStatus(new[] { DeepSlots[2] }).Results[0].Hit!;
 
         Assert.True(direct.Exists);
-        Assert.Contains(": " + DeepSlots[2] + "\n      data path: " + Foo + $"  WINS: \"{direct.Winner!.Source}\" (loose)", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(Site(DeepSlots[2]) + Foo + $"  WINS: \"{direct.Winner!.Source}\" (loose)", text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -185,6 +185,9 @@ public sealed class AssetLinkDataPathTests : IDisposable
         Assert.Null(AssetDataPath.TryFor(@"data\SKSE\Plugins\CharGen\x.dds", AssetLinkKind.Texture));
     }
 
-    string PathsSection(string mesh = Mesh) => NifWire.Render(_svc.NifInspect(new[] { mesh }, null, slotLinks: true),
+    /// <summary>The end of a link's site line and the start of its Data path line, as both link surfaces print them.</summary>
+    static string Site(string raw) => ": `" + raw + "`\n      data path: ";
+
+    string PathsSection(string mesh = Mesh) => NifWire.Render(_svc.NifInspect(new[] { mesh }, null, links: true),
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "paths" }, Array.Empty<string>(), 80_000);
 }

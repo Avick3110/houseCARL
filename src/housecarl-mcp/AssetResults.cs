@@ -333,17 +333,17 @@ public sealed record NifInspectData(
     bool Ambiguous,
     bool Absent,
     HousecarlCore.NifInspect? Inspect,
-    string? Error,
-    /// <summary>Each texture-set slot string, keyed as the NIF spells it, to the Data path it names and that path's resolution.</summary>
-    IReadOnlyDictionary<string, NifSlotLink>? SlotLinks = null)
+    string? Error)
 {
     public static NifInspectData Fail(string relPath, string error)
         => new(relPath, null, Array.Empty<NifProvider>(), false, false, null, error);
-}
 
-/// <summary>One texture slot's link: the resolution of the Data path it names through <see cref="HousecarlCore.AssetDataPath"/>
-/// (the path is the hit's), or the named reason the string is no Data path.</summary>
-public sealed record NifSlotLink(HousecarlCore.AssetHit? Hit, string? Error);
+    /// <summary>Every site at which the copy read names a file, each resolved against the load order; null unless the paths section was asked.</summary>
+    public IReadOnlyList<ResolvedNifLink>? Links { get; init; }
+
+    /// <summary>Why the paths section could not read this mesh's links; null when it did or was not asked.</summary>
+    public string? LinksError { get; init; }
+}
 
 /// <summary>The batch behind housecarl_nif_inspect: per-path <see cref="Results"/> in INPUT ORDER, plus the build-level caveats one asset capture pins for the whole batch, which is what makes an ABSENT result provisional.</summary>
 public sealed record NifInspectBatchData(

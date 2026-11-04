@@ -8,8 +8,9 @@ namespace HousecarlCore;
 public enum NifLinkKind { Texture, Smp, BodyTri }
 
 /// <summary>One file a mesh names: where in the mesh (<paramref name="Where"/>), the string as stored, its kind, and
-/// the Data path it names, or why it names none.</summary>
-public sealed record NifLink(string Where, string Raw, NifLinkKind Kind, string? DataPath, string? Error);
+/// the Data path it names, or why it names none. On a texture-set slot, <paramref name="SlotName"/> is the slot's name
+/// where the shader determines it (<see cref="NifService.SlotName"/>), else null.</summary>
+public sealed record NifLink(string Where, string Raw, NifLinkKind Kind, string? DataPath, string? Error, string? SlotName = null);
 
 /// <summary>The file-to-file references of one mesh: every texture-set slot, every effect-shader texture, and the root
 /// node's <c>HDT Skinned Mesh Physics Object</c> and <c>BODYTRI</c> string extra data. Each string goes through the one
@@ -25,7 +26,8 @@ public static class NifLinks
     /// <summary>The string extra data that names a body's morph file, relative to meshes\.</summary>
     public const string BodyTriKey = "BODYTRI";
 
-    /// <summary>Every link the mesh names, in block order, duplicates dropped; or why the mesh will not read.</summary>
+    /// <summary>Every site at which the mesh names a file, in block order, one per site; or why the mesh will not read.
+    /// A null, empty or whitespace-only string names no file.</summary>
     public static (IReadOnlyList<NifLink>? Links, string? Error) Read(byte[] bytes)
     {
         var (nif, err) = NifService.Load(bytes);
@@ -34,15 +36,21 @@ public static class NifLinks
         catch (Exception ex) { return (null, $"the mesh parsed but reading its links failed — {ex.GetType().Name}: {ex.Message}"); }
     }
 
+    /// <summary>Each file once, at its first site: the list a file edge wants, where a second site adds no file.</summary>
+    public static IReadOnlyList<NifLink> FirstSites(IReadOnlyList<NifLink> links)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return links.Where(l => seen.Add(l.Kind + "|" + l.Raw)).ToList();
+    }
+
     static List<NifLink> Collect(NifFile nif)
     {
         var links = new List<NifLink>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        void Add(string where, string? raw, NifLinkKind kind)
+        void Add(string where, string? raw, NifLinkKind kind, string? slotName = null)
         {
-            if (string.IsNullOrWhiteSpace(raw) || !seen.Add(kind + "|" + raw)) return;
-            try { links.Add(new NifLink(where, raw, kind, DataPathOf(raw, kind), null)); }
-            catch (ArgumentException ex) { links.Add(new NifLink(where, raw, kind, null, ex.Message)); }
+            if (string.IsNullOrWhiteSpace(raw)) return;
+            try { links.Add(new NifLink(where, raw, kind, DataPathOf(raw, kind), null, slotName)); }
+            catch (ArgumentException ex) { links.Add(new NifLink(where, raw, kind, null, ex.Message, slotName)); }
         }
 
         // FSMP reads only the root node's own extra data (hdtDefaultBBP.cpp scanBBP), so only the roots are read.
@@ -63,7 +71,7 @@ public static class NifLinks
             var shader = nif.GetShader(shape);
             if (shader?.TextureSetRef is not null && nif.GetBlock(shader.TextureSetRef) is BSShaderTextureSet ts)
                 for (int i = 0; i < ts.Textures.Count; i++)
-                    Add($"shape '{name}' texture slot {i}", ts.Textures[i]?.Content, NifLinkKind.Texture);
+                    Add($"shape '{name}' texture slot {i}", ts.Textures[i]?.Content, NifLinkKind.Texture, NifService.SlotName(i, shader));
             if (shader is BSEffectShaderProperty fx)
             {
                 Add($"shape '{name}' effect source texture", fx.SourceTexture?.Content, NifLinkKind.Texture);

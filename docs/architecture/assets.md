@@ -332,8 +332,12 @@ env map, normal, env mask), and the root node's `HDT Skinned Mesh Physics Object
 Only the roots are read for the two strings, because FSMP reads only the root's own extra data. Each string goes
 through the door above by kind: a texture as a texture, `BODYTRI` as a model (meshes-relative), an SMP XML as
 Data-relative through `ValidateRelPath`, never typed (a typed texture door would put it under `Textures\`). A string
-the door refuses is a link with its reason, never a dropped one. `asset_status links=true` reads the winning copy of
-every present `.nif` row and lists them, each Data path with its winner; a plain row is unchanged. A `to_file=` or
+the door refuses is a link with its reason, never a dropped one; a null, empty or whitespace-only string is no link.
+It returns one link per site; `NifLinks.FirstSites` keeps each file once, at its first site, for `links=` and the walk.
+`nif_inspect`'s paths section lists every site through the same reader, resolve and line ([nif.md](nif.md)).
+`asset_status links=true` reads the winning copy of every present `.nif` row and lists them, each Data path with its
+winner; with `provider=` the heading says the links are the winning copy's, whatever `provider=` names (reading the
+named copy is finding 8's change). A plain row is unchanged. A `to_file=` or
 ceiling-spill artifact row carries the same `links` member (and the manifest's row schema names it only then);
 `counts_only=` has no rows and refuses `links=`.
 
