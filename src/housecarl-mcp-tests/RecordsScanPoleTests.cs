@@ -25,11 +25,12 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         RecordsTools.Records(Svc, types: Armo, plugins: Scope(W.OverrideName),
                              source: poled ? Plugin(W.MasterName) : null, format: format, project: project, counts_only: counts);
 
-    /// <summary>A draft INI that raises HcRecW0's damage to 123, folded into the layer as the post-state pole.</summary>
-    JsonElement DraftPost(string dir)
+    /// <summary>A draft INI that raises HcRecW0's damage to 123 (or another weapon's, by index), folded into the layer
+    /// as the post-state pole.</summary>
+    JsonElement DraftPost(string dir, int weapon = 0, int damage = 123)
     {
         var path = W.Scratch(dir, "weapon", "ScanDraft.ini");
-        File.WriteAllText(path, $"filterByWeapons={RecordsWorld.Sp(W.Weapons[0])}:attackDamage=123\r\n");
+        File.WriteAllText(path, $"filterByWeapons={RecordsWorld.Sp(W.Weapons[weapon])}:attackDamage={damage}\r\n");
         return Je("{\"overlay\": \"skypatcher\", \"state\": \"post\", \"ini\": " + JsonSerializer.Serialize(path) + "}");
     }
 
@@ -454,17 +455,18 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
     }
 
     /// <summary>An off-order file scanned against the overlay: the plain scan keeps the file as its source=, and
-    /// the file-of-matches delta against the overlay runs.</summary>
+    /// the file-of-matches delta against the overlay runs; the draft moves the file's one weapon, so the reference
+    /// value is the overlay's, not the winner's 20.</summary>
     [Fact]
     public void OffOrderScanDeltaVersusOverlay_NamesTheFileRouteOnTheSameSource()
     {
-        var draft = DraftPost("route-offorder");
+        var draft = DraftPost("route-offorder", 1, 77);
         var old = Plugin(W.OldName);
         Refused(RecordsTools.Records(Svc, types: Weap, source: old, versus: draft, project: Form("delta")),
                 "plain scan of types= on the same source= with to_file=", "in place of types=");
         var path = PlainScanFile("route-offorder", source: old);
         Served(RecordsTools.Records(Svc, formids: new[] { "@" + path }, source: old, versus: draft, project: Form("delta")),
-               Fid(W.Weapons[1]));
+               Fid(W.Weapons[1]), "BasicStats.Damage=55 (HcRecMaster.esm 77)");
     }
 }
 
