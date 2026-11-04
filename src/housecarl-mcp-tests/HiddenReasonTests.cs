@@ -344,14 +344,30 @@ public sealed class HiddenReasonTests : IDisposable
         Assert.DoesNotContain(WriteSentences.PlaceSourceFolderHidden, t);
     }
 
-    /// <summary>Forward slashes and a trailing dot name the same file, so the sentence does not name it again as another one.</summary>
+    /// <summary>Forward slashes and a trailing dot name the same file, so the sentence does not name it again as another
+    /// one; a twin asked with forward slashes is named as Windows opens it.</summary>
     [Fact]
     public void ANamedHiddenFileAskedWithForwardSlashesIsNotNamedTwice()
     {
-        var t = NifTools.NifInspect(_p.Open(), new[] { "meshes/c.nif.mohidden." }, source_provider: "ModC");
+        var svc = _p.Open();
 
+        var t = NifTools.NifInspect(svc, new[] { "meshes/c.nif.mohidden." }, source_provider: "ModC");
         Assert.Contains(@"in 'ModC'. ", t);
         Assert.DoesNotContain(", as '", t);
+        Assert.Contains(@"in 'ModC', as 'meshes\c.nif.mohidden'", NifTools.NifInspect(svc, new[] { "meshes/c.nif" }, source_provider: "ModC"));
+    }
+
+    [Fact]
+    public void ADirectlyHiddenPathIsNotNamedAsATwin()
+        => Assert.DoesNotContain(", as '", Status(_p.Open(), @"textures\x.dds.mohidden"));
+
+    [Fact]
+    public void AHiddenNameUnderAProviderThatHoldsNoneIsNotSaidHidden()
+    {
+        var text = Status(_p.Open(), under: new[] { @"textures\x.dds.mohidden" }, provider: "ModS");
+
+        Assert.Contains("check the spelling", text);
+        Assert.DoesNotContain("MO2 hides", text);
     }
 
     [Fact]
