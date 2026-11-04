@@ -363,6 +363,14 @@ public sealed class HiddenReasonTests : IDisposable
         => Assert.DoesNotContain(", as '", Status(_p.Open(), @"textures\x.dds.mohidden"));
 
     [Fact]
+    public void TheStandingOfAProviderThatIsNotTheFirstHolderNamesNoOtherHolder()
+    {
+        var text = Status(_p.Open(), "meta.ini", provider: "ModK");   // holders ModA, ModK, Data
+
+        Assert.Contains("provider \"ModK\": holds it, hidden by MO2 (left out of MO2's Data view as a root meta.ini; the game still maps it), so provides nothing", text);
+    }
+
+    [Fact]
     public void AHiddenNameUnderAProviderThatHoldsNoneIsNotSaidHidden()
     {
         var text = Status(_p.Open(), under: new[] { @"textures\x.dds.mohidden" }, provider: "ModS");
