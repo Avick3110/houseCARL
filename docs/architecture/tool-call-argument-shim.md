@@ -79,18 +79,22 @@ the shim.
 ### The typed answer, and `isError`
 
 A tool body returns a `ToolAnswer`, never a string, and nothing converts a string into one, so the compiler
-makes each return name its kind. It does not check the kind: `Served` takes any string, an "error: …" too. `ToolAnswer.Served` is the call's answer. A refusal is `ToolAnswer.Refusal(json, message,
-epoch)`, rendered by `Guard` per transport — text keeps the
-message as written, json is `{ok:false, error, epoch}` with the `error: ` prefix stripped, `epoch` the stamp
-or null — and `epochLine: true` also puts the stamp on the text, on its own line, for the lanes that did so
-before. A refusal with no transport (a tool with no `format=`, the `format=` error itself, the Guard's own) is
-text on every transport. A refused outcome keeps the document its lane renders (`ToolAnswer.Outcome`), so a
+makes each return name its kind. It does not check the kind: `Served` takes any string, an "error: …" too.
+`ToolAnswer.Served` is the call's answer. A refusal is `ToolAnswer.Refusal(json, message, epoch)`, rendered
+by `Guard` per transport — text keeps the message as written, json is `{ok:false, error, epoch}` with the
+`error: ` prefix stripped, `epoch` the stamp or null — and `epochLine: true` also puts the stamp on the text,
+on its own line, for the lanes that did so before. `ToolAnswer.Refusal(message)` is text on every transport:
+a tool with no `format=`, the `format=` error itself, the config prompt and the tool-path prompt (so
+`records`, `check` and `skse` send the config prompt as text to a `format=json` caller), and the Guard's own.
+A refused outcome keeps the document its lane renders (`ToolAnswer.Outcome`), so a
 failed write's json keeps `lane`, `dry_run` and `ok` on both outcomes, and a scan or check whose outcome
 carries the whole-call error is refused exactly where its json writes `ok:false`.
 
 `Guard` renders the answer once: the text is the call's result, and a refusal marks the call's
 `CallVerdict`, which the shim opens around `next` and reads after it, setting `isError` on the result. So
-`isError` is exactly the set of refusals: every body refusal, the config prompt (no tool can do its job
+`isError` is set on every refusal: the shim's own, before the body runs (a retired tool name, a missing
+required argument, an unknown parameter, `in_place` naming a file, a type mismatch, an argument that would
+not bind), each built as an error result directly; every body refusal, the config prompt (no tool can do its job
 until setup is done) and the tool-path prompt, and the Guard's own (a plugin changed mid-call, a profile
 locked mid-re-sort, a refused game language, an unhandled exception). The in-place consent prompt is
 served: it is a question the next call answers, `needs_acknowledge` in json. A per-row error inside a
