@@ -97,7 +97,7 @@ carries the whole-call error is refused exactly where its json writes `ok:false`
 `isError` is set on every refusal: the shim's own, before the body runs (a retired tool name, a missing
 required argument, an unknown parameter, `in_place` naming a file, a type mismatch, an argument that would
 not bind), each built as an error result directly; every body refusal, the config prompt (no tool can do its job
-until setup is done) and the tool-path prompt, and the Guard's own (a plugin changed mid-call, a profile
+until setup is done) and the tool-path prompt, and the Guard's own (a plugin changed mid-call, the call's record and file views split across a load-order change, a profile
 locked mid-re-sort, a refused game language, an unhandled exception). The in-place consent prompt is
 served: it is a question the next call answers, `needs_acknowledge` in json. A per-row error inside a
 served batch is not a refusal. A tool method called directly, outside the filter, opens no verdict and
