@@ -24,7 +24,9 @@ public sealed record HiddenCopies(HiddenRule Rule, string HiddenPath, IReadOnlyL
     public string Sentence(string askedPath) =>
         $"hidden by MO2 ({Rule.Why}) in '{Holders[0]}'"
         + (Holders.Count > 1 ? $" and {Holders.Count - 1:N0} more" : "")
-        + (string.Equals(HiddenPath, askedPath, StringComparison.OrdinalIgnoreCase) ? "" : $", as '{HiddenPath}'");
+        // Compared as Windows opens the asked path, so a slash or a trailing dot is not read as another name.
+        + (string.Equals(HiddenPath, AssetResolver.AsWindowsOpens(AssetResolver.Normalize(askedPath)), StringComparison.OrdinalIgnoreCase)
+            ? "" : $", as '{HiddenPath}'");
 }
 
 /// <summary>What one walk dropped as hidden: how many distinct paths, by which rules, with one example path.</summary>
