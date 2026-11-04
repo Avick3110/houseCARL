@@ -85,18 +85,24 @@ so `SlotName` is a small explicit interpreter, each arm keyed to the flag or typ
 rather than a best guess. The index is always printed beside the name, because the index is what `nif_set`'s
 `texture_slot=` takes.
 
-A slot string is printed as the NIF spells it, and in the `paths` section a `data path:` line under it gives the Data
-path that string names and its winner in the load order, even when `source_provider=` reads the mesh from a named
-mod. The mapping is the asset layer's one door from a link to a Data path ([assets.md](assets.md), From a link to a
-Data path), so a FaceGen head's three forms (`Actors\…`, `textures\…`, `data\textures\…`) name the winner a direct
-`asset_status` call on the mapped path names. A miss is a bare `ABSENT`: none of `asset_status`'s per-path hedges rides
-it, so an unread archive or an unlisted root is named only in the header's notes. A string the door refuses is its own
-`data path: none` line naming the slot string. The `shapes` section keeps the raw string only, and `nif_set` writes the string it is given (Pinned by: `AssetLinkDataPathTests`).
+The `paths` section is the mesh's links as `NifLinks` reads them, the one reader `asset_status links=` and the walk
+use (slots, effect-shader textures, the root's SMP and `BODYTRI` strings; [assets.md](assets.md), A mesh's links).
+Each is resolved by the same `ReadMeshLinks` resolve and printed by the same line `links=` prints
+(`AssetWire.AppendLink`): the kind, where in the mesh, the string as stored, then a `data path:` line with the load
+order's winner, `ABSENT` (with the hidden copy's sentence when MO2 hides it), or `none — <why>` when the door
+([assets.md](assets.md), From a link to a Data path) makes no Data path of it. So a FaceGen head's three forms
+(`Actors\…`, `textures\…`, `data\textures\…`) name the winner a direct `asset_status` call on the mapped path names.
+Two differences from `links=`, both deliberate: `paths` lists every site, so a file at two slots (or an effect texture
+and a slot) is two lines, because `texture_slot=` names a slot; `links=` and the walk keep each file once at its first
+site (`NifLinks.FirstSites`). And `paths` adds the slot's name where the shader determines it. A null, empty or
+whitespace-only string is no link on either surface. The section first says whose copy the links came from (the
+`read from:` copy, a `source_provider=` copy included) and that each standing is the load order's; resolving against
+the named copy is finding 8's change, not this one. None of `asset_status`'s per-path ABSENT hedges rides a link line,
+so an unread archive or an unlisted root is named only in the header's notes. The `shapes` section keeps the raw slot
+strings, and `nif_set` writes the string it is given (Pinned by: `NifOneReaderTests`, `AssetLinkDataPathTests`).
 
 `NifService.Load` is the parse the two reads share, `Inspect` and `NifLinks.Read`; `nif_set`'s write, its byte
-normalizer and its read-back each still load their own `NifFile`. `NifLinks` is the file
-layer's reader of a mesh's links (slots, effect-shader textures, the root's SMP and `BODYTRI` strings); its contract
-is in [assets.md](assets.md), A mesh's links. `nif_inspect` does not render it.
+normalizer and its read-back each still load their own `NifFile`.
 
 An `INiShader` widening is narrowed back on read: emissive is a Color3 on disk and the interface widens it to Color4,
 so the fourth component is a synthetic 0 that would render as a fully transparent emissive. RGB only, on read, on

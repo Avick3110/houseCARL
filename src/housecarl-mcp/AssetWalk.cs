@@ -138,11 +138,13 @@ internal sealed partial class AssetLayers
     static AssetWalkNode ErrorNode(string path, string edge, string pulledBy, string error)
         => new(path, edge, pulledBy, WalkStanding.Error, null, Error: error);
 
-    /// <summary>The files one copy of a mesh names, unresolved; or why they could not be read.</summary>
+    /// <summary>The files one copy of a mesh names, each once at its first site, unresolved; or why they could not be read.</summary>
     internal static (IReadOnlyList<NifLink>? Links, string? Error) MeshLinks(PlacementSource copy)
     {
         var (bytes, readErr) = AssetResolver.ReadPlacementSource(copy);
-        return bytes is null ? (null, readErr ?? "could not read the mesh bytes.") : NifLinks.Read(bytes);
+        if (bytes is null) return (null, readErr ?? "could not read the mesh bytes.");
+        var (links, err) = NifLinks.Read(bytes);
+        return links is null ? (null, err) : (NifLinks.FirstSites(links), null);
     }
 
     /// <summary>One node's standing: the named source's copy if it ships the path, else the winner, else absent.</summary>

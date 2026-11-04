@@ -151,7 +151,7 @@ public sealed class NifInspectRenderTests
     [Fact]
     public void NamedSlotsRenderWithTheirNameAndAnUndeterminedSlotStaysBare()
     {
-        var text = Render(FakeData(SkMesh, null), ShaderAndPaths);
+        var text = Render(FakeData(SkMesh, null), new[] { "shader", "shapes" });
         Assert.Contains("tex[2] (SoftLighting): ", text);
         Assert.Contains("tex[7] (Specular): ", text);
         Assert.Contains("tex[4]: ", text);

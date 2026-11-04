@@ -299,7 +299,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public NativePairingAuditData NativePairingAudit() => _assetLayers.NativePairingAudit();
     public SkyPatcherLayerData SkyPatcherLayer() => _assetLayers.SkyPatcherLayer();
     public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, CancellationToken ct = default) => _assetLayers.SkyPatcherLayer(use, ct: ct);
-    public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool slotLinks = false) => _assetLayers.NifInspect(relPaths, sourceProvider, slotLinks);
+    public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool links = false) => _assetLayers.NifInspect(relPaths, sourceProvider, links);
     public NifSetResult NifSet(string relPath, IReadOnlyList<NifSetOp> ops, string? sourceProvider, string? patchName, string? into, bool inPlace, bool acknowledge)
         => _assetLayers.NifSet(relPath, ops, sourceProvider, patchName, into, inPlace, acknowledge);
     public PlaceOutcome PlaceAssets(IReadOnlyList<PlaceRequest> requests, string? patchName, string? into) => _assetLayers.PlaceAssets(requests, patchName, into);
