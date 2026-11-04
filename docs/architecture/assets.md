@@ -46,9 +46,14 @@ Data-relative path and not inside a directory listing, because one listing canno
   for a shown name `x`, those holding only `x` + a skip suffix (MO2's Hide renames `x` to `x.mohidden`), off the same
   warm listing. `AssetHit.Hidden` and `PlacementResolution.Hidden` carry the rule and those holders (`HiddenCopies`);
   `Exists`, `Winner`, `Providers` and `Ambiguous` are unchanged, so a hidden copy counts nowhere. `EnumerateUnder`
-  and `AssetGlob.Select` fill a `HiddenTally` with what the rule dropped in scope. Every render that says a path is
-  absent reads that value through `AbsentWords`: "hidden by MO2 (rule) in 'Mod'" where a root holds it, "no active
-  mod or BSA provides" where none does. No render probes a name.
+  and `AssetGlob.Select` fill a `HiddenTally` with what the rule dropped in scope, counting a twin `x.mohidden` when
+  the selector matches the `x` it hides. Every render reads that carried value, never probing a name: the
+  `asset_status` ABSENT line, the walk, the NIF lanes and the json members through `AbsentWords` ("hidden by MO2
+  (rule) in 'Mod'" where a root holds it, "no active mod or BSA provides" where none does); the rest call
+  `HiddenCopies.Sentence()` directly (the archive-wins note, `links=`, the place refusal, the voice, script-binding,
+  script-property and FaceGen checks), or `Unnamed()` where the line already names the holder (the `provider=`
+  standing, a walk's or a named folder's own hidden copy). The json `hidden` object lists at most ten holders and
+  counts them all in `holders_total`.
 
 - **The lists are MO2's own**, read off `ModOrganizer.ini` (`skip_file_suffixes`, `skip_directories`) at each asset
   build: unset keeps MO2's defaults, `.mohidden` and `.git`; `@Invalid()` or a blank value is the empty list, which
