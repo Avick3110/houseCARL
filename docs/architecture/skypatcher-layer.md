@@ -206,7 +206,8 @@ replayed as the DLL's default (EditorIDs load), and the read and the layer say t
   unparseable addresses resolve to nothing.
 - An unknown key still skips its line loud; the game drops the key silently and the line can widen
   to every record of its type. houseCARL keeps refusing to guess.
-- `noFilterLL`'s value and its 120-entry limit are not modelled; a filter value that is not a number
+- `noFilterLL` and `noFilterLLNPC` ignore their value and find every list of their class; the
+  120-entry limit they and the EditorID filters share is not modelled. A filter value that is not a number
   still leaves the line UNRESOLVED (8.0.1 skips only that key).
 
 ### Delimiters
