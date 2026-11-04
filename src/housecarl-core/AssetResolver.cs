@@ -481,7 +481,10 @@ public sealed class AssetResolver : IDisposable
                     // Re-rooted on the NORMALIZED prefix, not sliced off rootDir, which would carry the caller's casing.
                     var rel = withSep + Normalize(f.Substring(baseDir.Length));
                     if (_skip.Hides(rel, linked) is not { } rule) Take(rel);
-                    else if (hidden is not null && (keep is null || keep(rel))) hidden.Add(rule, rel);   // in scope, and dropped
+                    // In scope, and dropped: the hidden name, or for a twin x.mohidden the x it hides.
+                    else if (hidden is not null && (keep is null || keep(rel)
+                             || (rule.Kind == HiddenKind.SkipSuffix && keep(rel[..^rule.Token.Length]))))
+                        hidden.Add(rule, rel);
                     if (Full()) { stopped = true; return found; }
                 }
             }
